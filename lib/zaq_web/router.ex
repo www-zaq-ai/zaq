@@ -18,6 +18,7 @@ defmodule ZaqWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    live "/bo/login", Live.BO.LoginLive
   end
 
   # Other scopes may use custom stacks.

@@ -1,0 +1,132 @@
+<div class="min-h-screen flex items-center justify-center relative overflow-hidden"
+     style="background: #060a12; background-image: linear-gradient(rgba(34,211,238,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.018) 1px, transparent 1px); background-size: 80px 80px;">
+
+  <!-- Ambient glow -->
+  <div class="fixed w-[500px] h-[500px] rounded-full bg-cyan-500/[0.04] blur-[120px] -top-[10%] -right-[5%] pointer-events-none"></div>
+  <div class="fixed w-[400px] h-[400px] rounded-full bg-emerald-500/[0.03] blur-[100px] -bottom-[10%] -left-[5%] pointer-events-none"></div>
+
+  <div class="w-full max-w-[420px] mx-5">
+    <!-- Card -->
+    <div class="relative border border-[#1b2538] rounded-2xl p-10 pt-12 shadow-2xl shadow-black/40 overflow-hidden"
+         style="background: #0d1320;">
+
+      <!-- Top accent line -->
+      <div class="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl"
+           style="background: linear-gradient(90deg, transparent, #22d3ee, #34d399, transparent); opacity: 0.7;">
+      </div>
+
+      <!-- Logo -->
+      <div class="text-center mb-10">
+        <div class="w-14 h-14 mx-auto mb-4 rounded-xl border border-cyan-500/15 grid place-items-center"
+             style="background: linear-gradient(135deg, rgba(34,211,238,0.1), rgba(52,211,153,0.1));">
+          <svg width="28" height="28" viewBox="0 0 100 100" fill="none">
+            <path d="M20 80 L20 35 Q20 20 35 20 L80 20 L60 40 L40 40 Q38 40 38 42 L38 60 L58 60 L80 38 L80 80 Z" fill="url(#zg)"/>
+            <defs>
+              <linearGradient id="zg" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#22d3ee"/>
+                <stop offset="100%" stop-color="#34d399"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h1 class="font-mono text-2xl font-bold tracking-tight"
+            style="background: linear-gradient(135deg, #22d3ee, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+          ZAQ
+        </h1>
+        <p class="font-mono text-[0.68rem] text-[#4a5a7a] tracking-[0.12em] uppercase mt-1">Back Office</p>
+      </div>
+
+      <!-- Error -->
+      <div :if={@error_message} class="alert alert-error mb-5 rounded-xl bg-red-500/10 border-red-500/20 text-red-400 text-sm">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+        </svg>
+        <span>{@error_message}</span>
+      </div>
+
+      <!-- Form -->
+      <.form for={@form} phx-submit="login" phx-change="validate" class="space-y-5">
+
+        <!-- Email -->
+        <div>
+          <label class="font-mono text-[0.72rem] font-medium text-[#8b9cc0] tracking-wider uppercase mb-2 block">
+            Email
+          </label>
+          <label class="input flex items-center gap-3 border-[#1b2538] rounded-xl h-12 px-4 transition-all hover:border-cyan-500/20 focus-within:border-cyan-400"
+                 style="background: #131c2e;">
+            <svg class="w-[18px] h-[18px] text-[#4a5a7a] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 7l10 6 10-6"/>
+            </svg>
+            <input
+              type="email"
+              name="email"
+              value={@form[:email].value}
+              placeholder="you@company.com"
+              required
+              class="grow bg-transparent border-none outline-none text-white placeholder:text-[#4a5a7a] text-[0.92rem]"
+            />
+          </label>
+        </div>
+
+        <!-- Password -->
+        <div>
+          <label class="font-mono text-[0.72rem] font-medium text-[#8b9cc0] tracking-wider uppercase mb-2 block">
+            Password
+          </label>
+          <label class="input flex items-center gap-3 border-[#1b2538] rounded-xl h-12 px-4 transition-all hover:border-cyan-500/20 focus-within:border-cyan-400"
+                 style="background: #131c2e;">
+            <svg class="w-[18px] h-[18px] text-[#4a5a7a] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <rect x="3" y="11" width="18" height="11" rx="3"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16.5" r="1.5"/>
+            </svg>
+            <input
+              type="password"
+              name="password"
+              value={@form[:password].value}
+              placeholder="••••••••"
+              required
+              class="grow bg-transparent border-none outline-none text-white placeholder:text-[#4a5a7a] text-[0.92rem]"
+            />
+          </label>
+        </div>
+
+        <!-- Remember / Forgot -->
+        <div class="flex items-center justify-between">
+          <label class="flex items-center gap-2 cursor-pointer group">
+            <input type="checkbox" name="remember" class="checkbox checkbox-xs border-[#1b2538] rounded [--chkbg:#22d3ee] [--chkfg:#060a12]" />
+            <span class="text-xs text-[#8b9cc0] group-hover:text-cyan-400 transition-colors">Remember me</span>
+          </label>
+          <a href="#" class="text-xs text-[#4a5a7a] hover:text-cyan-400 transition-colors font-medium">
+            Forgot password?
+          </a>
+        </div>
+
+        <!-- Submit -->
+        <div class="pt-1">
+          <button
+            type="submit"
+            class="btn btn-block rounded-xl h-12 text-[0.88rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0"
+            style="background: linear-gradient(135deg, #22d3ee, #34d399); color: #060a12;"
+          >
+            Sign In
+          </button>
+        </div>
+      </.form>
+
+      <!-- Divider -->
+      <div class="divider text-[#4a5a7a] text-[0.7rem] font-mono my-6 before:bg-[#1b2538] after:bg-[#1b2538]">or</div>
+
+      <!-- Register -->
+      <div class="text-center">
+        <p class="text-sm text-[#8b9cc0]">
+          Don't have an account?
+          <a href="#" class="text-cyan-400 hover:text-cyan-300 font-semibold transition-colors ml-1">Register</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <p class="text-center text-[0.68rem] text-[#4a5a7a] font-mono mt-6 tracking-wide">
+      &copy; 2025 ZAQ &middot; AI for fresh company knowledge
+    </p>
+  </div>
+</div>
