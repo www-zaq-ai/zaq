@@ -7,7 +7,7 @@ defmodule Zaq.License.IntegrationTest do
 
   use ExUnit.Case, async: false
 
-  alias Zaq.License.{Verifier, BeamDecryptor, Loader, FeatureStore}
+  alias Zaq.License.{BeamDecryptor, Loader, FeatureStore}
 
   @keys_dir "priv/keys"
   @private_key_path Path.join(@keys_dir, "private.pem")
@@ -59,7 +59,7 @@ defmodule Zaq.License.IntegrationTest do
       end
       """
 
-      [{module, beam_binary}] = Code.compile_string(module_code)
+      [{_module, beam_binary}] = Code.compile_string(module_code)
 
       # 2. Build license payload
       payload =

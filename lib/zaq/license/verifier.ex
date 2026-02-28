@@ -1,37 +1,19 @@
 defmodule Zaq.License.Verifier do
   @moduledoc """
   Verifies license payload signatures using an Ed25519 public key.
-  Supports compile-time embedding and runtime loading from disk.
+  Loads the public key from disk at runtime.
   """
 
   @keys_dir "priv/keys"
   @public_key_path Path.join(@keys_dir, "public.pem")
 
-  @external_resource @public_key_path
-
-  @compile_time_key (if File.exists?(@public_key_path) do
-                       @public_key_path
-                       |> File.read!()
-                       |> String.trim()
-                       |> String.replace("-----BEGIN ED25519 PUBLIC KEY-----", "")
-                       |> String.replace("-----END ED25519 PUBLIC KEY-----", "")
-                       |> String.replace(~r/\s+/, "")
-                       |> Base.decode64!()
-                     else
-                       nil
-                     end)
-
   @doc """
-  Returns the public key — compile-time embedded or runtime loaded from disk.
+  Returns the public key loaded from disk.
   """
   def public_key do
-    if Application.get_env(:zaq, :license_runtime_key, false) do
-      load_public_key_from_disk()
-    else
-      case @compile_time_key do
-        nil -> load_public_key_from_disk()
-        key -> {:ok, key}
-      end
+    case File.read(@public_key_path) do
+      {:ok, pem} -> {:ok, parse_public_pem(pem)}
+      {:error, :enoent} -> {:error, :no_public_key}
     end
   end
 
@@ -62,12 +44,5 @@ defmodule Zaq.License.Verifier do
     |> String.replace("-----END ED25519 PUBLIC KEY-----", "")
     |> String.replace(~r/\s+/, "")
     |> Base.decode64!()
-  end
-
-  defp load_public_key_from_disk do
-    case File.read(@public_key_path) do
-      {:ok, pem} -> {:ok, parse_public_pem(pem)}
-      {:error, :enoent} -> {:error, :no_public_key}
-    end
   end
 end

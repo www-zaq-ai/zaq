@@ -1,0 +1,124 @@
+# test/zaq/accounts_test.exs
+
+defmodule Zaq.AccountsTest do
+  use Zaq.DataCase
+
+  alias Zaq.Accounts
+  alias Zaq.Accounts.{Role, User}
+
+  import Zaq.AccountsFixtures
+
+  describe "roles" do
+    test "create_role/1 creates a role" do
+      assert {:ok, %Role{name: "test_role"}} = Accounts.create_role(%{name: "test_role"})
+    end
+
+    test "create_role/1 with meta" do
+      meta = %{"permissions" => ["read", "write"]}
+      assert {:ok, %Role{meta: ^meta}} = Accounts.create_role(%{name: "custom", meta: meta})
+    end
+
+    test "create_role/1 enforces unique name" do
+      role_fixture(%{name: "duplicate"})
+      assert {:error, changeset} = Accounts.create_role(%{name: "duplicate"})
+      assert {"has already been taken", _} = changeset.errors[:name]
+    end
+
+    test "get_role_by_name/1 returns the role" do
+      role = role_fixture(%{name: "admin"})
+      assert Accounts.get_role_by_name("admin").id == role.id
+    end
+
+    test "list_roles/0 returns all roles" do
+      role_fixture(%{name: "r1"})
+      role_fixture(%{name: "r2"})
+      assert length(Accounts.list_roles()) >= 2
+    end
+  end
+
+  describe "users" do
+    test "create_user/1 creates a user" do
+      role = role_fixture()
+      assert {:ok, %User{}} = Accounts.create_user(%{username: "john", role_id: role.id})
+    end
+
+    test "create_user/1 enforces unique username" do
+      user = user_fixture()
+
+      assert {:error, changeset} =
+               Accounts.create_user(%{username: user.username, role_id: user.role_id})
+
+      assert {"has already been taken", _} = changeset.errors[:username]
+    end
+
+    test "get_user_by_username/1 returns user with role preloaded" do
+      user = user_fixture()
+      found = Accounts.get_user_by_username(user.username)
+      assert found.id == user.id
+      assert %Role{} = found.role
+    end
+
+    test "list_users/0 returns all users with roles" do
+      user_fixture()
+      user_fixture()
+      users = Accounts.list_users()
+      assert length(users) == 2
+      assert Enum.all?(users, fn u -> %Role{} = u.role end)
+    end
+  end
+
+  describe "change_password/2" do
+    test "hashes password and sets must_change_password to false" do
+      user = user_fixture()
+      assert user.must_change_password == true
+
+      {:ok, updated} = Accounts.change_password(user, %{password: "newpass123"})
+      assert updated.must_change_password == false
+      assert updated.password_hash != nil
+      assert Bcrypt.verify_pass("newpass123", updated.password_hash)
+    end
+
+    test "rejects short passwords" do
+      user = user_fixture()
+      assert {:error, changeset} = Accounts.change_password(user, %{password: "short"})
+      assert {"should be at least %{count} character(s)", _} = changeset.errors[:password]
+    end
+  end
+
+  describe "authenticate_user/2" do
+    test "authenticates user with valid password" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "validpass123"})
+
+      assert {:ok, authed} = Accounts.authenticate_user(user.username, "validpass123")
+      assert authed.id == user.id
+    end
+
+    test "rejects invalid password" do
+      user = user_fixture()
+      {:ok, _} = Accounts.change_password(user, %{password: "validpass123"})
+
+      assert {:error, :invalid_password} = Accounts.authenticate_user(user.username, "wrong")
+    end
+
+    test "returns not_found for unknown username" do
+      assert {:error, :not_found} = Accounts.authenticate_user("nobody", "pass")
+    end
+
+    test "authenticates super admin with env credentials on first login" do
+      Application.put_env(:zaq, :super_admin, username: "superadmin", password: "envpass")
+      role = role_fixture(%{name: "super_admin"})
+
+      Accounts.create_user(%{
+        username: "superadmin",
+        role_id: role.id,
+        must_change_password: true
+      })
+
+      assert {:ok, user} = Accounts.authenticate_user("superadmin", "envpass")
+      assert user.must_change_password == true
+
+      on_exit(fn -> Application.delete_env(:zaq, :super_admin) end)
+    end
+  end
+end

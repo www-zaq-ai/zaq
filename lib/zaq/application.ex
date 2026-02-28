@@ -11,6 +11,7 @@ defmodule Zaq.Application do
       [
         ZaqWeb.Telemetry,
         Zaq.Repo,
+        Zaq.Accounts.SuperAdminSeeder,
         {DNSCluster, query: Application.get_env(:zaq, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Zaq.PubSub},
         Zaq.License.FeatureStore

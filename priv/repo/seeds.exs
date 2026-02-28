@@ -1,11 +1,10 @@
-# Script for populating the database. You can run it as:
-#
-#     mix run priv/repo/seeds.exs
-#
-# Inside the script, you can read and write to any of your
-# repositories directly:
-#
-#     Zaq.Repo.insert!(%Zaq.SomeSchema{})
-#
-# We recommend using the bang functions (`insert!`, `update!`
-# and so on) as they will fail if something goes wrong.
+alias Zaq.Repo
+alias Zaq.Accounts.Role
+
+roles = ["super_admin", "admin", "staff"]
+
+Enum.each(roles, fn name ->
+  unless Repo.get_by(Role, name: name) do
+    Repo.insert!(%Role{name: name, meta: %{}})
+  end
+end)

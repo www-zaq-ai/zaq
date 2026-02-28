@@ -24,6 +24,7 @@ defmodule Zaq.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Zaq.DataCase
+      import Zaq.AccountsFixtures
     end
   end
 

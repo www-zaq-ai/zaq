@@ -1,3 +1,5 @@
+# lib/zaq_web/router.ex
+
 defmodule ZaqWeb.Router do
   use ZaqWeb, :router
 
@@ -10,6 +12,10 @@ defmodule ZaqWeb.Router do
     plug :put_secure_browser_headers
   end
 
+  pipeline :bo_auth do
+    plug ZaqWeb.Plugs.Auth
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
   end
@@ -18,7 +24,23 @@ defmodule ZaqWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
-    live "/bo/login", Live.BO.LoginLive
+  end
+
+  # BO - Public
+  scope "/bo", ZaqWeb do
+    pipe_through :browser
+
+    live "/login", Live.BO.LoginLive
+    post "/session", BOSessionController, :create
+    delete "/session", BOSessionController, :delete
+  end
+
+  # BO - Protected
+  scope "/bo", ZaqWeb do
+    pipe_through [:browser, :bo_auth]
+
+    live "/dashboard", Live.BO.DashboardLive
+    live "/change-password", Live.BO.ChangePasswordLive
   end
 
   # Other scopes may use custom stacks.
@@ -28,11 +50,6 @@ defmodule ZaqWeb.Router do
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:zaq, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do

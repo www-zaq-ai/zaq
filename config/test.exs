@@ -22,7 +22,9 @@ config :zaq, ZaqWeb.Endpoint,
 
 config :zaq, roles: [:bo]
 
-config :zaq, :license_runtime_key, true
+config :zaq,
+  license_runtime_key: true,
+  skip_super_admin_seed: true
 
 # In test we don't send emails
 config :zaq, Zaq.Mailer, adapter: Swoosh.Adapters.Test

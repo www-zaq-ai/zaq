@@ -31,6 +31,8 @@ config :zaq, ZaqWeb.Endpoint,
     tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
   ]
 
+import_config "dev.secret.exs"
+
 # ## SSL Support
 #
 # In order to use HTTPS in development, a self-signed

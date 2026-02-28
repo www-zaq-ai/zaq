@@ -38,4 +38,4 @@ npm-debug.log
 /priv/keys
 /priv/licenses
 
-
+config/dev.secret.exs
