@@ -18,7 +18,14 @@ defmodule ZaqWeb.Plugs.Auth do
 
       user_id ->
         user = Accounts.get_user!(user_id)
-        assign(conn, :current_user, user)
+
+        if user.must_change_password and conn.request_path != "/bo/change-password" do
+          conn
+          |> redirect(to: "/bo/change-password")
+          |> halt()
+        else
+          assign(conn, :current_user, user)
+        end
     end
   end
 end

@@ -1,0 +1,49 @@
+<ZaqWeb.Components.BOLayout.bo_layout current_user={@current_user} page_title="Users">
+  <div class="flex justify-between items-center mb-6">
+    <p class="font-mono text-sm text-black/50">{length(@users)} users</p>
+    <a href={~p"/bo/users/new"}
+       class="font-mono text-sm font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors">
+      + New User
+    </a>
+  </div>
+
+  <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-black/10">
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">Username</th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">Role</th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">Status</th>
+          <th class="text-right font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr :for={user <- @users} class="border-b border-black/5 last:border-0 hover:bg-black/[0.02]">
+          <td class="font-mono text-sm text-black px-6 py-4">{user.username}</td>
+          <td class="font-mono text-sm text-black/60 px-6 py-4">{user.role.name}</td>
+          <td class="px-6 py-4">
+            <span :if={user.must_change_password}
+                  class="font-mono text-[0.7rem] px-2 py-1 rounded bg-amber-100 text-amber-700">
+              Must change password
+            </span>
+            <span :if={!user.must_change_password}
+                  class="font-mono text-[0.7rem] px-2 py-1 rounded bg-emerald-100 text-emerald-700">
+              Active
+            </span>
+          </td>
+          <td class="px-6 py-4 text-right space-x-3">
+            <a href={~p"/bo/users/#{user.id}/edit"}
+               class="font-mono text-[0.75rem] text-[#03b6d4] hover:underline">
+              Edit
+            </a>
+            <button phx-click="delete" phx-value-id={user.id}
+                    data-confirm="Are you sure you want to delete this user?"
+                    class="font-mono text-[0.75rem] text-red-500 hover:underline">
+              Delete
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

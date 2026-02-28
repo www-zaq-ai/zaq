@@ -36,6 +36,110 @@ defmodule Zaq.AccountsTest do
     end
   end
 
+  describe "update_user/2" do
+    test "updates username" do
+      user = user_fixture()
+      assert {:ok, updated} = Accounts.update_user(user, %{username: "new_name"})
+      assert updated.username == "new_name"
+    end
+
+    test "updates role" do
+      user = user_fixture()
+      new_role = role_fixture(%{name: "new_role"})
+      assert {:ok, updated} = Accounts.update_user(user, %{role_id: new_role.id})
+      assert updated.role_id == new_role.id
+    end
+
+    test "enforces unique username" do
+      user1 = user_fixture(%{username: "taken"})
+      user2 = user_fixture()
+      assert {:error, changeset} = Accounts.update_user(user2, %{username: user1.username})
+      assert {"has already been taken", _} = changeset.errors[:username]
+    end
+  end
+
+  describe "delete_user/1" do
+    test "deletes a user" do
+      user = user_fixture()
+      assert {:ok, _} = Accounts.delete_user(user)
+      assert Accounts.get_user_by_username(user.username) == nil
+    end
+  end
+
+  describe "create_user_with_password/1" do
+    test "creates user with hashed password" do
+      role = role_fixture()
+
+      assert {:ok, user} =
+               Accounts.create_user_with_password(%{
+                 username: "withpass",
+                 role_id: role.id,
+                 password: "securepass123"
+               })
+
+      assert user.password_hash != nil
+      assert user.must_change_password == false
+      assert Bcrypt.verify_pass("securepass123", user.password_hash)
+    end
+
+    test "rejects short password" do
+      role = role_fixture()
+
+      assert {:error, changeset} =
+               Accounts.create_user_with_password(%{
+                 username: "shortpass",
+                 role_id: role.id,
+                 password: "short"
+               })
+
+      assert {"should be at least %{count} character(s)", _} = changeset.errors[:password]
+    end
+  end
+
+  describe "update_role/2" do
+    test "updates role name" do
+      role = role_fixture(%{name: "old_name"})
+      assert {:ok, updated} = Accounts.update_role(role, %{name: "new_name"})
+      assert updated.name == "new_name"
+    end
+
+    test "updates role meta" do
+      role = role_fixture()
+      meta = %{"permissions" => ["admin"]}
+      assert {:ok, updated} = Accounts.update_role(role, %{meta: meta})
+      assert updated.meta == meta
+    end
+
+    test "enforces unique name" do
+      role_fixture(%{name: "existing"})
+      role2 = role_fixture(%{name: "other"})
+      assert {:error, changeset} = Accounts.update_role(role2, %{name: "existing"})
+      assert {"has already been taken", _} = changeset.errors[:name]
+    end
+  end
+
+  describe "delete_role/1" do
+    test "deletes a role with no users" do
+      role = role_fixture(%{name: "empty_role"})
+      assert {:ok, _} = Accounts.delete_role(role)
+      assert Accounts.get_role_by_name("empty_role") == nil
+    end
+  end
+
+  describe "parse_meta/1" do
+    test "create_role parses JSON string meta" do
+      assert {:ok, role} =
+               Accounts.create_role(%{"name" => "json_role", "meta" => ~s({"key": "val"})})
+
+      assert role.meta == %{"key" => "val"}
+    end
+
+    test "create_role handles invalid JSON gracefully" do
+      assert {:ok, role} = Accounts.create_role(%{"name" => "bad_json", "meta" => "not json"})
+      assert role.meta == %{}
+    end
+  end
+
   describe "users" do
     test "create_user/1 creates a user" do
       role = role_fixture()

@@ -39,8 +39,16 @@ defmodule ZaqWeb.Router do
   scope "/bo", ZaqWeb do
     pipe_through [:browser, :bo_auth]
 
-    live "/dashboard", Live.BO.DashboardLive
-    live "/change-password", Live.BO.ChangePasswordLive
+    live_session :bo, on_mount: {ZaqWeb.Live.BO.AuthHook, :default} do
+      live "/dashboard", Live.BO.DashboardLive
+      live "/change-password", Live.BO.ChangePasswordLive
+      live "/users", Live.BO.UsersLive
+      live "/users/new", Live.BO.UserFormLive, :new
+      live "/users/:id/edit", Live.BO.UserFormLive, :edit
+      live "/roles", Live.BO.RolesLive
+      live "/roles/new", Live.BO.RoleFormLive, :new
+      live "/roles/:id/edit", Live.BO.RoleFormLive, :edit
+    end
   end
 
   # Other scopes may use custom stacks.

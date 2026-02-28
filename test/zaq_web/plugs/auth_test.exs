@@ -5,10 +5,12 @@ defmodule ZaqWeb.Plugs.AuthTest do
 
   import Zaq.AccountsFixtures
   alias ZaqWeb.Plugs.Auth
+  alias Zaq.Accounts
 
   setup do
     user = user_fixture()
-    %{user: user}
+    {:ok, active_user} = Accounts.change_password(user, %{password: "password123"})
+    %{user: active_user}
   end
 
   test "assigns current_user when session has user_id", %{conn: conn, user: user} do
@@ -29,5 +31,32 @@ defmodule ZaqWeb.Plugs.AuthTest do
 
     assert redirected_to(conn) == "/bo/login"
     assert conn.halted
+  end
+
+  test "redirects to change-password when must_change_password is true", %{conn: conn} do
+    user = user_fixture()
+    # user has must_change_password: true by default
+
+    conn =
+      conn
+      |> init_test_session(%{user_id: user.id})
+      |> Map.put(:request_path, "/bo/dashboard")
+      |> Auth.call(%{})
+
+    assert redirected_to(conn) == "/bo/change-password"
+    assert conn.halted
+  end
+
+  test "allows access to change-password when must_change_password is true", %{conn: conn} do
+    user = user_fixture()
+
+    conn =
+      conn
+      |> init_test_session(%{user_id: user.id})
+      |> Map.put(:request_path, "/bo/change-password")
+      |> Auth.call(%{})
+
+    assert conn.assigns.current_user.id == user.id
+    refute conn.halted
   end
 end
