@@ -4,8 +4,9 @@ defmodule ZaqWeb.Plugs.AuthTest do
   use ZaqWeb.ConnCase
 
   import Zaq.AccountsFixtures
-  alias ZaqWeb.Plugs.Auth
+
   alias Zaq.Accounts
+  alias ZaqWeb.Plugs.Auth
 
   setup do
     user = user_fixture()

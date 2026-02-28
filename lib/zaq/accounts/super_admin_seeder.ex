@@ -1,4 +1,9 @@
 defmodule Zaq.Accounts.SuperAdminSeeder do
+  @moduledoc """
+  This GenServer is responsible for seeding a super admin user on application startup.
+  It checks for the existence of a super admin user and creates one if it doesn't exist,
+  using the configuration provided in the application environment.
+  """
   use GenServer
   require Logger
 

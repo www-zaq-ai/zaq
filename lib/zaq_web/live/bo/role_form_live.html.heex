@@ -2,10 +2,12 @@
 
 <ZaqWeb.Components.BOLayout.bo_layout current_user={@current_user} page_title={@page_title}>
   <div class="max-w-xl">
-    <a href={~p"/bo/roles"}
-       class="inline-flex items-center gap-1.5 font-mono text-[0.78rem] text-[#03b6d4] hover:text-[#03b6d4]/70 transition-colors mb-8">
+    <a
+      href={~p"/bo/roles"}
+      class="inline-flex items-center gap-1.5 font-mono text-[0.78rem] text-[#03b6d4] hover:text-[#03b6d4]/70 transition-colors mb-8"
+    >
       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path d="M19 12H5m0 0l7 7m-7-7l7-7"/>
+        <path d="M19 12H5m0 0l7 7m-7-7l7-7" />
       </svg>
       Back to Roles
     </a>
@@ -17,15 +19,17 @@
           {if @live_action == :new, do: "Create a new role", else: "Edit role"}
         </h2>
         <p class="font-mono text-[0.75rem] text-black/40 mt-1">
-          {if @live_action == :new, do: "Define a role name and optional metadata.", else: "Update role details."}
+          {if @live_action == :new,
+            do: "Define a role name and optional metadata.",
+            else: "Update role details."}
         </p>
       </div>
-
-      <!-- Form -->
+      
+<!-- Form -->
       <div class="px-8 py-6">
         <.form for={@form} phx-submit="save" phx-change="validate" class="space-y-6">
-
-          <!-- Name -->
+          
+<!-- Name -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Name
@@ -39,12 +43,15 @@
               placeholder="e.g. editor"
               class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-12 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
             />
-            <p :if={@form[:name].errors != []} class="font-mono text-[0.72rem] text-red-500 mt-1.5">
+            <p
+              :if={@form[:name].errors != []}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
               {elem(hd(@form[:name].errors), 0)}
             </p>
           </div>
-
-          <!-- Meta (JSON) -->
+          
+<!-- Meta (JSON) -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Meta <span class="text-black/30 normal-case">(optional JSON)</span>
@@ -57,8 +64,8 @@
               class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-xl px-4 py-3 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all resize-none"
             >{if @form[:meta].value && @form[:meta].value != %{}, do: Jason.encode!(@form[:meta].value, pretty: true), else: ""}</textarea>
           </div>
-
-          <!-- Actions -->
+          
+<!-- Actions -->
           <div class="flex items-center gap-3 pt-3">
             <button
               type="submit"
@@ -66,8 +73,10 @@
             >
               {if @live_action == :new, do: "Create Role", else: "Save Changes"}
             </button>
-            <a href={~p"/bo/roles"}
-               class="font-mono text-[0.82rem] text-black/40 hover:text-black/60 px-4 py-3 transition-colors">
+            <a
+              href={~p"/bo/roles"}
+              class="font-mono text-[0.82rem] text-black/40 hover:text-black/60 px-4 py-3 transition-colors"
+            >
               Cancel
             </a>
           </div>

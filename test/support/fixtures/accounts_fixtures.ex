@@ -1,6 +1,8 @@
-# test/support/fixtures/accounts_fixtures.ex
-
 defmodule Zaq.AccountsFixtures do
+  @moduledoc """
+  This module defines test helpers for creating
+  entities via the `Zaq.Accounts` context.
+  """
   alias Zaq.Accounts
   alias Zaq.Accounts.Role
   alias Zaq.Repo
@@ -9,7 +11,9 @@ defmodule Zaq.AccountsFixtures do
     name = Map.get(attrs, :name, "role_#{System.unique_integer([:positive])}")
 
     case Repo.get_by(Role, name: name) do
-      %Role{} = role -> role
+      %Role{} = role ->
+        role
+
       nil ->
         {:ok, role} = Accounts.create_role(Enum.into(attrs, %{name: name, meta: %{}}))
         role
@@ -33,16 +37,28 @@ defmodule Zaq.AccountsFixtures do
 
   def super_admin_fixture(attrs \\ %{}) do
     role = role_fixture(%{name: "super_admin"})
-    user_fixture(Map.merge(attrs, %{role: role, username: "super_admin_#{System.unique_integer([:positive])}"}))
+
+    user_fixture(
+      Map.merge(attrs, %{
+        role: role,
+        username: "super_admin_#{System.unique_integer([:positive])}"
+      })
+    )
   end
 
   def admin_fixture(attrs \\ %{}) do
     role = role_fixture(%{name: "admin"})
-    user_fixture(Map.merge(attrs, %{role: role, username: "admin_#{System.unique_integer([:positive])}"}))
+
+    user_fixture(
+      Map.merge(attrs, %{role: role, username: "admin_#{System.unique_integer([:positive])}"})
+    )
   end
 
   def staff_fixture(attrs \\ %{}) do
     role = role_fixture(%{name: "staff"})
-    user_fixture(Map.merge(attrs, %{role: role, username: "staff_#{System.unique_integer([:positive])}"}))
+
+    user_fixture(
+      Map.merge(attrs, %{role: role, username: "staff_#{System.unique_integer([:positive])}"})
+    )
   end
 end

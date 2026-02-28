@@ -7,7 +7,7 @@ defmodule Zaq.License.IntegrationTest do
 
   use ExUnit.Case, async: false
 
-  alias Zaq.License.{BeamDecryptor, Loader, FeatureStore}
+  alias Zaq.License.{BeamDecryptor, FeatureStore, Loader}
 
   @keys_dir "priv/keys"
   @private_key_path Path.join(@keys_dir, "private.pem")
@@ -70,7 +70,7 @@ defmodule Zaq.License.IntegrationTest do
             %{name: "ontology", module_tags: ["Elixir.LicenseManager.Paid.Ontology"]}
           ],
           issued_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-          expires_at: DateTime.utc_now() |> DateTime.add(86400) |> DateTime.to_iso8601(),
+          expires_at: DateTime.utc_now() |> DateTime.add(86_400) |> DateTime.to_iso8601(),
           max_users: 10
         })
 
@@ -107,6 +107,7 @@ defmodule Zaq.License.IntegrationTest do
       assert license_data["company"]["name"] == "Test Corp"
 
       # 8. Verify module is callable
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
       assert {:ok, "classified: hello"} = LicenseManager.Paid.Ontology.classify("hello")
 
       # 9. Verify FeatureStore
@@ -121,7 +122,7 @@ defmodule Zaq.License.IntegrationTest do
           company: %{id: "company-uuid", name: "Expired Corp"},
           features: [],
           issued_at: DateTime.utc_now() |> DateTime.add(-172_800) |> DateTime.to_iso8601(),
-          expires_at: DateTime.utc_now() |> DateTime.add(-86400) |> DateTime.to_iso8601(),
+          expires_at: DateTime.utc_now() |> DateTime.add(-86_400) |> DateTime.to_iso8601(),
           max_users: 5
         })
 
@@ -146,7 +147,7 @@ defmodule Zaq.License.IntegrationTest do
           company: %{id: "company-uuid", name: "Tamper Corp"},
           features: [],
           issued_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-          expires_at: DateTime.utc_now() |> DateTime.add(86400) |> DateTime.to_iso8601(),
+          expires_at: DateTime.utc_now() |> DateTime.add(86_400) |> DateTime.to_iso8601(),
           max_users: 5
         })
 
@@ -159,7 +160,7 @@ defmodule Zaq.License.IntegrationTest do
           company: %{id: "company-uuid", name: "Tamper Corp"},
           features: [],
           issued_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-          expires_at: DateTime.utc_now() |> DateTime.add(86400) |> DateTime.to_iso8601(),
+          expires_at: DateTime.utc_now() |> DateTime.add(86_400) |> DateTime.to_iso8601(),
           max_users: 9999
         })
 
@@ -185,7 +186,7 @@ defmodule Zaq.License.IntegrationTest do
           company: %{id: "company-uuid", name: "Wrong Key Corp"},
           features: [],
           issued_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-          expires_at: DateTime.utc_now() |> DateTime.add(86400) |> DateTime.to_iso8601(),
+          expires_at: DateTime.utc_now() |> DateTime.add(86_400) |> DateTime.to_iso8601(),
           max_users: 5
         })
 

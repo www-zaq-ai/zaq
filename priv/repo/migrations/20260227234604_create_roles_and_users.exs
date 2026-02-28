@@ -1,4 +1,3 @@
-
 defmodule Zaq.Repo.Migrations.CreateRolesAndUsers do
   use Ecto.Migration
 

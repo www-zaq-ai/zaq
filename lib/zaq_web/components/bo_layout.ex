@@ -1,6 +1,7 @@
-# lib/zaq_web/components/bo_layout.ex
-
 defmodule ZaqWeb.Components.BOLayout do
+  @moduledoc """
+  This module defines a Phoenix component for the back office (BO) layout of the application. It provides a consistent structure and styling for all BO pages, including a sidebar with navigation links, a header with the page title, and a main content area where the specific page content will be rendered. The layout also includes user information and a logout button in the sidebar. The component uses Tailwind CSS for styling and is designed to be responsive and user-friendly.
+  """
   use Phoenix.Component
   use ZaqWeb, :verified_routes
 
@@ -22,11 +23,11 @@ defmodule ZaqWeb.Components.BOLayout do
             Back Office
           </span>
         </div>
-
+        
     <!-- Nav -->
         <nav class="flex-1 py-4 px-3 space-y-1">
           <.nav_item href={~p"/bo/dashboard"} icon="dashboard" label="Dashboard" />
-
+          
     <!-- Accounts -->
           <div class="pt-4">
             <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
@@ -36,7 +37,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <.nav_item href={~p"/bo/roles"} icon="roles" label="Roles" />
           </div>
         </nav>
-
+        
     <!-- User / Logout -->
         <div class="border-t border-white/10 p-4">
           <div class="flex items-center gap-3 mb-3">
@@ -60,14 +61,14 @@ defmodule ZaqWeb.Components.BOLayout do
           </form>
         </div>
       </aside>
-
+      
     <!-- Main -->
       <main class="ml-[240px] flex-1">
         <!-- Header -->
         <header class="h-16 bg-white border-b border-black/10 flex items-center px-8">
           <h1 class="font-mono text-lg font-bold text-black">{@page_title}</h1>
         </header>
-
+        
     <!-- Content -->
         <div class="p-8">
           {render_slot(@inner_block)}

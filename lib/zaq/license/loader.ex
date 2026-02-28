@@ -5,7 +5,7 @@ defmodule Zaq.License.Loader do
   and loads them into the BEAM VM.
   """
 
-  alias Zaq.License.{Verifier, BeamDecryptor, FeatureStore}
+  alias Zaq.License.{BeamDecryptor, FeatureStore, Verifier}
 
   require Logger
 
@@ -47,23 +47,22 @@ defmodule Zaq.License.Loader do
   end
 
   defp parse_license_dat(files) do
-    case Map.fetch(files, "license.dat") do
-      {:ok, dat} ->
-        case String.split(to_string(dat), ".") do
-          [payload_b64, signature_b64] ->
-            with {:ok, payload} <- Base.decode64(payload_b64),
-                 {:ok, signature} <- Base.decode64(signature_b64) do
-              {:ok, payload, signature}
-            else
-              :error -> {:error, :invalid_license_dat_encoding}
-            end
+    with {:ok, dat} <- Map.fetch(files, "license.dat"),
+         [payload_b64, signature_b64] <- split_license_dat(dat),
+         {:ok, payload} <- Base.decode64(payload_b64),
+         {:ok, signature} <- Base.decode64(signature_b64) do
+      {:ok, payload, signature}
+    else
+      :error -> {:error, :missing_license_dat}
+      :invalid_format -> {:error, :invalid_license_dat_format}
+      _ -> {:error, :invalid_license_dat_encoding}
+    end
+  end
 
-          _ ->
-            {:error, :invalid_license_dat_format}
-        end
-
-      :error ->
-        {:error, :missing_license_dat}
+  defp split_license_dat(dat) do
+    case String.split(to_string(dat), ".") do
+      [_payload, _signature] = parts -> parts
+      _ -> :invalid_format
     end
   end
 
@@ -75,22 +74,27 @@ defmodule Zaq.License.Loader do
   end
 
   defp check_expiry(license_data) do
-    case Map.fetch(license_data, "expires_at") do
-      {:ok, expires_str} ->
-        case DateTime.from_iso8601(expires_str) do
-          {:ok, expires_at, _} ->
-            if DateTime.compare(DateTime.utc_now(), expires_at) == :lt do
-              :ok
-            else
-              {:error, :license_expired}
-            end
+    with {:ok, expires_str} <- Map.fetch(license_data, "expires_at"),
+         {:ok, expires_at, _} <- parse_expiry(expires_str) do
+      check_not_expired(expires_at)
+    else
+      :error -> {:error, :missing_expires_at}
+      {:error, _} = error -> error
+    end
+  end
 
-          _ ->
-            {:error, :invalid_expires_at}
-        end
+  defp parse_expiry(expires_str) do
+    case DateTime.from_iso8601(expires_str) do
+      {:ok, expires_at, offset} -> {:ok, expires_at, offset}
+      _ -> {:error, :invalid_expires_at}
+    end
+  end
 
-      :error ->
-        {:error, :missing_expires_at}
+  defp check_not_expired(expires_at) do
+    if DateTime.compare(DateTime.utc_now(), expires_at) == :lt do
+      :ok
+    else
+      {:error, :license_expired}
     end
   end
 
@@ -101,31 +105,35 @@ defmodule Zaq.License.Loader do
 
     results =
       Enum.reduce_while(enc_files, {:ok, []}, fn {name, content}, {:ok, acc} ->
-        module_name =
-          name
-          |> String.replace_prefix("modules/", "")
-          |> String.replace_suffix(".beam.enc", "")
+        module_name = extract_module_name(name)
 
-        case BeamDecryptor.decrypt(content, key) do
-          {:ok, beam_binary} ->
-            module_atom = String.to_atom(module_name)
-
-            case :code.load_binary(module_atom, ~c"#{module_name}.beam", beam_binary) do
-              {:module, ^module_atom} ->
-                {:cont, {:ok, [module_atom | acc]}}
-
-              {:error, reason} ->
-                {:halt, {:error, {:load_failed, module_name, reason}}}
-            end
-
-          {:error, reason} ->
-            {:halt, {:error, {:decrypt_failed, module_name, reason}}}
+        case decrypt_and_load_single(module_name, content, key) do
+          {:ok, module_atom} -> {:cont, {:ok, [module_atom | acc]}}
+          {:error, _} = error -> {:halt, error}
         end
       end)
 
     case results do
       {:ok, modules} -> {:ok, Enum.reverse(modules)}
       error -> error
+    end
+  end
+
+  defp extract_module_name(name) do
+    name
+    |> String.replace_prefix("modules/", "")
+    |> String.replace_suffix(".beam.enc", "")
+  end
+
+  defp decrypt_and_load_single(module_name, content, key) do
+    with {:ok, beam_binary} <- BeamDecryptor.decrypt(content, key),
+         module_atom <- String.to_atom(module_name),
+         {:module, ^module_atom} <-
+           :code.load_binary(module_atom, ~c"#{module_name}.beam", beam_binary) do
+      {:ok, module_atom}
+    else
+      {:error, reason} -> {:error, {:decrypt_failed, module_name, reason}}
+      {:error_loading, reason} -> {:error, {:load_failed, module_name, reason}}
     end
   end
 end
