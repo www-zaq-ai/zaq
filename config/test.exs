@@ -6,6 +6,7 @@ import Config
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :zaq, Zaq.Repo,
+  types: Zaq.PostgrexTypes,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
@@ -19,6 +20,13 @@ config :zaq, ZaqWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "ciF/5ckzC38nrulQi0vIRpenNCD4oSsnLdBCLJhfXQmaRz0e6/iD9T15avsW/pV8",
   server: false
+
+config :zaq, Zaq.Embedding.Client,
+  endpoint: "http://localhost",
+  api_key: "",
+  model: "test-model",
+  dimension: 1536,
+  req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
 config :zaq, roles: [:bo]
 

@@ -67,6 +67,31 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
+  # -- Agent LLM --
+  config :zaq, Zaq.Agent.LLM,
+    endpoint: System.get_env("LLM_ENDPOINT", "http://localhost:11434/v1"),
+    api_key: System.get_env("LLM_API_KEY", ""),
+    model: System.get_env("LLM_MODEL", "llama-3.3-70b-instruct"),
+    temperature: 0.0,
+    top_p: 0.9,
+    supports_logprobs: System.get_env("LLM_SUPPORTS_LOGPROBS", "true") == "true",
+    supports_json_mode: System.get_env("LLM_SUPPORTS_JSON_MODE", "true") == "true"
+
+  # -- Embedding --
+  config :zaq, Zaq.Embedding.Client,
+    endpoint: System.get_env("EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
+    api_key: System.get_env("EMBEDDING_API_KEY", ""),
+    model: System.get_env("EMBEDDING_MODEL", "bge-multilingual-gemma2"),
+    dimension: String.to_integer(System.get_env("EMBEDDING_DIMENSION", "3584"))
+
+  # -- Ingestion --
+  config :zaq, Zaq.Ingestion,
+    max_context_window: String.to_integer(System.get_env("INGESTION_MAX_CONTEXT_WINDOW", "5000")),
+    distance_threshold: String.to_float(System.get_env("INGESTION_DISTANCE_THRESHOLD", "0.75")),
+    hybrid_search_limit: String.to_integer(System.get_env("INGESTION_HYBRID_SEARCH_LIMIT", "20")),
+    chunk_min_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MIN_TOKENS", "400")),
+    chunk_max_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MAX_TOKENS", "900"))
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

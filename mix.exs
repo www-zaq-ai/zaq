@@ -67,7 +67,8 @@ defmodule Zaq.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
-      {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
+      {:pgvector, "~> 0.3.1"}
     ]
   end
 

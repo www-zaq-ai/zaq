@@ -2,6 +2,7 @@ import Config
 
 # Configure your database
 config :zaq, Zaq.Repo,
+  types: Zaq.PostgrexTypes,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
