@@ -28,6 +28,17 @@ config :zaq, Zaq.Embedding.Client,
   dimension: 1536,
   req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
+config :zaq, :chunk_title_module, Zaq.Agent.ChunkTitleMock
+
+config :zaq, Zaq.Agent.LLM,
+  endpoint: "http://localhost",
+  api_key: "",
+  model: "test-model",
+  temperature: 0.0,
+  top_p: 0.9,
+  supports_logprobs: false,
+  supports_json_mode: false
+
 config :zaq, roles: [:bo]
 
 config :zaq,

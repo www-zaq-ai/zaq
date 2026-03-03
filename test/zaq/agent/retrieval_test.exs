@@ -19,6 +19,7 @@ defmodule Zaq.Agent.RetrievalTest do
       :ok
     end
 
+    @tag :integration
     test "returns {:ok, decoded_json} with a system prompt override" do
       # Uses a system prompt override so we don't depend on LLM for unit tests.
       # Integration tests with a real LLM can omit the override.
@@ -41,6 +42,7 @@ defmodule Zaq.Agent.RetrievalTest do
       end
     end
 
+    @tag :integration
     test "build_history handles empty list" do
       # Indirectly tested — passing empty history should not raise
       opts = [

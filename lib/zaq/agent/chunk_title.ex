@@ -12,6 +12,8 @@ defmodule Zaq.Agent.ChunkTitle do
   alias LangChain.Utils.ChainResult
   alias Zaq.Agent.LLM
 
+  @behaviour Zaq.Agent.ChunkTitleBehaviour
+
   @max_words 8
 
   @doc """

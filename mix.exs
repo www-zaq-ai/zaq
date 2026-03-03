@@ -69,7 +69,8 @@ defmodule Zaq.MixProject do
       {:bcrypt_elixir, "~> 3.0"},
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
       {:pgvector, "~> 0.3.1"},
-      {:langchain, github: "Geeks-Solutions/langchain", branch: "main"}
+      {:langchain, github: "Geeks-Solutions/langchain", branch: "main"},
+      {:mox, "~> 1.2", only: :test}
     ]
   end
 
