@@ -100,9 +100,7 @@ defmodule Zaq.Agent.PromptGuardTest do
                )
 
       assert {:error, {:leaked, "HIDDEN ADVANCED REASONING"}} =
-               PromptGuard.output_safe?(
-                 "Using HIDDEN ADVANCED REASONING to determine the answer"
-               )
+               PromptGuard.output_safe?("Using HIDDEN ADVANCED REASONING to determine the answer")
 
       assert {:error, {:leaked, "chain-of-thought"}} =
                PromptGuard.output_safe?("Let me use chain-of-thought reasoning here")

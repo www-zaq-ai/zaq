@@ -1,3 +1,5 @@
+# lib/zaq_web/components/bo_layout.ex
+
 defmodule ZaqWeb.Components.BOLayout do
   @moduledoc """
   This module defines a Phoenix component for the back office (BO) layout of the application. It provides a consistent structure and styling for all BO pages, including a sidebar with navigation links, a header with the page title, and a main content area where the specific page content will be rendered. The layout also includes user information and a logout button in the sidebar. The component uses Tailwind CSS for styling and is designed to be responsive and user-friendly.
@@ -26,7 +28,7 @@ defmodule ZaqWeb.Components.BOLayout do
         </div>
         
     <!-- Nav -->
-        <nav class="flex-1 py-4 px-3 space-y-1">
+        <nav class="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           <.nav_item
             href={~p"/bo/dashboard"}
             icon="dashboard"
@@ -52,7 +54,27 @@ defmodule ZaqWeb.Components.BOLayout do
               active={String.starts_with?(@current_path, "/bo/roles")}
             />
           </div>
-          <!-- System -->
+          
+    <!-- AI -->
+          <div class="pt-4">
+            <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
+              AI
+            </p>
+            <.nav_item
+              href={~p"/bo/ai-diagnostics"}
+              icon="ai"
+              label="Diagnostics"
+              active={@current_path == "/bo/ai-diagnostics"}
+            />
+            <.nav_item
+              href={~p"/bo/prompt-templates"}
+              icon="prompt"
+              label="Prompt Templates"
+              active={@current_path == "/bo/prompt-templates"}
+            />
+          </div>
+          
+    <!-- System -->
           <div class="pt-4">
             <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
               System
@@ -168,6 +190,29 @@ defmodule ZaqWeb.Components.BOLayout do
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
       </svg>
       <svg
+        :if={@icon == "ai"}
+        class="w-[18px] h-[18px]"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        viewBox="0 0 24 24"
+      >
+        <path d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 0 6h-1v1a4 4 0 0 1-8 0v-1H7a3 3 0 0 1 0-6h1V6a4 4 0 0 1 4-4z" />
+        <circle cx="9" cy="10" r="1" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="10" r="1" fill="currentColor" stroke="none" />
+      </svg>
+
+      <svg
+        :if={@icon == "prompt"}
+        class="w-[18px] h-[18px]"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        viewBox="0 0 24 24"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+      <svg
         :if={@icon == "license"}
         class="w-[18px] h-[18px]"
         fill="none"
@@ -180,6 +225,69 @@ defmodule ZaqWeb.Components.BOLayout do
       </svg>
       {@label}
     </a>
+    """
+  end
+
+  attr :status, :any, required: true
+
+  def status_badge(assigns) do
+    ~H"""
+    <span
+      :if={@status == :idle}
+      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-black/5 text-black/30"
+    >
+      idle
+    </span>
+    <span
+      :if={@status == :loading}
+      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-amber-100 text-amber-600"
+    >
+      testing…
+    </span>
+    <span
+      :if={@status == :ok}
+      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-emerald-100 text-emerald-700"
+    >
+      ✓ connected
+    </span>
+    <span
+      :if={is_tuple(@status) and elem(@status, 0) == :error}
+      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-red-100 text-red-600"
+    >
+      ✗ error
+    </span>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :string, required: true
+  attr :truncate, :boolean, default: false
+  attr :hint, :string, default: nil
+
+  def config_row(assigns) do
+    ~H"""
+    <div class="flex justify-between items-center gap-2">
+      <div class="flex items-center gap-1 shrink-0">
+        <p class="font-mono text-[0.7rem] text-black/40">{@label}</p>
+        <div :if={@hint} class="relative group">
+          <div class="w-3.5 h-3.5 rounded-full border border-black/20 text-black/30 flex items-center justify-center cursor-default text-[0.55rem] font-bold leading-none">
+            i
+          </div>
+          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-10 hidden group-hover:block">
+            <div class="bg-[#3c4b64] text-white font-mono text-[0.65rem] px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg">
+              {@hint}
+            </div>
+            <div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#3c4b64] mx-auto" />
+          </div>
+        </div>
+      </div>
+      <p class={[
+        "font-mono text-[0.7rem] text-black text-right",
+        if(@truncate, do: "truncate max-w-[120px]", else: "")
+      ]}>
+        {@value}
+      </p>
+    </div>
     """
   end
 end

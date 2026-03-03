@@ -1,0 +1,223 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  page_title="Prompt Templates"
+  current_path={@current_path}
+>
+  <!-- Tabs -->
+  <div class="flex items-center gap-1 mb-6 border-b border-black/10">
+    <button
+      :for={tpl <- @templates}
+      phx-click="switch_tab"
+      phx-value-id={tpl.id}
+      class={[
+        "px-4 py-2.5 font-mono text-[0.78rem] border-b-2 -mb-px transition-colors",
+        if(@active_tab == tpl.id,
+          do: "border-[#03b6d4] text-black font-bold",
+          else: "border-transparent text-black/40 hover:text-black"
+        )
+      ]}
+    >
+      {tpl.slug}
+      <span
+        :if={!tpl.active}
+        class="ml-1.5 font-mono text-[0.6rem] px-1.5 py-0.5 rounded bg-black/5 text-black/30"
+      >
+        off
+      </span>
+    </button>
+    
+<!-- New tab -->
+    <button
+      phx-click="switch_tab"
+      phx-value-id="new"
+      class={[
+        "px-4 py-2.5 font-mono text-[0.78rem] border-b-2 -mb-px transition-colors",
+        if(@active_tab == :new,
+          do: "border-[#03b6d4] text-black font-bold",
+          else: "border-transparent text-black/40 hover:text-black"
+        )
+      ]}
+    >
+      + new
+    </button>
+  </div>
+  
+<!-- Existing template panels -->
+  <div :for={tpl <- @templates} :if={@active_tab == tpl.id}>
+    <form phx-submit="save" class="space-y-6">
+      <input type="hidden" name="prompt_template[id]" value={tpl.id} />
+      
+<!-- Header row -->
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="font-mono text-xs text-black/40 mb-1">slug</p>
+          <p class="font-mono text-lg font-bold text-black">{tpl.slug}</p>
+        </div>
+        <!-- Active toggle -->
+        <div class="flex items-center gap-3">
+          <span class="font-mono text-[0.75rem] text-black/50">Active</span>
+          <button
+            type="button"
+            phx-click="toggle_active"
+            phx-value-id={tpl.id}
+            class={[
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none",
+              if(tpl.active, do: "bg-[#03b6d4]", else: "bg-black/15")
+            ]}
+          >
+            <span class={[
+              "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+              if(tpl.active, do: "translate-x-6", else: "translate-x-1")
+            ]} />
+          </button>
+        </div>
+      </div>
+      
+<!-- Fields -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            Name
+          </label>
+          <input
+            type="text"
+            name="prompt_template[name]"
+            value={tpl.name}
+            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+          />
+        </div>
+        <div>
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            Description
+          </label>
+          <input
+            type="text"
+            name="prompt_template[description]"
+            value={tpl.description}
+            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+          Body
+        </label>
+        <textarea
+          name="prompt_template[body]"
+          rows="16"
+          style="color: #000000 !important; -webkit-text-fill-color: #000000 !important;"
+          class="w-full font-mono text-sm bg-white border border-black/15 rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4] resize-y"
+        ><%= tpl.body %></textarea>
+      </div>
+      
+<!-- Actions -->
+      <div class="flex items-center justify-between pt-2">
+        <!-- Delete -->
+        <div>
+          <button
+            :if={@delete_confirm != tpl.id}
+            type="button"
+            phx-click="confirm_delete"
+            phx-value-id={tpl.id}
+            class="font-mono text-[0.75rem] text-red-400 hover:text-red-600 transition-colors"
+          >
+            Delete template
+          </button>
+          <div :if={@delete_confirm == tpl.id} class="flex items-center gap-3">
+            <span class="font-mono text-[0.75rem] text-black/60">Are you sure?</span>
+            <button
+              type="button"
+              phx-click="delete"
+              phx-value-id={tpl.id}
+              class="font-mono text-[0.75rem] font-bold text-red-500 hover:text-red-700 transition-colors"
+            >
+              Yes, delete
+            </button>
+            <button
+              type="button"
+              phx-click="cancel_delete"
+              class="font-mono text-[0.75rem] text-black/40 hover:text-black transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        
+<!-- Save -->
+        <button
+          type="submit"
+          class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  </div>
+  
+<!-- New template panel -->
+  <div :if={@active_tab == :new}>
+    <form phx-submit="create" class="space-y-6">
+      <p class="font-mono text-lg font-bold text-black">New Template</p>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            Slug <span class="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            name="prompt_template[slug]"
+            placeholder="e.g. retrieval"
+            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+          />
+        </div>
+        <div>
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            Name <span class="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            name="prompt_template[name]"
+            placeholder="e.g. Retrieval Agent"
+            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+          Description
+        </label>
+        <input
+          type="text"
+          name="prompt_template[description]"
+          placeholder="Optional description"
+          class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+        />
+      </div>
+
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+          Body <span class="text-red-400">*</span>
+        </label>
+        <textarea
+          name="prompt_template[body]"
+          rows="16"
+          placeholder="Write the system prompt here…"
+          style="color: #111 !important;"
+          class="w-full font-mono text-sm bg-white border border-black/15 rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4] resize-y"
+        ></textarea>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button
+          type="submit"
+          class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+        >
+          Create
+        </button>
+      </div>
+    </form>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

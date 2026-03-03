@@ -49,15 +49,11 @@ defmodule ZaqWeb.Router do
       live "/roles/new", Live.BO.RoleFormLive, :new
       live "/roles/:id/edit", Live.BO.RoleFormLive, :edit
       live "/license", Live.BO.LicenseLive
+      live "/ai-diagnostics", Live.BO.AIDiagnosticsLive
+      live "/prompt-templates", Live.BO.PromptTemplatesLive
     end
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", ZaqWeb do
-  #   pipe_through :api
-  # end
-
-  # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:zaq, :dev_routes) do
     import Phoenix.LiveDashboard.Router
 

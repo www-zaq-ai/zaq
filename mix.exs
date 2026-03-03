@@ -68,7 +68,8 @@ defmodule Zaq.MixProject do
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
-      {:pgvector, "~> 0.3.1"}
+      {:pgvector, "~> 0.3.1"},
+      {:langchain, github: "Geeks-Solutions/langchain", branch: "main"}
     ]
   end
 
