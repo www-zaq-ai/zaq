@@ -70,7 +70,8 @@ defmodule Zaq.MixProject do
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
       {:pgvector, "~> 0.3.1"},
       {:langchain, github: "Geeks-Solutions/langchain", branch: "main"},
-      {:mox, "~> 1.2", only: :test}
+      {:mox, "~> 1.2", only: :test},
+      {:oban, "~> 2.20.3"}
     ]
   end
 

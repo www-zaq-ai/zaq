@@ -92,6 +92,14 @@ if config_env() == :prod do
     chunk_min_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MIN_TOKENS", "400")),
     chunk_max_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MAX_TOKENS", "900"))
 
+  # -- Oban --
+  config :zaq, Oban,
+    repo: Zaq.Repo,
+    queues: [
+      ingestion: String.to_integer(System.get_env("OBAN_INGESTION_CONCURRENCY", "3")),
+      default: 10
+    ]
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

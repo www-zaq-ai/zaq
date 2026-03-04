@@ -26,6 +26,13 @@ defmodule ZaqWeb.Router do
     get "/", PageController, :home
   end
 
+  scope "/api", ZaqWeb do
+    pipe_through :api
+
+    post "/ask", AgentController, :ask
+    post "/ingest", AgentController, :ingest
+  end
+
   # BO - Public
   scope "/bo", ZaqWeb do
     pipe_through :browser

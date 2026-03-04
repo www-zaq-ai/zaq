@@ -639,7 +639,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # ---------------------------------------------------------------------------
 
   defp maybe_add_section(sections, [], _current_section), do: sections
-  defp maybe_add_section(sections, nil, _current_section), do: sections
+  # defp maybe_add_section(sections, nil, _current_section), do: sections
 
   defp maybe_add_section(sections, content_lines, current_section) when is_list(content_lines) do
     content = content_lines |> Enum.reverse() |> Enum.join("\n") |> String.trim()

@@ -11,6 +11,10 @@ config :zaq,
   ecto_repos: [Zaq.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :zaq, Oban,
+  repo: Zaq.Repo,
+  queues: [ingestion: 3, default: 10]
+
 # Configure the endpoint
 config :zaq, ZaqWeb.Endpoint,
   url: [host: "localhost"],
