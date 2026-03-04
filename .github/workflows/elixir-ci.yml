@@ -15,7 +15,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -39,7 +39,7 @@ jobs:
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:
-          otp-version: "28.0"
+          otp-version: "28.1"
           elixir-version: "1.19.5"
 
       - name: Restore dependencies cache
