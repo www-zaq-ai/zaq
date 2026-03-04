@@ -32,7 +32,10 @@ config :zaq, Zaq.Embedding.Client,
   dimension: 1536,
   req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
-config :zaq, :chunk_title_module, Zaq.Agent.ChunkTitleMock
+# --MOX--
+config :zaq,
+  chunk_title_module: Zaq.Agent.ChunkTitleMock,
+  document_processor: Zaq.DocumentProcessorMock
 
 config :zaq, Zaq.Agent.LLM,
   endpoint: "http://localhost",
@@ -43,7 +46,7 @@ config :zaq, Zaq.Agent.LLM,
   supports_logprobs: false,
   supports_json_mode: false
 
-config :zaq, roles: [:bo]
+config :zaq, roles: [:bo, :ingestion, :agent]
 
 config :zaq,
   license_runtime_key: true,

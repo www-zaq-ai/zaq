@@ -13,6 +13,8 @@ config :zaq, Zaq.Repo,
 
 config :zaq, roles: [:bo, :agent, :ingestion]
 
+config :zaq, Zaq.Ingestion, base_path: "priv/documents"
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
 #

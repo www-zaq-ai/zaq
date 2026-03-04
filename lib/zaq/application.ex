@@ -2,10 +2,13 @@ defmodule Zaq.Application do
   @moduledoc false
 
   use Application
+  alias Zaq.Ingestion.ObanTelemetry
 
   @impl true
   def start(_type, _args) do
     roles = Application.get_env(:zaq, :roles, [:all])
+
+    ObanTelemetry.attach()
 
     children =
       [

@@ -12,6 +12,7 @@ defmodule Zaq.Ingestion.Document do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
 
   schema "documents" do
@@ -21,7 +22,7 @@ defmodule Zaq.Ingestion.Document do
     field :content_type, :string, default: "markdown"
     field :metadata, :map, default: %{}
 
-    # has_many :chunks, Zaq.Ingestion.Chunk
+    has_many :chunks, Chunk
 
     timestamps(type: :utc_datetime)
   end

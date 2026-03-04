@@ -90,7 +90,8 @@ if config_env() == :prod do
     distance_threshold: String.to_float(System.get_env("INGESTION_DISTANCE_THRESHOLD", "0.75")),
     hybrid_search_limit: String.to_integer(System.get_env("INGESTION_HYBRID_SEARCH_LIMIT", "20")),
     chunk_min_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MIN_TOKENS", "400")),
-    chunk_max_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MAX_TOKENS", "900"))
+    chunk_max_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MAX_TOKENS", "900")),
+    base_path: System.get_env("INGESTION_BASE_PATH", "priv/documents")
 
   # -- Oban --
   config :zaq, Oban,
