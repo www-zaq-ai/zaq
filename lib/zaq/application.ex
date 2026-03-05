@@ -19,8 +19,7 @@ defmodule Zaq.Application do
         {Phoenix.PubSub, name: Zaq.PubSub},
         Zaq.License.FeatureStore,
         Zaq.License.LicensePostLoader,
-        {Zaq.License.LicenseWatcherFS,
-         watch_dir: Application.get_env(:zaq, :license_dir, "priv/licenses")}
+        {Zaq.License.LicenseWatcherFS, watch_dir: "priv/licenses"}
       ]
       |> maybe_add(roles, :engine, Zaq.Engine.Supervisor)
       |> maybe_add(roles, :agent, Zaq.Agent.Supervisor)
