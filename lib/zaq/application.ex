@@ -18,6 +18,7 @@ defmodule Zaq.Application do
         {DNSCluster, query: Application.get_env(:zaq, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Zaq.PubSub},
         Zaq.License.FeatureStore,
+        Zaq.License.LicensePostLoader,
         {Zaq.License.LicenseWatcherFS, watch_dir: "priv/licenses"}
       ]
       |> maybe_add(roles, :engine, Zaq.Engine.Supervisor)

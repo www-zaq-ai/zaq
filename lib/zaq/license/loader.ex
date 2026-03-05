@@ -5,7 +5,7 @@ defmodule Zaq.License.Loader do
   and loads them into the BEAM VM.
   """
 
-  alias Zaq.License.{BeamDecryptor, FeatureStore, Verifier}
+  alias Zaq.License.{BeamDecryptor, FeatureStore, LicensePostLoader, Verifier}
 
   require Logger
 
@@ -21,7 +21,9 @@ defmodule Zaq.License.Loader do
          :ok <- check_expiry(license_data),
          key <- BeamDecryptor.derive_key(payload),
          {:ok, loaded_modules} <- decrypt_and_load_modules(files, key) do
+      migration_files = extract_migration_files(files)
       FeatureStore.store(license_data, loaded_modules)
+      LicensePostLoader.notify(license_data, migration_files)
       Logger.info("License loaded successfully: #{license_data["license_key"]}")
       {:ok, license_data}
     else
@@ -98,6 +100,12 @@ defmodule Zaq.License.Loader do
     end
   end
 
+  defp extract_migration_files(files) do
+    files
+    |> Enum.filter(fn {name, _} -> String.starts_with?(name, "migrations/") end)
+    |> Enum.map(fn {name, content} -> {Path.basename(name), content} end)
+  end
+
   defp decrypt_and_load_modules(files, key) do
     enc_files =
       files
@@ -126,14 +134,17 @@ defmodule Zaq.License.Loader do
   end
 
   defp decrypt_and_load_single(module_name, content, key) do
-    with {:ok, beam_binary} <- BeamDecryptor.decrypt(content, key),
-         module_atom <- String.to_atom(module_name),
-         {:module, ^module_atom} <-
-           :code.load_binary(module_atom, ~c"#{module_name}.beam", beam_binary) do
-      {:ok, module_atom}
-    else
-      {:error, reason} -> {:error, {:decrypt_failed, module_name, reason}}
-      {:error_loading, reason} -> {:error, {:load_failed, module_name, reason}}
+    module_atom = String.to_atom(module_name)
+
+    case BeamDecryptor.decrypt(content, key) do
+      {:ok, beam_binary} ->
+        case :code.load_binary(module_atom, ~c"#{module_name}.beam", beam_binary) do
+          {:module, ^module_atom} -> {:ok, module_atom}
+          {:error, reason} -> {:error, {:load_failed, module_name, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:decrypt_failed, module_name, reason}}
     end
   end
 end

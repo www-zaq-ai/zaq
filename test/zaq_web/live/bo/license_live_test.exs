@@ -46,7 +46,7 @@ defmodule ZaqWeb.Live.BO.LicenseLiveTest do
       FeatureStore.store(
         %{
           "license_key" => "lic_test_123",
-          "company_name" => "Acme Corp",
+          "company" => %{"name" => "Acme Corp"},
           "expires_at" => DateTime.utc_now() |> DateTime.add(90, :day) |> DateTime.to_iso8601(),
           "features" => [
             %{
