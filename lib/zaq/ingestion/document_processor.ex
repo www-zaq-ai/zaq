@@ -124,6 +124,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   and stores each chunk via the `Chunk` Ecto schema.
   """
   def process_and_store_chunks(content, document_id) do
+    Chunk.delete_by_document(document_id)
     sections = DocumentChunker.parse_layout(content, format: :markdown)
     chunks = DocumentChunker.chunk_sections(sections)
 

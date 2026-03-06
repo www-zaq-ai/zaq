@@ -31,7 +31,7 @@ defmodule Zaq.Ingestion.Chunk do
   end
 
   @required_fields ~w(document_id content chunk_index)a
-  @optional_fields ~w(section_path metadata)a
+  @optional_fields ~w(section_path metadata embedding)a
 
   def changeset(chunk, attrs) do
     chunk

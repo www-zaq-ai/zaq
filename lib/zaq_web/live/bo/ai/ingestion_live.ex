@@ -1,8 +1,10 @@
 defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   use ZaqWeb, :live_view
 
+  import Ecto.Query
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Ingestion.{Document, FileExplorer}
+  alias Zaq.Repo
 
   @allowed_extensions ~w(.md .txt .pdf)
 
@@ -31,7 +33,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Move modal state
        move_folders: [],
        move_current_dir: ".",
-       move_breadcrumbs: []
+       move_breadcrumbs: [],
+       ingestion_map: %{}
      )
      |> load_entries()
      |> load_jobs()
@@ -350,6 +353,34 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Private helpers
   # ────────────────────────────────────────────────────────────────
 
+  defp load_ingestion_status(socket) do
+    filenames =
+      socket.assigns.entries
+      |> Enum.filter(&(&1.type == :file))
+      |> Enum.map(& &1.name)
+
+    documents =
+      from(d in Zaq.Ingestion.Document, where: d.source in ^filenames)
+      |> Repo.all()
+      |> Map.new(fn d -> {d.source, d} end)
+
+    ingestion_map =
+      socket.assigns.entries
+      |> Enum.filter(&(&1.type == :file))
+      |> Map.new(fn entry ->
+        case Map.get(documents, entry.name) do
+          nil ->
+            {entry.name, %{ingested_at: nil, stale?: false}}
+
+          doc ->
+            stale? = DateTime.compare(entry.modified_at, doc.updated_at) == :gt
+            {entry.name, %{ingested_at: doc.updated_at, stale?: stale?}}
+        end
+      end)
+
+    assign(socket, ingestion_map: ingestion_map)
+  end
+
   defp parent_dir("."), do: "."
 
   defp parent_dir(path) do
@@ -374,7 +405,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp do_delete(path, "directory"), do: FileExplorer.delete_directory(path)
-  defp do_delete(path, _type), do: FileExplorer.delete(path)
+
+  defp do_delete(path, _type) do
+    source = Path.basename(path)
+
+    case Document.get_by_source(source) do
+      %Document{} = doc -> Document.delete(doc)
+      nil -> :ok
+    end
+
+    FileExplorer.delete(path)
+  end
 
   defp do_move(socket, source, dest, name, dest_dir) do
     case FileExplorer.rename(source, dest) do
@@ -399,10 +440,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         sorted =
           Enum.sort_by(entries, fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
 
-        assign(socket, entries: sorted)
+        socket
+        |> assign(entries: sorted)
+        |> load_ingestion_status()
 
       {:error, _} ->
-        assign(socket, entries: [])
+        socket
+        |> assign(entries: [])
+        |> assign(ingestion_map: %{})
     end
   end
 

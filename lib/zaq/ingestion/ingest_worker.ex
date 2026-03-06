@@ -3,7 +3,10 @@ defmodule Zaq.Ingestion.IngestWorker do
   Oban worker for processing document ingestion jobs.
   Retries up to 3 times with 5s backoff, then marks the job as failed.
   """
-  use Oban.Worker, queue: :ingestion, max_attempts: 3
+  use Oban.Worker,
+    queue: :ingestion,
+    max_attempts: 3,
+    unique: [period: 120, fields: [:args]]
 
   import Ecto.Query
   require Logger
@@ -29,8 +32,8 @@ defmodule Zaq.Ingestion.IngestWorker do
         |> IngestJob.changeset(%{
           status: "completed",
           completed_at: DateTime.utc_now(),
-          chunks_count: count_chunks(document[:id]),
-          document_id: document[:id]
+          chunks_count: count_chunks(document.id),
+          document_id: document.id
         })
         |> Repo.update!()
         |> broadcast_update()
