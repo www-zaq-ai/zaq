@@ -59,6 +59,7 @@ defmodule ZaqWeb.Router do
       live "/ai-diagnostics", Live.BO.AIDiagnosticsLive
       live "/prompt-templates", Live.BO.PromptTemplatesLive
       live "/ingestion", Live.BO.IngestionLive
+      live "/ontology", Live.BO.OntologyLive
     end
   end
 

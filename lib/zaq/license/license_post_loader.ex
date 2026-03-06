@@ -49,6 +49,10 @@ defmodule Zaq.License.LicensePostLoader do
 
     run_migrations(migration_files)
 
+    # Broadcast that license has been updated (migrations complete)
+    Phoenix.PubSub.broadcast(Zaq.PubSub, "license:updated", :license_updated)
+    Logger.debug("[LicensePostLoader] Broadcast license:updated event")
+
     {:noreply, state}
   end
 

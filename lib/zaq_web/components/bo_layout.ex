@@ -78,6 +78,13 @@ defmodule ZaqWeb.Components.BOLayout do
               label="Ingestion"
               active={@current_path == "/bo/ingestion"}
             />
+
+            <.nav_item
+              href={~p"/bo/ontology"}
+              icon="ontology"
+              label="Ontology"
+              active={String.starts_with?(@current_path, "/bo/ontology")}
+            />
           </div>
           
     <!-- System -->
@@ -228,6 +235,25 @@ defmodule ZaqWeb.Components.BOLayout do
       >
         <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+
+      <svg
+        :if={@icon == "ontology"}
+        class="w-[18px] h-[18px]"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        viewBox="0 0 24 24"
+      >
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2v4" />
+        <path d="M12 18v4" />
+        <path d="M4.93 4.93l2.83 2.83" />
+        <path d="M16.24 16.24l2.83 2.83" />
+        <path d="M2 12h4" />
+        <path d="M18 12h4" />
+        <path d="M4.93 19.07l2.83-2.83" />
+        <path d="M16.24 7.76l2.83-2.83" />
       </svg>
 
       <svg
