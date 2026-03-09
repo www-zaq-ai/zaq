@@ -12,32 +12,25 @@ defmodule Zaq.Channels.Mattermost.API do
     send_typing(channel_id)
     Process.sleep(@typing_delay)
 
-    with %ChannelConfig{} = config <- ChannelConfig.get_by_provider("mattermost") do
-      url = config.url <> @posts_path
+    case ChannelConfig.get_by_provider("mattermost") do
+      %ChannelConfig{} = config ->
+        url = config.url <> @posts_path
 
-      body =
-        Jason.encode!(%{
-          channel_id: channel_id,
-          message: message
-        })
+        body =
+          Jason.encode!(%{
+            channel_id: channel_id,
+            message: message
+          })
 
-      headers = [
-        {"authorization", "Bearer #{config.token}"},
-        {"content-type", "application/json"}
-      ]
+        headers = [
+          {"authorization", "Bearer #{config.token}"},
+          {"content-type", "application/json"}
+        ]
 
-      case HTTPoison.post(url, body, headers) do
-        {:ok, %HTTPoison.Response{status_code: 201, body: resp_body}} ->
-          {:ok, Jason.decode!(resp_body)}
+        do_post(url, body, headers)
 
-        {:ok, %HTTPoison.Response{status_code: status, body: resp_body}} ->
-          {:error, %{status: status, body: resp_body}}
-
-        {:error, %HTTPoison.Error{reason: reason}} ->
-          {:error, reason}
-      end
-    else
-      nil -> {:error, :mattermost_not_configured}
+      nil ->
+        {:error, :mattermost_not_configured}
     end
   end
 
@@ -53,23 +46,13 @@ defmodule Zaq.Channels.Mattermost.API do
   end
 
   def clear_channel(channel_id) do
-    with %ChannelConfig{} = config <- ChannelConfig.get_by_provider("mattermost") do
-      headers = [{"authorization", "Bearer #{config.token}"}]
+    case ChannelConfig.get_by_provider("mattermost") do
+      %ChannelConfig{} = config ->
+        headers = [{"authorization", "Bearer #{config.token}"}]
+        delete_all_posts(config.url, channel_id, headers)
 
-      case list_channel_posts(config.url, channel_id, headers) do
-        {:ok, post_ids} ->
-          Enum.each(post_ids, fn post_id ->
-            delete_post(config.url, post_id, headers)
-            Process.sleep(100)
-          end)
-
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      nil -> {:error, :mattermost_not_configured}
+      nil ->
+        {:error, :mattermost_not_configured}
     end
   end
 
@@ -90,6 +73,10 @@ defmodule Zaq.Channels.Mattermost.API do
       {"content-type", "application/json"}
     ]
 
+    do_post(url, body, headers)
+  end
+
+  defp do_post(url, body, headers) do
     case HTTPoison.post(url, body, headers) do
       {:ok, %HTTPoison.Response{status_code: 201, body: resp_body}} ->
         {:ok, Jason.decode!(resp_body)}
@@ -98,6 +85,21 @@ defmodule Zaq.Channels.Mattermost.API do
         {:error, %{status: status, body: resp_body}}
 
       {:error, %HTTPoison.Error{reason: reason}} ->
+        {:error, reason}
+    end
+  end
+
+  defp delete_all_posts(base_url, channel_id, headers) do
+    case list_channel_posts(base_url, channel_id, headers) do
+      {:ok, post_ids} ->
+        Enum.each(post_ids, fn post_id ->
+          delete_post(base_url, post_id, headers)
+          Process.sleep(100)
+        end)
+
+        :ok
+
+      {:error, reason} ->
         {:error, reason}
     end
   end
