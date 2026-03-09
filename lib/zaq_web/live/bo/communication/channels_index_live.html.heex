@@ -1,0 +1,390 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  page_title="Channels"
+  current_path={@current_path}
+>
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="font-mono text-xl font-bold text-black tracking-tight">Channels</h1>
+    <p class="font-mono text-[0.75rem] text-black/40 mt-1">
+      Connect your team's communication tools to centralize messages and automate workflows.
+    </p>
+  </div>
+  
+<!-- Channel Grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    
+<!-- Slack -->
+    <.link
+      navigate={~p"/bo/channels/slack"}
+      class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-[#4A154B]/30 hover:shadow-lg hover:shadow-[#4A154B]/5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      <div class="absolute inset-0 bg-gradient-to-br from-[#4A154B]/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-[#4A154B]/8 grid place-items-center">
+          <!-- Slack logo SVG -->
+          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52z"
+              fill="#E01E5A"
+            />
+            <path
+              d="M6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z"
+              fill="#E01E5A"
+            />
+            <path
+              d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834z"
+              fill="#36C5F0"
+            />
+            <path
+              d="M8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z"
+              fill="#36C5F0"
+            />
+            <path
+              d="M18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834z"
+              fill="#2EB67D"
+            />
+            <path
+              d="M17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312z"
+              fill="#2EB67D"
+            />
+            <path
+              d="M15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52z"
+              fill="#ECB22E"
+            />
+            <path
+              d="M15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"
+              fill="#ECB22E"
+            />
+          </svg>
+        </div>
+        <span class={[
+          "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+          if(@stats.slack > 0,
+            do: "bg-emerald-100 text-emerald-700",
+            else: "bg-black/5 text-black/30"
+          )
+        ]}>
+          {if @stats.slack > 0, do: "#{@stats.slack} active", else: "Not configured"}
+        </span>
+      </div>
+      <div>
+        <h3 class="font-mono text-sm font-bold text-black mb-1">Slack</h3>
+        <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
+          Connect workspaces, post messages, and trigger workflows from Slack channels and DMs.
+        </p>
+      </div>
+      <div class="flex items-center gap-1 text-[#4A154B]/60 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all">
+        <span>Configure</span>
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </.link>
+    
+<!-- Microsoft Teams -->
+    <.link
+      navigate={~p"/bo/channels/teams"}
+      class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-[#464EB8]/30 hover:shadow-lg hover:shadow-[#464EB8]/5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      <div class="absolute inset-0 bg-gradient-to-br from-[#464EB8]/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-[#464EB8]/8 grid place-items-center">
+          <!-- Teams logo SVG -->
+          <svg class="w-7 h-7" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M20.625 7.313a2.813 2.813 0 1 0 0-5.626 2.813 2.813 0 0 0 0 5.625z"
+              fill="#5059C9"
+            />
+            <path
+              d="M14.25 8.25h7.688A1.062 1.062 0 0 1 23 9.313v5.625a3.375 3.375 0 0 1-3.375 3.374h-.028a3.375 3.375 0 0 1-3.372-3.374v-6a.656.656 0 0 1 .656-.656l-.631-.028z"
+              fill="#5059C9"
+            />
+            <path
+              d="M11.25 8.25a3.375 3.375 0 1 0 0-6.75 3.375 3.375 0 0 0 0 6.75z"
+              fill="#7B83EB"
+            />
+            <path
+              d="M15.563 8.25H6.936A1.125 1.125 0 0 0 5.813 9.4v6.544a6.188 6.188 0 0 0 5.437 6.15 6.188 6.188 0 0 0 6.938-6.15V9.4a1.125 1.125 0 0 0-1.125-1.15h-.5z"
+              fill="#7B83EB"
+            />
+            <path d="M12 15.375v-7.5" stroke="#fff" stroke-width=".75" stroke-opacity=".1" />
+            <path d="M5.813 14.25H16.5" stroke="#fff" stroke-width=".75" stroke-opacity=".1" />
+          </svg>
+        </div>
+        <span class={[
+          "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+          if(@stats.teams > 0,
+            do: "bg-emerald-100 text-emerald-700",
+            else: "bg-black/5 text-black/30"
+          )
+        ]}>
+          {if @stats.teams > 0, do: "#{@stats.teams} active", else: "Not configured"}
+        </span>
+      </div>
+      <div>
+        <h3 class="font-mono text-sm font-bold text-black mb-1">Microsoft Teams</h3>
+        <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
+          Send alerts and notifications directly into Teams channels via incoming webhooks.
+        </p>
+      </div>
+      <div class="flex items-center gap-1 text-[#464EB8]/60 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all">
+        <span>Configure</span>
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </.link>
+    
+<!-- Mattermost -->
+    <.link
+      navigate={~p"/bo/channels/mattermost"}
+      class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-[#0058CC]/30 hover:shadow-lg hover:shadow-[#0058CC]/5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      <div class="absolute inset-0 bg-gradient-to-br from-[#0058CC]/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-[#0058CC]/8 grid place-items-center">
+          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M12 2C6.48 2 2 6.02 2 11c0 2.67 1.18 5.07 3.07 6.75L4 22l4.83-2.5C10.1 19.82 11.02 20 12 20c5.52 0 10-4.02 10-9S17.52 2 12 2z"
+              fill="#0058CC"
+            />
+            <path d="M7 10h2v5H7zM11 10h2v5h-2zM15 10h2v5h-2z" fill="white" />
+          </svg>
+        </div>
+        <span class={[
+          "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+          if(@stats.mattermost > 0,
+            do: "bg-emerald-100 text-emerald-700",
+            else: "bg-black/5 text-black/30"
+          )
+        ]}>
+          {if @stats.mattermost > 0, do: "#{@stats.mattermost} active", else: "Not configured"}
+        </span>
+      </div>
+      <div>
+        <h3 class="font-mono text-sm font-bold text-black mb-1">Mattermost</h3>
+        <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
+          Self-hosted messaging with full control. Integrate bots, post to channels, and receive events.
+        </p>
+      </div>
+      <div class="flex items-center gap-1 text-[#0058CC]/60 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all">
+        <span>Configure</span>
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </.link>
+    
+<!-- AI Agents -->
+    <.link
+      navigate={~p"/bo/channels/ai_agents"}
+      class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-[#03b6d4]/30 hover:shadow-lg hover:shadow-[#03b6d4]/5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      <div class="absolute inset-0 bg-gradient-to-br from-[#03b6d4]/[0.03] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-[#03b6d4]/10 grid place-items-center">
+          <svg
+            class="w-6 h-6 text-[#03b6d4]"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z" />
+            <circle cx="9" cy="14" r="1" fill="currentColor" />
+            <circle cx="15" cy="14" r="1" fill="currentColor" />
+          </svg>
+        </div>
+        <span class={[
+          "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+          if(@stats.ai_agents > 0,
+            do: "bg-emerald-100 text-emerald-700",
+            else: "bg-black/5 text-black/30"
+          )
+        ]}>
+          {if @stats.ai_agents > 0, do: "#{@stats.ai_agents} active", else: "Not configured"}
+        </span>
+      </div>
+      <div>
+        <h3 class="font-mono text-sm font-bold text-black mb-1">AI Agents</h3>
+        <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
+          Connect autonomous agents that read, respond, and act on messages across your stack.
+        </p>
+      </div>
+      <div class="flex items-center gap-1 text-[#03b6d4]/80 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all">
+        <span>Configure</span>
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </.link>
+    
+<!-- Discord -->
+    <.link
+      navigate={~p"/bo/channels/discord"}
+      class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-[#5865F2]/30 hover:shadow-lg hover:shadow-[#5865F2]/5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      <div class="absolute inset-0 bg-gradient-to-br from-[#5865F2]/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-[#5865F2]/8 grid place-items-center">
+          <svg
+            class="w-6 h-6"
+            viewBox="0 0 24 24"
+            fill="#5865F2"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.033.057a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+          </svg>
+        </div>
+        <span class={[
+          "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+          if(@stats.discord > 0,
+            do: "bg-emerald-100 text-emerald-700",
+            else: "bg-black/5 text-black/30"
+          )
+        ]}>
+          {if @stats.discord > 0, do: "#{@stats.discord} active", else: "Not configured"}
+        </span>
+      </div>
+      <div>
+        <h3 class="font-mono text-sm font-bold text-black mb-1">Discord</h3>
+        <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
+          Post to Discord servers via webhooks. Great for communities, dev teams, and alert routing.
+        </p>
+      </div>
+      <div class="flex items-center gap-1 text-[#5865F2]/60 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all">
+        <span>Configure</span>
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </.link>
+    
+<!-- Telegram -->
+    <.link
+      navigate={~p"/bo/channels/telegram"}
+      class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-[#26A5E4]/30 hover:shadow-lg hover:shadow-[#26A5E4]/5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      <div class="absolute inset-0 bg-gradient-to-br from-[#26A5E4]/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-[#26A5E4]/8 grid place-items-center">
+          <svg
+            class="w-6 h-6"
+            viewBox="0 0 24 24"
+            fill="#26A5E4"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+          </svg>
+        </div>
+        <span class={[
+          "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+          if(@stats.telegram > 0,
+            do: "bg-emerald-100 text-emerald-700",
+            else: "bg-black/5 text-black/30"
+          )
+        ]}>
+          {if @stats.telegram > 0, do: "#{@stats.telegram} active", else: "Not configured"}
+        </span>
+      </div>
+      <div>
+        <h3 class="font-mono text-sm font-bold text-black mb-1">Telegram</h3>
+        <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
+          Send and receive messages via Telegram Bot API. Ideal for ops alerts and lightweight bots.
+        </p>
+      </div>
+      <div class="flex items-center gap-1 text-[#26A5E4]/60 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all">
+        <span>Configure</span>
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </.link>
+    
+<!-- Webhook -->
+    <.link
+      navigate={~p"/bo/channels/webhook"}
+      class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-black/20 hover:shadow-lg hover:shadow-black/5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      <div class="absolute inset-0 bg-gradient-to-br from-black/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-black/5 grid place-items-center">
+          <svg
+            class="w-6 h-6 text-black/50"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+        </div>
+        <span class={[
+          "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+          if(@stats.webhook > 0,
+            do: "bg-emerald-100 text-emerald-700",
+            else: "bg-black/5 text-black/30"
+          )
+        ]}>
+          {if @stats.webhook > 0, do: "#{@stats.webhook} active", else: "Not configured"}
+        </span>
+      </div>
+      <div>
+        <h3 class="font-mono text-sm font-bold text-black mb-1">Webhook</h3>
+        <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
+          POST events to any HTTP endpoint. Use for custom integrations, Zapier, Make, or n8n.
+        </p>
+      </div>
+      <div class="flex items-center gap-1 text-black/40 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all">
+        <span>Configure</span>
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg>
+      </div>
+    </.link>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

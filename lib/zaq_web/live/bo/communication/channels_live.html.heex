@@ -1,9 +1,57 @@
 <ZaqWeb.Components.BOLayout.bo_layout
   current_user={@current_user}
-  page_title="Channels"
+  page_title={@provider_label}
   current_path={@current_path}
 >
-  <!-- Flash Messages -->
+  <!-- Back nav + Header -->
+  <div class="mb-6">
+    <.link
+      navigate={~p"/bo/channels"}
+      class="inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-black/40 hover:text-black transition-colors mb-4"
+    >
+      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M19 12H5M12 5l-7 7 7 7" />
+      </svg>
+      All Channels
+    </.link>
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-[#0058CC]/10 grid place-items-center">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 2C6.48 2 2 6.02 2 11c0 2.67 1.18 5.07 3.07 6.75L4 22l4.83-2.5C10.1 19.82 11.02 20 12 20c5.52 0 10-4.02 10-9S17.52 2 12 2z"
+              fill="#0058CC"
+            />
+            <path d="M7 10h2v5H7zM11 10h2v5h-2zM15 10h2v5h-2z" fill="white" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="font-mono text-lg font-bold text-black">{@provider_label}</h1>
+          <p class="font-mono text-[0.7rem] text-black/40 mt-0.5">
+            Manage configs and interact with your Mattermost instance
+          </p>
+        </div>
+      </div>
+      <button
+        phx-click="open_modal"
+        phx-value-action="new"
+        class="font-mono text-[0.75rem] tracking-wide px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors flex items-center gap-1.5"
+      >
+        <svg
+          class="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M12 4v16m8-8H4" />
+        </svg>
+        Add Config
+      </button>
+    </div>
+  </div>
+  
+<!-- Flash Messages -->
   <div
     :if={Phoenix.Flash.get(@flash, :info)}
     class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
@@ -35,167 +83,155 @@
     <span>{Phoenix.Flash.get(@flash, :error)}</span>
   </div>
   
-<!-- Add Channel Config button -->
-  <div class="flex justify-end mb-4">
-    <button
-      phx-click="open_modal"
-      phx-value-action="new"
-      class="font-mono text-[0.75rem] tracking-wide px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors flex items-center gap-1.5"
-    >
-      <svg
-        class="w-3.5 h-3.5"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        viewBox="0 0 24 24"
-      >
-        <path d="M12 4v16m8-8H4" />
-      </svg>
-      Add Channel
-    </button>
-  </div>
-  
+<!-- ================================================================== -->
+  <!-- SECTION: Configurations -->
+  <!-- ================================================================== -->
+  <div class="mb-2">
+    <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">
+      Configurations
+    </p>
+    
 <!-- Empty State -->
-  <div
-    :if={@configs == []}
-    class="bg-white rounded-xl border border-dashed border-black/15 p-10 text-center"
-  >
-    <div class="w-10 h-10 rounded-lg bg-black/5 grid place-items-center mx-auto mb-3">
-      <svg
-        class="w-5 h-5 text-black/30"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M3 6h18M3 12h18M3 18h18" />
-        <circle cx="8" cy="6" r="1.5" fill="currentColor" />
-        <circle cx="16" cy="12" r="1.5" fill="currentColor" />
-        <circle cx="12" cy="18" r="1.5" fill="currentColor" />
-      </svg>
-    </div>
-    <p class="font-mono text-sm font-bold text-black mb-1">No channels configured yet</p>
-    <p class="font-mono text-[0.7rem] text-black/40">Add a channel connector to get started</p>
-  </div>
-  
-<!-- Channel Config Cards -->
-  <div :if={@configs != []} class="space-y-3">
     <div
-      :for={config <- @configs}
-      class="bg-white rounded-xl border border-black/10 p-5 flex items-center justify-between"
+      :if={@configs == []}
+      class="bg-white rounded-xl border border-dashed border-black/15 p-8 text-center"
     >
-      <!-- Left: Info -->
-      <div class="flex items-center gap-4">
-        <!-- Provider Icon -->
-        <div class={[
-          "w-10 h-10 rounded-xl grid place-items-center",
-          if(config.enabled, do: "bg-[#03b6d4]/10", else: "bg-black/5")
-        ]}>
-          <svg
-            :if={config.provider == "mattermost"}
-            class={["w-5 h-5", if(config.enabled, do: "text-[#03b6d4]", else: "text-black/30")]}
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            viewBox="0 0 24 24"
-          >
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-          <svg
-            :if={config.provider == "slack"}
-            class={["w-5 h-5", if(config.enabled, do: "text-[#03b6d4]", else: "text-black/30")]}
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            viewBox="0 0 24 24"
-          >
-            <path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z" />
-            <path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" />
-            <path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z" />
-            <path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z" />
-            <path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z" />
-            <path d="M14 19v1.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5.67-1.5 1.5-1.5H14z" />
-            <path d="M10 9.5C10 10.33 9.33 11 8.5 11h-5C2.67 11 2 10.33 2 9.5S2.67 8 3.5 8h5c.83 0 1.5.67 1.5 1.5z" />
-            <path d="M10 5V3.5C10 2.67 10.67 2 11.5 2S13 2.67 13 3.5 12.33 5 11.5 5H10z" />
-          </svg>
-          <svg
-            :if={config.provider == "teams"}
-            class={["w-5 h-5", if(config.enabled, do: "text-[#03b6d4]", else: "text-black/30")]}
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            viewBox="0 0 24 24"
-          >
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-          </svg>
+      <div class="w-9 h-9 rounded-lg bg-black/5 grid place-items-center mx-auto mb-3">
+        <svg
+          class="w-4 h-4 text-black/30"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+        >
+          <path d="M12 4v16m8-8H4" />
+        </svg>
+      </div>
+      <p class="font-mono text-sm font-bold text-black mb-1">No configs yet</p>
+      <p class="font-mono text-[0.7rem] text-black/40">
+        Add a Mattermost connection to get started
+      </p>
+    </div>
+    
+<!-- Config Cards -->
+    <div :if={@configs != []} class="space-y-3">
+      <div
+        :for={config <- @configs}
+        class="bg-white rounded-xl border border-black/10 p-5 flex items-center justify-between"
+      >
+        <div class="flex items-center gap-4">
+          <div class={[
+            "w-10 h-10 rounded-xl grid place-items-center",
+            if(config.enabled, do: "bg-[#0058CC]/10", else: "bg-black/5")
+          ]}>
+            <svg
+              class={["w-5 h-5", if(config.enabled, do: "text-[#0058CC]", else: "text-black/30")]}
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              viewBox="0 0 24 24"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <p class="font-mono text-sm font-bold text-black">{config.name}</p>
+              <span class={[
+                "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
+                if(config.enabled,
+                  do: "bg-emerald-100 text-emerald-700",
+                  else: "bg-black/5 text-black/30"
+                )
+              ]}>
+                {if config.enabled, do: "Active", else: "Disabled"}
+              </span>
+            </div>
+            <div class="flex items-center gap-3">
+              <p class="font-mono text-[0.7rem] text-black/40">Mattermost</p>
+              <span class="text-black/10">·</span>
+              <p class="font-mono text-[0.7rem] text-black/30 truncate max-w-[280px]">
+                {config.url}
+              </p>
+            </div>
+          </div>
         </div>
-        
-<!-- Details -->
-        <div>
-          <div class="flex items-center gap-2 mb-1">
-            <p class="font-mono text-sm font-bold text-black">{config.name}</p>
-            <span class={[
-              "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
-              if(config.enabled,
-                do: "bg-emerald-100 text-emerald-700",
-                else: "bg-black/5 text-black/30"
-              )
-            ]}>
-              {if config.enabled, do: "Active", else: "Disabled"}
-            </span>
-          </div>
-          <div class="flex items-center gap-3">
-            <p class="font-mono text-[0.7rem] text-black/40">
-              {config.provider |> String.replace("_", " ") |> String.capitalize()}
-            </p>
-            <span class="text-black/10">·</span>
-            <p class="font-mono text-[0.7rem] text-black/30 truncate max-w-[250px]">
-              {config.url}
-            </p>
-          </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            phx-click="toggle_enabled"
+            phx-value-id={config.id}
+            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+          >
+            {if config.enabled, do: "Disable", else: "Enable"}
+          </button>
+          <button
+            phx-click="open_modal"
+            phx-value-action="edit"
+            phx-value-id={config.id}
+            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
+            title="Edit"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
+          <button
+            phx-click="open_test"
+            phx-value-id={config.id}
+            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-amber-500 hover:border-amber-300 transition-all"
+            title="Test connection"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+            </svg>
+          </button>
+          <button
+            phx-click="confirm_delete"
+            phx-value-id={config.id}
+            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-red-500 hover:border-red-200 transition-all"
+            title="Delete"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
         </div>
       </div>
-      
-<!-- Right: Actions -->
-      <div class="flex items-center gap-2">
-        <!-- Toggle -->
-        <button
-          phx-click="toggle_enabled"
-          phx-value-id={config.id}
-          class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
-        >
-          {if config.enabled, do: "Disable", else: "Enable"}
-        </button>
-        <!-- Edit -->
-        <button
-          phx-click="open_modal"
-          phx-value-action="edit"
-          phx-value-id={config.id}
-          class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
-        >
+    </div>
+  </div>
+  
+<!-- ================================================================== -->
+  <!-- MATTERMOST TOOLS (only shown when at least one config exists) -->
+  <!-- ================================================================== -->
+  <div :if={@configs != []} class="mt-8 space-y-4">
+    <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">Tools</p>
+    
+<!-- ── Send Message ─────────────────────────────────────────────────── -->
+    <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
+      <div class="px-6 py-4 border-b border-black/5 flex items-center gap-3">
+        <div class="w-7 h-7 rounded-lg bg-[#03b6d4]/10 grid place-items-center">
           <svg
-            class="w-3.5 h-3.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
-        </button>
-        <!-- Test -->
-        <button
-          phx-click="open_test"
-          phx-value-id={config.id}
-          class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-amber-500 hover:border-amber-300 transition-all"
-          title="Test connection"
-        >
-          <svg
-            class="w-3.5 h-3.5"
+            class="w-3.5 h-3.5 text-[#03b6d4]"
             fill="none"
             stroke="currentColor"
             stroke-width="2"
@@ -203,15 +239,298 @@
           >
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
           </svg>
-        </button>
-        <!-- Delete -->
-        <button
-          phx-click="confirm_delete"
-          phx-value-id={config.id}
-          class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-red-500 hover:border-red-200 transition-all"
+        </div>
+        <div>
+          <p class="font-mono text-sm font-bold text-black">Send Message</p>
+          <p class="font-mono text-[0.65rem] text-black/40">
+            Post a message to any channel or DM
+          </p>
+        </div>
+      </div>
+
+      <div class="p-6">
+        <!-- Success state -->
+        <div
+          :if={@send_status == :ok}
+          class="rounded-xl bg-emerald-50 border border-emerald-200 px-5 py-4 flex items-start gap-3"
         >
           <svg
-            class="w-3.5 h-3.5"
+            class="w-4 h-4 text-emerald-500 mt-0.5 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M5 13l4 4L19 7" />
+          </svg>
+          <div class="flex-1">
+            <p class="font-mono text-[0.75rem] font-bold text-emerald-700">Message sent!</p>
+            <p class="font-mono text-[0.65rem] text-emerald-600 mt-0.5">
+              Your message was delivered to the channel.
+            </p>
+          </div>
+          <button
+            phx-click="reset_send"
+            class="font-mono text-[0.65rem] text-emerald-600 hover:text-emerald-800 underline underline-offset-2"
+          >
+            Send another
+          </button>
+        </div>
+        
+<!-- Error state -->
+        <div
+          :if={is_tuple(@send_status) and elem(@send_status, 0) == :error}
+          class="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2"
+        >
+          <svg
+            class="w-4 h-4 text-red-500 mt-0.5 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+          </svg>
+          <div>
+            <p class="font-mono text-[0.7rem] font-bold text-red-600">Failed to send</p>
+            <p class="font-mono text-[0.6rem] text-red-500 mt-0.5 break-all">
+              {inspect(elem(@send_status, 1))}
+            </p>
+          </div>
+        </div>
+        
+<!-- Form -->
+        <form
+          :if={@send_status != :ok}
+          phx-submit="send_message"
+          class="space-y-4"
+        >
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1.5 block">
+                Channel ID
+              </label>
+              <input
+                type="text"
+                name="channel_id"
+                value={@send_channel_id}
+                placeholder="e.g. abc123xyz"
+                required
+                class="w-full h-10 px-3 rounded-lg border border-black/10 bg-[#f8f8f8] text-black placeholder:text-black/25 text-[0.8rem] font-mono outline-none focus:border-[#03b6d4] transition-colors"
+              />
+            </div>
+            <div class="col-span-2">
+              <label class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1.5 block">
+                Message
+              </label>
+              <textarea
+                name="message"
+                rows="3"
+                placeholder="Type your message here…"
+                required
+                class="w-full px-3 py-2.5 rounded-lg border border-black/10 bg-[#f8f8f8] text-black placeholder:text-black/25 text-[0.8rem] font-mono outline-none focus:border-[#03b6d4] transition-colors resize-none"
+              >{@send_message}</textarea>
+            </div>
+          </div>
+          <div class="flex justify-end">
+            <button
+              type="submit"
+              disabled={@send_status == :sending}
+              class={[
+                "font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg flex items-center gap-2 transition-all",
+                if(@send_status == :sending,
+                  do: "bg-black/10 text-black/30 cursor-not-allowed",
+                  else: "bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90"
+                )
+              ]}
+            >
+              <svg
+                :if={@send_status == :sending}
+                class="w-3.5 h-3.5 animate-spin"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                />
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
+              </svg>
+              <svg
+                :if={@send_status != :sending}
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+              {if @send_status == :sending, do: "Sending…", else: "Send Message"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    
+<!-- ── Browse Posts ──────────────────────────────────────────────────── -->
+    <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
+      <div class="px-6 py-4 border-b border-black/5 flex items-center gap-3">
+        <div class="w-7 h-7 rounded-lg bg-[#0058CC]/10 grid place-items-center">
+          <svg
+            class="w-3.5 h-3.5 text-[#0058CC]"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </div>
+        <div>
+          <p class="font-mono text-sm font-bold text-black">Browse Posts</p>
+          <p class="font-mono text-[0.65rem] text-black/40">
+            Fetch and preview recent messages from a channel
+          </p>
+        </div>
+      </div>
+
+      <div class="p-6">
+        <form phx-submit="load_posts" class="flex gap-3 mb-5">
+          <input
+            type="text"
+            name="channel_id"
+            value={@posts_channel_id}
+            placeholder="Channel ID"
+            required
+            class="flex-1 h-10 px-3 rounded-lg border border-black/10 bg-[#f8f8f8] text-black placeholder:text-black/25 text-[0.8rem] font-mono outline-none focus:border-[#0058CC] transition-colors"
+          />
+          <button
+            type="submit"
+            disabled={@posts_status == :loading}
+            class={[
+              "font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-all shrink-0",
+              if(@posts_status == :loading,
+                do: "bg-black/10 text-black/30 cursor-not-allowed",
+                else: "bg-[#0058CC] text-white hover:bg-[#0058CC]/90"
+              )
+            ]}
+          >
+            <svg
+              :if={@posts_status == :loading}
+              class="w-3.5 h-3.5 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              />
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+            <svg
+              :if={@posts_status != :loading}
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M4 4h16M4 8h16M4 12h10" />
+            </svg>
+            {if @posts_status == :loading, do: "Loading…", else: "Fetch Posts"}
+          </button>
+        </form>
+        
+<!-- Error -->
+        <div
+          :if={
+            is_binary(@posts_status) or
+              (is_tuple(@posts_status) and elem(@posts_status, 0) == :error)
+          }
+          class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-center gap-2"
+        >
+          <svg
+            class="w-4 h-4 text-red-500 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+          </svg>
+          <p class="font-mono text-[0.7rem] text-red-600">
+            {if is_binary(@posts_status), do: @posts_status, else: inspect(elem(@posts_status, 1))}
+          </p>
+        </div>
+        
+<!-- Empty result -->
+        <div
+          :if={@posts_status == :ok and @posts == []}
+          class="rounded-xl bg-black/3 border border-black/8 px-4 py-6 text-center"
+        >
+          <p class="font-mono text-[0.75rem] text-black/40">No posts found in this channel.</p>
+        </div>
+        
+<!-- Posts list -->
+        <div :if={@posts_status == :ok and @posts != []} class="space-y-2">
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-mono text-[0.65rem] text-black/30">
+              {length(@posts)} post{if length(@posts) != 1, do: "s"} loaded
+            </p>
+          </div>
+          <div
+            :for={post <- @posts}
+            class="rounded-xl border border-black/8 bg-[#fafafa] px-4 py-3"
+          >
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="font-mono text-[0.65rem] font-bold text-black/50">
+                {post["user_id"] || "unknown"}
+              </span>
+              <span class="font-mono text-[0.6rem] text-black/25">
+                {post["create_at"]
+                |> then(fn ts ->
+                  if is_integer(ts) do
+                    ts
+                    |> div(1000)
+                    |> DateTime.from_unix!()
+                    |> Calendar.strftime("%b %d, %H:%M")
+                  else
+                    ""
+                  end
+                end)}
+              </span>
+            </div>
+            <p class="font-mono text-[0.75rem] text-black/70 leading-relaxed whitespace-pre-wrap break-words">
+              {post["message"]}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+<!-- ── Clear Channel ─────────────────────────────────────────────────── -->
+    <div class="bg-white rounded-xl border border-red-100 overflow-hidden">
+      <div class="px-6 py-4 border-b border-red-50 flex items-center gap-3">
+        <div class="w-7 h-7 rounded-lg bg-red-50 grid place-items-center">
+          <svg
+            class="w-3.5 h-3.5 text-red-400"
             fill="none"
             stroke="currentColor"
             stroke-width="2"
@@ -219,100 +538,163 @@
           >
             <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
-        </button>
+        </div>
+        <div>
+          <p class="font-mono text-sm font-bold text-black">Clear Channel</p>
+          <p class="font-mono text-[0.65rem] text-black/40">
+            Permanently delete all posts from a channel
+          </p>
+        </div>
+        <span class="ml-auto font-mono text-[0.6rem] px-2 py-1 rounded-full bg-red-50 text-red-400 border border-red-100 uppercase tracking-wider">
+          Danger Zone
+        </span>
+      </div>
+
+      <div class="p-6">
+        <!-- Success -->
+        <div
+          :if={@clear_status == :ok}
+          class="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 flex items-center gap-2 mb-4"
+        >
+          <svg
+            class="w-4 h-4 text-emerald-500 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M5 13l4 4L19 7" />
+          </svg>
+          <p class="font-mono text-[0.7rem] text-emerald-700">Channel cleared successfully.</p>
+        </div>
+        
+<!-- Error -->
+        <div
+          :if={is_tuple(@clear_status) and elem(@clear_status, 0) == :error}
+          class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-center gap-2 mb-4"
+        >
+          <svg
+            class="w-4 h-4 text-red-500 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+          </svg>
+          <p class="font-mono text-[0.7rem] text-red-600">{inspect(elem(@clear_status, 1))}</p>
+        </div>
+
+        <form phx-submit="prompt_clear" class="flex gap-3">
+          <input
+            type="text"
+            name="channel_id"
+            placeholder="Channel ID to clear"
+            required
+            class="flex-1 h-10 px-3 rounded-lg border border-red-100 bg-red-50/30 text-black placeholder:text-black/25 text-[0.8rem] font-mono outline-none focus:border-red-300 transition-colors"
+          />
+          <button
+            type="submit"
+            class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-all shrink-0 flex items-center gap-2"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Clear Channel
+          </button>
+        </form>
+        <p class="font-mono text-[0.6rem] text-black/30 mt-2">
+          This will delete every post in the specified channel. This action cannot be undone.
+        </p>
       </div>
     </div>
   </div>
   
 <!-- ================================================================== -->
-  <!-- MODAL: Create / Edit -->
+  <!-- MODAL: New / Edit Config -->
   <!-- ================================================================== -->
   <div
-    :if={@modal}
+    :if={@modal in [:new, :edit]}
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
     phx-window-keydown="close_modal"
     phx-key="Escape"
   >
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="close_modal"></div>
     <div class="relative w-full max-w-md bg-white rounded-2xl border border-black/10 p-8 shadow-2xl">
-      <h3 class="font-mono text-base font-bold text-black mb-6">
-        {if @modal == :new, do: "Add Channel", else: "Edit Channel"}
+      <h3 class="font-mono text-base font-bold text-black mb-1">
+        {if @modal == :new, do: "New Mattermost Config", else: "Edit Config"}
       </h3>
+      <p class="font-mono text-[0.7rem] text-black/40 mb-6">
+        {if @modal == :new,
+          do: "Connect a Mattermost instance to start sending messages.",
+          else: "Update the details for this configuration."}
+      </p>
 
-      <.form for={@changeset} phx-change="validate" phx-submit="save" as={:form}>
-        <div class="space-y-4">
-          <!-- Name -->
-          <div>
-            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-              Name
-            </label>
-            <input
-              type="text"
-              name="form[name]"
-              value={@changeset.changes[:name] || @changeset.data.name}
-              placeholder="e.g. Production Mattermost"
-              required
-              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-            />
-          </div>
-          
-<!-- Provider -->
-          <div>
-            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-              Provider
-            </label>
-            <select
-              name="form[provider]"
-              required
-              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors appearance-none"
-            >
-              <option value="">Select provider...</option>
-              <option
-                :for={p <- ~w(mattermost slack teams)}
-                value={p}
-                selected={(@changeset.changes[:provider] || @changeset.data.provider) == p}
-              >
-                {p |> String.replace("_", " ") |> String.capitalize()}
-              </option>
-            </select>
-          </div>
-          
-<!-- URL -->
-          <div>
-            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-              URL
-            </label>
-            <input
-              type="url"
-              name="form[url]"
-              value={@changeset.changes[:url] || @changeset.data.url}
-              placeholder="https://mattermost.example.com"
-              required
-              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-            />
-          </div>
-          
-<!-- Token -->
-          <div>
-            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-              Token
-            </label>
-            <input
-              type="password"
-              name="form[token]"
-              value={@changeset.changes[:token] || @changeset.data.token}
-              placeholder="Bot access token"
-              required
-              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-            />
-            <p class="font-mono text-[0.6rem] text-black/30 mt-1">
-              Stored securely. Will not be displayed after saving.
-            </p>
-          </div>
+      <.form for={@changeset} as={:form} phx-submit="save" phx-change="validate">
+        <input :if={@modal == :new} type="hidden" name="form[provider]" value={@provider} />
+
+        <div class="mb-4">
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+            Name
+          </label>
+          <input
+            type="text"
+            name="form[name]"
+            value={Ecto.Changeset.get_field(@changeset, :name)}
+            placeholder="e.g. Engineering Alerts"
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          />
         </div>
-        
-<!-- Errors -->
-        <div :if={@modal_errors != []} class="mt-4 rounded-xl bg-red-50 border border-red-200 p-3">
+
+        <div class="mb-4">
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+            Instance URL
+          </label>
+          <input
+            type="text"
+            name="form[url]"
+            value={Ecto.Changeset.get_field(@changeset, :url)}
+            placeholder="https://mattermost.yourcompany.com"
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          />
+        </div>
+
+        <div class="mb-6">
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+            Bot Token
+          </label>
+          <input
+            type="password"
+            name="form[token]"
+            value={Ecto.Changeset.get_field(@changeset, :token)}
+            placeholder="••••••••••••••••"
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          />
+          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+            Bot or personal access token with post:write permissions
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3 mb-6">
+          <input
+            type="checkbox"
+            name="form[enabled]"
+            id="form_enabled"
+            checked={Ecto.Changeset.get_field(@changeset, :enabled)}
+            class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
+          />
+          <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">
+            Enable this configuration
+          </label>
+        </div>
+
+        <div :if={@modal_errors != []} class="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
           <p
             :for={err <- @modal_errors}
             class="font-mono text-[0.7rem] text-red-600 flex items-center gap-1.5"
@@ -320,9 +702,8 @@
             <span class="text-red-400">✗</span> {err}
           </p>
         </div>
-        
-<!-- Submit / Cancel -->
-        <div class="flex items-center justify-end gap-3 pt-6">
+
+        <div class="flex items-center justify-end gap-3">
           <button
             type="button"
             phx-click="close_modal"
@@ -370,15 +751,73 @@
       <div class="flex items-center justify-center gap-3">
         <button
           phx-click="cancel_delete"
-          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+          class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
         >
           Cancel
         </button>
         <button
           phx-click="delete"
-          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all"
+          class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all"
         >
           Delete
+        </button>
+      </div>
+    </div>
+  </div>
+  
+<!-- ================================================================== -->
+  <!-- MODAL: Clear Channel Confirmation -->
+  <!-- ================================================================== -->
+  <div
+    :if={@confirm_clear}
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    phx-window-keydown="cancel_clear"
+    phx-key="Escape"
+  >
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="cancel_clear"></div>
+    <div class="relative w-full max-w-sm bg-white rounded-2xl border border-black/10 p-8 shadow-2xl text-center">
+      <div class="w-10 h-10 rounded-lg bg-red-100 grid place-items-center mx-auto mb-4">
+        <svg
+          class="w-5 h-5 text-red-500"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+        >
+          <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      </div>
+      <h3 class="font-mono text-base font-bold text-black mb-2">Clear Channel?</h3>
+      <p class="font-mono text-[0.75rem] text-black/50 mb-1">
+        You are about to delete all posts in:
+      </p>
+      <p class="font-mono text-[0.8rem] font-bold text-black mb-5 bg-black/5 rounded-lg px-3 py-2">
+        {@clear_channel_id}
+      </p>
+      <p class="font-mono text-[0.7rem] text-red-500 mb-6">
+        This cannot be undone. All messages will be permanently deleted.
+      </p>
+      <div class="flex items-center justify-center gap-3">
+        <button
+          phx-click="cancel_clear"
+          class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          phx-click="run_clear"
+          class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-2"
+        >
+          <svg
+            class="w-3.5 h-3.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Yes, Clear It
         </button>
       </div>
     </div>
@@ -395,15 +834,10 @@
   >
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="close_test"></div>
     <div class="relative w-full max-w-sm bg-white rounded-2xl border border-black/10 p-8 shadow-2xl">
-      <h3 class="font-mono text-base font-bold text-black mb-1">
-        Test Connection
-      </h3>
+      <h3 class="font-mono text-base font-bold text-black mb-1">Test Connection</h3>
       <p class="font-mono text-[0.7rem] text-black/40 mb-6">
-        Send a test message to verify
-        <span class="text-black/60 font-bold">{@test_config.name}</span>
-        is working.
+        Send a test message via <span class="text-black/60 font-bold">{@test_config.name}</span>
       </p>
-
       <form phx-submit="run_test">
         <div class="mb-4">
           <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
@@ -417,12 +851,8 @@
             required
             class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           />
-          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
-            The ID of the channel to send the test message to
-          </p>
         </div>
-        
-<!-- Status Feedback -->
+
         <div
           :if={@test_status == :testing}
           class="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex items-center gap-2"
@@ -483,13 +913,12 @@
             {elem(@test_status, 1) |> inspect()}
           </p>
         </div>
-        
-<!-- Actions -->
+
         <div class="flex items-center justify-end gap-3">
           <button
             type="button"
             phx-click="close_test"
-            class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+            class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black transition-all"
           >
             Close
           </button>
@@ -497,22 +926,13 @@
             type="submit"
             disabled={@test_status == :testing}
             class={[
-              "font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold transition-all flex items-center gap-1.5",
+              "font-mono text-[0.75rem] px-5 py-2.5 rounded-xl font-bold transition-all flex items-center gap-1.5",
               if(@test_status == :testing,
                 do: "bg-black/10 text-black/30 cursor-not-allowed",
                 else: "bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90"
               )
             ]}
           >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-            </svg>
             Send Test
           </button>
         </div>

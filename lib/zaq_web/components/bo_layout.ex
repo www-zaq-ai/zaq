@@ -89,18 +89,6 @@ defmodule ZaqWeb.Components.BOLayout do
               active={@current_path == "/bo/history"}
             />
           </div>
-          <!-- Widget -->
-          <div class="pt-4">
-            <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
-              Widget
-            </p>
-            <.nav_item
-              href={~p"/bo/widget-settings"}
-              icon="settings"
-              label="Settings"
-              active={@current_path == "/bo/widget-settings"}
-            />
-          </div>
           <!-- Accounts -->
           <div class="pt-4">
             <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
@@ -270,18 +258,6 @@ defmodule ZaqWeb.Components.BOLayout do
         <circle cx="8" cy="6" r="1.5" fill="currentColor" />
         <circle cx="16" cy="12" r="1.5" fill="currentColor" />
         <circle cx="12" cy="18" r="1.5" fill="currentColor" />
-      </svg>
-
-      <svg
-        :if={@icon == "settings"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <circle cx="12" cy="12" r="5" />
-        <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M16.3 7.7l2.1-2.1M5.6 18.4l2.1-2.1" />
       </svg>
 
       <svg
