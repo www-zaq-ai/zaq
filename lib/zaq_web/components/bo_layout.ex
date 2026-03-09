@@ -2,7 +2,7 @@
 
 defmodule ZaqWeb.Components.BOLayout do
   @moduledoc """
-  This module defines a Phoenix component for the back office (BO) layout of the application. It provides a consistent structure and styling for all BO pages, including a sidebar with navigation links, a header with the page title, and a main content area where the specific page content will be rendered. The layout also includes user information and a logout button in the sidebar. The component uses Tailwind CSS for styling and is designed to be responsive and user-friendly.
+  Back office layout with collapsible sidebar and section dropdowns.
   """
   use Phoenix.Component
   use ZaqWeb, :verified_routes
@@ -14,322 +14,554 @@ defmodule ZaqWeb.Components.BOLayout do
 
   def bo_layout(assigns) do
     ~H"""
-    <div class="min-h-screen flex bg-[#f5f5f5]">
-      <!-- Sidebar -->
-      <aside class="w-[240px] fixed top-0 left-0 h-screen bg-[#3c4b64] flex flex-col">
-        <!-- Logo -->
-        <div class="h-16 flex items-center px-6 border-b border-white/10">
-          <image src={~p"/images/zaq.png"} alt="ZAQ Logo" class="h-12" />
-          <span class="font-mono text-[0.65rem] text-white/40 ml-2 tracking-widest uppercase">
-            Back Office
-          </span>
+    <div class="min-h-screen flex bg-[#f0f4f8]" id="bo-root">
+      <style>
+        /* Sidebar transition */
+        #bo-sidebar {
+          width: 240px;
+          transition: width 0.22s cubic-bezier(.4,0,.2,1);
+        }
+        #bo-sidebar.collapsed {
+          width: 60px;
+        }
+        #bo-main {
+          margin-left: 240px;
+          transition: margin-left 0.22s cubic-bezier(.4,0,.2,1);
+        }
+        #bo-main.collapsed {
+          margin-left: 60px;
+        }
+
+        /* Hide labels/sections when collapsed */
+        #bo-sidebar.collapsed .nav-label,
+        #bo-sidebar.collapsed .section-header-text,
+        #bo-sidebar.collapsed .section-label,
+        #bo-sidebar.collapsed .user-info,
+        #bo-sidebar.collapsed .logout-btn,
+        #bo-sidebar.collapsed .logo-text {
+          opacity: 0;
+          width: 0;
+          overflow: hidden;
+          pointer-events: none;
+        }
+
+        /* Section dropdown */
+        .section-items {
+          overflow: hidden;
+          transition: max-height 0.2s ease, opacity 0.2s ease;
+          max-height: 500px;
+          opacity: 1;
+        }
+        .section-items.closed {
+          max-height: 0;
+          opacity: 0;
+        }
+
+        /* Collapsed tooltip */
+        #bo-sidebar.collapsed .nav-item-wrap {
+          position: relative;
+        }
+        #bo-sidebar.collapsed .nav-item-wrap:hover .nav-tooltip {
+          display: block;
+        }
+        .nav-tooltip {
+          display: none;
+          position: absolute;
+          left: 52px;
+          top: 50%;
+          transform: translateY(-50%);
+          background: #1e2a3a;
+          color: white;
+          font-size: 0.72rem;
+          font-family: monospace;
+          padding: 4px 10px;
+          border-radius: 6px;
+          white-space: nowrap;
+          z-index: 100;
+          pointer-events: none;
+        }
+
+        /* Chevron rotation */
+        .section-chevron {
+          transition: transform 0.2s ease;
+        }
+        .section-chevron.open {
+          transform: rotate(180deg);
+        }
+
+        /* Collapse toggle button */
+        #sidebar-toggle {
+          transition: transform 0.22s ease;
+        }
+        #bo-sidebar.collapsed #sidebar-toggle {
+          transform: rotate(180deg);
+        }
+      </style>
+      
+    <!-- Sidebar -->
+      <aside
+        id="bo-sidebar"
+        class="fixed top-0 left-0 h-screen bg-[#2c3a50] flex flex-col z-40 shadow-xl"
+      >
+        
+    <!-- Logo + collapse toggle -->
+        <div class="h-16 flex items-center justify-between px-3 border-b border-white/10 flex-shrink-0">
+          <div class="flex items-center gap-2 min-w-0">
+            <img
+              src={~p"/images/zaq.png"}
+              alt="ZAQ Logo"
+              class="h-8 w-8 flex-shrink-0 rounded-lg object-contain"
+            />
+            <span class="logo-text font-mono text-[0.65rem] text-white/40 tracking-widest uppercase whitespace-nowrap transition-all duration-200">
+              Back Office
+            </span>
+          </div>
+          <button
+            id="sidebar-toggle"
+            onclick="toggleSidebar()"
+            class="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 transition-all"
+            title="Toggle sidebar"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
         </div>
         
     <!-- Nav -->
-        <nav class="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          <.nav_item
-            href={~p"/bo/dashboard"}
-            icon="dashboard"
-            label="Dashboard"
-            active={@current_path == "/bo/dashboard"}
-          />
+        <nav class="flex-1 py-3 px-2 overflow-y-auto overflow-x-hidden space-y-0.5">
           
-    <!-- AI -->
-          <div class="pt-4">
-            <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
-              AI
-            </p>
-            <.nav_item
+    <!-- Dashboard (standalone) -->
+          <div class="nav-item-wrap">
+            <a
+              href={~p"/bo/dashboard"}
+              class={[
+                "flex items-center gap-3 px-2.5 py-2.5 rounded-lg font-mono text-[0.82rem] transition-all",
+                if(@current_path == "/bo/dashboard",
+                  do: "bg-[#03b6d4] text-white shadow-sm",
+                  else: "text-white/60 hover:text-white hover:bg-white/8"
+                )
+              ]}
+            >
+              <svg
+                class="w-[18px] h-[18px] flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                viewBox="0 0 24 24"
+              >
+                <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                <rect x="14" y="14" width="7" height="7" rx="1.5" />
+              </svg>
+              <span class="nav-label transition-all duration-200 whitespace-nowrap">Dashboard</span>
+            </a>
+            <div class="nav-tooltip">Dashboard</div>
+          </div>
+          
+    <!-- AI Section -->
+          <.nav_section
+            id="section-ai"
+            label="AI"
+            current_path={@current_path}
+            open={
+              String.starts_with?(@current_path, "/bo/ai") or
+                String.starts_with?(@current_path, "/bo/prompt") or
+                String.starts_with?(@current_path, "/bo/ingestion") or
+                String.starts_with?(@current_path, "/bo/ontology")
+            }
+          >
+            <:item
               href={~p"/bo/ai-diagnostics"}
               icon="ai"
               label="Diagnostics"
               active={@current_path == "/bo/ai-diagnostics"}
             />
-            <.nav_item
+            <:item
               href={~p"/bo/prompt-templates"}
               icon="prompt"
               label="Prompt Templates"
               active={@current_path == "/bo/prompt-templates"}
             />
-            <.nav_item
+            <:item
               href={~p"/bo/ingestion"}
               icon="ingestion"
               label="Ingestion"
               active={@current_path == "/bo/ingestion"}
             />
-
-            <.nav_item
+            <:item
               href={~p"/bo/ontology"}
               icon="ontology"
               label="Ontology"
               active={String.starts_with?(@current_path, "/bo/ontology")}
             />
-          </div>
-          <!-- Communication -->
-          <div class="pt-4">
-            <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
-              Communication
-            </p>
-            <.nav_item
+          </.nav_section>
+          
+    <!-- Communication Section -->
+          <.nav_section
+            id="section-communication"
+            label="Communication"
+            current_path={@current_path}
+            open={@current_path in ["/bo/channels", "/bo/playground", "/bo/history"]}
+          >
+            <:item
               href={~p"/bo/channels"}
               icon="channels"
               label="Channels"
               active={@current_path == "/bo/channels"}
             />
-            <.nav_item
+            <:item
               href={~p"/bo/playground"}
               icon="playground"
               label="Playground"
               active={@current_path == "/bo/playground"}
             />
-            <.nav_item
+            <:item
               href={~p"/bo/history"}
               icon="history"
               label="History"
               active={@current_path == "/bo/history"}
             />
-          </div>
-          <!-- Accounts -->
-          <div class="pt-4">
-            <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
-              Accounts
-            </p>
-            <.nav_item
+          </.nav_section>
+          
+    <!-- Accounts Section -->
+          <.nav_section
+            id="section-accounts"
+            label="Accounts"
+            current_path={@current_path}
+            open={
+              String.starts_with?(@current_path, "/bo/users") or
+                String.starts_with?(@current_path, "/bo/roles")
+            }
+          >
+            <:item
               href={~p"/bo/users"}
               icon="users"
               label="Users"
               active={String.starts_with?(@current_path, "/bo/users")}
             />
-            <.nav_item
+            <:item
               href={~p"/bo/roles"}
               icon="roles"
               label="Roles"
               active={String.starts_with?(@current_path, "/bo/roles")}
             />
-          </div>
-          <!-- System -->
-          <div class="pt-4">
-            <p class="font-mono text-[0.6rem] text-white/30 uppercase tracking-widest px-3 mb-2">
-              System
-            </p>
-            <.nav_item
+          </.nav_section>
+          
+    <!-- System Section -->
+          <.nav_section
+            id="section-system"
+            label="System"
+            current_path={@current_path}
+            open={@current_path == "/bo/license"}
+          >
+            <:item
               href={~p"/bo/license"}
               icon="license"
               label="License"
               active={@current_path == "/bo/license"}
             />
-          </div>
+          </.nav_section>
         </nav>
         
     <!-- User / Logout -->
-        <div class="border-t border-white/10 p-4">
-          <div class="flex items-center gap-3 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-[#03b6d4]/15 grid place-items-center text-xs font-bold font-mono text-[#03b6d4]">
+        <div class="border-t border-white/10 p-3 flex-shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-[#03b6d4]/20 grid place-items-center text-xs font-bold font-mono text-[#03b6d4] flex-shrink-0 border border-[#03b6d4]/20">
               {String.first(@current_user.username) |> String.upcase()}
             </div>
-            <div>
-              <p class="font-mono text-sm text-white leading-tight">{@current_user.username}</p>
-              <p class="font-mono text-[0.65rem] text-white/40">{@current_user.role.name}</p>
+            <div class="user-info min-w-0 flex-1 transition-all duration-200">
+              <p class="font-mono text-sm text-white leading-tight truncate">
+                {@current_user.username}
+              </p>
+              <p class="font-mono text-[0.65rem] text-white/40 truncate">{@current_user.role.name}</p>
             </div>
           </div>
-          <form method="post" action={~p"/bo/session"}>
+          <form method="post" action={~p"/bo/session"} class="mt-2.5">
             <input type="hidden" name="_method" value="delete" />
             <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
             <button
               type="submit"
-              class="w-full font-mono text-[0.75rem] text-white/40 hover:text-red-400 tracking-wide text-left transition-colors"
+              class="logout-btn w-full font-mono text-[0.72rem] text-white/30 hover:text-red-400 tracking-wide text-left transition-colors flex items-center gap-2"
             >
-              ← Logout
+              <svg
+                class="w-3.5 h-3.5 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
+              <span class="transition-all duration-200">Logout</span>
             </button>
           </form>
         </div>
       </aside>
       
     <!-- Main -->
-      <main class="ml-[240px] flex-1">
+      <main id="bo-main" class="flex-1">
         <!-- Header -->
-        <header class="h-16 bg-white border-b border-black/10 flex items-center px-8">
-          <h1 class="font-mono text-lg font-bold text-black">{@page_title}</h1>
+        <header class="h-16 bg-white border-b border-black/10 flex items-center px-8 shadow-sm">
+          <h1 class="font-mono text-lg font-bold text-[#2c3a50]">{@page_title}</h1>
         </header>
-        
-    <!-- Content -->
+        <!-- Content -->
         <div class="p-8">
           {render_slot(@inner_block)}
         </div>
       </main>
+
+      <script>
+        function toggleSidebar() {
+          const sidebar = document.getElementById('bo-sidebar');
+          const main = document.getElementById('bo-main');
+          sidebar.classList.toggle('collapsed');
+          main.classList.toggle('collapsed');
+          localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed'));
+        }
+
+        function toggleSection(id) {
+          const items = document.getElementById(id + '-items');
+          const chevron = document.getElementById(id + '-chevron');
+          if (!items) return;
+          items.classList.toggle('closed');
+          chevron && chevron.classList.toggle('open');
+          const closed = items.classList.contains('closed');
+          localStorage.setItem('section-' + id, closed ? 'closed' : 'open');
+        }
+
+        // Restore sidebar state on load
+        document.addEventListener('DOMContentLoaded', function() {
+          if (localStorage.getItem('sidebar-collapsed') === 'true') {
+            document.getElementById('bo-sidebar').classList.add('collapsed');
+            document.getElementById('bo-main').classList.add('collapsed');
+          }
+        });
+      </script>
     </div>
     """
   end
 
-  attr :href, :string, required: true
-  attr :icon, :string, required: true
+  # ── Nav Section with dropdown ────────────────────────────────────────
+
+  attr :id, :string, required: true
   attr :label, :string, required: true
-  attr :active, :boolean, default: false
+  attr :current_path, :string, required: true
+  attr :open, :boolean, default: false
 
-  defp nav_item(assigns) do
+  slot :item do
+    attr :href, :string, required: true
+    attr :icon, :string, required: true
+    attr :label, :string, required: true
+    attr :active, :boolean
+  end
+
+  defp nav_section(assigns) do
     ~H"""
-    <a
-      href={@href}
-      class={[
-        "flex items-center gap-3 px-3 py-2.5 rounded-lg font-mono text-[0.82rem] transition-colors",
-        if(@active,
-          do: "bg-[#03b6d4] text-white",
-          else: "text-white/60 hover:text-white hover:bg-white/5"
-        )
-      ]}
-    >
-      <svg
-        :if={@icon == "dashboard"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
+    <div class="mt-1" id={@id}>
+      <%!-- Section header / toggle --%>
+      <button
+        onclick={"toggleSection('#{@id}')"}
+        class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-all group"
       >
-        <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect
-          x="14"
-          y="3"
-          width="7"
-          height="7"
-          rx="1.5"
-        />
-        <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect
-          x="14"
-          y="14"
-          width="7"
-          height="7"
-          rx="1.5"
-        />
-      </svg>
-      <svg
-        :if={@icon == "users"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-      <svg
-        :if={@icon == "roles"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      </svg>
-      <svg
-        :if={@icon == "ai"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 0 6h-1v1a4 4 0 0 1-8 0v-1H7a3 3 0 0 1 0-6h1V6a4 4 0 0 1 4-4z" />
-        <circle cx="9" cy="10" r="1" fill="currentColor" stroke="none" />
-        <circle cx="15" cy="10" r="1" fill="currentColor" stroke="none" />
-      </svg>
+        <span class="section-label font-mono text-[0.58rem] uppercase tracking-widest transition-all duration-200 whitespace-nowrap">
+          {@label}
+        </span>
+        <svg
+          id={@id <> "-chevron"}
+          class={"section-chevron w-3 h-3 flex-shrink-0 section-header-text #{if @open, do: "open", else: ""}"}
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-      <svg
-        :if={@icon == "prompt"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-
-      <svg
-        :if={@icon == "channels"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M3 6h18M3 12h18M3 18h18" />
-        <circle cx="8" cy="6" r="1.5" fill="currentColor" />
-        <circle cx="16" cy="12" r="1.5" fill="currentColor" />
-        <circle cx="12" cy="18" r="1.5" fill="currentColor" />
-      </svg>
-
-      <svg
-        :if={@icon == "playground"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <polygon points="5 3 19 12 5 21 5 3" />
-      </svg>
-
-      <svg
-        :if={@icon == "history"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-      </svg>
-
-      <svg
-        :if={@icon == "license"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-
-      <svg
-        :if={@icon == "ontology"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 2v4" />
-        <path d="M12 18v4" />
-        <path d="M4.93 4.93l2.83 2.83" />
-        <path d="M16.24 16.24l2.83 2.83" />
-        <path d="M2 12h4" />
-        <path d="M18 12h4" />
-        <path d="M4.93 19.07l2.83-2.83" />
-        <path d="M16.24 7.76l2.83-2.83" />
-      </svg>
-
-      <svg
-        :if={@icon == "ingestion"}
-        class="w-[18px] h-[18px]"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
-      </svg>
-      {@label}
-    </a>
+      <%!-- Items --%>
+      <div id={@id <> "-items"} class={"section-items #{if !@open, do: "closed", else: ""}"}>
+        <%= for item <- @item do %>
+          <div class="nav-item-wrap">
+            <a
+              href={item.href}
+              class={[
+                "flex items-center gap-3 px-2.5 py-2 rounded-lg font-mono text-[0.82rem] transition-all",
+                if(item.active,
+                  do: "bg-[#03b6d4] text-white shadow-sm",
+                  else: "text-white/55 hover:text-white hover:bg-white/8"
+                )
+              ]}
+            >
+              <.nav_icon icon={item.icon} />
+              <span class="nav-label transition-all duration-200 whitespace-nowrap">
+                {item.label}
+              </span>
+            </a>
+            <div class="nav-tooltip">{item.label}</div>
+          </div>
+        <% end %>
+      </div>
+    </div>
     """
   end
+
+  # ── Icon component ───────────────────────────────────────────────────
+
+  attr :icon, :string, required: true
+
+  defp nav_icon(assigns) do
+    ~H"""
+    <svg
+      :if={@icon == "dashboard"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect
+        x="14"
+        y="3"
+        width="7"
+        height="7"
+        rx="1.5"
+      />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect
+        x="14"
+        y="14"
+        width="7"
+        height="7"
+        rx="1.5"
+      />
+    </svg>
+    <svg
+      :if={@icon == "ai"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 0 6h-1v1a4 4 0 0 1-8 0v-1H7a3 3 0 0 1 0-6h1V6a4 4 0 0 1 4-4z" />
+      <circle cx="9" cy="10" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="10" r="1" fill="currentColor" stroke="none" />
+    </svg>
+    <svg
+      :if={@icon == "prompt"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+    <svg
+      :if={@icon == "ingestion"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+    <svg
+      :if={@icon == "ontology"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="3" /><path d="M12 2v4" /><path d="M12 18v4" />
+      <path d="M4.93 4.93l2.83 2.83" /><path d="M16.24 16.24l2.83 2.83" />
+      <path d="M2 12h4" /><path d="M18 12h4" />
+      <path d="M4.93 19.07l2.83-2.83" /><path d="M16.24 7.76l2.83-2.83" />
+    </svg>
+    <svg
+      :if={@icon == "channels"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M3 6h18M3 12h18M3 18h18" />
+      <circle cx="8" cy="6" r="1.5" fill="currentColor" />
+      <circle cx="16" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+    </svg>
+    <svg
+      :if={@icon == "playground"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+    <svg
+      :if={@icon == "history"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+    <svg
+      :if={@icon == "users"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+    <svg
+      :if={@icon == "roles"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+    <svg
+      :if={@icon == "license"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+    """
+  end
+
+  # ── Remaining public components (unchanged) ──────────────────────────
 
   attr :status, :any, required: true
 
@@ -377,10 +609,10 @@ defmodule ZaqWeb.Components.BOLayout do
             i
           </div>
           <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-10 hidden group-hover:block">
-            <div class="bg-[#3c4b64] text-white font-mono text-[0.65rem] px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg">
+            <div class="bg-[#2c3a50] text-white font-mono text-[0.65rem] px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg">
               {@hint}
             </div>
-            <div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#3c4b64] mx-auto" />
+            <div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#2c3a50] mx-auto" />
           </div>
         </div>
       </div>

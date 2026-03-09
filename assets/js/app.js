@@ -50,12 +50,71 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this.el.scrollTop = this.el.scrollHeight
       }
     },
+    Typewriter: {
+      mounted() {
+        const el = this.el
+        const full = el.innerHTML
+        if (!full || !full.trim()) return
+
+        el.innerHTML = ""
+        el.style.visibility = "visible"
+
+        let i = 0
+        const speed = 8
+
+        const type = () => {
+          if (i <= full.length) {
+            el.innerHTML = full.slice(0, i)
+            i++
+            setTimeout(type, speed)
+          }
+        }
+
+        type()
+      },
+      updated() {
+        // intentional no-op — never let LiveView re-trigger typing
+      }
+    },
+
     FocusInput: {
       mounted() {
         this.el.focus()
       },
       updated() {
         if (!this.el.disabled) this.el.focus()
+      }
+    },
+    AutoExpand: {
+      mounted() {
+        const el = this.el
+
+        this.resize = () => {
+          el.style.height = "auto"
+          el.style.height = Math.min(el.scrollHeight, 160) + "px"
+        }
+
+        el.addEventListener("input", this.resize)
+
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault()
+            const form = el.closest("form")
+            if (form) form.dispatchEvent(new Event("submit", { bubbles: true }))
+          } else if (e.key === "Enter" && e.shiftKey) {
+            // newline inserted by browser — resize after DOM updates
+            setTimeout(this.resize, 0)
+          }
+        })
+
+        this.resize()
+      },
+      updated() {
+        if (this.el.value === "") {
+          this.el.style.height = "auto"
+        } else {
+          this.resize()
+        }
       }
     }
   },

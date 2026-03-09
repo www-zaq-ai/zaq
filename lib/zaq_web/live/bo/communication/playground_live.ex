@@ -41,7 +41,13 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
      |> assign(:show_feedback_modal, false)
      |> assign(:feedback_message_id, nil)
      |> assign(:feedback_reasons, [])
-     |> assign(:feedback_comment, "")}
+     |> assign(:feedback_comment, "")
+     |> assign(:suggested_questions, [
+       "What is ZAQ and what does it do?",
+       "Which integrations does ZAQ support?",
+       "How is ZAQ deployed?",
+       "Does ZAQ support Arabic?"
+     ])}
   end
 
   # ── Events ─────────────────────────────────────────────────────────
@@ -90,6 +96,10 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
      |> assign(:history, %{})
      |> assign(:status, :idle)
      |> assign(:status_message, "")}
+  end
+
+  def handle_event("use_suggestion", %{"question" => question}, socket) do
+    {:noreply, assign(socket, :input_value, question)}
   end
 
   def handle_event("copy_message", %{"text" => text}, socket) do
@@ -185,11 +195,12 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
       bot_msg = %{
         id: generate_id(),
         role: :bot,
-        body: result.answer,
+        body: clean_body(result.answer),
         confidence: result.confidence,
         timestamp: DateTime.utc_now(),
         error: result[:error] || false,
-        feedback: nil
+        feedback: nil,
+        sources: extract_sources(result.answer)
       }
 
       # Only add successful exchanges to history — failed/no-answer
@@ -363,4 +374,15 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
   end
 
   defp generate_id, do: :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+
+  defp extract_sources(body) do
+    Regex.scan(~r/\[source:\s*([^\]]+)\]/, body)
+    |> Enum.map(fn [_, source] -> String.trim(source) end)
+    |> Enum.uniq()
+  end
+
+  defp clean_body(body) do
+    Regex.replace(~r/\s*\[source:\s*[^\]]+\]/u, body, "")
+    |> String.trim()
+  end
 end
