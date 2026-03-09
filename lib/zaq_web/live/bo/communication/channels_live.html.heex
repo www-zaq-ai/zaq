@@ -3,27 +3,520 @@
   page_title="Channels"
   current_path={@current_path}
 >
-  <div class="flex items-center justify-center min-h-[60vh]">
-    <div class="text-center">
-      <div class="w-16 h-16 mx-auto mb-6 rounded-2xl bg-[#03b6d4]/10 grid place-items-center">
+  <!-- Flash Messages -->
+  <div
+    :if={Phoenix.Flash.get(@flash, :info)}
+    class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+  >
+    <svg
+      class="w-4 h-4 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+    >
+      <path d="M5 13l4 4L19 7" />
+    </svg>
+    <span>{Phoenix.Flash.get(@flash, :info)}</span>
+  </div>
+  <div
+    :if={Phoenix.Flash.get(@flash, :error)}
+    class="mb-4 rounded-xl bg-red-100 border border-red-200 text-red-600 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+  >
+    <svg
+      class="w-4 h-4 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+    </svg>
+    <span>{Phoenix.Flash.get(@flash, :error)}</span>
+  </div>
+  
+<!-- Add Channel Config button -->
+  <div class="flex justify-end mb-4">
+    <button
+      phx-click="open_modal"
+      phx-value-action="new"
+      class="font-mono text-[0.75rem] tracking-wide px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors flex items-center gap-1.5"
+    >
+      <svg
+        class="w-3.5 h-3.5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+      >
+        <path d="M12 4v16m8-8H4" />
+      </svg>
+      Add Channel
+    </button>
+  </div>
+  
+<!-- Empty State -->
+  <div
+    :if={@configs == []}
+    class="bg-white rounded-xl border border-dashed border-black/15 p-10 text-center"
+  >
+    <div class="w-10 h-10 rounded-lg bg-black/5 grid place-items-center mx-auto mb-3">
+      <svg
+        class="w-5 h-5 text-black/30"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        viewBox="0 0 24 24"
+      >
+        <path d="M3 6h18M3 12h18M3 18h18" />
+        <circle cx="8" cy="6" r="1.5" fill="currentColor" />
+        <circle cx="16" cy="12" r="1.5" fill="currentColor" />
+        <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+      </svg>
+    </div>
+    <p class="font-mono text-sm font-bold text-black mb-1">No channels configured yet</p>
+    <p class="font-mono text-[0.7rem] text-black/40">Add a channel connector to get started</p>
+  </div>
+  
+<!-- Channel Config Cards -->
+  <div :if={@configs != []} class="space-y-3">
+    <div
+      :for={config <- @configs}
+      class="bg-white rounded-xl border border-black/10 p-5 flex items-center justify-between"
+    >
+      <!-- Left: Info -->
+      <div class="flex items-center gap-4">
+        <!-- Provider Icon -->
+        <div class={[
+          "w-10 h-10 rounded-xl grid place-items-center",
+          if(config.enabled, do: "bg-[#03b6d4]/10", else: "bg-black/5")
+        ]}>
+          <svg
+            :if={config.provider == "mattermost"}
+            class={["w-5 h-5", if(config.enabled, do: "text-[#03b6d4]", else: "text-black/30")]}
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          <svg
+            :if={config.provider == "slack"}
+            class={["w-5 h-5", if(config.enabled, do: "text-[#03b6d4]", else: "text-black/30")]}
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z" />
+            <path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" />
+            <path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z" />
+            <path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z" />
+            <path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z" />
+            <path d="M14 19v1.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5.67-1.5 1.5-1.5H14z" />
+            <path d="M10 9.5C10 10.33 9.33 11 8.5 11h-5C2.67 11 2 10.33 2 9.5S2.67 8 3.5 8h5c.83 0 1.5.67 1.5 1.5z" />
+            <path d="M10 5V3.5C10 2.67 10.67 2 11.5 2S13 2.67 13 3.5 12.33 5 11.5 5H10z" />
+          </svg>
+          <svg
+            :if={config.provider == "teams"}
+            class={["w-5 h-5", if(config.enabled, do: "text-[#03b6d4]", else: "text-black/30")]}
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+        </div>
+        
+<!-- Details -->
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <p class="font-mono text-sm font-bold text-black">{config.name}</p>
+            <span class={[
+              "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
+              if(config.enabled,
+                do: "bg-emerald-100 text-emerald-700",
+                else: "bg-black/5 text-black/30"
+              )
+            ]}>
+              {if config.enabled, do: "Active", else: "Disabled"}
+            </span>
+          </div>
+          <div class="flex items-center gap-3">
+            <p class="font-mono text-[0.7rem] text-black/40">
+              {config.provider |> String.replace("_", " ") |> String.capitalize()}
+            </p>
+            <span class="text-black/10">·</span>
+            <p class="font-mono text-[0.7rem] text-black/30 truncate max-w-[250px]">
+              {config.url}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+<!-- Right: Actions -->
+      <div class="flex items-center gap-2">
+        <!-- Toggle -->
+        <button
+          phx-click="toggle_enabled"
+          phx-value-id={config.id}
+          class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+        >
+          {if config.enabled, do: "Disable", else: "Enable"}
+        </button>
+        <!-- Edit -->
+        <button
+          phx-click="open_modal"
+          phx-value-action="edit"
+          phx-value-id={config.id}
+          class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
+        >
+          <svg
+            class="w-3.5 h-3.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        </button>
+        <!-- Test -->
+        <button
+          phx-click="open_test"
+          phx-value-id={config.id}
+          class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-amber-500 hover:border-amber-300 transition-all"
+          title="Test connection"
+        >
+          <svg
+            class="w-3.5 h-3.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+          </svg>
+        </button>
+        <!-- Delete -->
+        <button
+          phx-click="confirm_delete"
+          phx-value-id={config.id}
+          class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-red-500 hover:border-red-200 transition-all"
+        >
+          <svg
+            class="w-3.5 h-3.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  
+<!-- ================================================================== -->
+  <!-- MODAL: Create / Edit -->
+  <!-- ================================================================== -->
+  <div
+    :if={@modal}
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    phx-window-keydown="close_modal"
+    phx-key="Escape"
+  >
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="close_modal"></div>
+    <div class="relative w-full max-w-md bg-white rounded-2xl border border-black/10 p-8 shadow-2xl">
+      <h3 class="font-mono text-base font-bold text-black mb-6">
+        {if @modal == :new, do: "Add Channel", else: "Edit Channel"}
+      </h3>
+
+      <.form for={@changeset} phx-change="validate" phx-submit="save" as={:form}>
+        <div class="space-y-4">
+          <!-- Name -->
+          <div>
+            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+              Name
+            </label>
+            <input
+              type="text"
+              name="form[name]"
+              value={@changeset.changes[:name] || @changeset.data.name}
+              placeholder="e.g. Production Mattermost"
+              required
+              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            />
+          </div>
+          
+<!-- Provider -->
+          <div>
+            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+              Provider
+            </label>
+            <select
+              name="form[provider]"
+              required
+              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors appearance-none"
+            >
+              <option value="">Select provider...</option>
+              <option
+                :for={p <- ~w(mattermost slack teams)}
+                value={p}
+                selected={(@changeset.changes[:provider] || @changeset.data.provider) == p}
+              >
+                {p |> String.replace("_", " ") |> String.capitalize()}
+              </option>
+            </select>
+          </div>
+          
+<!-- URL -->
+          <div>
+            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+              URL
+            </label>
+            <input
+              type="url"
+              name="form[url]"
+              value={@changeset.changes[:url] || @changeset.data.url}
+              placeholder="https://mattermost.example.com"
+              required
+              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            />
+          </div>
+          
+<!-- Token -->
+          <div>
+            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+              Token
+            </label>
+            <input
+              type="password"
+              name="form[token]"
+              value={@changeset.changes[:token] || @changeset.data.token}
+              placeholder="Bot access token"
+              required
+              class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            />
+            <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+              Stored securely. Will not be displayed after saving.
+            </p>
+          </div>
+        </div>
+        
+<!-- Errors -->
+        <div :if={@modal_errors != []} class="mt-4 rounded-xl bg-red-50 border border-red-200 p-3">
+          <p
+            :for={err <- @modal_errors}
+            class="font-mono text-[0.7rem] text-red-600 flex items-center gap-1.5"
+          >
+            <span class="text-red-400">✗</span> {err}
+          </p>
+        </div>
+        
+<!-- Submit / Cancel -->
+        <div class="flex items-center justify-end gap-3 pt-6">
+          <button
+            type="button"
+            phx-click="close_modal"
+            class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-all"
+          >
+            {if @modal == :new, do: "Create", else: "Update"}
+          </button>
+        </div>
+      </.form>
+    </div>
+  </div>
+  
+<!-- ================================================================== -->
+  <!-- MODAL: Delete Confirmation -->
+  <!-- ================================================================== -->
+  <div
+    :if={@confirm_delete}
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    phx-window-keydown="cancel_delete"
+    phx-key="Escape"
+  >
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="cancel_delete"></div>
+    <div class="relative w-full max-w-sm bg-white rounded-2xl border border-black/10 p-8 shadow-2xl text-center">
+      <div class="w-10 h-10 rounded-lg bg-red-100 grid place-items-center mx-auto mb-4">
         <svg
-          class="w-8 h-8 text-[#03b6d4]"
+          class="w-5 h-5 text-red-500"
           fill="none"
           stroke="currentColor"
           stroke-width="1.8"
           viewBox="0 0 24 24"
         >
-          <path d="M3 6h18M3 12h18M3 18h18" />
-          <circle cx="8" cy="6" r="1.5" fill="currentColor" />
-          <circle cx="16" cy="12" r="1.5" fill="currentColor" />
-          <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+          <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
       </div>
-      <h2 class="font-mono text-xl font-bold text-black mb-2">Channels</h2>
-      <p class="font-mono text-sm text-black/40 mb-4">Coming Soon</p>
-      <p class="font-mono text-[0.78rem] text-black/30 max-w-sm">
-        Manage your communication channels — WhatsApp, Messenger, Web Chat, and more — all from one place.
+      <h3 class="font-mono text-base font-bold text-black mb-2">Confirm Delete</h3>
+      <p class="font-mono text-[0.75rem] text-black/40 mb-6">
+        Are you sure you want to delete this channel config? This action cannot be undone.
       </p>
+      <div class="flex items-center justify-center gap-3">
+        <button
+          phx-click="cancel_delete"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          phx-click="delete"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+  
+<!-- ================================================================== -->
+  <!-- MODAL: Test Connection -->
+  <!-- ================================================================== -->
+  <div
+    :if={@test_config}
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    phx-window-keydown="close_test"
+    phx-key="Escape"
+  >
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="close_test"></div>
+    <div class="relative w-full max-w-sm bg-white rounded-2xl border border-black/10 p-8 shadow-2xl">
+      <h3 class="font-mono text-base font-bold text-black mb-1">
+        Test Connection
+      </h3>
+      <p class="font-mono text-[0.7rem] text-black/40 mb-6">
+        Send a test message to verify
+        <span class="text-black/60 font-bold">{@test_config.name}</span>
+        is working.
+      </p>
+
+      <form phx-submit="run_test">
+        <div class="mb-4">
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+            Channel ID
+          </label>
+          <input
+            type="text"
+            name="channel_id"
+            value={@test_channel_id}
+            placeholder="e.g. abc123def456"
+            required
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          />
+          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+            The ID of the channel to send the test message to
+          </p>
+        </div>
+        
+<!-- Status Feedback -->
+        <div
+          :if={@test_status == :testing}
+          class="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex items-center gap-2"
+        >
+          <svg class="w-4 h-4 animate-spin text-amber-500" fill="none" viewBox="0 0 24 24">
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            />
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+          <span class="font-mono text-[0.7rem] text-amber-700">Sending test message...</span>
+        </div>
+
+        <div
+          :if={@test_status == :ok}
+          class="mb-4 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 flex items-center gap-2"
+        >
+          <svg
+            class="w-4 h-4 text-emerald-500"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M5 13l4 4L19 7" />
+          </svg>
+          <span class="font-mono text-[0.7rem] text-emerald-700">
+            Test message sent successfully!
+          </span>
+        </div>
+
+        <div
+          :if={is_tuple(@test_status) and elem(@test_status, 0) == :error}
+          class="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3"
+        >
+          <div class="flex items-center gap-2 mb-1">
+            <svg
+              class="w-4 h-4 text-red-500 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+            </svg>
+            <span class="font-mono text-[0.7rem] text-red-600 font-bold">Test failed</span>
+          </div>
+          <p class="font-mono text-[0.6rem] text-red-500 pl-6 break-all">
+            {elem(@test_status, 1) |> inspect()}
+          </p>
+        </div>
+        
+<!-- Actions -->
+        <div class="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            phx-click="close_test"
+            class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+          >
+            Close
+          </button>
+          <button
+            type="submit"
+            disabled={@test_status == :testing}
+            class={[
+              "font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold transition-all flex items-center gap-1.5",
+              if(@test_status == :testing,
+                do: "bg-black/10 text-black/30 cursor-not-allowed",
+                else: "bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90"
+              )
+            ]}
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+            </svg>
+            Send Test
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>

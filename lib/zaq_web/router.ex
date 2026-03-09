@@ -31,6 +31,7 @@ defmodule ZaqWeb.Router do
 
     post "/ask", AgentController, :ask
     post "/ingest", AgentController, :ingest
+    post "/pending-questions", PendingQuestionsController, :create
   end
 
   # BO - Public

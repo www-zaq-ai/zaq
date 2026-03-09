@@ -72,7 +72,9 @@ defmodule Zaq.MixProject do
       {:langchain, github: "Geeks-Solutions/langchain", branch: "main"},
       {:mox, "~> 1.2", only: :test},
       {:oban, "~> 2.20.3"},
-      {:file_system, "~> 1.1"}
+      {:file_system, "~> 1.1"},
+      {:fresh, "~> 0.4.4"},
+      {:httpoison, "~> 2.3"}
     ]
   end
 

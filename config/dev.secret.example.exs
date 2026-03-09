@@ -29,3 +29,9 @@ config :zaq, Zaq.Ingestion,
   chunk_min_tokens: String.to_integer("400"),
   chunk_max_tokens: String.to_integer("900"),
   base_path: "priv/documents"
+
+config :zaq,
+  sme_channel_id: System.get_env("SME_CHANNEL_ID", ""),
+  knowledge_gap_immediate_threshold:
+    String.to_integer(System.get_env("KNOWLEDGE_GAP_IMMEDIATE_THRESHOLD", "3")),
+  default_business_id: System.get_env("DEFAULT_BUSINESS_ID")

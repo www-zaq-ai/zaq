@@ -98,8 +98,16 @@ if config_env() == :prod do
     repo: Zaq.Repo,
     queues: [
       ingestion: String.to_integer(System.get_env("OBAN_INGESTION_CONCURRENCY", "3")),
+      knowledge_gap: String.to_integer(System.get_env("OBAN_KNOWLEDGE_GAP_CONCURRENCY", "5")),
       default: 10
     ]
+
+  # -- Knowledge Gap (paid feature, wiring) --
+  config :zaq,
+    sme_channel_id: System.get_env("SME_CHANNEL_ID", "barndiimztra5dg66x51dk7s9h"),
+    knowledge_gap_immediate_threshold:
+      String.to_integer(System.get_env("KNOWLEDGE_GAP_IMMEDIATE_THRESHOLD", "3")),
+    default_business_id: System.get_env("DEFAULT_BUSINESS_ID")
 
   # ## SSL Support
   #
