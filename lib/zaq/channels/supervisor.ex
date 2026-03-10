@@ -1,6 +1,13 @@
 defmodule Zaq.Channels.Supervisor do
   @moduledoc """
-  Top-level supervisor for all channel connectors.
+  Top-level supervisor for shared channel infrastructure.
+
+  Note: Retrieval and ingestion channel adapters are no longer started here.
+  They are managed by `Zaq.Engine.RetrievalSupervisor` and
+  `Zaq.Engine.IngestionSupervisor` respectively.
+
+  This supervisor is kept for any shared channel infrastructure that is
+  not adapter-specific (e.g. `PendingQuestions`).
   """
 
   use Supervisor
@@ -12,7 +19,7 @@ defmodule Zaq.Channels.Supervisor do
   @impl true
   def init(_args) do
     children = [
-      Zaq.Channels.Mattermost.Supervisor
+      Zaq.Channels.PendingQuestions
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

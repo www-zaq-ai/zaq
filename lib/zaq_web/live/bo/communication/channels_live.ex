@@ -2,7 +2,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.Mattermost.API, as: MattermostAPI
+  alias Zaq.Channels.Retrieval.Mattermost.API, as: MattermostAPI
   alias Zaq.Repo
   alias ZaqWeb.Components.ServiceUnavailable
 

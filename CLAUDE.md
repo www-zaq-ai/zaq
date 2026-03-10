@@ -33,9 +33,11 @@ lib/
 ├── zaq/
 │   ├── accounts/         # Users, roles, auth context
 │   ├── agent/            # RAG, LLM, answering, retrieval
-│   ├── channels/         # Mattermost adapter
+│   ├── channels/         # Shared channel infrastructure + adapter implementations
+│   │   ├── ingestion/    # Ingestion adapters (Google Drive, SharePoint — not yet implemented)
+│   │   └── retrieval/    # Retrieval adapters (Mattermost ✅, Slack/Email planned)
 │   ├── embedding/        # Embedding client (standalone, not under agent/)
-│   ├── engine/           # ⚠️ NOT STARTED — placeholder only, no files
+│   ├── engine/           # Orchestrator — owns adapter contracts + supervisors
 │   ├── ingestion/        # Document processing, chunking, Oban jobs
 │   ├── license/          # License loading, verification, feature gating
 │   ├── document_processor/ # Behaviour definition for doc processors
@@ -58,13 +60,13 @@ lib/
 
 ## Service Status
 
-| Service       | Status        | Notes                                                  |
-|---------------|---------------|--------------------------------------------------------|
-| **Agent**     | ✅ Functional  | RAG, LLM, answering, retrieval, logprobs, token est.   |
-| **Ingestion** | ✅ Functional  | Chunking, embeddings, Oban workers, PGVector writes    |
-| **Channels**  | ✅ Functional  | Mattermost only. Slack + Email are planned, not started|
-| **BO**        | ✅ Functional  | Auth, accounts, AI pages, communication pages          |
-| **Engine**    | ❌ Not started | Directory exists but is empty. Do not assume any logic.|
+| Service       | Status        | Notes                                                             |
+|---------------|---------------|-------------------------------------------------------------------|
+| **Agent**     | ✅ Functional  | RAG, LLM, answering, retrieval, logprobs, token est.              |
+| **Ingestion** | ✅ Functional  | Chunking, embeddings, Oban workers, PGVector writes               |
+| **Channels**  | ✅ Functional  | Shared infra only. Adapters managed by Engine.                    |
+| **BO**        | ✅ Functional  | Auth, accounts, AI pages, communication pages                     |
+| **Engine**    | ✅ Started     | Behaviour contracts defined. Supervisors running. Adapters pending.|
 
 ---
 
@@ -110,7 +112,7 @@ Services are started based on the `:roles` config or `ROLES` env var.
 
 ```elixir
 # config/dev.exs — default for single-node dev
-config :zaq, roles: [:bo, :agent, :ingestion, :channels]
+config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 ```
 
 ```bash
@@ -140,11 +142,68 @@ NODES=ai@localhost,channels@localhost iex --sname bo@localhost --cookie zaq_dev 
 
 ### Verifying what started
 ```elixir
-Process.whereis(Zaq.Agent.Supervisor)      # PID if running, nil if not
+Process.whereis(Zaq.Engine.Supervisor)         # PID if running, nil if not
+Process.whereis(Zaq.Engine.RetrievalSupervisor)
+Process.whereis(Zaq.Engine.IngestionSupervisor)
+Process.whereis(Zaq.Agent.Supervisor)
 Process.whereis(Zaq.Ingestion.Supervisor)
 Process.whereis(Zaq.Channels.Supervisor)
-Node.list()                                # connected peer nodes
+Node.list()                                    # connected peer nodes
 ```
+
+---
+
+## Engine (`Zaq.Engine`)
+
+The Engine is the orchestrator of ZAQ. It owns the behaviour contracts for channel
+adapters and supervises their lifecycle.
+
+### Behaviour Contracts
+- `Zaq.Engine.IngestionChannel` — contract for document source adapters
+- `Zaq.Engine.RetrievalChannel` — contract for messaging platform adapters
+
+### Supervisors
+- `Zaq.Engine.IngestionSupervisor` — loads ingestion configs from DB, starts adapters dynamically
+- `Zaq.Engine.RetrievalSupervisor` — loads retrieval configs from DB, starts adapters dynamically
+
+### Adapter Registration
+Adapters are registered in the supervisor `@adapters` map:
+
+```elixir
+# Zaq.Engine.RetrievalSupervisor
+@adapters %{
+  "mattermost" => Zaq.Channels.Retrieval.Mattermost,
+  "slack"      => Zaq.Channels.Retrieval.Slack,       # not yet implemented
+  "email"      => Zaq.Channels.Retrieval.Email        # not yet implemented
+}
+
+# Zaq.Engine.IngestionSupervisor
+@adapters %{
+  "google_drive" => Zaq.Channels.Ingestion.GoogleDrive,  # not yet implemented
+  "sharepoint"   => Zaq.Channels.Ingestion.SharePoint    # not yet implemented
+}
+```
+
+---
+
+## Channels (`Zaq.Channels`)
+
+Provides shared infrastructure and adapter implementations. Does NOT manage adapter
+lifecycle — that is Engine's responsibility.
+
+### Shared Infrastructure
+- `Zaq.Channels.ChannelConfig` — Ecto schema for channel configs. `kind` field
+  (`:ingestion | :retrieval`) determines which Engine supervisor manages the adapter.
+- `Zaq.Channels.PendingQuestions` — OTP Agent tracking questions awaiting human answers.
+  Started by `Zaq.Channels.Supervisor`, used by retrieval adapters.
+
+### Retrieval Adapters (`lib/zaq/channels/retrieval/`)
+- `Zaq.Channels.Retrieval.Mattermost` — WebSocket client, implements `Zaq.Engine.RetrievalChannel`
+- `Zaq.Channels.Retrieval.Mattermost.API` — HTTP client for Mattermost REST API
+- `Zaq.Channels.Retrieval.Mattermost.EventParser` — parses raw WS events → Post structs
+
+### Ingestion Adapters (`lib/zaq/channels/ingestion/`)
+- Not yet implemented. See `Zaq.Engine.IngestionChannel` for the contract.
 
 ---
 
@@ -179,6 +238,7 @@ on peer nodes. Falls back to local call transparently in single-node dev.
 - LiveView modules: `ZaqWeb.Live.BO.<Section>.<Name>Live`
 - Context functions follow Ecto conventions: `create_x/1`, `update_x/2`, `delete_x/1`
 - Schema modules: `Zaq.<Context>.<Entity>` (e.g. `Zaq.Accounts.User`)
+- Channel adapter modules: `Zaq.Channels.<Kind>.<Provider>` (e.g. `Zaq.Channels.Retrieval.Mattermost`)
 
 ### Code Quality
 - Run `mix format --check-formatted` before committing
@@ -211,8 +271,9 @@ Back Office: `http://localhost:4000/bo`
 
 ## What NOT to Do
 
-- **Do not add logic to `lib/zaq/engine/`** — it is not started yet, discuss first
-- **Do not assume Slack or Email channels exist** — Mattermost only
+- **Do not add channel adapters directly to `Zaq.Channels.Supervisor`** — adapters are managed by Engine
+- **Do not define adapter behaviour contracts in `lib/zaq/channels/`** — contracts belong in `lib/zaq/engine/`
+- **Do not assume Slack, Email, or ingestion adapters exist** — only Mattermost is implemented
 - **Do not move `embedding/client.ex` under `agent/`** without discussion
 - **Do not add new BO routes without updating the auth plug and router**
 - **Do not hardcode LLM endpoints** — they are customer-configured

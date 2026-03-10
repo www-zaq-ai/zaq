@@ -1,4 +1,4 @@
-defmodule Zaq.Channels.Mattermost.EventParser do
+defmodule Zaq.Channels.Retrieval.Mattermost.EventParser do
   @moduledoc """
   Parses raw Mattermost WebSocket events into clean structs.
   """

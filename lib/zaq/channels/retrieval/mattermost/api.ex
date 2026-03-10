@@ -1,4 +1,4 @@
-defmodule Zaq.Channels.Mattermost.API do
+defmodule Zaq.Channels.Retrieval.Mattermost.API do
   @moduledoc """
   HTTP client for Mattermost REST API using HTTPoison.
   """
@@ -8,30 +8,28 @@ defmodule Zaq.Channels.Mattermost.API do
   @posts_path "/api/v4/posts"
   @typing_delay 1000
 
-  def send_message(channel_id, message) do
+  @doc """
+  Sends a message to a channel, optionally within a thread.
+  Loads config from DB.
+  """
+  def send_message(channel_id, message, thread_id \\ nil) do
     send_typing(channel_id)
     Process.sleep(@typing_delay)
 
     case ChannelConfig.get_by_provider("mattermost") do
       %ChannelConfig{} = config ->
-        url = config.url <> @posts_path
-
-        body =
-          Jason.encode!(%{
-            channel_id: channel_id,
-            message: message
-          })
-
-        headers = [
-          {"authorization", "Bearer #{config.token}"},
-          {"content-type", "application/json"}
-        ]
-
-        do_post(url, body, headers)
+        do_send_message(config, channel_id, message, thread_id)
 
       nil ->
         {:error, :mattermost_not_configured}
     end
+  end
+
+  @doc """
+  Sends a message using an explicit config (for testing and direct calls).
+  """
+  def send_message(config, channel_id, message, thread_id) do
+    do_send_message(config, channel_id, message, thread_id)
   end
 
   def send_typing(channel_id, parent_id \\ "") do
@@ -42,7 +40,7 @@ defmodule Zaq.Channels.Mattermost.API do
         data: %{channel_id: channel_id, parent_id: parent_id}
       })
 
-    Fresh.send(Zaq.Channels.Mattermost.Client, {:text, payload})
+    Fresh.send(Zaq.Channels.Retrieval.Mattermost, {:text, payload})
   end
 
   def clear_channel(channel_id) do
@@ -56,17 +54,15 @@ defmodule Zaq.Channels.Mattermost.API do
     end
   end
 
-  @doc """
-  Sends a message using an explicit config (for testing and direct calls).
-  """
-  def send_message(config, channel_id, message) do
+  # --- Private ---
+
+  defp do_send_message(config, channel_id, message, thread_id) do
     url = config.url <> @posts_path
 
     body =
-      Jason.encode!(%{
-        channel_id: channel_id,
-        message: message
-      })
+      %{channel_id: channel_id, message: message}
+      |> maybe_put_root_id(thread_id)
+      |> Jason.encode!()
 
     headers = [
       {"authorization", "Bearer #{config.token}"},
@@ -75,6 +71,10 @@ defmodule Zaq.Channels.Mattermost.API do
 
     do_post(url, body, headers)
   end
+
+  defp maybe_put_root_id(body, nil), do: body
+  defp maybe_put_root_id(body, ""), do: body
+  defp maybe_put_root_id(body, thread_id), do: Map.put(body, :root_id, thread_id)
 
   defp do_post(url, body, headers) do
     case HTTPoison.post(url, body, headers) do

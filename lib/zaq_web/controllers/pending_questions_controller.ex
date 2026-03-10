@@ -1,8 +1,8 @@
 defmodule ZaqWeb.PendingQuestionsController do
   use ZaqWeb, :controller
 
-  alias Zaq.Channels.Mattermost.API, as: MattermostAPI
   alias Zaq.Channels.PendingQuestions
+  alias Zaq.Channels.Retrieval.Mattermost.API, as: MattermostAPI
   alias Zaq.License.FeatureStore
 
   require Logger
@@ -32,7 +32,7 @@ defmodule ZaqWeb.PendingQuestionsController do
              attrs.channel_id,
              "zaq_agent",
              formatted,
-             &MattermostAPI.send_message/2,
+             &MattermostAPI.send_message(&1, &2, nil),
              callback
            ) do
         {:ok, post_id} ->
