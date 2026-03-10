@@ -14,6 +14,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     bo: ZaqWeb.Endpoint
   }
 
+  @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, "node:events")
 

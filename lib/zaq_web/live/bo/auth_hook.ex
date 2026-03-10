@@ -17,7 +17,7 @@ defmodule ZaqWeb.Live.BO.AuthHook do
       user_id ->
         user = Accounts.get_user!(user_id)
 
-        if user.must_change_password and socket.view != ZaqWeb.Live.BO.ChangePasswordLive do
+        if user.must_change_password and socket.view != ZaqWeb.Live.Bo.System.ChangePasswordLive do
           {:halt, push_navigate(socket, to: ~p"/bo/change-password")}
         else
           {:cont, assign(socket, :current_user, user)}
