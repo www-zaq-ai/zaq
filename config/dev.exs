@@ -12,6 +12,7 @@ config :zaq, Zaq.Repo,
   pool_size: 10
 
 config :zaq, roles: [:bo, :agent, :ingestion, :channels]
+# config :zaq, roles: [:bo]
 
 config :zaq, Zaq.Ingestion, base_path: "priv/documents"
 

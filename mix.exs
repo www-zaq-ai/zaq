@@ -11,7 +11,8 @@ defmodule Zaq.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      test_coverage: [tool: ExCoveralls]
     ]
   end
 
@@ -27,7 +28,13 @@ defmodule Zaq.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [
+        precommit: :test,
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test
+      ]
     ]
   end
 
@@ -68,6 +75,7 @@ defmodule Zaq.MixProject do
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18.5", only: :test},
       {:pgvector, "~> 0.3.1"},
       {:langchain, github: "Geeks-Solutions/langchain", branch: "main"},
       {:mox, "~> 1.2", only: :test},
