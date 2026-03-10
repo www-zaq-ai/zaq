@@ -2,6 +2,7 @@ defmodule ZaqWeb.Components.ServiceUnavailableTest do
   use ExUnit.Case, async: false
 
   import Mox
+  import Phoenix.LiveViewTest
 
   alias ZaqWeb.Components.ServiceUnavailable
 
@@ -75,6 +76,48 @@ defmodule ZaqWeb.Components.ServiceUnavailableTest do
 
     test "returns empty list for empty input" do
       assert ServiceUnavailable.missing_roles([]) == []
+    end
+  end
+
+  describe "page/1" do
+    test "renders singular copy and role hint for one missing service" do
+      expect(Zaq.NodeRouterMock, :find_node, fn _supervisor -> nil end)
+
+      html =
+        render_component(&ServiceUnavailable.page/1,
+          current_user: %{username: "alice", role: %{name: "admin"}},
+          current_path: "/bo/ai-diagnostics",
+          page_title: "Diagnostics",
+          services: [:agent]
+        )
+
+      assert html =~ "Service Unavailable"
+      assert html =~ "following service"
+      assert html =~ "required role"
+      assert html =~ "Agent"
+      assert html =~ "ROLES=agent"
+      assert html =~ "Connected nodes"
+      assert html =~ "none"
+    end
+
+    test "renders plural copy and multi-role hint for many missing services" do
+      Zaq.NodeRouterMock
+      |> expect(:find_node, fn _supervisor -> nil end)
+      |> expect(:find_node, fn _supervisor -> nil end)
+
+      html =
+        render_component(&ServiceUnavailable.page/1,
+          current_user: %{username: "bob", role: %{name: "operator"}},
+          current_path: "/bo/channels",
+          page_title: "Channels",
+          services: [:agent, :channels]
+        )
+
+      assert html =~ "following services"
+      assert html =~ "required roles"
+      assert html =~ "Agent"
+      assert html =~ "Channels"
+      assert html =~ "ROLES=agent,channels"
     end
   end
 end

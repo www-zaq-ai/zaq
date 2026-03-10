@@ -1,0 +1,383 @@
+defmodule Zaq.Channels.Retrieval.MattermostTest do
+  use Zaq.DataCase, async: false
+
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.PendingQuestions
+  alias Zaq.Channels.Retrieval.Mattermost
+  alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Repo
+
+  setup do
+    Application.put_env(:zaq, :mattermost_api_module, __MODULE__.APIStub)
+    Application.put_env(:zaq, :mattermost_node_router_module, __MODULE__.NodeRouterStub)
+    Application.put_env(:zaq, :mattermost_prompt_guard_module, __MODULE__.PromptGuardStub)
+    Application.put_env(:zaq, :mattermost_prompt_template_module, __MODULE__.PromptTemplateStub)
+    Application.put_env(:zaq, :mattermost_answering_module, __MODULE__.AnsweringStub)
+    Application.put_env(:zaq, :mattermost_retrieval_module, __MODULE__.RetrievalStub)
+
+    Application.put_env(
+      :zaq,
+      :mattermost_document_processor_module,
+      __MODULE__.DocumentProcessorStub
+    )
+
+    Application.put_env(:zaq, :mattermost_test_pid, self())
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :mattermost_api_module)
+      Application.delete_env(:zaq, :mattermost_node_router_module)
+      Application.delete_env(:zaq, :mattermost_prompt_guard_module)
+      Application.delete_env(:zaq, :mattermost_prompt_template_module)
+      Application.delete_env(:zaq, :mattermost_answering_module)
+      Application.delete_env(:zaq, :mattermost_retrieval_module)
+      Application.delete_env(:zaq, :mattermost_document_processor_module)
+      Application.delete_env(:zaq, :mattermost_test_pid)
+    end)
+
+    case Process.whereis(PendingQuestions) do
+      nil -> start_supervised!({PendingQuestions, []})
+      _pid -> :ok
+    end
+
+    Agent.update(PendingQuestions, fn _state -> %{} end)
+    :ok
+  end
+
+  test "handle_in/2 ignores invalid JSON payloads" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, "not-json"}, state)
+  end
+
+  test "handle_in/2 ignores websocket payloads without event field" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+    payload = Jason.encode!(%{"seq_reply" => 1})
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+  end
+
+  test "handle_connect/3 returns state unchanged" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+    assert {:ok, ^state} = Mattermost.handle_connect(101, [], state)
+  end
+
+  test "handle_disconnect/3 asks Fresh to reconnect" do
+    assert :reconnect = Mattermost.handle_disconnect(1006, "lost", %{})
+  end
+
+  test "handle_info/2 ignores unrelated messages" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+    assert {:ok, ^state} = Mattermost.handle_info(:noop, state)
+  end
+
+  test "handle_in/2 logs and ignores non-posted events" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+    payload = Jason.encode!(%{"event" => "typing", "data" => %{}})
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+  end
+
+  test "handle_in/2 ignores posted events missing @zaq mention" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      posted_payload(%{
+        id: "post-1",
+        channel_id: "channel-1",
+        message: "where docs?",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+    refute_receive {:api_send_message, _, _, _}
+  end
+
+  test "handle_in/2 ignores malformed posted events" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      Jason.encode!(%{
+        "event" => "posted",
+        "data" => %{
+          "post" => "{not-json",
+          "sender_name" => "alice",
+          "channel_type" => "O",
+          "channel_name" => "engineering"
+        }
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+  end
+
+  test "handle_in/2 ignores posted events sent by @zaq" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      posted_payload(%{
+        id: "post-1",
+        channel_id: "channel-1",
+        message: "@zaq hi",
+        sender_name: "@zaq"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+  end
+
+  test "handle_in/2 ignores posts from unmonitored channels" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      posted_payload(%{
+        id: "post-1",
+        channel_id: "channel-2",
+        message: "@zaq where docs?",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+  end
+
+  test "handle_in/2 resolves pending thread replies through PendingQuestions" do
+    test_pid = self()
+
+    on_answer = fn answer -> send(test_pid, {:answered, answer}) end
+
+    send_fn = fn _channel_id, _question ->
+      {:ok, %{"id" => "root-post-1", "user_id" => "bot-user-1"}}
+    end
+
+    assert {:ok, "root-post-1"} =
+             PendingQuestions.ask("channel-1", "bot-user-1", "question", send_fn, on_answer)
+
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      posted_payload(%{
+        id: "reply-post-1",
+        channel_id: "channel-1",
+        user_id: "human-user-1",
+        root_id: "root-post-1",
+        message: "Answer from human",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+    assert_receive {:answered, "Answer from human"}
+    assert PendingQuestions.pending() == %{}
+  end
+
+  test "forward_to_engine/1 sends cleaned successful answer in thread" do
+    question = %{
+      text: "ok_html",
+      channel_id: "channel-1",
+      thread_id: nil,
+      metadata: %{post_id: "post-1", sender_name: "alice"}
+    }
+
+    assert :ok = Mattermost.forward_to_engine(question)
+    assert_receive {:api_send_typing, "channel-1", "post-1"}
+    assert_receive {:api_send_message, "channel-1", "ok <tag>", "post-1"}
+  end
+
+  test "forward_to_engine/1 handles safety and retrieval error branches" do
+    cases = [
+      {"inject", "I can only help with ZAQ-related questions."},
+      {"roleplay", "I can only help with ZAQ-related questions."},
+      {"unsafe", "I can only help with ZAQ-related questions."},
+      {"no_results_neg", "No docs found."},
+      {"no_results_plain", "I couldn't find relevant information to answer your question."},
+      {"retrieval_error", "Sorry, something went wrong. Please try again."}
+    ]
+
+    for {text, expected_reply} <- cases do
+      channel_id = "channel-" <> text
+      thread_id = "thread-" <> text
+
+      question = %{
+        text: text,
+        channel_id: channel_id,
+        thread_id: thread_id,
+        metadata: %{post_id: "post-#{text}", sender_name: "alice"}
+      }
+
+      assert :ok = Mattermost.forward_to_engine(question)
+      assert_receive {:api_send_typing, ^channel_id, ^thread_id}
+      assert_receive {:api_send_message, ^channel_id, ^expected_reply, ^thread_id}
+    end
+  end
+
+  test "forward_to_engine/1 handles no-answer and send_message errors" do
+    question = %{
+      text: "no_answer",
+      channel_id: "send-error",
+      thread_id: "thread-1",
+      metadata: %{post_id: "post-1", sender_name: "alice"}
+    }
+
+    assert :ok = Mattermost.forward_to_engine(question)
+    assert_receive {:api_send_typing, "send-error", "thread-1"}
+    assert_receive {:api_send_message, "send-error", "No answer available", "thread-1"}
+  end
+
+  test "handle_info/2 reloads monitored channels from database" do
+    config = insert_mattermost_config()
+    insert_retrieval_channel(config.id, "channel-a", active: true)
+    insert_retrieval_channel(config.id, "channel-b", active: false)
+
+    state = %{monitored_channel_ids: MapSet.new()}
+
+    assert {:ok, new_state} = Mattermost.handle_info(:reload_channels, state)
+    assert MapSet.member?(new_state.monitored_channel_ids, "channel-a")
+    refute MapSet.member?(new_state.monitored_channel_ids, "channel-b")
+  end
+
+  defp posted_payload(attrs) do
+    post = %{
+      "id" => attrs.id,
+      "message" => attrs.message,
+      "user_id" => Map.get(attrs, :user_id, "user-1"),
+      "channel_id" => attrs.channel_id,
+      "root_id" => Map.get(attrs, :root_id),
+      "create_at" => 1_710_000_001
+    }
+
+    Jason.encode!(%{
+      "event" => "posted",
+      "data" => %{
+        "post" => Jason.encode!(post),
+        "sender_name" => attrs.sender_name,
+        "channel_type" => "O",
+        "channel_name" => "engineering"
+      }
+    })
+  end
+
+  defp insert_mattermost_config(attrs \\ []) do
+    defaults = %{
+      name: "Mattermost",
+      provider: "mattermost",
+      kind: "retrieval",
+      url: "https://mattermost.example.com",
+      token: "test-token",
+      enabled: true
+    }
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(Enum.into(attrs, defaults))
+    |> Repo.insert!()
+  end
+
+  defp insert_retrieval_channel(config_id, channel_id, attrs) do
+    defaults = %{
+      channel_config_id: config_id,
+      channel_id: channel_id,
+      channel_name: channel_id,
+      team_id: "team-1",
+      team_name: "Team",
+      active: true
+    }
+
+    %RetrievalChannel{}
+    |> RetrievalChannel.changeset(Enum.into(attrs, defaults))
+    |> Repo.insert!()
+  end
+
+  defmodule APIStub do
+    def send_typing(channel_id, thread_id) do
+      send(test_pid(), {:api_send_typing, channel_id, thread_id})
+      :ok
+    end
+
+    def send_message(channel_id, message, thread_id) do
+      send(test_pid(), {:api_send_message, channel_id, message, thread_id})
+
+      if channel_id == "send-error" do
+        {:error, :send_failed}
+      else
+        {:ok, %{"id" => "stub-post"}}
+      end
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:zaq, :mattermost_test_pid)
+    end
+  end
+
+  defmodule PromptGuardStub do
+    def validate("inject"), do: {:error, :prompt_injection}
+    def validate("roleplay"), do: {:error, :role_play_attempt}
+    def validate(text), do: {:ok, "clean:" <> text}
+
+    def output_safe?("unsafe"), do: {:error, {:leaked, "unsafe output"}}
+    def output_safe?(text), do: {:ok, text}
+  end
+
+  defmodule PromptTemplateStub do
+    def render("answering", %{question: question}), do: "prompt:" <> question
+  end
+
+  defmodule NodeRouterStub do
+    def call(:agent, retrieval_mod, :ask, [clean_msg, [history: %{}]])
+        when retrieval_mod == Zaq.Channels.Retrieval.MattermostTest.RetrievalStub do
+      case clean_msg do
+        "clean:no_results_neg" ->
+          {:ok, %{"negative_answer" => "No docs found."}}
+
+        "clean:no_results_plain" ->
+          {:ok, %{}}
+
+        "clean:retrieval_error" ->
+          {:error, :retrieval_failed}
+
+        _ ->
+          {:ok,
+           %{
+             "query" => "query:" <> clean_msg,
+             "language" => "en",
+             "positive_answer" => "yes",
+             "negative_answer" => "none"
+           }}
+      end
+    end
+
+    def call(:ingestion, document_processor_mod, :query_extraction, [query])
+        when document_processor_mod == Zaq.Channels.Retrieval.MattermostTest.DocumentProcessorStub do
+      {:ok, [%{"content" => "ctx:" <> query, "source" => "kb"}]}
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:ok_html"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok,
+       %{answer: "<b>ok</b> <a href='x'>&lt;tag&gt;</a> [source: kb]", confidence: %{score: 0.91}}}
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:no_answer"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok, %{answer: "NO_ANSWER: No answer available", confidence: %{score: 0.1}}}
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:unsafe"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok, %{answer: "unsafe", confidence: %{score: 0.2}}}
+    end
+
+    def call(:agent, answering_mod, :ask, [_prompt])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok, %{answer: "all good", confidence: %{score: 0.8}}}
+    end
+  end
+
+  defmodule RetrievalStub do
+  end
+
+  defmodule DocumentProcessorStub do
+  end
+
+  defmodule AnsweringStub do
+    def no_answer?("NO_ANSWER: " <> _), do: true
+    def no_answer?(_), do: false
+
+    def clean_answer("NO_ANSWER: " <> rest), do: rest
+    def clean_answer(answer), do: answer
+  end
+end

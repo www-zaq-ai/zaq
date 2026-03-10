@@ -1,5 +1,5 @@
 defmodule Zaq.Ingestion.FileExplorerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Zaq.Ingestion.FileExplorer
 
@@ -102,6 +102,64 @@ defmodule Zaq.Ingestion.FileExplorerTest do
 
     test "rejects traversal in upload" do
       assert {:error, :path_traversal} = FileExplorer.upload("../../evil.txt", "bad")
+    end
+  end
+
+  describe "delete/1" do
+    test "deletes an existing file" do
+      path = Path.join(@test_base, "remove.txt")
+      File.write!(path, "content")
+
+      assert :ok = FileExplorer.delete("remove.txt")
+      assert not File.exists?(path)
+    end
+
+    test "rejects traversal in delete" do
+      assert {:error, :path_traversal} = FileExplorer.delete("../../outside.txt")
+    end
+  end
+
+  describe "delete_directory/1" do
+    test "removes a directory recursively" do
+      dir = Path.join(@test_base, "to_remove")
+      nested = Path.join(dir, "nested")
+      File.mkdir_p!(nested)
+      File.write!(Path.join(nested, "doc.md"), "# title")
+
+      assert :ok = FileExplorer.delete_directory("to_remove")
+      assert not File.exists?(dir)
+    end
+
+    test "returns error when path is not a directory" do
+      File.write!(Path.join(@test_base, "single.txt"), "content")
+      assert {:error, :not_a_directory} = FileExplorer.delete_directory("single.txt")
+    end
+  end
+
+  describe "rename/2" do
+    test "renames a file inside base path" do
+      old_path = Path.join(@test_base, "old.txt")
+      new_path = Path.join(@test_base, "new.txt")
+      File.write!(old_path, "value")
+
+      assert :ok = FileExplorer.rename("old.txt", "new.txt")
+      assert File.read!(new_path) == "value"
+      assert not File.exists?(old_path)
+    end
+
+    test "rejects traversal in destination" do
+      assert {:error, :path_traversal} = FileExplorer.rename("inside.txt", "../../outside.txt")
+    end
+  end
+
+  describe "create_directory/1" do
+    test "creates directories recursively" do
+      assert :ok = FileExplorer.create_directory("a/b/c")
+      assert File.dir?(Path.join(@test_base, "a/b/c"))
+    end
+
+    test "rejects traversal when creating directory" do
+      assert {:error, :path_traversal} = FileExplorer.create_directory("../../escape")
     end
   end
 end

@@ -80,7 +80,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   @impl Zaq.Engine.RetrievalChannel
   def send_message(channel_id, message, thread_id) do
-    API.send_message(channel_id, message, thread_id)
+    api_module().send_message(channel_id, message, thread_id)
   end
 
   @impl Zaq.Engine.RetrievalChannel
@@ -236,16 +236,16 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   defp run_pipeline(user_msg, channel_id, thread_id) do
     # Send typing indicator while processing
-    API.send_typing(channel_id, thread_id)
+    api_module().send_typing(channel_id, thread_id)
 
     result =
-      with {:ok, clean_msg} <- PromptGuard.validate(user_msg),
+      with {:ok, clean_msg} <- prompt_guard_module().validate(user_msg),
            {:ok, retrieval_result} <- run_retrieval(clean_msg),
            {:ok, extraction_result} <- run_query_extraction(retrieval_result),
            {:ok, answer_result} <- run_answering(clean_msg, extraction_result, retrieval_result),
-           {:ok, safe_answer} <- PromptGuard.output_safe?(answer_result.answer) do
-        if Answering.no_answer?(safe_answer) do
-          %{answer: Answering.clean_answer(safe_answer), confidence: 0.0}
+           {:ok, safe_answer} <- prompt_guard_module().output_safe?(answer_result.answer) do
+        if answering_module().no_answer?(safe_answer) do
+          %{answer: answering_module().clean_answer(safe_answer), confidence: 0.0}
         else
           %{answer: safe_answer, confidence: Map.get(answer_result, :confidence, %{score: 1.0})}
         end
@@ -274,7 +274,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     # Send the answer as a thread reply
     reply = clean_body(result.answer)
 
-    case API.send_message(channel_id, reply, thread_id) do
+    case api_module().send_message(channel_id, reply, thread_id) do
       {:ok, _} ->
         Logger.info("[Mattermost] Reply sent to channel=#{channel_id} thread=#{thread_id}")
 
@@ -284,7 +284,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   end
 
   defp run_retrieval(clean_msg) do
-    case NodeRouter.call(:agent, Retrieval, :ask, [clean_msg, [history: %{}]]) do
+    case node_router_module().call(:agent, retrieval_module(), :ask, [clean_msg, [history: %{}]]) do
       {:ok,
        %{
          "query" => query,
@@ -316,7 +316,9 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   end
 
   defp run_query_extraction(%{query: query, negative_answer: negative_answer}) do
-    case NodeRouter.call(:ingestion, DocumentProcessor, :query_extraction, [query]) do
+    case node_router_module().call(:ingestion, document_processor_module(), :query_extraction, [
+           query
+         ]) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}
       {:error, _} -> {:error, :no_results, negative_answer}
@@ -333,14 +335,14 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
       end)
 
     system_prompt =
-      PromptTemplate.render("answering", %{
+      prompt_template_module().render("answering", %{
         question: question,
         retrieved_data: Jason.encode!(retrieved_data),
         language: language,
         no_answer_signal: @no_answer_signal
       })
 
-    case NodeRouter.call(:agent, Answering, :ask, [system_prompt]) do
+    case node_router_module().call(:agent, answering_module(), :ask, [system_prompt]) do
       {:ok, %{answer: _, confidence: _} = result} -> {:ok, result}
       {:ok, answer} when is_binary(answer) -> {:ok, %{answer: answer, confidence: %{score: 1.0}}}
       error -> error
@@ -390,5 +392,25 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     |> String.replace_leading("https://", "wss://")
     |> String.replace_leading("http://", "ws://")
     |> Kernel.<>("/api/v4/websocket")
+  end
+
+  defp api_module, do: Application.get_env(:zaq, :mattermost_api_module, API)
+
+  defp node_router_module,
+    do: Application.get_env(:zaq, :mattermost_node_router_module, NodeRouter)
+
+  defp prompt_guard_module,
+    do: Application.get_env(:zaq, :mattermost_prompt_guard_module, PromptGuard)
+
+  defp retrieval_module, do: Application.get_env(:zaq, :mattermost_retrieval_module, Retrieval)
+
+  defp document_processor_module do
+    Application.get_env(:zaq, :mattermost_document_processor_module, DocumentProcessor)
+  end
+
+  defp answering_module, do: Application.get_env(:zaq, :mattermost_answering_module, Answering)
+
+  defp prompt_template_module do
+    Application.get_env(:zaq, :mattermost_prompt_template_module, PromptTemplate)
   end
 end

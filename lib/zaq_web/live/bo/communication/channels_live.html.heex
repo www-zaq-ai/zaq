@@ -33,6 +33,7 @@
         </div>
       </div>
       <button
+        id="new-config-button"
         phx-click="open_modal"
         phx-value-action="new"
         class="font-mono text-[0.75rem] tracking-wide px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors flex items-center gap-1.5"
@@ -94,6 +95,7 @@
 <!-- Empty State -->
     <div
       :if={@configs == []}
+      id="configs-empty-state"
       class="bg-white rounded-xl border border-dashed border-black/15 p-8 text-center"
     >
       <div class="w-9 h-9 rounded-lg bg-black/5 grid place-items-center mx-auto mb-3">
@@ -117,6 +119,7 @@
     <div :if={@configs != []} class="space-y-3">
       <div
         :for={config <- @configs}
+        id={"config-card-#{config.id}"}
         class="bg-white rounded-xl border border-black/10 p-5 flex items-center justify-between"
       >
         <div class="flex items-center gap-4">
@@ -159,6 +162,7 @@
 
         <div class="flex items-center gap-2">
           <button
+            id={"toggle-config-#{config.id}"}
             phx-click="toggle_enabled"
             phx-value-id={config.id}
             class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
@@ -166,6 +170,7 @@
             {if config.enabled, do: "Disable", else: "Enable"}
           </button>
           <button
+            id={"edit-config-#{config.id}"}
             phx-click="open_modal"
             phx-value-action="edit"
             phx-value-id={config.id}
@@ -184,6 +189,7 @@
             </svg>
           </button>
           <button
+            id={"open-test-config-#{config.id}"}
             phx-click="open_test"
             phx-value-id={config.id}
             class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-amber-500 hover:border-amber-300 transition-all"
@@ -200,6 +206,7 @@
             </svg>
           </button>
           <button
+            id={"confirm-delete-config-#{config.id}"}
             phx-click="confirm_delete"
             phx-value-id={config.id}
             class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-red-500 hover:border-red-200 transition-all"
@@ -236,6 +243,7 @@
     <div :if={@retrieval_channels != []} class="space-y-2 mb-5">
       <div
         :for={rc <- @retrieval_channels}
+        id={"retrieval-channel-#{rc.id}"}
         class="bg-white rounded-xl border border-black/10 px-5 py-4 flex items-center justify-between"
       >
         <div class="flex items-center gap-3">
@@ -275,6 +283,7 @@
         </div>
         <div class="flex items-center gap-2">
           <button
+            id={"toggle-retrieval-channel-#{rc.id}"}
             phx-click="toggle_channel_active"
             phx-value-id={rc.id}
             class="font-mono text-[0.65rem] px-2.5 py-1.5 rounded-lg border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
@@ -282,6 +291,7 @@
             {if rc.active, do: "Pause", else: "Activate"}
           </button>
           <button
+            id={"confirm-remove-retrieval-channel-#{rc.id}"}
             phx-click="confirm_remove_channel"
             phx-value-id={rc.id}
             class="w-7 h-7 rounded-lg border border-black/10 grid place-items-center text-black/25 hover:text-red-500 hover:border-red-200 transition-all"
@@ -951,7 +961,7 @@
           else: "Update the details for this configuration."}
       </p>
 
-      <.form for={@changeset} as={:form} phx-submit="save" phx-change="validate">
+      <.form for={@changeset} as={:form} id="config-form" phx-submit="save" phx-change="validate">
         <input :if={@modal == :new} type="hidden" name="form[provider]" value={@provider} />
 
         <div class="mb-4">
@@ -1071,6 +1081,7 @@
           Cancel
         </button>
         <button
+          id="delete-config-button"
           phx-click="delete"
           class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all"
         >
@@ -1173,6 +1184,7 @@
           Cancel
         </button>
         <button
+          id="remove-retrieval-channel-button"
           phx-click="remove_channel"
           class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all"
         >
@@ -1197,7 +1209,7 @@
       <p class="font-mono text-[0.7rem] text-black/40 mb-6">
         Send a test message via <span class="text-black/60 font-bold">{@test_config.name}</span>
       </p>
-      <form phx-submit="run_test">
+      <form id="test-connection-form" phx-submit="run_test">
         <div class="mb-4">
           <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
             Channel ID

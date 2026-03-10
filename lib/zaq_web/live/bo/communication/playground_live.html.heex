@@ -42,6 +42,7 @@
       <%!-- Top bar --%>
       <div class="flex-shrink-0 flex items-center justify-end px-6 py-2.5 border-b border-[#e8e6e1] bg-white">
         <button
+          id="clear-chat-button"
           phx-click="clear_chat"
           class="flex items-center gap-1.5 text-[0.75rem] font-mono text-[#9e9b94] hover:text-red-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-red-50"
         >
@@ -370,8 +371,9 @@
               Try asking
             </p>
             <div class="flex flex-wrap gap-2">
-              <%= for question <- @suggested_questions do %>
+              <%= for {question, index} <- Enum.with_index(@suggested_questions) do %>
                 <button
+                  id={"suggestion-#{index}"}
                   phx-click="use_suggestion"
                   phx-value-question={question}
                   class="text-[0.78rem] rounded-full px-3.5 py-1.5 border transition-all"
@@ -390,7 +392,7 @@
       <%!-- Input bar --%>
       <div class="flex-shrink-0 border-t border-[#e8e6e1] bg-white px-6 py-3.5">
         <div class="max-w-3xl mx-auto">
-          <form phx-submit="send_message" class="flex gap-3 items-center">
+          <form id="chat-form" phx-submit="send_message" class="flex gap-3 items-center">
             <div class="flex-1 relative">
               <textarea
                 name="message"
@@ -449,6 +451,7 @@
     <%!-- Feedback modal --%>
     <%= if @show_feedback_modal do %>
       <div
+        id="feedback-modal"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
         phx-click="close_feedback_modal"
       >
@@ -511,6 +514,7 @@
               Cancel
             </button>
             <button
+              id="submit-feedback-button"
               phx-click="submit_feedback"
               class="px-5 py-2 text-sm font-medium text-white rounded-lg transition-all active:scale-95"
               style="background:#03b6d4;"

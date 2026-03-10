@@ -11,21 +11,26 @@ defmodule ZaqWeb.AgentController do
   Body: {"question": "...", "history": %{}}
   """
   def ask(conn, %{"question" => question} = params) do
+    prompt_guard = prompt_guard_module()
+    retrieval = retrieval_module()
+    document_processor = document_processor_module()
+    answering = answering_module()
+
     history = Map.get(params, "history", %{})
 
-    with {:ok, clean_msg} <- PromptGuard.validate(question),
+    with {:ok, clean_msg} <- prompt_guard.validate(question),
          {:ok, %{"query" => query, "language" => lang}} <-
-           Retrieval.ask(clean_msg, history: history),
+           retrieval.ask(clean_msg, history: history),
          {:ok, [%{"total_count" => count}]} <-
-           DocumentProcessor.similarity_search_count(query),
+           document_processor.similarity_search_count(query),
          true <- count > 0,
-         {:ok, query_results} <- DocumentProcessor.query_extraction(query),
+         {:ok, query_results} <- document_processor.query_extraction(query),
          {:ok, %{answer: answer, confidence: %{score: score}}} <-
-           Answering.ask(query_results, history: history),
-         {:ok, safe_answer} <- PromptGuard.output_safe?(answer) do
-      if Answering.no_answer?(safe_answer) do
+           answering.ask(query_results, history: history),
+         {:ok, safe_answer} <- prompt_guard.output_safe?(answer) do
+      if answering.no_answer?(safe_answer) do
         json(conn, %{
-          answer: Answering.clean_answer(safe_answer),
+          answer: answering.clean_answer(safe_answer),
           confidence: 0,
           language: lang
         })
@@ -50,10 +55,12 @@ defmodule ZaqWeb.AgentController do
   Body: {"path": "/path/to/file_or_folder"}
   """
   def ingest(conn, %{"path" => path}) do
+    document_processor = document_processor_module()
+
     result =
       if File.dir?(path),
-        do: DocumentProcessor.process_folder(path),
-        else: DocumentProcessor.process_single_file(path)
+        do: document_processor.process_folder(path),
+        else: document_processor.process_single_file(path)
 
     case result do
       {:ok, data} ->
@@ -63,5 +70,21 @@ defmodule ZaqWeb.AgentController do
         Logger.error("AgentController.ingest failed: #{inspect(reason)}")
         conn |> put_status(422) |> json(%{error: inspect(reason)})
     end
+  end
+
+  defp prompt_guard_module do
+    Application.get_env(:zaq, :agent_prompt_guard_module, PromptGuard)
+  end
+
+  defp retrieval_module do
+    Application.get_env(:zaq, :agent_retrieval_module, Retrieval)
+  end
+
+  defp document_processor_module do
+    Application.get_env(:zaq, :agent_document_processor_module, DocumentProcessor)
+  end
+
+  defp answering_module do
+    Application.get_env(:zaq, :agent_answering_module, Answering)
   end
 end

@@ -22,17 +22,20 @@ defmodule ZaqWeb.PendingQuestionsController do
     }
   """
   def create(conn, params) do
+    pending_questions = pending_questions_module()
+    mattermost_api = mattermost_api_module()
+
     with :ok <- check_license(),
          {:ok, attrs} <- validate_params(params) do
       formatted = format_question(attrs)
 
       callback = build_callback(attrs.question_id)
 
-      case PendingQuestions.ask(
+      case pending_questions.ask(
              attrs.channel_id,
              "zaq_agent",
              formatted,
-             &MattermostAPI.send_message(&1, &2, nil),
+             &mattermost_api.send_message(&1, &2, nil),
              callback
            ) do
         {:ok, post_id} ->
@@ -65,7 +68,7 @@ defmodule ZaqWeb.PendingQuestionsController do
   # --- Private ---
 
   defp check_license do
-    if FeatureStore.feature_loaded?("knowledge_gap") do
+    if feature_store_module().feature_loaded?("knowledge_gap") do
       :ok
     else
       {:error, :feature_not_licensed}
@@ -100,10 +103,12 @@ defmodule ZaqWeb.PendingQuestionsController do
   end
 
   defp build_callback(question_id) do
+    knowledge_gap = knowledge_gap_module()
+
     fn answer ->
       table_name = Application.get_env(:zaq, :knowledge_gap_table, "chunks")
 
-      case apply(LicenseManager.Paid.KnowledgeGap, :resolve, [question_id, answer, table_name]) do
+      case knowledge_gap.resolve(question_id, answer, table_name) do
         {:ok, _} ->
           Logger.info("Resolved question #{question_id} via in-process callback")
           :ok
@@ -113,5 +118,21 @@ defmodule ZaqWeb.PendingQuestionsController do
           {:error, reason}
       end
     end
+  end
+
+  defp pending_questions_module do
+    Application.get_env(:zaq, :pending_questions_module, PendingQuestions)
+  end
+
+  defp mattermost_api_module do
+    Application.get_env(:zaq, :mattermost_api_module, MattermostAPI)
+  end
+
+  defp feature_store_module do
+    Application.get_env(:zaq, :feature_store_module, FeatureStore)
+  end
+
+  defp knowledge_gap_module do
+    Application.get_env(:zaq, :knowledge_gap_module, LicenseManager.Paid.KnowledgeGap)
   end
 end
