@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Mattermost.API, as: MattermostAPI
   alias Zaq.Repo
+  alias ZaqWeb.Components.ServiceUnavailable
 
   import Ecto.Query
 
@@ -17,8 +18,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     "webhook" => "Webhook"
   }
 
+  # Required roles for this page — just :channels for now.
+  # When ingestion channels are separated: [:channels, :ingestion]
+  # When retrieval channels are separated: [:channels, :agent]
+  @required_roles [:channels]
+
   @impl true
   def mount(%{"provider" => provider}, _session, socket) do
+    available = ServiceUnavailable.available?(@required_roles)
+
     label =
       Map.get(
         @provider_labels,
@@ -32,7 +40,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:current_path, "/bo/channels")
      |> assign(:provider, provider)
      |> assign(:provider_label, label)
-     |> assign(:configs, list_configs(provider))
+     |> assign(:service_available, available)
+     |> assign(:required_roles, @required_roles)
+     |> assign(:configs, if(available, do: list_configs(provider), else: []))
      # config modal
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
@@ -57,10 +67,18 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   # -------------------------------------------------------------------------
-  # Config CRUD events
+  # Guard — ignore all events when service is unavailable
   # -------------------------------------------------------------------------
 
   @impl true
+  def handle_event(_event, _params, %{assigns: %{service_available: false}} = socket) do
+    {:noreply, socket}
+  end
+
+  # -------------------------------------------------------------------------
+  # Config CRUD events
+  # -------------------------------------------------------------------------
+
   def handle_event("open_modal", %{"action" => "new"}, socket) do
     changeset =
       ChannelConfig.changeset(%ChannelConfig{}, %{"provider" => socket.assigns.provider})

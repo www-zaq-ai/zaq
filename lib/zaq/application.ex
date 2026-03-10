@@ -6,7 +6,16 @@ defmodule Zaq.Application do
 
   @impl true
   def start(_type, _args) do
-    roles = Application.get_env(:zaq, :roles, [:all])
+    roles =
+      case System.get_env("ROLES") do
+        nil ->
+          Application.get_env(:zaq, :roles, [:all])
+
+        roles_str ->
+          roles_str
+          |> String.split(",")
+          |> Enum.map(&(&1 |> String.trim() |> String.to_atom()))
+      end
 
     ObanTelemetry.attach()
 
@@ -19,28 +28,26 @@ defmodule Zaq.Application do
         {Phoenix.PubSub, name: Zaq.PubSub},
         Zaq.License.FeatureStore,
         Zaq.License.LicensePostLoader,
-        {Zaq.License.LicenseWatcherFS, watch_dir: "priv/licenses"}
+        {Zaq.License.LicenseWatcherFS, watch_dir: "priv/licenses"},
+        Zaq.PeerConnector
       ]
       |> maybe_add(roles, :engine, Zaq.Engine.Supervisor)
       |> maybe_add(roles, :agent, Zaq.Agent.Supervisor)
       |> maybe_add(roles, :ingestion, Zaq.Ingestion.Supervisor)
       |> maybe_add(roles, :channels, Zaq.Channels.Supervisor)
       |> maybe_add(roles, :bo, ZaqWeb.Endpoint)
-      |> maybe_add_endpoint(roles)
 
     opts = [strategy: :one_for_one, name: Zaq.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
-  # Always start the endpoint when running all roles,
-  # otherwise only start it for :bo or :engine (API)
-  defp maybe_add_endpoint(children, roles) do
-    if :all in roles do
-      children ++ [ZaqWeb.Endpoint]
-    else
-      children
-    end
+  @impl true
+  def config_change(changed, _new, removed) do
+    ZaqWeb.Endpoint.config_change(changed, removed)
+    :ok
   end
+
+  # -- Private --
 
   defp maybe_add(children, roles, role, child) do
     if :all in roles or role in roles do
@@ -48,11 +55,5 @@ defmodule Zaq.Application do
     else
       children
     end
-  end
-
-  @impl true
-  def config_change(changed, _new, removed) do
-    ZaqWeb.Endpoint.config_change(changed, removed)
-    :ok
   end
 end

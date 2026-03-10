@@ -12,6 +12,9 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
         → Answering.ask/2
         → PromptGuard.output_safe?/1
         → push answer to UI
+
+  Agent and Ingestion calls are routed via Zaq.NodeRouter so they
+  work whether the services run locally or on a peer node.
   """
 
   use ZaqWeb, :live_view
@@ -19,6 +22,11 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
   alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Ingestion.DocumentProcessor
+  alias Zaq.NodeRouter
+  alias ZaqWeb.Components.ServiceUnavailable
+
+  # Required roles for the playground
+  @required_roles [:agent, :ingestion]
 
   require Logger
 
@@ -28,10 +36,14 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    available = ServiceUnavailable.available?(@required_roles)
+
     {:ok,
      socket
      |> assign(:page_title, "Playground")
      |> assign(:current_path, "/bo/playground")
+     |> assign(:service_available, available)
+     |> assign(:required_roles, @required_roles)
      |> assign(:messages, [welcome_message()])
      |> assign(:input_value, "")
      |> assign(:status, :idle)
@@ -48,6 +60,11 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
        "How is ZAQ deployed?",
        "Does ZAQ support Arabic?"
      ])}
+  end
+
+  # Guard — ignore all events when service is unavailable
+  def handle_event(_event, _params, %{assigns: %{service_available: false}} = socket) do
+    {:noreply, socket}
   end
 
   # ── Events ─────────────────────────────────────────────────────────
@@ -74,7 +91,6 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
         |> assign(:status_message, "ZAQ is analyzing your question…")
         |> assign(:current_request_id, user_msg.id)
 
-      # Run the agent pipeline in a Task so status updates can push to the UI
       pid = self()
       request_id = user_msg.id
       Task.start(fn -> run_pipeline_async(pid, request_id, trimmed, socket.assigns.history) end)
@@ -132,7 +148,6 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
     {:noreply, assign(socket, :show_feedback_modal, false)}
   end
 
-  # Stops click propagation inside the feedback modal
   def handle_event("noop", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle_feedback_reason", %{"reason" => reason}, socket) do
@@ -180,14 +195,12 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
        |> assign(:status, status)
        |> assign(:status_message, message)}
     else
-      # Stale update from a previous request — ignore
       {:noreply, socket}
     end
   end
 
   def handle_info({:pipeline_result, request_id, result, user_msg}, socket) do
     if request_id != socket.assigns.current_request_id do
-      # Stale result from a previous request — ignore
       {:noreply, socket}
     else
       history = socket.assigns.history
@@ -203,8 +216,6 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
         sources: extract_sources(result.answer)
       }
 
-      # Only add successful exchanges to history — failed/no-answer
-      # responses would confuse the LLM on future turns
       updated_history =
         if result[:error] || result.confidence == 0 do
           history
@@ -288,8 +299,10 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
     :ok
   end
 
+  # Routes Retrieval.ask to the node running Zaq.Agent.Supervisor,
+  # then normalizes the response from string keys to atom keys locally.
   defp run_retrieval(clean_msg, history) do
-    case Retrieval.ask(clean_msg, history: history) do
+    case NodeRouter.call(:agent, Retrieval, :ask, [clean_msg, [history: history]]) do
       {:ok,
        %{
          "query" => query,
@@ -320,20 +333,17 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
     end
   end
 
-  defp run_query_extraction(%{query: query, negative_answer: negative_answer} = retrieval) do
-    case DocumentProcessor.query_extraction(query) do
-      {:ok, results} when results != [] ->
-        {:ok, {results, retrieval}}
-
-      {:ok, []} ->
-        {:error, :no_results, negative_answer}
-
-      {:error, _} = error ->
-        {:error, :no_results, negative_answer}
+  # Routes DocumentProcessor.query_extraction to the node running Zaq.Ingestion.Supervisor.
+  defp run_query_extraction(%{query: query, negative_answer: negative_answer} = _retrieval) do
+    case NodeRouter.call(:ingestion, DocumentProcessor, :query_extraction, [query]) do
+      {:ok, results} when results != [] -> {:ok, results}
+      {:ok, []} -> {:error, :no_results, negative_answer}
+      {:error, _} -> {:error, :no_results, negative_answer}
     end
   end
 
-  defp run_answering(question, {query_results, retrieval}, _retrieval_result, _history) do
+  # Routes Answering.ask to the node running Zaq.Agent.Supervisor.
+  defp run_answering(question, query_results, retrieval, _history) do
     language = Map.get(retrieval, :language, "en")
 
     retrieved_data =
@@ -350,9 +360,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
         no_answer_signal: @no_answer_signal
       })
 
-    # No history passed to answering — the system prompt already contains
-    # the user question and retrieved context. History would confuse the LLM.
-    case Answering.ask(system_prompt) do
+    case NodeRouter.call(:agent, Answering, :ask, [system_prompt]) do
       {:ok, %{answer: _, confidence: _} = result} -> {:ok, result}
       {:ok, answer} when is_binary(answer) -> {:ok, %{answer: answer, confidence: %{score: 1.0}}}
       error -> error

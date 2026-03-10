@@ -38,5 +38,6 @@ npm-debug.log
 /priv/keys
 /priv/licenses
 /priv/documents
+/priv/roadmap
 
 config/dev.secret.exs

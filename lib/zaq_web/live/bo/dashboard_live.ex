@@ -6,6 +6,14 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   alias Zaq.Accounts
   alias Zaq.License.FeatureStore
 
+  @supervisor_map %{
+    engine: Zaq.Engine.Supervisor,
+    agent: Zaq.Agent.Supervisor,
+    ingestion: Zaq.Ingestion.Supervisor,
+    channels: Zaq.Channels.Supervisor,
+    bo: ZaqWeb.Endpoint
+  }
+
   def mount(_params, _session, socket) do
     license_data = FeatureStore.license_data()
 
@@ -21,9 +29,6 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
           end
       end
 
-    # Roles from config
-    active_roles = Application.get_env(:zaq, :roles, [:all])
-
     services = [
       %{name: "Engine", role: :engine, description: "Sessions, ontology, API routing"},
       %{name: "Agent", role: :agent, description: "RAG, LLM, classifier"},
@@ -32,9 +37,12 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
       %{name: "Back Office", role: :bo, description: "Admin panel (LiveView)"}
     ]
 
+    running = detect_running_services()
+
     services =
       Enum.map(services, fn svc ->
-        Map.put(svc, :active, :all in active_roles or svc.role in active_roles)
+        {active, node} = Map.get(running, svc.role, {false, nil})
+        svc |> Map.put(:active, active) |> Map.put(:node, node)
       end)
 
     {:ok,
@@ -50,5 +58,26 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
        embedding_count: 0,
        channel_count: 0
      )}
+  end
+
+  # -- Private --
+
+  # Checks local node + all connected peer nodes for each supervisor.
+  # Returns %{role => {true | false, node_name}}
+  defp detect_running_services do
+    all_nodes = [node() | Node.list()]
+
+    Enum.reduce(@supervisor_map, %{}, fn {role, supervisor}, acc ->
+      result = Enum.find_value(all_nodes, &node_running_supervisor?(&1, supervisor))
+      Map.put(acc, role, result || {false, nil})
+    end)
+  end
+
+  defp node_running_supervisor?(n, supervisor) when n == node() do
+    if Process.whereis(supervisor) != nil, do: {true, n}
+  end
+
+  defp node_running_supervisor?(n, supervisor) do
+    if :rpc.call(n, Process, :whereis, [supervisor]) != nil, do: {true, n}
   end
 end

@@ -110,14 +110,14 @@ ZAQ supports distributed deployment. Each node can run a subset of services by c
 In your config file (e.g. `config/dev.exs`):
 
 ```elixir
-# Run all services (default)
-config :zaq, roles: [:all]
+# Run all services on a single node (default)
+config :zaq, roles: [:bo, :agent, :ingestion, :channels]
 
 # Run only specific services
 config :zaq, roles: [:engine, :bo]
 ```
 
-Via environment variable:
+Via environment variable (takes priority over config file):
 
 ```bash
 ROLES=engine,agent mix phx.server
@@ -134,30 +134,43 @@ ROLES=engine,agent mix phx.server
 | `:channels`  | `Zaq.Channels.Supervisor`     |
 | `:bo`        | `ZaqWeb.Endpoint` (LiveView)  |
 
-### Example: Multi-Node Deployment
+### Multi-Node Deployment
+
+Nodes auto-connect to peers on boot using the `NODES` env var.
+All nodes must share the same `--cookie` for Erlang distribution to work.
 
 ```bash
-# Node 1 — API + Admin
-ROLES=engine,bo elixir --sname engine@localhost -S mix phx.server
+# Node 1 — AI services (start first)
+ROLES=agent,ingestion iex --sname ai@localhost --cookie zaq_secret -S mix
 
-# Node 2 — AI services
-ROLES=agent,ingestion elixir --sname ai@localhost -S mix phx.server
+# Node 2 — API + Admin (auto-connects to ai node)
+ROLES=engine,bo NODES=ai@localhost iex --sname bo@localhost --cookie zaq_secret -S mix phx.server
 
-# Node 3 — Communication
-ROLES=channels elixir --sname channels@localhost -S mix phx.server
+# Node 3 — Communication (auto-connects to both)
+ROLES=channels NODES=ai@localhost,bo@localhost iex --sname channels@localhost --cookie zaq_secret -S mix
 ```
+
+`NODES` accepts a comma-separated list of node names. Each node logs a confirmation on successful connection:
+
+```
+[info] Connected to peer node: ai@localhost
+```
+
+Once connected, cross-node service calls are handled automatically by `Zaq.NodeRouter`.
 
 ## Project Structure
 
 ```
 lib/
 ├── zaq/
-│   ├── application.ex      # OTP application with role-based startup
-│   ├── engine/             # Orchestration, sessions, ontology
+│   ├── application.ex      # OTP application with role-based startup + peer auto-connect
+│   ├── node_router.ex      # Routes RPC calls to correct node by service role
+│   ├── engine/             # Orchestration, sessions, ontology (not started yet)
 │   ├── agent/              # RAG, LLM, classifier
 │   ├── ingestion/          # Document processing, embeddings
 │   ├── channels/           # Mattermost, Slack, Email adapters
-│   ├── bo/                 # Back Office business logic (contexts)
+│   ├── license/            # License loading, verification, feature gating
+│   ├── embedding/          # Embedding HTTP client
 │   ├── repo.ex
 │   └── mailer.ex
 ├── zaq_web/

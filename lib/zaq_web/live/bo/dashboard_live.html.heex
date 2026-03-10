@@ -49,6 +49,9 @@
               <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
                 Description
               </th>
+              <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+                Node
+              </th>
               <th class="text-right font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
                 Status
               </th>
@@ -61,6 +64,13 @@
             >
               <td class="font-mono text-sm font-bold text-black px-6 py-4">{svc.name}</td>
               <td class="font-mono text-[0.75rem] text-black/50 px-6 py-4">{svc.description}</td>
+              <td class="font-mono text-[0.7rem] text-black/40 px-6 py-4">
+                <%= if svc.node do %>
+                  {svc.node}
+                <% else %>
+                  —
+                <% end %>
+              </td>
               <td class="px-6 py-4 text-right">
                 <span
                   :if={svc.active}
