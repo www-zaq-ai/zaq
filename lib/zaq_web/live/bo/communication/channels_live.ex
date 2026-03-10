@@ -2,8 +2,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.Channels.Retrieval.Mattermost
   alias Zaq.Channels.Retrieval.Mattermost.API, as: MattermostAPI
+  alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
   alias ZaqWeb.Components.ServiceUnavailable
 
@@ -393,27 +394,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
           |> assign(:selected_team_name, team_name)
           |> assign(:channels_status, :loading)
 
-        case MattermostAPI.list_public_channels(cfg, team_id) do
-          {:ok, channels} ->
-            # Filter out already-selected channels
-            existing_ids =
-              socket.assigns.retrieval_channels
-              |> Enum.map(& &1.channel_id)
-              |> MapSet.new()
-
-            available = Enum.reject(channels, fn ch -> MapSet.member?(existing_ids, ch.id) end)
-
-            {:noreply,
-             socket
-             |> assign(:available_channels, available)
-             |> assign(:channels_status, :ok)}
-
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> assign(:available_channels, [])
-             |> assign(:channels_status, {:error, reason})}
-        end
+        {:noreply, fetch_and_assign_channels(socket, cfg, team_id)}
     end
   end
 
@@ -434,23 +415,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
           active: true
         }
 
-        case %RetChannel{} |> RetChannel.changeset(attrs) |> Repo.insert() do
-          {:ok, _rc} ->
-            notify_ws_reload()
-
-            available =
-              Enum.reject(socket.assigns.available_channels, fn ch -> ch.id == ch_id end)
-
-            {:noreply,
-             socket
-             |> assign(:retrieval_channels, load_retrieval_channels(cfg))
-             |> assign(:available_channels, available)
-             |> put_flash(:info, "#{ch_name} added as retrieval channel.")}
-
-          {:error, changeset} ->
-            errors = format_errors(changeset) |> Enum.join(", ")
-            {:noreply, put_flash(socket, :error, "Failed to add channel: #{errors}")}
-        end
+        {:noreply, insert_retrieval_channel(socket, cfg, attrs, ch_id, ch_name)}
     end
   end
 
@@ -514,9 +479,49 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     RetChannel.list_by_config(config.id)
   end
 
+  defp fetch_and_assign_channels(socket, cfg, team_id) do
+    case MattermostAPI.list_public_channels(cfg, team_id) do
+      {:ok, channels} ->
+        existing_ids =
+          socket.assigns.retrieval_channels
+          |> Enum.map(& &1.channel_id)
+          |> MapSet.new()
+
+        available = Enum.reject(channels, fn ch -> MapSet.member?(existing_ids, ch.id) end)
+
+        socket
+        |> assign(:available_channels, available)
+        |> assign(:channels_status, :ok)
+
+      {:error, reason} ->
+        socket
+        |> assign(:available_channels, [])
+        |> assign(:channels_status, {:error, reason})
+    end
+  end
+
+  defp insert_retrieval_channel(socket, cfg, attrs, ch_id, ch_name) do
+    case %RetChannel{} |> RetChannel.changeset(attrs) |> Repo.insert() do
+      {:ok, _rc} ->
+        notify_ws_reload()
+
+        available =
+          Enum.reject(socket.assigns.available_channels, fn ch -> ch.id == ch_id end)
+
+        socket
+        |> assign(:retrieval_channels, load_retrieval_channels(cfg))
+        |> assign(:available_channels, available)
+        |> put_flash(:info, "#{ch_name} added as retrieval channel.")
+
+      {:error, changeset} ->
+        errors = format_errors(changeset) |> Enum.join(", ")
+        put_flash(socket, :error, "Failed to add channel: #{errors}")
+    end
+  end
+
   defp notify_ws_reload do
-    if Process.whereis(Zaq.Channels.Retrieval.Mattermost) do
-      Zaq.Channels.Retrieval.Mattermost.reload_channels()
+    if Process.whereis(Mattermost) do
+      Mattermost.reload_channels()
     end
   end
 

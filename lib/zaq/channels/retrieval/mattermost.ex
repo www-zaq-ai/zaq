@@ -40,12 +40,12 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
   alias Zaq.Agent.PromptTemplate
-  alias Zaq.Ingestion.DocumentProcessor
-  alias Zaq.NodeRouter
   alias Zaq.Channels.PendingQuestions
-  alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Channels.Retrieval.Mattermost.API
   alias Zaq.Channels.Retrieval.Mattermost.EventParser
+  alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.Ingestion.DocumentProcessor
+  alias Zaq.NodeRouter
 
   @behaviour Zaq.Engine.RetrievalChannel
 

@@ -50,7 +50,7 @@
       </button>
     </div>
   </div>
-
+  
 <!-- Flash Messages -->
   <div
     :if={Phoenix.Flash.get(@flash, :info)}
@@ -82,7 +82,7 @@
     </svg>
     <span>{Phoenix.Flash.get(@flash, :error)}</span>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- SECTION: Configurations -->
   <!-- ================================================================== -->
@@ -90,7 +90,7 @@
     <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">
       Configurations
     </p>
-
+    
 <!-- Empty State -->
     <div
       :if={@configs == []}
@@ -112,7 +112,7 @@
         Add a Mattermost connection to get started
       </p>
     </div>
-
+    
 <!-- Config Cards -->
     <div :if={@configs != []} class="space-y-3">
       <div
@@ -219,7 +219,7 @@
       </div>
     </div>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- SECTION: Retrieval Channel Picker -->
   <!-- ================================================================== -->
@@ -228,10 +228,11 @@
       Retrieval Channel
     </p>
     <p class="font-mono text-[0.7rem] text-black/40 mb-4">
-      Pick a public channel where users can <span class="text-black/60 font-bold">@zaq</span> to ask questions. ZAQ will only respond to messages that mention the bot in the selected channel.
+      Pick a public channel where users can <span class="text-black/60 font-bold">@zaq</span>
+      to ask questions. ZAQ will only respond to messages that mention the bot in the selected channel.
     </p>
-
-  <!-- Currently Selected Channels -->
+    
+<!-- Currently Selected Channels -->
     <div :if={@retrieval_channels != []} class="space-y-2 mb-5">
       <div
         :for={rc <- @retrieval_channels}
@@ -299,8 +300,8 @@
         </div>
       </div>
     </div>
-
-  <!-- Fetch Teams Button (initial state) -->
+    
+<!-- Fetch Teams Button (initial state) -->
     <div :if={@teams == [] and @teams_status == :idle}>
       <button
         phx-click="fetch_teams"
@@ -318,20 +319,24 @@
         Browse Channels
       </button>
     </div>
-
-  <!-- Loading Teams -->
+    
+<!-- Loading Teams -->
     <div
       :if={@teams_status == :loading}
       class="flex items-center gap-2 py-3"
     >
       <svg class="w-4 h-4 animate-spin text-[#0058CC]" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        <path
+          class="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+        />
       </svg>
       <span class="font-mono text-[0.7rem] text-black/40">Loading teams...</span>
     </div>
-
-  <!-- Teams Error -->
+    
+<!-- Teams Error -->
     <div
       :if={is_tuple(@teams_status) and elem(@teams_status, 0) == :error}
       class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2 mb-4"
@@ -352,8 +357,8 @@
         </p>
       </div>
     </div>
-
-  <!-- Team Selector -->
+    
+<!-- Team Selector -->
     <div :if={@teams != [] and @teams_status == :ok} class="mb-4">
       <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
         <div class="px-5 py-3 border-b border-black/5 flex items-center justify-between">
@@ -416,20 +421,24 @@
         </div>
       </div>
     </div>
-
-  <!-- Loading Channels -->
+    
+<!-- Loading Channels -->
     <div
       :if={@channels_status == :loading}
       class="flex items-center gap-2 py-3"
     >
       <svg class="w-4 h-4 animate-spin text-[#0058CC]" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        <path
+          class="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+        />
       </svg>
       <span class="font-mono text-[0.7rem] text-black/40">Loading channels...</span>
     </div>
-
-  <!-- Channels Error -->
+    
+<!-- Channels Error -->
     <div
       :if={is_tuple(@channels_status) and elem(@channels_status, 0) == :error}
       class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2"
@@ -450,16 +459,22 @@
         </p>
       </div>
     </div>
-
-  <!-- Available Channels List -->
+    
+<!-- Available Channels List -->
     <div :if={@channels_status == :ok and @selected_team_id != nil}>
-      <div :if={@available_channels == []} class="rounded-xl bg-black/3 border border-black/8 px-4 py-5 text-center">
+      <div
+        :if={@available_channels == []}
+        class="rounded-xl bg-black/3 border border-black/8 px-4 py-5 text-center"
+      >
         <p class="font-mono text-[0.75rem] text-black/40">
           No available public channels in this team, or all channels are already added.
         </p>
       </div>
 
-      <div :if={@available_channels != []} class="bg-white rounded-xl border border-black/10 overflow-hidden">
+      <div
+        :if={@available_channels != []}
+        class="bg-white rounded-xl border border-black/10 overflow-hidden"
+      >
         <div class="px-5 py-3 border-b border-black/5">
           <p class="font-mono text-[0.7rem] font-bold text-black/60">
             Public Channels in {@selected_team_name}
@@ -519,13 +534,13 @@
       </div>
     </div>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- MATTERMOST TOOLS (only shown when at least one config exists) -->
   <!-- ================================================================== -->
   <div :if={@configs != []} class="mt-8 space-y-4">
     <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">Tools</p>
-
+    
 <!-- ── Send Message ─────────────────────────────────────────────────── -->
     <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
       <div class="px-6 py-4 border-b border-black/5 flex items-center gap-3">
@@ -576,7 +591,7 @@
             Send another
           </button>
         </div>
-
+        
 <!-- Error state -->
         <div
           :if={is_tuple(@send_status) and elem(@send_status, 0) == :error}
@@ -598,7 +613,7 @@
             </p>
           </div>
         </div>
-
+        
 <!-- Form -->
         <form
           :if={@send_status != :ok}
@@ -680,7 +695,7 @@
         </form>
       </div>
     </div>
-
+    
 <!-- ── Browse Posts ──────────────────────────────────────────────────── -->
     <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
       <div class="px-6 py-4 border-b border-black/5 flex items-center gap-3">
@@ -757,7 +772,7 @@
             {if @posts_status == :loading, do: "Loading…", else: "Fetch Posts"}
           </button>
         </form>
-
+        
 <!-- Error -->
         <div
           :if={
@@ -779,7 +794,7 @@
             {if is_binary(@posts_status), do: @posts_status, else: inspect(elem(@posts_status, 1))}
           </p>
         </div>
-
+        
 <!-- Empty result -->
         <div
           :if={@posts_status == :ok and @posts == []}
@@ -787,7 +802,7 @@
         >
           <p class="font-mono text-[0.75rem] text-black/40">No posts found in this channel.</p>
         </div>
-
+        
 <!-- Posts list -->
         <div :if={@posts_status == :ok and @posts != []} class="space-y-2">
           <div class="flex items-center justify-between mb-3">
@@ -824,7 +839,7 @@
         </div>
       </div>
     </div>
-
+    
 <!-- ── Clear Channel ─────────────────────────────────────────────────── -->
     <div class="bg-white rounded-xl border border-red-100 overflow-hidden">
       <div class="px-6 py-4 border-b border-red-50 flex items-center gap-3">
@@ -867,7 +882,7 @@
           </svg>
           <p class="font-mono text-[0.7rem] text-emerald-700">Channel cleared successfully.</p>
         </div>
-
+        
 <!-- Error -->
         <div
           :if={is_tuple(@clear_status) and elem(@clear_status, 0) == :error}
@@ -915,7 +930,7 @@
       </div>
     </div>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- MODAL: New / Edit Config -->
   <!-- ================================================================== -->
@@ -1021,7 +1036,7 @@
       </.form>
     </div>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- MODAL: Delete Confirmation -->
   <!-- ================================================================== -->
@@ -1064,7 +1079,7 @@
       </div>
     </div>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- MODAL: Clear Channel Confirmation -->
   <!-- ================================================================== -->
@@ -1122,7 +1137,7 @@
       </div>
     </div>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- MODAL: Remove Retrieval Channel Confirmation -->
   <!-- ================================================================== -->
@@ -1132,7 +1147,8 @@
     phx-window-keydown="cancel_remove_channel"
     phx-key="Escape"
   >
-    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="cancel_remove_channel"></div>
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="cancel_remove_channel">
+    </div>
     <div class="relative w-full max-w-sm bg-white rounded-2xl border border-black/10 p-8 shadow-2xl text-center">
       <div class="w-10 h-10 rounded-lg bg-red-100 grid place-items-center mx-auto mb-4">
         <svg
@@ -1165,7 +1181,7 @@
       </div>
     </div>
   </div>
-
+  
 <!-- ================================================================== -->
   <!-- MODAL: Test Connection -->
   <!-- ================================================================== -->
