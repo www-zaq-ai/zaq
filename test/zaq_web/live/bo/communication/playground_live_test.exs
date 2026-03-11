@@ -52,13 +52,13 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/playground")
 
     view
-    |> element("button[phx-click=\"feedback\"][phx-value-type=\"negative\"]")
+    |> element(~s(button[phx-click="feedback"][phx-value-type="negative"]))
     |> render_click()
 
     assert has_element?(view, "#feedback-modal")
 
     view
-    |> element("button[phx-click=\"toggle_feedback_reason\"][phx-value-reason=\"Too slow\"]")
+    |> element(~s(button[phx-click="toggle_feedback_reason"][phx-value-reason="Too slow"]))
     |> render_click()
 
     view |> element("#submit-feedback-button") |> render_click()
@@ -97,19 +97,19 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/playground")
 
     view
-    |> element("button[phx-click=\"feedback\"][phx-value-type=\"negative\"]")
+    |> element(~s(button[phx-click="feedback"][phx-value-type="negative"]))
     |> render_click()
 
     assert has_element?(view, "#feedback-modal")
 
     view
-    |> element("button[phx-click=\"toggle_feedback_reason\"][phx-value-reason=\"Too slow\"]")
+    |> element(~s(button[phx-click="toggle_feedback_reason"][phx-value-reason="Too slow"]))
     |> render_click()
 
     assert render(view) =~ "background:#03b6d4; color:white; border-color:#03b6d4;"
 
     view
-    |> element("button[phx-click=\"toggle_feedback_reason\"][phx-value-reason=\"Too slow\"]")
+    |> element(~s(button[phx-click="toggle_feedback_reason"][phx-value-reason="Too slow"]))
     |> render_click()
 
     refute render(view) =~ "background:#03b6d4; color:white; border-color:#03b6d4;"

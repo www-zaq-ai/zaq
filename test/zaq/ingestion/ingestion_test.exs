@@ -4,6 +4,7 @@ defmodule Zaq.IngestionTest do
   import Mox
 
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.IngestJob
   alias Zaq.Repo
 
@@ -56,13 +57,13 @@ defmodule Zaq.IngestionTest do
       unique = System.unique_integer([:positive])
       folder = "ingestion_test_#{unique}"
 
-      assert :ok = Zaq.Ingestion.FileExplorer.create_directory(folder)
-      assert :ok = Zaq.Ingestion.FileExplorer.create_directory(Path.join(folder, "nested"))
-      assert {:ok, _} = Zaq.Ingestion.FileExplorer.upload(Path.join(folder, "one.md"), "# one")
-      assert {:ok, _} = Zaq.Ingestion.FileExplorer.upload(Path.join(folder, "two.md"), "# two")
+      assert :ok = FileExplorer.create_directory(folder)
+      assert :ok = FileExplorer.create_directory(Path.join(folder, "nested"))
+      assert {:ok, _} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
+      assert {:ok, _} = FileExplorer.upload(Path.join(folder, "two.md"), "# two")
 
       on_exit(fn ->
-        _ = Zaq.Ingestion.FileExplorer.delete_directory(folder)
+        _ = FileExplorer.delete_directory(folder)
       end)
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, 2, fn _path ->
