@@ -1,5 +1,7 @@
 # ZAQ
 
+![Coverage](https://img.shields.io/coverallsCoverage/github/www-zaq-ai/zaq)
+
 AI-powered company brain that updates itself. ZAQ continuously maintains your organization's knowledge base and provides instant, cited answers to people and AI agents.
 
 Built with [Elixir](https://elixir-lang.org/), [Phoenix](https://www.phoenixframework.org/), and [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).

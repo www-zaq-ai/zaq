@@ -66,3 +66,10 @@ jobs:
 
       - name: Run tests
         run: mix test
+
+      - name: Send coverage to Coveralls
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mix coveralls.github
