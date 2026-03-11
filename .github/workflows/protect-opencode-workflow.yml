@@ -1,0 +1,95 @@
+name: Protect opencode workflow
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+env:
+  ZAQ_ALLOWED_ROLES: maintain,admin
+  ZAQ_PROTECTED_FILES: .github/workflows/opencode.yml,.github/workflows/protect-opencode-workflow.yml,.github/CODEOWNERS
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  enforce-protected-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce maintainer-only changes to protected files
+        uses: actions/github-script@v8
+        env:
+          ZAQ_ALLOWED_ROLES: ${{ env.ZAQ_ALLOWED_ROLES }}
+          ZAQ_PROTECTED_FILES: ${{ env.ZAQ_PROTECTED_FILES }}
+        with:
+          script: |
+            const allowedRoles = (process.env.ZAQ_ALLOWED_ROLES || "")
+              .split(",")
+              .map((role) => role.trim().toLowerCase())
+              .filter(Boolean);
+
+            const protectedFiles = (process.env.ZAQ_PROTECTED_FILES || "")
+              .split(",")
+              .map((file) => file.trim())
+              .filter(Boolean);
+
+            if (allowedRoles.length === 0 || protectedFiles.length === 0) {
+              core.setFailed("Guard configuration is empty. Set ZAQ_ALLOWED_ROLES and ZAQ_PROTECTED_FILES.");
+              return;
+            }
+
+            const pullRequest = context.payload.pull_request;
+            if (!pullRequest) {
+              core.info("No pull request payload found. Nothing to enforce.");
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullRequest.number,
+              per_page: 100
+            });
+
+            const changedProtectedFiles = files
+              .map((file) => file.filename)
+              .filter((filename) => protectedFiles.includes(filename));
+
+            if (changedProtectedFiles.length === 0) {
+              core.info("No protected files changed.");
+              return;
+            }
+
+            const username = pullRequest.user.login;
+
+            let role = "none";
+
+            try {
+              const response = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username
+              });
+              role = (response.data.role_name || "none").toLowerCase();
+            } catch (error) {
+              if (error.status === 404) {
+                core.info(`"${username}" is not a collaborator.`);
+              } else {
+                core.warning(`Permission lookup failed for "${username}" (${error.status || "unknown"}).`);
+              }
+            }
+
+            if (!allowedRoles.includes(role)) {
+              core.setFailed(
+                [
+                  `This pull request modifies protected files: ${changedProtectedFiles.join(", ")}.`,
+                  `PR author "${username}" has role "${role}".`,
+                  `Only roles [${allowedRoles.join(", ")}] may change these files.`
+                ].join(" ")
+              );
+              return;
+            }
+
+            core.info(
+              `Protected file changes are allowed. PR author "${username}" has role "${role}".`
+            );
