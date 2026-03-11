@@ -1,3 +1,5 @@
+# lib/zaq_web/live/bo/communication/channels_live.ex
+
 defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   use ZaqWeb, :live_view
 
@@ -11,13 +13,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   import Ecto.Query
 
   @provider_labels %{
+    # Retrieval
     "slack" => "Slack",
     "teams" => "Microsoft Teams",
     "mattermost" => "Mattermost",
-    "ai_agents" => "AI Agents",
     "discord" => "Discord",
     "telegram" => "Telegram",
-    "webhook" => "Webhook"
+    "webhook" => "Webhook",
+    # Ingestion
+    "zaq_local" => "ZAQ Local",
+    "google_drive" => "Google Drive",
+    "sharepoint" => "SharePoint"
   }
 
   # Required roles for this page — just :channels for now.
@@ -28,6 +34,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   @impl true
   def mount(%{"provider" => provider}, _session, socket) do
     available = ServiceUnavailable.available?(@required_roles)
+    kind = socket.assigns.live_action
 
     label =
       Map.get(
@@ -36,13 +43,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         provider |> String.replace("_", " ") |> String.capitalize()
       )
 
+    back_path =
+      case kind do
+        :retrieval -> "/bo/channels/retrieval"
+        :ingestion -> "/bo/channels/ingestion"
+        _ -> "/bo/channels"
+      end
+
+    back_label =
+      case kind do
+        :retrieval -> "Retrieval Channels"
+        :ingestion -> "Ingestion Channels"
+        _ -> "All Channels"
+      end
+
     configs = if(available, do: list_configs(provider), else: [])
     first_config = List.first(configs)
 
     {:ok,
      socket
      |> assign(:page_title, label)
-     |> assign(:current_path, "/bo/channels")
+     |> assign(:current_path, back_path)
+     |> assign(:back_path, back_path)
+     |> assign(:back_label, back_label)
+     |> assign(:kind, kind)
      |> assign(:provider, provider)
      |> assign(:provider_label, label)
      |> assign(:service_available, available)
