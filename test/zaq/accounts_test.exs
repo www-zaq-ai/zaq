@@ -74,12 +74,12 @@ defmodule Zaq.AccountsTest do
                Accounts.create_user_with_password(%{
                  username: "withpass",
                  role_id: role.id,
-                 password: "securepass123"
+                 password: "StrongPass1!"
                })
 
       assert user.password_hash != nil
       assert user.must_change_password == false
-      assert Bcrypt.verify_pass("securepass123", user.password_hash)
+      assert Bcrypt.verify_pass("StrongPass1!", user.password_hash)
     end
 
     test "rejects short password" do
@@ -92,7 +92,7 @@ defmodule Zaq.AccountsTest do
                  password: "short"
                })
 
-      assert {"should be at least %{count} character(s)", _} = changeset.errors[:password]
+      assert "should be at least 8 character(s)" in errors_on(changeset).password
     end
   end
 
@@ -176,31 +176,31 @@ defmodule Zaq.AccountsTest do
       user = user_fixture()
       assert user.must_change_password == true
 
-      {:ok, updated} = Accounts.change_password(user, %{password: "newpass123"})
+      {:ok, updated} = Accounts.change_password(user, %{password: "Newpass123!"})
       assert updated.must_change_password == false
       assert updated.password_hash != nil
-      assert Bcrypt.verify_pass("newpass123", updated.password_hash)
+      assert Bcrypt.verify_pass("Newpass123!", updated.password_hash)
     end
 
     test "rejects short passwords" do
       user = user_fixture()
       assert {:error, changeset} = Accounts.change_password(user, %{password: "short"})
-      assert {"should be at least %{count} character(s)", _} = changeset.errors[:password]
+      assert "should be at least 8 character(s)" in errors_on(changeset).password
     end
   end
 
   describe "authenticate_user/2" do
     test "authenticates user with valid password" do
       user = user_fixture()
-      {:ok, user} = Accounts.change_password(user, %{password: "validpass123"})
+      {:ok, user} = Accounts.change_password(user, %{password: "Validpass123!"})
 
-      assert {:ok, authed} = Accounts.authenticate_user(user.username, "validpass123")
+      assert {:ok, authed} = Accounts.authenticate_user(user.username, "Validpass123!")
       assert authed.id == user.id
     end
 
     test "rejects invalid password" do
       user = user_fixture()
-      {:ok, _} = Accounts.change_password(user, %{password: "validpass123"})
+      {:ok, _} = Accounts.change_password(user, %{password: "Validpass123!"})
 
       assert {:error, :invalid_password} = Accounts.authenticate_user(user.username, "wrong")
     end

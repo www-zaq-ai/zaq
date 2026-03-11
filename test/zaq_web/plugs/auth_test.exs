@@ -10,7 +10,7 @@ defmodule ZaqWeb.Plugs.AuthTest do
 
   setup do
     user = user_fixture()
-    {:ok, active_user} = Accounts.change_password(user, %{password: "password123"})
+    {:ok, active_user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     %{user: active_user}
   end
 

@@ -12,9 +12,11 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
-    assert has_element?(view, ~s(form[phx-submit="change_password"]))
+    assert has_element?(view, "#change-password-form")
     assert has_element?(view, ~s(input[name="password"]))
     assert has_element?(view, ~s(input[name="password_confirmation"]))
+    assert has_element?(view, "#password-requirements")
+    assert has_element?(view, "#password-requirement-min_length", "At least 8 characters")
   end
 
   test "redirects users with must_change_password from dashboard to change-password", %{
@@ -33,9 +35,9 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
     view
-    |> form(~s(form[phx-submit="change_password"]), %{
-      "password" => "safe-password-3",
-      "password_confirmation" => "safe-password-4"
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass2!"
     })
     |> render_submit()
 
@@ -49,7 +51,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
     view
-    |> form(~s(form[phx-submit="change_password"]), %{
+    |> form("#change-password-form", %{
       "password" => "short",
       "password_confirmation" => "short"
     })
@@ -58,8 +60,35 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert has_element?(
              view,
              "div.alert-error span",
-             "password: should be at least 8 character(s)"
+             "should be at least 8 character(s)"
            )
+  end
+
+  test "shows live checklist and confirmation feedback", %{conn: conn} do
+    user = user_fixture(%{username: "must_change_password_live_feedback"})
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1",
+      "password_confirmation" => "StrongPass1"
+    })
+    |> render_change()
+
+    assert has_element?(view, "#password-requirement-symbol", "At least one special character")
+    assert has_element?(view, "#password-confirmation-status", "Passwords match")
+    assert has_element?(view, "button[type='submit'][disabled]")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_change()
+
+    refute has_element?(view, "button[type='submit'][disabled]")
   end
 
   test "updates password and redirects to dashboard", %{conn: conn} do
@@ -69,9 +98,9 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
     view
-    |> form(~s(form[phx-submit="change_password"]), %{
-      "password" => "safe-password-5",
-      "password_confirmation" => "safe-password-5"
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
     })
     |> render_submit()
 

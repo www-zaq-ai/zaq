@@ -7,6 +7,8 @@ defmodule Zaq.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Zaq.Accounts.PasswordPolicy
+
   schema "users" do
     field :username, :string
     field :password, :string, virtual: true
@@ -29,7 +31,7 @@ defmodule Zaq.Accounts.User do
     user
     |> cast(attrs, [:password])
     |> validate_required([:password])
-    |> validate_length(:password, min: 8)
+    |> PasswordPolicy.validate(:password)
     |> hash_password()
   end
 

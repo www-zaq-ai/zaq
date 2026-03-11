@@ -15,7 +15,7 @@ defmodule ZaqWeb.BOSessionControllerTest do
         username: "testadmin"
       })
 
-    {:ok, user} = Accounts.change_password(user, %{password: "validpass123"})
+    {:ok, user} = Accounts.change_password(user, %{password: "ValidPass123!"})
 
     %{user: user}
   end
@@ -25,7 +25,7 @@ defmodule ZaqWeb.BOSessionControllerTest do
       conn =
         post(conn, ~p"/bo/session", %{
           "username" => user.username,
-          "password" => "validpass123"
+          "password" => "ValidPass123!"
         })
 
       assert redirected_to(conn) == ~p"/bo/dashboard"

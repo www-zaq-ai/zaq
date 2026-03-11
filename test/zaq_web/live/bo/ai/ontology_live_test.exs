@@ -15,7 +15,7 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
     end)
 
     user = user_fixture(%{username: "ontology_admin"})
-    {:ok, user} = Accounts.change_password(user, %{password: "password123"})
+    {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     conn = init_test_session(conn, %{user_id: user.id})
 

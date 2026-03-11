@@ -2,26 +2,40 @@ defmodule ZaqWeb.Live.Bo.System.ChangePasswordLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.PasswordPolicy
 
   def mount(_params, session, socket) do
     user = Accounts.get_user!(session["user_id"])
+    form_params = %{"password" => "", "password_confirmation" => ""}
 
     {:ok,
      socket
      |> assign(:user, user)
-     |> assign(:form, to_form(%{"password" => "", "password_confirmation" => ""}))
+     |> assign(:form, to_form(form_params))
+     |> assign_password_feedback(form_params)
      |> assign(:error_message, nil)}
   end
 
   def handle_event("validate", params, socket) do
-    {:noreply, assign(socket, :form, to_form(params))}
+    form_params = password_form_params(params)
+
+    {:noreply,
+     socket
+     |> assign(:form, to_form(form_params))
+     |> assign_password_feedback(form_params)
+     |> assign(:error_message, nil)}
   end
 
-  def handle_event(
-        "change_password",
-        %{"password" => password, "password_confirmation" => confirmation},
-        socket
-      ) do
+  def handle_event("change_password", params, socket) do
+    form_params = password_form_params(params)
+    password = form_params["password"]
+    confirmation = form_params["password_confirmation"]
+
+    socket =
+      socket
+      |> assign(:form, to_form(form_params))
+      |> assign_password_feedback(form_params)
+
     if password != confirmation do
       {:noreply, assign(socket, :error_message, "Passwords do not match")}
     else
@@ -41,6 +55,24 @@ defmodule ZaqWeb.Live.Bo.System.ChangePasswordLive do
       {:error, changeset} ->
         assign(socket, :error_message, format_changeset_errors(changeset))
     end
+  end
+
+  defp password_form_params(params) do
+    %{
+      "password" => Map.get(params, "password", ""),
+      "password_confirmation" => Map.get(params, "password_confirmation", "")
+    }
+  end
+
+  defp assign_password_feedback(socket, %{
+         "password" => password,
+         "password_confirmation" => confirmation
+       }) do
+    socket
+    |> assign(:password_requirements, PasswordPolicy.requirements_with_status(password))
+    |> assign(:password_requirements_met?, PasswordPolicy.valid_password?(password))
+    |> assign(:password_confirmation_touched?, confirmation != "")
+    |> assign(:passwords_match?, confirmation != "" and password == confirmation)
   end
 
   defp format_changeset_errors(changeset) do

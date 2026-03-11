@@ -12,7 +12,7 @@ defmodule Zaq.Accounts.UserTest do
   end
 
   test "password_changeset/2 hashes password and clears virtual field" do
-    changeset = User.password_changeset(%User{}, %{password: "verysecure"})
+    changeset = User.password_changeset(%User{}, %{password: "StrongPass1!"})
 
     assert changeset.valid?
     assert get_change(changeset, :password) == nil
@@ -20,7 +20,7 @@ defmodule Zaq.Accounts.UserTest do
 
     password_hash = get_change(changeset, :password_hash)
     assert is_binary(password_hash)
-    assert Bcrypt.verify_pass("verysecure", password_hash)
+    assert Bcrypt.verify_pass("StrongPass1!", password_hash)
   end
 
   test "password_changeset/2 enforces minimum length" do
@@ -28,6 +28,13 @@ defmodule Zaq.Accounts.UserTest do
 
     refute changeset.valid?
     assert "should be at least 8 character(s)" in errors_on(changeset).password
+  end
+
+  test "password_changeset/2 enforces character class requirements" do
+    changeset = User.password_changeset(%User{}, %{password: "alllowercase1!"})
+
+    refute changeset.valid?
+    assert "must include at least one uppercase letter" in errors_on(changeset).password
   end
 
   defp errors_on(changeset) do

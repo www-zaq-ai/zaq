@@ -23,7 +23,7 @@ defmodule ZaqWeb.Live.BO.LoginLiveTest do
 
   test "redirects to dashboard when logged user already changed password", %{conn: conn} do
     user = user_fixture(%{username: "bo_login_redirect_dashboard"})
-    {:ok, user} = Accounts.change_password(user, %{password: "safe-password-1"})
+    {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     conn = init_test_session(conn, %{user_id: user.id})
 
     assert {:error, {:live_redirect, %{to: "/bo/dashboard"}}} = live(conn, ~p"/bo/login")

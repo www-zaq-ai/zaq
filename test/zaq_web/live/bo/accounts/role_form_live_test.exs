@@ -8,7 +8,7 @@ defmodule ZaqWeb.Live.BO.Accounts.RoleFormLiveTest do
 
   setup %{conn: conn} do
     admin = user_fixture(%{username: "role_form_admin"})
-    {:ok, admin} = Accounts.change_password(admin, %{password: "password123"})
+    {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
 
     conn = init_test_session(conn, %{user_id: admin.id})
 

@@ -7,7 +7,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UsersLiveTest do
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
-    {:ok, user} = Accounts.change_password(user, %{password: "password123"})
+    {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     conn = conn |> init_test_session(%{user_id: user.id})
     %{conn: conn, user: user}
@@ -40,7 +40,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UsersLiveTest do
 
     view
     |> form(~s{form[phx-submit="save"]},
-      user: %{username: "newuser", password: "securepass1", role_id: role.id}
+      user: %{username: "newuser", password: "StrongPass1!", role_id: role.id}
     )
     |> render_submit()
 

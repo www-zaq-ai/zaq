@@ -11,7 +11,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
-    {:ok, user} = Accounts.change_password(user, %{password: "password123"})
+    {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     conn = init_test_session(conn, %{user_id: user.id})
 

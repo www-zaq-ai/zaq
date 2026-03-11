@@ -36,7 +36,7 @@ defmodule ZaqWeb.Live.BO.AuthHookTest do
 
   test "continues and assigns current_user when password was already changed" do
     user = user_fixture(%{username: "bo_auth_hook_valid_user"})
-    {:ok, user} = Accounts.change_password(user, %{password: "safe-password-2"})
+    {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     socket = %Phoenix.LiveView.Socket{view: ZaqWeb.Live.BO.DashboardLive}
 
     assert {:cont, continued_socket} =
