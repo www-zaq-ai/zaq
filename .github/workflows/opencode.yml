@@ -1,0 +1,96 @@
+name: opencode
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+env:
+  ZAQ_ALLOWED_ROLES: maintain,admin
+
+jobs:
+  authorize:
+    if: |
+      contains(github.event.comment.body, ' /zaq') ||
+      startsWith(github.event.comment.body, '/zaq')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      allowed: ${{ steps.permission_check.outputs.allowed }}
+      commenter_role: ${{ steps.permission_check.outputs.commenter_role }}
+    steps:
+      - name: Check commenter role
+        id: permission_check
+        uses: actions/github-script@v8
+        env:
+          ZAQ_ALLOWED_ROLES: ${{ env.ZAQ_ALLOWED_ROLES }}
+        with:
+          script: |
+            const allowedRoles = (process.env.ZAQ_ALLOWED_ROLES || "")
+              .split(",")
+              .map((role) => role.trim().toLowerCase())
+              .filter(Boolean);
+
+            if (allowedRoles.length === 0) {
+              core.warning("ZAQ_ALLOWED_ROLES is empty; denying by default.");
+              core.setOutput("allowed", "false");
+              core.setOutput("commenter_role", "none");
+              return;
+            }
+
+            const username = context.payload.comment?.user?.login;
+            if (!username) {
+              core.warning("No comment author found; denying by default.");
+              core.setOutput("allowed", "false");
+              core.setOutput("commenter_role", "none");
+              return;
+            }
+
+            try {
+              const response = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username
+              });
+
+              const role = (response.data.role_name || "none").toLowerCase();
+              const allowed = allowedRoles.includes(role);
+
+              core.info(
+                `Comment author "${username}" has role "${role}". Allowed roles: ${allowedRoles.join(", ")}.`
+              );
+              core.setOutput("commenter_role", role);
+              core.setOutput("allowed", String(allowed));
+            } catch (error) {
+              if (error.status === 404) {
+                core.info(`"${username}" is not a collaborator. Denying access.`);
+              } else {
+                core.warning(`Permission lookup failed (${error.status || "unknown"}). Denying access.`);
+              }
+              core.setOutput("commenter_role", "none");
+              core.setOutput("allowed", "false");
+            }
+
+  opencode:
+    needs: authorize
+    if: needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          NOVITA_API_KEY: ${{ secrets.NOVITA_API_KEY }}
+        with:
+          model: novita-ai/moonshotai/kimi-k2.5
