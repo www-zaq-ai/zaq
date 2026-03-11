@@ -65,6 +65,29 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     assert :reconnect = Mattermost.handle_disconnect(1006, "lost", %{})
   end
 
+  test "connect/1 starts channel process and disconnect/1 closes it" do
+    config = insert_mattermost_config(url: "http://127.0.0.1:1")
+
+    assert {:ok, pid} = Mattermost.connect(config)
+    assert is_pid(pid)
+    assert :ok = Mattermost.disconnect(pid)
+  end
+
+  test "reload_channels/0 is safe even without process" do
+    assert :ok = Mattermost.reload_channels()
+  end
+
+  test "send_message/3 delegates to API module" do
+    assert {:ok, %{"id" => "stub-post"}} =
+             Mattermost.send_message("channel-1", "hello", "thread-1")
+
+    assert_receive {:api_send_message, "channel-1", "hello", "thread-1"}
+  end
+
+  test "handle_event/1 is a no-op" do
+    assert :ok = Mattermost.handle_event(%{kind: :noop})
+  end
+
   test "handle_info/2 ignores unrelated messages" do
     state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
     assert {:ok, ^state} = Mattermost.handle_info(:noop, state)
@@ -184,8 +207,14 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
       {"inject", "I can only help with ZAQ-related questions."},
       {"roleplay", "I can only help with ZAQ-related questions."},
       {"unsafe", "I can only help with ZAQ-related questions."},
+      {"blocked", "Sorry, something went wrong. Please try again."},
+      {"query_empty", "none"},
       {"no_results_neg", "No docs found."},
       {"no_results_plain", "I couldn't find relevant information to answer your question."},
+      {"query_empty_results", "No docs found from empty results."},
+      {"answering_error", "Sorry, something went wrong. Please try again."},
+      {"query_error", "No docs found from extraction."},
+      {"plain_answer", "simple answer"},
       {"retrieval_error", "Sorry, something went wrong. Please try again."}
     ]
 
@@ -229,6 +258,23 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     assert {:ok, new_state} = Mattermost.handle_info(:reload_channels, state)
     assert MapSet.member?(new_state.monitored_channel_ids, "channel-a")
     refute MapSet.member?(new_state.monitored_channel_ids, "channel-b")
+  end
+
+  test "handle_in/2 ignores pending replies with no matching question" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      posted_payload(%{
+        id: "reply-post-2",
+        channel_id: "channel-1",
+        user_id: "human-user-2",
+        root_id: "unknown-root",
+        message: "@zaq answer",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+    refute_receive {:api_send_message, _, _, _}
   end
 
   defp posted_payload(attrs) do
@@ -329,6 +375,45 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
         "clean:retrieval_error" ->
           {:error, :retrieval_failed}
 
+        "clean:blocked" ->
+          {:ok, %{"error" => "blocked"}}
+
+        "clean:query_error" ->
+          {:ok,
+           %{
+             "query" => "query-error",
+             "language" => "en",
+             "positive_answer" => "yes",
+             "negative_answer" => "No docs found from extraction."
+           }}
+
+        "clean:query_empty_results" ->
+          {:ok,
+           %{
+             "query" => "query-empty-results",
+             "language" => "en",
+             "positive_answer" => "yes",
+             "negative_answer" => "No docs found from empty results."
+           }}
+
+        "clean:answering_error" ->
+          {:ok,
+           %{
+             "query" => "answering-error",
+             "language" => "en",
+             "positive_answer" => "yes",
+             "negative_answer" => "none"
+           }}
+
+        "clean:query_empty" ->
+          {:ok,
+           %{
+             "query" => "",
+             "language" => "en",
+             "positive_answer" => "yes",
+             "negative_answer" => "none"
+           }}
+
         _ ->
           {:ok,
            %{
@@ -342,7 +427,30 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
 
     def call(:ingestion, document_processor_mod, :query_extraction, [query])
         when document_processor_mod == Zaq.Channels.Retrieval.MattermostTest.DocumentProcessorStub do
-      {:ok, [%{"content" => "ctx:" <> query, "source" => "kb"}]}
+      if query == "query-error" do
+        {:error, :boom}
+      else
+        if query == "query-empty-results" do
+          {:ok, []}
+        else
+          {:ok, [%{"content" => "ctx:" <> query, "source" => "kb"}]}
+        end
+      end
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:answering_error"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:error, :answering_failed}
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:query_empty_results"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok, %{answer: "unreachable", confidence: %{score: 0.0}}}
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:query_empty"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok, %{answer: "unreachable", confidence: %{score: 0.0}}}
     end
 
     def call(:agent, answering_mod, :ask, ["prompt:clean:ok_html"])
@@ -359,6 +467,11 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     def call(:agent, answering_mod, :ask, ["prompt:clean:unsafe"])
         when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
       {:ok, %{answer: "unsafe", confidence: %{score: 0.2}}}
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:plain_answer"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok, "simple answer"}
     end
 
     def call(:agent, answering_mod, :ask, [_prompt])

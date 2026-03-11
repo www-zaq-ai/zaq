@@ -34,6 +34,18 @@ defmodule Zaq.PeerConnectorTest do
     end
   end
 
+  describe "lifecycle" do
+    test "init/1 enables monitoring and returns empty state" do
+      assert {:ok, %{}} = PeerConnector.init([])
+    end
+
+    test "named process is registered" do
+      pid = Process.whereis(PeerConnector)
+      assert is_pid(pid)
+      assert Process.alive?(pid)
+    end
+  end
+
   describe "handle_info/2 nodedown" do
     test "broadcasts {:node_down, node} on nodedown" do
       peer = :ai@localhost

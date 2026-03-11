@@ -46,4 +46,25 @@ defmodule Zaq.Channels.PendingQuestionsTest do
 
     assert :ignore = PendingQuestions.check_reply(%{root_id: "", user_id: "u1", message: "hi"})
   end
+
+  test "ask/5 falls back to caller user_id when send_fn response omits user_id" do
+    fake_send = fn _channel_id, _question ->
+      {:ok, %{"id" => "post_no_bot_user"}}
+    end
+
+    assert {:ok, "post_no_bot_user"} =
+             PendingQuestions.ask("ch1", "bot_fallback", "Q?", fake_send, fn _ -> :ok end)
+
+    pending = PendingQuestions.pending()
+    assert pending["post_no_bot_user"].bot_user_id == "bot_fallback"
+  end
+
+  test "ask/5 passes through send errors" do
+    fake_send = fn _channel_id, _question -> {:error, :service_unavailable} end
+
+    assert {:error, :service_unavailable} =
+             PendingQuestions.ask("ch1", "bot_1", "Q?", fake_send, fn _ -> :ok end)
+
+    assert PendingQuestions.pending() == %{}
+  end
 end

@@ -28,4 +28,12 @@ defmodule ZaqWeb.Live.BO.LoginLiveTest do
 
     assert {:error, {:live_redirect, %{to: "/bo/dashboard"}}} = live(conn, ~p"/bo/login")
   end
+
+  test "validate event updates the form assign", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/login")
+
+    _ = render_hook(view, "validate", %{"username" => "alice", "password" => "secret"})
+
+    assert has_element?(view, ~s(input[name="username"][value="alice"]))
+  end
 end

@@ -302,7 +302,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
   # Routes Retrieval.ask to the node running Zaq.Agent.Supervisor,
   # then normalizes the response from string keys to atom keys locally.
   defp run_retrieval(clean_msg, history) do
-    case NodeRouter.call(:agent, Retrieval, :ask, [clean_msg, [history: history]]) do
+    case node_router().call(:agent, Retrieval, :ask, [clean_msg, [history: history]]) do
       {:ok,
        %{
          "query" => query,
@@ -335,7 +335,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
 
   # Routes DocumentProcessor.query_extraction to the node running Zaq.Ingestion.Supervisor.
   defp run_query_extraction(%{query: query, negative_answer: negative_answer} = _retrieval) do
-    case NodeRouter.call(:ingestion, DocumentProcessor, :query_extraction, [query]) do
+    case node_router().call(:ingestion, DocumentProcessor, :query_extraction, [query]) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}
       {:error, _} -> {:error, :no_results, negative_answer}
@@ -360,11 +360,15 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
         no_answer_signal: @no_answer_signal
       })
 
-    case NodeRouter.call(:agent, Answering, :ask, [system_prompt]) do
+    case node_router().call(:agent, Answering, :ask, [system_prompt]) do
       {:ok, %{answer: _, confidence: _} = result} -> {:ok, result}
       {:ok, answer} when is_binary(answer) -> {:ok, %{answer: answer, confidence: %{score: 1.0}}}
       error -> error
     end
+  end
+
+  defp node_router do
+    Application.get_env(:zaq, :playground_live_node_router_module, NodeRouter)
   end
 
   # ── Helpers ────────────────────────────────────────────────────────

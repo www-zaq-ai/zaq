@@ -103,4 +103,64 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLiveTest do
     assert PromptTemplate.get_by_slug("lane6_delete") == nil
     refute has_element?(view, "button[phx-value-id='#{template.id}']", "lane6_delete")
   end
+
+  test "create shows validation flash on invalid params", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/prompt-templates")
+
+    view
+    |> form("form[phx-submit='create']",
+      prompt_template: %{
+        slug: "",
+        name: "",
+        description: "invalid",
+        body: ""
+      }
+    )
+    |> render_submit()
+
+    assert PromptTemplate.get_by_slug("") == nil
+  end
+
+  test "save shows validation flash and cancel_delete hides confirmation", %{conn: conn} do
+    {:ok, template} =
+      PromptTemplate.create(%{
+        slug: "lane6_invalid_save",
+        name: "Lane 6 Invalid Save",
+        description: "before",
+        body: "old body",
+        active: true
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/prompt-templates")
+
+    view
+    |> element("button[phx-click='switch_tab'][phx-value-id='#{template.id}']")
+    |> render_click()
+
+    view
+    |> form("form[phx-submit='save']",
+      prompt_template: %{
+        id: template.id,
+        name: "",
+        description: "after",
+        body: "updated body"
+      }
+    )
+    |> render_submit()
+
+    unchanged = PromptTemplate.get_by_slug("lane6_invalid_save")
+    assert unchanged.name == "Lane 6 Invalid Save"
+
+    view
+    |> element("button[phx-click='confirm_delete'][phx-value-id='#{template.id}']")
+    |> render_click()
+
+    assert has_element?(view, "button[phx-click='cancel_delete']", "Cancel")
+
+    view
+    |> element("button[phx-click='cancel_delete']")
+    |> render_click()
+
+    refute has_element?(view, "button[phx-click='cancel_delete']", "Cancel")
+  end
 end

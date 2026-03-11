@@ -1,8 +1,9 @@
 defmodule Zaq.Agent.AnsweringTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Agent.Answering
+  alias Zaq.Agent.{Answering, LLM}
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.TestSupport.OpenAIStub
 
   setup do
     {:ok, template} =
@@ -15,6 +16,20 @@ defmodule Zaq.Agent.AnsweringTest do
       })
 
     %{template: template}
+  end
+
+  setup do
+    original = Application.get_env(:zaq, LLM)
+
+    on_exit(fn ->
+      if original do
+        Application.put_env(:zaq, LLM, original)
+      else
+        Application.delete_env(:zaq, LLM)
+      end
+    end)
+
+    :ok
   end
 
   describe "no_answer?/1" do
@@ -61,6 +76,111 @@ defmodule Zaq.Agent.AnsweringTest do
     end
   end
 
+  describe "ask/2 deterministic lane" do
+    test "returns plain answer when confidence is explicitly disabled" do
+      handler = fn _conn, body ->
+        payload = Jason.decode!(body)
+        refute Map.has_key?(payload, "logprobs")
+        {200, OpenAIStub.chat_completion("The BEAM VM.")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+
+      assert {:ok, "The BEAM VM."} =
+               Answering.ask("Context + question", include_confidence: false)
+    end
+
+    test "returns answer with confidence when confidence is enabled" do
+      logprobs = %{"content" => [%{"token" => "BEAM", "logprob" => -0.1}]}
+
+      handler = fn _conn, body ->
+        payload = Jason.decode!(body)
+        assert payload["logprobs"] == true
+        {200, OpenAIStub.chat_completion("The BEAM VM.", logprobs: logprobs)}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+
+      assert {:ok, %{answer: "The BEAM VM.", confidence: %{score: score}}} =
+               Answering.ask("Context + question", include_confidence: true)
+
+      assert is_float(score)
+    end
+
+    test "uses supports_logprobs default when include_confidence is omitted" do
+      logprobs = %{"content" => [%{"token" => "x", "logprob" => -0.2}]}
+
+      handler = fn _conn, body ->
+        payload = Jason.decode!(body)
+        assert payload["logprobs"] == true
+        {200, OpenAIStub.chat_completion("Default confidence path.", logprobs: logprobs)}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+
+      assert {:ok, %{answer: "Default confidence path.", confidence: %{score: _score}}} =
+               Answering.ask("Prompt")
+    end
+
+    test "builds history from map including non-binary bodies" do
+      history = %{
+        "1" => %{"body" => %{"hello" => "world"}, "type" => "user"},
+        "2" => %{"body" => [%{"a" => 1}], "type" => "bot"}
+      }
+
+      handler = fn _conn, body ->
+        payload = Jason.decode!(body)
+        messages = payload["messages"]
+
+        assert Enum.any?(messages, fn msg ->
+                 msg["role"] == "system" and message_text(msg) == "Prompt"
+               end)
+
+        assert Enum.any?(messages, fn msg ->
+                 msg["role"] == "user" and
+                   message_text(msg) == Jason.encode!(%{"hello" => "world"})
+               end)
+
+        assert Enum.any?(messages, fn msg ->
+                 msg["role"] == "assistant" and
+                   message_text(msg) == Jason.encode!([%{"a" => 1}])
+               end)
+
+        {200, OpenAIStub.chat_completion("ok")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: false))
+
+      assert {:ok, "ok"} = Answering.ask("Prompt", history: history)
+    end
+
+    test "returns error tuple when confidence parsing fails" do
+      handler = fn _conn, _body ->
+        {200, OpenAIStub.chat_completion("No logprobs included")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+
+      assert {:error, message} = Answering.ask("Prompt", include_confidence: true)
+      assert String.starts_with?(message, "Failed to formulate response:")
+    end
+  end
+
   describe "ask/2 — full pipeline (requires running LLM)" do
     @describetag :integration
     test "returns answer with confidence when logprobs supported" do
@@ -97,4 +217,7 @@ defmodule Zaq.Agent.AnsweringTest do
         )
     end
   end
+
+  defp message_text(%{"content" => content}) when is_binary(content), do: content
+  defp message_text(%{"content" => [%{"text" => text}]}), do: text
 end

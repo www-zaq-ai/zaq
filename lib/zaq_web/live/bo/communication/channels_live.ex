@@ -257,7 +257,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket = assign(socket, :test_status, :testing)
 
     status =
-      case ChannelConfig.test_connection(config, String.trim(channel_id)) do
+      case channel_config_module().test_connection(config, String.trim(channel_id)) do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -273,7 +273,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket = assign(socket, :send_status, :sending)
 
     status =
-      case MattermostAPI.send_message(String.trim(channel_id), String.trim(message)) do
+      case mattermost_api().send_message(String.trim(channel_id), String.trim(message)) do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -309,7 +309,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         %ChannelConfig{} = cfg ->
           headers = [{"authorization", "Bearer #{cfg.token}"}]
 
-          case HTTPoison.get(
+          case http_client().get(
                  "#{cfg.url}/api/v4/channels/#{String.trim(channel_id)}/posts",
                  headers
                ) do
@@ -359,7 +359,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket = assign(socket, :clear_status, :clearing)
 
     status =
-      case MattermostAPI.clear_channel(channel_id) do
+      case mattermost_api().clear_channel(channel_id) do
         :ok -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -384,7 +384,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       %ChannelConfig{} = cfg ->
         socket = assign(socket, :teams_status, :loading)
 
-        case MattermostAPI.list_teams(cfg) do
+        case mattermost_api().list_teams(cfg) do
           {:ok, teams} ->
             {:noreply,
              socket
@@ -504,7 +504,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp fetch_and_assign_channels(socket, cfg, team_id) do
-    case MattermostAPI.list_public_channels(cfg, team_id) do
+    case mattermost_api().list_public_channels(cfg, team_id) do
       {:ok, channels} ->
         existing_ids =
           socket.assigns.retrieval_channels
@@ -558,5 +558,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     |> Enum.flat_map(fn {field, errors} ->
       Enum.map(errors, &"#{Phoenix.Naming.humanize(field)} #{&1}")
     end)
+  end
+
+  defp channel_config_module do
+    Application.get_env(:zaq, :channels_live_channel_config_module, ChannelConfig)
+  end
+
+  defp mattermost_api do
+    Application.get_env(:zaq, :channels_live_mattermost_api_module, MattermostAPI)
+  end
+
+  defp http_client do
+    Application.get_env(:zaq, :channels_live_http_client, HTTPoison)
   end
 end

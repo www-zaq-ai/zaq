@@ -82,6 +82,27 @@ defmodule Zaq.License.LicenseWatcherFSTest do
              )
   end
 
+  test "license file event replaces debounce timer" do
+    old_ref = Process.send_after(self(), :old_debounce, 10_000)
+
+    state = %LicenseWatcherFS{
+      watch_dir: "priv/licenses",
+      loaded_licenses: %{},
+      license_mtimes: %{},
+      debounce_ref: old_ref
+    }
+
+    assert {:noreply, new_state} =
+             LicenseWatcherFS.handle_info(
+               {:file_event, self(), {"/tmp/new.zaq-license", [:modified]}},
+               state
+             )
+
+    assert is_reference(new_state.debounce_ref)
+    refute new_state.debounce_ref == old_ref
+    assert Process.read_timer(old_ref) == false
+  end
+
   test "file_event stop and watcher down update status" do
     state = %LicenseWatcherFS{
       watch_dir: "priv/licenses",
@@ -149,6 +170,87 @@ defmodule Zaq.License.LicenseWatcherFSTest do
     assert new_state.status == {:warning, %{loaded: 0, failed: 1}}
   end
 
+  test "force_scan reloads modified file and replaces old key", %{tmp_dir: tmp_dir, priv: priv} do
+    license_path = Path.join(tmp_dir, "reload.zaq-license")
+    create_valid_license_archive!(license_path, priv, "before_reload")
+
+    state = %LicenseWatcherFS{
+      watch_dir: tmp_dir,
+      loaded_licenses: %{},
+      license_mtimes: %{},
+      status: :starting
+    }
+
+    assert {:reply, :ok, first_state} = LicenseWatcherFS.handle_call(:force_scan, self(), state)
+    assert Map.has_key?(first_state.loaded_licenses, "before_reload")
+
+    create_valid_license_archive!(license_path, priv, "after_reload")
+
+    stale_mtime_state =
+      put_in(
+        first_state.license_mtimes[license_path],
+        {{1970, 1, 1}, {0, 0, 0}}
+      )
+
+    assert {:reply, :ok, second_state} =
+             LicenseWatcherFS.handle_call(:force_scan, self(), stale_mtime_state)
+
+    refute Map.has_key?(second_state.loaded_licenses, "before_reload")
+    assert Map.has_key?(second_state.loaded_licenses, "after_reload")
+  end
+
+  test "force_scan unloads deleted license", %{tmp_dir: tmp_dir, priv: priv} do
+    license_path = Path.join(tmp_dir, "gone.zaq-license")
+    create_valid_license_archive!(license_path, priv, "to_delete")
+
+    state = %LicenseWatcherFS{
+      watch_dir: tmp_dir,
+      loaded_licenses: %{},
+      license_mtimes: %{},
+      status: :starting
+    }
+
+    assert {:reply, :ok, loaded_state} = LicenseWatcherFS.handle_call(:force_scan, self(), state)
+    assert Map.has_key?(loaded_state.loaded_licenses, "to_delete")
+
+    File.rm!(license_path)
+
+    assert {:reply, :ok, deleted_state} =
+             LicenseWatcherFS.handle_call(:force_scan, self(), loaded_state)
+
+    assert deleted_state.loaded_licenses == %{}
+    assert deleted_state.license_mtimes == %{}
+  end
+
+  test "force_scan sets error status when directory scan fails" do
+    bad_dir = Path.join(System.tmp_dir!(), "zaq_missing_#{System.unique_integer([:positive])}")
+
+    state = %LicenseWatcherFS{
+      watch_dir: bad_dir,
+      loaded_licenses: %{},
+      license_mtimes: %{},
+      status: :starting
+    }
+
+    assert {:reply, :ok, new_state} = LicenseWatcherFS.handle_call(:force_scan, self(), state)
+    assert new_state.status == {:error, :enoent}
+  end
+
+  test "force_scan loads unknown key when license_key missing", %{tmp_dir: tmp_dir, priv: priv} do
+    license_path = Path.join(tmp_dir, "unknown.zaq-license")
+    create_valid_license_archive_without_key!(license_path, priv)
+
+    state = %LicenseWatcherFS{
+      watch_dir: tmp_dir,
+      loaded_licenses: %{},
+      license_mtimes: %{},
+      status: :starting
+    }
+
+    assert {:reply, :ok, new_state} = LicenseWatcherFS.handle_call(:force_scan, self(), state)
+    assert Map.has_key?(new_state.loaded_licenses, "unknown")
+  end
+
   test "process_changes clears debounce ref and scans", %{tmp_dir: tmp_dir} do
     ref = Process.send_after(self(), :noop, 1_000)
 
@@ -163,6 +265,17 @@ defmodule Zaq.License.LicenseWatcherFSTest do
     assert {:noreply, new_state} = LicenseWatcherFS.handle_info(:process_changes, state)
     assert is_nil(new_state.debounce_ref)
     assert new_state.status == {:ok, %{loaded: 0, message: "No license files found"}}
+  end
+
+  test "unexpected info message keeps state unchanged" do
+    state = %LicenseWatcherFS{
+      watch_dir: "priv/licenses",
+      loaded_licenses: %{},
+      license_mtimes: %{},
+      status: :ok
+    }
+
+    assert {:noreply, ^state} = LicenseWatcherFS.handle_info({:random, :message}, state)
   end
 
   defp create_valid_license_archive!(path, priv, license_key) do
@@ -180,6 +293,47 @@ defmodule Zaq.License.LicenseWatcherFSTest do
     payload =
       Jason.encode!(%{
         "license_key" => license_key,
+        "features" => [],
+        "expires_at" =>
+          DateTime.utc_now() |> DateTime.add(3_600, :second) |> DateTime.to_iso8601()
+      })
+
+    signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+    key = BeamDecryptor.derive_key(payload)
+
+    {encrypted, tag} =
+      :crypto.crypto_one_time_aead(
+        :aes_256_gcm,
+        key,
+        <<5::96>>,
+        beam_binary,
+        "zaq-beam-v1",
+        16,
+        true
+      )
+
+    encrypted_module = <<5::96>> <> tag <> encrypted
+
+    create_archive!(path, [
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {String.to_charlist("modules/#{module_name}.beam.enc"), encrypted_module}
+    ])
+  end
+
+  defp create_valid_license_archive_without_key!(path, priv) do
+    module_name = "Elixir.LicenseManager.Paid.Watcher#{System.unique_integer([:positive])}"
+
+    module_source =
+      """
+      defmodule #{module_name} do
+        def watcher_loaded_without_key?, do: true
+      end
+      """
+
+    [{_module, beam_binary}] = Code.compile_string(module_source)
+
+    payload =
+      Jason.encode!(%{
         "features" => [],
         "expires_at" =>
           DateTime.utc_now() |> DateTime.add(3_600, :second) |> DateTime.to_iso8601()

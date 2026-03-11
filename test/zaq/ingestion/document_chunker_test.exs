@@ -79,6 +79,14 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       headings = Enum.filter(sections, &(&1.type == :heading))
       assert headings == []
     end
+
+    test "skips numbered bold heading lines ending with TOC index" do
+      md = "**1.** **Introduction** **3**\n\nRegular paragraph."
+      sections = DocumentChunker.parse_layout(md)
+
+      headings = Enum.filter(sections, &(&1.type == :heading))
+      assert headings == []
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -108,6 +116,16 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       tables = Enum.filter(sections, &(&1.type == :table))
       assert tables == []
     end
+
+    test "keeps table parsing across blank lines inside table block" do
+      md = "# Data\n\n| Name | Value |\n|------|-------|\n| A    | 1     |\n\n| B    | 2     |\n"
+
+      sections = DocumentChunker.parse_layout(md)
+      [table] = Enum.filter(sections, &(&1.type == :table))
+
+      assert String.contains?(table.content, "| A    | 1     |")
+      assert String.contains?(table.content, "| B    | 2     |")
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -130,6 +148,15 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       figures = Enum.filter(sections, &(&1.type == :figure))
       assert figures == []
+    end
+
+    test "keeps empty-caption non-pdf image as figure" do
+      md = "# Doc\n\n![](something.png)"
+      sections = DocumentChunker.parse_layout(md)
+
+      [figure] = Enum.filter(sections, &(&1.type == :figure))
+      assert figure.title == ""
+      assert figure.content == "![](something.png)"
     end
 
     test "detects vision image blocks as :figure" do
@@ -184,6 +211,20 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
   # ---------------------------------------------------------------------------
 
   describe "chunk_sections/2" do
+    setup do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
+      :ok
+    end
+
     test "produces chunks from sections" do
       sections = [
         %Section{
@@ -257,6 +298,47 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert length(chunks) > 1
     end
 
+    test "splits paragraphs when a combined chunk exceeds max tokens" do
+      Application.put_env(:zaq, Zaq.Ingestion, chunk_min_tokens: 1, chunk_max_tokens: 7)
+
+      sections = [
+        %Section{
+          id: "s-combine",
+          type: :paragraph,
+          level: nil,
+          title: nil,
+          content: "one two three four\n\nfive six seven eight",
+          parent_path: [],
+          position: 0,
+          tokens: 20
+        }
+      ]
+
+      chunks = DocumentChunker.chunk_sections(sections)
+      assert length(chunks) == 2
+    end
+
+    test "splits oversized single paragraph into sentence chunks" do
+      Application.put_env(:zaq, Zaq.Ingestion, chunk_min_tokens: 1, chunk_max_tokens: 3)
+
+      sections = [
+        %Section{
+          id: "s-sentence",
+          type: :paragraph,
+          level: nil,
+          title: nil,
+          content: "alpha beta gamma delta. epsilon zeta eta theta.",
+          parent_path: [],
+          position: 0,
+          tokens: 50
+        }
+      ]
+
+      chunks = DocumentChunker.chunk_sections(sections)
+      assert length(chunks) >= 2
+      assert Enum.any?(chunks, &String.contains?(&1.content, "alpha beta gamma delta"))
+    end
+
     test "chunk includes section_path from heading" do
       sections = [
         %Section{
@@ -292,6 +374,24 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       [chunk] = DocumentChunker.chunk_sections(sections)
       assert chunk.metadata.section_type == :table
       assert chunk.metadata.position == 5
+    end
+
+    test "figure without parent path keeps raw content" do
+      sections = [
+        %Section{
+          id: "s-figure",
+          type: :figure,
+          level: nil,
+          title: "Fig",
+          content: "![Fig](fig.png)",
+          parent_path: [],
+          position: 2,
+          tokens: 3
+        }
+      ]
+
+      [chunk] = DocumentChunker.chunk_sections(sections)
+      assert chunk.content == "![Fig](fig.png)"
     end
   end
 

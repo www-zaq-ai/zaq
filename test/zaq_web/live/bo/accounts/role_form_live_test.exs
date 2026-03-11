@@ -58,4 +58,27 @@ defmodule ZaqWeb.Live.BO.Accounts.RoleFormLiveTest do
     assert updated.name == "lane6_edited_role"
     assert updated.meta == %{}
   end
+
+  test "new save with invalid params stays on form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/roles/new")
+
+    view
+    |> form("form[phx-submit='save']", role: %{name: "", meta: ""})
+    |> render_submit()
+
+    refute_redirected(view)
+    assert has_element?(view, "p", "can't be blank")
+  end
+
+  test "edit save with invalid params stays on form", %{conn: conn} do
+    role = role_fixture(%{name: "lane6_edit_invalid"})
+    {:ok, view, _html} = live(conn, ~p"/bo/roles/#{role.id}/edit")
+
+    view
+    |> form("form[phx-submit='save']", role: %{name: "", meta: "{}"})
+    |> render_submit()
+
+    refute_redirected(view)
+    assert has_element?(view, "p", "can't be blank")
+  end
 end

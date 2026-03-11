@@ -162,6 +162,21 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert meta.figure_title == "chart.png"
       assert meta.section_type == :figure
     end
+
+    test "uses empty figure_title when section_path is empty" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_2_0",
+        section_id: "sec3",
+        content: "Figure content",
+        section_path: [],
+        tokens: 3,
+        metadata: %{section_type: :figure, section_level: nil, position: 1}
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk, 99, 7)
+
+      assert meta.figure_title == ""
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -260,6 +275,46 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert String.contains?(record.content, "Custom LLM Title")
     end
 
+    test "keeps original heading and section_path when generated title is empty" do
+      stub_embedding_success()
+      stub_chunk_title_success("")
+      doc = create_document()
+
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_0_1",
+        section_id: "sec1",
+        content: "## Original Heading\n\nSome chunk content.",
+        section_path: ["Original Heading"],
+        tokens: 5,
+        metadata: %{section_type: :heading, section_level: 2, position: 0}
+      }
+
+      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
+
+      assert String.starts_with?(record.content, "## Original Heading")
+      assert record.section_path == ["Original Heading"]
+    end
+
+    test "prepends generated heading when chunk has no heading" do
+      stub_embedding_success()
+      stub_chunk_title_success("Generated For Plain Chunk")
+      doc = create_document()
+
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_0_2",
+        section_id: "sec2",
+        content: "Plain chunk content without heading.",
+        section_path: ["Original Path"],
+        tokens: 4,
+        metadata: %{section_type: :paragraph, section_level: nil, position: 0}
+      }
+
+      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 2)
+
+      assert String.starts_with?(record.content, "## **Generated For Plain Chunk**\n\n")
+      assert record.section_path == ["Generated For Plain Chunk"]
+    end
+
     test "returns error on dimension mismatch" do
       stub_embedding_wrong_dimension()
       stub_chunk_title_success()
@@ -294,6 +349,92 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       assert {:error, _} =
                DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # search paths error/default config branches
+  # ---------------------------------------------------------------------------
+
+  describe "search error/default config branches" do
+    setup do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
+      :ok
+    end
+
+    test "hybrid_search/2 returns embedding errors" do
+      stub_embedding_failure()
+      assert {:error, _} = DocumentProcessor.hybrid_search("query")
+    end
+
+    test "similarity_search/2 returns embedding errors" do
+      stub_embedding_failure()
+      assert {:error, _} = DocumentProcessor.similarity_search("query")
+    end
+
+    test "similarity_search_count/1 returns embedding errors" do
+      stub_embedding_failure()
+      assert {:error, _} = DocumentProcessor.similarity_search_count("query")
+    end
+
+    @tag :integration
+    test "hybrid_search/2 uses configured default limit when limit is nil" do
+      stub_embedding_success()
+      doc = create_document()
+
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      for i <- 1..3 do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          content: "Configured limit chunk #{i} searchable text.",
+          chunk_index: i,
+          section_path: ["Limit"],
+          metadata: %{section_type: :heading, section_level: 1, position: i},
+          embedding: embedding
+        })
+        |> Repo.insert!()
+      end
+
+      Application.put_env(:zaq, Zaq.Ingestion, hybrid_search_limit: 1)
+
+      assert {:ok, results} = DocumentProcessor.hybrid_search("searchable text")
+      assert length(results) == 1
+    end
+
+    @tag :integration
+    test "query_extraction/1 returns empty when max_context_window is too small" do
+      stub_embedding_success()
+      doc = create_document()
+
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "Token heavy chunk content for extraction.",
+        chunk_index: 1,
+        section_path: ["Tiny Window"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      Application.put_env(:zaq, Zaq.Ingestion, max_context_window: 1)
+
+      assert {:ok, []} = DocumentProcessor.query_extraction("token heavy")
     end
   end
 

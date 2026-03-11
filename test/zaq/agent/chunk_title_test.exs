@@ -1,7 +1,22 @@
 defmodule Zaq.Agent.ChunkTitleTest do
   use ExUnit.Case, async: true
 
-  alias Zaq.Agent.ChunkTitle
+  alias Zaq.Agent.{ChunkTitle, LLM}
+  alias Zaq.TestSupport.OpenAIStub
+
+  setup do
+    original = Application.get_env(:zaq, LLM)
+
+    on_exit(fn ->
+      if original do
+        Application.put_env(:zaq, LLM, original)
+      else
+        Application.delete_env(:zaq, LLM)
+      end
+    end)
+
+    :ok
+  end
 
   describe "max_words/0" do
     test "returns the configured max word limit" do
@@ -9,57 +24,64 @@ defmodule Zaq.Agent.ChunkTitleTest do
     end
   end
 
-  # Private helpers are tested indirectly through ask/2,
-  # but we can exercise the post-processing logic by testing
-  # the module's observable behavior with known LLM outputs.
+  describe "ask/2 deterministic lane" do
+    test "removes quotes and common prefixes" do
+      handler = fn _conn, _body ->
+        {200, OpenAIStub.chat_completion("\"Title: Northwind Industries Founder Eleanor Vance\"")}
+      end
 
-  describe "post-processing (via ask/2 output contract)" do
-    # These tests verify the cleanup helpers work correctly.
-    # Since they're private, we test them through a helper that
-    # applies the same pipeline.
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
 
-    test "remove_quotes strips surrounding quotes" do
-      # Simulate what ask/2 does after getting LLM output
-      assert clean("\"Hello World\"") == "Hello World"
-      assert clean("'Hello World'") == "Hello World"
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+
+      assert {:ok, "Northwind Industries Founder Eleanor Vance"} =
+               ChunkTitle.ask("chunk content")
     end
 
-    test "remove_prefix strips common LLM prefixes" do
-      assert clean("Title: Northwind Industries") == "Northwind Industries"
-      assert clean("The title is: Northwind") == "Northwind"
-      assert clean("Here's Northwind Industries") == "Northwind Industries"
+    test "truncates titles to max_words" do
+      handler = fn _conn, _body ->
+        {200, OpenAIStub.chat_completion("One Two Three Four Five Six Seven Eight Nine Ten")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+
+      assert {:ok, title} = ChunkTitle.ask("chunk content")
+      assert title == "One Two Three Four Five Six Seven Eight"
     end
 
-    test "enforce_word_limit truncates long titles" do
-      long = "One Two Three Four Five Six Seven Eight Nine Ten"
-      result = clean(long)
-      word_count = result |> String.split(~r/\s+/, trim: true) |> length()
-      assert word_count <= 8
+    test "uses model override and expected endpoint path" do
+      handler = fn _conn, body ->
+        payload = Jason.decode!(body)
+        assert payload["model"] == "custom-model"
+        refute Map.has_key?(payload, "top_p")
+        {200, OpenAIStub.chat_completion("Custom Model Title")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, model: "base-model"))
+
+      assert {:ok, "Custom Model Title"} = ChunkTitle.ask("chunk content", model: "custom-model")
+      assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}
     end
 
-    test "short titles are not truncated" do
-      short = "Northwind Industries 1987"
-      assert clean(short) == "Northwind Industries 1987"
-    end
+    test "returns error tuple when LLM response cannot be processed" do
+      handler = fn _conn, _body ->
+        {200, %{"unexpected" => "shape"}}
+      end
 
-    # Mirrors the private pipeline in ask/2
-    defp clean(text) do
-      text
-      |> String.trim()
-      |> String.replace(~r/^["']/, "")
-      |> String.replace(~r/["']$/, "")
-      |> String.trim()
-      |> String.replace(~r/^(Title:|Here is|Here's|The title is:?)\s*/i, "")
-      |> String.trim()
-      |> then(fn t ->
-        words = String.split(t, ~r/\s+/, trim: true)
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
 
-        if length(words) > 8 do
-          words |> Enum.take(8) |> Enum.join(" ")
-        else
-          t
-        end
-      end)
+      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+
+      assert {:error, message} = ChunkTitle.ask("chunk content")
+      assert String.starts_with?(message, "Failed to generate title:")
     end
   end
 

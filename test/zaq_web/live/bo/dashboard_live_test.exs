@@ -5,11 +5,18 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.License.FeatureStore
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     conn = conn |> init_test_session(%{user_id: user.id})
+    FeatureStore.clear()
+
+    on_exit(fn ->
+      FeatureStore.clear()
+    end)
+
     %{conn: conn, user: user}
   end
 
@@ -32,6 +39,42 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
       # ZaqWeb.Endpoint is running in test, so bo should be active
       assert html =~ "Back Office"
+    end
+
+    test "renders license card with computed days left for valid expiry", %{conn: conn} do
+      future = DateTime.add(DateTime.utc_now(), 45 * 86_400, :second) |> DateTime.to_iso8601()
+
+      :ok =
+        FeatureStore.store(
+          %{
+            "company_name" => "Acme",
+            "license_key" => "lic-123",
+            "expires_at" => future,
+            "features" => [%{"name" => "ontology"}]
+          },
+          []
+        )
+
+      {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
+      assert html =~ "Acme"
+      assert html =~ "Days Left"
+    end
+
+    test "handles invalid license expiry timestamp", %{conn: conn} do
+      :ok =
+        FeatureStore.store(
+          %{
+            "company_name" => "Acme",
+            "license_key" => "lic-123",
+            "expires_at" => "not-a-date",
+            "features" => []
+          },
+          []
+        )
+
+      {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
+      assert html =~ "Acme"
+      assert html =~ "Days Left"
     end
   end
 

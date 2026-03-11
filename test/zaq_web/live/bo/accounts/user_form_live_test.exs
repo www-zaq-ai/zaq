@@ -60,4 +60,27 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
     assert_redirect(view, ~p"/bo/users")
     assert Accounts.get_user!(user.id).username == "lane6_edited"
   end
+
+  test "new save with invalid params stays on form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/users/new")
+
+    view
+    |> form("form[phx-submit='save']", user: %{username: "", password: "", role_id: ""})
+    |> render_submit()
+
+    assert has_element?(view, "p", "can't be blank")
+  end
+
+  test "edit save with invalid params stays on form", %{conn: conn} do
+    role = role_fixture(%{name: "lane6_user_edit_invalid_role"})
+    user = user_fixture(%{username: "lane6_edit_invalid_user", role: role})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/users/#{user.id}/edit")
+
+    view
+    |> form("form[phx-submit='save']", user: %{username: "", role_id: ""})
+    |> render_submit()
+
+    assert has_element?(view, "p", "can't be blank")
+  end
 end

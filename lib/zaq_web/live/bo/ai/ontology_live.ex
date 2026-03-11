@@ -46,6 +46,26 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
 
   @tabs [:tree_view, :org_structure, :people, :knowledge_domains]
 
+  @default_contexts %{
+    businesses: @ctx_businesses,
+    divisions: @ctx_divisions,
+    departments: @ctx_departments,
+    teams: @ctx_teams,
+    people: @ctx_people,
+    knowledge_domains: @ctx_knowledge_domains
+  }
+
+  @default_schemas %{
+    business: @schema_business,
+    division: @schema_division,
+    department: @schema_department,
+    team: @schema_team,
+    person: @schema_person,
+    channel: @schema_channel,
+    team_member: @schema_team_member,
+    knowledge_domain: @schema_knowledge_domain
+  }
+
   # Ontology facade module — for full tree queries
   @pubsub_topic "license:updated"
 
@@ -216,8 +236,8 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
         socket =
           if entity == :team_member and socket.assigns.selected_person do
             person_id = socket.assigns.selected_person.id
-            person = apply(@ctx_people, :get_with_channels, [person_id])
-            teams = person |> Zaq.Repo.preload(:teams) |> Map.get(:teams, [])
+            person = apply(ctx(:people), :get_with_channels, [person_id])
+            teams = person |> repo().preload(:teams) |> Map.get(:teams, [])
 
             socket
             |> assign(:selected_person, person)
@@ -276,12 +296,12 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
   # =============================================================================
 
   def handle_event("select_person", %{"id" => id}, socket) do
-    person = apply(@ctx_people, :get_with_channels, [id])
-    channels = apply(@ctx_people, :list_channels, [id])
+    person = apply(ctx(:people), :get_with_channels, [id])
+    channels = apply(ctx(:people), :list_channels, [id])
 
     teams =
       person
-      |> Zaq.Repo.preload(:teams)
+      |> repo().preload(:teams)
       |> Map.get(:teams, [])
 
     {:noreply,
@@ -304,13 +324,13 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
         %{"person_id" => person_id, "channel_id" => channel_id},
         socket
       ) do
-    person = apply(@ctx_people, :get, [person_id])
+    person = apply(ctx(:people), :get, [person_id])
 
-    case apply(@ctx_people, :set_preferred_channel, [person, channel_id]) do
+    case apply(ctx(:people), :set_preferred_channel, [person, channel_id]) do
       {:ok, updated_person} ->
         {:noreply,
          socket
-         |> assign(:selected_person, apply(@ctx_people, :get_with_channels, [updated_person.id]))
+         |> assign(:selected_person, apply(ctx(:people), :get_with_channels, [updated_person.id]))
          |> put_flash(:info, "Preferred channel updated.")}
 
       {:error, _changeset} ->
@@ -330,10 +350,10 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
       role_in_team: params["role_in_team"] || nil
     }
 
-    case apply(@ctx_teams, :add_member, [attrs]) do
+    case apply(ctx(:teams), :add_member, [attrs]) do
       {:ok, _member} ->
-        person = apply(@ctx_people, :get_with_channels, [person_id])
-        teams = person |> Zaq.Repo.preload(:teams) |> Map.get(:teams, [])
+        person = apply(ctx(:people), :get_with_channels, [person_id])
+        teams = person |> repo().preload(:teams) |> Map.get(:teams, [])
 
         {:noreply,
          socket
@@ -352,10 +372,10 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
         %{"team_id" => team_id, "person_id" => person_id},
         socket
       ) do
-    case apply(@ctx_teams, :remove_member, [team_id, person_id]) do
+    case apply(ctx(:teams), :remove_member, [team_id, person_id]) do
       {:ok, _} ->
-        person = apply(@ctx_people, :get_with_channels, [person_id])
-        teams = person |> Zaq.Repo.preload(:teams) |> Map.get(:teams, [])
+        person = apply(ctx(:people), :get_with_channels, [person_id])
+        teams = person |> repo().preload(:teams) |> Map.get(:teams, [])
 
         {:noreply,
          socket
@@ -446,8 +466,8 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
       try do
         # Full tree: Business → Divisions → Departments → (Teams → Members → Person, KnowledgeDomains)
         tree_businesses =
-          apply(@ctx_businesses, :list, [])
-          |> Zaq.Repo.preload(
+          apply(ctx(:businesses), :list, [])
+          |> repo().preload(
             divisions: [
               departments: [
                 :knowledge_domains,
@@ -482,8 +502,8 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
     |> start_async(:load_org_structure, fn ->
       try do
         businesses =
-          apply(@ctx_businesses, :list, [])
-          |> Zaq.Repo.preload(divisions: [departments: :teams])
+          apply(ctx(:businesses), :list, [])
+          |> repo().preload(divisions: [departments: :teams])
 
         %{businesses: businesses, error: nil}
       rescue
@@ -508,8 +528,8 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
     |> start_async(:load_people, fn ->
       try do
         people =
-          apply(@ctx_people, :list_active, [])
-          |> Zaq.Repo.preload([:teams, :preferred_channel])
+          apply(ctx(:people), :list_active, [])
+          |> repo().preload([:teams, :preferred_channel])
 
         %{people: people, error: nil}
       rescue
@@ -528,16 +548,16 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
     |> assign(:error, nil)
     |> start_async(:load_domains, fn ->
       try do
-        business = apply(@ctx_businesses, :get_by_slug, ["default"])
+        business = apply(ctx(:businesses), :get_by_slug, ["default"])
 
         domains =
-          apply(@ctx_knowledge_domains, :list_by_business, [business.id])
-          |> Zaq.Repo.preload(department: [division: :business])
+          apply(ctx(:knowledge_domains), :list_by_business, [business.id])
+          |> repo().preload(department: [division: :business])
 
         # Load all departments for the "new domain" form dropdown
         all_departments =
           business
-          |> Zaq.Repo.preload(divisions: :departments)
+          |> repo().preload(divisions: :departments)
           |> Map.get(:divisions, [])
           |> Enum.flat_map(fn div ->
             Enum.map(div.departments, fn dept ->
@@ -566,7 +586,7 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
 
   defp prepare_modal_changeset(socket, :new, :team_member, _record_id, parent_id) do
     # team_member is special: parent_id is the person_id, we need a team dropdown
-    schema_mod = @schema_team_member
+    schema_mod = schema(:team_member)
     empty_struct = apply(schema_mod, :__struct__, [])
     changeset = apply(schema_mod, :changeset, [empty_struct, %{"person_id" => parent_id}])
 
@@ -614,14 +634,7 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
   # Private — Schema Module Lookup (atoms only — resolved at runtime)
   # =============================================================================
 
-  defp schema_module_for(:business), do: @schema_business
-  defp schema_module_for(:division), do: @schema_division
-  defp schema_module_for(:department), do: @schema_department
-  defp schema_module_for(:team), do: @schema_team
-  defp schema_module_for(:person), do: @schema_person
-  defp schema_module_for(:channel), do: @schema_channel
-  defp schema_module_for(:team_member), do: @schema_team_member
-  defp schema_module_for(:knowledge_domain), do: @schema_knowledge_domain
+  defp schema_module_for(entity), do: schema(entity)
 
   # =============================================================================
   # Private — Changeset Builder (runtime via apply/3)
@@ -638,27 +651,27 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
   # =============================================================================
 
   defp do_create(:business, params, _parent_id) do
-    apply(@ctx_businesses, :create, [params])
+    apply(ctx(:businesses), :create, [params])
   end
 
   defp do_create(:division, params, parent_id) do
-    apply(@ctx_divisions, :create, [Map.put(params, "business_id", parent_id)])
+    apply(ctx(:divisions), :create, [Map.put(params, "business_id", parent_id)])
   end
 
   defp do_create(:department, params, parent_id) do
-    apply(@ctx_departments, :create, [Map.put(params, "division_id", parent_id)])
+    apply(ctx(:departments), :create, [Map.put(params, "division_id", parent_id)])
   end
 
   defp do_create(:team, params, parent_id) do
-    apply(@ctx_teams, :create, [Map.put(params, "department_id", parent_id)])
+    apply(ctx(:teams), :create, [Map.put(params, "department_id", parent_id)])
   end
 
   defp do_create(:person, params, _parent_id) do
-    apply(@ctx_people, :create, [params])
+    apply(ctx(:people), :create, [params])
   end
 
   defp do_create(:channel, params, parent_id) do
-    apply(@ctx_people, :add_channel, [Map.put(params, "person_id", parent_id)])
+    apply(ctx(:people), :add_channel, [Map.put(params, "person_id", parent_id)])
   end
 
   defp do_create(:team_member, params, _parent_id) do
@@ -668,11 +681,11 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
       role_in_team: params["role_in_team"]
     }
 
-    apply(@ctx_teams, :add_member, [attrs])
+    apply(ctx(:teams), :add_member, [attrs])
   end
 
   defp do_create(:knowledge_domain, params, _parent_id) do
-    apply(@ctx_knowledge_domains, :create, [normalize_params(:knowledge_domain, params)])
+    apply(ctx(:knowledge_domains), :create, [normalize_params(:knowledge_domain, params)])
   end
 
   defp do_update(entity, record, params) do
@@ -696,7 +709,7 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
   # Channel doesn't have its own context get/1 — use Repo directly with
   # runtime module resolution to avoid compile-time struct expansion.
   defp get_record(:channel, id) do
-    Zaq.Repo.get(schema_module_for(:channel), id)
+    repo().get(schema_module_for(:channel), id)
   end
 
   defp get_record(entity, id) do
@@ -707,13 +720,13 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
   # Private — Context Module Lookup
   # =============================================================================
 
-  defp context_module_for(:business), do: @ctx_businesses
-  defp context_module_for(:division), do: @ctx_divisions
-  defp context_module_for(:department), do: @ctx_departments
-  defp context_module_for(:team), do: @ctx_teams
-  defp context_module_for(:person), do: @ctx_people
-  defp context_module_for(:channel), do: @ctx_people
-  defp context_module_for(:knowledge_domain), do: @ctx_knowledge_domains
+  defp context_module_for(:business), do: ctx(:businesses)
+  defp context_module_for(:division), do: ctx(:divisions)
+  defp context_module_for(:department), do: ctx(:departments)
+  defp context_module_for(:team), do: ctx(:teams)
+  defp context_module_for(:person), do: ctx(:people)
+  defp context_module_for(:channel), do: ctx(:people)
+  defp context_module_for(:knowledge_domain), do: ctx(:knowledge_domains)
 
   defp update_fun_for(:channel), do: :update_channel
   defp update_fun_for(_entity), do: :update
@@ -732,8 +745,8 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
 
   defp maybe_load_dropdown_data(socket, :team_member) do
     all_teams =
-      apply(@ctx_businesses, :list, [])
-      |> Zaq.Repo.preload(divisions: [departments: :teams])
+      apply(ctx(:businesses), :list, [])
+      |> repo().preload(divisions: [departments: :teams])
       |> Enum.flat_map(&extract_teams_from_business/1)
 
     assign(socket, :all_teams, all_teams)
@@ -760,6 +773,24 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLive do
   # =============================================================================
   # Private — Helpers
   # =============================================================================
+
+  defp ontology_live_config do
+    Application.get_env(:zaq, __MODULE__, [])
+  end
+
+  defp repo do
+    Keyword.get(ontology_live_config(), :repo, Zaq.Repo)
+  end
+
+  defp ctx(key) do
+    configured_contexts = ontology_live_config() |> Keyword.get(:contexts, %{})
+    Map.get(configured_contexts, key, Map.fetch!(@default_contexts, key))
+  end
+
+  defp schema(key) do
+    configured_schemas = ontology_live_config() |> Keyword.get(:schemas, %{})
+    Map.get(configured_schemas, key, Map.fetch!(@default_schemas, key))
+  end
 
   defp reload_current_tab(socket) do
     load_tab_data(socket, socket.assigns.active_tab)

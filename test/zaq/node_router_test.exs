@@ -56,5 +56,11 @@ defmodule Zaq.NodeRouterTest do
       result = NodeRouter.call(:bo, Kernel, :node, [])
       assert result == node()
     end
+
+    test "raises for unknown role" do
+      assert_raise KeyError, fn ->
+        NodeRouter.call(:unknown, String, :upcase, ["hello"])
+      end
+    end
   end
 end
