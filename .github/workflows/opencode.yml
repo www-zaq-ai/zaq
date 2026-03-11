@@ -94,3 +94,4 @@ jobs:
           NOVITA_API_KEY: ${{ secrets.NOVITA_API_KEY }}
         with:
           model: novita-ai/moonshotai/kimi-k2.5
+          mentions: /zaq
