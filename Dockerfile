@@ -19,12 +19,15 @@ RUN mkdir config
 COPY config/config.exs config/prod.exs config/
 RUN mix deps.compile
 
-COPY lib lib
-COPY priv priv
-COPY assets assets
+RUN mix assets.setup
 
-RUN mix assets.deploy
+COPY priv priv
+COPY lib lib
+
 RUN mix compile
+
+COPY assets assets
+RUN mix assets.deploy
 
 COPY config/runtime.exs config/
 RUN mix release
