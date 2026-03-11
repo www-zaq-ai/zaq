@@ -1,3 +1,5 @@
+# lib/zaq_web/live/bo/communication/channels_index_live.ex
+
 defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   use ZaqWeb, :live_view
 
@@ -7,12 +9,82 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   import Ecto.Query
 
-  @providers ~w(slack teams mattermost ai_agents discord telegram webhook)
+  @retrieval_providers ~w(slack teams mattermost discord telegram webhook)
+  @ingestion_providers ~w(zaq_local google_drive sharepoint)
 
-  # Required roles for this page — just :channels for now.
-  # When ingestion channels are separated: [:channels, :ingestion]
-  # When retrieval channels are separated: [:channels, :agent]
   @required_roles [:channels]
+
+  # ---------------------------------------------------------------------------
+  # Provider card definitions — used by the template to render grids
+  # ---------------------------------------------------------------------------
+
+  @retrieval_cards [
+    %{
+      id: "slack",
+      label: "Slack",
+      color: "#4A154B",
+      desc:
+        "Connect workspaces, post messages, and trigger workflows from Slack channels and DMs."
+    },
+    %{
+      id: "teams",
+      label: "Microsoft Teams",
+      color: "#464EB8",
+      desc: "Send alerts and notifications directly into Teams channels via incoming webhooks."
+    },
+    %{
+      id: "mattermost",
+      label: "Mattermost",
+      color: "#0058CC",
+      desc:
+        "Self-hosted messaging with full control. Integrate bots, post to channels, and receive events."
+    },
+    %{
+      id: "discord",
+      label: "Discord",
+      color: "#5865F2",
+      desc:
+        "Post to Discord servers via webhooks. Great for communities, dev teams, and alert routing."
+    },
+    %{
+      id: "telegram",
+      label: "Telegram",
+      color: "#26A5E4",
+      desc:
+        "Send and receive messages via Telegram Bot API. Ideal for ops alerts and lightweight bots."
+    },
+    %{
+      id: "webhook",
+      label: "Webhook",
+      color: "#666666",
+      desc: "POST events to any HTTP endpoint. Use for custom integrations, Zapier, Make, or n8n."
+    }
+  ]
+
+  @ingestion_cards [
+    %{
+      id: "zaq_local",
+      label: "ZAQ Local",
+      color: "#03b6d4",
+      desc: "Upload and manage documents directly in ZAQ. The built-in knowledge base."
+    },
+    %{
+      id: "google_drive",
+      label: "Google Drive",
+      color: "#4285F4",
+      desc: "Sync documents from Google Drive folders. Supports Docs, Sheets, PDFs, and more."
+    },
+    %{
+      id: "sharepoint",
+      label: "SharePoint",
+      color: "#036C70",
+      desc: "Connect to SharePoint document libraries. Ingest files from sites and team drives."
+    }
+  ]
+
+  # Provider IDs shown as mini-logos inside category cards on the index page
+  @retrieval_preview ~w(slack teams mattermost discord telegram)
+  @ingestion_preview ~w(zaq_local google_drive sharepoint)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -20,16 +92,59 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
     {:ok,
      socket
-     |> assign(:page_title, "Channels")
-     |> assign(:current_path, "/bo/channels")
      |> assign(:service_available, available)
      |> assign(:required_roles, @required_roles)
+     |> assign(:retrieval_preview, @retrieval_preview)
+     |> assign(:ingestion_preview, @ingestion_preview)
      |> assign(:stats, if(available, do: compute_stats(), else: %{}))}
   end
+
+  @impl true
+  def handle_params(_params, _uri, socket) do
+    kind = socket.assigns.live_action
+
+    {page_title, current_path, cards} =
+      case kind do
+        :retrieval -> {"Retrieval Channels", "/bo/channels/retrieval", @retrieval_cards}
+        :ingestion -> {"Ingestion Channels", "/bo/channels/ingestion", @ingestion_cards}
+        _index -> {"Channels", "/bo/channels", []}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:page_title, page_title)
+     |> assign(:current_path, current_path)
+     |> assign(:kind, kind)
+     |> assign(:cards, cards)}
+  end
+
+  # --- Helpers used by template ---
+
+  def stat_for(stats, provider) do
+    Map.get(stats, String.to_existing_atom(provider), 0)
+  end
+
+  def retrieval_total(stats) do
+    Enum.reduce(@retrieval_providers, 0, fn p, acc ->
+      acc + Map.get(stats, String.to_existing_atom(p), 0)
+    end)
+  end
+
+  def ingestion_total(stats) do
+    Enum.reduce(@ingestion_providers, 0, fn p, acc ->
+      acc + Map.get(stats, String.to_existing_atom(p), 0)
+    end)
+  end
+
+  def provider_path(_kind, "zaq_local"), do: "/bo/ingestion"
+  def provider_path(:retrieval, id), do: "/bo/channels/retrieval/#{id}"
+  def provider_path(:ingestion, id), do: "/bo/channels/ingestion/#{id}"
 
   # --- Private ---
 
   defp compute_stats do
+    all_providers = @retrieval_providers ++ @ingestion_providers
+
     counts =
       ChannelConfig
       |> where([c], c.enabled == true)
@@ -38,7 +153,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
       |> Repo.all()
       |> Map.new()
 
-    Enum.reduce(@providers, %{}, fn provider, acc ->
+    Enum.reduce(all_providers, %{}, fn provider, acc ->
       Map.put(acc, String.to_atom(provider), Map.get(counts, provider, 0))
     end)
   end

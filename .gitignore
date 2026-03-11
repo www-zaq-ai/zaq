@@ -39,5 +39,6 @@ npm-debug.log
 /priv/licenses
 /priv/documents
 /priv/roadmap
+context.md
 
 config/dev.secret.exs

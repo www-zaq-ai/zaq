@@ -5,6 +5,7 @@ defmodule Zaq.Accounts.SuperAdminSeederTest do
   alias Zaq.Accounts.SuperAdminSeeder
 
   setup do
+    Zaq.Repo.delete_all(Zaq.Accounts.Role)
     original_skip = Application.get_env(:zaq, :skip_super_admin_seed)
     original_super_admin = Application.get_env(:zaq, :super_admin)
 

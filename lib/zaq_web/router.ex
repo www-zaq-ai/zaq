@@ -61,8 +61,18 @@ defmodule ZaqWeb.Router do
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive
       live "/ingestion", Live.BO.AI.IngestionLive
       live "/ontology", Live.BO.AI.OntologyLive
+
+      # Channels — index (landing page with both sections)
       live "/channels", Live.BO.Communication.ChannelsIndexLive, :index
-      live "/channels/:provider", Live.BO.Communication.ChannelsLive, :index
+
+      # Retrieval channels — provider detail pages
+      live "/channels/retrieval", Live.BO.Communication.ChannelsIndexLive, :retrieval
+      live "/channels/retrieval/:provider", Live.BO.Communication.ChannelsLive, :retrieval
+
+      # Ingestion channels — provider detail pages
+      live "/channels/ingestion", Live.BO.Communication.ChannelsIndexLive, :ingestion
+      live "/channels/ingestion/:provider", Live.BO.Communication.ChannelsLive, :ingestion
+
       live "/playground", Live.BO.Communication.PlaygroundLive
       live "/history", Live.BO.Communication.HistoryLive
     end

@@ -22,8 +22,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     %{conn: conn, user: user}
   end
 
-  test "renders channel cards", %{conn: conn} do
+  test "renders category cards on index", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels")
+
+    assert has_element?(view, "#category-card-retrieval")
+    assert has_element?(view, "#category-card-ingestion")
+    assert has_element?(view, "#category-card-ai-agents")
+  end
+
+  test "renders provider cards on retrieval sub-page", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval")
 
     assert has_element?(view, "#channel-card-slack")
     assert has_element?(view, "#channel-card-mattermost")

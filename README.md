@@ -182,6 +182,30 @@ lib/
 └── zaq.ex
 ```
 
+## Releases
+
+Releases are automated with a release PR gate powered by [release-please](https://github.com/googleapis/release-please-action).
+
+- Every PR title must follow Conventional Commits (`feat:`, `fix:`, `chore:`, etc.)
+- Pushes to `main` update or create a release PR instead of releasing immediately
+- Merging the release PR bumps `mix.exs` version, creates a git tag, and publishes a GitHub Release
+
+### First-Time Setup
+
+1. Add repository secret `RELEASE_PLEASE_TOKEN` (a PAT with repo/workflow permissions)
+2. Ensure GitHub Actions are allowed to create and approve pull requests
+3. Create a baseline tag on `main` matching `mix.exs` (`v0.1.0`)
+
+## Container Images
+
+On every published release, GitHub Actions builds and pushes a Docker image to GitHub Container Registry:
+
+- `ghcr.io/www-zaq-ai/zaq:vX.Y.Z`
+- `ghcr.io/www-zaq-ai/zaq:X.Y.Z`
+- `ghcr.io/www-zaq-ai/zaq:X.Y`
+- `ghcr.io/www-zaq-ai/zaq:X`
+- `ghcr.io/www-zaq-ai/zaq:latest` (only for stable releases)
+
 ## Contributing
 
 1. Fork the repository

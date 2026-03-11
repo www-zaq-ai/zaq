@@ -24,7 +24,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   end
 
   test "shows empty state and modal controls", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     assert has_element?(view, "#configs-empty-state")
 
@@ -38,7 +38,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   test "toggles and deletes a config", %{conn: conn} do
     config = insert_channel_config(%{})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     assert has_element?(view, "#config-card-#{config.id}")
 
@@ -55,7 +55,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     config = insert_channel_config(%{})
     retrieval = insert_retrieval_channel(config)
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     assert has_element?(view, "#retrieval-channel-#{retrieval.id}")
 
@@ -69,7 +69,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   end
 
   test "shows validate/save errors when config is invalid", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
     initial_count = Repo.aggregate(ChannelConfig, :count)
 
     view |> element("#new-config-button") |> render_click()
@@ -96,7 +96,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     config = insert_channel_config(%{})
     retrieval = insert_retrieval_channel(config)
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     view |> element("#confirm-delete-config-#{config.id}") |> render_click()
     assert render(view) =~ "Confirm Delete"
@@ -110,7 +110,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   end
 
   test "handles missing config on delete branch", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     render_hook(view, "confirm_delete", %{"id" => "999999"})
     render_hook(view, "delete", %{})
@@ -121,7 +121,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   test "runs clear modal flows and error path without enabled config", %{conn: conn} do
     insert_channel_config(%{enabled: false})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     view
     |> element("form[phx-submit=\"prompt_clear\"]")
@@ -144,7 +144,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   test "shows retrieval channel action errors when no enabled config exists", %{conn: conn} do
     insert_channel_config(%{enabled: false})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/mattermost")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     render_hook(view, "fetch_teams", %{})
     assert render(view) =~ "No enabled Mattermost config found."

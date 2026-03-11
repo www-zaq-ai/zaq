@@ -1,0 +1,9 @@
+.git
+.github
+.serena
+.elixir_ls
+.expert
+_build
+deps
+test
+tmp
