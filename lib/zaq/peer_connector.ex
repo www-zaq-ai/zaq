@@ -40,24 +40,33 @@ defmodule Zaq.PeerConnector do
   end
 
   @impl true
-  def init(_opts) do
-    :net_kernel.monitor_nodes(true)
-    connect_epmd_peers()
-    {:ok, %{}}
+  def init(opts) do
+    deps = deps_from_opts(opts)
+
+    deps.monitor_nodes.(true)
+    connect_epmd_peers(deps)
+
+    {:ok, %{deps: deps}}
   end
 
   @impl true
   def handle_info({:nodeup, node}, state) do
-    Logger.info("[PeerConnector] Node up: #{node}")
-    Phoenix.PubSub.broadcast(Zaq.PubSub, @topic, {:node_up, node})
-    connect_epmd_peers()
+    deps = deps_from_state(state)
+
+    deps.log_info.("[PeerConnector] Node up: #{node}")
+    deps.pubsub_broadcast.(Zaq.PubSub, @topic, {:node_up, node})
+    connect_epmd_peers(deps)
+
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:nodedown, node}, state) do
-    Logger.warning("[PeerConnector] Node down: #{node}")
-    Phoenix.PubSub.broadcast(Zaq.PubSub, @topic, {:node_down, node})
+    deps = deps_from_state(state)
+
+    deps.log_warning.("[PeerConnector] Node down: #{node}")
+    deps.pubsub_broadcast.(Zaq.PubSub, @topic, {:node_down, node})
+
     {:noreply, state}
   end
 
@@ -65,34 +74,51 @@ defmodule Zaq.PeerConnector do
 
   # -- Private --
 
-  defp connect_epmd_peers do
-    host = host()
+  defp connect_epmd_peers(deps) do
+    host = deps.host.()
 
-    case :erl_epmd.names(host) do
+    case deps.epmd_names.(host) do
       {:ok, entries} ->
         entries
         |> Enum.map(fn {name, _port} -> :"#{name}@#{host}" end)
-        |> Enum.reject(&(&1 == node()))
-        |> Enum.each(&connect_peer/1)
+        |> Enum.reject(&(&1 == deps.self_node.()))
+        |> Enum.each(&connect_peer(&1, deps))
 
       {:error, reason} ->
-        Logger.debug("[PeerConnector] EPMD query failed: #{inspect(reason)}")
+        deps.log_debug.("[PeerConnector] EPMD query failed: #{inspect(reason)}")
     end
   end
 
-  defp connect_peer(node) do
-    case Node.connect(node) do
+  defp connect_peer(node, deps) do
+    case deps.node_connect.(node) do
       true ->
-        Logger.info("[PeerConnector] Connected to: #{node}")
+        deps.log_info.("[PeerConnector] Connected to: #{node}")
 
       false ->
-        Logger.debug(
+        deps.log_debug.(
           "[PeerConnector] Could not connect to: #{node} (different cookie or unreachable)"
         )
 
       :ignored ->
-        Logger.debug("[PeerConnector] Not distributed, skipping: #{node}")
+        deps.log_debug.("[PeerConnector] Not distributed, skipping: #{node}")
     end
+  end
+
+  defp deps_from_state(%{deps: deps}), do: deps
+  defp deps_from_state(_state), do: deps_from_opts([])
+
+  defp deps_from_opts(opts) do
+    %{
+      monitor_nodes: Keyword.get(opts, :monitor_nodes_fun, &:net_kernel.monitor_nodes/1),
+      epmd_names: Keyword.get(opts, :epmd_names_fun, &:erl_epmd.names/1),
+      self_node: Keyword.get(opts, :self_node_fun, &node/0),
+      node_connect: Keyword.get(opts, :node_connect_fun, &Node.connect/1),
+      pubsub_broadcast: Keyword.get(opts, :pubsub_broadcast_fun, &Phoenix.PubSub.broadcast/3),
+      host: Keyword.get(opts, :host_fun, &host/0),
+      log_info: Keyword.get(opts, :log_info_fun, &Logger.info/1),
+      log_warning: Keyword.get(opts, :log_warning_fun, &Logger.warning/1),
+      log_debug: Keyword.get(opts, :log_debug_fun, &Logger.debug/1)
+    }
   end
 
   defp host do

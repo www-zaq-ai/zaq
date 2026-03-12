@@ -72,18 +72,22 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
     end
   end
 
+  defp load_content(_full_path, ext) when ext in @image_extensions, do: {:image, nil, nil}
+  defp load_content(_full_path, @pdf_extension), do: {:pdf, nil, nil}
+  defp load_content(_full_path, _ext), do: {:binary, nil, nil}
+
   defp render_html(content, ".md") do
     case Earmark.as_html(content, escape: false, breaks: true) do
-      {:ok, html, _} -> html
-      {:error, _, _} -> "<pre>#{Phoenix.HTML.html_escape(content)}</pre>"
+      {:ok, html, _} ->
+        html
+
+      {:error, _, _} ->
+        escaped = content |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+        "<pre>#{escaped}</pre>"
     end
   end
 
   defp render_html(_content, _ext), do: nil
-
-  defp load_content(_full_path, ext) when ext in @image_extensions, do: {:image, nil, nil}
-  defp load_content(_full_path, @pdf_extension), do: {:pdf, nil, nil}
-  defp load_content(_full_path, _ext), do: {:binary, nil, nil}
 
   # ────────────────────────────────────────────────────────────────
   # Template helpers (public for HEEx)

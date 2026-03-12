@@ -38,13 +38,19 @@ defmodule Zaq.NodeRouter do
   Falls back to a local call if the service runs locally or no peer has it.
   """
   def call(role, mod, fun, args) do
-    supervisor = Map.fetch!(@supervisor_map, role)
-    target = find_node(supervisor) || node()
+    call(role, mod, fun, args, %{})
+  end
 
-    if target == node() do
+  @doc false
+  def call(role, mod, fun, args, runtime) when is_map(runtime) do
+    supervisor = Map.fetch!(@supervisor_map, role)
+    current = current_node(runtime)
+    target = find_node(supervisor, runtime) || current
+
+    if target == current do
       apply(mod, fun, args)
     else
-      case :rpc.call(target, mod, fun, args) do
+      case rpc_call(runtime, target, mod, fun, args) do
         {:badrpc, reason} -> {:error, {:rpc_failed, target, reason}}
         result -> result
       end
@@ -57,20 +63,50 @@ defmodule Zaq.NodeRouter do
   Returns nil if not found anywhere.
   """
   def find_node(supervisor) do
-    all_nodes = [node() | Node.list()]
-    Enum.find(all_nodes, node(), &supervisor_running?(&1, supervisor))
+    find_node(supervisor, %{})
   end
 
-  defp supervisor_running?(n, supervisor) when n == node() do
-    Process.whereis(supervisor) != nil
+  @doc false
+  def find_node(supervisor, runtime) when is_map(runtime) do
+    current = current_node(runtime)
+    all_nodes = [current | node_list(runtime)]
+    Enum.find(all_nodes, current, &supervisor_running?(&1, supervisor, runtime))
   end
 
-  defp supervisor_running?(n, supervisor) do
-    case :rpc.call(n, Process, :whereis, [supervisor]) do
-      {:badrpc, _} -> false
-      nil -> false
-      _pid -> true
+  defp supervisor_running?(n, supervisor, runtime) do
+    if n == current_node(runtime) do
+      whereis(runtime, supervisor) != nil
+    else
+      case rpc_call(runtime, n, Process, :whereis, [supervisor]) do
+        {:badrpc, _} -> false
+        nil -> false
+        _pid -> true
+      end
     end
+  end
+
+  defp current_node(runtime) do
+    runtime
+    |> Map.get(:current_node_fn, &node/0)
+    |> then(& &1.())
+  end
+
+  defp node_list(runtime) do
+    runtime
+    |> Map.get(:node_list_fn, &Node.list/0)
+    |> then(& &1.())
+  end
+
+  defp whereis(runtime, supervisor) do
+    runtime
+    |> Map.get(:whereis_fn, &Process.whereis/1)
+    |> then(& &1.(supervisor))
+  end
+
+  defp rpc_call(runtime, n, mod, fun, args) do
+    runtime
+    |> Map.get(:rpc_call_fn, &:rpc.call/4)
+    |> then(& &1.(n, mod, fun, args))
   end
 end
 
