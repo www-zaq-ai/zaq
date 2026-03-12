@@ -99,6 +99,29 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
       assert html =~ "Slack Integration"
       assert html =~ "Locked"
     end
+
+    test "hides locked-features section when all features are licensed", %{conn: conn} do
+      FeatureStore.store(
+        %{
+          "license_key" => "lic_full_789",
+          "company" => %{"name" => "Full Corp"},
+          "expires_at" => DateTime.utc_now() |> DateTime.add(120, :day) |> DateTime.to_iso8601(),
+          "features" => fully_licensed_features()
+        },
+        [
+          Zaq.Paid.Ontology,
+          Zaq.Paid.KnowledgeGap,
+          Zaq.Paid.Slack,
+          Zaq.Paid.Email,
+          Zaq.Paid.Rag,
+          Zaq.Paid.Sessions
+        ]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      refute html =~ "Available to Unlock"
+      refute html =~ "Contact Sales to Upgrade"
+    end
   end
 
   describe "expired license" do
@@ -127,5 +150,82 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
       {:ok, _view, html} = live(conn, ~p"/bo/license")
       assert html =~ "text-red-600"
     end
+  end
+
+  describe "date formatting and days-left branches" do
+    setup do
+      on_exit(fn -> FeatureStore.clear() end)
+      :ok
+    end
+
+    test "renders nil expiration with fallback date and neutral days class", %{conn: conn} do
+      store_license(nil)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/license")
+
+      assert html =~ "—"
+      assert html =~ ~r/Days Left.*?text-black.*?days/s
+    end
+
+    test "renders invalid expiration string and neutral days class", %{conn: conn} do
+      store_license("not-a-date")
+
+      {:ok, _view, html} = live(conn, ~p"/bo/license")
+
+      assert html =~ "not-a-date"
+      assert html =~ ~r/Days Left.*?text-black.*?days/s
+    end
+
+    test "renders amber class for medium-term expiration", %{conn: conn} do
+      store_license(DateTime.utc_now() |> DateTime.add(45, :day) |> DateTime.to_iso8601())
+
+      {:ok, _view, html} = live(conn, ~p"/bo/license")
+
+      assert html =~ ~r/Days Left.*?text-amber-600.*?days/s
+    end
+
+    test "renders green class for long-term expiration", %{conn: conn} do
+      store_license(DateTime.utc_now() |> DateTime.add(140, :day) |> DateTime.to_iso8601())
+
+      {:ok, _view, html} = live(conn, ~p"/bo/license")
+
+      assert html =~ ~r/Days Left.*?text-emerald-600.*?days/s
+    end
+  end
+
+  defp store_license(expires_at) do
+    FeatureStore.store(
+      %{
+        "license_key" => "lic_date_coverage",
+        "company" => %{"name" => "Date Corp"},
+        "expires_at" => expires_at,
+        "features" => [
+          %{
+            "name" => "Ontology Management",
+            "description" => "Knowledge graph management",
+            "module_tags" => ["Elixir.Zaq.Paid.Ontology"]
+          }
+        ]
+      },
+      [Zaq.Paid.Ontology]
+    )
+  end
+
+  defp fully_licensed_features do
+    [
+      "Ontology Management",
+      "Knowledge Gap Detection",
+      "Slack Integration",
+      "Email Channel",
+      "Advanced RAG Pipeline",
+      "Multi-Tenant Sessions"
+    ]
+    |> Enum.map(fn name ->
+      %{
+        "name" => name,
+        "description" => "Included in enterprise plan",
+        "module_tags" => []
+      }
+    end)
   end
 end

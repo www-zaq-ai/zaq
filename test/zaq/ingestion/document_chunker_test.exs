@@ -72,6 +72,26 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert heading.level == 2
     end
 
+    test "parses simple bold heading as level 2" do
+      md = "**Overview**\n\nSome details."
+      sections = DocumentChunker.parse_layout(md)
+
+      heading = Enum.find(sections, &(&1.type == :heading))
+      assert heading != nil
+      assert heading.level == 2
+      assert heading.title == "Overview"
+    end
+
+    test "parses simple italic heading as level 3" do
+      md = "_Overview_\n\nSome details."
+      sections = DocumentChunker.parse_layout(md)
+
+      heading = Enum.find(sections, &(&1.type == :heading))
+      assert heading != nil
+      assert heading.level == 3
+      assert heading.title == "Overview"
+    end
+
     test "skips bold TOC entries" do
       md = "**Introduction** **3**\n\nRegular paragraph."
       sections = DocumentChunker.parse_layout(md)
@@ -86,6 +106,17 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       headings = Enum.filter(sections, &(&1.type == :heading))
       assert headings == []
+    end
+
+    test "parses deepest supported italic numbering deterministically" do
+      md = "_1.2.3_ _Deep Details_\n\nBody content."
+      sections = DocumentChunker.parse_layout(md)
+
+      heading = Enum.find(sections, &(&1.type == :heading))
+      assert heading != nil
+      assert heading.level == 3
+      assert heading.level <= 6
+      assert heading.title == "1.2.3 Deep Details"
     end
   end
 
@@ -125,6 +156,31 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       assert String.contains?(table.content, "| A    | 1     |")
       assert String.contains?(table.content, "| B    | 2     |")
+    end
+
+    test "terminates table when blank line is followed by non-table content" do
+      md = """
+      | Name | Value |
+      |------|-------|
+      | A    | 1     |
+
+      This paragraph must not be included in table content.
+      """
+
+      sections = DocumentChunker.parse_layout(md)
+      [table] = Enum.filter(sections, &(&1.type == :table))
+      [paragraph] = Enum.filter(sections, &(&1.type == :paragraph))
+
+      refute String.contains?(table.content, "must not be included")
+      assert String.contains?(paragraph.content, "must not be included")
+    end
+
+    test "table at document root keeps empty parent_path" do
+      md = "| Col A | Col B |\n|-------|-------|\n| 1     | 2     |"
+      sections = DocumentChunker.parse_layout(md)
+
+      [table] = Enum.filter(sections, &(&1.type == :table))
+      assert table.parent_path == []
     end
   end
 
@@ -171,6 +227,42 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       figures = Enum.filter(sections, &(&1.type == :figure))
       assert length(figures) == 1
       assert hd(figures).title == "chart.png"
+    end
+
+    test "vision image block stops on blank and keeps following heading separate" do
+      md = """
+      > **[Image: chart.png]**
+      > Revenue trend line for Q1.
+
+      ## Next Section
+
+      Body text.
+      """
+
+      sections = DocumentChunker.parse_layout(md)
+      [figure] = Enum.filter(sections, &(&1.type == :figure))
+      [heading] = Enum.filter(sections, &(&1.type == :heading && &1.title == "Next Section"))
+
+      assert String.contains?(figure.content, "Revenue trend line")
+      refute String.contains?(figure.content, "Next Section")
+      assert heading.level == 2
+    end
+
+    test "vision image block stops when a table starts" do
+      md = """
+      > **[Image: chart.png]**
+      > Description line.
+      | Col | Value |
+      |-----|-------|
+      | A   | 1     |
+      """
+
+      sections = DocumentChunker.parse_layout(md)
+      [figure] = Enum.filter(sections, &(&1.type == :figure))
+      [table] = Enum.filter(sections, &(&1.type == :table))
+
+      refute String.contains?(figure.content, "| Col | Value |")
+      assert String.contains?(table.content, "| Col | Value |")
     end
   end
 
@@ -339,6 +431,26 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert Enum.any?(chunks, &String.contains?(&1.content, "alpha beta gamma delta"))
     end
 
+    test "keeps overlong sentence as its own chunk when sentence exceeds max" do
+      Application.put_env(:zaq, Zaq.Ingestion, chunk_min_tokens: 1, chunk_max_tokens: 1)
+
+      sections = [
+        %Section{
+          id: "s-long-sentence",
+          type: :paragraph,
+          level: nil,
+          title: nil,
+          content: "alpha beta gamma.",
+          parent_path: [],
+          position: 0,
+          tokens: 10
+        }
+      ]
+
+      [chunk] = DocumentChunker.chunk_sections(sections)
+      assert chunk.content == "alpha beta gamma."
+    end
+
     test "chunk includes section_path from heading" do
       sections = [
         %Section{
@@ -393,6 +505,25 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       [chunk] = DocumentChunker.chunk_sections(sections)
       assert chunk.content == "![Fig](fig.png)"
     end
+
+    test "heading with nil title keeps parent-only section_path and raw content" do
+      sections = [
+        %Section{
+          id: "s-heading-nil",
+          type: :heading,
+          level: 2,
+          title: nil,
+          content: "Body without heading prefix.",
+          parent_path: ["Parent Only"],
+          position: 4,
+          tokens: 6
+        }
+      ]
+
+      [chunk] = DocumentChunker.chunk_sections(sections)
+      assert chunk.section_path == ["Parent Only"]
+      assert chunk.content == "Body without heading prefix."
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -434,6 +565,25 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       [chunk] = DocumentChunker.chunk_sections(sections)
       assert String.starts_with?(chunk.content, "## Details\n\n")
+    end
+
+    test "prepends parent title to figure chunks" do
+      sections = [
+        %Section{
+          id: "s-figure-parent",
+          type: :figure,
+          level: nil,
+          title: "Revenue Figure",
+          content: "![Revenue](revenue.png)",
+          parent_path: ["Report", "Quarterly"],
+          position: 8,
+          tokens: 5
+        }
+      ]
+
+      [chunk] = DocumentChunker.chunk_sections(sections)
+      assert String.starts_with?(chunk.content, "## Quarterly\n\n")
+      assert chunk.section_path == ["Report", "Quarterly", "Revenue Figure"]
     end
 
     test "no prefix for paragraph without parent" do

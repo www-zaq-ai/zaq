@@ -3,6 +3,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   import Mox
 
+  alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor}
   alias Zaq.Repo
 
@@ -56,6 +57,31 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end)
   end
 
+  defp stub_embedding_fail_on_call(failing_call, dimension \\ nil) do
+    dim = dimension || embedding_dimension()
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    Req.Test.stub(Zaq.Embedding.Client, fn conn ->
+      call_number =
+        Agent.get_and_update(counter, fn current ->
+          next = current + 1
+          {next, next}
+        end)
+
+      if call_number == failing_call do
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(500, Jason.encode!(%{"error" => "forced failure"}))
+      else
+        body = Jason.encode!(%{"data" => [%{"embedding" => List.duplicate(0.1, dim)}]})
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, body)
+      end
+    end)
+  end
+
   defp stub_chunk_title_success(title \\ "Generated Title") do
     Zaq.Agent.ChunkTitleMock
     |> stub(:ask, fn _content, _opts -> {:ok, title} end)
@@ -82,9 +108,43 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "extract_source/2" do
+    setup do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
+      :ok
+    end
+
     test "returns basename of file path" do
       assert {:ok, "report.md"} =
                DocumentProcessor.extract_source("ignored", "/some/path/report.md")
+    end
+
+    test "returns path relative to configured base_path" do
+      base_dir = Path.join(System.tmp_dir!(), "zaq_base_#{System.unique_integer([:positive])}")
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: base_dir)
+
+      file_path = Path.join([base_dir, "guides", "api", "reference.md"])
+
+      assert {:ok, "guides/api/reference.md"} =
+               DocumentProcessor.extract_source("ignored", file_path)
+    end
+
+    test "falls back to basename when path is outside configured base_path" do
+      base_dir = Path.join(System.tmp_dir!(), "zaq_base_#{System.unique_integer([:positive])}")
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: base_dir)
+
+      outside_path = Path.join(System.tmp_dir!(), "not-in-base.md")
+
+      assert {:ok, "not-in-base.md"} =
+               DocumentProcessor.extract_source("ignored", outside_path)
     end
   end
 
@@ -110,6 +170,11 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         )
 
       assert count == 1
+    end
+
+    test "returns changeset error when required fields are invalid" do
+      assert {:error, changeset} = DocumentProcessor.store_document(nil, nil)
+      assert %{content: [_ | _], source: [_ | _]} = errors_on(changeset)
     end
   end
 
@@ -227,6 +292,36 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       assert {:error, _} = DocumentProcessor.process_and_store_chunks(content, doc.id)
     end
+
+    test "returns aggregated error when only some chunks fail to store" do
+      stub_embedding_fail_on_call(2)
+      stub_chunk_title_failure()
+      doc = create_document()
+
+      content = """
+      # Chunk One
+
+      First chunk content should insert successfully.
+
+      # Chunk Two
+
+      Second chunk content is expected to fail embedding.
+      """
+
+      assert {:error, "1 chunks failed to store"} =
+               DocumentProcessor.process_and_store_chunks(content, doc.id)
+
+      assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc.id), :count) == 1
+    end
+
+    test "returns ok with empty results when chunker produces no chunks" do
+      stub_embedding_success()
+      stub_chunk_title_success()
+      doc = create_document()
+
+      assert {:ok, []} = DocumentProcessor.process_and_store_chunks("   \n\n", doc.id)
+      assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc.id), :count) == 0
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -315,6 +410,42 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert record.section_path == ["Generated For Plain Chunk"]
     end
 
+    test "replaces markdown heading with generated emphasized heading" do
+      stub_embedding_success()
+      stub_chunk_title_success("Renamed Heading")
+      doc = create_document()
+
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_replace_1",
+        section_id: "sec-replace",
+        content: "### **Legacy Heading**\n\nSome chunk content.",
+        section_path: ["Legacy Heading"],
+        tokens: 6,
+        metadata: %{section_type: :heading, section_level: 3, position: 0}
+      }
+
+      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 3)
+      assert String.starts_with?(record.content, "## **Renamed Heading**\n\n")
+    end
+
+    test "replaces non-list section_path with generated single-entry path" do
+      stub_embedding_success()
+      stub_chunk_title_success("Path Normalized")
+      doc = create_document()
+
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_0_3",
+        section_id: "sec3",
+        content: "Content without valid section_path list.",
+        section_path: nil,
+        tokens: 6,
+        metadata: %{section_type: :paragraph, section_level: nil, position: 0}
+      }
+
+      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 4)
+      assert record.section_path == ["Path Normalized"]
+    end
+
     test "returns error on dimension mismatch" do
       stub_embedding_wrong_dimension()
       stub_chunk_title_success()
@@ -349,6 +480,25 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       assert {:error, _} =
                DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
+    end
+
+    test "returns changeset error when chunk insert fails foreign key" do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_fk_0",
+        section_id: "sec-fk",
+        content: "Foreign key should fail for missing document.",
+        section_path: ["Missing Doc"],
+        tokens: 7,
+        metadata: %{section_type: :heading, section_level: 2, position: 0}
+      }
+
+      assert {:error, changeset} =
+               DocumentProcessor.store_chunk_with_metadata(chunk, -999_999, 1)
+
+      assert %{document_id: [_ | _]} = errors_on(changeset)
     end
   end
 
@@ -386,7 +536,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert {:error, _} = DocumentProcessor.similarity_search_count("query")
     end
 
-    @tag :integration
     test "hybrid_search/2 uses configured default limit when limit is nil" do
       stub_embedding_success()
       doc = create_document()
@@ -413,7 +562,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert length(results) == 1
     end
 
-    @tag :integration
     test "query_extraction/1 returns empty when max_context_window is too small" do
       stub_embedding_success()
       doc = create_document()
@@ -518,7 +666,27 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "query_extraction/1" do
-    @tag :integration
+    setup do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
+      :ok
+    end
+
+    test "passes embedding errors through from hybrid_search" do
+      stub_embedding_failure()
+      assert {:error, reason} = DocumentProcessor.query_extraction("query")
+      assert is_binary(reason)
+      assert String.contains?(reason, "API error")
+    end
+
     test "returns token-limited results" do
       stub_embedding_success()
       stub_chunk_title_success()
@@ -549,6 +717,41 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert Map.has_key?(r, "rrf_score")
       end)
     end
+
+    test "uses strict context-window boundary (equal is excluded)" do
+      stub_embedding_success()
+      doc = create_document(%{source: "strict-boundary.md"})
+
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "Boundary-only chunk with deterministic payload.",
+        chunk_index: 1,
+        section_path: ["Boundary"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      boundary_tokens =
+        %{
+          "content" => "Boundary-only chunk with deterministic payload.",
+          "source" => "strict-boundary.md",
+          "rrf_score" => 1.0
+        }
+        |> Jason.encode!()
+        |> TokenEstimator.estimate()
+
+      Application.put_env(:zaq, Zaq.Ingestion, max_context_window: boundary_tokens)
+      assert {:ok, []} = DocumentProcessor.query_extraction("deterministic payload")
+
+      Application.put_env(:zaq, Zaq.Ingestion, max_context_window: boundary_tokens + 1)
+      assert {:ok, [first | _]} = DocumentProcessor.query_extraction("deterministic payload")
+      assert first["content"] == "Boundary-only chunk with deterministic payload."
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -556,7 +759,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "similarity_search/2" do
-    @tag :integration
     test "returns chunks within distance threshold" do
       stub_embedding_success()
       doc = create_document()
@@ -585,7 +787,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "similarity_search_count/1" do
-    @tag :integration
     test "returns integer count" do
       stub_embedding_success()
       doc = create_document()
@@ -617,7 +818,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "hybrid_search/2" do
-    @tag :integration
     test "returns results with rrf_score" do
       stub_embedding_success()
       doc = create_document()

@@ -134,6 +134,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute Repo.get(RetrievalChannel, retrieval.id)
   end
 
+  test "toggle retrieval channel flips both directions", %{conn: conn} do
+    config = insert_channel_config(%{})
+    retrieval = insert_retrieval_channel(config)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#toggle-retrieval-channel-#{retrieval.id}") |> render_click()
+    refute Repo.get!(RetrievalChannel, retrieval.id).active
+
+    view |> element("#toggle-retrieval-channel-#{retrieval.id}") |> render_click()
+    assert Repo.get!(RetrievalChannel, retrieval.id).active
+  end
+
   test "shows validate/save errors when config is invalid", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
     initial_count = Repo.aggregate(ChannelConfig, :count)
@@ -206,6 +219,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     render_hook(view, "run_clear", %{})
     assert render(view) =~ "mattermost_not_configured"
+  end
+
+  test "run_clear success branch updates clear status", %{conn: conn} do
+    insert_channel_config(%{})
+    MattermostAPIFake.put(:clear_channel, :ok)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view
+    |> element("form[phx-submit=\"prompt_clear\"]")
+    |> render_submit(%{"channel_id" => "ops-123"})
+
+    render_hook(view, "run_clear", %{})
+
+    assert render(view) =~ "Channel cleared successfully."
+    refute render(view) =~ "Clear Channel?"
   end
 
   test "shows retrieval channel action errors when no enabled config exists", %{conn: conn} do
@@ -330,6 +359,74 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     state = :sys.get_state(view.pid)
     assert state.socket.assigns.posts_status == :error
     assert state.socket.assigns.posts =~ "econnrefused"
+  end
+
+  test "load_posts handles nil config branch", %{conn: conn} do
+    insert_channel_config(%{enabled: false})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view
+    |> element("form[phx-submit=\"load_posts\"]")
+    |> render_submit(%{"channel_id" => "ch-no-config"})
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.posts_status == :error
+    assert state.socket.assigns.posts == []
+  end
+
+  test "save supports happy paths for new and edit", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#new-config-button") |> render_click()
+
+    view
+    |> element("#config-form")
+    |> render_submit(%{
+      "form" => %{
+        "provider" => "mattermost",
+        "kind" => "retrieval",
+        "name" => "Mattermost Alpha",
+        "url" => "https://mm-alpha.local",
+        "token" => "token-alpha",
+        "enabled" => "true"
+      }
+    })
+
+    assert render(view) =~ "Channel config saved."
+
+    config = Repo.get_by!(ChannelConfig, name: "Mattermost Alpha")
+
+    view |> element("#edit-config-#{config.id}") |> render_click()
+
+    view
+    |> element("#config-form")
+    |> render_submit(%{
+      "form" => %{
+        "name" => "Mattermost Beta",
+        "url" => "https://mm-beta.local",
+        "token" => "token-beta",
+        "enabled" => "true"
+      }
+    })
+
+    assert Repo.get!(ChannelConfig, config.id).name == "Mattermost Beta"
+    assert render(view) =~ "Channel config saved."
+  end
+
+  test "service unavailable guard ignores events", %{conn: conn} do
+    stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> nil end)
+    insert_channel_config(%{})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    assert has_element?(view, "#configs-empty-state")
+
+    render_hook(view, "open_modal", %{"action" => "new"})
+    refute has_element?(view, "#config-form")
+
+    render_hook(view, "fetch_teams", %{})
+    refute render(view) =~ "No enabled Mattermost config found."
   end
 
   test "fetch_teams and select_team support success and error paths", %{conn: conn} do

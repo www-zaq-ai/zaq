@@ -115,6 +115,67 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     refute_receive {:api_send_message, _, _, _}
   end
 
+  test "handle_in/2 forwards posted event happy path from websocket payload" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      posted_payload(%{
+        id: "post-happy-1",
+        channel_id: "channel-1",
+        message: "@zaq where are the runbooks?",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+    assert_receive {:api_send_typing, "channel-1", "post-happy-1"}
+    assert_receive {:api_send_message, "channel-1", "all good", "post-happy-1"}
+  end
+
+  test "handle_in/2 treats empty root_id as non-pending and forwards" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      posted_payload(%{
+        id: "post-root-empty-1",
+        channel_id: "channel-1",
+        root_id: "",
+        message: "@zaq answer this please",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+    assert_receive {:api_send_typing, "channel-1", ""}
+    assert_receive {:api_send_message, "channel-1", "all good", ""}
+  end
+
+  test "handle_in/2 uses mention boundary and case-insensitive matching" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1", "channel-2"])}
+
+    no_trigger_payload =
+      posted_payload(%{
+        id: "post-boundary-1",
+        channel_id: "channel-1",
+        message: "@zaqbot do you listen?",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, no_trigger_payload}, state)
+    refute_receive {:api_send_typing, "channel-1", _}
+    refute_receive {:api_send_message, "channel-1", _, _}
+
+    trigger_payload =
+      posted_payload(%{
+        id: "post-case-1",
+        channel_id: "channel-2",
+        message: "@ZAQ give me status",
+        sender_name: "alice"
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, trigger_payload}, state)
+    assert_receive {:api_send_typing, "channel-2", "post-case-1"}
+    assert_receive {:api_send_message, "channel-2", "all good", "post-case-1"}
+  end
+
   test "handle_in/2 ignores malformed posted events" do
     state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
 
@@ -130,6 +191,20 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
       })
 
     assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+  end
+
+  test "handle_in/2 returns {:ok, state} for posted event with unknown shape" do
+    state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
+
+    payload =
+      Jason.encode!(%{
+        "event" => "posted",
+        "datax" => %{"post" => Jason.encode!(%{"id" => "post-1"})}
+      })
+
+    assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
+    refute_receive {:api_send_typing, _, _}
+    refute_receive {:api_send_message, _, _, _}
   end
 
   test "handle_in/2 ignores posted events sent by @zaq" do
@@ -246,6 +321,29 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     assert :ok = Mattermost.forward_to_engine(question)
     assert_receive {:api_send_typing, "send-error", "thread-1"}
     assert_receive {:api_send_message, "send-error", "No answer available", "thread-1"}
+  end
+
+  test "forward_to_engine/1 expands clean_body entity and formatting cleanup" do
+    question = %{
+      text: "cleanup_mix",
+      channel_id: "channel-cleanup",
+      thread_id: "thread-cleanup",
+      metadata: %{post_id: "post-cleanup", sender_name: "alice"}
+    }
+
+    assert :ok = Mattermost.forward_to_engine(question)
+    assert_receive {:api_send_typing, "channel-cleanup", "thread-cleanup"}
+
+    assert_receive {:api_send_message, "channel-cleanup", cleaned, "thread-cleanup"}
+    assert cleaned == "A & B <C> \"D\" 'E'\n\nClick\nNext line"
+  end
+
+  test "connect/1 builds wss websocket uri for https urls" do
+    config = insert_mattermost_config(url: "https://127.0.0.1:1")
+
+    assert {:ok, pid} = Mattermost.connect(config)
+    assert is_pid(pid)
+    assert :ok = Mattermost.disconnect(pid)
   end
 
   test "handle_info/2 reloads monitored channels from database" do
@@ -444,6 +542,16 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     def call(:agent, answering_mod, :ask, ["prompt:clean:no_answer"])
         when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
       {:ok, %{answer: "NO_ANSWER: No answer available", confidence: %{score: 0.1}}}
+    end
+
+    def call(:agent, answering_mod, :ask, ["prompt:clean:cleanup_mix"])
+        when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
+      {:ok,
+       %{
+         answer:
+           "<b>A &amp; B</b> <a href='x'>&lt;C&gt;</a> &quot;D&quot; &#39;E&#39;\n\n\n<a href='y'>Click</a>\nNext line [source: kb]",
+         confidence: %{score: 0.95}
+       }}
     end
 
     def call(:agent, answering_mod, :ask, ["prompt:clean:unsafe"])
