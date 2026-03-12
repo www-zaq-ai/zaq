@@ -363,66 +363,48 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
   end
 
   defmodule NodeRouterStub do
+    @retrieval_overrides %{
+      "clean:no_results_neg" => {:ok, %{"negative_answer" => "No docs found."}},
+      "clean:no_results_plain" => {:ok, %{}},
+      "clean:retrieval_error" => {:error, :retrieval_failed},
+      "clean:blocked" => {:ok, %{"error" => "blocked"}},
+      "clean:query_error" =>
+        {:ok,
+         %{
+           "query" => "query-error",
+           "language" => "en",
+           "positive_answer" => "yes",
+           "negative_answer" => "No docs found from extraction."
+         }},
+      "clean:query_empty_results" =>
+        {:ok,
+         %{
+           "query" => "query-empty-results",
+           "language" => "en",
+           "positive_answer" => "yes",
+           "negative_answer" => "No docs found from empty results."
+         }},
+      "clean:answering_error" =>
+        {:ok,
+         %{
+           "query" => "answering-error",
+           "language" => "en",
+           "positive_answer" => "yes",
+           "negative_answer" => "none"
+         }},
+      "clean:query_empty" =>
+        {:ok,
+         %{
+           "query" => "",
+           "language" => "en",
+           "positive_answer" => "yes",
+           "negative_answer" => "none"
+         }}
+    }
+
     def call(:agent, retrieval_mod, :ask, [clean_msg, [history: %{}]])
         when retrieval_mod == Zaq.Channels.Retrieval.MattermostTest.RetrievalStub do
-      case clean_msg do
-        "clean:no_results_neg" ->
-          {:ok, %{"negative_answer" => "No docs found."}}
-
-        "clean:no_results_plain" ->
-          {:ok, %{}}
-
-        "clean:retrieval_error" ->
-          {:error, :retrieval_failed}
-
-        "clean:blocked" ->
-          {:ok, %{"error" => "blocked"}}
-
-        "clean:query_error" ->
-          {:ok,
-           %{
-             "query" => "query-error",
-             "language" => "en",
-             "positive_answer" => "yes",
-             "negative_answer" => "No docs found from extraction."
-           }}
-
-        "clean:query_empty_results" ->
-          {:ok,
-           %{
-             "query" => "query-empty-results",
-             "language" => "en",
-             "positive_answer" => "yes",
-             "negative_answer" => "No docs found from empty results."
-           }}
-
-        "clean:answering_error" ->
-          {:ok,
-           %{
-             "query" => "answering-error",
-             "language" => "en",
-             "positive_answer" => "yes",
-             "negative_answer" => "none"
-           }}
-
-        "clean:query_empty" ->
-          {:ok,
-           %{
-             "query" => "",
-             "language" => "en",
-             "positive_answer" => "yes",
-             "negative_answer" => "none"
-           }}
-
-        _ ->
-          {:ok,
-           %{
-             "query" => "query:" <> clean_msg,
-             "language" => "en",
-             "positive_answer" => "yes",
-             "negative_answer" => "none"
-           }}
-      end
+      Map.get(@retrieval_overrides, clean_msg, default_retrieval_response(clean_msg))
     end
 
     def call(:ingestion, document_processor_mod, :query_extraction, [query])
@@ -477,6 +459,16 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     def call(:agent, answering_mod, :ask, [_prompt])
         when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
       {:ok, %{answer: "all good", confidence: %{score: 0.8}}}
+    end
+
+    defp default_retrieval_response(clean_msg) do
+      {:ok,
+       %{
+         "query" => "query:" <> clean_msg,
+         "language" => "en",
+         "positive_answer" => "yes",
+         "negative_answer" => "none"
+       }}
     end
   end
 
