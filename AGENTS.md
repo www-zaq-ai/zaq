@@ -1,5 +1,53 @@
 This is a web application written using the Phoenix web framework.
 
+## Gitflow Workflow (MANDATORY)
+
+**CRITICAL: All AI agents MUST follow this branching strategy when creating PRs:**
+
+### Branch Hierarchy
+1. **feature/** branches → Code review + Unit tests → merge into `dev`
+2. **dev** branch → E2E tests + QA → merge into `main`
+3. **main** branch → Automatic release → Docker image + docs update
+
+### AI Agent Rules
+- **NEVER** create PRs directly to `main` from feature branches
+- **ALWAYS** target `dev` branch for feature PRs
+- **ONLY** PRs from `dev` to `main` are allowed for release
+- Branch naming: `feature/description` or `feature/issue-123-description`
+
+### Semantic Versioning for Commits and PR Names
+
+All commits and PR titles MUST follow [Conventional Commits](https://www.conventionalcommits.org/) with semantic versioning prefixes:
+
+**Format:** `<type>(<scope>): <description>`
+
+**Types:**
+- `feat:` - New features (bumps MINOR version)
+- `fix:` - Bug fixes (bumps PATCH version)
+- `docs:` - Documentation changes
+- `style:` - Code style changes (formatting, semicolons, etc)
+- `refactor:` - Code refactoring
+- `perf:` - Performance improvements
+- `test:` - Adding or updating tests
+- `chore:` - Build process or auxiliary tool changes
+
+**Examples:**
+```
+feat(auth): add OAuth2 login support
+fix(api): resolve null pointer in user endpoint
+docs(readme): update installation instructions
+```
+
+**For breaking changes**, add `!` after the type or include `BREAKING CHANGE:` in the footer:
+```
+feat(api)!: remove deprecated v1 endpoints
+```
+
+### Current Branch Check
+Before creating any PR, verify:
+- Is this a feature/fix? → Target: `dev`
+- Is this a release? → Target: `main` (only from `dev`)
+
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
