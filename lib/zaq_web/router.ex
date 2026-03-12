@@ -47,6 +47,9 @@ defmodule ZaqWeb.Router do
   scope "/bo", ZaqWeb do
     pipe_through [:browser, :bo_auth]
 
+    # File serving — raw content with correct Content-Type (opens in browser tab)
+    get "/files/*path", FileController, :show
+
     live_session :bo, on_mount: {ZaqWeb.Live.BO.AuthHook, :default} do
       live "/dashboard", Live.BO.DashboardLive
       live "/change-password", Live.Bo.System.ChangePasswordLive
@@ -72,6 +75,9 @@ defmodule ZaqWeb.Router do
       # Ingestion channels — provider detail pages
       live "/channels/ingestion", Live.BO.Communication.ChannelsIndexLive, :ingestion
       live "/channels/ingestion/:provider", Live.BO.Communication.ChannelsLive, :ingestion
+
+      # File preview — renders MD, plain text, images in-browser
+      live "/preview/*path", Live.BO.AI.FilePreviewLive
 
       live "/playground", Live.BO.Communication.PlaygroundLive
       live "/history", Live.BO.Communication.HistoryLive

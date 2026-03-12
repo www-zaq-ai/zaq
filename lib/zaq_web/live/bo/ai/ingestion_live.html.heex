@@ -1,3 +1,4 @@
+<%!-- lib/zaq_web/live/bo/ai/ingestion_live.html.heex --%>
 <ZaqWeb.Components.BOLayout.bo_layout
   current_user={@current_user}
   page_title="Ingestion"
@@ -28,6 +29,22 @@
                 />
               </svg>
               New Folder
+            </button>
+            
+<!-- Add Raw MD Button -->
+            <button
+              phx-click="show_add_raw_modal"
+              class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 transition-colors flex items-center gap-1"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                />
+              </svg>
+              Add Raw MD
             </button>
             
 <!-- Delete Selected Button (appears when items selected) -->
@@ -82,7 +99,6 @@
         
 <!-- Breadcrumbs -->
         <div class="flex items-center gap-1.5 mb-3 font-mono text-[0.75rem]">
-          <!-- Back button -->
           <button
             :if={@current_dir != "."}
             phx-click="go_back"
@@ -119,12 +135,9 @@
           </span>
         </div>
         
-<!-- File table / grid -->
-
-        <!-- View mode toggle -->
+<!-- View mode toggle -->
         <div class="flex items-center gap-1 mb-3">
           <div class="flex items-center bg-black/5 rounded-lg p-0.5">
-            <!-- List view -->
             <button
               phx-click="toggle_view_mode"
               phx-value-mode="list"
@@ -147,7 +160,6 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <!-- Grid view -->
             <button
               phx-click="toggle_view_mode"
               phx-value-mode="grid"
@@ -214,10 +226,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr
-                :if={@entries == []}
-                class="border-b border-black/[0.04]"
-              >
+              <tr :if={@entries == []} class="border-b border-black/[0.04]">
                 <td
                   colspan="5"
                   class="px-4 py-8 text-center font-mono text-[0.8rem] text-black/30"
@@ -274,8 +283,31 @@
                       </span>
                     <% end %>
                     
-<!-- Hover actions: Move, Rename & Delete -->
+<!-- Hover actions -->
                     <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
+                      <!-- Preview (files only) — opens in new tab -->
+                      <a
+                        :if={entry.type == :file}
+                        href={"/bo/preview/#{Path.join(@current_dir, entry.name)}"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+                        title="Preview in new tab"
+                      >
+                        <svg
+                          class="w-3.5 h-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                          />
+                        </svg>
+                      </a>
                       <button
                         phx-click="move_item"
                         phx-value-path={Path.join(@current_dir, entry.name)}
@@ -425,7 +457,6 @@
           :if={@view_mode == "grid"}
           class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[55vh] overflow-y-scroll p-4"
         >
-          <!-- Select all bar -->
           <div class="flex items-center gap-2 mb-4 pb-3 border-b border-black/[0.06]">
             <input
               type="checkbox"
@@ -435,13 +466,11 @@
             />
             <span class="font-mono text-[0.68rem] text-black/40">Select all</span>
           </div>
-          
-<!-- Empty state -->
+
           <div :if={@entries == []} class="py-12 text-center">
             <p class="font-mono text-[0.8rem] text-black/30">Empty directory</p>
           </div>
-          
-<!-- Grid -->
+
           <div class="grid grid-cols-4 gap-3">
             <div
               :for={entry <- @entries}
@@ -472,6 +501,29 @@
               
 <!-- Hover actions (top-right) -->
               <div class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                <!-- Preview (files only) -->
+                <a
+                  :if={entry.type == :file}
+                  href={"/bo/files/#{Path.join(@current_dir, entry.name)}"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+                  title="Preview in new tab"
+                >
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                    />
+                  </svg>
+                </a>
                 <button
                   phx-click="move_item"
                   phx-value-path={Path.join(@current_dir, entry.name)}
@@ -532,7 +584,7 @@
                 </button>
               </div>
               
-<!-- Icon area (clickable for folders) -->
+<!-- Icon area -->
               <%= if entry.type == :directory do %>
                 <button
                   phx-click="navigate"
@@ -552,7 +604,6 @@
                 </button>
               <% else %>
                 <div class="w-full pt-8 pb-3 flex flex-col items-center">
-                  <!-- File type icon -->
                   <div class="w-10 h-12 mb-2 relative flex items-center justify-center">
                     <svg class="w-10 h-12 text-black/10" fill="currentColor" viewBox="0 0 24 30">
                       <path d="M4 0C2.9 0 2 .9 2 2v26c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8l-6-8H4z" />
@@ -620,8 +671,7 @@
               </p>
             </div>
           </div>
-          
-<!-- Upload entries -->
+
           <%= for entry <- @uploads.files.entries do %>
             <div class="flex items-center justify-between mt-3 px-2">
               <span class="font-mono text-[0.8rem] text-black truncate max-w-[60%]">
@@ -656,8 +706,7 @@
         <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">Jobs</p>
         <p class="font-mono text-[0.68rem] text-black/30">{length(@jobs)}</p>
       </div>
-      
-<!-- Status filter -->
+
       <div class="flex gap-1 mb-3">
         <button
           :for={status <- ~w(all pending processing completed failed)}
@@ -674,8 +723,7 @@
           {status}
         </button>
       </div>
-      
-<!-- Jobs list -->
+
       <div class="space-y-2">
         <div
           :if={@jobs == []}
@@ -688,7 +736,6 @@
           :for={job <- @jobs}
           class="bg-white rounded-xl border border-black/[0.06] shadow-sm p-4 space-y-2"
         >
-          <!-- Header: filename + badge -->
           <div class="flex items-start justify-between gap-2">
             <p
               class="font-mono text-[0.82rem] text-black font-medium truncate"
@@ -703,8 +750,7 @@
               {job.status}
             </span>
           </div>
-          
-<!-- Details -->
+
           <div class="font-mono text-[0.68rem] text-black/40 space-y-0.5">
             <p>Mode: {job.mode}</p>
             <p>Started: {format_datetime(job.started_at)}</p>
@@ -714,27 +760,24 @@
               <summary class="font-mono text-[0.7rem] text-red-500 cursor-pointer hover:text-red-600">
                 Error details
               </summary>
-              <p class="mt-1 font-mono text-[0.65rem] text-red-400 bg-red-50 rounded-lg p-2 break-all">
-                {job.error}
-              </p>
+              <pre class="mt-1 text-[0.65rem] text-red-400 whitespace-pre-wrap break-all">{job.error}</pre>
             </details>
           </div>
-          
-<!-- Actions -->
-          <div class="flex gap-2 pt-1">
+
+          <div class="flex gap-1.5 pt-1">
             <button
-              :if={job.status == "failed"}
+              :if={job.status in ~w(failed)}
               phx-click="retry_job"
               phx-value-id={job.id}
-              class="font-mono text-[0.7rem] text-[#03b6d4] hover:underline"
+              class="font-mono text-[0.65rem] px-2 py-1 rounded-lg bg-black/5 text-black/50 hover:bg-black/10 transition-colors"
             >
               Retry
             </button>
             <button
-              :if={job.status == "pending"}
+              :if={job.status in ~w(pending processing)}
               phx-click="cancel_job"
               phx-value-id={job.id}
-              class="font-mono text-[0.7rem] text-red-500 hover:underline"
+              class="font-mono text-[0.65rem] px-2 py-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
             >
               Cancel
             </button>
@@ -744,14 +787,108 @@
     </div>
   </div>
   
-<!-- =============== MODALS =============== -->
-
-  <!-- Backdrop (shared by all modals) -->
+<!-- ——— Add Raw MD Modal ——— -->
   <div
-    :if={@modal}
-    phx-click="close_modal"
-    class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity"
-  />
+    :if={@modal == :add_raw}
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+  >
+    <div class="fixed inset-0 bg-black/20 backdrop-blur-sm" phx-click="close_modal" />
+    <div
+      phx-window-keydown="close_modal"
+      phx-key="Escape"
+      class="relative bg-white rounded-2xl shadow-2xl border border-black/[0.06] w-full max-w-2xl overflow-hidden"
+    >
+      <div class="px-6 pt-6 pb-4">
+        <div class="flex items-center gap-3 mb-1">
+          <div class="w-9 h-9 rounded-xl bg-[#03b6d4]/10 flex items-center justify-center shrink-0">
+            <svg
+              class="w-4.5 h-4.5 text-[#03b6d4]"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+              />
+            </svg>
+          </div>
+          <div>
+            <h3 class="font-mono text-[0.9rem] font-semibold text-black">Add Raw MD Content</h3>
+            <p class="font-mono text-[0.72rem] text-black/40">
+              Paste or type Markdown — saved as a
+              <span class="text-black/60 font-medium">.md</span>
+              file in the current directory
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <form phx-submit="add_raw_content">
+        <div class="px-6 pb-6 space-y-4">
+          <div :if={@modal_error} class="px-3 py-2 rounded-xl bg-red-50 border border-red-100">
+            <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
+          </div>
+
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-1.5">
+              Filename
+            </label>
+            <div class="flex items-center gap-2">
+              <input
+                id="raw-filename-input"
+                type="text"
+                name="filename"
+                value={@modal_name}
+                phx-hook="FocusAndSelect"
+                placeholder="my-document"
+                class="flex-1 font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all placeholder:text-black/20"
+              />
+              <span class="font-mono text-[0.8rem] text-black/30 shrink-0">.md</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-1.5">
+              Content
+            </label>
+            <textarea
+              name="content"
+              rows="14"
+              placeholder="# My Document&#10;&#10;Start writing your Markdown here..."
+              class="w-full font-mono text-[0.82rem] px-4 py-3 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all placeholder:text-black/20 resize-none"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-between">
+          <p class="font-mono text-[0.68rem] text-black/30">
+            Saving to:
+            <span class="text-black/50">
+              {if @current_dir == ".", do: "root", else: @current_dir}/
+            </span>
+          </p>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              phx-click="close_modal"
+              class="font-mono text-[0.78rem] px-4 py-2 rounded-xl text-black/50 hover:bg-black/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+            >
+              Save File
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
   
 <!-- ——— Rename Modal ——— -->
   <div
@@ -764,7 +901,6 @@
       phx-key="Escape"
       class="bg-white rounded-2xl shadow-2xl border border-black/[0.06] w-full max-w-md overflow-hidden"
     >
-      <!-- Header -->
       <div class="px-6 pt-6 pb-4">
         <div class="flex items-center gap-3 mb-1">
           <div class="w-9 h-9 rounded-xl bg-[#03b6d4]/10 flex items-center justify-center shrink-0">
@@ -785,14 +921,13 @@
           <div>
             <h3 class="font-mono text-[0.9rem] font-semibold text-black">Rename</h3>
             <p class="font-mono text-[0.72rem] text-black/40">
-              Enter a new name for this {if @modal_type == "directory", do: "folder", else: "file"}
+              Renaming <span class="text-black/60 font-medium">{@modal_name}</span>
             </p>
           </div>
         </div>
       </div>
 
       <form phx-submit="confirm_rename">
-        <!-- Body -->
         <div class="px-6 pb-6">
           <div
             :if={@modal_error}
@@ -800,21 +935,16 @@
           >
             <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
           </div>
-
           <label class="block font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-1.5">
-            Name
+            New Name
           </label>
           <input
-            id="rename-input"
             type="text"
             name="name"
             value={@modal_name}
-            phx-hook="FocusAndSelect"
             class="w-full font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all"
           />
         </div>
-        
-<!-- Footer -->
         <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
           <button
             type="button"
@@ -834,7 +964,7 @@
     </div>
   </div>
   
-<!-- ——— Delete Single Item Modal ——— -->
+<!-- ——— Delete Single Modal ——— -->
   <div
     :if={@modal == :delete}
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -845,7 +975,6 @@
       phx-key="Escape"
       class="bg-white rounded-2xl shadow-2xl border border-black/[0.06] w-full max-w-md overflow-hidden"
     >
-      <!-- Header -->
       <div class="px-6 pt-6 pb-4">
         <div class="flex items-center gap-3 mb-1">
           <div class="w-9 h-9 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0">
@@ -864,54 +993,18 @@
             </svg>
           </div>
           <div>
-            <h3 class="font-mono text-[0.9rem] font-semibold text-black">
-              Delete {if @modal_type == "directory", do: "Folder", else: "File"}
-            </h3>
-            <p class="font-mono text-[0.72rem] text-black/40">This action cannot be undone</p>
+            <h3 class="font-mono text-[0.9rem] font-semibold text-black">Delete</h3>
+            <p class="font-mono text-[0.72rem] text-black/40">
+              Permanently delete <span class="text-black/60 font-medium">{@modal_name}</span>
+            </p>
           </div>
         </div>
       </div>
-      
-<!-- Body -->
-      <div class="px-6 pb-6">
-        <div
-          :if={@modal_error}
-          class="mb-3 px-3 py-2 rounded-xl bg-red-50 border border-red-100"
-        >
+      <div :if={@modal_error} class="px-6 pt-2 pb-0">
+        <div class="px-3 py-2 rounded-xl bg-red-50 border border-red-100">
           <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
         </div>
-
-        <div class="px-4 py-3 rounded-xl bg-[#fafafa] border border-black/[0.06]">
-          <div class="flex items-center gap-2">
-            <%= if @modal_type == "directory" do %>
-              <svg class="w-4 h-4 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-              </svg>
-            <% else %>
-              <svg
-                class="w-4 h-4 text-black/30 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                viewBox="0 0 24 24"
-              >
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-            <% end %>
-            <span class="font-mono text-[0.82rem] text-black truncate">{@modal_name}</span>
-          </div>
-        </div>
-
-        <p
-          :if={@modal_type == "directory"}
-          class="mt-3 font-mono text-[0.72rem] text-amber-600 bg-amber-50 px-3 py-2 rounded-xl border border-amber-100"
-        >
-          All contents inside this folder will also be deleted.
-        </p>
       </div>
-      
-<!-- Footer -->
       <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
         <button
           phx-click="close_modal"
@@ -929,7 +1022,7 @@
     </div>
   </div>
   
-<!-- ——— Bulk Delete Modal ——— -->
+<!-- ——— Delete Selected Modal ——— -->
   <div
     :if={@modal == :delete_selected}
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -940,7 +1033,6 @@
       phx-key="Escape"
       class="bg-white rounded-2xl shadow-2xl border border-black/[0.06] w-full max-w-md overflow-hidden"
     >
-      <!-- Header -->
       <div class="px-6 pt-6 pb-4">
         <div class="flex items-center gap-3 mb-1">
           <div class="w-9 h-9 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0">
@@ -959,46 +1051,14 @@
             </svg>
           </div>
           <div>
-            <h3 class="font-mono text-[0.9rem] font-semibold text-black">
-              Delete {MapSet.size(@selected)} Item(s)
-            </h3>
-            <p class="font-mono text-[0.72rem] text-black/40">This action cannot be undone</p>
+            <h3 class="font-mono text-[0.9rem] font-semibold text-black">Delete Selected</h3>
+            <p class="font-mono text-[0.72rem] text-black/40">
+              Permanently delete
+              <span class="text-black/60 font-medium">{MapSet.size(@selected)} item(s)</span>
+            </p>
           </div>
         </div>
       </div>
-      
-<!-- Body -->
-      <div class="px-6 pb-6">
-        <div
-          :if={@modal_error}
-          class="mb-3 px-3 py-2 rounded-xl bg-red-50 border border-red-100"
-        >
-          <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
-        </div>
-
-        <div class="rounded-xl bg-[#fafafa] border border-black/[0.06] max-h-48 overflow-y-auto divide-y divide-black/[0.04]">
-          <div
-            :for={path <- Enum.sort(@selected)}
-            class="flex items-center gap-2 px-4 py-2.5"
-          >
-            <svg
-              class="w-3.5 h-3.5 text-black/30 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              viewBox="0 0 24 24"
-            >
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-            <span class="font-mono text-[0.78rem] text-black truncate">
-              {Path.basename(path)}
-            </span>
-          </div>
-        </div>
-      </div>
-      
-<!-- Footer -->
       <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
         <button
           phx-click="close_modal"
@@ -1027,7 +1087,6 @@
       phx-key="Escape"
       class="bg-white rounded-2xl shadow-2xl border border-black/[0.06] w-full max-w-md overflow-hidden"
     >
-      <!-- Header -->
       <div class="px-6 pt-6 pb-4">
         <div class="flex items-center gap-3 mb-1">
           <div class="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
@@ -1045,7 +1104,6 @@
       </div>
 
       <form phx-submit="create_folder">
-        <!-- Body -->
         <div class="px-6 pb-6">
           <div
             :if={@modal_error}
@@ -1053,7 +1111,6 @@
           >
             <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
           </div>
-
           <label class="block font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-1.5">
             Folder Name
           </label>
@@ -1067,8 +1124,6 @@
             class="w-full font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all placeholder:text-black/20"
           />
         </div>
-        
-<!-- Footer -->
         <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
           <button
             type="button"
@@ -1099,7 +1154,6 @@
       phx-key="Escape"
       class="bg-white rounded-2xl shadow-2xl border border-black/[0.06] w-full max-w-lg overflow-hidden"
     >
-      <!-- Header -->
       <div class="px-6 pt-6 pb-4">
         <div class="flex items-center gap-3 mb-1">
           <div class="w-9 h-9 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0">
@@ -1127,8 +1181,7 @@
           </div>
         </div>
       </div>
-      
-<!-- Body -->
+
       <div class="px-6 pb-4">
         <div
           :if={@modal_error}
@@ -1136,10 +1189,8 @@
         >
           <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
         </div>
-        
-<!-- Move picker breadcrumbs -->
+
         <div class="flex items-center gap-1.5 mb-3 font-mono text-[0.72rem]">
-          <!-- Back button -->
           <button
             :if={@move_current_dir != "."}
             phx-click="move_go_back"
@@ -1156,7 +1207,6 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-
           <button
             phx-click="move_navigate"
             phx-value-path="."
@@ -1175,8 +1225,7 @@
             </button>
           </span>
         </div>
-        
-<!-- Current location indicator -->
+
         <div class="mb-3 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-100">
           <p class="font-mono text-[0.7rem] text-indigo-600">
             Move to:
@@ -1185,24 +1234,16 @@
             </span>
           </p>
         </div>
-        
-<!-- Folder list -->
+
         <div class="rounded-xl bg-[#fafafa] border border-black/[0.06] max-h-56 overflow-y-auto">
-          <div
-            :if={@move_folders == []}
-            class="px-4 py-6 text-center"
-          >
+          <div :if={@move_folders == []} class="px-4 py-6 text-center">
             <p class="font-mono text-[0.75rem] text-black/30">No subfolders</p>
           </div>
-
           <div
             :for={folder <- @move_folders}
             phx-click="move_navigate"
             phx-value-path={Path.join(@move_current_dir, folder.name)}
-            class={[
-              "flex items-center gap-2.5 px-4 py-2.5 cursor-pointer transition-colors border-b border-black/[0.04] last:border-0",
-              "hover:bg-black/[0.02]"
-            ]}
+            class="flex items-center gap-2.5 px-4 py-2.5 cursor-pointer transition-colors border-b border-black/[0.04] last:border-0 hover:bg-black/[0.02]"
           >
             <svg class="w-4 h-4 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
@@ -1220,8 +1261,7 @@
           </div>
         </div>
       </div>
-      
-<!-- Footer -->
+
       <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
         <button
           phx-click="close_modal"
