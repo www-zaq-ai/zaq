@@ -5,6 +5,8 @@ defmodule Zaq.MixProject do
     [
       app: :zaq,
       version: "0.2.0",
+      source_url: "https://github.com/www-zaq-ai/zaq",
+      homepage_url: "https://www-zaq-ai.github.io/zaq/",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -12,7 +14,8 @@ defmodule Zaq.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      test_coverage: [tool: ExCoveralls]
+      test_coverage: [tool: ExCoveralls],
+      docs: docs()
     ]
   end
 
@@ -30,6 +33,7 @@ defmodule Zaq.MixProject do
     [
       preferred_envs: [
         precommit: :test,
+        docs: :docs,
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
@@ -40,6 +44,7 @@ defmodule Zaq.MixProject do
 
   # Specifies which paths to compile per environment.
   defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(:docs), do: ["lib"]
   defp elixirc_paths(_), do: ["lib"]
 
   # Specifies your project dependencies.
@@ -75,6 +80,7 @@ defmodule Zaq.MixProject do
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.40", only: [:dev, :docs], runtime: false},
       {:excoveralls, "~> 0.18.5", only: :test},
       {:pgvector, "~> 0.3.1"},
       {:langchain, github: "Geeks-Solutions/langchain", branch: "main"},
@@ -112,6 +118,13 @@ defmodule Zaq.MixProject do
         "credo --strict",
         "test"
       ]
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md"] ++ (Path.wildcard("docs/*.md") |> Enum.sort())
     ]
   end
 end

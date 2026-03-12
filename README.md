@@ -1,10 +1,15 @@
 # ZAQ
 
 ![Coverage](https://img.shields.io/coverallsCoverage/github/www-zaq-ai/zaq)
+[![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://www-zaq-ai.github.io/zaq/)
 
 AI-powered company brain that updates itself. ZAQ continuously maintains your organization's knowledge base and provides instant, cited answers to people and AI agents.
 
 Built with [Elixir](https://elixir-lang.org/), [Phoenix](https://www.phoenixframework.org/), and [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).
+
+## Documentation
+
+Project documentation is published at [www-zaq-ai.github.io/zaq](https://www-zaq-ai.github.io/zaq/) and is updated on each release.
 
 ## Architecture
 
@@ -220,4 +225,4 @@ Please ensure your code passes `mix format --check-formatted` and `mix test` bef
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+License details are maintained by the repository owners.
