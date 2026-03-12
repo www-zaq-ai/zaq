@@ -2,9 +2,13 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.PasswordPolicy
 
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, :roles, Accounts.list_roles())}
+    {:ok,
+     socket
+     |> assign(:roles, Accounts.list_roles())
+     |> assign(:password_requirements, nil)}
   end
 
   def handle_params(params, _uri, socket) do
@@ -37,7 +41,19 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
       |> Accounts.User.changeset(params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign(socket, :form, to_form(changeset))}
+    password = params["password"]
+
+    password_requirements =
+      if socket.assigns.live_action == :new and is_binary(password) and password != "" do
+        PasswordPolicy.requirements_with_status(password)
+      else
+        nil
+      end
+
+    {:noreply,
+     socket
+     |> assign(:form, to_form(changeset))
+     |> assign(:password_requirements, password_requirements)}
   end
 
   def handle_event("save", %{"user" => params}, socket) do
