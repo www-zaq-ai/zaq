@@ -148,8 +148,15 @@
                           style="border-top: 1px solid #f0ede8;"
                         >
                           <%= for source <- msg.sources do %>
-                            <span
-                              class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[0.68rem] font-mono border"
+                            <a
+                              href={
+                                if String.ends_with?(source, ".md"),
+                                  do: "/bo/preview/#{source}",
+                                  else: "/bo/files/#{source}"
+                              }
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[0.68rem] font-mono border transition-colors hover:brightness-95"
                               style="background:#f0f9fb; border-color:#b2e4ef; color:#1a8fa8;"
                             >
                               <svg
@@ -165,8 +172,8 @@
                                   d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                                 />
                               </svg>
-                              {source}
-                            </span>
+                              {Path.basename(source)}
+                            </a>
                           <% end %>
                         </div>
                       <% end %>

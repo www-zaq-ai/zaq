@@ -1,3 +1,5 @@
+# lib/zaq_web/live/bo/ai/ingestion_live.ex
+
 defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   use ZaqWeb, :live_view
 
@@ -34,7 +36,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        move_folders: [],
        move_current_dir: ".",
        move_breadcrumbs: [],
-       ingestion_map: %{}
+       ingestion_map: %{},
+       # Raw MD modal state
+       raw_content: "",
+       raw_filename: ""
      )
      |> load_entries()
      |> load_jobs()
@@ -278,6 +283,59 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     {:noreply, assign(socket, modal: nil, modal_error: nil)}
   end
 
+  # Modal: Add Raw MD
+
+  def handle_event("show_add_raw_modal", _params, socket) do
+    {:noreply,
+     assign(socket,
+       modal: :add_raw,
+       raw_filename: "",
+       raw_content: "",
+       modal_error: nil
+     )}
+  end
+
+  def handle_event("update_raw_field", %{"field" => "filename", "value" => value}, socket) do
+    {:noreply, assign(socket, raw_filename: value)}
+  end
+
+  def handle_event("update_raw_field", %{"field" => "content", "value" => value}, socket) do
+    {:noreply, assign(socket, raw_content: value)}
+  end
+
+  def handle_event("save_raw_content", %{"filename" => filename, "content" => content}, socket) do
+    filename = String.trim(filename)
+    content = String.trim(content)
+
+    cond do
+      filename == "" ->
+        {:noreply, assign(socket, modal_error: "Filename cannot be empty.")}
+
+      content == "" ->
+        {:noreply, assign(socket, modal_error: "Content cannot be empty.")}
+
+      true ->
+        filename = ensure_md_extension(filename)
+        dest = Path.join(socket.assigns.current_dir, filename)
+
+        case FileExplorer.upload(dest, content) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> assign(modal: nil, modal_error: nil, raw_filename: "", raw_content: "")
+             |> load_entries()
+             |> put_flash(:info, "\"#{filename}\" saved.")}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, modal_error: "Save failed: #{inspect(reason)}")}
+        end
+    end
+  end
+
+  def handle_event("add_raw_content", params, socket) do
+    handle_event("save_raw_content", params, socket)
+  end
+
   # Ingestion
 
   def handle_event("set_mode", %{"mode" => mode}, socket) do
@@ -353,14 +411,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Private helpers
   # ────────────────────────────────────────────────────────────────
 
+  defp ensure_md_extension(filename) do
+    if Path.extname(filename) == "", do: filename <> ".md", else: filename
+  end
+
   defp load_ingestion_status(socket) do
-    filenames =
+    current_dir = socket.assigns.current_dir
+
+    sources =
       socket.assigns.entries
       |> Enum.filter(&(&1.type == :file))
-      |> Enum.map(& &1.name)
+      |> Enum.map(fn entry ->
+        path = Path.join(current_dir, entry.name)
+        # Normalise: strip leading "./" so it matches what extract_source stores
+        case path do
+          "./" <> rest -> rest
+          other -> other
+        end
+      end)
 
     documents =
-      from(d in Zaq.Ingestion.Document, where: d.source in ^filenames)
+      from(d in Zaq.Ingestion.Document, where: d.source in ^sources)
       |> Repo.all()
       |> Map.new(fn d -> {d.source, d} end)
 
@@ -368,7 +439,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       socket.assigns.entries
       |> Enum.filter(&(&1.type == :file))
       |> Map.new(fn entry ->
-        case Map.get(documents, entry.name) do
+        raw = Path.join(current_dir, entry.name)
+
+        source =
+          case raw do
+            "./" <> rest -> rest
+            other -> other
+          end
+
+        case Map.get(documents, source) do
           nil ->
             {entry.name, %{ingested_at: nil, stale?: false}}
 
@@ -407,7 +486,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp do_delete(path, "directory"), do: FileExplorer.delete_directory(path)
 
   defp do_delete(path, _type) do
-    source = Path.basename(path)
+    source =
+      case path do
+        "./" <> rest -> rest
+        other -> other
+      end
 
     case Document.get_by_source(source) do
       %Document{} = doc -> Document.delete(doc)
@@ -526,4 +609,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def status_color("completed"), do: "bg-emerald-100 text-emerald-700"
   def status_color("failed"), do: "bg-red-100 text-red-600"
   def status_color(_), do: "bg-black/5 text-black/30"
+
+  @doc """
+  Returns the BO URL for viewing a file in the browser.
+  Path segments are joined and appended to /bo/files/.
+  Example: file_url("docs/guide.md") => "/bo/files/docs/guide.md"
+  """
+  def file_url(relative_path) do
+    # Normalise: strip leading "./" so the URL is clean
+    clean =
+      relative_path
+      |> Path.split()
+      |> Enum.reject(&(&1 == "."))
+      |> Enum.join("/")
+
+    "/bo/files/#{clean}"
+  end
 end

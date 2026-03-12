@@ -21,7 +21,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer}
   alias Zaq.Repo
 
   require Logger
@@ -98,10 +98,22 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc """
-  Extracts the source (filename) from the file path.
+  Extracts the source as a relative path from the ingestion base_path.
+  Falls back to basename if the path is not under base_path.
+
+  Example: "/app/priv/documents/docs/guide.md" => "docs/guide.md"
   """
   def extract_source(_content, file_path) do
-    {:ok, Path.basename(file_path)}
+    base = FileExplorer.base_path() |> Path.expand()
+    expanded = Path.expand(file_path)
+
+    relative =
+      case String.split(expanded, base <> "/", parts: 2) do
+        [_, rel] when rel != "" -> rel
+        _ -> Path.basename(file_path)
+      end
+
+    {:ok, relative}
   end
 
   @doc """

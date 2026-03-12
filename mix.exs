@@ -88,7 +88,8 @@ defmodule Zaq.MixProject do
       {:oban, "~> 2.20.3"},
       {:file_system, "~> 1.1"},
       {:fresh, "~> 0.4.4"},
-      {:httpoison, "~> 2.3"}
+      {:httpoison, "~> 2.3"},
+      {:earmark, "~> 1.4.48"}
     ]
   end
 

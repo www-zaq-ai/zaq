@@ -16,86 +16,142 @@ defmodule ZaqWeb.Components.BOLayout do
     ~H"""
     <div class="min-h-screen flex bg-[#f0f4f8]" id="bo-root">
       <style>
-        /* Sidebar transition */
-        #bo-sidebar {
-          width: 240px;
-          transition: width 0.22s cubic-bezier(.4,0,.2,1);
-        }
-        #bo-sidebar.collapsed {
-          width: 60px;
-        }
-        #bo-main {
-          margin-left: 240px;
-          transition: margin-left 0.22s cubic-bezier(.4,0,.2,1);
-        }
-        #bo-main.collapsed {
-          margin-left: 60px;
+                /* Sidebar transition */
+                #bo-sidebar {
+                  width: 240px;
+                  transition: width 0.22s cubic-bezier(.4,0,.2,1);
+                }
+                #bo-sidebar.collapsed {
+                  width: 60px;
+                }
+                #bo-main {
+                  margin-left: 240px;
+                  transition: margin-left 0.22s cubic-bezier(.4,0,.2,1);
+                }
+                #bo-main.collapsed {
+                  margin-left: 60px;
+                }
+
+                /* Hide labels/sections when collapsed */
+                #bo-sidebar.collapsed .nav-label,
+                #bo-sidebar.collapsed .section-header-text,
+                #bo-sidebar.collapsed .section-label,
+                #bo-sidebar.collapsed .user-info,
+                #bo-sidebar.collapsed .logout-btn,
+                #bo-sidebar.collapsed .logo-text {
+                  opacity: 0;
+                  width: 0;
+                  overflow: hidden;
+                  pointer-events: none;
+                }
+
+                /* Section dropdown */
+                .section-items {
+        overflow: hidden;
+        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 0.2s ease,
+                  padding 0.2s ease;
+        max-height: 500px;
+        opacity: 1;
         }
 
-        /* Hide labels/sections when collapsed */
-        #bo-sidebar.collapsed .nav-label,
-        #bo-sidebar.collapsed .section-header-text,
-        #bo-sidebar.collapsed .section-label,
-        #bo-sidebar.collapsed .user-info,
-        #bo-sidebar.collapsed .logout-btn,
-        #bo-sidebar.collapsed .logo-text {
-          opacity: 0;
-          width: 0;
-          overflow: hidden;
-          pointer-events: none;
-        }
-
-        /* Section dropdown */
-        .section-items {
-          overflow: hidden;
-          transition: max-height 0.2s ease, opacity 0.2s ease;
-          max-height: 500px;
-          opacity: 1;
-        }
         .section-items.closed {
-          max-height: 0;
-          opacity: 0;
+        max-height: 0;
+        opacity: 0;
+        padding-top: 0;
+        padding-bottom: 0;
         }
 
-        /* Collapsed tooltip */
-        #bo-sidebar.collapsed .nav-item-wrap {
-          position: relative;
-        }
-        #bo-sidebar.collapsed .nav-item-wrap:hover .nav-tooltip {
-          display: block;
-        }
-        .nav-tooltip {
-          display: none;
-          position: absolute;
-          left: 52px;
-          top: 50%;
-          transform: translateY(-50%);
-          background: #1e2a3a;
-          color: white;
-          font-size: 0.72rem;
-          font-family: monospace;
-          padding: 4px 10px;
-          border-radius: 6px;
-          white-space: nowrap;
-          z-index: 100;
-          pointer-events: none;
-        }
+                /* Collapsed tooltip */
+                #bo-sidebar.collapsed .section-header-wrap {
+            position: relative;
+            }
 
-        /* Chevron rotation */
-        .section-chevron {
-          transition: transform 0.2s ease;
-        }
-        .section-chevron.open {
-          transform: rotate(180deg);
-        }
+            #bo-sidebar.collapsed .nav-section:hover .section-items {
+            position: absolute;
+            left: 52px;
+            top: 0;
+            background: #2c3a50;
+            min-width: 180px;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 0 8px 8px 0;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.3);
+            z-index: 50;
+            opacity: 1 !important;
+            max-height: 500px !important;
+            padding: 8px;
+            }
 
-        /* Collapse toggle button */
-        #sidebar-toggle {
-          transition: transform 0.22s ease;
-        }
-        #bo-sidebar.collapsed #sidebar-toggle {
-          transform: rotate(180deg);
-        }
+            #bo-sidebar.collapsed .nav-section {
+            position: relative;
+            }
+                #bo-sidebar.collapsed .nav-item-wrap {
+                  position: relative;
+                }
+                #bo-sidebar.collapsed .nav-item-wrap:hover .nav-tooltip {
+                  display: block;
+                }
+                .nav-tooltip {
+                  display: none;
+                  position: absolute;
+                  left: 52px;
+                  top: 50%;
+                  transform: translateY(-50%);
+                  background: #1e2a3a;
+                  color: white;
+                  font-size: 0.72rem;
+                  font-family: monospace;
+                  padding: 4px 10px;
+                  border-radius: 6px;
+                  white-space: nowrap;
+                  z-index: 100;
+                  pointer-events: none;
+                }
+
+                /* Chevron rotation */
+                .section-chevron {
+                  transition: transform 0.2s ease;
+                }
+                .section-chevron.open {
+                  transform: rotate(180deg);
+                }
+
+                /* Collapse toggle button */
+                #sidebar-toggle {
+                  transition: transform 0.22s ease;
+                }
+                #bo-sidebar.collapsed #sidebar-toggle {
+                  transform: rotate(180deg);
+                }
+
+                /* Active section highlight when collapsed */
+                #bo-sidebar.collapsed .active-section-wrap {
+                  background: rgba(3, 182, 212, 0.12);
+                  border-left: 2px solid #03b6d4;
+                  border-radius: 6px;
+                }
+                #bo-sidebar.collapsed button.active-section {
+                  background: transparent;
+                  border-left: none;
+                }
+
+                /* Open but inactive section — gray tint */
+                .open-section-wrap {
+                  background: rgba(255, 255, 255, 0.04);
+                  border-left: 2px solid rgba(255, 255, 255, 0.08);
+                  border-radius: 6px;
+                }
+
+                /* Collapsed non-active section: gray tint when open */
+                #bo-sidebar.collapsed .section-open:not(.active-section-wrap) {
+                  background: rgba(255, 255, 255, 0.06);
+                  border-left: 2px solid rgba(255, 255, 255, 0.12);
+                  border-radius: 6px;
+                }
+                #bo-sidebar.collapsed .section-open:not(.active-section-wrap) button {
+                  background: transparent;
+                }
       </style>
       
     <!-- Sidebar -->
@@ -170,7 +226,14 @@ defmodule ZaqWeb.Components.BOLayout do
           <.nav_section
             id="section-ai"
             label="AI"
+            icon="ai"
             current_path={@current_path}
+            active={
+              String.starts_with?(@current_path, "/bo/ai") or
+                String.starts_with?(@current_path, "/bo/prompt") or
+                String.starts_with?(@current_path, "/bo/ingestion") or
+                String.starts_with?(@current_path, "/bo/ontology")
+            }
             open={
               String.starts_with?(@current_path, "/bo/ai") or
                 String.starts_with?(@current_path, "/bo/prompt") or
@@ -207,8 +270,10 @@ defmodule ZaqWeb.Components.BOLayout do
     <!-- Communication Section -->
           <.nav_section
             id="section-communication"
+            icon="communication"
             label="Communication"
             current_path={@current_path}
+            active={@current_path in ["/bo/channels", "/bo/playground", "/bo/history"]}
             open={@current_path in ["/bo/channels", "/bo/playground", "/bo/history"]}
           >
             <:item
@@ -235,7 +300,12 @@ defmodule ZaqWeb.Components.BOLayout do
           <.nav_section
             id="section-accounts"
             label="Accounts"
+            icon="accounts"
             current_path={@current_path}
+            active={
+              String.starts_with?(@current_path, "/bo/users") or
+                String.starts_with?(@current_path, "/bo/roles")
+            }
             open={
               String.starts_with?(@current_path, "/bo/users") or
                 String.starts_with?(@current_path, "/bo/roles")
@@ -259,7 +329,9 @@ defmodule ZaqWeb.Components.BOLayout do
           <.nav_section
             id="section-system"
             label="System"
+            icon="system"
             current_path={@current_path}
+            active={@current_path == "/bo/license"}
             open={@current_path == "/bo/license"}
           >
             <:item
@@ -331,23 +403,59 @@ defmodule ZaqWeb.Components.BOLayout do
           localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed'));
         }
 
+        function setSectionOpenClass(id) {
+          const wrapper = document.getElementById(id);
+          const items = document.getElementById(id + '-items');
+          if (!wrapper || !items) return;
+          if (items.classList.contains('closed')) {
+            wrapper.classList.remove('section-open');
+          } else {
+            wrapper.classList.add('section-open');
+          }
+        }
+
         function toggleSection(id) {
           const items = document.getElementById(id + '-items');
           const chevron = document.getElementById(id + '-chevron');
           if (!items) return;
           items.classList.toggle('closed');
           chevron && chevron.classList.toggle('open');
-          const closed = items.classList.contains('closed');
-          localStorage.setItem('section-' + id, closed ? 'closed' : 'open');
+          localStorage.setItem('section-' + id, items.classList.contains('closed') ? 'closed' : 'open');
+          setSectionOpenClass(id);
         }
 
-        // Restore sidebar state on load
-        document.addEventListener('DOMContentLoaded', function() {
+        function restoreLayout() {
+          const sidebar = document.getElementById('bo-sidebar');
+          const main = document.getElementById('bo-main');
+          if (!sidebar || !main) return;
+
           if (localStorage.getItem('sidebar-collapsed') === 'true') {
-            document.getElementById('bo-sidebar').classList.add('collapsed');
-            document.getElementById('bo-main').classList.add('collapsed');
+            sidebar.classList.add('collapsed');
+            main.classList.add('collapsed');
+          } else {
+            sidebar.classList.remove('collapsed');
+            main.classList.remove('collapsed');
           }
-        });
+
+          ['section-ai', 'section-communication', 'section-accounts', 'section-system'].forEach(function(id) {
+            const state = localStorage.getItem('section-' + id);
+            if (!state) return;
+            const items = document.getElementById(id + '-items');
+            const chevron = document.getElementById(id + '-chevron');
+            if (!items) return;
+            if (state === 'closed') {
+              items.classList.add('closed');
+              chevron && chevron.classList.remove('open');
+            } else {
+              items.classList.remove('closed');
+              chevron && chevron.classList.add('open');
+            }
+            setSectionOpenClass(id);
+          });
+        }
+
+        restoreLayout();
+        window.addEventListener('phx:page-loading-stop', restoreLayout);
       </script>
     </div>
     """
@@ -359,6 +467,8 @@ defmodule ZaqWeb.Components.BOLayout do
   attr :label, :string, required: true
   attr :current_path, :string, required: true
   attr :open, :boolean, default: false
+  attr :icon, :string, required: true
+  attr :active, :boolean, default: false
 
   slot :item do
     attr :href, :string, required: true
@@ -369,15 +479,31 @@ defmodule ZaqWeb.Components.BOLayout do
 
   defp nav_section(assigns) do
     ~H"""
-    <div class="mt-1" id={@id}>
+    <div
+      class={[
+        "mt-1",
+        if(@active, do: "active-section-wrap", else: if(@open, do: "open-section-wrap", else: ""))
+      ]}
+      id={@id}
+    >
       <%!-- Section header / toggle --%>
       <button
         onclick={"toggleSection('#{@id}')"}
-        class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-all group"
+        class={[
+          "w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-all group",
+          if(@active,
+            do: "active-section bg-[#03b6d4]/15 text-[#03b6d4] hover:bg-[#03b6d4]/25",
+            else: "text-amber-400/80 hover:text-amber-300 hover:bg-white/5"
+          )
+        ]}
       >
-        <span class="section-label font-mono text-[0.58rem] uppercase tracking-widest transition-all duration-200 whitespace-nowrap">
-          {@label}
-        </span>
+        <div class="flex items-center gap-2.5 min-w-0">
+          <%!-- Section Icon --%>
+          <.section_icon icon={@icon} active={@active} />
+          <span class="section-label font-mono text-[0.58rem] uppercase tracking-widest transition-all duration-200 whitespace-nowrap inherit">
+            {@label}
+          </span>
+        </div>
         <svg
           id={@id <> "-chevron"}
           class={"section-chevron w-3 h-3 flex-shrink-0 section-header-text #{if @open, do: "open", else: ""}"}
@@ -414,6 +540,79 @@ defmodule ZaqWeb.Components.BOLayout do
         <% end %>
       </div>
     </div>
+    """
+  end
+
+  defp section_icon(assigns) do
+    icon_class =
+      if assigns.active,
+        do: "w-4 h-4 flex-shrink-0 text-[#03b6d4] transition-colors",
+        else:
+          "w-4 h-4 flex-shrink-0 text-amber-400/80 group-hover:text-amber-300 transition-colors"
+
+    assigns = assign(assigns, :icon_class, icon_class)
+
+    ~H"""
+    <svg
+      :if={@icon == "ai"}
+      class={@icon_class}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+      />
+    </svg>
+
+    <svg
+      :if={@icon == "communication"}
+      class={@icon_class}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+      />
+    </svg>
+
+    <svg
+      :if={@icon == "accounts"}
+      class={@icon_class}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+      />
+    </svg>
+
+    <svg
+      :if={@icon == "system"}
+      class={@icon_class}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+      />
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
     """
   end
 
@@ -560,8 +759,6 @@ defmodule ZaqWeb.Components.BOLayout do
     </svg>
     """
   end
-
-  # ── Remaining public components (unchanged) ──────────────────────────
 
   attr :status, :any, required: true
 
