@@ -86,6 +86,8 @@ defmodule ZaqWeb do
       import Phoenix.HTML
       # Core UI components
       import ZaqWeb.CoreComponents
+      # Date/time formatting helpers
+      import ZaqWeb.Helpers.DateFormat
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

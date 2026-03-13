@@ -97,7 +97,4 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   def format_size(bytes) when bytes < 1024, do: "#{bytes} B"
   def format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"
   def format_size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
-
-  def format_datetime(nil), do: "—"
-  def format_datetime(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
 end

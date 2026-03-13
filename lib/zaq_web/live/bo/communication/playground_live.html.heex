@@ -84,7 +84,7 @@
                   </div>
                   <div class="flex items-center justify-end gap-2 mt-1 pr-1 msg-actions">
                     <span class="text-[0.62rem]" style="color: #b8b5ae;">
-                      {Calendar.strftime(msg.timestamp, "%H:%M")}
+                      {format_time(msg.timestamp)}
                     </span>
                     <button
                       phx-click="copy_message"
@@ -182,7 +182,7 @@
                     <%!-- Meta row --%>
                     <div class="flex items-center gap-2 mt-1.5 ml-0.5">
                       <span class="text-[0.62rem]" style="color: #b8b5ae;">
-                        {Calendar.strftime(msg.timestamp, "%H:%M")}
+                        {format_time(msg.timestamp)}
                       </span>
 
                       <%!-- Confidence bar --%>
@@ -383,10 +383,7 @@
                   id={"suggestion-#{index}"}
                   phx-click="use_suggestion"
                   phx-value-question={question}
-                  class="text-[0.78rem] rounded-full px-3.5 py-1.5 border transition-all"
-                  style="color:#5c5a55; border-color:#e0ddd8; background:#faf9f7;"
-                  onmouseover="this.style.borderColor='#03b6d4';this.style.color='#03b6d4';this.style.background='#f0f9fb';"
-                  onmouseout="this.style.borderColor='#e0ddd8';this.style.color='#5c5a55';this.style.background='#faf9f7';"
+                  class="text-[0.78rem] rounded-full px-3.5 py-1.5 border transition-all text-[#5c5a55] border-[#e0ddd8] bg-[#faf9f7] hover:text-[#03b6d4] hover:border-[#03b6d4] hover:bg-[#f0f9fb]"
                 >
                   {question}
                 </button>

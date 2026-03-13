@@ -65,15 +65,6 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
      )}
   end
 
-  defp format_date(nil), do: "—"
-
-  defp format_date(date_string) when is_binary(date_string) do
-    case DateTime.from_iso8601(date_string) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%B %d, %Y")
-      _ -> date_string
-    end
-  end
-
   defp days_left(nil), do: nil
 
   defp days_left(date_string) when is_binary(date_string) do

@@ -92,7 +92,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
         :markdown -> parse_markdown(text)
         :html -> parse_html(text)
         :text -> parse_plain_text(text)
-        _ -> raise ArgumentError, "Invalid format: #{format}. Must be :markdown, :html, or :text"
+        _ -> {:error, {:invalid_format, format}}
       end
     end
   end

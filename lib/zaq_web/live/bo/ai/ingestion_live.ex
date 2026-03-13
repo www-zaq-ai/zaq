@@ -630,9 +630,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"
   def format_size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
 
-  def format_datetime(nil), do: "—"
-  def format_datetime(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-
   def status_color("pending"), do: "bg-black/5 text-black/40"
   def status_color("processing"), do: "bg-amber-100 text-amber-600"
   def status_color("completed"), do: "bg-emerald-100 text-emerald-700"
