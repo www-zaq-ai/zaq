@@ -7,6 +7,31 @@
   <div class="grid grid-cols-3 gap-6">
     <!-- =============== LEFT: File Browser + Upload =============== -->
     <div class="col-span-2 space-y-6">
+      <!-- Volume Selector (shown only when multiple volumes are configured) -->
+      <%= if map_size(@volumes) > 1 do %>
+        <div class="flex items-center gap-2">
+          <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider shrink-0">
+            Volume
+          </p>
+          <div class="flex items-center gap-1 flex-wrap">
+            <%= for {name, _path} <- Enum.sort(@volumes) do %>
+              <button
+                phx-click="switch_volume"
+                phx-value-volume={name}
+                class={[
+                  "font-mono text-[0.7rem] px-2.5 py-1 rounded-lg transition-colors",
+                  if(@current_volume == name,
+                    do: "bg-[#03b6d4] text-white",
+                    else: "bg-black/5 text-black/40 hover:bg-black/10"
+                  )
+                ]}
+              >
+                {name}
+              </button>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
       <!-- File Browser -->
       <div>
         <!-- File Browser Actions -->

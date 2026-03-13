@@ -55,5 +55,25 @@ defmodule Zaq.Ingestion.IngestJobTest do
       changeset = IngestJob.changeset(%IngestJob{}, attrs)
       assert changeset.valid?
     end
+
+    test "accepts optional volume_name field" do
+      attrs = %{
+        file_path: "docs/readme.md",
+        status: "pending",
+        mode: "async",
+        volume_name: "docs"
+      }
+
+      changeset = IngestJob.changeset(%IngestJob{}, attrs)
+      assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :volume_name) == "docs"
+    end
+
+    test "valid without volume_name (backward compat)" do
+      attrs = %{file_path: "docs/readme.md", status: "pending", mode: "async"}
+      changeset = IngestJob.changeset(%IngestJob{}, attrs)
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :volume_name) == nil
+    end
   end
 end

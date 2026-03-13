@@ -13,6 +13,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Ingestion.subscribe()
 
+    volumes = FileExplorer.list_volumes()
+    current_volume = volumes |> Map.keys() |> List.first()
+
     {:ok,
      socket
      |> assign(
@@ -24,6 +27,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        jobs: [],
        status_filter: "all",
        ingest_mode: "async",
+       # Volume state
+       volumes: volumes,
+       current_volume: current_volume,
        # View mode
        view_mode: "list",
        # Modal state
@@ -53,6 +59,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # ────────────────────────────────────────────────────────────────
   # handle_event/3 — all clauses grouped together
   # ────────────────────────────────────────────────────────────────
+
+  # Volume
+
+  def handle_event("switch_volume", %{"volume" => volume}, socket) do
+    {:noreply,
+     socket
+     |> assign(current_volume: volume, current_dir: ".", breadcrumbs: [], selected: MapSet.new())
+     |> load_entries()}
+  end
 
   # File Browser
 
@@ -117,7 +132,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     else
       path = Path.join(socket.assigns.current_dir, name)
 
-      case FileExplorer.create_directory(path) do
+      case FileExplorer.create_directory(socket.assigns.current_volume, path) do
         :ok ->
           {:noreply,
            socket
@@ -175,7 +190,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("confirm_delete", _params, socket) do
-    result = do_delete(socket.assigns.modal_path, socket.assigns.modal_type)
+    result = do_delete(socket, socket.assigns.modal_path, socket.assigns.modal_type)
 
     case result do
       :ok ->
@@ -197,11 +212,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("confirm_delete_selected", _params, socket) do
+    volume = socket.assigns.current_volume
+
     results =
       Enum.map(socket.assigns.selected, fn path ->
-        case FileExplorer.file_info(path) do
-          {:ok, %{type: :directory}} -> {path, FileExplorer.delete_directory(path)}
-          {:ok, %{type: :file}} -> {path, FileExplorer.delete(path)}
+        case FileExplorer.file_info(volume, path) do
+          {:ok, %{type: :directory}} -> {path, FileExplorer.delete_directory(volume, path)}
+          {:ok, %{type: :file}} -> {path, FileExplorer.delete(volume, path)}
           _ -> {path, {:error, :not_found}}
         end
       end)
@@ -318,7 +335,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         filename = ensure_md_extension(filename)
         dest = Path.join(socket.assigns.current_dir, filename)
 
-        case FileExplorer.upload(dest, content) do
+        case FileExplorer.upload(socket.assigns.current_volume, dest, content) do
           {:ok, _} ->
             {:noreply,
              socket
@@ -344,11 +361,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("ingest_selected", _params, socket) do
     mode = String.to_existing_atom(socket.assigns.ingest_mode)
+    volume = socket.assigns.current_volume
 
     for path <- socket.assigns.selected do
-      case FileExplorer.file_info(path) do
-        {:ok, %{type: :directory}} -> Ingestion.ingest_folder(path, mode)
-        {:ok, %{type: :file}} -> Ingestion.ingest_file(path, mode)
+      case FileExplorer.file_info(volume, path) do
+        {:ok, %{type: :directory}} -> Ingestion.ingest_folder(path, mode, volume)
+        {:ok, %{type: :file}} -> Ingestion.ingest_file(path, mode, volume)
         _ -> :skip
       end
     end
@@ -386,11 +404,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
   def handle_event("upload", _params, socket) do
+    volume = socket.assigns.current_volume
+
     uploaded =
       consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
         binary = File.read!(tmp_path)
         dest = Path.join(socket.assigns.current_dir, entry.client_name)
-        FileExplorer.upload(dest, binary)
+        FileExplorer.upload(volume, dest, binary)
       end)
 
     {:noreply,
@@ -470,7 +490,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp do_rename(socket, old_path, new_path, new_name) do
-    case FileExplorer.rename(old_path, new_path) do
+    volume = socket.assigns.current_volume
+
+    case FileExplorer.rename(volume, old_path, new_path) do
       :ok ->
         {:noreply,
          socket
@@ -483,9 +505,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp do_delete(path, "directory"), do: FileExplorer.delete_directory(path)
+  defp do_delete(socket, path, "directory") do
+    FileExplorer.delete_directory(socket.assigns.current_volume, path)
+  end
 
-  defp do_delete(path, _type) do
+  defp do_delete(socket, path, _type) do
     source =
       case path do
         "./" <> rest -> rest
@@ -497,11 +521,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       nil -> :ok
     end
 
-    FileExplorer.delete(path)
+    FileExplorer.delete(socket.assigns.current_volume, path)
   end
 
   defp do_move(socket, source, dest, name, dest_dir) do
-    case FileExplorer.rename(source, dest) do
+    volume = socket.assigns.current_volume
+
+    case FileExplorer.rename(volume, source, dest) do
       :ok ->
         {:noreply,
          socket
@@ -518,7 +544,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp load_entries(socket) do
-    case FileExplorer.list(socket.assigns.current_dir) do
+    volume = socket.assigns.current_volume
+
+    case FileExplorer.list(volume, socket.assigns.current_dir) do
       {:ok, entries} ->
         sorted =
           Enum.sort_by(entries, fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
@@ -560,9 +588,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp load_move_folders(socket, dir) do
+    volume = socket.assigns.current_volume
     moving_path = socket.assigns.modal_path
 
-    case FileExplorer.list(dir) do
+    case FileExplorer.list(volume, dir) do
       {:ok, entries} ->
         folders =
           entries
