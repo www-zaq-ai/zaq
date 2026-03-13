@@ -4,7 +4,7 @@ defmodule Zaq.Ingestion do
   query job statuses, retry and cancel jobs.
   """
 
-  alias Zaq.Ingestion.{FileExplorer, IngestJob, IngestWorker}
+  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, IngestJob, IngestWorker}
   alias Zaq.Repo
 
   import Ecto.Query
@@ -14,35 +14,61 @@ defmodule Zaq.Ingestion do
 
   # --- Ingestion triggers ---
 
-  def ingest_file(path, mode \\ :async, volume_name \\ nil) do
-    with {:ok, job} <- create_job(path, mode, volume_name) do
+  def ingest_file(path, mode \\ :async, volume_name \\ nil, role_id \\ nil, shared_role_ids \\ []) do
+    with {:ok, job} <- create_job(path, mode, volume_name, role_id, shared_role_ids) do
       case mode do
         :async ->
-          %{"job_id" => job.id}
+          job.id
+          |> build_job_args(role_id, shared_role_ids)
           |> IngestWorker.new()
           |> Oban.insert()
 
           {:ok, job}
 
         :inline ->
-          IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
+          IngestWorker.perform(%Oban.Job{args: build_job_args(job.id, role_id, shared_role_ids)})
           {:ok, Repo.get!(IngestJob, job.id)}
       end
     end
   end
 
-  def ingest_folder(path, mode \\ :async, volume_name \\ nil) do
+  defp build_job_args(job_id, role_id, shared_role_ids) do
+    args = %{"job_id" => job_id}
+    args = if role_id, do: Map.put(args, "role_id", role_id), else: args
+    if shared_role_ids != [], do: Map.put(args, "shared_role_ids", shared_role_ids), else: args
+  end
+
+  def ingest_folder(
+        path,
+        mode \\ :async,
+        volume_name \\ nil,
+        role_id \\ nil,
+        shared_role_ids \\ []
+      ) do
     with {:ok, entries} <- FileExplorer.list(path) do
       jobs =
         entries
         |> Enum.filter(&(&1.type == :file))
         |> Enum.map(fn entry ->
           file_path = Path.join(path, entry.name)
-          {:ok, job} = ingest_file(file_path, mode, volume_name)
+          {:ok, job} = ingest_file(file_path, mode, volume_name, role_id, shared_role_ids)
           job
         end)
 
       {:ok, jobs}
+    end
+  end
+
+  # --- Sharing ---
+
+  def share_file(source, shared_role_ids) do
+    case Document.get_by_source(source) do
+      nil ->
+        {:error, :not_found}
+
+      doc ->
+        Chunk.update_shared_role_ids_for_document(doc.id, shared_role_ids)
+        {:ok, shared_role_ids}
     end
   end
 
@@ -97,10 +123,14 @@ defmodule Zaq.Ingestion do
 
   # --- Private ---
 
-  defp create_job(path, mode, volume_name) do
+  defp create_job(path, mode, volume_name, role_id, shared_role_ids) do
     attrs =
       %{file_path: path, status: "pending", mode: to_string(mode)}
       |> then(fn a -> if volume_name, do: Map.put(a, :volume_name, volume_name), else: a end)
+      |> then(fn a -> if role_id, do: Map.put(a, :role_id, role_id), else: a end)
+      |> then(fn a ->
+        if shared_role_ids != [], do: Map.put(a, :shared_role_ids, shared_role_ids), else: a
+      end)
 
     %IngestJob{}
     |> IngestJob.changeset(attrs)

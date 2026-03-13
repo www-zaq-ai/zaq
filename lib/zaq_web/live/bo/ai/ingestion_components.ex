@@ -245,10 +245,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :all_roles, :list, default: []
 
   def file_list_view(assigns) do
     ~H"""
-    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[55vh] overflow-y-scroll">
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[45vh] overflow-y-scroll">
       <table class="w-full">
         <thead>
           <tr class="border-b border-black/[0.06] bg-[#fafafa]">
@@ -387,6 +388,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     </svg>
                   </button>
                   <button
+                    :if={entry.type == :file}
+                    phx-click="share_item"
+                    phx-value-path={Path.join(@current_dir, entry.name)}
+                    class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+                    title="Share with roles"
+                  >
+                    <svg
+                      class="w-3.5 h-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                      />
+                    </svg>
+                  </button>
+                  <button
                     phx-click="delete_item"
                     phx-value-path={Path.join(@current_dir, entry.name)}
                     phx-value-type={entry.type}
@@ -436,18 +458,40 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     </div>
                   <% status.ingested_at != nil -> %>
                     <div class="flex flex-col gap-0.5">
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 w-fit">
-                        <svg
-                          class="w-3 h-3"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          viewBox="0 0 24 24"
+                      <div class="flex items-center gap-1 flex-wrap">
+                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                          <svg
+                            class="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                          ingested
+                        </span>
+                        <span
+                          :if={status.shared_role_ids != []}
+                          class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
+                          title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
                         >
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                        ingested
-                      </span>
+                          <svg
+                            class="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                            />
+                          </svg>
+                          shared
+                        </span>
+                      </div>
                       <span class="font-mono text-[0.6rem] text-black/30">
                         {format_datetime(status.ingested_at)}
                       </span>
@@ -475,10 +519,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :all_roles, :list, default: []
 
   def file_grid_view(assigns) do
     ~H"""
-    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[55vh] overflow-y-scroll p-4">
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[45vh] overflow-y-scroll p-4">
       <div class="flex items-center gap-2 mb-4 pb-3 border-b border-black/[0.06]">
         <input
           type="checkbox"
@@ -581,6 +626,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </svg>
             </button>
             <button
+              :if={entry.type == :file}
+              phx-click="share_item"
+              phx-value-path={Path.join(@current_dir, entry.name)}
+              class="p-1 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+              title="Share with roles"
+            >
+              <svg
+                class="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                />
+              </svg>
+            </button>
+            <button
               phx-click="delete_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
@@ -637,9 +703,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     stale
                   </span>
                 <% status.ingested_at != nil -> %>
-                  <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 mt-1">
-                    ingested
-                  </span>
+                  <div class="flex flex-col items-center gap-0.5 mt-1">
+                    <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                      ingested
+                    </span>
+                    <span
+                      :if={status.shared_role_ids != []}
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
+                      title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                    >
+                      shared
+                    </span>
+                  </div>
                 <% true -> %>
               <% end %>
             </div>
@@ -744,7 +819,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         </button>
       </div>
 
-      <div class="space-y-2">
+      <div class="space-y-2 max-h-[80vh] overflow-y-auto">
         <div
           :if={@jobs == []}
           class="bg-white rounded-xl border border-dashed border-black/10 p-6 text-center"
@@ -1312,6 +1387,102 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-indigo-500 text-white hover:bg-indigo-600 shadow-sm shadow-indigo-500/20 transition-all"
           >
             Move Here
+          </button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # ── Share Modal ───────────────────────────────────────────────────────────
+
+  attr :modal_name, :string, required: true
+  attr :modal_error, :string, default: nil
+  attr :all_roles, :list, required: true
+  attr :share_modal_role_ids, :list, required: true
+
+  def modal_share(assigns) do
+    ~H"""
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl shadow-xl border border-black/[0.06] w-full max-w-md mx-4 overflow-hidden">
+        <div class="px-6 py-5 border-b border-black/[0.06] bg-[#fafafa] flex items-center justify-between">
+          <div>
+            <h3 class="font-mono text-[0.9rem] font-bold text-black">Share with Roles</h3>
+            <p class="font-mono text-[0.72rem] text-black/40 mt-0.5 truncate max-w-xs">
+              {@modal_name}
+            </p>
+          </div>
+          <button
+            phx-click="close_modal"
+            class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="px-6 py-5">
+          <p class="font-mono text-[0.72rem] text-black/40 mb-4">
+            {if @share_modal_role_ids == [],
+              do: "Private — only the ingesting role can access this file.",
+              else: "Shared with #{length(@share_modal_role_ids)} role(s)."}
+          </p>
+
+          <p :if={@all_roles == []} class="font-mono text-[0.78rem] text-black/30 italic">
+            No roles defined yet.
+          </p>
+
+          <div class="flex flex-wrap gap-2">
+            <label
+              :for={role <- @all_roles}
+              class={[
+                "flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all select-none",
+                if(role.id in @share_modal_role_ids,
+                  do: "border-[#03b6d4] bg-[#03b6d4]/5 text-[#03b6d4]",
+                  else: "border-black/10 bg-[#fafafa] text-black/50 hover:border-black/20"
+                )
+              ]}
+            >
+              <input
+                type="checkbox"
+                checked={role.id in @share_modal_role_ids}
+                phx-click="toggle_share_role"
+                phx-value-role_id={role.id}
+                class="hidden"
+              />
+              <span class={[
+                "w-2 h-2 rounded-full shrink-0",
+                if(role.id in @share_modal_role_ids, do: "bg-[#03b6d4]", else: "bg-black/20")
+              ]}>
+              </span>
+              <span class="font-mono text-[0.82rem] font-medium">{role.name}</span>
+            </label>
+          </div>
+
+          <p :if={@modal_error} class="font-mono text-[0.72rem] text-red-500 mt-3">
+            {@modal_error}
+          </p>
+        </div>
+
+        <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
+          <button
+            phx-click="close_modal"
+            class="font-mono text-[0.78rem] px-4 py-2 rounded-xl text-black/50 hover:bg-black/5 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            phx-click="confirm_share"
+            class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+          >
+            {if @share_modal_role_ids == [], do: "Make Private", else: "Share"}
           </button>
         </div>
       </div>

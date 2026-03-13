@@ -12,6 +12,7 @@ defmodule Zaq.Ingestion.Document do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Zaq.Accounts.Role
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
 
@@ -21,6 +22,7 @@ defmodule Zaq.Ingestion.Document do
     field :content, :string
     field :content_type, :string, default: "markdown"
     field :metadata, :map, default: %{}
+    belongs_to :role, Role
 
     has_many :chunks, Chunk
 
@@ -28,7 +30,7 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @required_fields ~w(source content)a
-  @optional_fields ~w(title content_type metadata)a
+  @optional_fields ~w(title content_type metadata role_id)a
 
   def changeset(document, attrs) do
     document
@@ -36,6 +38,7 @@ defmodule Zaq.Ingestion.Document do
     |> validate_required(@required_fields)
     |> validate_inclusion(:content_type, ~w(markdown text html))
     |> unique_constraint(:source)
+    |> foreign_key_constraint(:role_id)
     |> maybe_set_title()
   end
 
@@ -58,7 +61,8 @@ defmodule Zaq.Ingestion.Document do
     %__MODULE__{}
     |> changeset(attrs)
     |> Repo.insert(
-      on_conflict: {:replace, [:content, :title, :content_type, :metadata, :updated_at]},
+      on_conflict:
+        {:replace, [:content, :title, :content_type, :metadata, :role_id, :updated_at]},
       conflict_target: :source
     )
   end

@@ -23,6 +23,7 @@
           selected={@selected}
           current_dir={@current_dir}
           ingestion_map={@ingestion_map}
+          all_roles={@all_roles}
         />
         <.file_grid_view
           :if={@view_mode == "grid"}
@@ -30,6 +31,7 @@
           selected={@selected}
           current_dir={@current_dir}
           ingestion_map={@ingestion_map}
+          all_roles={@all_roles}
         />
       </div>
 
@@ -62,5 +64,12 @@
     move_current_dir={@move_current_dir}
     move_breadcrumbs={@move_breadcrumbs}
     move_folders={@move_folders}
+  />
+  <.modal_share
+    :if={@modal == :share}
+    modal_name={@modal_name}
+    modal_error={@modal_error}
+    all_roles={@all_roles}
+    share_modal_role_ids={@share_modal_role_ids}
   />
 </ZaqWeb.Components.BOLayout.bo_layout>

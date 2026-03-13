@@ -128,6 +128,21 @@ defmodule Zaq.Ingestion.ChunkTest do
     end
   end
 
+  describe "role_id" do
+    test "chunk with role_id is valid", %{document: doc} do
+      {:ok, role} =
+        Zaq.Accounts.create_role(%{name: "chunk_role_#{System.unique_integer([:positive])}"})
+
+      changeset = Chunk.changeset(%Chunk{}, chunk_attrs(doc, %{role_id: role.id}))
+      assert changeset.valid?
+    end
+
+    test "chunk with nil role_id is valid", %{document: doc} do
+      changeset = Chunk.changeset(%Chunk{}, chunk_attrs(doc, %{role_id: nil}))
+      assert changeset.valid?
+    end
+  end
+
   describe "document cascade delete" do
     test "deleting document removes its chunks", %{document: doc} do
       {:ok, chunk} = Chunk.create(chunk_attrs(doc, %{chunk_index: 0}))

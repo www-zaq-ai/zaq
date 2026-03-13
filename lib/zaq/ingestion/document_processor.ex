@@ -81,13 +81,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Processes a single markdown file: read -> upsert document -> chunk -> embed -> store.
   """
-  def process_single_file(file_path) do
+  def process_single_file(file_path, role_id \\ nil, shared_role_ids \\ []) do
     Logger.info("Processing file: #{file_path}")
 
     with {:ok, content} <- File.read(file_path),
          {:ok, source} <- extract_source(content, file_path),
-         {:ok, document} <- store_document(content, source),
-         {:ok, _chunks} <- process_and_store_chunks(content, document.id) do
+         {:ok, document} <- store_document(content, source, role_id),
+         {:ok, _chunks} <-
+           process_and_store_chunks(content, document.id, role_id, shared_role_ids) do
       Logger.info("Successfully processed: #{source}")
       {:ok, document}
     else
@@ -119,8 +120,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Upserts a `Zaq.Ingestion.Document` record.
   """
-  def store_document(content, source) do
-    case Document.upsert(%{content: content, source: source}) do
+  def store_document(content, source, role_id \\ nil) do
+    case Document.upsert(%{content: content, source: source, role_id: role_id}) do
       {:ok, document} ->
         Logger.info("Document stored with ID: #{document.id}, source: #{source}")
         {:ok, document}
@@ -135,7 +136,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Chunks the content using `DocumentChunker`, generates embeddings,
   and stores each chunk via the `Chunk` Ecto schema.
   """
-  def process_and_store_chunks(content, document_id) do
+  def process_and_store_chunks(content, document_id, role_id \\ nil, shared_role_ids \\ []) do
     Chunk.delete_by_document(document_id)
     sections = DocumentChunker.parse_layout(content, format: :markdown)
     chunks = DocumentChunker.chunk_sections(sections)
@@ -146,7 +147,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       chunks
       |> Enum.with_index(1)
       |> Enum.map(fn {chunk, index} ->
-        store_chunk_with_metadata(chunk, document_id, index)
+        store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)
       end)
 
     failed = Enum.count(results, &match?({:error, _}, &1))
@@ -165,7 +166,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Stores a single chunk: generates a descriptive title via LLM,
   embeds the content, validates dimension, and inserts via Ecto.
   """
-  def store_chunk_with_metadata(%DocumentChunker.Chunk{} = chunk, document_id, index) do
+  def store_chunk_with_metadata(
+        %DocumentChunker.Chunk{} = chunk,
+        document_id,
+        index,
+        role_id \\ nil,
+        shared_role_ids \\ []
+      ) do
     chunk_with_title = generate_chunk_title(chunk)
 
     case EmbeddingClient.embed(chunk_with_title.content) do
@@ -179,7 +186,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
           {:error, :dimension_mismatch}
         else
-          insert_chunk(chunk_with_title, document_id, index, embedding)
+          insert_chunk(chunk_with_title, document_id, index, embedding, role_id, shared_role_ids)
         end
 
       {:error, reason} ->
@@ -192,14 +199,23 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Chunk insertion (Ecto)
   # ---------------------------------------------------------------------------
 
-  defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding) do
+  defp insert_chunk(
+         %DocumentChunker.Chunk{} = chunk,
+         document_id,
+         index,
+         embedding,
+         role_id,
+         shared_role_ids
+       ) do
     attrs = %{
       document_id: document_id,
       content: chunk.content,
       chunk_index: index,
       section_path: chunk.section_path,
       metadata: build_metadata(chunk, document_id, index),
-      embedding: Pgvector.HalfVector.new(embedding)
+      embedding: Pgvector.HalfVector.new(embedding),
+      role_id: role_id,
+      shared_role_ids: shared_role_ids
     }
 
     %Chunk{}
@@ -248,8 +264,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Extracts token-limited chunks for a given query using hybrid search.
   Returns a list of maps with `"content"`, `"source"`, and `"rrf_score"`.
   """
-  def query_extraction(query) do
-    with {:ok, results} <- hybrid_search(query) do
+  def query_extraction(query, role_ids \\ nil) do
+    with {:ok, results} <- hybrid_search(query, role_ids) do
       answer = build_answer_from_results(results)
       {:ok, answer}
     end
@@ -292,7 +308,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns `{:ok, results}` where each result is a map with keys:
   `:chunk`, `:source`, `:rrf_score`, `:text_rank`, `:vector_distance`.
   """
-  def hybrid_search(query_text, limit \\ nil) do
+  def hybrid_search(query_text, role_ids \\ nil, limit \\ nil) do
     limit = limit || hybrid_search_limit()
 
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
@@ -331,6 +347,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
             ^embedding_vector
           )
         )
+        |> maybe_filter_roles(role_ids)
         |> select([c, d], %{
           chunk: c,
           source: d.source,
@@ -423,7 +440,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns chunks within `distance_threshold` ordered by distance,
   with the document source included.
   """
-  def similarity_search(query_text, limit \\ 5) do
+  def similarity_search(query_text, role_ids \\ nil, limit \\ 5) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       threshold = distance_threshold()
@@ -435,6 +452,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           [c, _d],
           fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold)
         )
+        |> maybe_filter_roles(role_ids)
         |> order_by([c, _d], fragment("? <-> ?", c.embedding, ^embedding_vector))
         |> limit(^limit)
         |> select([c, d], %{
@@ -487,6 +505,22 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
       {:ok, Repo.one(combined)}
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Role filtering helper
+  # ---------------------------------------------------------------------------
+
+  defp maybe_filter_roles(query, nil), do: query
+
+  defp maybe_filter_roles(query, role_ids) do
+    where(
+      query,
+      [c, _d],
+      is_nil(c.role_id) or
+        c.role_id in ^role_ids or
+        fragment("? && ?", c.shared_role_ids, ^role_ids)
+    )
   end
 
   # ---------------------------------------------------------------------------

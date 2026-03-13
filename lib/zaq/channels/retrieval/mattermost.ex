@@ -38,6 +38,8 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   require Logger
 
+  alias Zaq.Accounts
+  alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Channels.PendingQuestions
@@ -96,10 +98,11 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     thread_id = question.thread_id || post_id
     text = question.text
 
-    Logger.info("[Mattermost] Processing question from #{question.metadata.sender_name}: #{text}")
+    sender_name = question.metadata.sender_name
+    Logger.info("[Mattermost] Processing question from #{sender_name}: #{text}")
 
     Task.start(fn ->
-      run_pipeline(text, channel_id, thread_id)
+      run_pipeline(text, channel_id, thread_id, sender_name)
     end)
 
     :ok
@@ -234,14 +237,16 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   # --- Private: RAG Pipeline ---
 
-  defp run_pipeline(user_msg, channel_id, thread_id) do
+  defp run_pipeline(user_msg, channel_id, thread_id, sender_name) do
     # Send typing indicator while processing
     api_module().send_typing(channel_id, thread_id)
+
+    role_ids = resolve_role_ids(sender_name)
 
     result =
       with {:ok, clean_msg} <- prompt_guard_module().validate(user_msg),
            {:ok, retrieval_result} <- run_retrieval(clean_msg),
-           {:ok, extraction_result} <- run_query_extraction(retrieval_result),
+           {:ok, extraction_result} <- run_query_extraction(retrieval_result, role_ids),
            {:ok, answer_result} <- run_answering(clean_msg, extraction_result, retrieval_result),
            {:ok, safe_answer} <- prompt_guard_module().output_safe?(answer_result.answer) do
         if answering_module().no_answer?(safe_answer) do
@@ -315,9 +320,10 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     end
   end
 
-  defp run_query_extraction(%{query: query, negative_answer: negative_answer}) do
+  defp run_query_extraction(%{query: query, negative_answer: negative_answer}, role_ids) do
     case node_router_module().call(:ingestion, document_processor_module(), :query_extraction, [
-           query
+           query,
+           role_ids
          ]) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}
@@ -350,6 +356,20 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   end
 
   # --- Private: Helpers ---
+
+  # Resolves accessible role IDs for a Mattermost sender.
+  # Falls back to nil (unfiltered) when the sender cannot be matched to a ZAQ user.
+  # NOTE: `sender_name` is the Mattermost display name and may not match ZAQ username.
+  # Follow-up: consider adding a `mattermost_username` field to User or a per-channel
+  # default role in config.
+  defp resolve_role_ids(nil), do: nil
+
+  defp resolve_role_ids(sender_name) do
+    case accounts_module().get_user_by_username(sender_name) do
+      nil -> nil
+      user -> Permissions.list_accessible_role_ids(user)
+    end
+  end
 
   defp monitored?(channel_id, %{monitored_channel_ids: ids}) do
     MapSet.member?(ids, channel_id)
@@ -393,6 +413,8 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     |> String.replace_leading("http://", "ws://")
     |> Kernel.<>("/api/v4/websocket")
   end
+
+  defp accounts_module, do: Application.get_env(:zaq, :mattermost_accounts_module, Accounts)
 
   defp api_module, do: Application.get_env(:zaq, :mattermost_api_module, API)
 

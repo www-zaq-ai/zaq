@@ -19,6 +19,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
 
   use ZaqWeb, :live_view
 
+  alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Ingestion.DocumentProcessor
@@ -93,7 +94,16 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
 
       pid = self()
       request_id = user_msg.id
-      Task.start(fn -> run_pipeline_async(pid, request_id, trimmed, socket.assigns.history) end)
+
+      Task.start(fn ->
+        run_pipeline_async(
+          pid,
+          request_id,
+          trimmed,
+          socket.assigns.history,
+          socket.assigns.current_user
+        )
+      end)
 
       {:noreply, socket}
     end
@@ -241,7 +251,9 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
 
   # ── Async pipeline runner (runs inside Task) ───────────────────────
 
-  defp run_pipeline_async(pid, request_id, user_msg, history) do
+  defp run_pipeline_async(pid, request_id, user_msg, history, current_user) do
+    role_ids = Permissions.list_accessible_role_ids(current_user)
+
     result =
       with {:ok, clean_msg} <- PromptGuard.validate(user_msg),
            :ok <-
@@ -254,7 +266,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
                :retrieving,
                retrieval_result.positive_answer
              ),
-           {:ok, extraction_result} <- run_query_extraction(retrieval_result),
+           {:ok, extraction_result} <- run_query_extraction(retrieval_result, role_ids),
            :ok <- update_status(pid, request_id, :answering, "Formulating your answer…"),
            {:ok, answer_result} <-
              run_answering(clean_msg, extraction_result, retrieval_result, history),
@@ -334,8 +346,8 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
   end
 
   # Routes DocumentProcessor.query_extraction to the node running Zaq.Ingestion.Supervisor.
-  defp run_query_extraction(%{query: query, negative_answer: negative_answer} = _retrieval) do
-    case node_router().call(:ingestion, DocumentProcessor, :query_extraction, [query]) do
+  defp run_query_extraction(%{query: query, negative_answer: negative_answer}, role_ids) do
+    case node_router().call(:ingestion, DocumentProcessor, :query_extraction, [query, role_ids]) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}
       {:error, _} -> {:error, :no_results, negative_answer}

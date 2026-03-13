@@ -6,8 +6,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   import Ecto.Query
   import ZaqWeb.Live.BO.AI.IngestionComponents
 
+  alias Zaq.Accounts
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, FileExplorer}
+  alias Zaq.Ingestion.{Chunk, Document, FileExplorer}
   alias Zaq.Repo
 
   @allowed_extensions ~w(.md .txt .pdf)
@@ -32,6 +33,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Volume state
        volumes: volumes,
        current_volume: current_volume,
+       # Role sharing
+       all_roles: Accounts.list_roles(),
+       share_modal_role_ids: [],
        # View mode
        view_mode: "list",
        # Modal state
@@ -61,6 +65,50 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # ────────────────────────────────────────────────────────────────
   # handle_event/3 — all clauses grouped together
   # ────────────────────────────────────────────────────────────────
+
+  # Role sharing (share modal)
+
+  def handle_event("share_item", %{"path" => path}, socket) do
+    current_shared =
+      get_in(socket.assigns.ingestion_map, [Path.basename(path), :shared_role_ids]) || []
+
+    {:noreply,
+     assign(socket,
+       modal: :share,
+       modal_path: path,
+       modal_name: Path.basename(path),
+       modal_error: nil,
+       share_modal_role_ids: current_shared
+     )}
+  end
+
+  def handle_event("toggle_share_role", %{"role_id" => role_id_str}, socket) do
+    role_id = String.to_integer(role_id_str)
+    current = socket.assigns.share_modal_role_ids
+
+    updated =
+      if role_id in current,
+        do: List.delete(current, role_id),
+        else: [role_id | current]
+
+    {:noreply, assign(socket, :share_modal_role_ids, updated)}
+  end
+
+  def handle_event("confirm_share", _params, socket) do
+    source = normalize_source(socket.assigns.modal_path)
+
+    case Ingestion.share_file(source, socket.assigns.share_modal_role_ids) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(modal: nil, modal_error: nil)
+         |> load_entries()
+         |> put_flash(:info, "Sharing updated for \"#{socket.assigns.modal_name}\".")}
+
+      {:error, :not_found} ->
+        {:noreply, assign(socket, modal_error: "File has not been ingested yet.")}
+    end
+  end
 
   # Volume
 
@@ -364,11 +412,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("ingest_selected", _params, socket) do
     mode = String.to_existing_atom(socket.assigns.ingest_mode)
     volume = socket.assigns.current_volume
+    role_id = socket.assigns.current_user.role_id
 
     for path <- socket.assigns.selected do
       case FileExplorer.file_info(volume, path) do
-        {:ok, %{type: :directory}} -> Ingestion.ingest_folder(path, mode, volume)
-        {:ok, %{type: :file}} -> Ingestion.ingest_file(path, mode, volume)
+        {:ok, %{type: :directory}} -> Ingestion.ingest_folder(path, mode, volume, role_id)
+        {:ok, %{type: :file}} -> Ingestion.ingest_file(path, mode, volume, role_id)
         _ -> :skip
       end
     end
@@ -437,49 +486,60 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     if Path.extname(filename) == "", do: filename <> ".md", else: filename
   end
 
+  defp normalize_source(path) do
+    case path do
+      "./" <> rest -> rest
+      other -> other
+    end
+  end
+
   defp load_ingestion_status(socket) do
     current_dir = socket.assigns.current_dir
+    current_role_id = socket.assigns.current_user.role_id
 
     sources =
       socket.assigns.entries
       |> Enum.filter(&(&1.type == :file))
       |> Enum.map(fn entry ->
-        path = Path.join(current_dir, entry.name)
-        # Normalise: strip leading "./" so it matches what extract_source stores
-        case path do
-          "./" <> rest -> rest
-          other -> other
-        end
+        normalize_source(Path.join(current_dir, entry.name))
       end)
 
     documents =
-      from(d in Zaq.Ingestion.Document, where: d.source in ^sources)
+      from(d in Document, where: d.source in ^sources)
       |> Repo.all()
       |> Map.new(fn d -> {d.source, d} end)
+
+    doc_ids = documents |> Map.values() |> Enum.map(& &1.id)
+    shared_by_doc = Chunk.shared_role_ids_by_documents(doc_ids)
 
     ingestion_map =
       socket.assigns.entries
       |> Enum.filter(&(&1.type == :file))
       |> Map.new(fn entry ->
-        raw = Path.join(current_dir, entry.name)
+        source = normalize_source(Path.join(current_dir, entry.name))
 
-        source =
-          case raw do
-            "./" <> rest -> rest
-            other -> other
+        status =
+          case Map.get(documents, source) do
+            nil -> %{ingested_at: nil, stale?: false, shared_role_ids: []}
+            doc -> entry_ingestion_status(entry, doc, shared_by_doc, current_role_id)
           end
 
-        case Map.get(documents, source) do
-          nil ->
-            {entry.name, %{ingested_at: nil, stale?: false}}
-
-          doc ->
-            stale? = DateTime.compare(entry.modified_at, doc.updated_at) == :gt
-            {entry.name, %{ingested_at: doc.updated_at, stale?: stale?}}
-        end
+        {entry.name, status}
       end)
 
     assign(socket, ingestion_map: ingestion_map)
+  end
+
+  defp entry_ingestion_status(entry, doc, shared_by_doc, current_role_id) do
+    shared = Map.get(shared_by_doc, doc.id, [])
+    visible? = is_nil(doc.role_id) or doc.role_id == current_role_id or current_role_id in shared
+
+    if visible? do
+      stale? = DateTime.compare(entry.modified_at, doc.updated_at) == :gt
+      %{ingested_at: doc.updated_at, stale?: stale?, shared_role_ids: shared}
+    else
+      %{ingested_at: nil, stale?: false, shared_role_ids: []}
+    end
   end
 
   defp parent_dir("."), do: "."

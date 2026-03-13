@@ -25,7 +25,9 @@ defmodule Zaq.IngestionTest do
 
   describe "ingest_file/2" do
     test "creates a job and enqueues worker in async mode" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                 _role_id,
+                                                                 _shared_role_ids ->
         {:ok, %{id: nil, chunks_count: 2, document_id: nil}}
       end)
 
@@ -38,7 +40,9 @@ defmodule Zaq.IngestionTest do
     test "creates a job and processes inline" do
       Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                 _role_id,
+                                                                 _shared_role_ids ->
         {:ok, %{id: nil, chunks_count: 3, document_id: nil}}
       end)
 
@@ -66,7 +70,9 @@ defmodule Zaq.IngestionTest do
         _ = FileExplorer.delete_directory(folder)
       end)
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 2, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, 2, fn _path,
+                                                                    _role_id,
+                                                                    _shared_role_ids ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -129,7 +135,9 @@ defmodule Zaq.IngestionTest do
       job = create_job(%{status: "failed", error: "something broke"})
       Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                 _role_id,
+                                                                 _shared_role_ids ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -174,7 +182,9 @@ defmodule Zaq.IngestionTest do
 
   describe "ingest_file/3 (volume-aware)" do
     test "stores volume_name on the created job" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                 _role_id,
+                                                                 _shared_role_ids ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -183,7 +193,9 @@ defmodule Zaq.IngestionTest do
     end
 
     test "nil volume_name when not provided (backward compat)" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                 _role_id,
+                                                                 _shared_role_ids ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -202,7 +214,9 @@ defmodule Zaq.IngestionTest do
 
       on_exit(fn -> _ = FileExplorer.delete_directory(folder) end)
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 1, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, 1, fn _path,
+                                                                    _role_id,
+                                                                    _shared_role_ids ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
