@@ -411,6 +411,70 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
   end
 
+  describe "lane c edge branches" do
+    test "save_raw_content surfaces upload errors", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "show_add_raw_modal", %{})
+      render_hook(view, "save_raw_content", %{"filename" => "../escape", "content" => "body"})
+
+      assert has_element?(view, "p", "Save failed: :path_traversal")
+    end
+
+    test "confirm_move shows an error when source is missing", %{conn: conn, tmp_dir: tmp_dir} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "move_item", %{"path" => "notes.txt", "type" => "file"})
+      render_hook(view, "move_navigate", %{"path" => "target"})
+
+      File.rm!(Path.join(tmp_dir, "notes.txt"))
+
+      render_hook(view, "confirm_move", %{})
+      assert render(view) =~ "Move failed"
+    end
+
+    test "ingest_selected skips missing selected paths", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      before_count = Repo.aggregate(IngestJob, :count)
+
+      render_hook(view, "toggle_select", %{"path" => "missing-file.md"})
+      render_hook(view, "ingest_selected", %{})
+
+      assert Repo.aggregate(IngestJob, :count) == before_count
+      refute has_element?(view, "p", "missing-file.md")
+    end
+
+    test "retry_job and cancel_job return not_found for missing ids", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      missing_id = Ecto.UUID.generate()
+
+      render_hook(view, "retry_job", %{"id" => missing_id})
+      retry_state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(retry_state.socket.assigns.flash, :error) ==
+               "Retry failed: not_found"
+
+      render_hook(view, "cancel_job", %{"id" => missing_id})
+      cancel_state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(cancel_state.socket.assigns.flash, :error) ==
+               "Cancel failed: not_found"
+    end
+
+    test "filter_status with unknown value returns empty job list", %{conn: conn} do
+      create_job(%{file_path: "a-pending.txt", status: "pending"})
+      create_job(%{file_path: "a-completed.txt", status: "completed"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "filter_status", %{"status" => "unknown_status"})
+
+      refute has_element?(view, "p", "a-pending.txt")
+      refute has_element?(view, "p", "a-completed.txt")
+      assert has_element?(view, "p", "No jobs yet")
+    end
+  end
+
   # ────────────────────────────────────────────────────────────────
   # NEW: move_go_back from root stays at "."
   # ────────────────────────────────────────────────────────────────
@@ -514,6 +578,75 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     test "unknown status returns fallback classes" do
       assert IngestionLive.status_color("unknown") =~ "bg-black"
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────
+  # NEW: Volume selection (multi-volume ingestion)
+  # ────────────────────────────────────────────────────────────────
+
+  describe "volume selection" do
+    setup %{conn: conn, tmp_dir: tmp_dir} do
+      vol_docs = Path.join(tmp_dir, "volumes/docs")
+      vol_archives = Path.join(tmp_dir, "volumes/archives")
+      File.mkdir_p!(vol_docs)
+      File.mkdir_p!(vol_archives)
+      File.write!(Path.join(vol_docs, "manual.md"), "# Manual")
+      File.write!(Path.join(vol_archives, "old.md"), "# Old")
+
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(:zaq, Zaq.Ingestion,
+        volumes: %{"docs" => vol_docs, "archives" => vol_archives}
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+
+      {:ok, conn: conn, vol_docs: vol_docs, vol_archives: vol_archives}
+    end
+
+    test "shows volume selector when multiple volumes configured", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/ingestion")
+      assert html =~ "docs"
+      assert html =~ "archives"
+    end
+
+    test "switch_volume changes current volume and loads entries", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "switch_volume", %{"volume" => "archives"})
+
+      assert has_element?(view, "span", "old.md")
+      refute has_element?(view, "span", "manual.md")
+    end
+
+    test "switch_volume resets current_dir to root", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "switch_volume", %{"volume" => "archives"})
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.current_dir == "."
+      assert state.socket.assigns.current_volume == "archives"
+    end
+
+    test "files in the selected volume are listed after switching", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # Switch to docs explicitly
+      render_hook(view, "switch_volume", %{"volume" => "docs"})
+      assert has_element?(view, "span", "manual.md")
+      refute has_element?(view, "span", "old.md")
+
+      # Switch to archives
+      render_hook(view, "switch_volume", %{"volume" => "archives"})
+      assert has_element?(view, "span", "old.md")
+      refute has_element?(view, "span", "manual.md")
+
+      # Switch back to docs
+      render_hook(view, "switch_volume", %{"volume" => "docs"})
+      assert has_element?(view, "span", "manual.md")
+      refute has_element?(view, "span", "old.md")
     end
   end
 end

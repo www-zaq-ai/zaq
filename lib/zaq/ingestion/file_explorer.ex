@@ -2,6 +2,10 @@ defmodule Zaq.Ingestion.FileExplorer do
   @moduledoc """
   Interacts with the server filesystem for the ingestion pipeline.
   Lists directories/files, gets file info, and handles uploads to the base path.
+
+  Supports both single-volume (legacy `base_path`) and multi-volume (`volumes` map)
+  configurations. All single-argument functions remain unchanged for backward compat.
+  Volume-aware variants accept a `volume_name` as the first argument.
   """
 
   @doc """
@@ -12,7 +16,24 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
-  Resolves a relative path against the base path.
+  Returns all configured volumes as `%{name => abs_path}`.
+
+  If a `volumes` map is configured and non-empty, returns it (with expanded paths).
+  Otherwise derives a `"default"` volume from `base_path`.
+  """
+  def list_volumes do
+    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+    volumes = Keyword.get(config, :volumes, %{})
+
+    if map_size(volumes) > 0 do
+      Map.new(volumes, fn {k, v} -> {k, Path.expand(v)} end)
+    else
+      %{"default" => Path.expand(base_path())}
+    end
+  end
+
+  @doc """
+  Resolves a relative path against the base path (single-volume, legacy).
   Rejects path traversal attempts (e.g. `..`).
   """
   def resolve_path(relative_path) do
@@ -27,29 +48,48 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
+  Volume-aware path resolution. Resolves `relative_path` against the named volume root.
+  Returns `{:ok, abs_path}`, `{:error, :unknown_volume}`, or `{:error, :path_traversal}`.
+  """
+  def resolve_path(volume_name, relative_path) when is_binary(volume_name) do
+    volumes = list_volumes()
+
+    case Map.fetch(volumes, volume_name) do
+      {:ok, vol_root} ->
+        full = Path.expand(Path.join(vol_root, relative_path))
+
+        if String.starts_with?(full, vol_root) do
+          {:ok, full}
+        else
+          {:error, :path_traversal}
+        end
+
+      :error ->
+        {:error, :unknown_volume}
+    end
+  end
+
+  @doc """
   Lists files and folders in the given directory relative to base path.
   Returns `{:ok, [%{name, type, size, modified_at}]}`.
   """
   def list(relative_path \\ ".") do
     with {:ok, full_path} <- resolve_path(relative_path),
          true <- File.dir?(full_path) do
-      entries =
-        full_path
-        |> File.ls!()
-        |> Enum.sort()
-        |> Enum.map(fn name ->
-          entry_path = Path.join(full_path, name)
-          stat = File.stat!(entry_path, time: :posix)
+      {:ok, list_entries(full_path)}
+    else
+      false -> {:error, :not_a_directory}
+      error -> error
+    end
+  end
 
-          %{
-            name: name,
-            type: if(stat.type == :directory, do: :directory, else: :file),
-            size: stat.size,
-            modified_at: stat.mtime |> DateTime.from_unix!()
-          }
-        end)
-
-      {:ok, entries}
+  @doc """
+  Volume-aware variant of `list/1`. Lists entries under `relative_path` within the named volume.
+  """
+  def list(volume_name, relative_path) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path),
+         true <- File.dir?(full_path) do
+      {:ok, list_entries(full_path)}
     else
       false -> {:error, :not_a_directory}
       error -> error
@@ -62,13 +102,19 @@ defmodule Zaq.Ingestion.FileExplorer do
   def file_info(relative_path) do
     with {:ok, full_path} <- resolve_path(relative_path),
          {:ok, stat} <- File.stat(full_path, time: :posix) do
-      {:ok,
-       %{
-         name: Path.basename(full_path),
-         type: if(stat.type == :directory, do: :directory, else: :file),
-         size: stat.size,
-         modified_at: stat.mtime |> DateTime.from_unix!()
-       }}
+      {:ok, build_entry(full_path, stat)}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Volume-aware variant of `file_info/1`.
+  """
+  def file_info(volume_name, relative_path) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path),
+         {:ok, stat} <- File.stat(full_path, time: :posix) do
+      {:ok, build_entry(full_path, stat)}
     else
       {:error, reason} -> {:error, reason}
     end
@@ -86,6 +132,17 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
+  Volume-aware variant of `upload/2`. Writes `binary` to `filename` within the named volume.
+  """
+  def upload(volume_name, filename, binary) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, filename),
+         :ok <- full_path |> Path.dirname() |> File.mkdir_p(),
+         :ok <- File.write(full_path, binary) do
+      {:ok, full_path}
+    end
+  end
+
+  @doc """
   Deletes a single file relative to base path.
   """
   def delete(relative_path) do
@@ -95,10 +152,33 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
+  Volume-aware variant of `delete/1`.
+  """
+  def delete(volume_name, relative_path) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path) do
+      File.rm(full_path)
+    end
+  end
+
+  @doc """
   Recursively deletes a directory and all its contents relative to base path.
   """
   def delete_directory(relative_path) do
     with {:ok, full_path} <- resolve_path(relative_path),
+         true <- File.dir?(full_path) do
+      File.rm_rf(full_path)
+      :ok
+    else
+      false -> {:error, :not_a_directory}
+      error -> error
+    end
+  end
+
+  @doc """
+  Volume-aware variant of `delete_directory/1`.
+  """
+  def delete_directory(volume_name, relative_path) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path),
          true <- File.dir?(full_path) do
       File.rm_rf(full_path)
       :ok
@@ -119,11 +199,58 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
+  Volume-aware variant of `rename/2`. Both paths are relative to the named volume.
+  """
+  def rename(volume_name, old_relative, new_relative) when is_binary(volume_name) do
+    with {:ok, old_full} <- resolve_path(volume_name, old_relative),
+         {:ok, new_full} <- resolve_path(volume_name, new_relative) do
+      File.rename(old_full, new_full)
+    end
+  end
+
+  @doc """
   Creates a directory (including parents) relative to base path.
   """
   def create_directory(relative_path) do
     with {:ok, full_path} <- resolve_path(relative_path) do
       File.mkdir_p(full_path)
     end
+  end
+
+  @doc """
+  Volume-aware variant of `create_directory/1`.
+  """
+  def create_directory(volume_name, relative_path) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path) do
+      File.mkdir_p(full_path)
+    end
+  end
+
+  # ── Private helpers ──────────────────────────────────────────────
+
+  defp list_entries(full_path) do
+    full_path
+    |> File.ls!()
+    |> Enum.sort()
+    |> Enum.map(fn name ->
+      entry_path = Path.join(full_path, name)
+      stat = File.stat!(entry_path, time: :posix)
+
+      %{
+        name: name,
+        type: if(stat.type == :directory, do: :directory, else: :file),
+        size: stat.size,
+        modified_at: stat.mtime |> DateTime.from_unix!()
+      }
+    end)
+  end
+
+  defp build_entry(full_path, stat) do
+    %{
+      name: Path.basename(full_path),
+      type: if(stat.type == :directory, do: :directory, else: :file),
+      size: stat.size,
+      modified_at: stat.mtime |> DateTime.from_unix!()
+    }
   end
 end

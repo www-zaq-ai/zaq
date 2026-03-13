@@ -85,13 +85,28 @@ if config_env() == :prod do
     dimension: String.to_integer(System.get_env("EMBEDDING_DIMENSION", "3584"))
 
   # -- Ingestion --
+  ingestion_volumes_env = System.get_env("INGESTION_VOLUMES", "")
+  ingestion_volumes_base = System.get_env("INGESTION_VOLUMES_BASE", "/zaq/volumes")
+
+  ingestion_volumes =
+    if ingestion_volumes_env != "" do
+      ingestion_volumes_env
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Map.new(fn name -> {name, Path.join(ingestion_volumes_base, name)} end)
+    else
+      %{}
+    end
+
   config :zaq, Zaq.Ingestion,
     max_context_window: String.to_integer(System.get_env("INGESTION_MAX_CONTEXT_WINDOW", "5000")),
     distance_threshold: String.to_float(System.get_env("INGESTION_DISTANCE_THRESHOLD", "0.75")),
     hybrid_search_limit: String.to_integer(System.get_env("INGESTION_HYBRID_SEARCH_LIMIT", "20")),
     chunk_min_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MIN_TOKENS", "400")),
     chunk_max_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MAX_TOKENS", "900")),
-    base_path: System.get_env("INGESTION_BASE_PATH", "priv/documents")
+    base_path: System.get_env("INGESTION_BASE_PATH", "priv/documents"),
+    volumes: ingestion_volumes
 
   # -- Oban --
   config :zaq, Oban,

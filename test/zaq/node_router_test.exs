@@ -27,22 +27,45 @@ defmodule Zaq.NodeRouterTest do
 
   describe "find_node/1" do
     test "returns local node when supervisor is running locally" do
-      # ZaqWeb.Endpoint is always running in test env
-      result = NodeRouter.find_node(ZaqWeb.Endpoint)
-      assert result == node()
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn
+          :my_supervisor -> self()
+          _ -> nil
+        end,
+        rpc_call_fn: fn _n, Process, :whereis, [_supervisor] -> nil end
+      }
+
+      assert NodeRouter.find_node(:my_supervisor, runtime) == :local@host
     end
 
-    test "returns local node as fallback when supervisor is not found anywhere" do
-      # A supervisor that is definitely not running
-      result = NodeRouter.find_node(Zaq.Agent.Supervisor)
-      assert result == node()
+    test "returns remote node when supervisor is absent locally" do
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [:my_supervisor] -> spawn(fn -> :ok end)
+          _n, Process, :whereis, [_supervisor] -> nil
+        end
+      }
+
+      assert NodeRouter.find_node(:my_supervisor, runtime) == :remote@host
     end
 
-    test "does not crash when Node.list() is empty" do
-      # In test env there are no peer nodes — should still return local node
-      assert Node.list() == []
-      result = NodeRouter.find_node(ZaqWeb.Endpoint)
-      assert is_atom(result)
+    test "falls back to local node when all remote lookups fail" do
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:down@host, :empty@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :down@host, Process, :whereis, [_supervisor] -> {:badrpc, :nodedown}
+          :empty@host, Process, :whereis, [_supervisor] -> nil
+        end
+      }
+
+      assert NodeRouter.find_node(:my_supervisor, runtime) == :local@host
     end
   end
 
@@ -55,6 +78,40 @@ defmodule Zaq.NodeRouterTest do
     test "dispatches to local node for bo role since endpoint is running" do
       result = NodeRouter.call(:bo, Kernel, :node, [])
       assert result == node()
+    end
+
+    test "falls back to local apply when role supervisor is not found" do
+      result = NodeRouter.call(:agent, String, :replace, ["abc", "a", "z"])
+      assert result == "zbc"
+    end
+
+    test "uses rpc for remote target and returns remote result" do
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] -> spawn(fn -> :ok end)
+          :remote@host, String, :upcase, ["hello"] -> "HELLO FROM REMOTE"
+        end
+      }
+
+      assert NodeRouter.call(:agent, String, :upcase, ["hello"], runtime) == "HELLO FROM REMOTE"
+    end
+
+    test "wraps badrpc failures from remote calls" do
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] -> spawn(fn -> :ok end)
+          :remote@host, String, :upcase, ["hello"] -> {:badrpc, :timeout}
+        end
+      }
+
+      assert NodeRouter.call(:agent, String, :upcase, ["hello"], runtime) ==
+               {:error, {:rpc_failed, :remote@host, :timeout}}
     end
 
     test "raises for unknown role" do

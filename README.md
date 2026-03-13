@@ -1,6 +1,6 @@
 # ZAQ
 
-![Coverage](https://img.shields.io/coverallsCoverage/github/www-zaq-ai/zaq)
+![Coverage](https://img.shields.io/coverallsCoverage/github/www-zaq-ai/zaq?branch=main)
 [![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://www-zaq-ai.github.io/zaq/)
 
 AI-powered company brain that updates itself. ZAQ continuously maintains your organization's knowledge base and provides instant, cited answers to people and AI agents.
@@ -41,13 +41,13 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 
 ### Services
 
-| Service       | Description                                                        |
-|---------------|--------------------------------------------------------------------|
-| **Engine**    | Central orchestrator. Sessions, ontology, API routing, licensing.  |
-| **Agent**     | AI layer. RAG retrieval, LLM interaction, classifier, knowledge gap. |
+| Service       | Description                                                                    |
+| ------------- | ------------------------------------------------------------------------------ |
+| **Engine**    | Central orchestrator. Sessions, ontology, API routing, licensing.              |
+| **Agent**     | AI layer. RAG retrieval, LLM interaction, classifier, knowledge gap.           |
 | **Ingestion** | Document processing pipeline. Chunking, embedding generation, PGVector writes. |
-| **Channels**  | Multi-channel communication adapter. Currently supports Mattermost. |
-| **BO**        | Back Office admin panel built with Phoenix LiveView.               |
+| **Channels**  | Multi-channel communication adapter. Currently supports Mattermost.            |
+| **BO**        | Back Office admin panel built with Phoenix LiveView.                           |
 
 ### Data Layer
 
@@ -132,14 +132,14 @@ ROLES=engine,agent mix phx.server
 
 ### Available Roles
 
-| Role         | Starts                        |
-|--------------|-------------------------------|
-| `:all`       | All services (default)        |
-| `:engine`    | `Zaq.Engine.Supervisor`       |
-| `:agent`     | `Zaq.Agent.Supervisor`        |
-| `:ingestion` | `Zaq.Ingestion.Supervisor`    |
-| `:channels`  | `Zaq.Channels.Supervisor`     |
-| `:bo`        | `ZaqWeb.Endpoint` (LiveView)  |
+| Role         | Starts                       |
+| ------------ | ---------------------------- |
+| `:all`       | All services (default)       |
+| `:engine`    | `Zaq.Engine.Supervisor`      |
+| `:agent`     | `Zaq.Agent.Supervisor`       |
+| `:ingestion` | `Zaq.Ingestion.Supervisor`   |
+| `:channels`  | `Zaq.Channels.Supervisor`    |
+| `:bo`        | `ZaqWeb.Endpoint` (LiveView) |
 
 ### Multi-Node Deployment
 

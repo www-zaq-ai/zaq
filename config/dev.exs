@@ -14,7 +14,12 @@ config :zaq, Zaq.Repo,
 config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 # config :zaq, roles: [:bo]
 
-config :zaq, Zaq.Ingestion, base_path: "priv/documents"
+config :zaq, Zaq.Ingestion,
+  base_path: "priv/documents",
+  volumes: %{
+    "documents" => "priv/documents",
+    "archives" => "priv/archives"
+  }
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

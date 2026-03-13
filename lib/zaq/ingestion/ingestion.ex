@@ -14,8 +14,8 @@ defmodule Zaq.Ingestion do
 
   # --- Ingestion triggers ---
 
-  def ingest_file(path, mode \\ :async) do
-    with {:ok, job} <- create_job(path, mode) do
+  def ingest_file(path, mode \\ :async, volume_name \\ nil) do
+    with {:ok, job} <- create_job(path, mode, volume_name) do
       case mode do
         :async ->
           %{"job_id" => job.id}
@@ -31,14 +31,14 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  def ingest_folder(path, mode \\ :async) do
+  def ingest_folder(path, mode \\ :async, volume_name \\ nil) do
     with {:ok, entries} <- FileExplorer.list(path) do
       jobs =
         entries
         |> Enum.filter(&(&1.type == :file))
         |> Enum.map(fn entry ->
           file_path = Path.join(path, entry.name)
-          {:ok, job} = ingest_file(file_path, mode)
+          {:ok, job} = ingest_file(file_path, mode, volume_name)
           job
         end)
 
@@ -97,9 +97,13 @@ defmodule Zaq.Ingestion do
 
   # --- Private ---
 
-  defp create_job(path, mode) do
+  defp create_job(path, mode, volume_name) do
+    attrs =
+      %{file_path: path, status: "pending", mode: to_string(mode)}
+      |> then(fn a -> if volume_name, do: Map.put(a, :volume_name, volume_name), else: a end)
+
     %IngestJob{}
-    |> IngestJob.changeset(%{file_path: path, status: "pending", mode: to_string(mode)})
+    |> IngestJob.changeset(attrs)
     |> Repo.insert()
   end
 

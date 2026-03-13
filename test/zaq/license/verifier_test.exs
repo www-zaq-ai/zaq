@@ -29,6 +29,11 @@ defmodule Zaq.License.VerifierTest do
     assert {:error, :no_public_key} = Verifier.public_key()
   end
 
+  test "verify returns error when public key is missing" do
+    File.rm(@public_key_path)
+    assert {:error, :no_public_key} = Verifier.verify("{}", "signature")
+  end
+
   test "parse_public_pem extracts key bytes from PEM" do
     {pub, _priv} = :crypto.generate_key(:eddsa, :ed25519)
 
