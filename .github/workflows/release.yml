@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - main
+      - dev
   workflow_dispatch:
 
 permissions:
@@ -30,9 +30,32 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  merge_to_main:
+    name: Merge dev into main
+    needs: release
+    if: ${{ needs.release.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Merge dev into main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin dev
+          git merge --ff-only origin/dev
+          git push origin main
+
   docker:
     name: Build and push release image
-    needs: release
+    needs: [release, merge_to_main]
     if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     permissions:
@@ -93,7 +116,7 @@ jobs:
 
   docs_build:
     name: Build docs for release
-    needs: release
+    needs: [release, merge_to_main]
     if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     permissions:
