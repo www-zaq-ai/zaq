@@ -52,14 +52,14 @@ defmodule ZaqWeb.Router do
 
     live_session :bo, on_mount: {ZaqWeb.Live.BO.AuthHook, :default} do
       live "/dashboard", Live.BO.DashboardLive
-      live "/change-password", Live.Bo.System.ChangePasswordLive
+      live "/change-password", Live.BO.System.ChangePasswordLive
       live "/users", Live.BO.Accounts.UsersLive
       live "/users/new", Live.BO.Accounts.UserFormLive, :new
       live "/users/:id/edit", Live.BO.Accounts.UserFormLive, :edit
       live "/roles", Live.BO.Accounts.RolesLive
       live "/roles/new", Live.BO.Accounts.RoleFormLive, :new
       live "/roles/:id/edit", Live.BO.Accounts.RoleFormLive, :edit
-      live "/license", Live.Bo.System.LicenseLive
+      live "/license", Live.BO.System.LicenseLive
       live "/ai-diagnostics", Live.BO.AI.AIDiagnosticsLive
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive
       live "/ingestion", Live.BO.AI.IngestionLive

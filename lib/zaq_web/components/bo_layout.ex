@@ -273,8 +273,14 @@ defmodule ZaqWeb.Components.BOLayout do
             icon="communication"
             label="Communication"
             current_path={@current_path}
-            active={@current_path in ["/bo/channels", "/bo/playground", "/bo/history"]}
-            open={@current_path in ["/bo/channels", "/bo/playground", "/bo/history"]}
+            active={
+              String.starts_with?(@current_path, "/bo/channels") or
+                @current_path in ["/bo/playground", "/bo/history"]
+            }
+            open={
+              String.starts_with?(@current_path, "/bo/channels") or
+                @current_path in ["/bo/playground", "/bo/history"]
+            }
           >
             <:item
               href={~p"/bo/channels"}

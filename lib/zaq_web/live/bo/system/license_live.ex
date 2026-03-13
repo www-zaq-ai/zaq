@@ -1,4 +1,4 @@
-defmodule ZaqWeb.Live.Bo.System.LicenseLive do
+defmodule ZaqWeb.Live.BO.System.LicenseLive do
   use ZaqWeb, :live_view
 
   alias Zaq.License.FeatureStore

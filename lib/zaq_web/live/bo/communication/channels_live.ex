@@ -45,9 +45,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
     back_path =
       case kind do
-        :retrieval -> "/bo/channels/retrieval"
-        :ingestion -> "/bo/channels/ingestion"
-        _ -> "/bo/channels"
+        :retrieval -> ~p"/bo/channels/retrieval"
+        :ingestion -> ~p"/bo/channels/ingestion"
+        _ -> ~p"/bo/channels"
       end
 
     back_label =
@@ -404,7 +404,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     end
   end
 
-  def handle_event("select_team", %{"team-id" => team_id, "team-name" => team_name}, socket) do
+  def handle_event("select_team", %{"team_id" => team_id, "team_name" => team_name}, socket) do
     config = first_enabled_config(socket)
 
     case config do

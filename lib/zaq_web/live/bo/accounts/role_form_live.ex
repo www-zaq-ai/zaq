@@ -4,7 +4,7 @@ defmodule ZaqWeb.Live.BO.Accounts.RoleFormLive do
   alias Zaq.Accounts
 
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    {:ok, assign(socket, :current_path, ~p"/bo/roles")}
   end
 
   def handle_params(params, _uri, socket) do

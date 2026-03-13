@@ -394,8 +394,8 @@
           <button
             :for={team <- @teams}
             phx-click="select_team"
-            phx-value-team-id={team.id}
-            phx-value-team-name={team.display_name}
+            phx-value-team_id={team.id}
+            phx-value-team_name={team.display_name}
             class={[
               "w-full text-left px-4 py-3 rounded-lg font-mono text-[0.75rem] transition-all flex items-center gap-3",
               if(@selected_team_id == team.id,
