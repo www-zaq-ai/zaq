@@ -580,4 +580,73 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert IngestionLive.status_color("unknown") =~ "bg-black"
     end
   end
+
+  # ────────────────────────────────────────────────────────────────
+  # NEW: Volume selection (multi-volume ingestion)
+  # ────────────────────────────────────────────────────────────────
+
+  describe "volume selection" do
+    setup %{conn: conn, tmp_dir: tmp_dir} do
+      vol_docs = Path.join(tmp_dir, "volumes/docs")
+      vol_archives = Path.join(tmp_dir, "volumes/archives")
+      File.mkdir_p!(vol_docs)
+      File.mkdir_p!(vol_archives)
+      File.write!(Path.join(vol_docs, "manual.md"), "# Manual")
+      File.write!(Path.join(vol_archives, "old.md"), "# Old")
+
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(:zaq, Zaq.Ingestion,
+        volumes: %{"docs" => vol_docs, "archives" => vol_archives}
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+
+      {:ok, conn: conn, vol_docs: vol_docs, vol_archives: vol_archives}
+    end
+
+    test "shows volume selector when multiple volumes configured", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/ingestion")
+      assert html =~ "docs"
+      assert html =~ "archives"
+    end
+
+    test "switch_volume changes current volume and loads entries", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "switch_volume", %{"volume" => "archives"})
+
+      assert has_element?(view, "span", "old.md")
+      refute has_element?(view, "span", "manual.md")
+    end
+
+    test "switch_volume resets current_dir to root", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "switch_volume", %{"volume" => "archives"})
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.current_dir == "."
+      assert state.socket.assigns.current_volume == "archives"
+    end
+
+    test "files in the selected volume are listed after switching", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # Switch to docs explicitly
+      render_hook(view, "switch_volume", %{"volume" => "docs"})
+      assert has_element?(view, "span", "manual.md")
+      refute has_element?(view, "span", "old.md")
+
+      # Switch to archives
+      render_hook(view, "switch_volume", %{"volume" => "archives"})
+      assert has_element?(view, "span", "old.md")
+      refute has_element?(view, "span", "manual.md")
+
+      # Switch back to docs
+      render_hook(view, "switch_volume", %{"volume" => "docs"})
+      assert has_element?(view, "span", "manual.md")
+      refute has_element?(view, "span", "old.md")
+    end
+  end
 end

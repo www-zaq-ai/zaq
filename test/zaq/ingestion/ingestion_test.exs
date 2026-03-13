@@ -171,4 +171,43 @@ defmodule Zaq.IngestionTest do
       assert {:error, :not_found} = Ingestion.cancel_job(Ecto.UUID.generate())
     end
   end
+
+  describe "ingest_file/3 (volume-aware)" do
+    test "stores volume_name on the created job" do
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      end)
+
+      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline, "docs")
+      assert job.volume_name == "docs"
+    end
+
+    test "nil volume_name when not provided (backward compat)" do
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      end)
+
+      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline)
+      assert job.volume_name == nil
+    end
+  end
+
+  describe "ingest_folder/3 (volume-aware)" do
+    test "stores volume_name on all created jobs" do
+      unique = System.unique_integer([:positive])
+      folder = "ingestion_vol_test_#{unique}"
+
+      assert :ok = FileExplorer.create_directory(folder)
+      assert {:ok, _} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
+
+      on_exit(fn -> _ = FileExplorer.delete_directory(folder) end)
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, 1, fn _path ->
+        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      end)
+
+      assert {:ok, jobs} = Ingestion.ingest_folder(folder, :inline, "docs")
+      assert Enum.all?(jobs, &(&1.volume_name == "docs"))
+    end
+  end
 end
