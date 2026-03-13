@@ -42,6 +42,5 @@ npm-debug.log
 /priv/roadmap
 context.md
 
-.claude
-
 config/dev.secret.exs
+.claude/settings.local.json

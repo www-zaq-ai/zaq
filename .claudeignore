@@ -1,0 +1,54 @@
+# ========== DEPENDENCIES ==========
+deps/
+_build/
+
+# ========== ASSETS ==========
+node_modules/
+assets/node_modules/
+assets/vendor/
+priv/static/
+assets/package-lock.json
+assets/yarn.lock
+
+# ========== BUILDS / COVERAGE ==========
+cover/
+doc/
+*.ez
+*.beam
+*.dump
+*.log
+erl_crash.dump
+
+# ========== TEMP FILES ==========
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*.ex.bak
+*~
+.DS_Store
+
+# ========== SECRETS / CONFIG ==========
+config/*.secret.exs
+config/dev.secrets.exs
+.env
+.env.*
+!.env.example
+
+# ========== TEST ARTIFACTS ==========
+test/tmp/
+test/fixtures/output/
+
+# ========== LSP CACHE ==========
+.elixir_ls/
+.lexical/
+
+# ========== GIT ==========
+.git/
+
+# ========== SWARM / AGENTS ==========
+.swarm/
+
+# ========== RUNTIME UPLOADS ==========
+priv/uploads/
