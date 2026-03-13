@@ -1,4 +1,4 @@
-defmodule ZaqWeb.Live.Bo.System.ChangePasswordLive do
+defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts

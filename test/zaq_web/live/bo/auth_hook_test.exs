@@ -26,7 +26,7 @@ defmodule ZaqWeb.Live.BO.AuthHookTest do
 
   test "continues on change-password route for users that must rotate password" do
     user = user_fixture(%{username: "bo_auth_hook_change_route"})
-    socket = %Phoenix.LiveView.Socket{view: ZaqWeb.Live.Bo.System.ChangePasswordLive}
+    socket = %Phoenix.LiveView.Socket{view: ZaqWeb.Live.BO.System.ChangePasswordLive}
 
     assert {:cont, continued_socket} =
              AuthHook.on_mount(:default, %{}, %{"user_id" => user.id}, socket)

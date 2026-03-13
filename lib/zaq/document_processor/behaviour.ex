@@ -1,4 +1,4 @@
-defmodule Zaq.DocumentProcessor.Behaviour do
+defmodule Zaq.DocumentProcessorBehaviour do
   @moduledoc """
   Behaviour module defining the contract for document processing implementations.
   This allows for different processing strategies (e.g., local, external service) to be used interchangeably in the ingestion pipeline.

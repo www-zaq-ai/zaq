@@ -1,6 +1,6 @@
 defmodule Zaq.Channels.Retrieval.Mattermost.API do
   @moduledoc """
-  HTTP client for Mattermost REST API using HTTPoison.
+  HTTP client for Mattermost REST API using Req.
   """
 
   alias Zaq.Channels.ChannelConfig
@@ -58,18 +58,16 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
   """
   def get_bot_user(%ChannelConfig{} = config) do
     url = config.url <> "/api/v4/users/me"
-    headers = auth_headers(config)
 
-    case HTTPoison.get(url, headers) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        user = Jason.decode!(body)
+    case Req.get(url, headers: auth_headers(config)) do
+      {:ok, %Req.Response{status: 200, body: user}} ->
         {:ok, %{id: user["id"], username: user["username"]}}
 
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+      {:ok, %Req.Response{status: status, body: body}} ->
         {:error, %{status: status, body: body}}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, reason}
+      {:error, exception} ->
+        {:error, exception.reason}
     end
   end
 
@@ -81,24 +79,19 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
   """
   def list_teams(%ChannelConfig{} = config) do
     url = config.url <> "/api/v4/users/me/teams"
-    headers = auth_headers(config)
 
-    case HTTPoison.get(url, headers) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        teams =
-          body
-          |> Jason.decode!()
-          |> Enum.map(fn t ->
-            %{id: t["id"], display_name: t["display_name"], name: t["name"]}
-          end)
+    case Req.get(url, headers: auth_headers(config)) do
+      {:ok, %Req.Response{status: 200, body: teams}} ->
+        {:ok,
+         Enum.map(teams, fn t ->
+           %{id: t["id"], display_name: t["display_name"], name: t["name"]}
+         end)}
 
-        {:ok, teams}
-
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+      {:ok, %Req.Response{status: status, body: body}} ->
         {:error, %{status: status, body: body}}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, reason}
+      {:error, exception} ->
+        {:error, exception.reason}
     end
   end
 
@@ -115,13 +108,11 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
     per_page = Keyword.get(opts, :per_page, 100)
 
     url = config.url <> "/api/v4/teams/#{team_id}/channels?page=#{page}&per_page=#{per_page}"
-    headers = auth_headers(config)
 
-    case HTTPoison.get(url, headers) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        channels =
-          body
-          |> Jason.decode!()
+    case Req.get(url, headers: auth_headers(config)) do
+      {:ok, %Req.Response{status: 200, body: channels}} ->
+        result =
+          channels
           |> Enum.filter(fn ch -> ch["type"] == "O" end)
           |> Enum.map(fn ch ->
             %{
@@ -135,13 +126,13 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
           end)
           |> Enum.sort_by(& &1.display_name)
 
-        {:ok, channels}
+        {:ok, result}
 
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+      {:ok, %Req.Response{status: status, body: body}} ->
         {:error, %{status: status, body: body}}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, reason}
+      {:error, exception} ->
+        {:error, exception.reason}
     end
   end
 
@@ -152,7 +143,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
   def clear_channel(channel_id) do
     case ChannelConfig.get_by_provider("mattermost") do
       %ChannelConfig{} = config ->
-        headers = [{"authorization", "Bearer #{config.token}"}]
+        headers = auth_headers(config)
         delete_all_posts(config.url, channel_id, headers)
 
       nil ->
@@ -174,32 +165,22 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
     body =
       %{channel_id: channel_id, message: message}
       |> maybe_put_root_id(thread_id)
-      |> Jason.encode!()
 
-    headers = [
-      {"authorization", "Bearer #{config.token}"},
-      {"content-type", "application/json"}
-    ]
+    case Req.post(url, headers: auth_headers(config), json: body) do
+      {:ok, %Req.Response{status: 201, body: resp_body}} ->
+        {:ok, resp_body}
 
-    do_post(url, body, headers)
+      {:ok, %Req.Response{status: status, body: resp_body}} ->
+        {:error, %{status: status, body: resp_body}}
+
+      {:error, exception} ->
+        {:error, exception.reason}
+    end
   end
 
   defp maybe_put_root_id(body, nil), do: body
   defp maybe_put_root_id(body, ""), do: body
   defp maybe_put_root_id(body, thread_id), do: Map.put(body, :root_id, thread_id)
-
-  defp do_post(url, body, headers) do
-    case HTTPoison.post(url, body, headers) do
-      {:ok, %HTTPoison.Response{status_code: 201, body: resp_body}} ->
-        {:ok, Jason.decode!(resp_body)}
-
-      {:ok, %HTTPoison.Response{status_code: status, body: resp_body}} ->
-        {:error, %{status: status, body: resp_body}}
-
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, reason}
-    end
-  end
 
   defp delete_all_posts(base_url, channel_id, headers) do
     case list_channel_posts(base_url, channel_id, headers) do
@@ -219,23 +200,23 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
   defp list_channel_posts(base_url, channel_id, headers) do
     url = base_url <> "/api/v4/channels/#{channel_id}/posts"
 
-    case HTTPoison.get(url, headers) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        {:ok, Jason.decode!(body)["order"]}
+    case Req.get(url, headers: headers) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:ok, body["order"]}
 
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+      {:ok, %Req.Response{status: status, body: body}} ->
         {:error, %{status: status, body: body}}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, reason}
+      {:error, exception} ->
+        {:error, exception.reason}
     end
   end
 
   defp delete_post(base_url, post_id, headers) do
     url = base_url <> "/api/v4/posts/#{post_id}"
 
-    case HTTPoison.delete(url, headers) do
-      {:ok, %HTTPoison.Response{status_code: 200}} ->
+    case Req.delete(url, headers: headers) do
+      {:ok, %Req.Response{status: 200}} ->
         :ok
 
       error ->

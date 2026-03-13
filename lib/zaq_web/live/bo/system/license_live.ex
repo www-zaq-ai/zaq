@@ -1,4 +1,4 @@
-defmodule ZaqWeb.Live.Bo.System.LicenseLive do
+defmodule ZaqWeb.Live.BO.System.LicenseLive do
   use ZaqWeb, :live_view
 
   alias Zaq.License.FeatureStore
@@ -63,15 +63,6 @@ defmodule ZaqWeb.Live.Bo.System.LicenseLive do
        locked_features: locked_features,
        current_path: "/bo/license"
      )}
-  end
-
-  defp format_date(nil), do: "—"
-
-  defp format_date(date_string) when is_binary(date_string) do
-    case DateTime.from_iso8601(date_string) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%B %d, %Y")
-      _ -> date_string
-    end
   end
 
   defp days_left(nil), do: nil

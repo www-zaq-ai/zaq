@@ -273,8 +273,14 @@ defmodule ZaqWeb.Components.BOLayout do
             icon="communication"
             label="Communication"
             current_path={@current_path}
-            active={@current_path in ["/bo/channels", "/bo/playground", "/bo/history"]}
-            open={@current_path in ["/bo/channels", "/bo/playground", "/bo/history"]}
+            active={
+              String.starts_with?(@current_path, "/bo/channels") or
+                @current_path in ["/bo/playground", "/bo/history"]
+            }
+            open={
+              String.starts_with?(@current_path, "/bo/channels") or
+                @current_path in ["/bo/playground", "/bo/history"]
+            }
           >
             <:item
               href={~p"/bo/channels"}
@@ -393,70 +399,6 @@ defmodule ZaqWeb.Components.BOLayout do
           {render_slot(@inner_block)}
         </div>
       </main>
-
-      <script>
-        function toggleSidebar() {
-          const sidebar = document.getElementById('bo-sidebar');
-          const main = document.getElementById('bo-main');
-          sidebar.classList.toggle('collapsed');
-          main.classList.toggle('collapsed');
-          localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed'));
-        }
-
-        function setSectionOpenClass(id) {
-          const wrapper = document.getElementById(id);
-          const items = document.getElementById(id + '-items');
-          if (!wrapper || !items) return;
-          if (items.classList.contains('closed')) {
-            wrapper.classList.remove('section-open');
-          } else {
-            wrapper.classList.add('section-open');
-          }
-        }
-
-        function toggleSection(id) {
-          const items = document.getElementById(id + '-items');
-          const chevron = document.getElementById(id + '-chevron');
-          if (!items) return;
-          items.classList.toggle('closed');
-          chevron && chevron.classList.toggle('open');
-          localStorage.setItem('section-' + id, items.classList.contains('closed') ? 'closed' : 'open');
-          setSectionOpenClass(id);
-        }
-
-        function restoreLayout() {
-          const sidebar = document.getElementById('bo-sidebar');
-          const main = document.getElementById('bo-main');
-          if (!sidebar || !main) return;
-
-          if (localStorage.getItem('sidebar-collapsed') === 'true') {
-            sidebar.classList.add('collapsed');
-            main.classList.add('collapsed');
-          } else {
-            sidebar.classList.remove('collapsed');
-            main.classList.remove('collapsed');
-          }
-
-          ['section-ai', 'section-communication', 'section-accounts', 'section-system'].forEach(function(id) {
-            const state = localStorage.getItem('section-' + id);
-            if (!state) return;
-            const items = document.getElementById(id + '-items');
-            const chevron = document.getElementById(id + '-chevron');
-            if (!items) return;
-            if (state === 'closed') {
-              items.classList.add('closed');
-              chevron && chevron.classList.remove('open');
-            } else {
-              items.classList.remove('closed');
-              chevron && chevron.classList.add('open');
-            }
-            setSectionOpenClass(id);
-          });
-        }
-
-        restoreLayout();
-        window.addEventListener('phx:page-loading-stop', restoreLayout);
-      </script>
     </div>
     """
   end

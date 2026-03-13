@@ -245,7 +245,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     render_hook(view, "fetch_teams", %{})
     assert render(view) =~ "No enabled Mattermost config found."
 
-    render_hook(view, "select_team", %{"team-id" => "t-1", "team-name" => "Platform"})
+    render_hook(view, "select_team", %{"team_id" => "t-1", "team_name" => "Platform"})
     assert render(view) =~ "No enabled Mattermost config found."
 
     render_hook(view, "add_channel", %{"channel-id" => "c-1", "channel-name" => "general"})
@@ -453,7 +453,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert render(view) =~ "Select a Team"
     assert render(view) =~ "Platform"
 
-    render_hook(view, "select_team", %{"team-id" => "t1", "team-name" => "Platform"})
+    render_hook(view, "select_team", %{"team_id" => "t1", "team_name" => "Platform"})
     assert render(view) =~ "Public Channels in Platform"
     assert has_element?(view, "button[phx-click='add_channel'][phx-value-channel-id='channel-2']")
     refute has_element?(view, "button[phx-click='add_channel'][phx-value-channel-id='channel-1']")
@@ -463,7 +463,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert render(view) =~ "Failed to load teams"
 
     MattermostAPIFake.put(:list_public_channels, {:error, :timeout})
-    render_hook(view, "select_team", %{"team-id" => "t1", "team-name" => "Platform"})
+    render_hook(view, "select_team", %{"team_id" => "t1", "team_name" => "Platform"})
     assert render(view) =~ "Failed to load channels"
   end
 
@@ -483,7 +483,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     render_hook(view, "fetch_teams", %{})
-    render_hook(view, "select_team", %{"team-id" => "t1", "team-name" => "Platform"})
+    render_hook(view, "select_team", %{"team_id" => "t1", "team_name" => "Platform"})
     render_hook(view, "add_channel", %{"channel-id" => "c-2", "channel-name" => "general"})
 
     assert Repo.get_by(RetrievalChannel, channel_config_id: config.id, channel_id: "c-2")

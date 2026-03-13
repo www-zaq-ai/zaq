@@ -45,9 +45,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
     back_path =
       case kind do
-        :retrieval -> "/bo/channels/retrieval"
-        :ingestion -> "/bo/channels/ingestion"
-        _ -> "/bo/channels"
+        :retrieval -> ~p"/bo/channels/retrieval"
+        :ingestion -> ~p"/bo/channels/ingestion"
+        _ -> ~p"/bo/channels"
       end
 
     back_label =
@@ -75,6 +75,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      # config modal
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
+     |> assign(:form, nil)
      |> assign(:modal_errors, [])
      |> assign(:confirm_delete, nil)
      # test connection
@@ -125,6 +126,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      socket
      |> assign(:modal, :new)
      |> assign(:changeset, changeset)
+     |> assign(:form, to_form(changeset, as: :form))
      |> assign(:modal_errors, [])}
   end
 
@@ -136,6 +138,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      socket
      |> assign(:modal, :edit)
      |> assign(:changeset, changeset)
+     |> assign(:form, to_form(changeset, as: :form))
      |> assign(:modal_errors, [])}
   end
 
@@ -144,6 +147,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      socket
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
+     |> assign(:form, nil)
      |> assign(:modal_errors, [])}
   end
 
@@ -153,7 +157,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       |> ChannelConfig.changeset(params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign(socket, :changeset, changeset)}
+    {:noreply,
+     socket
+     |> assign(:changeset, changeset)
+     |> assign(:form, to_form(changeset, as: :form))}
   end
 
   def handle_event("save", %{"form" => params}, socket) do
@@ -172,6 +179,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          socket
          |> assign(:modal, nil)
          |> assign(:changeset, nil)
+         |> assign(:form, nil)
          |> assign(:modal_errors, [])
          |> assign(:configs, configs)
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
@@ -181,6 +189,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         {:noreply,
          socket
          |> assign(:changeset, changeset)
+         |> assign(:form, to_form(changeset, as: :form))
          |> assign(:modal_errors, format_errors(changeset))}
     end
   end
@@ -404,7 +413,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     end
   end
 
-  def handle_event("select_team", %{"team-id" => team_id, "team-name" => team_name}, socket) do
+  def handle_event("select_team", %{"team_id" => team_id, "team_name" => team_name}, socket) do
     config = first_enabled_config(socket)
 
     case config do

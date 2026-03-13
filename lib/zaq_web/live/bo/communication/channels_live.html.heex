@@ -394,8 +394,8 @@
           <button
             :for={team <- @teams}
             phx-click="select_team"
-            phx-value-team-id={team.id}
-            phx-value-team-name={team.display_name}
+            phx-value-team_id={team.id}
+            phx-value-team_name={team.display_name}
             class={[
               "w-full text-left px-4 py-3 rounded-lg font-mono text-[0.75rem] transition-all flex items-center gap-3",
               if(@selected_team_id == team.id,
@@ -961,7 +961,7 @@
           else: "Update the details for this configuration."}
       </p>
 
-      <.form for={@changeset} as={:form} id="config-form" phx-submit="save" phx-change="validate">
+      <.form for={@form} id="config-form" phx-submit="save" phx-change="validate">
         <input :if={@modal == :new} type="hidden" name="form[provider]" value={@provider} />
 
         <div class="mb-4">
@@ -971,7 +971,7 @@
           <input
             type="text"
             name="form[name]"
-            value={Ecto.Changeset.get_field(@changeset, :name)}
+            value={@form[:name].value}
             placeholder="e.g. Engineering Alerts"
             class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           />
@@ -984,7 +984,7 @@
           <input
             type="text"
             name="form[url]"
-            value={Ecto.Changeset.get_field(@changeset, :url)}
+            value={@form[:url].value}
             placeholder="https://mattermost.yourcompany.com"
             class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           />
@@ -997,7 +997,7 @@
           <input
             type="password"
             name="form[token]"
-            value={Ecto.Changeset.get_field(@changeset, :token)}
+            value={@form[:token].value}
             placeholder="••••••••••••••••"
             class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           />
@@ -1011,7 +1011,7 @@
             type="checkbox"
             name="form[enabled]"
             id="form_enabled"
-            checked={Ecto.Changeset.get_field(@changeset, :enabled)}
+            checked={@form[:enabled].value}
             class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
           />
           <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">

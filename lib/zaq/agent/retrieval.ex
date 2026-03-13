@@ -45,22 +45,28 @@ defmodule Zaq.Agent.Retrieval do
 
     Logger.info("Retrieval: Processing question with strict grounding")
 
-    {:ok, updated_chain} =
-      LLMChain.new!(%{llm: ChatOpenAI.new!(llm_config)})
-      |> LLMChain.add_message(Message.new_system!(system_prompt))
-      |> then(fn chain ->
-        if history != [], do: LLMChain.add_messages(chain, history), else: chain
-      end)
-      |> then(fn chain ->
-        if question != "",
-          do: LLMChain.add_message(chain, Message.new_user!(question)),
-          else: chain
-      end)
-      |> LLMChain.run()
+    try do
+      {:ok, updated_chain} =
+        LLMChain.new!(%{llm: ChatOpenAI.new!(llm_config)})
+        |> LLMChain.add_message(Message.new_system!(system_prompt))
+        |> then(fn chain ->
+          if history != [], do: LLMChain.add_messages(chain, history), else: chain
+        end)
+        |> then(fn chain ->
+          if question != "",
+            do: LLMChain.add_message(chain, Message.new_user!(question)),
+            else: chain
+        end)
+        |> LLMChain.run()
 
-    answer = ChainResult.to_string!(updated_chain) |> Jason.decode!()
+      answer = ChainResult.to_string!(updated_chain) |> Jason.decode!()
 
-    {:ok, answer}
+      {:ok, answer}
+    rescue
+      e ->
+        Logger.error("Retrieval failed: #{inspect(e)}")
+        {:error, "Failed to process question: #{Exception.message(e)}"}
+    end
   end
 
   defp build_history([]), do: []

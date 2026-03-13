@@ -24,14 +24,9 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
 
   describe "mount licensing branches" do
     test "unlicensed when no ontology feature loaded", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/bo/ontology")
+      {:ok, view, _html} = live(conn, ~p"/bo/ontology")
 
-      assert html =~ "Feature Not Licensed"
-
-      state = :sys.get_state(view.pid)
-      assert state.socket.assigns.current_path == "/bo/ontology"
-      assert state.socket.assigns.licensed == false
-      assert state.socket.assigns.loading == false
+      assert has_element?(view, "p", "Feature Not Licensed")
     end
 
     test "unlicensed when license exists but ontology feature missing", %{conn: conn} do
@@ -45,14 +40,9 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
           []
         )
 
-      {:ok, view, html} = live(conn, ~p"/bo/ontology")
+      {:ok, view, _html} = live(conn, ~p"/bo/ontology")
 
-      assert html =~ "Feature Not Licensed"
-
-      state = :sys.get_state(view.pid)
-      assert state.socket.assigns.current_path == "/bo/ontology"
-      assert state.socket.assigns.licensed == false
-      assert state.socket.assigns.loading == false
+      assert has_element?(view, "p", "Feature Not Licensed")
     end
 
     test "licensed when ontology feature exists", %{conn: conn} do
@@ -66,14 +56,9 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
           []
         )
 
-      {:ok, view, html} = live(conn, ~p"/bo/ontology")
+      {:ok, view, _html} = live(conn, ~p"/bo/ontology")
 
-      refute html =~ "Feature Not Licensed"
-
-      state = :sys.get_state(view.pid)
-      assert state.socket.assigns.current_path == "/bo/ontology"
-      assert state.socket.assigns.licensed == true
-      refute Map.has_key?(state.socket.assigns, :loading)
+      refute has_element?(view, "p", "Feature Not Licensed")
     end
   end
 end

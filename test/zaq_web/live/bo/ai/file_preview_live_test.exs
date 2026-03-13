@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias ZaqWeb.Helpers.DateFormat
   alias ZaqWeb.Live.BO.AI.FilePreviewLive
 
   setup %{conn: conn} do
@@ -92,8 +93,10 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
     end
 
     test "format_datetime/1 covers nil and datetime formatting" do
-      assert FilePreviewLive.format_datetime(nil) == "—"
-      assert FilePreviewLive.format_datetime(~U[2025-01-02 03:04:00Z]) == "2025-01-02 03:04"
+      assert DateFormat.format_datetime(nil) == "—"
+
+      assert DateFormat.format_datetime(~U[2025-01-02 03:04:00Z]) ==
+               "2025-01-02 03:04"
     end
   end
 end

@@ -6,6 +6,11 @@ defmodule ZaqWeb.Plugs.Auth do
   import Plug.Conn
   import Phoenix.Controller
 
+  use Phoenix.VerifiedRoutes,
+    endpoint: ZaqWeb.Endpoint,
+    router: ZaqWeb.Router,
+    statics: ZaqWeb.static_paths()
+
   alias Zaq.Accounts
 
   def init(opts), do: opts
@@ -15,15 +20,15 @@ defmodule ZaqWeb.Plugs.Auth do
       nil ->
         conn
         |> put_flash(:error, "You must log in to access this page.")
-        |> redirect(to: "/bo/login")
+        |> redirect(to: ~p"/bo/login")
         |> halt()
 
       user_id ->
         user = Accounts.get_user!(user_id)
 
-        if user.must_change_password and conn.request_path != "/bo/change-password" do
+        if user.must_change_password and conn.request_path != ~p"/bo/change-password" do
           conn
-          |> redirect(to: "/bo/change-password")
+          |> redirect(to: ~p"/bo/change-password")
           |> halt()
         else
           assign(conn, :current_user, user)

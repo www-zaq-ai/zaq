@@ -6,6 +6,7 @@ defmodule Zaq.License.IntegrationTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :integration
 
   import ExUnit.CaptureLog
 

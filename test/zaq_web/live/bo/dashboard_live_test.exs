@@ -85,10 +85,7 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       # Simulate PeerConnector broadcasting a node_up event
       Phoenix.PubSub.broadcast(Zaq.PubSub, "node:events", {:node_up, :ai@localhost})
 
-      # Give the LiveView time to process the message
-      :timer.sleep(50)
-
-      # Dashboard should still render without crashing
+      # render/1 flushes pending messages before returning HTML
       assert render(view) =~ "Engine"
     end
 
@@ -97,8 +94,6 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
 
       Phoenix.PubSub.broadcast(Zaq.PubSub, "node:events", {:node_down, :ai@localhost})
 
-      :timer.sleep(50)
-
       assert render(view) =~ "Engine"
     end
 
@@ -106,8 +101,6 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
       Phoenix.PubSub.broadcast(Zaq.PubSub, "node:events", {:node_up, :unknown@localhost})
-
-      :timer.sleep(50)
 
       assert render(view) =~ "Engine"
     end
