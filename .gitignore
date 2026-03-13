@@ -38,7 +38,10 @@ npm-debug.log
 /priv/keys
 /priv/licenses
 /priv/documents
+/priv/archives
 /priv/roadmap
 context.md
+
+.claude
 
 config/dev.secret.exs
