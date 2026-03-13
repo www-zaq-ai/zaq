@@ -120,6 +120,71 @@ const liveSocket = new LiveSocket("/live", Socket, {
   },
 })
 
+// ── BO Layout: sidebar + collapsible nav sections ──────────────────────────
+function toggleSidebar() {
+  const sidebar = document.getElementById('bo-sidebar')
+  const main = document.getElementById('bo-main')
+  sidebar.classList.toggle('collapsed')
+  main.classList.toggle('collapsed')
+  localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed'))
+}
+
+function setSectionOpenClass(id) {
+  const wrapper = document.getElementById(id)
+  const items = document.getElementById(id + '-items')
+  if (!wrapper || !items) return
+  if (items.classList.contains('closed')) {
+    wrapper.classList.remove('section-open')
+  } else {
+    wrapper.classList.add('section-open')
+  }
+}
+
+function toggleSection(id) {
+  const items = document.getElementById(id + '-items')
+  const chevron = document.getElementById(id + '-chevron')
+  if (!items) return
+  items.classList.toggle('closed')
+  chevron && chevron.classList.toggle('open')
+  localStorage.setItem('section-' + id, items.classList.contains('closed') ? 'closed' : 'open')
+  setSectionOpenClass(id)
+}
+
+function restoreLayout() {
+  const sidebar = document.getElementById('bo-sidebar')
+  const main = document.getElementById('bo-main')
+  if (!sidebar || !main) return
+
+  if (localStorage.getItem('sidebar-collapsed') === 'true') {
+    sidebar.classList.add('collapsed')
+    main.classList.add('collapsed')
+  } else {
+    sidebar.classList.remove('collapsed')
+    main.classList.remove('collapsed')
+  }
+
+  ;['section-ai', 'section-communication', 'section-accounts', 'section-system'].forEach(function (id) {
+    const state = localStorage.getItem('section-' + id)
+    if (!state) return
+    const items = document.getElementById(id + '-items')
+    const chevron = document.getElementById(id + '-chevron')
+    if (!items) return
+    if (state === 'closed') {
+      items.classList.add('closed')
+      chevron && chevron.classList.remove('open')
+    } else {
+      items.classList.remove('closed')
+      chevron && chevron.classList.add('open')
+    }
+    setSectionOpenClass(id)
+  })
+}
+
+window.toggleSidebar = toggleSidebar
+window.toggleSection = toggleSection
+restoreLayout()
+window.addEventListener('phx:page-loading-stop', restoreLayout)
+
 // Clipboard copy via push_event
 window.addEventListener("phx:clipboard", (e) => {
   if (e.detail && e.detail.text) {

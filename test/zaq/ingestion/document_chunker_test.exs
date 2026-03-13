@@ -16,10 +16,9 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert DocumentChunker.parse_layout("\n\n") == []
     end
 
-    test "raises on unsupported format" do
-      assert_raise ArgumentError, ~r/Invalid format/, fn ->
-        DocumentChunker.parse_layout("hello", format: :pdf)
-      end
+    test "returns error on unsupported format" do
+      assert {:error, {:invalid_format, :pdf}} =
+               DocumentChunker.parse_layout("hello", format: :pdf)
     end
   end
 

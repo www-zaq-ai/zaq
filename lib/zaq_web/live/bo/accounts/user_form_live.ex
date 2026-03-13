@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   def mount(_params, _session, socket) do
     {:ok,
      socket
+     |> assign(:current_path, ~p"/bo/users")
      |> assign(:roles, Accounts.list_roles())
      |> assign(:password_requirements, nil)}
   end
