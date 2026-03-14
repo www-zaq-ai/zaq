@@ -1,0 +1,173 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  page_title={@conversation.title || "Conversation"}
+  current_path={@current_path}
+>
+  <style>
+    @keyframes slide-in-right {
+      from { opacity: 0; transform: translateX(12px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slide-in-left {
+      from { opacity: 0; transform: translateX(-12px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .animate-slide-in-right { animation: slide-in-right 0.2s ease-out; }
+    .animate-slide-in-left  { animation: slide-in-left  0.2s ease-out; }
+
+    .msg-actions {
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .group:hover .msg-actions { opacity: 1; }
+  </style>
+
+  <%!-- Header bar --%>
+  <div class="flex items-start justify-between mb-5">
+    <div>
+      <.link
+        navigate={~p"/bo/history"}
+        class="font-mono text-[0.75rem] text-black/40 hover:text-[#03b6d4] transition-colors"
+      >
+        ← History
+      </.link>
+      <div class="flex items-center gap-2 mt-2">
+        <span class="font-mono text-[0.7rem] px-2 py-0.5 rounded bg-black/5 text-black/50">
+          {String.capitalize(@conversation.channel_type)}
+        </span>
+        <span
+          :if={@conversation.status == "active"}
+          class="font-mono text-[0.7rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700"
+        >
+          active
+        </span>
+        <span
+          :if={@conversation.status == "archived"}
+          class="font-mono text-[0.7rem] px-2 py-0.5 rounded bg-black/5 text-black/40"
+        >
+          archived
+        </span>
+      </div>
+    </div>
+    <button
+      phx-click="open_share_dialog"
+      class="font-mono text-sm font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors"
+    >
+      Share
+    </button>
+  </div>
+
+  <%!-- Chat thread --%>
+  <div class="flex gap-6 items-start">
+    <div
+      class="-mx-8 flex-1 rounded-xl overflow-hidden"
+      style="background-color: #f7f6f3;"
+    >
+      <div class="max-w-3xl mx-auto px-6 py-6 space-y-5">
+        <%= for msg <- @messages do %>
+          <%= if msg.role == "user" do %>
+            <ZaqWeb.Components.ChatMessage.user_bubble
+              content={msg.content}
+              timestamp={msg.inserted_at}
+            />
+          <% else %>
+            <ZaqWeb.Components.ChatMessage.assistant_bubble
+              content={msg.content}
+              timestamp={msg.inserted_at}
+              html_content={true}
+              confidence={msg.confidence_score}
+              sources={msg.sources || []}
+            >
+              <:actions>
+                <button
+                  :for={rating <- 1..5}
+                  phx-click="rate_message"
+                  phx-value-id={msg.id}
+                  phx-value-rating={rating}
+                  class="w-5 h-5 rounded font-mono text-[0.65rem] border border-black/10 hover:border-[#03b6d4] hover:text-[#03b6d4] hover:bg-[#03b6d4]/5 transition-all text-black/40"
+                  title={"Rate #{rating}"}
+                >
+                  {rating}
+                </button>
+              </:actions>
+            </ZaqWeb.Components.ChatMessage.assistant_bubble>
+          <% end %>
+        <% end %>
+
+        <div :if={@messages == []} class="py-16 text-center">
+          <p class="font-mono text-sm" style="color:#b8b5ae;">No messages yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Shares panel --%>
+    <div :if={@shares != []} class="w-64 flex-shrink-0">
+      <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
+        <div class="px-5 py-3 border-b border-black/10">
+          <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">
+            Active Shares
+          </p>
+        </div>
+        <ul class="divide-y divide-black/5">
+          <li
+            :for={share <- @shares}
+            id={"share-#{share.id}"}
+            class="px-4 py-3 flex items-center justify-between gap-2"
+          >
+            <div class="min-w-0">
+              <p class="font-mono text-[0.62rem] text-black/40 truncate">{share.share_token}</p>
+              <span class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded bg-black/5 text-black/40">
+                {share.permission}
+              </span>
+            </div>
+            <button
+              phx-click="revoke_share"
+              phx-value-id={share.id}
+              data-confirm="Revoke this share?"
+              class="font-mono text-[0.7rem] text-red-500 hover:underline flex-shrink-0"
+            >
+              Revoke
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Share dialog --%>
+  <div
+    :if={@show_share_dialog}
+    class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+  >
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-80 border border-black/10">
+      <p class="font-mono text-sm font-bold text-[#2c3a50] mb-4">Share Conversation</p>
+      <form phx-submit="share">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+          Permission
+        </label>
+        <select
+          name="permission"
+          class="font-mono text-[0.78rem] text-black w-full border border-black/10 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#03b6d4] mb-5"
+        >
+          <option value="read">Read</option>
+          <option value="comment">Comment</option>
+        </select>
+        <div class="flex gap-2 justify-end">
+          <button
+            type="button"
+            phx-click="close_share_dialog"
+            class="font-mono text-[0.78rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/60 hover:bg-black/5 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="font-mono text-[0.78rem] font-bold px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors"
+          >
+            Create Link
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>
