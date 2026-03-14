@@ -4,7 +4,7 @@ defmodule Zaq.MixProject do
   def project do
     [
       app: :zaq,
-      version: "0.2.0",
+      version: "0.3.0",
       source_url: "https://github.com/www-zaq-ai/zaq",
       homepage_url: "https://www-zaq-ai.github.io/zaq/",
       elixir: "~> 1.15",
