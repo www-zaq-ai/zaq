@@ -81,6 +81,8 @@ defmodule ZaqWeb.Router do
 
       live "/playground", Live.BO.Communication.PlaygroundLive
       live "/history", Live.BO.Communication.HistoryLive
+
+      live "/conversations/:id", Live.BO.Communication.ConversationDetailLive, :show
     end
   end
 
