@@ -12,6 +12,11 @@ defmodule Zaq.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      dialyzer: [
+        flags: [:unmatched_returns, :error_handling, :underspecs],
+        # This will use your ignore file
+        ignore_warnings: ".dialyzer_ignore.exs"
+      ],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
       test_coverage: [tool: ExCoveralls],
@@ -89,7 +94,8 @@ defmodule Zaq.MixProject do
       {:file_system, "~> 1.1"},
       {:fresh, "~> 0.4.4"},
       {:httpoison, "~> 2.3"},
-      {:earmark, "~> 1.4.48"}
+      {:earmark, "~> 1.4.48"},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 

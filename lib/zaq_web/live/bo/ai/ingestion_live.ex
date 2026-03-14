@@ -4,6 +4,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   use ZaqWeb, :live_view
 
   import Ecto.Query
+  import ZaqWeb.Live.BO.AI.IngestionComponents
+
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Document, FileExplorer}
   alias Zaq.Repo
@@ -622,19 +624,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     assign(socket, move_breadcrumbs: crumbs)
   end
 
-  # ────────────────────────────────────────────────────────────────
-  # Template helpers (public for HEEx)
-  # ────────────────────────────────────────────────────────────────
-
-  def format_size(bytes) when bytes < 1024, do: "#{bytes} B"
-  def format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"
-  def format_size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
-
-  def status_color("pending"), do: "bg-black/5 text-black/40"
-  def status_color("processing"), do: "bg-amber-100 text-amber-600"
-  def status_color("completed"), do: "bg-emerald-100 text-emerald-700"
-  def status_color("failed"), do: "bg-red-100 text-red-600"
-  def status_color(_), do: "bg-black/5 text-black/30"
+  # Kept public for backward-compat with tests that call these directly.
+  defdelegate format_size(bytes), to: ZaqWeb.Live.BO.AI.IngestionComponents
+  defdelegate status_color(status), to: ZaqWeb.Live.BO.AI.IngestionComponents
 
   @doc """
   Returns the BO URL for viewing a file in the browser.
