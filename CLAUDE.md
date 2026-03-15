@@ -32,7 +32,7 @@ lib/
 │   │   ├── ingestion/    # Google Drive, SharePoint (not yet implemented)
 │   │   └── retrieval/    # Mattermost ✅, Slack/Email planned
 │   ├── embedding/        # Embedding client (standalone)
-│   ├── engine/           # Orchestrator — adapter contracts + supervisors
+│   ├── engine/           # Orchestrator — adapter contracts + supervisors + Conversations context
 │   ├── ingestion/        # Document processing, chunking, Oban jobs
 │   ├── license/          # License verification, feature gating
 │   ├── node_router.ex    # Routes RPC calls by role
@@ -41,7 +41,7 @@ lib/
 │   ├── live/bo/
 │   │   ├── accounts/     # Users + Roles CRUD
 │   │   ├── ai/           # Ingestion, Ontology, Prompt Templates, Diagnostics
-│   │   ├── communication/# Channels, History, Playground
+│   │   ├── communication/# Channels, History, Playground, Conversations
 │   │   └── system/       # Password, License
 │   ├── controllers/
 │   ├── plugs/auth.ex
@@ -60,6 +60,19 @@ lib/
 - Channel adapters: `Zaq.Channels.<Kind>.<Provider>`
 - Background jobs: Oban workers under `lib/zaq/ingestion/`
 - Run `mix format --check-formatted` and `mix test` before committing
+
+### Conversations Context (`Zaq.Engine.Conversations`)
+
+Persists every Q&A exchange as a structured Conversation with Messages.
+
+- Module: `lib/zaq/engine/conversations.ex`
+- Schemas: `lib/zaq/engine/conversations/` (Conversation, Message, MessageRating, ConversationShare)
+- Oban worker: `Zaq.Engine.Conversations.TokenUsageAggregator` (queue: `:conversations`)
+- BO routes: `GET /bo/conversations`, `GET /bo/conversations/:id`
+- LiveViews: `ZaqWeb.Live.BO.Communication.ConversationsLive`, `ConversationDetailLive`
+- All BO calls MUST go through `NodeRouter.call(:engine, Zaq.Engine.Conversations, ...)`
+- `users` table uses integer PKs — FK fields in conversation schemas use `type: :integer`
+- Anonymous channel users identified by `channel_user_id + channel_type` (no `user_id`)
 
 ---
 

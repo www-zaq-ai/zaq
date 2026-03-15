@@ -97,12 +97,14 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     post_id = question.metadata.post_id
     thread_id = question.thread_id || post_id
     text = question.text
+    channel_user_id = Map.get(question, :user_id)
+    channel_config_id = Map.get(question, :channel_config_id)
 
     sender_name = question.metadata.sender_name
     Logger.info("[Mattermost] Processing question from #{sender_name}: #{text}")
 
     Task.start(fn ->
-      run_pipeline(text, channel_id, thread_id, sender_name)
+      run_pipeline(text, channel_id, thread_id, channel_user_id, channel_config_id, sender_name)
     end)
 
     :ok
@@ -195,6 +197,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
               text: text,
               channel_id: post.channel_id,
               user_id: post.user_id,
+              channel_config_id: state |> Map.get(:config) |> then(&if(&1, do: &1.id, else: nil)),
               thread_id: post.root_id,
               metadata: %{
                 sender_name: post.sender_name,
@@ -237,7 +240,14 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   # --- Private: RAG Pipeline ---
 
-  defp run_pipeline(user_msg, channel_id, thread_id, sender_name) do
+  defp run_pipeline(
+         user_msg,
+         channel_id,
+         thread_id,
+         channel_user_id,
+         channel_config_id,
+         sender_name
+       ) do
     # Send typing indicator while processing
     api_module().send_typing(channel_id, thread_id)
 
@@ -286,7 +296,37 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
       {:error, reason} ->
         Logger.error("[Mattermost] Failed to send reply: #{inspect(reason)}")
     end
+
+    # Persist conversation asynchronously after replying
+    unless Map.get(result, :error) do
+      Task.start(fn ->
+        persist_conversation(user_msg, result, channel_user_id, channel_config_id)
+      end)
+    end
   end
+
+  defp persist_conversation(user_msg, result, channel_user_id, channel_config_id) do
+    with {:ok, conv} <-
+           Zaq.Engine.Conversations.get_or_create_conversation_for_channel(
+             channel_user_id,
+             "mattermost",
+             channel_config_id
+           ) do
+      Zaq.Engine.Conversations.add_message(conv, %{role: "user", content: user_msg})
+
+      Zaq.Engine.Conversations.add_message(conv, %{
+        role: "assistant",
+        content: result.answer,
+        confidence_score: extract_confidence_score(result.confidence)
+      })
+    else
+      err -> Logger.warning("[Mattermost] Failed to persist conversation: #{inspect(err)}")
+    end
+  end
+
+  defp extract_confidence_score(%{score: score}), do: score
+  defp extract_confidence_score(score) when is_float(score), do: score
+  defp extract_confidence_score(_), do: nil
 
   defp run_retrieval(clean_msg) do
     case node_router_module().call(:agent, retrieval_module(), :ask, [clean_msg, [history: %{}]]) do
