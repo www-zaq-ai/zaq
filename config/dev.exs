@@ -14,6 +14,8 @@ config :zaq, Zaq.Repo,
 config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 # config :zaq, roles: [:bo]
 
+config :zaq, :base_url, "http://localhost:4000"
+
 config :zaq, Zaq.Ingestion,
   base_path: "priv/documents",
   volumes: %{

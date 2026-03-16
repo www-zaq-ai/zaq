@@ -9,8 +9,11 @@ defmodule Zaq.Accounts.User do
 
   alias Zaq.Accounts.PasswordPolicy
 
+  @type t :: %__MODULE__{}
+
   schema "users" do
     field :username, :string
+    field :email, :string
     field :password, :string, virtual: true
     field :password_hash, :string
     field :must_change_password, :boolean, default: true
@@ -22,9 +25,13 @@ defmodule Zaq.Accounts.User do
 
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:username, :role_id, :must_change_password])
+    |> cast(attrs, [:username, :email, :role_id, :must_change_password])
     |> validate_required([:username, :role_id])
+    |> validate_format(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      message: "must be a valid email address"
+    )
     |> unique_constraint(:username)
+    |> unique_constraint(:email)
   end
 
   def password_changeset(user, attrs) do

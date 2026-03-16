@@ -41,3 +41,24 @@ config :zaq,
   knowledge_gap_immediate_threshold:
     String.to_integer(System.get_env("KNOWLEDGE_GAP_IMMEDIATE_THRESHOLD", "3")),
   default_business_id: System.get_env("DEFAULT_BUSINESS_ID")
+
+# -- Notifications (SMTP) --
+# In dev, emails are stored locally and viewable at http://localhost:4000/dev/mailbox.
+# To test with a real SMTP server instead, uncomment and fill in the block below,
+# then also set the mailer adapter:
+#
+# config :zaq, Zaq.Mailer,
+#   adapter: Swoosh.Adapters.SMTP,
+#   relay: "smtp.example.com",       # SMTP_RELAY
+#   port: 587,                        # SMTP_PORT (default 587)
+#   username: "you@example.com",      # SMTP_USERNAME
+#   password: "your-smtp-password",   # SMTP_PASSWORD
+#   tls: :enabled,                    # SMTP_TLS: enabled | always | never
+#   auth: :always
+#
+# config :zaq, Zaq.Engine.Notifications,
+#   from_email: "noreply@example.com",  # SMTP_FROM_EMAIL
+#   from_name: "ZAQ"                    # SMTP_FROM_NAME
+#
+# Override the base URL used in password-reset links (default: http://localhost:4000):
+# config :zaq, :base_url, "http://localhost:4000"

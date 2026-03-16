@@ -53,6 +53,8 @@ if config_env() == :prod do
       """
 
   host = System.get_env("PHX_HOST") || "example.com"
+  base_url_scheme = System.get_env("BASE_URL_SCHEME", "https")
+  config :zaq, :base_url, System.get_env("BASE_URL", "#{base_url_scheme}://#{host}")
 
   config :zaq, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
@@ -113,6 +115,44 @@ if config_env() == :prod do
     api_url: System.get_env("SCALEWAY_API_URL", "https://api.scaleway.ai/v1/chat/completions"),
     model: System.get_env("SCALEWAY_MODEL", "pixtral-12b-2409"),
     api_key: System.get_env("SCALEWAY_API_KEY", "")
+
+  # -- Notifications (SMTP) --
+  smtp_relay = System.get_env("SMTP_RELAY")
+
+  if smtp_relay do
+    smtp_port = String.to_integer(System.get_env("SMTP_PORT", "587"))
+    smtp_tls = String.to_atom(System.get_env("SMTP_TLS", "enabled"))
+
+    smtp_auth =
+      if System.get_env("SMTP_USERNAME") do
+        :always
+      else
+        :never
+      end
+
+    smtp_opts =
+      [
+        relay: smtp_relay,
+        port: smtp_port,
+        tls: smtp_tls,
+        auth: smtp_auth
+      ]
+      |> then(fn opts ->
+        case System.get_env("SMTP_USERNAME") do
+          nil ->
+            opts
+
+          user ->
+            Keyword.merge(opts, username: user, password: System.get_env("SMTP_PASSWORD", ""))
+        end
+      end)
+
+    config :zaq, Zaq.Mailer, [adapter: Swoosh.Adapters.SMTP] ++ smtp_opts
+
+    config :zaq, Zaq.Engine.Notifications,
+      from_email: System.get_env("SMTP_FROM_EMAIL", "noreply@zaq.local"),
+      from_name: System.get_env("SMTP_FROM_NAME", "ZAQ")
+  end
 
   # -- Oban --
   config :zaq, Oban,

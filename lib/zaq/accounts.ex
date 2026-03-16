@@ -91,6 +91,45 @@ defmodule Zaq.Accounts do
     |> Repo.update()
   end
 
+  def get_user_by_email(email) when is_binary(email) do
+    User
+    |> Repo.get_by(email: email)
+    |> Repo.preload(:role)
+  end
+
+  def get_user_by_email(_), do: nil
+
+  @reset_token_salt "password_reset"
+  @reset_token_max_age 3_600
+
+  def generate_password_reset_token(%User{} = user) do
+    payload = %{user_id: user.id, secret: password_secret(user)}
+    Phoenix.Token.sign(ZaqWeb.Endpoint, @reset_token_salt, payload)
+  end
+
+  def verify_password_reset_token(token) do
+    case Phoenix.Token.verify(ZaqWeb.Endpoint, @reset_token_salt, token,
+           max_age: @reset_token_max_age
+         ) do
+      {:ok, %{user_id: user_id, secret: secret}} ->
+        user = get_user!(user_id)
+
+        if password_secret(user) == secret do
+          {:ok, user}
+        else
+          {:error, :invalid_token}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp password_secret(%User{password_hash: hash}) when is_binary(hash),
+    do: String.slice(hash, -8, 8)
+
+  defp password_secret(_), do: ""
+
   def authenticate_user(username, password) do
     case get_user_by_username(username) do
       %User{password_hash: nil, must_change_password: true} = user ->
