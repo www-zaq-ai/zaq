@@ -3,25 +3,199 @@
   page_title="History"
   current_path={@current_path}
 >
-  <div id="history-page" class="flex items-center justify-center min-h-[60vh]">
-    <div class="text-center">
-      <div class="w-16 h-16 mx-auto mb-6 rounded-2xl bg-[#03b6d4]/10 grid place-items-center">
-        <svg
-          class="w-8 h-8 text-[#03b6d4]"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          viewBox="0 0 24 24"
+  <%!-- Toolbar --%>
+  <div class="flex items-center justify-between mb-6">
+    <p class="font-mono text-sm text-black/50">{length(@conversations)} conversations</p>
+
+    <form phx-change="filter" class="flex items-center gap-3">
+      <%!-- Scope toggle — super_admin only --%>
+      <div :if={@is_admin} class="flex items-center gap-1 p-0.5 bg-black/5 rounded-lg">
+        <button
+          type="button"
+          phx-click="filter"
+          phx-value-scope="own"
+          phx-value-status={@filter_status}
+          phx-value-channel_type={@filter_channel_type}
+          class={[
+            "font-mono text-[0.7rem] px-3 py-1.5 rounded-md transition-all",
+            if(@filter_scope == "own",
+              do: "bg-white text-[#2c3a50] shadow-sm",
+              else: "text-black/40 hover:text-black/60"
+            )
+          ]}
         >
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12 6 12 12 16 14" />
-        </svg>
+          My History
+        </button>
+        <button
+          type="button"
+          phx-click="filter"
+          phx-value-scope="all"
+          phx-value-status={@filter_status}
+          phx-value-channel_type={@filter_channel_type}
+          class={[
+            "font-mono text-[0.7rem] px-3 py-1.5 rounded-md transition-all",
+            if(@filter_scope == "all",
+              do: "bg-white text-[#2c3a50] shadow-sm",
+              else: "text-black/40 hover:text-black/60"
+            )
+          ]}
+        >
+          All Users
+        </button>
       </div>
-      <h2 class="font-mono text-xl font-bold text-black mb-2">History</h2>
-      <p class="font-mono text-sm text-black/40 mb-4">Coming Soon</p>
-      <p class="font-mono text-[0.78rem] text-black/30 max-w-sm">
-        Browse and review past conversations, track interactions, and analyze communication patterns.
-      </p>
-    </div>
+
+      <%!-- Status --%>
+      <div class="flex items-center gap-1.5">
+        <label
+          for="status"
+          class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider"
+        >
+          Status
+        </label>
+        <select
+          id="status"
+          name="status"
+          class="font-mono text-[0.78rem] text-black border border-black/10 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#03b6d4]"
+        >
+          <option value="all" selected={@filter_status == "all"}>All</option>
+          <option value="active" selected={@filter_status == "active"}>Active</option>
+          <option value="archived" selected={@filter_status == "archived"}>Archived</option>
+        </select>
+      </div>
+
+      <%!-- Channel --%>
+      <div class="flex items-center gap-1.5">
+        <label
+          for="channel_type"
+          class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider"
+        >
+          Channel
+        </label>
+        <select
+          id="channel_type"
+          name="channel_type"
+          class="font-mono text-[0.78rem] text-black border border-black/10 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#03b6d4]"
+        >
+          <option value="all" selected={@filter_channel_type == "all"}>All</option>
+          <option value="bo" selected={@filter_channel_type == "bo"}>BO</option>
+          <option value="mattermost" selected={@filter_channel_type == "mattermost"}>
+            Mattermost
+          </option>
+          <option value="slack" selected={@filter_channel_type == "slack"}>Slack</option>
+          <option value="api" selected={@filter_channel_type == "api"}>API</option>
+        </select>
+      </div>
+    </form>
+  </div>
+
+  <%!-- Table --%>
+  <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-black/10">
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+            Conversation
+          </th>
+          <%!-- Identity column only shown in "all users" scope --%>
+          <th
+            :if={@is_admin && @filter_scope == "all"}
+            class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3"
+          >
+            Identity
+          </th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+            Channel
+          </th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+            Status
+          </th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+            Started
+          </th>
+          <th class="text-right font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={conv <- @conversations}
+          id={"conv-#{conv.id}"}
+          class="border-b border-black/5 last:border-0 hover:bg-black/[0.02]"
+        >
+          <%!-- Title --%>
+          <td class="px-6 py-4 max-w-xs">
+            <p class="font-mono text-sm text-black truncate">
+              {conv.title || "(untitled)"}
+            </p>
+          </td>
+
+          <%!-- Identity — only in all-users scope --%>
+          <td :if={@is_admin && @filter_scope == "all"} class="px-6 py-4">
+            <span :if={conv.channel_user_id} class="font-mono text-[0.7rem] text-black/50">
+              {conv.channel_user_id}
+            </span>
+            <span
+              :if={is_nil(conv.channel_user_id) && conv.user_id}
+              class="font-mono text-[0.7rem] text-black/50"
+            >
+              user #{conv.user_id}
+            </span>
+            <span
+              :if={is_nil(conv.channel_user_id) && is_nil(conv.user_id)}
+              class="font-mono text-[0.7rem] text-black/30"
+            >
+              —
+            </span>
+          </td>
+
+          <%!-- Channel type --%>
+          <td class="px-6 py-4">
+            <span class="font-mono text-[0.7rem] px-2 py-1 rounded bg-black/5 text-black/50">
+              {conv.channel_type}
+            </span>
+          </td>
+
+          <%!-- Status --%>
+          <td class="px-6 py-4">
+            <span
+              :if={conv.status == "active"}
+              class="font-mono text-[0.7rem] px-2 py-1 rounded bg-emerald-100 text-emerald-700"
+            >
+              active
+            </span>
+            <span
+              :if={conv.status == "archived"}
+              class="font-mono text-[0.7rem] px-2 py-1 rounded bg-black/5 text-black/40"
+            >
+              archived
+            </span>
+          </td>
+
+          <%!-- Date --%>
+          <td class="font-mono text-sm text-black/40 px-6 py-4">
+            {Calendar.strftime(conv.inserted_at, "%Y-%m-%d %H:%M")}
+          </td>
+
+          <%!-- View link --%>
+          <td class="px-6 py-4 text-right">
+            <.link
+              navigate={~p"/bo/conversations/#{conv.id}"}
+              class="font-mono text-[0.75rem] text-[#03b6d4] hover:underline"
+            >
+              View →
+            </.link>
+          </td>
+        </tr>
+
+        <tr :if={@conversations == []}>
+          <td
+            colspan={if @is_admin && @filter_scope == "all", do: "6", else: "5"}
+            class="px-6 py-12 text-center font-mono text-sm text-black/30"
+          >
+            No conversations found.
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>

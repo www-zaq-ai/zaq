@@ -15,7 +15,9 @@ defmodule Zaq.Ingestion.IngestWorker do
   alias Zaq.Repo
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"job_id" => job_id}, attempt: attempt, max_attempts: max}) do
+  def perform(%Oban.Job{args: %{"job_id" => job_id} = args, attempt: attempt, max_attempts: max}) do
+    role_id = Map.get(args, "role_id")
+    shared_role_ids = Map.get(args, "shared_role_ids", [])
     job = Repo.get!(IngestJob, job_id)
 
     updated_job =
@@ -26,7 +28,7 @@ defmodule Zaq.Ingestion.IngestWorker do
 
     file_path = resolve_file_path(updated_job.file_path)
 
-    case safe_process(file_path) do
+    case safe_process(file_path, role_id, shared_role_ids) do
       {:ok, document} ->
         updated_job
         |> IngestJob.changeset(%{
@@ -73,8 +75,8 @@ defmodule Zaq.Ingestion.IngestWorker do
     attempt * 5
   end
 
-  defp safe_process(file_path) do
-    processor().process_single_file(file_path)
+  defp safe_process(file_path, role_id, shared_role_ids) do
+    processor().process_single_file(file_path, role_id, shared_role_ids)
   rescue
     e ->
       Logger.error(

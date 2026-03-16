@@ -505,7 +505,7 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
       Map.get(@retrieval_overrides, clean_msg, default_retrieval_response(clean_msg))
     end
 
-    def call(:ingestion, document_processor_mod, :query_extraction, [query])
+    def call(:ingestion, document_processor_mod, :query_extraction, [query, _role_ids])
         when document_processor_mod == Zaq.Channels.Retrieval.MattermostTest.DocumentProcessorStub do
       if query == "query-error" do
         {:error, :boom}

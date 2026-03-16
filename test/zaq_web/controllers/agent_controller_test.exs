@@ -113,8 +113,8 @@ defmodule ZaqWeb.AgentControllerTest do
     def query_extraction(query), do: {:ok, [%{"content" => "ctx:" <> query}]}
 
     def process_folder(_path), do: {:ok, %{processed: 2, failed: 0}}
-    def process_single_file("error_file.md"), do: {:error, :ingest_failed}
-    def process_single_file(_path), do: {:ok, %{source: "single"}}
+    def process_single_file("error_file.md", _role_id), do: {:error, :ingest_failed}
+    def process_single_file(_path, _role_id), do: {:ok, %{source: "single"}}
   end
 
   defmodule AnsweringStub do

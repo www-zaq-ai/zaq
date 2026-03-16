@@ -699,6 +699,18 @@ defmodule ZaqWeb.Components.BOLayout do
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
+    <svg
+      :if={@icon == "conversations"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <line x1="9" y1="10" x2="15" y2="10" />
+      <line x1="9" y1="14" x2="13" y2="14" />
+    </svg>
     """
   end
 

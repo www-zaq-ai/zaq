@@ -342,7 +342,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "ingest_selected clears selection and shows flash for a file", %{conn: conn} do
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                   _role_id,
+                                                                   _shared_role_ids ->
         {:ok, %{id: nil}}
       end)
 
@@ -360,7 +362,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "ingest_selected clears selection and shows flash for a directory", %{conn: conn} do
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                   _role_id,
+                                                                   _shared_role_ids ->
         {:ok, %{id: nil}}
       end)
 
@@ -375,6 +379,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute has_element?(view, "button", "Delete (1)")
       # A job row for a file inside the folder appears in the jobs table
       assert has_element?(view, "p", ~r/readme\.md/)
+    end
+
+    test "ingest_selected passes current_user role_id to ingest functions", %{conn: conn} do
+      parent = self()
+
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
+                                                                   role_id,
+                                                                   _shared_role_ids ->
+        send(parent, {:role_id_used, role_id})
+        {:ok, %{id: nil}}
+      end)
+
+      user = Zaq.Accounts.get_user_by_username("ingestion_live_admin")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "set_mode", %{"mode" => "inline"})
+      render_hook(view, "toggle_select", %{"path" => "alpha.md"})
+      render_hook(view, "ingest_selected", %{})
+
+      assert_receive {:role_id_used, role_id}, 500
+      assert role_id == user.role_id
     end
   end
 

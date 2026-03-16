@@ -13,7 +13,7 @@ config :zaq,
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  queues: [ingestion: 3, default: 10]
+  queues: [ingestion: 3, default: 10, conversations: 5]
 
 # Configure the endpoint
 config :zaq, ZaqWeb.Endpoint,

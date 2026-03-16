@@ -22,6 +22,8 @@ defmodule Zaq.Ingestion.IngestJob do
     field :chunks_count, :integer, default: 0
     field :document_id, :integer
     field :volume_name, :string
+    field :role_id, :integer
+    field :shared_role_ids, {:array, :integer}, default: []
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -40,7 +42,9 @@ defmodule Zaq.Ingestion.IngestJob do
       :completed_at,
       :chunks_count,
       :document_id,
-      :volume_name
+      :volume_name,
+      :role_id,
+      :shared_role_ids
     ])
     |> validate_required([:file_path, :status, :mode])
     |> validate_inclusion(:status, @statuses)

@@ -60,7 +60,7 @@ defmodule ZaqWeb.AgentController do
     result =
       if File.dir?(path),
         do: document_processor.process_folder(path),
-        else: document_processor.process_single_file(path)
+        else: document_processor.process_single_file(path, nil)
 
     case result do
       {:ok, data} ->

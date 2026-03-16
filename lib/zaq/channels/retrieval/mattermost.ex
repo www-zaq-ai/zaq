@@ -38,12 +38,15 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   require Logger
 
+  alias Zaq.Accounts
+  alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Channels.PendingQuestions
   alias Zaq.Channels.Retrieval.Mattermost.API
   alias Zaq.Channels.Retrieval.Mattermost.EventParser
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.Engine.Conversations
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
 
@@ -95,11 +98,14 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     post_id = question.metadata.post_id
     thread_id = question.thread_id || post_id
     text = question.text
+    channel_user_id = Map.get(question, :user_id)
+    channel_config_id = Map.get(question, :channel_config_id)
 
-    Logger.info("[Mattermost] Processing question from #{question.metadata.sender_name}: #{text}")
+    sender_name = question.metadata.sender_name
+    Logger.info("[Mattermost] Processing question from #{sender_name}: #{text}")
 
     Task.start(fn ->
-      run_pipeline(text, channel_id, thread_id)
+      run_pipeline(text, channel_id, thread_id, channel_user_id, channel_config_id, sender_name)
     end)
 
     :ok
@@ -170,40 +176,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
         {:ok, state}
 
       {:ok, post} ->
-        cond do
-          not monitored?(post.channel_id, state) ->
-            Logger.debug(
-              "[Mattermost] Ignoring message from unmonitored channel: #{post.channel_id}"
-            )
-
-            {:ok, state}
-
-          pending_reply?(post) ->
-            handle_pending_reply(post, state)
-
-          not mentions_zaq?(post.message) ->
-            Logger.debug("[Mattermost] Ignoring message without @zaq mention")
-            {:ok, state}
-
-          true ->
-            text = strip_mention(post.message)
-
-            forward_to_engine(%{
-              text: text,
-              channel_id: post.channel_id,
-              user_id: post.user_id,
-              thread_id: post.root_id,
-              metadata: %{
-                sender_name: post.sender_name,
-                channel_name: post.channel_name,
-                channel_type: post.channel_type,
-                post_id: post.id,
-                create_at: post.create_at
-              }
-            })
-
-            {:ok, state}
-        end
+        handle_valid_post(post, state)
 
       {:error, reason} ->
         Logger.warning("[Mattermost] Failed to parse posted event: #{inspect(reason)}")
@@ -220,6 +193,42 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     {:ok, state}
   end
 
+  defp handle_valid_post(post, state) do
+    cond do
+      not monitored?(post.channel_id, state) ->
+        Logger.debug("[Mattermost] Ignoring message from unmonitored channel: #{post.channel_id}")
+
+        {:ok, state}
+
+      pending_reply?(post) ->
+        handle_pending_reply(post, state)
+
+      not mentions_zaq?(post.message) ->
+        Logger.debug("[Mattermost] Ignoring message without @zaq mention")
+        {:ok, state}
+
+      true ->
+        text = strip_mention(post.message)
+
+        forward_to_engine(%{
+          text: text,
+          channel_id: post.channel_id,
+          user_id: post.user_id,
+          channel_config_id: state |> Map.get(:config) |> then(&if(&1, do: &1.id, else: nil)),
+          thread_id: post.root_id,
+          metadata: %{
+            sender_name: post.sender_name,
+            channel_name: post.channel_name,
+            channel_type: post.channel_type,
+            post_id: post.id,
+            create_at: post.create_at
+          }
+        })
+
+        {:ok, state}
+    end
+  end
+
   defp handle_pending_reply(post, state) do
     case PendingQuestions.check_reply(post) do
       {:answered, answer, callback} ->
@@ -234,14 +243,23 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   # --- Private: RAG Pipeline ---
 
-  defp run_pipeline(user_msg, channel_id, thread_id) do
+  defp run_pipeline(
+         user_msg,
+         channel_id,
+         thread_id,
+         channel_user_id,
+         channel_config_id,
+         sender_name
+       ) do
     # Send typing indicator while processing
     api_module().send_typing(channel_id, thread_id)
+
+    role_ids = resolve_role_ids(sender_name)
 
     result =
       with {:ok, clean_msg} <- prompt_guard_module().validate(user_msg),
            {:ok, retrieval_result} <- run_retrieval(clean_msg),
-           {:ok, extraction_result} <- run_query_extraction(retrieval_result),
+           {:ok, extraction_result} <- run_query_extraction(retrieval_result, role_ids),
            {:ok, answer_result} <- run_answering(clean_msg, extraction_result, retrieval_result),
            {:ok, safe_answer} <- prompt_guard_module().output_safe?(answer_result.answer) do
         if answering_module().no_answer?(safe_answer) do
@@ -281,7 +299,38 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
       {:error, reason} ->
         Logger.error("[Mattermost] Failed to send reply: #{inspect(reason)}")
     end
+
+    # Persist conversation asynchronously after replying
+    unless Map.get(result, :error) do
+      Task.start(fn ->
+        persist_conversation(user_msg, result, channel_user_id, channel_config_id)
+      end)
+    end
   end
+
+  defp persist_conversation(user_msg, result, channel_user_id, channel_config_id) do
+    case Conversations.get_or_create_conversation_for_channel(
+           channel_user_id,
+           "mattermost",
+           channel_config_id
+         ) do
+      {:ok, conv} ->
+        Conversations.add_message(conv, %{role: "user", content: user_msg})
+
+        Conversations.add_message(conv, %{
+          role: "assistant",
+          content: result.answer,
+          confidence_score: extract_confidence_score(result.confidence)
+        })
+
+      err ->
+        Logger.warning("[Mattermost] Failed to persist conversation: #{inspect(err)}")
+    end
+  end
+
+  defp extract_confidence_score(%{score: score}), do: score
+  defp extract_confidence_score(score) when is_float(score), do: score
+  defp extract_confidence_score(_), do: nil
 
   defp run_retrieval(clean_msg) do
     case node_router_module().call(:agent, retrieval_module(), :ask, [clean_msg, [history: %{}]]) do
@@ -315,9 +364,10 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     end
   end
 
-  defp run_query_extraction(%{query: query, negative_answer: negative_answer}) do
+  defp run_query_extraction(%{query: query, negative_answer: negative_answer}, role_ids) do
     case node_router_module().call(:ingestion, document_processor_module(), :query_extraction, [
-           query
+           query,
+           role_ids
          ]) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}
@@ -350,6 +400,20 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   end
 
   # --- Private: Helpers ---
+
+  # Resolves accessible role IDs for a Mattermost sender.
+  # Falls back to nil (unfiltered) when the sender cannot be matched to a ZAQ user.
+  # NOTE: `sender_name` is the Mattermost display name and may not match ZAQ username.
+  # Follow-up: consider adding a `mattermost_username` field to User or a per-channel
+  # default role in config.
+  defp resolve_role_ids(nil), do: nil
+
+  defp resolve_role_ids(sender_name) do
+    case accounts_module().get_user_by_username(sender_name) do
+      nil -> nil
+      user -> Permissions.list_accessible_role_ids(user)
+    end
+  end
 
   defp monitored?(channel_id, %{monitored_channel_ids: ids}) do
     MapSet.member?(ids, channel_id)
@@ -393,6 +457,8 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     |> String.replace_leading("http://", "ws://")
     |> Kernel.<>("/api/v4/websocket")
   end
+
+  defp accounts_module, do: Application.get_env(:zaq, :mattermost_accounts_module, Accounts)
 
   defp api_module, do: Application.get_env(:zaq, :mattermost_api_module, API)
 
