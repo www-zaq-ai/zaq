@@ -108,6 +108,12 @@ if config_env() == :prod do
     base_path: System.get_env("INGESTION_BASE_PATH", "priv/documents"),
     volumes: ingestion_volumes
 
+  # -- Image to Text (Scaleway Pixtral) --
+  config :zaq, Zaq.Ingestion.Python.ImageToText,
+    api_url: System.get_env("SCALEWAY_API_URL", "https://api.scaleway.ai/v1/chat/completions"),
+    model: System.get_env("SCALEWAY_MODEL", "pixtral-12b-2409"),
+    api_key: System.get_env("SCALEWAY_API_KEY", "")
+
   # -- Oban --
   config :zaq, Oban,
     repo: Zaq.Repo,

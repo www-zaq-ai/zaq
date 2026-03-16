@@ -22,6 +22,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer}
+  alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Repo
 
   require Logger
@@ -79,12 +80,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc """
-  Processes a single markdown file: read -> upsert document -> chunk -> embed -> store.
+  Processes a single file: converts PDF to markdown if needed, then reads ->
+  upserts document -> chunks -> embeds -> stores.
   """
   def process_single_file(file_path, role_id \\ nil, shared_role_ids \\ []) do
     Logger.info("Processing file: #{file_path}")
 
-    with {:ok, content} <- File.read(file_path),
+    with {:ok, file_path} <- maybe_convert_pdf(file_path),
+         {:ok, raw} <- File.read(file_path),
+         content = sanitize_utf8(raw),
          {:ok, source} <- extract_source(content, file_path),
          {:ok, document} <- store_document(content, source, role_id),
          {:ok, _chunks} <-
@@ -95,6 +99,31 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       {:error, reason} = error ->
         Logger.error("Failed to process #{file_path}: #{inspect(reason)}")
         error
+    end
+  end
+
+  # Strips bytes that are not part of a valid UTF-8 sequence.
+  # Needed when ingesting files produced by external tools (e.g. the Python
+  # PDF pipeline) that may emit Latin-1 or other non-UTF-8 encodings.
+  defp sanitize_utf8(binary), do: sanitize_utf8(binary, [])
+
+  defp sanitize_utf8(<<>>, acc), do: IO.iodata_to_binary(:lists.reverse(acc))
+  defp sanitize_utf8(<<c::utf8, rest::binary>>, acc), do: sanitize_utf8(rest, [<<c::utf8>> | acc])
+  defp sanitize_utf8(<<_::8, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
+
+  defp maybe_convert_pdf(file_path) do
+    if Path.extname(file_path) |> String.downcase() == ".pdf" do
+      case Pipeline.run(file_path) do
+        {:ok, md_path} ->
+          Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
+          {:ok, md_path}
+
+        {:error, reason} ->
+          Logger.error("[DocumentProcessor] PDF conversion failed: #{inspect(reason)}")
+          {:error, reason}
+      end
+    else
+      {:ok, file_path}
     end
   end
 

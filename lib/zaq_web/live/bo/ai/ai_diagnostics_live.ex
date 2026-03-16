@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   alias Zaq.Agent.{LLM, PromptTemplate, TokenEstimator}
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document}
+  alias Zaq.Ingestion.Python.Runner
 
   @modules [
     # Phase 1
@@ -84,8 +85,10 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
        llm_config: load_llm_config(),
        embedding_config: load_embedding_config(),
        ingestion_config: load_ingestion_config(),
+       image_to_text_config: load_image_to_text_config(),
        llm_status: :idle,
        embedding_status: :idle,
+       pdf_pipeline_status: :idle,
        token_test_result: nil,
        prompt_templates: load_prompt_templates(),
        document_count: document_count(),
@@ -144,6 +147,30 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
     {:noreply, assign(socket, token_test_result: result)}
   end
 
+  def handle_event("test_pdf_pipeline", _params, socket) do
+    socket = assign(socket, pdf_pipeline_status: :loading)
+
+    status =
+      try do
+        scripts_dir = Runner.scripts_dir()
+
+        if File.dir?(scripts_dir) do
+          python = Runner.python_executable()
+
+          case System.cmd(python, ["--version"], stderr_to_stdout: true) do
+            {_output, 0} -> :ok
+            {output, _} -> {:error, "Python unavailable: #{String.trim(output)}"}
+          end
+        else
+          {:error, "Scripts not found. Run: mix zaq.python.fetch"}
+        end
+      rescue
+        e -> {:error, Exception.message(e)}
+      end
+
+    {:noreply, assign(socket, pdf_pipeline_status: status)}
+  end
+
   # --- Private helpers ---
 
   defp load_llm_config do
@@ -176,6 +203,16 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
       hybrid_search_limit: cfg[:hybrid_search_limit] || 20,
       chunk_min_tokens: cfg[:chunk_min_tokens] || 400,
       chunk_max_tokens: cfg[:chunk_max_tokens] || 900
+    }
+  end
+
+  defp load_image_to_text_config do
+    cfg = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText, [])
+
+    %{
+      api_url: cfg[:api_url] || "not set",
+      model: cfg[:model] || "not set",
+      api_key_set: cfg[:api_key] not in [nil, ""]
     }
   end
 

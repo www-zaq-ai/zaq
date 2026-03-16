@@ -61,6 +61,7 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 - Erlang/OTP 28
 - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) extension
 - Node.js 20+ (for asset compilation)
+- Python 3.10+ (for PDF ingestion pipeline)
 
 ## Setup
 
@@ -72,7 +73,31 @@ cd zaq
 mix setup
 ```
 
-This runs `mix deps.get`, creates the database, runs migrations, and installs assets.
+This runs `mix deps.get`, creates the database, runs migrations, installs assets, and fetches the Python pipeline scripts.
+
+### Python Pipeline (PDF Ingestion)
+
+`mix setup` fetches the Python scripts automatically. To set up the virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r priv/python/crawler-ingest/requirements.txt
+```
+
+PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding. Image descriptions are generated via Scaleway Pixtral when `SCALEWAY_API_KEY` is set — otherwise that step is skipped.
+
+```bash
+# Optional — enables image-to-text descriptions in PDFs
+export SCALEWAY_API_KEY=your-key-here
+```
+
+To re-fetch or pin the Python scripts to a specific commit:
+
+```bash
+mix zaq.python.fetch                      # latest main
+mix zaq.python.fetch --commit <sha>       # pin to commit
+```
 
 ### Database
 
