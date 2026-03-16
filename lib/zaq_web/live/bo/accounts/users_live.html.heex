@@ -21,6 +21,9 @@
             Username
           </th>
           <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+            Email
+          </th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
             Role
           </th>
           <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
@@ -37,6 +40,7 @@
           class="border-b border-black/5 last:border-0 hover:bg-black/[0.02]"
         >
           <td class="font-mono text-sm text-black px-6 py-4">{user.username}</td>
+          <td class="font-mono text-sm text-black/50 px-6 py-4">{user.email || "—"}</td>
           <td class="font-mono text-sm text-black/60 px-6 py-4">{user.role.name}</td>
           <td class="px-6 py-4">
             <span

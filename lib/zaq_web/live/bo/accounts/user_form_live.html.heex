@@ -104,6 +104,30 @@
             </p>
           </div>
           
+<!-- Email -->
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Email
+              <span class="normal-case font-normal text-black/30">
+                (optional — used for notifications)
+              </span>
+            </label>
+            <input
+              type="email"
+              name="user[email]"
+              value={@form[:email].value}
+              phx-debounce="300"
+              placeholder="e.g. john.doe@company.com"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-12 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+            />
+            <p
+              :if={@form[:email].errors != []}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {elem(hd(@form[:email].errors), 0)}
+            </p>
+          </div>
+          
 <!-- Role -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
