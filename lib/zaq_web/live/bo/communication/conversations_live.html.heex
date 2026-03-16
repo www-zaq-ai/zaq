@@ -1,6 +1,6 @@
 <ZaqWeb.Components.BOLayout.bo_layout
   current_user={@current_user}
-  page_title="History"
+  page_title="Conversations"
   current_path={@current_path}
 >
   <%!-- Toolbar --%>
@@ -8,48 +8,8 @@
     <p class="font-mono text-sm text-black/50">{length(@conversations)} conversations</p>
 
     <form phx-change="filter" class="flex items-center gap-3">
-      <%!-- Scope toggle — super_admin only --%>
-      <div :if={@is_admin} class="flex items-center gap-1 p-0.5 bg-black/5 rounded-lg">
-        <button
-          type="button"
-          phx-click="filter"
-          phx-value-scope="own"
-          phx-value-status={@filter_status}
-          phx-value-channel_type={@filter_channel_type}
-          class={[
-            "font-mono text-[0.7rem] px-3 py-1.5 rounded-md transition-all",
-            if(@filter_scope == "own",
-              do: "bg-white text-[#2c3a50] shadow-sm",
-              else: "text-black/40 hover:text-black/60"
-            )
-          ]}
-        >
-          My History
-        </button>
-        <button
-          type="button"
-          phx-click="filter"
-          phx-value-scope="all"
-          phx-value-status={@filter_status}
-          phx-value-channel_type={@filter_channel_type}
-          class={[
-            "font-mono text-[0.7rem] px-3 py-1.5 rounded-md transition-all",
-            if(@filter_scope == "all",
-              do: "bg-white text-[#2c3a50] shadow-sm",
-              else: "text-black/40 hover:text-black/60"
-            )
-          ]}
-        >
-          All Users
-        </button>
-      </div>
-
-      <%!-- Status --%>
       <div class="flex items-center gap-1.5">
-        <label
-          for="status"
-          class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider"
-        >
+        <label for="status" class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">
           Status
         </label>
         <select
@@ -63,7 +23,6 @@
         </select>
       </div>
 
-      <%!-- Channel --%>
       <div class="flex items-center gap-1.5">
         <label
           for="channel_type"
@@ -94,14 +53,7 @@
       <thead>
         <tr class="border-b border-black/10">
           <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-            Conversation
-          </th>
-          <%!-- Identity column only shown in "all users" scope --%>
-          <th
-            :if={@is_admin && @filter_scope == "all"}
-            class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3"
-          >
-            Identity
+            Title
           </th>
           <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
             Channel
@@ -110,52 +62,32 @@
             Status
           </th>
           <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-            Started
+            Created
           </th>
           <th class="text-right font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
+            Actions
           </th>
         </tr>
       </thead>
       <tbody>
         <tr
           :for={conv <- @conversations}
-          id={"conv-#{conv.id}"}
+          id={"conversation-#{conv.id}"}
           class="border-b border-black/5 last:border-0 hover:bg-black/[0.02]"
         >
-          <%!-- Title --%>
-          <td class="px-6 py-4 max-w-xs">
-            <p class="font-mono text-sm text-black truncate">
+          <td class="px-6 py-4">
+            <.link
+              navigate={~p"/bo/conversations/#{conv.id}"}
+              class="font-mono text-sm text-[#03b6d4] hover:underline"
+            >
               {conv.title || "(untitled)"}
-            </p>
+            </.link>
           </td>
-
-          <%!-- Identity — only in all-users scope --%>
-          <td :if={@is_admin && @filter_scope == "all"} class="px-6 py-4">
-            <span :if={conv.channel_user_id} class="font-mono text-[0.7rem] text-black/50">
-              {conv.channel_user_id}
-            </span>
-            <span
-              :if={is_nil(conv.channel_user_id) && conv.user_id}
-              class="font-mono text-[0.7rem] text-black/50"
-            >
-              user #{conv.user_id}
-            </span>
-            <span
-              :if={is_nil(conv.channel_user_id) && is_nil(conv.user_id)}
-              class="font-mono text-[0.7rem] text-black/30"
-            >
-              —
-            </span>
-          </td>
-
-          <%!-- Channel type --%>
           <td class="px-6 py-4">
             <span class="font-mono text-[0.7rem] px-2 py-1 rounded bg-black/5 text-black/50">
               {conv.channel_type}
             </span>
           </td>
-
-          <%!-- Status --%>
           <td class="px-6 py-4">
             <span
               :if={conv.status == "active"}
@@ -170,28 +102,32 @@
               archived
             </span>
           </td>
-
-          <%!-- Date --%>
           <td class="font-mono text-sm text-black/40 px-6 py-4">
             {Calendar.strftime(conv.inserted_at, "%Y-%m-%d %H:%M")}
           </td>
-
-          <%!-- View link --%>
-          <td class="px-6 py-4 text-right">
-            <.link
-              navigate={~p"/bo/conversations/#{conv.id}"}
-              class="font-mono text-[0.75rem] text-[#03b6d4] hover:underline"
+          <td class="px-6 py-4 text-right space-x-3">
+            <button
+              :if={conv.status != "archived"}
+              phx-click="archive"
+              phx-value-id={conv.id}
+              data-confirm="Archive this conversation?"
+              class="font-mono text-[0.75rem] text-amber-600 hover:underline"
             >
-              View →
-            </.link>
+              Archive
+            </button>
+            <button
+              phx-click="delete"
+              phx-value-id={conv.id}
+              data-confirm="Delete this conversation permanently?"
+              class="font-mono text-[0.75rem] text-red-500 hover:underline"
+            >
+              Delete
+            </button>
           </td>
         </tr>
 
         <tr :if={@conversations == []}>
-          <td
-            colspan={if @is_admin && @filter_scope == "all", do: "6", else: "5"}
-            class="px-6 py-12 text-center font-mono text-sm text-black/30"
-          >
+          <td colspan="5" class="px-6 py-12 text-center font-mono text-sm text-black/30">
             No conversations found.
           </td>
         </tr>
