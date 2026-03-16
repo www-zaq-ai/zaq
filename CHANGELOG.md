@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/www-zaq-ai/zaq/compare/v0.4.0...v0.5.0) (2026-03-16)
+
+
+### Features
+
+* **gitflow:** fix git actions to support gitflow ([0bf2929](https://github.com/www-zaq-ai/zaq/commit/0bf292922b5cf1be15c6bcd14bc0b9d8e5215732))
+* **gitflow:** fix git actions to support gitflow ([1c3ad62](https://github.com/www-zaq-ai/zaq/commit/1c3ad62a773b4f5b028e6b997f47e30c0309beaa))
+
 ## [0.4.0](https://github.com/www-zaq-ai/zaq/compare/v0.3.0...v0.4.0) (2026-03-16)
 
 
