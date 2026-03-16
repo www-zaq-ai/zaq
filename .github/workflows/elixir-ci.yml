@@ -3,7 +3,7 @@ name: Elixir CI
 on:
   pull_request:
     branches:
-      - dev
+      - main
 
 jobs:
   test:
