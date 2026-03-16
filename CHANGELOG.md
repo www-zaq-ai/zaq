@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/www-zaq-ai/zaq/compare/v0.3.0...v0.4.0) (2026-03-16)
+
+
+### Features
+
+* **engine:** conversation management ([#87](https://github.com/www-zaq-ai/zaq/issues/87)) ([84d3ebd](https://github.com/www-zaq-ai/zaq/commit/84d3ebda8423b9f6f385c538af8823a29526b5ce))
+* implement RBAC engine — role-scoped ingestion and retrieval ([#86](https://github.com/www-zaq-ai/zaq/issues/86)) ([71fbbba](https://github.com/www-zaq-ai/zaq/commit/71fbbba958ac1b228295ad7234b96b46d092de94))
+
 ## [0.3.0](https://github.com/www-zaq-ai/zaq/compare/v0.2.0...v0.3.0) (2026-03-13)
 
 
