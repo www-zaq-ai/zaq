@@ -19,161 +19,155 @@
     </div>
     <div class="bg-white rounded-xl border border-black/10 p-5">
       <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-        Documents
+        PDF Pipeline Model
+      </p>
+      <p class="font-mono text-sm font-bold text-black truncate">{@image_to_text_config.model}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-black/10 p-5">
+      <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+        Knowledge Base
       </p>
       <p class="font-mono text-2xl font-bold text-black">
         {if @document_count, do: @document_count, else: "—"}
+        <span class="font-mono text-[0.65rem] text-black/40 font-normal">docs</span>
       </p>
-    </div>
-    <div class="bg-white rounded-xl border border-black/10 p-5">
-      <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">Chunks</p>
-      <p class="font-mono text-2xl font-bold text-black">
+      <p class="font-mono text-sm font-bold text-black/60 mt-1">
         {if @chunk_count, do: @chunk_count, else: "—"}
+        <span class="font-mono text-[0.65rem] text-black/40 font-normal">chunks</span>
       </p>
     </div>
   </div>
 
-  <div class="grid grid-cols-3 gap-6">
-    <!-- LLM Config -->
-    <div class="bg-white rounded-xl border border-black/10 p-5 flex flex-col">
-      <div class="flex items-center justify-between mb-4">
-        <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">LLM</p>
-        <ZaqWeb.Components.BOLayout.status_badge status={@llm_status} />
-      </div>
-      <div class="space-y-2 mb-4">
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Endpoint"
-          value={@llm_config.endpoint}
-          truncate
-          hint="LLM_ENDPOINT"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Model"
-          value={@llm_config.model}
-          hint="LLM_MODEL"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Temperature"
-          value={to_string(@llm_config.temperature)}
-          hint="config/runtime.exs"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Top-p"
-          value={to_string(@llm_config.top_p)}
-          hint="config/runtime.exs"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Logprobs"
-          value={if @llm_config.supports_logprobs, do: "yes", else: "no"}
-          hint="config/runtime.exs"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="JSON Mode"
-          value={if @llm_config.supports_json_mode, do: "yes", else: "no"}
-          hint="config/runtime.exs"
-        />
-      </div>
-      <div class="mt-auto">
-        <button
-          phx-click="test_llm"
-          disabled={@llm_status == :loading}
-          class="w-full font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/80 disabled:opacity-40 transition-colors"
-        >
-          {if @llm_status == :loading, do: "Testing…", else: "Test Connection"}
-        </button>
-        <%= if is_tuple(@llm_status) and elem(@llm_status, 0) == :error do %>
-          <p class="font-mono text-[0.7rem] text-red-500 mt-2 break-all">
-            {elem(@llm_status, 1)}
-          </p>
-        <% end %>
-      </div>
-    </div>
+  <div class="grid grid-cols-4 gap-6">
+    <!-- LLM -->
+    <ZaqWeb.Components.BOLayout.diagnostic_card
+      label="LLM"
+      status={@llm_status}
+      event="test_llm"
+    >
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Endpoint"
+        value={@llm_config.endpoint}
+        truncate
+        hint="LLM_ENDPOINT"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Model"
+        value={@llm_config.model}
+        hint="LLM_MODEL"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Temperature"
+        value={to_string(@llm_config.temperature)}
+        hint="config/runtime.exs"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Top-p"
+        value={to_string(@llm_config.top_p)}
+        hint="config/runtime.exs"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Logprobs"
+        value={if @llm_config.supports_logprobs, do: "yes", else: "no"}
+        hint="config/runtime.exs"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="JSON Mode"
+        value={if @llm_config.supports_json_mode, do: "yes", else: "no"}
+        hint="config/runtime.exs"
+      />
+    </ZaqWeb.Components.BOLayout.diagnostic_card>
     
-<!-- Embedding Config -->
-    <div class="bg-white rounded-xl border border-black/10 p-5 flex flex-col">
-      <div class="flex items-center justify-between mb-4">
-        <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">Embedding</p>
-        <ZaqWeb.Components.BOLayout.status_badge status={@embedding_status} />
-      </div>
-      <div class="space-y-2 mb-4">
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Endpoint"
-          value={@embedding_config.endpoint}
-          truncate
-          hint="EMBEDDING_ENDPOINT"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Model"
-          value={@embedding_config.model}
-          hint="EMBEDDING_MODEL"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Dimension"
-          value={to_string(@embedding_config.dimension)}
-          hint="EMBEDDING_DIMENSION"
-        />
-      </div>
-      <div class="mt-auto">
-        <button
-          phx-click="test_embedding"
-          disabled={@embedding_status == :loading}
-          class="w-full font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/80 disabled:opacity-40 transition-colors"
-        >
-          {if @embedding_status == :loading, do: "Testing…", else: "Test Connection"}
-        </button>
-        <%= if is_tuple(@embedding_status) and elem(@embedding_status, 0) == :error do %>
-          <p class="font-mono text-[0.7rem] text-red-500 mt-2 break-all">
-            {elem(@embedding_status, 1)}
-          </p>
-        <% end %>
-      </div>
-    </div>
+<!-- Embedding -->
+    <ZaqWeb.Components.BOLayout.diagnostic_card
+      label="Embedding"
+      status={@embedding_status}
+      event="test_embedding"
+    >
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Endpoint"
+        value={@embedding_config.endpoint}
+        truncate
+        hint="EMBEDDING_ENDPOINT"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Model"
+        value={@embedding_config.model}
+        hint="EMBEDDING_MODEL"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Dimension"
+        value={to_string(@embedding_config.dimension)}
+        hint="EMBEDDING_DIMENSION"
+      />
+    </ZaqWeb.Components.BOLayout.diagnostic_card>
     
-<!-- Ingestion Config -->
-    <div class="bg-white rounded-xl border border-black/10 p-5 flex flex-col">
-      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-4">Ingestion</p>
-      <div class="space-y-2 mb-4">
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Max Context"
-          value={"#{@ingestion_config.max_context_window} tokens"}
-          hint="config/runtime.exs"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Distance Threshold"
-          value={to_string(@ingestion_config.distance_threshold)}
-          hint="config/runtime.exs"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Hybrid Search Limit"
-          value={to_string(@ingestion_config.hybrid_search_limit)}
-          hint="config/runtime.exs"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Chunk Min Tokens"
-          value={to_string(@ingestion_config.chunk_min_tokens)}
-          hint="config/runtime.exs"
-        />
-        <ZaqWeb.Components.BOLayout.config_row
-          label="Chunk Max Tokens"
-          value={to_string(@ingestion_config.chunk_max_tokens)}
-          hint="config/runtime.exs"
-        />
-      </div>
-      <div class="mt-auto border-t border-black/5 pt-3">
-        <button
-          phx-click="test_token_estimator"
-          class="w-full font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/80 transition-colors"
-        >
-          Test TokenEstimator
-        </button>
-        <%= if @token_test_result do %>
-          <p class="font-mono text-[0.7rem] text-black/50 mt-2 text-center">
-            "The quick brown fox…" →
-            <span class="text-black font-bold">{@token_test_result} tokens</span>
-          </p>
-        <% end %>
-      </div>
-    </div>
+<!-- Ingestion -->
+    <ZaqWeb.Components.BOLayout.diagnostic_card
+      label="Ingestion"
+      event="test_token_estimator"
+      button_label="Test TokenEstimator"
+    >
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Max Context"
+        value={"#{@ingestion_config.max_context_window} tokens"}
+        hint="config/runtime.exs"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Distance Threshold"
+        value={to_string(@ingestion_config.distance_threshold)}
+        hint="config/runtime.exs"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Hybrid Search Limit"
+        value={to_string(@ingestion_config.hybrid_search_limit)}
+        hint="config/runtime.exs"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Chunk Min Tokens"
+        value={to_string(@ingestion_config.chunk_min_tokens)}
+        hint="config/runtime.exs"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Chunk Max Tokens"
+        value={to_string(@ingestion_config.chunk_max_tokens)}
+        hint="config/runtime.exs"
+      />
+      <:footer_extra>
+        <p :if={@token_test_result} class="font-mono text-[0.7rem] text-black/50 mt-2 text-center">
+          "The quick brown fox…" →
+          <span class="text-black font-bold">{@token_test_result} tokens</span>
+        </p>
+      </:footer_extra>
+    </ZaqWeb.Components.BOLayout.diagnostic_card>
+    
+<!-- PDF Pipeline -->
+    <ZaqWeb.Components.BOLayout.diagnostic_card
+      label="PDF Pipeline"
+      status={@pdf_pipeline_status}
+      event="test_pdf_pipeline"
+    >
+      <ZaqWeb.Components.BOLayout.config_row
+        label="API URL"
+        value={@image_to_text_config.api_url}
+        truncate
+        hint="SCALEWAY_API_URL"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Model"
+        value={@image_to_text_config.model}
+        hint="SCALEWAY_MODEL"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="API Key"
+        value={
+          if @image_to_text_config.api_key_set,
+            do: "configured",
+            else: "not set — image steps skipped"
+        }
+        hint="SCALEWAY_API_KEY"
+      />
+    </ZaqWeb.Components.BOLayout.diagnostic_card>
   </div>
   
 <!-- Prompt Templates Summary -->

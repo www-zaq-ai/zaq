@@ -30,6 +30,12 @@ config :zaq, Zaq.Ingestion,
   chunk_max_tokens: String.to_integer("900"),
   base_path: "priv/documents"
 
+# -- Image to Text (Scaleway Pixtral) --
+config :zaq, Zaq.Ingestion.Python.ImageToText,
+  api_url: System.get_env("SCALEWAY_API_URL", "https://api.scaleway.ai/v1/chat/completions"),
+  model: System.get_env("SCALEWAY_MODEL", "pixtral-12b-2409"),
+  api_key: System.get_env("SCALEWAY_API_KEY", "")
+
 config :zaq,
   sme_channel_id: System.get_env("SME_CHANNEL_ID", ""),
   knowledge_gap_immediate_threshold:

@@ -35,6 +35,8 @@ zaq-*.tar
 npm-debug.log
 /assets/node_modules/
 
+/priv/python/
+/.venv/
 /priv/keys
 /priv/licenses
 /priv/documents
