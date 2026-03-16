@@ -23,9 +23,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer}
   alias Zaq.Ingestion.Python.Pipeline
+  alias Zaq.Ingestion.Python.Steps.{DocxToMd, XlsxToMd}
   alias Zaq.Repo
 
   require Logger
+
+  NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
+  alias Zaq.Ingestion.CSVParser
+
+  @supported_extensions ~w(.md .pdf .docx .xlsx .csv)
 
   @rrf_k 60
 
@@ -57,7 +63,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Processes all markdown files in the given folder path.
+  Processes all supported files in the given folder path.
+
+  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`
 
   ## Examples
 
@@ -65,8 +73,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       {:ok, %{processed: 5, failed: 0}}
   """
   def process_folder(folder_path) do
-    files = Path.wildcard(Path.join(folder_path, "*.md"))
-    Logger.info("Found #{length(files)} markdown files to process")
+    files =
+      @supported_extensions
+      |> Enum.flat_map(&Path.wildcard(Path.join(folder_path, "*#{&1}")))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    Logger.info("Found #{length(files)} files to process")
 
     results =
       files
@@ -80,15 +93,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc """
-  Processes a single file: converts PDF to markdown if needed, then reads ->
+  Processes a single file: converts to markdown if needed, then reads ->
   upserts document -> chunks -> embeds -> stores.
+
+  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`
   """
   def process_single_file(file_path, role_id \\ nil, shared_role_ids \\ []) do
     Logger.info("Processing file: #{file_path}")
 
-    with {:ok, file_path} <- maybe_convert_pdf(file_path),
-         {:ok, raw} <- File.read(file_path),
-         content = sanitize_utf8(raw),
+    with {:ok, content} <- read_as_markdown(file_path),
          {:ok, source} <- extract_source(content, file_path),
          {:ok, document} <- store_document(content, source, role_id),
          {:ok, _chunks} <-
@@ -111,20 +124,64 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp sanitize_utf8(<<c::utf8, rest::binary>>, acc), do: sanitize_utf8(rest, [<<c::utf8>> | acc])
   defp sanitize_utf8(<<_::8, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
 
-  defp maybe_convert_pdf(file_path) do
-    if Path.extname(file_path) |> String.downcase() == ".pdf" do
-      case Pipeline.run(file_path) do
-        {:ok, md_path} ->
-          Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
-          {:ok, md_path}
+  # Reads a file and returns its content as a markdown string,
+  # converting non-markdown formats as needed.
+  defp read_as_markdown(file_path) do
+    case Path.extname(file_path) |> String.downcase() do
+      ".pdf" ->
+        md_path = Path.rootname(file_path) <> ".md"
 
-        {:error, reason} ->
-          Logger.error("[DocumentProcessor] PDF conversion failed: #{inspect(reason)}")
-          {:error, reason}
-      end
-    else
-      {:ok, file_path}
+        with {:ok, _} <- Pipeline.run(file_path),
+             {:ok, raw} <- File.read(md_path) do
+          Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
+          {:ok, sanitize_utf8(raw)}
+        end
+
+      ".docx" ->
+        md_path = Path.rootname(file_path) <> ".md"
+
+        with {:ok, _} <- DocxToMd.run(file_path, md_path),
+             {:ok, raw} <- File.read(md_path) do
+          Logger.info("[DocumentProcessor] DOCX converted to markdown: #{md_path}")
+          {:ok, sanitize_utf8(raw)}
+        end
+
+      ".xlsx" ->
+        md_path = Path.rootname(file_path) <> ".md"
+
+        with {:ok, _} <- XlsxToMd.run(file_path, md_path),
+             {:ok, raw} <- File.read(md_path) do
+          Logger.info("[DocumentProcessor] XLSX converted to markdown: #{md_path}")
+          {:ok, sanitize_utf8(raw)}
+        end
+
+      ".csv" ->
+        convert_csv(file_path)
+
+      _ ->
+        with {:ok, raw} <- File.read(file_path) do
+          {:ok, sanitize_utf8(raw)}
+        end
     end
+  end
+
+  defp convert_csv(file_path) do
+    with {:ok, raw} <- File.read(file_path) do
+      rows = CSVParser.parse_string(sanitize_utf8(raw), skip_headers: false)
+      {:ok, rows_to_markdown_table(rows)}
+    end
+  end
+
+  defp rows_to_markdown_table([]), do: ""
+
+  defp rows_to_markdown_table([header | rest]) do
+    header_row = "| " <> Enum.map_join(header, " | ", &to_string/1) <> " |"
+    separator = "|" <> Enum.map_join(header, "|", fn _ -> " --- " end) <> "|"
+
+    data_rows =
+      Enum.map(rest, fn row -> "| " <> Enum.map_join(row, " | ", &to_string/1) <> " |" end)
+
+    Enum.join([header_row, separator | data_rows], "\n")
   end
 
   @doc """
@@ -363,12 +420,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                 LIMIT 20
               ) ts
               UNION
-              SELECT id FROM (
-                SELECT id,
-                       ROW_NUMBER() OVER (ORDER BY embedding <-> ?) AS rn
-                FROM chunks
-                LIMIT 20
-              ) vs
+              SELECT id FROM (SELECT id FROM chunks ORDER BY embedding <-> ? LIMIT 20) vs
             )
             """,
             ^query_text,
@@ -401,6 +453,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                   SELECT id,
                          ROW_NUMBER() OVER (ORDER BY embedding <-> ?) AS rn
                   FROM chunks
+                  ORDER BY embedding <-> ?
                   LIMIT 20
                 ) vs WHERE vs.id = c0.id
               )), 0)
@@ -409,6 +462,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
               ^query_text,
               ^query_text,
               ^k,
+              ^embedding_vector,
               ^embedding_vector
             ),
           text_rank:
@@ -442,6 +496,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                   SELECT id,
                          ROW_NUMBER() OVER (ORDER BY embedding <-> ?) AS rn
                   FROM chunks
+                  ORDER BY embedding <-> ?
                   LIMIT 20
                 ) vs WHERE vs.id = c0.id
               )), 0)
@@ -450,6 +505,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
               ^query_text,
               ^query_text,
               ^k,
+              ^embedding_vector,
               ^embedding_vector
             )
         )

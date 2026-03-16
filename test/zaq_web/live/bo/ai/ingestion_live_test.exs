@@ -675,4 +675,83 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute has_element?(view, "span", "old.md")
     end
   end
+
+  # ────────────────────────────────────────────────────────────────
+  # group_entries — companion .md grouping
+  # ────────────────────────────────────────────────────────────────
+
+  describe "group_entries companion .md grouping" do
+    test "hides companion .md from select_all but keeps it visible in sub-row — PDF", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.md"), "# Report")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # Source file appears in the browser
+      assert has_element?(view, "span", "report.pdf")
+
+      # Companion name appears somewhere (the sub-row)
+      assert render(view) =~ "report.md"
+
+      # select_all includes source but NOT companion (it's not a top-level entry)
+      render_hook(view, "select_all", %{})
+      selected = :sys.get_state(view.pid).socket.assigns.selected
+      assert MapSet.member?(selected, "./report.pdf")
+      refute MapSet.member?(selected, "./report.md")
+    end
+
+    test "hides companion .md from select_all — xlsx", %{conn: conn, tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "data.xlsx"), "xlsx")
+      File.write!(Path.join(tmp_dir, "data.md"), "# Data")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      assert has_element?(view, "span", "data.xlsx")
+      assert render(view) =~ "data.md"
+
+      render_hook(view, "select_all", %{})
+      selected = :sys.get_state(view.pid).socket.assigns.selected
+      assert MapSet.member?(selected, "./data.xlsx")
+      refute MapSet.member?(selected, "./data.md")
+    end
+
+    test "hides companion .md from select_all — docx", %{conn: conn, tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "letter.docx"), "docx")
+      File.write!(Path.join(tmp_dir, "letter.md"), "# Letter")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      assert has_element?(view, "span", "letter.docx")
+      assert render(view) =~ "letter.md"
+
+      render_hook(view, "select_all", %{})
+      selected = :sys.get_state(view.pid).socket.assigns.selected
+      assert MapSet.member?(selected, "./letter.docx")
+      refute MapSet.member?(selected, "./letter.md")
+    end
+
+    test "standalone .md with no source file is included in select_all", %{conn: conn} do
+      # alpha.md from setup has no companion source file → stays as top-level entry
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "select_all", %{})
+      selected = :sys.get_state(view.pid).socket.assigns.selected
+      assert MapSet.member?(selected, "./alpha.md")
+    end
+
+    test "source file without companion .md renders no sub-row text", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "solo.pdf"), "%PDF-1.4")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      assert has_element?(view, "span", "solo.pdf")
+      refute render(view) =~ "solo.md"
+    end
+  end
 end

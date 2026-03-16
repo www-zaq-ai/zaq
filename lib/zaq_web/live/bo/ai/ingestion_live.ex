@@ -11,7 +11,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Ingestion.{Chunk, Document, FileExplorer}
   alias Zaq.Repo
 
-  @allowed_extensions ~w(.md .txt .pdf)
+  @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv)
 
   def mount(_params, _session, socket) do
     if connected?(socket), do: Ingestion.subscribe()
@@ -611,7 +611,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     case FileExplorer.list(volume, socket.assigns.current_dir) do
       {:ok, entries} ->
         sorted =
-          Enum.sort_by(entries, fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
+          entries
+          |> Enum.sort_by(fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
+          |> group_entries()
 
         socket
         |> assign(entries: sorted)
@@ -622,6 +624,35 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         |> assign(entries: [])
         |> assign(ingestion_map: %{})
     end
+  end
+
+  # For .pdf / .xlsx / .xls / .docx files, the Python pipeline produces a
+  # companion .md with the same basename.  We attach that companion as
+  # `related_md` on the source entry and remove it from the top-level list so
+  # the browser doesn't show duplicates.
+  defp group_entries(entries) do
+    convertible = ~w(.pdf .xlsx .xls .docx)
+    entry_map = Map.new(entries, &{&1.name, &1})
+
+    paired_md_names =
+      entries
+      |> Enum.filter(fn e -> e.type == :file and Path.extname(e.name) in convertible end)
+      |> MapSet.new(fn e -> Path.rootname(e.name) <> ".md" end)
+
+    entries
+    |> Enum.reject(fn e ->
+      e.type == :file and
+        Path.extname(e.name) == ".md" and
+        MapSet.member?(paired_md_names, e.name)
+    end)
+    |> Enum.map(fn e ->
+      related =
+        if e.type == :file and Path.extname(e.name) in convertible do
+          Map.get(entry_map, Path.rootname(e.name) <> ".md")
+        end
+
+      Map.put(e, :related_md, related)
+    end)
   end
 
   defp load_jobs(socket) do

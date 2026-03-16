@@ -95,7 +95,8 @@ defmodule Zaq.MixProject do
       {:fresh, "~> 0.4.4"},
       {:httpoison, "~> 2.3"},
       {:earmark, "~> 1.4.48"},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:nimble_csv, "~> 1.2"}
     ]
   end
 

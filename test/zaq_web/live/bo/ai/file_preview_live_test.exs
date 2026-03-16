@@ -43,7 +43,8 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
 
       {:ok, view, _html} = live(conn, "/bo/preview/doc.md")
 
-      assert has_element?(view, "span", "markdown")
+      assert has_element?(view, "span", "md")
+      assert has_element?(view, "span", "rendered")
       assert has_element?(view, ".md-content h1", "Rendered heading")
     end
 
@@ -81,6 +82,52 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
 
       assert has_element?(view, "p", "Preview not available")
       assert has_element?(view, "a[download='archive.bin'][href='/bo/files/archive.bin']")
+    end
+
+    test "renders binary fallback for docx when Python is unavailable", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      # DOCX magic bytes — Python script won't run in test env → :binary fallback
+      File.write!(Path.join(tmp_dir, "doc.docx"), <<80, 75, 3, 4, 0, 0>>)
+
+      {:ok, view, _html} = live(conn, "/bo/preview/doc.docx")
+
+      assert has_element?(view, "p", "Preview not available")
+      assert has_element?(view, "a[download='doc.docx']")
+    end
+
+    test "renders binary fallback for xlsx when Python is unavailable", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "data.xlsx"), <<80, 75, 3, 4, 0, 0>>)
+
+      {:ok, view, _html} = live(conn, "/bo/preview/data.xlsx")
+
+      assert has_element?(view, "p", "Preview not available")
+      assert has_element?(view, "a[download='data.xlsx']")
+    end
+
+    test "renders binary fallback for xls when Python is unavailable", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "sheet.xls"), <<0xD0, 0xCF, 0x11, 0xE0>>)
+
+      {:ok, view, _html} = live(conn, "/bo/preview/sheet.xls")
+
+      assert has_element?(view, "p", "Preview not available")
+      assert has_element?(view, "a[download='sheet.xls']")
+    end
+
+    test "renders plain text for .txt files", %{conn: conn, tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "readme.txt"), "just text")
+
+      {:ok, view, _html} = live(conn, "/bo/preview/readme.txt")
+
+      assert has_element?(view, "span", "plain text")
+      assert has_element?(view, "pre", "just text")
     end
   end
 

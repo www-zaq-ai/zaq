@@ -4,10 +4,14 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Ingestion.Python.Steps.{DocxToMd, XlsxToMd}
 
-  @text_extensions ~w(.md .txt)
+  @markdown_extension ".md"
+  @text_extensions ~w(.txt)
   @image_extensions ~w(.png .jpg .jpeg .gif .webp)
   @pdf_extension ".pdf"
+  @docx_extension ".docx"
+  @xlsx_extensions ~w(.xlsx .xls .csv)
 
   @impl true
   def mount(%{"path" => path_segments}, _session, socket) do
@@ -65,15 +69,45 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   # Private helpers
   # ────────────────────────────────────────────────────────────────
 
+  defp load_content(full_path, @markdown_extension) do
+    case File.read(full_path) do
+      {:ok, content} -> {:markdown, content, render_html(content, ".md")}
+      {:error, _} -> {:error, nil, nil}
+    end
+  end
+
   defp load_content(full_path, ext) when ext in @text_extensions do
     case File.read(full_path) do
-      {:ok, content} -> {:text, content, render_html(content, ext)}
+      {:ok, content} -> {:text, content, nil}
       {:error, _} -> {:error, nil, nil}
     end
   end
 
   defp load_content(_full_path, ext) when ext in @image_extensions, do: {:image, nil, nil}
   defp load_content(_full_path, @pdf_extension), do: {:pdf, nil, nil}
+
+  defp load_content(full_path, @docx_extension) do
+    md_path = Path.rootname(full_path) <> ".md"
+
+    with {:ok, _} <- DocxToMd.run(full_path, md_path),
+         {:ok, content} <- File.read(md_path) do
+      {:markdown, content, render_html(content, ".md")}
+    else
+      _ -> {:binary, nil, nil}
+    end
+  end
+
+  defp load_content(full_path, ext) when ext in @xlsx_extensions do
+    md_path = Path.rootname(full_path) <> ".md"
+
+    with {:ok, _} <- XlsxToMd.run(full_path, md_path),
+         {:ok, content} <- File.read(md_path) do
+      {:markdown, content, render_html(content, ".md")}
+    else
+      _ -> {:binary, nil, nil}
+    end
+  end
+
   defp load_content(_full_path, _ext), do: {:binary, nil, nil}
 
   defp render_html(content, ".md") do

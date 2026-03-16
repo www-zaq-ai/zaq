@@ -24,6 +24,8 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
     web_crawler.py
     pipeline.py
     pdf_to_md.py
+    docx_to_md.py
+    xlsx_to_md.py
     image_dedup.py
     image_to_text.py
     clean_md.py

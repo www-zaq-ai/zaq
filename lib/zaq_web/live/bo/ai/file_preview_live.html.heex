@@ -86,15 +86,15 @@
     <p class="font-mono text-[0.72rem] text-black/25 mt-1">{@relative_path}</p>
   </div>
   
-<!-- ── Markdown rendered ── -->
+<!-- ── Markdown / converted document rendered ── -->
   <div
-    :if={@kind == :text and @ext == ".md"}
+    :if={@kind == :markdown}
     class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
   >
-    <!-- MD toolbar -->
+    <!-- Toolbar -->
     <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
       <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-[#03b6d4]/10 text-[#03b6d4]">
-        markdown
+        {String.trim_leading(@ext, ".")}
       </span>
       <span class="font-mono text-[0.65rem] text-black/25">rendered</span>
     </div>
@@ -106,7 +106,7 @@
   
 <!-- ── Plain text ── -->
   <div
-    :if={@kind == :text and @ext != ".md"}
+    :if={@kind == :text}
     class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
   >
     <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">

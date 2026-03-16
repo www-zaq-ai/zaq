@@ -16,6 +16,151 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   def format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"
   def format_size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
 
+  @doc "Renders a file-type icon based on the file extension."
+  attr :name, :string, required: true
+  attr :class, :string, default: "w-4 h-4"
+
+  def file_icon(%{name: name} = assigns) do
+    assigns = assign(assigns, :ext, Path.extname(name) |> String.downcase())
+
+    ~H"""
+    <%= cond do %>
+      <% @ext == ".pdf" -> %>
+        <svg class={@class} viewBox="0 0 80 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M6 0 L52 0 L78 26 L78 94 Q78 100 72 100 L6 100 Q0 100 0 94 L0 6 Q0 0 6 0 Z"
+            fill="#FEE2E2"
+            stroke="#DC2626"
+            stroke-width="3.5"
+          />
+          <path d="M52 0 L78 26 L52 26 Z" fill="#DC2626" />
+          <rect x="4" y="58" width="72" height="28" rx="5" fill="#DC2626" />
+          <text
+            x="40"
+            y="72"
+            text-anchor="middle"
+            dominant-baseline="central"
+            fill="white"
+            font-family="Arial, sans-serif"
+            font-weight="700"
+            font-size="20"
+          >
+            PDF
+          </text>
+        </svg>
+      <% @ext == ".docx" -> %>
+        <svg class={@class} viewBox="0 0 80 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M6 0 L52 0 L78 26 L78 94 Q78 100 72 100 L6 100 Q0 100 0 94 L0 6 Q0 0 6 0 Z"
+            fill="#EFF6FF"
+            stroke="#2563EB"
+            stroke-width="3.5"
+          />
+          <path d="M52 0 L78 26 L52 26 Z" fill="#2563EB" />
+          <rect x="4" y="58" width="72" height="28" rx="5" fill="#2563EB" />
+          <text
+            x="40"
+            y="72"
+            text-anchor="middle"
+            dominant-baseline="central"
+            fill="white"
+            font-family="Arial, sans-serif"
+            font-weight="700"
+            font-size="17"
+          >
+            DOCX
+          </text>
+        </svg>
+      <% @ext in [".xlsx", ".xls"] -> %>
+        <svg class={@class} viewBox="0 0 80 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M6 0 L52 0 L78 26 L78 94 Q78 100 72 100 L6 100 Q0 100 0 94 L0 6 Q0 0 6 0 Z"
+            fill="#F0FDF4"
+            stroke="#16A34A"
+            stroke-width="3.5"
+          />
+          <path d="M52 0 L78 26 L52 26 Z" fill="#16A34A" />
+          <rect x="4" y="58" width="72" height="28" rx="5" fill="#16A34A" />
+          <text
+            x="40"
+            y="72"
+            text-anchor="middle"
+            dominant-baseline="central"
+            fill="white"
+            font-family="Arial, sans-serif"
+            font-weight="700"
+            font-size="17"
+          >
+            XLSX
+          </text>
+        </svg>
+      <% @ext == ".csv" -> %>
+        <svg class={@class} viewBox="0 0 80 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M6 0 L52 0 L78 26 L78 94 Q78 100 72 100 L6 100 Q0 100 0 94 L0 6 Q0 0 6 0 Z"
+            fill="#ECFDF5"
+            stroke="#059669"
+            stroke-width="3.5"
+          />
+          <path d="M52 0 L78 26 L52 26 Z" fill="#059669" />
+          <rect x="4" y="58" width="72" height="28" rx="5" fill="#059669" />
+          <text
+            x="40"
+            y="72"
+            text-anchor="middle"
+            dominant-baseline="central"
+            fill="white"
+            font-family="Arial, sans-serif"
+            font-weight="700"
+            font-size="20"
+          >
+            CSV
+          </text>
+        </svg>
+      <% @ext == ".md" -> %>
+        <svg class={@class} viewBox="0 0 80 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M6 0 L52 0 L78 26 L78 94 Q78 100 72 100 L6 100 Q0 100 0 94 L0 6 Q0 0 6 0 Z"
+            fill="#ECFEFF"
+            stroke="#0891B2"
+            stroke-width="3.5"
+          />
+          <path d="M52 0 L78 26 L52 26 Z" fill="#0891B2" />
+          <rect x="4" y="58" width="72" height="28" rx="5" fill="#0891B2" />
+          <text
+            x="40"
+            y="72"
+            text-anchor="middle"
+            dominant-baseline="central"
+            fill="white"
+            font-family="Arial, sans-serif"
+            font-weight="700"
+            font-size="22"
+          >
+            MD
+          </text>
+        </svg>
+      <% true -> %>
+        <%!-- Generic document icon --%>
+        <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+    <% end %>
+    """
+  end
+
+  defp file_icon_color(name) do
+    case Path.extname(name) |> String.downcase() do
+      ".pdf" -> "text-red-400"
+      ".md" -> "text-[#03b6d4]"
+      ".xlsx" -> "text-emerald-500"
+      ".csv" -> "text-emerald-400"
+      ".docx" -> "text-blue-400"
+      _ -> "text-black/30"
+    end
+  end
+
   def status_color("pending"), do: "bg-black/5 text-black/40"
   def status_color("processing"), do: "bg-amber-100 text-amber-600"
   def status_color("completed"), do: "bg-emerald-100 text-emerald-700"
@@ -281,58 +426,256 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               Empty directory
             </td>
           </tr>
-          <tr
-            :for={entry <- @entries}
-            class="border-b border-black/[0.04] last:border-0 hover:bg-black/[0.015] transition-colors group"
-          >
-            <td class="px-4 py-3 w-10">
-              <input
-                type="checkbox"
-                phx-click="toggle_select"
-                phx-value-path={Path.join(@current_dir, entry.name)}
-                checked={MapSet.member?(@selected, Path.join(@current_dir, entry.name))}
-                class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
-              />
-            </td>
-            <td class="px-4 py-3">
-              <div class="flex items-center justify-between">
-                <%= if entry.type == :directory do %>
-                  <button
-                    phx-click="navigate"
-                    phx-value-path={Path.join(@current_dir, entry.name)}
-                    class="flex items-center gap-2 font-mono text-[0.85rem] text-[#03b6d4] hover:underline"
-                  >
-                    <svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-                    </svg>
-                    {entry.name}
-                  </button>
-                <% else %>
-                  <span class="flex items-center gap-2 font-mono text-[0.85rem] text-black">
-                    <svg
-                      class="w-4 h-4 text-black/30"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      viewBox="0 0 24 24"
+          <%= for entry <- @entries do %>
+            <tr class="border-b border-black/[0.04] last:border-0 hover:bg-black/[0.015] transition-colors group">
+              <td class="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  phx-click="toggle_select"
+                  phx-value-path={Path.join(@current_dir, entry.name)}
+                  checked={MapSet.member?(@selected, Path.join(@current_dir, entry.name))}
+                  class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
+                />
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex items-center justify-between">
+                  <%= if entry.type == :directory do %>
+                    <button
+                      phx-click="navigate"
+                      phx-value-path={Path.join(@current_dir, entry.name)}
+                      class="flex items-center gap-2 font-mono text-[0.85rem] text-[#03b6d4] hover:underline"
                     >
-                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                    </svg>
-                    {entry.name}
-                  </span>
+                      <svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                      </svg>
+                      {entry.name}
+                    </button>
+                  <% else %>
+                    <span class="flex items-center gap-2 font-mono text-[0.85rem] text-black">
+                      <.file_icon name={entry.name} class={"w-4 h-4 #{file_icon_color(entry.name)}"} />
+                      {entry.name}
+                    </span>
+                  <% end %>
+                  <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
+                    <a
+                      :if={entry.type == :file}
+                      href={"/bo/preview/#{Path.join(@current_dir, entry.name)}"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+                      title="Preview in new tab"
+                    >
+                      <svg
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                        />
+                      </svg>
+                    </a>
+                    <button
+                      phx-click="move_item"
+                      phx-value-path={Path.join(@current_dir, entry.name)}
+                      phx-value-type={entry.type}
+                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+                      title="Move to…"
+                    >
+                      <svg
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M12 11v6m0 0l-2-2m2 2l2-2"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      phx-click="rename_item"
+                      phx-value-path={Path.join(@current_dir, entry.name)}
+                      phx-value-type={entry.type}
+                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+                      title="Rename"
+                    >
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      :if={entry.type == :file}
+                      phx-click="share_item"
+                      phx-value-path={Path.join(@current_dir, entry.name)}
+                      class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+                      title="Share with roles"
+                    >
+                      <svg
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      phx-click="delete_item"
+                      phx-value-path={Path.join(@current_dir, entry.name)}
+                      phx-value-type={entry.type}
+                      class="p-1.5 hover:bg-red-500/10 rounded-lg text-black/30 hover:text-red-500 transition-colors"
+                      title="Delete"
+                    >
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </td>
+              <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3">
+                {if entry.type == :file, do: format_size(entry.size), else: "—"}
+              </td>
+              <td class="px-4 py-3">
+                <%= if entry.type == :file do %>
+                  <% status = Map.get(@ingestion_map, entry.name, %{ingested_at: nil, stale?: false}) %>
+                  <%= cond do %>
+                    <% status.stale? -> %>
+                      <div class="flex flex-col gap-0.5">
+                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit">
+                          <svg
+                            class="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          stale
+                        </span>
+                        <span class="font-mono text-[0.6rem] text-black/30">
+                          {format_datetime(status.ingested_at)}
+                        </span>
+                      </div>
+                    <% status.ingested_at != nil -> %>
+                      <div class="flex flex-col gap-0.5">
+                        <div class="flex items-center gap-1 flex-wrap">
+                          <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                            <svg
+                              class="w-3 h-3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              viewBox="0 0 24 24"
+                            >
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            ingested
+                          </span>
+                          <span
+                            :if={status.shared_role_ids != []}
+                            class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
+                            title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                          >
+                            <svg
+                              class="w-3 h-3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                              />
+                            </svg>
+                            shared
+                          </span>
+                        </div>
+                        <span class="font-mono text-[0.6rem] text-black/30">
+                          {format_datetime(status.ingested_at)}
+                        </span>
+                      </div>
+                    <% true -> %>
+                      <span class="font-mono text-[0.65rem] text-black/20">—</span>
+                  <% end %>
+                <% else %>
+                  <span class="font-mono text-[0.65rem] text-black/20">—</span>
                 <% end %>
-                <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
+              </td>
+              <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3 text-right">
+                {format_datetime(entry.modified_at)}
+              </td>
+            </tr>
+            <tr
+              :if={Map.get(entry, :related_md)}
+              class="border-b border-black/[0.04] last:border-0 bg-[#03b6d4]/[0.018]"
+            >
+              <td></td>
+              <td class="px-4 py-1.5" colspan="4">
+                <div class="flex items-center gap-2 pl-6 ml-4 border-l border-dashed border-black/10">
+                  <svg
+                    class="w-3 h-3 shrink-0 text-black/20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4" />
+                  </svg>
+                  <.file_icon
+                    name={Map.get(entry, :related_md, %{name: ""}).name}
+                    class="w-3.5 h-3.5 text-[#03b6d4]"
+                  />
+                  <span class="font-mono text-[0.78rem] text-black/40">
+                    {Map.get(entry, :related_md, %{name: ""}).name}
+                  </span>
+                  <span class="font-mono text-[0.65rem] text-black/25">
+                    {format_size(Map.get(entry, :related_md, %{}).size)}
+                  </span>
                   <a
-                    :if={entry.type == :file}
-                    href={"/bo/preview/#{Path.join(@current_dir, entry.name)}"}
+                    href={"/bo/preview/#{Path.join(@current_dir, Map.get(entry, :related_md, %{name: ""}).name)}"}
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
-                    title="Preview in new tab"
+                    class="ml-auto font-mono text-[0.65rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors flex items-center gap-1 pr-2"
+                    title="Preview converted markdown"
                   >
                     <svg
-                      class="w-3.5 h-3.5"
+                      class="w-3 h-3"
                       fill="none"
                       stroke="currentColor"
                       stroke-width="2"
@@ -344,169 +687,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                         d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                       />
                     </svg>
+                    preview md
                   </a>
-                  <button
-                    phx-click="move_item"
-                    phx-value-path={Path.join(@current_dir, entry.name)}
-                    phx-value-type={entry.type}
-                    class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
-                    title="Move to…"
-                  >
-                    <svg
-                      class="w-3.5 h-3.5"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                      />
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M12 11v6m0 0l-2-2m2 2l2-2"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    phx-click="rename_item"
-                    phx-value-path={Path.join(@current_dir, entry.name)}
-                    phx-value-type={entry.type}
-                    class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
-                    title="Rename"
-                  >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    :if={entry.type == :file}
-                    phx-click="share_item"
-                    phx-value-path={Path.join(@current_dir, entry.name)}
-                    class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
-                    title="Share with roles"
-                  >
-                    <svg
-                      class="w-3.5 h-3.5"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    phx-click="delete_item"
-                    phx-value-path={Path.join(@current_dir, entry.name)}
-                    phx-value-type={entry.type}
-                    class="p-1.5 hover:bg-red-500/10 rounded-lg text-black/30 hover:text-red-500 transition-colors"
-                    title="Delete"
-                  >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
                 </div>
-              </div>
-            </td>
-            <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3">
-              {if entry.type == :file, do: format_size(entry.size), else: "—"}
-            </td>
-            <td class="px-4 py-3">
-              <%= if entry.type == :file do %>
-                <% status = Map.get(@ingestion_map, entry.name, %{ingested_at: nil, stale?: false}) %>
-                <%= cond do %>
-                  <% status.stale? -> %>
-                    <div class="flex flex-col gap-0.5">
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit">
-                        <svg
-                          class="w-3 h-3"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                        stale
-                      </span>
-                      <span class="font-mono text-[0.6rem] text-black/30">
-                        {format_datetime(status.ingested_at)}
-                      </span>
-                    </div>
-                  <% status.ingested_at != nil -> %>
-                    <div class="flex flex-col gap-0.5">
-                      <div class="flex items-center gap-1 flex-wrap">
-                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">
-                          <svg
-                            class="w-3 h-3"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            viewBox="0 0 24 24"
-                          >
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                          ingested
-                        </span>
-                        <span
-                          :if={status.shared_role_ids != []}
-                          class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
-                          title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
-                        >
-                          <svg
-                            class="w-3 h-3"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                            />
-                          </svg>
-                          shared
-                        </span>
-                      </div>
-                      <span class="font-mono text-[0.6rem] text-black/30">
-                        {format_datetime(status.ingested_at)}
-                      </span>
-                    </div>
-                  <% true -> %>
-                    <span class="font-mono text-[0.65rem] text-black/20">—</span>
-                <% end %>
-              <% else %>
-                <span class="font-mono text-[0.65rem] text-black/20">—</span>
-              <% end %>
-            </td>
-            <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3 text-right">
-              {format_datetime(entry.modified_at)}
-            </td>
-          </tr>
+              </td>
+            </tr>
+          <% end %>
         </tbody>
       </table>
     </div>
@@ -567,7 +753,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           <div class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
             <a
               :if={entry.type == :file}
-              href={"/bo/files/#{Path.join(@current_dir, entry.name)}"}
+              href={"/bo/preview/#{Path.join(@current_dir, entry.name)}"}
               target="_blank"
               rel="noopener noreferrer"
               class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
@@ -678,15 +864,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </button>
           <% else %>
             <div class="w-full pt-8 pb-3 flex flex-col items-center">
-              <div class="w-10 h-12 mb-2 relative flex items-center justify-center">
-                <svg class="w-10 h-12 text-black/10" fill="currentColor" viewBox="0 0 24 30">
-                  <path d="M4 0C2.9 0 2 .9 2 2v26c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8l-6-8H4z" />
-                  <path d="M14 0v6c0 1.1.9 2 2 2h6L14 0z" fill="currentColor" opacity="0.6" />
-                </svg>
-                <span class="absolute bottom-1 font-mono text-[0.5rem] font-bold text-black/30 uppercase">
-                  {entry.name |> Path.extname() |> String.trim_leading(".")}
-                </span>
-              </div>
+              <.file_icon name={entry.name} class={"w-10 h-10 mb-2 #{file_icon_color(entry.name)}"} />
               <span
                 class="font-mono text-[0.75rem] text-black text-center leading-tight px-2 truncate max-w-full"
                 title={entry.name}
@@ -717,6 +895,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   </div>
                 <% true -> %>
               <% end %>
+              <a
+                :if={Map.get(entry, :related_md)}
+                href={"/bo/preview/#{Path.join(@current_dir, Map.get(entry, :related_md, %{name: ""}).name)}"}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-2 flex items-center gap-1 font-mono text-[0.6rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors border-t border-dashed border-black/[0.06] pt-2 w-full justify-center"
+                title="Preview converted markdown"
+              >
+                <.file_icon
+                  name={Map.get(entry, :related_md, %{name: ""}).name}
+                  class="w-3 h-3"
+                /> md preview
+              </a>
             </div>
           <% end %>
         </div>
@@ -755,7 +946,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </label>
             </p>
             <p class="font-mono text-[0.65rem] text-black/25">
-              .md, .txt, .pdf — max 20 MB
+              .md .txt .pdf .docx .xlsx .csv — max 20 MB
             </p>
           </div>
         </div>
