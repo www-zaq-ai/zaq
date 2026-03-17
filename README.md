@@ -1,9 +1,11 @@
 # ZAQ
 
-![Coverage](https://img.shields.io/coverallsCoverage/github/www-zaq-ai/zaq?branch=main)
+[![Coverage Status](https://coveralls.io/repos/github/www-zaq-ai/zaq/badge.svg?branch=main)](https://coveralls.io/github/www-zaq-ai/zaq?branch=main)
 [![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://www-zaq-ai.github.io/zaq/)
 
-AI-powered company brain that updates itself. ZAQ continuously maintains your organization's knowledge base and provides instant, cited answers to people and AI agents.
+AI-powered sovereign company brain. ZAQ OSS lets you access your organization's knowledge base and provides instant, cited answers to people and AI agents.
+
+<img height="400" alt="Zaq Playground" src="https://github.com/user-attachments/assets/333d65d8-da9d-46f3-9a68-6689b58cb1b7" />
 
 Built with [Elixir](https://elixir-lang.org/), [Phoenix](https://www.phoenixframework.org/), and [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).
 
@@ -43,7 +45,7 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 
 | Service       | Description                                                                    |
 | ------------- | ------------------------------------------------------------------------------ |
-| **Engine**    | Central orchestrator. Sessions, ontology, API routing, licensing.              |
+| **Engine**    | Central orchestrator. Sessions, ontology, API routing, conversation workflows. |
 | **Agent**     | AI layer. RAG retrieval, LLM interaction, classifier, knowledge gap.           |
 | **Ingestion** | Document processing pipeline. Chunking, embedding generation, PGVector writes. |
 | **Channels**  | Multi-channel communication adapter. Currently supports Mattermost.            |
@@ -51,92 +53,26 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 
 ### Data Layer
 
-- **Engine DB** — PostgreSQL. Sessions, chat history, ontology, configuration.
-- **Agent DB** — PostgreSQL + PGVector. Embeddings, documents, knowledge gap records.
+- **Primary datastore** — PostgreSQL + pgvector (single `Zaq.Repo`) for sessions, chat history, ontology, documents, embeddings, and configuration.
 - **Customer LLM** — On-premise, customer-provided. Connected via configurable endpoint.
 
 ## Prerequisites
 
-- Elixir 1.19.5
-- Erlang/OTP 28
-- PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) extension
-- Node.js 20+ (for asset compilation)
-- Python 3.10+ (for PDF ingestion pipeline)
-- Docker + Docker Compose plugin (optional, for containerized run)
+- **Docker Compose**
+  - Docker
+  - Docker Compose plugin
+- **Local Mix development**
+  - Elixir `~> 1.15` (tested with Elixir 1.19.5)
+  - Erlang/OTP 28
+  - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) extension
+  - Python 3.10+ (for PDF ingestion pipeline)
+  - Node.js 20+ (optional, only for Playwright E2E tests)
 
-## Setup
+## Running ZAQ
 
-Clone the repository and install dependencies:
+### Docker Compose (recommended first run)
 
-```bash
-git clone https://github.com/www-zaq-ai/zaq.git
-cd zaq
-mix setup
-```
-
-This runs `mix deps.get`, creates the database, runs migrations, installs assets, and fetches the Python pipeline scripts.
-
-### Python Pipeline (PDF Ingestion)
-
-`mix setup` fetches the Python scripts automatically. To set up the virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r priv/python/crawler-ingest/requirements.txt
-```
-
-PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding. Image descriptions are generated via Scaleway Pixtral when `SCALEWAY_API_KEY` is set — otherwise that step is skipped.
-
-```bash
-# Optional — enables image-to-text descriptions in PDFs
-export SCALEWAY_API_KEY=your-key-here
-```
-
-To re-fetch or pin the Python scripts to a specific commit:
-
-```bash
-mix zaq.python.fetch                      # latest main
-mix zaq.python.fetch --commit <sha>       # pin to commit
-```
-
-### Database
-
-Make sure PostgreSQL is running and configure your credentials in `config/dev.exs`:
-
-```elixir
-config :zaq, Zaq.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "zaq_dev"
-```
-
-Then create and migrate:
-
-```bash
-mix ecto.setup
-```
-
-### Running Locally (Mix)
-
-Start the application:
-
-```bash
-mix phx.server
-```
-
-Or inside IEx:
-
-```bash
-iex -S mix phx.server
-```
-
-The Back Office will be available at [`http://localhost:4000/bo`](http://localhost:4000/bo).
-
-### Running with Docker Compose
-
-This repository includes `docker-compose.yml` with:
+This path uses `docker-compose.yml` with:
 
 - `pgvector` service (PostgreSQL + pgvector)
 - `zaq` service (Phoenix release built from `Dockerfile`)
@@ -148,13 +84,19 @@ This repository includes `docker-compose.yml` with:
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 ```
 
-2. Optionally override model endpoints/keys from your host environment:
+2. Optionally override model endpoints, models, and base URL from your host environment:
 
 ```bash
 export LLM_ENDPOINT="http://host.docker.internal:11434/v1"
 export LLM_API_KEY=""
+export LLM_MODEL="gpt-oss-120b"
+
 export EMBEDDING_ENDPOINT="http://host.docker.internal:11434/v1"
 export EMBEDDING_API_KEY=""
+export EMBEDDING_MODEL="bge-multilingual-gemma2"
+
+export BASE_URL_SCHEME="http"
+export BASE_URL="http://localhost:4000"
 ```
 
 3. Build and start the stack:
@@ -163,7 +105,7 @@ export EMBEDDING_API_KEY=""
 docker compose up --build
 ```
 
-4. Open the Back Office at [`http://localhost:4000/bo`](http://localhost:4000/bo).
+4. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
 
 To stop containers:
 
@@ -177,27 +119,98 @@ To stop and remove DB data volume:
 docker compose down -v
 ```
 
+`docker compose down -v` removes the Postgres named volume only. Files in `./ingestion-volumes` are bind-mounted and remain on disk.
+
+### Local (Mix)
+
+1. Clone the repository and bootstrap dependencies:
+
+```bash
+git clone https://github.com/www-zaq-ai/zaq.git
+cd zaq
+mix setup
+```
+
+`mix setup` runs `mix deps.get`, `mix ecto.setup`, asset setup/build, and `mix zaq.python.fetch`.
+
+2. If your PostgreSQL credentials differ from defaults, update `config/dev.exs`:
+
+```elixir
+config :zaq, Zaq.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  database: "zaq_dev"
+```
+
+Then rerun:
+
+```bash
+mix ecto.setup
+```
+
+3. Start the application:
+
+```bash
+mix phx.server
+```
+
+Or inside IEx:
+
+```bash
+iex -S mix phx.server
+```
+
+The Back Office will be available at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
+
+#### Python Pipeline (PDF Ingestion)
+
+`mix setup` fetches the Python scripts automatically. To set up the virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r priv/python/crawler-ingest/requirements.txt
+```
+
+PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding. Image descriptions are generated via Scaleway Pixtral when `SCALEWAY_API_KEY` is set; otherwise that step is skipped.
+
+```bash
+# Optional — enables image-to-text descriptions in PDFs
+export SCALEWAY_API_KEY=your-key-here
+```
+
+To re-fetch or pin the Python scripts to a specific commit:
+
+```bash
+mix zaq.python.fetch                # latest main
+mix zaq.python.fetch --commit <sha> # pin to commit
+```
+
 ### Startup and First Login
 
-On first startup after running migrations, ZAQ seeds default roles and a bootstrap Back Office account:
+During `mix ecto.migrate` (or release migrations at container startup), ZAQ seeds default roles and a bootstrap Back Office account:
 
 - Username: `admin`
 - Password: `admin`
 
 After login, you will be redirected to `/bo/change-password` and must set a new password.
-If an `admin` user already exists, startup seeding leaves that user unchanged.
+If an `admin` user already exists, seeding leaves that user unchanged.
 
 ## Role-Based Node Configuration
 
-ZAQ supports distributed deployment. Each node can run a subset of services by configuring roles.
+ZAQ supports distributed deployment. Each node can run a subset of services by configuring `ROLES`.
 
 ### Configuration
 
 In your config file (e.g. `config/dev.exs`):
 
 ```elixir
-# Run all services on a single node (default)
-config :zaq, roles: [:bo, :agent, :ingestion, :channels]
+# Run all services on a single node (recommended default)
+config :zaq, roles: [:all]
+
+# Equivalent explicit list
+config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 
 # Run only specific services
 config :zaq, roles: [:engine, :bo]
@@ -222,24 +235,24 @@ ROLES=engine,agent mix phx.server
 
 ### Multi-Node Deployment
 
-Nodes auto-connect to peers on boot using the `NODES` env var.
-All nodes must share the same `--cookie` for Erlang distribution to work.
+Peer connectivity is automatic via Erlang distribution + EPMD peer discovery (no `NODES` env var required).
+All nodes should run on the same host with the same `--cookie` for local discovery.
 
 ```bash
-# Node 1 — AI services (start first)
+# Node 1 — BO + Engine
+ROLES=engine,bo iex --sname bo@localhost --cookie zaq_secret -S mix phx.server
+
+# Node 2 — AI services
 ROLES=agent,ingestion iex --sname ai@localhost --cookie zaq_secret -S mix
 
-# Node 2 — API + Admin (auto-connects to ai node)
-ROLES=engine,bo NODES=ai@localhost iex --sname bo@localhost --cookie zaq_secret -S mix phx.server
-
-# Node 3 — Communication (auto-connects to both)
-ROLES=channels NODES=ai@localhost,bo@localhost iex --sname channels@localhost --cookie zaq_secret -S mix
+# Node 3 — Communication
+ROLES=channels iex --sname channels@localhost --cookie zaq_secret -S mix
 ```
 
-`NODES` accepts a comma-separated list of node names. Each node logs a confirmation on successful connection:
+Each node logs confirmation on successful connection:
 
 ```
-[info] Connected to peer node: ai@localhost
+[info] [PeerConnector] Connected to: ai@localhost
 ```
 
 Once connected, cross-node service calls are handled automatically by `Zaq.NodeRouter`.
@@ -251,10 +264,10 @@ lib/
 ├── zaq/
 │   ├── application.ex      # OTP application with role-based startup + peer auto-connect
 │   ├── node_router.ex      # Routes RPC calls to correct node by service role
-│   ├── engine/             # Orchestration, sessions, ontology (not started yet)
+│   ├── engine/             # Orchestration, conversations, notifications
 │   ├── agent/              # RAG, LLM, classifier
 │   ├── ingestion/          # Document processing, embeddings
-│   ├── channels/           # Mattermost, Slack, Email adapters
+│   ├── channels/           # Channel providers (Mattermost retrieval today)
 │   ├── license/            # License loading, verification, feature gating
 │   ├── embedding/          # Embedding HTTP client
 │   ├── repo.ex
@@ -279,7 +292,7 @@ Releases are automated with a release PR gate powered by [release-please](https:
 
 ### First-Time Setup
 
-1. Add repository secret `RELEASE_PLEASE_TOKEN` (a PAT with repo/workflow permissions)
+1. Optionally add repository secret `RELEASE_PLEASE_TOKEN` (PAT with repo/workflow permissions). The workflow falls back to `GITHUB_TOKEN` when it is not set.
 2. Ensure GitHub Actions are allowed to create and approve pull requests
 3. Create a baseline tag on `main` matching `mix.exs` (`v0.1.0`)
 
@@ -298,11 +311,11 @@ On every published release, GitHub Actions builds and pushes a Docker image to G
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/my-feature`)
    - For urgent post-release fixes, use `hotfix/my-fix` instead
-3. Commit your changes (`git commit -am 'Add my feature'`)
+3. Commit your changes using Conventional Commits (example: `git commit -m "feat(auth): add SSO callback handler"`)
 4. Push to the branch (`git push origin <your-branch-name>`)
 5. Open a Pull Request targeting `main`
 
-Please ensure your code passes `mix format --check-formatted` and `mix test` before submitting.
+Please run `mix precommit` before submitting.
 
 ## License
 
