@@ -173,11 +173,11 @@ source .venv/bin/activate
 pip install -r priv/python/crawler-ingest/requirements.txt
 ```
 
-PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding. Image descriptions are generated via Scaleway Pixtral when `SCALEWAY_API_KEY` is set; otherwise that step is skipped.
+PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding. Image descriptions are generated via Scaleway Pixtral when `IMAGE_TO_TEXT_API_KEY` is set; otherwise that step is skipped.
 
 ```bash
 # Optional — enables image-to-text descriptions in PDFs
-export SCALEWAY_API_KEY=your-key-here
+export IMAGE_TO_TEXT_API_KEY=your-key-here
 ```
 
 To re-fetch or pin the Python scripts to a specific commit:

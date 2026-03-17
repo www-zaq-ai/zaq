@@ -30,7 +30,13 @@ COPY assets assets
 RUN mix assets.deploy
 
 COPY config/runtime.exs config/
+
+RUN mix zaq.python.fetch
+
 RUN mix release
+
+# Keep a stable path to the release-bundled Python requirements
+RUN cp /app/_build/prod/rel/zaq/lib/zaq-*/priv/python/crawler-ingest/requirements.txt /app/release-requirements.txt
 
 FROM debian:trixie-slim AS app
 
