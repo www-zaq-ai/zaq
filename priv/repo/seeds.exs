@@ -1,7 +1,7 @@
 alias Zaq.Repo
 alias Zaq.Accounts.Role
 
-roles = ["super_admin", "admin", "staff"]
+roles = ["super_admin", "admin", "staff", "public"]
 
 Enum.each(roles, fn name ->
   unless Repo.get_by(Role, name: name) do

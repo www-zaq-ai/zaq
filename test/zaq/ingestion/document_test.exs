@@ -21,10 +21,10 @@ defmodule Zaq.Ingestion.DocumentTest do
       refute changeset.valid?
     end
 
-    test "invalid without content" do
+    test "valid without content (content is optional for upload tracking)" do
       attrs = Map.delete(@valid_attrs, :content)
       changeset = Document.changeset(%Document{}, attrs)
-      refute changeset.valid?
+      assert changeset.valid?
     end
 
     test "invalid with unsupported content_type" do
