@@ -8,7 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   alias Zaq.Accounts
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Chunk, Document, FileExplorer}
+  alias Zaq.Ingestion.{Document, FileExplorer}
   alias Zaq.Repo
 
   @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv)
@@ -97,17 +97,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("confirm_share", _params, socket) do
     source = normalize_source(socket.assigns.modal_path)
 
-    case Ingestion.share_file(source, socket.assigns.share_modal_role_ids) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> assign(modal: nil, modal_error: nil)
-         |> load_entries()
-         |> put_flash(:info, "Sharing updated for \"#{socket.assigns.modal_name}\".")}
+    {:ok, _} = Ingestion.share_file(source, socket.assigns.share_modal_role_ids)
 
-      {:error, :not_found} ->
-        {:noreply, assign(socket, modal_error: "File has not been ingested yet.")}
-    end
+    {:noreply,
+     socket
+     |> assign(modal: nil, modal_error: nil)
+     |> load_entries()
+     |> put_flash(:info, "Sharing updated for \"#{socket.assigns.modal_name}\".")}
   end
 
   # Volume
@@ -456,12 +452,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("upload", _params, socket) do
     volume = socket.assigns.current_volume
+    role_id = socket.assigns.current_user.role_id
 
     uploaded =
       consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
         binary = File.read!(tmp_path)
         dest = Path.join(socket.assigns.current_dir, entry.client_name)
-        FileExplorer.upload(volume, dest, binary)
+
+        with {:ok, _full_path} <- FileExplorer.upload(volume, dest, binary) do
+          Ingestion.track_upload(dest, role_id)
+          {:ok, dest}
+        end
       end)
 
     {:noreply,
@@ -496,11 +497,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp load_ingestion_status(socket) do
     current_dir = socket.assigns.current_dir
     current_role_id = socket.assigns.current_user.role_id
+    super_admin? = socket.assigns.current_user.role.name == "super_admin"
+
+    public_role_id =
+      Enum.find_value(socket.assigns.all_roles, fn r ->
+        if r.name == "public", do: r.id
+      end)
+
+    file_entries = Enum.filter(socket.assigns.entries, &(&1.type == :file))
 
     sources =
-      socket.assigns.entries
-      |> Enum.filter(&(&1.type == :file))
-      |> Enum.map(fn entry ->
+      Enum.map(file_entries, fn entry ->
         normalize_source(Path.join(current_dir, entry.name))
       end)
 
@@ -509,37 +516,55 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       |> Repo.all()
       |> Map.new(fn d -> {d.source, d} end)
 
-    doc_ids = documents |> Map.values() |> Enum.map(& &1.id)
-    shared_by_doc = Chunk.shared_role_ids_by_documents(doc_ids)
-
-    ingestion_map =
-      socket.assigns.entries
-      |> Enum.filter(&(&1.type == :file))
-      |> Map.new(fn entry ->
+    {ingestion_map, visible_names} =
+      Enum.reduce(file_entries, {%{}, MapSet.new()}, fn entry, {map, visible} ->
         source = normalize_source(Path.join(current_dir, entry.name))
+        doc = Map.get(documents, source)
 
-        status =
-          case Map.get(documents, source) do
-            nil -> %{ingested_at: nil, stale?: false, shared_role_ids: []}
-            doc -> entry_ingestion_status(entry, doc, shared_by_doc, current_role_id)
-          end
+        {status, visible?} =
+          resolve_entry_status(entry, doc, super_admin?, current_role_id, public_role_id)
 
-        {entry.name, status}
+        map = Map.put(map, entry.name, status)
+        visible = if visible?, do: MapSet.put(visible, entry.name), else: visible
+        {map, visible}
       end)
 
-    assign(socket, ingestion_map: ingestion_map)
+    visible_entries =
+      Enum.filter(socket.assigns.entries, fn e ->
+        e.type == :directory or MapSet.member?(visible_names, e.name)
+      end)
+
+    socket
+    |> assign(ingestion_map: ingestion_map)
+    |> assign(entries: visible_entries)
   end
 
-  defp entry_ingestion_status(entry, doc, shared_by_doc, current_role_id) do
-    shared = Map.get(shared_by_doc, doc.id, [])
-    visible? = is_nil(doc.role_id) or doc.role_id == current_role_id or current_role_id in shared
+  defp resolve_entry_status(_entry, nil, _super_admin?, _current_role_id, _public_role_id) do
+    {%{ingested_at: nil, stale?: false, shared_role_ids: [], can_share?: true}, true}
+  end
 
-    if visible? do
-      stale? = DateTime.compare(entry.modified_at, doc.updated_at) == :gt
-      %{ingested_at: doc.updated_at, stale?: stale?, shared_role_ids: shared}
-    else
-      %{ingested_at: nil, stale?: false, shared_role_ids: []}
-    end
+  defp resolve_entry_status(entry, doc, super_admin?, current_role_id, public_role_id) do
+    shared = doc.shared_role_ids
+    public? = not is_nil(public_role_id) and public_role_id in shared
+
+    visible? =
+      super_admin? or public? or is_nil(doc.role_id) or
+        doc.role_id == current_role_id or current_role_id in shared
+
+    can_share? = super_admin? or is_nil(doc.role_id) or doc.role_id == current_role_id
+    {entry_ingestion_status(entry, doc, can_share?), visible?}
+  end
+
+  defp entry_ingestion_status(entry, doc, can_share?) do
+    ingested_at = if doc.content, do: doc.updated_at, else: nil
+    stale? = not is_nil(ingested_at) and DateTime.compare(entry.modified_at, ingested_at) == :gt
+
+    %{
+      ingested_at: ingested_at,
+      stale?: stale?,
+      shared_role_ids: doc.shared_role_ids,
+      can_share?: can_share?
+    }
   end
 
   defp parent_dir("."), do: "."

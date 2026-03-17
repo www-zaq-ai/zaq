@@ -174,7 +174,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns changeset error when required fields are invalid" do
       assert {:error, changeset} = DocumentProcessor.store_document(nil, nil)
-      assert %{content: [_ | _], source: [_ | _]} = errors_on(changeset)
+      assert %{source: [_ | _]} = errors_on(changeset)
     end
   end
 

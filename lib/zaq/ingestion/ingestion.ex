@@ -59,17 +59,68 @@ defmodule Zaq.Ingestion do
     end
   end
 
+  # --- Access control ---
+
+  @doc """
+  Returns true if the given user can access a file at `relative_path`.
+  - Super admins bypass all checks.
+  - Files with no Document record are accessible to all (backward compat).
+  - Files shared with the "public" role are accessible to all.
+  - Otherwise: only the owning role (doc.role_id) or explicitly shared roles.
+  """
+  def can_access_file?(relative_path, current_user) do
+    source = normalize_source(relative_path)
+
+    case Document.get_by_source(source) do
+      nil ->
+        true
+
+      doc ->
+        super_admin? = current_user.role.name == "super_admin"
+        shared = doc.shared_role_ids
+        public? = public_role_id() in shared
+
+        super_admin? or
+          public? or
+          is_nil(doc.role_id) or
+          doc.role_id == current_user.role_id or
+          current_user.role_id in shared
+    end
+  end
+
+  defp public_role_id do
+    case Zaq.Accounts.get_role_by_name("public") do
+      nil -> nil
+      role -> role.id
+    end
+  end
+
+  # --- Upload tracking ---
+
+  @doc """
+  Records a newly uploaded file in the documents table with the uploader's role_id.
+  This is called immediately at upload time — before any ingestion happens — so that
+  the file browser can enforce role-based visibility right away.
+  """
+  def track_upload(path, role_id) do
+    source = normalize_source(path)
+    Document.upsert(%{source: source, role_id: role_id})
+  end
+
+  defp normalize_source("./" <> rest), do: rest
+  defp normalize_source(path), do: path
+
   # --- Sharing ---
 
   def share_file(source, shared_role_ids) do
-    case Document.get_by_source(source) do
-      nil ->
-        {:error, :not_found}
+    doc =
+      case Document.get_by_source(source) do
+        nil -> elem(Document.create(%{source: source, shared_role_ids: shared_role_ids}), 1)
+        doc -> elem(Document.set_shared_role_ids(doc, shared_role_ids), 1)
+      end
 
-      doc ->
-        Chunk.update_shared_role_ids_for_document(doc.id, shared_role_ids)
-        {:ok, shared_role_ids}
-    end
+    Chunk.update_shared_role_ids_for_document(doc.id, shared_role_ids)
+    {:ok, shared_role_ids}
   end
 
   # --- Job queries ---

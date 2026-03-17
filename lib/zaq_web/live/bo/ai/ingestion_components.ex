@@ -527,7 +527,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       </svg>
                     </button>
                     <button
-                      :if={entry.type == :file}
+                      :if={
+                        entry.type == :file and
+                          Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?
+                      }
                       phx-click="share_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
@@ -571,7 +574,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </td>
               <td class="px-4 py-3">
                 <%= if entry.type == :file do %>
-                  <% status = Map.get(@ingestion_map, entry.name, %{ingested_at: nil, stale?: false}) %>
+                  <% status =
+                    Map.get(@ingestion_map, entry.name, %{
+                      ingested_at: nil,
+                      stale?: false,
+                      shared_role_ids: [],
+                      can_share?: false
+                    }) %>
                   <%= cond do %>
                     <% status.stale? -> %>
                       <div class="flex flex-col gap-0.5">
@@ -636,7 +645,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                         </span>
                       </div>
                     <% true -> %>
-                      <span class="font-mono text-[0.65rem] text-black/20">—</span>
+                      <div class="flex items-center gap-1 flex-wrap">
+                        <span class="font-mono text-[0.65rem] text-black/20">—</span>
+                        <span
+                          :if={status.shared_role_ids != []}
+                          class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
+                          title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                        >
+                          <svg
+                            class="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                            />
+                          </svg>
+                          shared
+                        </span>
+                      </div>
                   <% end %>
                 <% else %>
                   <span class="font-mono text-[0.65rem] text-black/20">—</span>
@@ -817,7 +848,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </svg>
             </button>
             <button
-              :if={entry.type == :file}
+              :if={
+                entry.type == :file and
+                  Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?
+              }
               phx-click="share_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               class="p-1 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
@@ -899,6 +933,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     </span>
                   </div>
                 <% true -> %>
+                  <span
+                    :if={status.shared_role_ids != []}
+                    class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default mt-1"
+                    title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                  >
+                    shared
+                  </span>
               <% end %>
               <a
                 :if={Map.get(entry, :related_md)}

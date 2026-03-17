@@ -1,7 +1,7 @@
 defmodule Zaq.Repo.Migrations.SeedDefaultRolesAndAdminUser do
   use Ecto.Migration
 
-  @default_roles ["super_admin", "admin", "staff"]
+  @default_roles ["super_admin", "admin", "staff", "public"]
 
   def up do
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)

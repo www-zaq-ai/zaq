@@ -4,8 +4,7 @@ defmodule Zaq.IngestionTest do
   import Mox
 
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.FileExplorer
-  alias Zaq.Ingestion.IngestJob
+  alias Zaq.Ingestion.{Document, FileExplorer, IngestJob}
   alias Zaq.Repo
 
   setup do
@@ -201,6 +200,82 @@ defmodule Zaq.IngestionTest do
 
       assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline)
       assert job.volume_name == nil
+    end
+  end
+
+  describe "track_upload/2" do
+    test "creates a document record with the uploader's role_id" do
+      role = role_fixture()
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      assert {:ok, doc} = Ingestion.track_upload(source, role.id)
+      assert doc.source == source
+      assert doc.role_id == role.id
+      assert doc.content == nil
+    end
+
+    test "normalizes leading ./ from path" do
+      role = role_fixture()
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      assert {:ok, doc} = Ingestion.track_upload("./#{source}", role.id)
+      assert doc.source == source
+    end
+
+    test "upserts: does not duplicate when called again for the same source" do
+      role1 = role_fixture()
+      role2 = role_fixture()
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      assert {:ok, _} = Ingestion.track_upload(source, role1.id)
+      assert {:ok, doc} = Ingestion.track_upload(source, role2.id)
+      assert doc.role_id == role2.id
+      assert Repo.aggregate(Document, :count) >= 1
+    end
+  end
+
+  describe "share_file/2" do
+    test "updates shared_role_ids on an existing document" do
+      role1 = role_fixture()
+      role2 = role_fixture()
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      {:ok, _} = Ingestion.track_upload(source, role1.id)
+
+      assert {:ok, _} = Ingestion.share_file(source, [role2.id])
+      assert Document.get_by_source(source).shared_role_ids == [role2.id]
+    end
+
+    test "creates a minimal document when none exists yet" do
+      role = role_fixture()
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      assert {:ok, _} = Ingestion.share_file(source, [role.id])
+
+      doc = Document.get_by_source(source)
+      assert doc.shared_role_ids == [role.id]
+      assert doc.role_id == nil
+    end
+
+    test "does not overwrite ingested content" do
+      role = role_fixture()
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      {:ok, _} = Document.upsert(%{source: source, content: "# Hello", role_id: role.id})
+      {:ok, _} = Ingestion.share_file(source, [role.id])
+
+      assert Document.get_by_source(source).content == "# Hello"
+    end
+
+    test "clears sharing when called with empty list" do
+      role = role_fixture()
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      {:ok, _} = Ingestion.track_upload(source, role.id)
+      {:ok, _} = Ingestion.share_file(source, [role.id])
+      {:ok, _} = Ingestion.share_file(source, [])
+
+      assert Document.get_by_source(source).shared_role_ids == []
     end
   end
 

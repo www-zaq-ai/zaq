@@ -3,6 +3,7 @@
 defmodule ZaqWeb.FileController do
   use ZaqWeb, :controller
 
+  alias Zaq.Ingestion
   alias Zaq.Ingestion.FileExplorer
 
   @mime_types %{
@@ -24,33 +25,36 @@ defmodule ZaqWeb.FileController do
   def show(conn, %{"path" => path_segments}) do
     relative_path = Path.join(path_segments)
 
-    with {:ok, full_path} <- FileExplorer.resolve_path(relative_path),
-         {:ok, stat} <- File.stat(full_path),
-         false <- stat.type == :directory,
-         {:ok, content} <- File.read(full_path) do
-      ext = full_path |> Path.extname() |> String.downcase()
-      content_type = Map.get(@mime_types, ext, "application/octet-stream")
+    if Ingestion.can_access_file?(relative_path, conn.assigns.current_user) do
+      with {:ok, full_path} <- FileExplorer.resolve_path(relative_path),
+           {:ok, stat} <- File.stat(full_path),
+           false <- stat.type == :directory,
+           {:ok, content} <- File.read(full_path) do
+        ext = full_path |> Path.extname() |> String.downcase()
+        content_type = Map.get(@mime_types, ext, "application/octet-stream")
 
-      conn
-      |> put_resp_content_type(content_type)
-      |> put_resp_header(
-        "content-disposition",
-        ~s(inline; filename="#{Path.basename(full_path)}")
-      )
-      |> send_resp(200, content)
+        conn
+        |> put_resp_content_type(content_type)
+        |> put_resp_header(
+          "content-disposition",
+          ~s(inline; filename="#{Path.basename(full_path)}")
+        )
+        |> send_resp(200, content)
+      else
+        {:error, :path_traversal} ->
+          conn |> put_status(:forbidden) |> text("Forbidden")
+
+        {:error, :enoent} ->
+          conn |> put_status(:not_found) |> text("File not found")
+
+        true ->
+          conn |> put_status(:bad_request) |> text("Not a file")
+
+        _ ->
+          conn |> put_status(:internal_server_error) |> text("Could not read file")
+      end
     else
-      {:error, :path_traversal} ->
-        conn |> put_status(:forbidden) |> text("Forbidden")
-
-      {:error, :enoent} ->
-        conn |> put_status(:not_found) |> text("File not found")
-
-      true ->
-        # path is a directory
-        conn |> put_status(:bad_request) |> text("Not a file")
-
-      _ ->
-        conn |> put_status(:internal_server_error) |> text("Could not read file")
+      conn |> put_status(:forbidden) |> text("Access denied")
     end
   end
 end

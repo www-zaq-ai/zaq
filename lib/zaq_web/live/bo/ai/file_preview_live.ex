@@ -3,6 +3,7 @@
 defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   use ZaqWeb, :live_view
 
+  alias Zaq.Ingestion
   alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, XlsxToMd}
 
@@ -16,52 +17,60 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   @impl true
   def mount(%{"path" => path_segments}, _session, socket) do
     relative_path = Path.join(path_segments)
-    filename = Path.basename(relative_path)
-    ext = relative_path |> Path.extname() |> String.downcase()
 
-    result =
-      with {:ok, full_path} <- FileExplorer.resolve_path(relative_path),
-           false <- File.dir?(full_path),
-           {:ok, stat} <- File.stat(full_path, time: :posix) do
-        {:ok, full_path, stat}
-      else
-        true -> {:error, :is_directory}
-        {:error, reason} -> {:error, reason}
+    if Ingestion.can_access_file?(relative_path, socket.assigns.current_user) do
+      filename = Path.basename(relative_path)
+      ext = relative_path |> Path.extname() |> String.downcase()
+
+      result =
+        with {:ok, full_path} <- FileExplorer.resolve_path(relative_path),
+             false <- File.dir?(full_path),
+             {:ok, stat} <- File.stat(full_path, time: :posix) do
+          {:ok, full_path, stat}
+        else
+          true -> {:error, :is_directory}
+          {:error, reason} -> {:error, reason}
+        end
+
+      case result do
+        {:ok, full_path, stat} ->
+          {kind, content, rendered_html} = load_content(full_path, ext)
+
+          {:ok,
+           assign(socket,
+             current_path: "/bo/ingestion",
+             relative_path: relative_path,
+             filename: filename,
+             ext: ext,
+             kind: kind,
+             content: content,
+             rendered_html: rendered_html,
+             file_size: stat.size,
+             modified_at: stat.mtime |> DateTime.from_unix!(),
+             raw_url: "/bo/files/#{relative_path}"
+           )}
+
+        {:error, _} ->
+          {:ok,
+           socket
+           |> assign(
+             current_path: "/bo/ingestion",
+             relative_path: relative_path,
+             filename: filename,
+             ext: ext,
+             kind: :not_found,
+             content: nil,
+             rendered_html: nil,
+             file_size: nil,
+             modified_at: nil,
+             raw_url: nil
+           )}
       end
-
-    case result do
-      {:ok, full_path, stat} ->
-        {kind, content, rendered_html} = load_content(full_path, ext)
-
-        {:ok,
-         assign(socket,
-           current_path: "/bo/ingestion",
-           relative_path: relative_path,
-           filename: filename,
-           ext: ext,
-           kind: kind,
-           content: content,
-           rendered_html: rendered_html,
-           file_size: stat.size,
-           modified_at: stat.mtime |> DateTime.from_unix!(),
-           raw_url: "/bo/files/#{relative_path}"
-         )}
-
-      {:error, _} ->
-        {:ok,
-         socket
-         |> assign(
-           current_path: "/bo/ingestion",
-           relative_path: relative_path,
-           filename: filename,
-           ext: ext,
-           kind: :not_found,
-           content: nil,
-           rendered_html: nil,
-           file_size: nil,
-           modified_at: nil,
-           raw_url: nil
-         )}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to this file.")
+       |> push_navigate(to: "/bo/ingestion")}
     end
   end
 
