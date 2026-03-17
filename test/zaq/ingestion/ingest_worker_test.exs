@@ -182,6 +182,42 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
                })
     end
 
+    test "resolves path against volume_name when job has one" do
+      vol_dir =
+        Path.join(System.tmp_dir!(), "zaq_worker_vol_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(vol_dir)
+
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"myvol" => vol_dir})
+
+      job = create_job(%{file_path: "report.md", volume_name: "myvol"})
+      expected_path = Path.join(vol_dir, "report.md")
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path,
+                                                                 _role_id,
+                                                                 _shared_role_ids ->
+        assert path == expected_path
+        {:ok, create_document()}
+      end)
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+    end
+
     test "converts crashes to retries" do
       job = create_job()
 

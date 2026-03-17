@@ -33,7 +33,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   def run(pdf_path, opts \\ []) do
     api_key = resolve_api_key(opts)
     md_path = opts[:output] || Path.rootname(pdf_path) <> ".md"
-    base = FileExplorer.base_path()
+    base = opts[:base] || resolve_volume_base(pdf_path)
     images_dir = opts[:images_dir] || Path.join(base, "images")
 
     pdf_name = Path.basename(pdf_path, ".pdf")
@@ -61,6 +61,18 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   end
 
   # --- Private ---
+
+  defp resolve_volume_base(pdf_path) do
+    expanded = Path.expand(pdf_path)
+
+    FileExplorer.list_volumes()
+    |> Map.values()
+    |> Enum.find(fn vol_root -> String.starts_with?(expanded, vol_root <> "/") end)
+    |> case do
+      nil -> FileExplorer.base_path()
+      vol_root -> vol_root
+    end
+  end
 
   defp resolve_api_key(opts) do
     key =

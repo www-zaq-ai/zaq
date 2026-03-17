@@ -26,7 +26,7 @@ defmodule Zaq.Ingestion.IngestWorker do
       |> Repo.update!()
       |> broadcast_update()
 
-    file_path = resolve_file_path(updated_job.file_path)
+    file_path = resolve_file_path(updated_job.file_path, updated_job.volume_name)
 
     case safe_process(file_path, role_id, shared_role_ids) do
       {:ok, document} ->
@@ -90,8 +90,15 @@ defmodule Zaq.Ingestion.IngestWorker do
       {:error, inspect(reason)}
   end
 
-  defp resolve_file_path(path) do
+  defp resolve_file_path(path, nil) do
     case FileExplorer.resolve_path(path) do
+      {:ok, full_path} -> full_path
+      _ -> path
+    end
+  end
+
+  defp resolve_file_path(path, volume_name) do
+    case FileExplorer.resolve_path(volume_name, path) do
       {:ok, full_path} -> full_path
       _ -> path
     end

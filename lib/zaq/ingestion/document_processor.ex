@@ -185,14 +185,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc """
-  Extracts the source as a relative path from the ingestion base_path.
-  Falls back to basename if the path is not under base_path.
+  Extracts the source as a relative path from its volume root.
+  Checks all configured volumes to find the matching root.
+  Falls back to basename if the path is not under any known volume.
 
-  Example: "/app/priv/documents/docs/guide.md" => "docs/guide.md"
+  Example: "/zaq/volumes/docs/guide.md" => "docs/guide.md"
   """
   def extract_source(_content, file_path) do
-    base = FileExplorer.base_path() |> Path.expand()
     expanded = Path.expand(file_path)
+    base = find_volume_root(expanded)
 
     relative =
       case String.split(expanded, base <> "/", parts: 2) do
@@ -201,6 +202,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       end
 
     {:ok, relative}
+  end
+
+  defp find_volume_root(expanded_path) do
+    FileExplorer.list_volumes()
+    |> Map.values()
+    |> Enum.find(fn vol_root -> String.starts_with?(expanded_path, vol_root <> "/") end)
+    |> case do
+      nil -> FileExplorer.base_path() |> Path.expand()
+      vol_root -> vol_root
+    end
   end
 
   @doc """
