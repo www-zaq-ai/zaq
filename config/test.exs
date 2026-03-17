@@ -1,5 +1,15 @@
 import Config
 
+e2e? = System.get_env("E2E") == "1"
+test_partition = System.get_env("MIX_TEST_PARTITION", "")
+
+test_database =
+  if e2e? do
+    "zaq_test_e2e#{test_partition}"
+  else
+    "zaq_test#{test_partition}"
+  end
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
@@ -10,7 +20,7 @@ config :zaq, Zaq.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "zaq_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: test_database,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
@@ -23,7 +33,7 @@ config :zaq, Oban,
 config :zaq, ZaqWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "ciF/5ckzC38nrulQi0vIRpenNCD4oSsnLdBCLJhfXQmaRz0e6/iD9T15avsW/pV8",
-  server: false
+  server: e2e?
 
 config :zaq, Zaq.Embedding.Client,
   endpoint: "http://localhost",
@@ -72,3 +82,16 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+if e2e? do
+  config :zaq, Zaq.Repo,
+    pool: DBConnection.ConnectionPool,
+    pool_size: 10
+
+  config :zaq,
+    node_router: Zaq.NodeRouter,
+    document_processor: Zaq.E2E.DocumentProcessorFake,
+    playground_live_node_router_module: Zaq.E2E.PlaygroundNodeRouterFake
+
+  config :zaq, Zaq.Ingestion, base_path: "tmp/e2e_documents"
+end

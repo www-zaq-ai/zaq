@@ -88,6 +88,7 @@ User question (BO Playground)
 - Slugs: `"retrieval"`, `"answering"`, `"chunk_title"`
 - EEx-style placeholders interpolated via `render/2`
 - `get_active!/1` raises if slug not found — agents depend on templates being seeded
+- Default templates are seeded by migration `20260316204749_seed_default_prompt_templates`
 
 ---
 
@@ -141,7 +142,6 @@ config :zaq, Zaq.Agent.LLM,
 
 ### Must Do
 - [ ] Implement query extraction integration (connect Retrieval output → DocumentProcessor → Answering)
-- [ ] Seed default prompt templates in migrations or a seeder
 
 ### Should Do
 - [ ] Knowledge gap tracking (detect unanswered questions, store for review)

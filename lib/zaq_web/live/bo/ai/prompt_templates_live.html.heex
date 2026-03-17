@@ -7,6 +7,7 @@
   <div class="flex items-center gap-1 mb-6 border-b border-black/10">
     <button
       :for={tpl <- @templates}
+      id={"prompt-tab-#{tpl.slug}"}
       phx-click="switch_tab"
       phx-value-id={tpl.id}
       class={[
@@ -28,6 +29,7 @@
     
 <!-- New tab -->
     <button
+      id="prompt-tab-new"
       phx-click="switch_tab"
       phx-value-id="new"
       class={[
@@ -44,7 +46,7 @@
   
 <!-- Existing template panels -->
   <div :for={tpl <- @templates} :if={@active_tab == tpl.id}>
-    <form phx-submit="save" class="space-y-6">
+    <form id={"prompt-template-edit-form-#{tpl.id}"} phx-submit="save" class="space-y-6">
       <input type="hidden" name="prompt_template[id]" value={tpl.id} />
       
 <!-- Header row -->
@@ -57,6 +59,7 @@
         <div class="flex items-center gap-3">
           <span class="font-mono text-[0.75rem] text-black/50">Active</span>
           <button
+            id={"toggle-template-active-#{tpl.id}"}
             type="button"
             phx-click="toggle_active"
             phx-value-id={tpl.id}
@@ -104,6 +107,7 @@
           Body
         </label>
         <textarea
+          id={"prompt-template-body-#{tpl.id}"}
           name="prompt_template[body]"
           rows="16"
           style="color: #000000 !important; -webkit-text-fill-color: #000000 !important;"
@@ -146,6 +150,7 @@
         
 <!-- Save -->
         <button
+          id={"save-template-#{tpl.id}"}
           type="submit"
           class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
         >
@@ -157,7 +162,7 @@
   
 <!-- New template panel -->
   <div :if={@active_tab == :new}>
-    <form phx-submit="create" class="space-y-6">
+    <form id="prompt-template-create-form" phx-submit="create" class="space-y-6">
       <p class="font-mono text-lg font-bold text-black">New Template</p>
 
       <div class="grid grid-cols-2 gap-4">
@@ -166,6 +171,7 @@
             Slug <span class="text-red-400">*</span>
           </label>
           <input
+            id="prompt-template-slug-input"
             type="text"
             name="prompt_template[slug]"
             placeholder="e.g. retrieval"
@@ -177,6 +183,7 @@
             Name <span class="text-red-400">*</span>
           </label>
           <input
+            id="prompt-template-name-input"
             type="text"
             name="prompt_template[name]"
             placeholder="e.g. Retrieval Agent"
@@ -190,6 +197,7 @@
           Description
         </label>
         <input
+          id="prompt-template-description-input"
           type="text"
           name="prompt_template[description]"
           placeholder="Optional description"
@@ -202,6 +210,7 @@
           Body <span class="text-red-400">*</span>
         </label>
         <textarea
+          id="prompt-template-body-input"
           name="prompt_template[body]"
           rows="16"
           placeholder="Write the system prompt here…"
@@ -212,6 +221,7 @@
 
       <div class="flex justify-end pt-2">
         <button
+          id="create-template-button"
           type="submit"
           class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
         >

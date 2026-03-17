@@ -152,6 +152,7 @@ defmodule ZaqWeb.Components.ChatMessage do
     ~H"""
     <.link
       navigate={source_preview_path(@source)}
+      data-testid="source-chip"
       class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors hover:border-[#b2e4ef] hover:bg-[#f0f9fb] min-w-0"
       style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
     >

@@ -105,7 +105,12 @@ defmodule Zaq.Agent.PromptTemplateTest do
 
       templates = PromptTemplate.list()
       slugs = Enum.map(templates, & &1.slug)
-      assert slugs == ["a_prompt", "b_prompt"]
+      pos_a = Enum.find_index(slugs, &(&1 == "a_prompt"))
+      pos_b = Enum.find_index(slugs, &(&1 == "b_prompt"))
+
+      assert is_integer(pos_a)
+      assert is_integer(pos_b)
+      assert pos_a < pos_b
     end
   end
 

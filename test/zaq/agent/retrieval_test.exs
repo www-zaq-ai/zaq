@@ -6,9 +6,9 @@ defmodule Zaq.Agent.RetrievalTest do
 
   describe "ask/2" do
     setup do
-      # Seed the retrieval prompt template
+      # Seed/update the retrieval prompt template
       {:ok, _template} =
-        PromptTemplate.create(%{
+        upsert_prompt_template(%{
           slug: "retrieval",
           name: "Retrieval Prompt",
           body:
@@ -190,4 +190,11 @@ defmodule Zaq.Agent.RetrievalTest do
 
   defp message_text(%{"content" => content}) when is_binary(content), do: content
   defp message_text(%{"content" => [%{"text" => text}]}), do: text
+
+  defp upsert_prompt_template(attrs) do
+    case PromptTemplate.get_by_slug(attrs.slug) do
+      nil -> PromptTemplate.create(attrs)
+      template -> PromptTemplate.update(template, attrs)
+    end
+  end
 end

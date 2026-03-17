@@ -7,7 +7,7 @@ defmodule Zaq.Agent.AnsweringTest do
 
   setup do
     {:ok, template} =
-      PromptTemplate.create(%{
+      upsert_prompt_template(%{
         slug: "answering",
         name: "Answering Prompt",
         body: "You are a helpful assistant. Answer based on the provided context only.",
@@ -220,4 +220,11 @@ defmodule Zaq.Agent.AnsweringTest do
 
   defp message_text(%{"content" => content}) when is_binary(content), do: content
   defp message_text(%{"content" => [%{"text" => text}]}), do: text
+
+  defp upsert_prompt_template(attrs) do
+    case PromptTemplate.get_by_slug(attrs.slug) do
+      nil -> PromptTemplate.create(attrs)
+      template -> PromptTemplate.update(template, attrs)
+    end
+  end
 end

@@ -1,0 +1,48 @@
+services:
+  pgvector:
+    image: pgvector/pgvector:pg18
+    container_name: zaq-pgvector
+    environment:
+      POSTGRES_DB: zaq_prod
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zaq_prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  zaq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zaq-app
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    environment:
+      PHX_SERVER: "true"
+      PORT: "4000"
+      PHX_HOST: "localhost"
+      DATABASE_URL: "ecto://postgres:postgres@pgvector:5432/zaq_prod"
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
+      INGESTION_VOLUMES: "documents"
+      INGESTION_VOLUMES_BASE: "/zaq/volumes"
+      # Optional but recommended if your LLM/embedding server runs on host:
+      LLM_ENDPOINT: "${LLM_ENDPOINT:-http://host.docker.internal:11434/v1}"
+      LLM_API_KEY: "${LLM_API_KEY}"
+      LLM_MODEL: "gpt-oss-120b"
+      EMBEDDING_ENDPOINT: "${EMBEDDING_ENDPOINT:-http://host.docker.internal:11434/v1}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY}"
+    volumes:
+      - ./ingestion-volumes:/zaq/volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

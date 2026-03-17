@@ -20,7 +20,11 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/prompt-templates")
 
     view
-    |> form("form[phx-submit='create']",
+    |> element("#prompt-tab-new")
+    |> render_click()
+
+    view
+    |> form("#prompt-template-create-form",
       prompt_template: %{
         slug: "lane6_new",
         name: "Lane 6 New",
@@ -108,7 +112,11 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/prompt-templates")
 
     view
-    |> form("form[phx-submit='create']",
+    |> element("#prompt-tab-new")
+    |> render_click()
+
+    view
+    |> form("#prompt-template-create-form",
       prompt_template: %{
         slug: "",
         name: "",

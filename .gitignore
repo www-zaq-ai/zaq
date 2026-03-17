@@ -37,6 +37,11 @@ npm-debug.log
 
 /priv/python/
 /.venv/
+# Playwright E2E artifacts
+/test/e2e/node_modules/
+/test/e2e/test-results/
+/test/e2e/playwright-report/
+
 /priv/keys
 /priv/licenses
 /priv/documents
@@ -46,3 +51,5 @@ context.md
 
 config/dev.secret.exs
 .claude/settings.local.json
+
+.env

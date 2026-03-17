@@ -45,14 +45,21 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
     Application.put_env(:zaq, :playground_live_node_router_module, NodeRouterFake)
     :persistent_term.put(NodeRouterFake, %{})
 
-    {:ok, _template} =
-      PromptTemplate.create(%{
-        slug: "answering",
-        name: "Answering Prompt",
-        body: "Answer in <%= @language %>: <%= @question %> using <%= @retrieved_data %>",
-        description: "test template",
-        active: true
-      })
+    template_attrs = %{
+      slug: "answering",
+      name: "Answering Prompt",
+      body: "Answer in <%= @language %>: <%= @question %> using <%= @retrieved_data %>",
+      description: "test template",
+      active: true
+    }
+
+    case PromptTemplate.get_by_slug("answering") do
+      nil ->
+        {:ok, _template} = PromptTemplate.create(template_attrs)
+
+      template ->
+        {:ok, _template} = PromptTemplate.update(template, template_attrs)
+    end
 
     on_exit(fn ->
       Application.delete_env(:zaq, :playground_live_node_router_module)

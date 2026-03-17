@@ -38,6 +38,7 @@ defmodule Zaq.MixProject do
     [
       preferred_envs: [
         precommit: :test,
+        e2e: :test,
         docs: :docs,
         coveralls: :test,
         "coveralls.detail": :test,
@@ -112,6 +113,7 @@ defmodule Zaq.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      e2e: ["cmd npm --prefix test/e2e run test:journeys"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind zaq", "esbuild zaq"],
       "assets.deploy": [
@@ -124,7 +126,8 @@ defmodule Zaq.MixProject do
         "deps.unlock --unused",
         "format",
         "credo --strict",
-        "test"
+        "test",
+        "e2e"
       ]
     ]
   end

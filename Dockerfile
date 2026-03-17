@@ -32,7 +32,7 @@ RUN mix assets.deploy
 COPY config/runtime.exs config/
 RUN mix release
 
-FROM debian:bookworm-slim AS app
+FROM debian:trixie-slim AS app
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates && \
@@ -54,4 +54,4 @@ COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
 
 USER appuser
 
-CMD ["/app/bin/zaq", "start"]
+CMD ["/bin/sh", "-c", "/app/bin/zaq eval \"Zaq.Release.migrate()\" && exec /app/bin/zaq start"]

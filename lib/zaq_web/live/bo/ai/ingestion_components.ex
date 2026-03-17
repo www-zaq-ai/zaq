@@ -211,6 +211,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
       </p>
       <div class="flex items-center gap-2">
         <button
+          id="new-folder-button"
           phx-click="show_new_folder_modal"
           class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 transition-colors flex items-center gap-1"
         >
@@ -220,6 +221,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           New Folder
         </button>
         <button
+          id="add-raw-md-button"
           phx-click="show_add_raw_modal"
           class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 transition-colors flex items-center gap-1"
         >
@@ -235,6 +237,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         </button>
         <button
           :if={MapSet.size(@selected) > 0}
+          id="bulk-delete-button"
           phx-click="show_delete_confirmation"
           class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors flex items-center gap-1"
         >
@@ -250,6 +253,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         </button>
         <button
           :for={mode <- ~w(async inline)}
+          id={"ingest-mode-#{mode}"}
           phx-click="set_mode"
           phx-value-mode={mode}
           class={[
@@ -263,6 +267,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           {mode}
         </button>
         <button
+          id="ingest-selected-button"
           phx-click="ingest_selected"
           disabled={MapSet.size(@selected) == 0}
           class={[
@@ -1079,7 +1084,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def modal_add_raw(assigns) do
     ~H"""
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="add-raw-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/20 backdrop-blur-sm" phx-click="close_modal" />
       <div
         phx-window-keydown="close_modal"
@@ -1113,7 +1118,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           </div>
         </div>
 
-        <form phx-submit="add_raw_content">
+        <form id="add-raw-form" phx-submit="add_raw_content">
           <div class="px-6 pb-6 space-y-4">
             <div :if={@modal_error} class="px-3 py-2 rounded-xl bg-red-50 border border-red-100">
               <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
@@ -1142,6 +1147,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 Content
               </label>
               <textarea
+                id="raw-content-input"
                 name="content"
                 rows="14"
                 placeholder="# My Document&#10;&#10;Start writing your Markdown here..."
@@ -1166,6 +1172,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 Cancel
               </button>
               <button
+                id="save-raw-file-button"
                 type="submit"
                 class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
               >
@@ -1186,7 +1193,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def modal_rename(assigns) do
     ~H"""
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="delete-selected-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         phx-click-away="close_modal"
         phx-window-keydown="close_modal"
@@ -1365,6 +1372,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             Cancel
           </button>
           <button
+            id="confirm-delete-selected-button"
             phx-click="confirm_delete_selected"
             class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 shadow-sm shadow-red-500/20 transition-all"
           >
@@ -1383,7 +1391,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def modal_new_folder(assigns) do
     ~H"""
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="new-folder-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         phx-click-away="close_modal"
         phx-window-keydown="close_modal"
@@ -1406,7 +1414,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           </div>
         </div>
 
-        <form phx-submit="create_folder">
+        <form id="new-folder-form" phx-submit="create_folder">
           <div class="px-6 pb-6">
             <div :if={@modal_error} class="mb-3 px-3 py-2 rounded-xl bg-red-50 border border-red-100">
               <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
@@ -1433,6 +1441,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               Cancel
             </button>
             <button
+              id="create-folder-button"
               type="submit"
               class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
             >
