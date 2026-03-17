@@ -133,6 +133,16 @@ iex -S mix phx.server
 
 The Back Office will be available at [`http://localhost:4000/bo`](http://localhost:4000/bo).
 
+### Startup and First Login
+
+On first startup after running migrations, ZAQ seeds default roles and a bootstrap Back Office account:
+
+- Username: `admin`
+- Password: `admin`
+
+After login, you will be redirected to `/bo/change-password` and must set a new password.
+If an `admin` user already exists, startup seeding leaves that user unchanged.
+
 ## Role-Based Node Configuration
 
 ZAQ supports distributed deployment. Each node can run a subset of services by configuring roles.
