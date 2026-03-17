@@ -228,8 +228,9 @@ lib/
 
 Releases are automated with a release PR gate powered by [release-please](https://github.com/googleapis/release-please-action).
 
+- This repository follows a trunk-based flow: `feature/*` and `hotfix/*` branches open PRs into `main`
 - Every PR title must follow Conventional Commits (`feat:`, `fix:`, `chore:`, etc.)
-- Pushes to `main` update or create a release PR instead of releasing immediately
+- Merges into `main` update or create a release PR instead of releasing immediately
 - Merging the release PR bumps `mix.exs` version, creates a git tag, and publishes a GitHub Release
 
 ### First-Time Setup
@@ -252,9 +253,10 @@ On every published release, GitHub Actions builds and pushes a Docker image to G
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/my-feature`)
+   - For urgent post-release fixes, use `hotfix/my-fix` instead
 3. Commit your changes (`git commit -am 'Add my feature'`)
-4. Push to the branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
+4. Push to the branch (`git push origin <your-branch-name>`)
+5. Open a Pull Request targeting `main`
 
 Please ensure your code passes `mix format --check-formatted` and `mix test` before submitting.
 

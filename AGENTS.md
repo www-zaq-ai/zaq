@@ -1,19 +1,18 @@
 This is a web application written using the Phoenix web framework.
 
-## Gitflow Workflow (MANDATORY)
+## Git Workflow (MANDATORY)
 
-**CRITICAL: All AI agents MUST follow this branching strategy when creating PRs:**
+**CRITICAL: All AI agents MUST follow this trunk-based branching strategy when creating PRs:**
 
 ### Branch Hierarchy
-1. **feature/** branches → Code review + Unit tests → merge into `dev`
-2. **dev** branch → E2E tests + QA → merge into `main`
-3. **main** branch → Automatic release → Docker image + docs update
+1. **feature/** branches → Code review + Unit tests → merge into `main`
+2. **hotfix/** branches → Urgent post-release fixes → merge into `main`
+3. **main** branch → Stable source of truth → release PR/tag → Docker image + docs update
 
 ### AI Agent Rules
-- **NEVER** create PRs directly to `main` from feature branches
-- **ALWAYS** target `dev` branch for feature PRs
-- **ONLY** PRs from `dev` to `main` are allowed for release
-- Branch naming: `feature/description` or `feature/issue-123-description`
+- **NEVER** push directly to `main`; all changes must go through a Pull Request
+- **ALWAYS** target `main` for feature and hotfix PRs
+- Branch naming: `feature/description`, `feature/issue-123-description`, or `hotfix/description`
 
 ### Semantic Versioning for Commits and PR Names
 
@@ -45,8 +44,9 @@ feat(api)!: remove deprecated v1 endpoints
 
 ### Current Branch Check
 Before creating any PR, verify:
-- Is this a feature/fix? → Target: `dev`
-- Is this a release? → Target: `main` (only from `dev`)
+- Is this a feature/fix? → Use `feature/*` and target `main`
+- Is this an urgent post-release patch? → Use `hotfix/*` and target `main`
+- Is this a versioned release? → Managed by `release-please` from `main`
 
 ## Project guidelines
 

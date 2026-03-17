@@ -38,4 +38,4 @@ npm --prefix test/e2e run test:journeys
 
 ## CI
 
-The workflow `.github/workflows/e2e-dev.yml` runs this suite on all branches except `main` and release branches.
+The workflow `.github/workflows/e2e.yml` runs this suite on non-release branches (it skips `main`, `release`, and `release/**`).
