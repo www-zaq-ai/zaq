@@ -62,6 +62,7 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) extension
 - Node.js 20+ (for asset compilation)
 - Python 3.10+ (for PDF ingestion pipeline)
+- Docker + Docker Compose plugin (optional, for containerized run)
 
 ## Setup
 
@@ -117,7 +118,7 @@ Then create and migrate:
 mix ecto.setup
 ```
 
-### Running
+### Running Locally (Mix)
 
 Start the application:
 
@@ -132,6 +133,49 @@ iex -S mix phx.server
 ```
 
 The Back Office will be available at [`http://localhost:4000/bo`](http://localhost:4000/bo).
+
+### Running with Docker Compose
+
+This repository includes `docker-compose.yml` with:
+
+- `pgvector` service (PostgreSQL + pgvector)
+- `zaq` service (Phoenix release built from `Dockerfile`)
+- automatic DB migration on container start
+
+1. Set a production secret key base (required by `runtime.exs`):
+
+```bash
+export SECRET_KEY_BASE="$(openssl rand -hex 64)"
+```
+
+2. Optionally override model endpoints/keys from your host environment:
+
+```bash
+export LLM_ENDPOINT="http://host.docker.internal:11434/v1"
+export LLM_API_KEY=""
+export EMBEDDING_ENDPOINT="http://host.docker.internal:11434/v1"
+export EMBEDDING_API_KEY=""
+```
+
+3. Build and start the stack:
+
+```bash
+docker compose up --build
+```
+
+4. Open the Back Office at [`http://localhost:4000/bo`](http://localhost:4000/bo).
+
+To stop containers:
+
+```bash
+docker compose down
+```
+
+To stop and remove DB data volume:
+
+```bash
+docker compose down -v
+```
 
 ### Startup and First Login
 
