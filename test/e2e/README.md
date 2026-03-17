@@ -8,6 +8,16 @@ This suite covers synthetic-user journeys for UI regression protection.
 - Spec: `test/e2e/specs/knowledge_ops_lead.spec.js`
 - Environment: `MIX_ENV=test` with `E2E=1` (uses isolated DB `zaq_test_e2e`)
 
+## Shared BO Helper
+
+Use `test/e2e/support/bo.js` in BO journeys to keep setup consistent across specs:
+
+- checks required frontend assets are served (`/assets/js/app.js`, `/assets/css/app.css`)
+- logs into BO with the E2E admin user
+- waits for LiveView to be connected before interacting with the UI
+
+This prevents false failures where selectors never appear because LiveView JS was not connected.
+
 ## Local Run
 
 ```bash

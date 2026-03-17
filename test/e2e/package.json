@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "bootstrap": "sh -c 'cd ../.. && PORT=4002 MIX_ENV=test E2E=1 mix ecto.create --quiet && PORT=4002 MIX_ENV=test E2E=1 mix ecto.migrate --quiet && PORT=4002 MIX_ENV=test E2E=1 mix run test/support/e2e/bootstrap.exs'",
+    "bootstrap": "sh -c 'cd ../.. && PORT=4002 MIX_ENV=test E2E=1 mix assets.setup && PORT=4002 MIX_ENV=test E2E=1 mix assets.build && PORT=4002 MIX_ENV=test E2E=1 mix ecto.create --quiet && PORT=4002 MIX_ENV=test E2E=1 mix ecto.migrate --quiet && PORT=4002 MIX_ENV=test E2E=1 mix run test/support/e2e/bootstrap.exs'",
     "test": "npm run bootstrap && playwright test",
     "test:journeys": "npm run bootstrap && playwright test specs/knowledge_ops_lead.spec.js",
     "test:headed": "npm run bootstrap && playwright test --headed"

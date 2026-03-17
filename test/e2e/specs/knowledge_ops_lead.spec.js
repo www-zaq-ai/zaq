@@ -1,7 +1,6 @@
 const { test, expect } = require("@playwright/test");
+const { gotoBackOfficeLive, loginToBackOffice } = require("../support/bo");
 
-const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || "StrongPass1!";
 const PROMPT_VARIANT_MARKER = "E2E_PROMPT_VARIANT_B";
 
 function uniqueId(prefix) {
@@ -16,25 +15,6 @@ function previewPath(relativePath) {
     .join("/");
 
   return `/bo/preview/${encoded}`;
-}
-
-async function login(page) {
-  await page.goto("/bo/login");
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await page.locator('input[name="username"]').fill(ADMIN_USERNAME);
-    await page.locator('input[name="password"]').fill(ADMIN_PASSWORD);
-    await page.getByRole("button", { name: "Sign In to Dashboard" }).click();
-
-    try {
-      await expect(page).toHaveURL(/\/bo\/(dashboard|change-password)/, { timeout: 7000 });
-      return;
-    } catch (_error) {
-      await page.goto("/bo/login");
-    }
-  }
-
-  await expect(page).toHaveURL(/\/bo\/(dashboard|change-password)/);
 }
 
 async function addRawMarkdown(page, fileNameWithoutExt, content) {
@@ -64,7 +44,7 @@ async function ingestSelectedInline(page) {
 }
 
 async function askQuestion(page, question) {
-  await page.goto("/bo/playground");
+  await gotoBackOfficeLive(page, "/bo/playground");
   await expect(page.locator("#chat-form")).toBeVisible();
   await page.locator("#clear-chat-button").click();
   await page.locator("#chat-input").fill(question);
@@ -73,7 +53,7 @@ async function askQuestion(page, question) {
 
 test.describe("Knowledge Ops Lead journeys", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginToBackOffice(page);
   });
 
   test("Journey 1: ingest new knowledge and confirm it is queryable", async ({ page }) => {
@@ -81,7 +61,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
     const fileName = `${fileBase}.md`;
     const queryToken = `${fileBase.replace(/-/g, "_")}_signal`;
 
-    await page.goto("/bo/ingestion");
+    await gotoBackOfficeLive(page, "/bo/ingestion");
     await addRawMarkdown(
       page,
       fileBase,
@@ -91,7 +71,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await selectFileRow(page, fileName);
     await ingestSelectedInline(page);
 
-    await page.goto("/bo/ingestion");
+    await gotoBackOfficeLive(page, "/bo/ingestion");
 
     await page.goto(previewPath(fileName));
     await expect(page.locator("body")).toContainText(queryToken);
@@ -123,7 +103,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
     const fileBase = uniqueId("e2e-hygiene");
     const fileName = `${fileBase}.md`;
 
-    await page.goto("/bo/ingestion");
+    await gotoBackOfficeLive(page, "/bo/ingestion");
 
     await page.locator("#new-folder-button").click();
     await expect(page.locator("#new-folder-modal")).toBeVisible();
@@ -138,13 +118,13 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await selectFileRow(page, fileName);
     await ingestSelectedInline(page);
 
-    await page.goto("/bo/ingestion");
+    await gotoBackOfficeLive(page, "/bo/ingestion");
     await page.getByRole("button", { name: folderName }).first().click();
 
     await page.waitForTimeout(2500);
     await addRawMarkdown(page, fileBase, "# Hygiene v2\n\nUpdated content should mark file stale.");
 
-    await page.goto("/bo/ingestion");
+    await gotoBackOfficeLive(page, "/bo/ingestion");
     await page.getByRole("button", { name: folderName }).first().click();
     await expect(page.locator("tr", { hasText: fileName })).toContainText("stale");
 
@@ -155,7 +135,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
   test("Journey 3: tune prompts and verify answer-quality loop", async ({ page }) => {
     const controlQuestion = "What does the employee benefits handbook include?";
 
-    await page.goto("/bo/prompt-templates");
+    await gotoBackOfficeLive(page, "/bo/prompt-templates");
     await expect(page.locator("#prompt-tab-answering")).toBeVisible();
 
     await askQuestion(page, controlQuestion);
@@ -163,7 +143,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
       "Baseline response generated from the default prompt template."
     );
 
-    await page.goto("/bo/prompt-templates");
+    await gotoBackOfficeLive(page, "/bo/prompt-templates");
     await page.locator("#prompt-tab-answering").click();
 
     const bodyField = page.locator("textarea[id^='prompt-template-body-']").first();
