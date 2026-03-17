@@ -45,7 +45,7 @@ defmodule Zaq.Ingestion do
         role_id \\ nil,
         shared_role_ids \\ []
       ) do
-    with {:ok, entries} <- FileExplorer.list(path) do
+    with {:ok, entries} <- list_in_volume(volume_name, path) do
       jobs =
         entries
         |> Enum.filter(&(&1.type == :file))
@@ -173,6 +173,9 @@ defmodule Zaq.Ingestion do
   def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)
 
   # --- Private ---
+
+  defp list_in_volume(nil, path), do: FileExplorer.list(path)
+  defp list_in_volume(volume_name, path), do: FileExplorer.list(volume_name, path)
 
   defp create_job(path, mode, volume_name, role_id, shared_role_ids) do
     attrs =

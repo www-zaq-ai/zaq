@@ -284,6 +284,25 @@ defmodule Zaq.IngestionTest do
       unique = System.unique_integer([:positive])
       folder = "ingestion_vol_test_#{unique}"
 
+      # Configure a "docs" volume pointing at the same base path so files
+      # created via FileExplorer.create_directory/upload are reachable.
+      base_dir = FileExplorer.base_path() |> Path.expand()
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original || [], volumes: %{"docs" => base_dir})
+      )
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
       assert :ok = FileExplorer.create_directory(folder)
       assert {:ok, _} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
 
