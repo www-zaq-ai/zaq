@@ -19,14 +19,6 @@ defmodule Zaq.Application do
 
     ObanTelemetry.attach()
 
-    dev_children =
-      if Application.get_env(:zaq, :dev_routes) do
-        # Local email storage — powers /dev/mailbox preview in development
-        [Swoosh.Adapters.Local.Storage.Memory]
-      else
-        []
-      end
-
     children =
       [
         ZaqWeb.Telemetry,

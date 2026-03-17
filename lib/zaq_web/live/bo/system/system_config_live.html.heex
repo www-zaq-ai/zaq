@@ -1,0 +1,302 @@
+<ZaqWeb.Components.BOLayout.bo_layout current_user={@current_user} page_title={@page_title}>
+  <div class="max-w-2xl space-y-8">
+    <!-- Email Configuration -->
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa] flex items-center gap-3">
+        <svg
+          class="w-5 h-5 text-black/30"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+        >
+          <rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+        </svg>
+        <div>
+          <h2 class="font-mono text-[0.95rem] font-bold text-black">Email (SMTP)</h2>
+          <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+            Outbound mail for user invitations and password resets.
+          </p>
+        </div>
+      </div>
+
+      <div class="px-8 py-6">
+        <.form
+          for={@form}
+          phx-submit="save"
+          phx-change="validate"
+          class="space-y-5"
+        >
+          <!-- Enabled toggle -->
+          <div class="flex items-center justify-between py-2 border-b border-black/[0.05]">
+            <div>
+              <p class="font-mono text-[0.82rem] font-semibold text-black">
+                Enable email delivery
+              </p>
+              <p class="font-mono text-[0.72rem] text-black/40 mt-0.5">
+                Turn on to send emails via SMTP
+              </p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                type="hidden"
+                name="email_config[enabled]"
+                value="false"
+              />
+              <input
+                type="checkbox"
+                name="email_config[enabled]"
+                value="true"
+                checked={@form[:enabled].value == true}
+                class="sr-only peer"
+              />
+              <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm">
+              </div>
+            </label>
+          </div>
+          
+<!-- SMTP Relay -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="col-span-2 sm:col-span-1">
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                SMTP Relay
+              </label>
+              <input
+                type="text"
+                name="email_config[relay]"
+                value={@form[:relay].value}
+                phx-debounce="400"
+                placeholder="smtp.example.com"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :if={@form[:relay].errors != []}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {elem(hd(@form[:relay].errors), 0)}
+              </p>
+            </div>
+
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Port
+              </label>
+              <input
+                type="number"
+                name="email_config[port]"
+                value={@form[:port].value}
+                phx-debounce="400"
+                placeholder="587"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :if={@form[:port].errors != []}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {elem(hd(@form[:port].errors), 0)}
+              </p>
+            </div>
+          </div>
+          
+<!-- TLS -->
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              TLS
+            </label>
+            <select
+              name="email_config[tls]"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all appearance-none"
+            >
+              <option value="enabled" selected={to_string(@form[:tls].value) == "enabled"}>
+                enabled (STARTTLS if available)
+              </option>
+              <option value="always" selected={to_string(@form[:tls].value) == "always"}>
+                always (require TLS)
+              </option>
+              <option value="never" selected={to_string(@form[:tls].value) == "never"}>
+                never (no TLS)
+              </option>
+            </select>
+          </div>
+          
+<!-- Auth -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Username <span class="normal-case font-normal text-black/30">(optional)</span>
+              </label>
+              <input
+                type="text"
+                name="email_config[username]"
+                value={@form[:username].value}
+                phx-debounce="400"
+                placeholder="you@example.com"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Password <span class="normal-case font-normal text-black/30">(optional)</span>
+              </label>
+              <div class="relative">
+                <input
+                  id="smtp-password"
+                  type="password"
+                  name="email_config[password]"
+                  value={@form[:password].value}
+                  phx-debounce="400"
+                  placeholder="••••••••"
+                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-11 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+                />
+                <button
+                  type="button"
+                  onclick="var i=document.getElementById('smtp-password');i.type=i.type==='password'?'text':'password';this.querySelector('.eye-on').classList.toggle('hidden');this.querySelector('.eye-off').classList.toggle('hidden');"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+                  tabindex="-1"
+                >
+                  <svg
+                    class="eye-on w-4 h-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle
+                      cx="12"
+                      cy="12"
+                      r="3"
+                    />
+                  </svg>
+                  <svg
+                    class="eye-off hidden w-4 h-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" /><line
+                      x1="1"
+                      y1="1"
+                      x2="23"
+                      y2="23"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+<!-- From -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                From Name
+              </label>
+              <input
+                type="text"
+                name="email_config[from_name]"
+                value={@form[:from_name].value}
+                phx-debounce="400"
+                placeholder="ZAQ"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                From Email
+              </label>
+              <input
+                type="email"
+                name="email_config[from_email]"
+                value={@form[:from_email].value}
+                phx-debounce="400"
+                placeholder="noreply@zaq.local"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :if={@form[:from_email].errors != []}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {elem(hd(@form[:from_email].errors), 0)}
+              </p>
+            </div>
+          </div>
+          
+<!-- Save -->
+          <div class="pt-2">
+            <button
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+            >
+              Save Configuration
+            </button>
+          </div>
+        </.form>
+      </div>
+    </div>
+    
+<!-- Test Connection -->
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Test Email Delivery</h2>
+        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+          Send a test email using the saved configuration above.
+        </p>
+      </div>
+      <div class="px-8 py-6">
+        <div class="flex items-start gap-3">
+          <div class="flex-1">
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Recipient
+            </label>
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={@test_recipient}
+              phx-change="set_test_recipient"
+              name="recipient"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+            />
+          </div>
+          <div class="pt-[1.45rem]">
+            <button
+              phx-click="test_connection"
+              disabled={@test_status == :loading}
+              class="font-mono text-[0.82rem] font-bold px-5 py-3 rounded-xl bg-[#2c3a50] text-white hover:bg-[#2c3a50]/80 disabled:opacity-40 transition-all whitespace-nowrap h-11"
+            >
+              {if @test_status == :loading, do: "Sending…", else: "Send Test"}
+            </button>
+          </div>
+        </div>
+
+        <div
+          :if={@test_status == :ok}
+          class="mt-4 flex items-center gap-2 font-mono text-[0.78rem] text-emerald-600"
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          Test email sent successfully.
+        </div>
+        <div
+          :if={is_tuple(@test_status) and elem(@test_status, 0) == :error}
+          class="mt-4 font-mono text-[0.78rem] text-red-500"
+        >
+          {elem(@test_status, 1)}
+        </div>
+      </div>
+    </div>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

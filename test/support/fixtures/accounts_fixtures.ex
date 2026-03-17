@@ -28,6 +28,7 @@ defmodule Zaq.AccountsFixtures do
       |> Map.drop([:role])
       |> Enum.into(%{
         username: "user_#{System.unique_integer([:positive])}",
+        email: "user_#{System.unique_integer([:positive])}@example.com",
         role_id: role.id
       })
       |> Accounts.create_user()

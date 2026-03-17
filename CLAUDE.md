@@ -5,6 +5,15 @@ ALL related operations MUST be concurrent in a single message: batch TodoWrite, 
 
 ---
 
+## 🛠 Tool Usage
+- ALWAYS use context-mode (`mcp__plugin_context-mode_context-mode__*`) for file reads, searches, and code execution
+- ALWAYS use Serena (`mcp__serena__*`) for code navigation: finding symbols, reading files, replacing symbol bodies, and creating files
+- Prefer `ctx_execute` over raw Bash for shell commands
+- Prefer `mcp__serena__find_symbol` and `mcp__serena__get_symbols_overview` before editing any module
+- Prefer `mcp__serena__replace_symbol_body` over full file rewrites
+
+---
+
 ## What is ZAQ
 AI-powered company brain. Ingests documents, builds a knowledge base, answers questions from humans and AI agents with cited responses. Deployed on-premise with a customer-provided LLM endpoint.
 
@@ -59,7 +68,7 @@ lib/
 - Schemas: `Zaq.<Context>.<Entity>` (e.g. `Zaq.Accounts.User`)
 - Channel adapters: `Zaq.Channels.<Kind>.<Provider>`
 - Background jobs: Oban workers under `lib/zaq/ingestion/`
-- Run `mix format --check-formatted` and `mix test` before committing
+- Run `mix format --check-formatted` and `mix coveralls` before committing
 
 ### Conversations Context (`Zaq.Engine.Conversations`)
 
@@ -119,9 +128,9 @@ Registered adapters:
 ---
 
 ## Sub-Agents
-15 agents in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
+11 agents in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
-`project-planner` · `api-developer` · `frontend-developer` · `tdd-specialist` · `code-reviewer` · `debugger` · `refactor` · `doc-writer` · `security-scanner` · `devops-engineer` · `product-manager` · `marketing-writer` · `api-documenter` · `test-runner` · `shadcn-ui-builder`
+`project-planner` · `api-developer` · `tdd-specialist` · `code-reviewer` · `debugger` · `refactor` · `doc-writer` · `security-scanner` · `devops-engineer` · `product-manager` · `test-runner`
 
 ---
 

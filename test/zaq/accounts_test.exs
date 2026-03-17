@@ -73,6 +73,7 @@ defmodule Zaq.AccountsTest do
       assert {:ok, user} =
                Accounts.create_user_with_password(%{
                  username: "withpass",
+                 email: "withpass@example.com",
                  role_id: role.id,
                  password: "StrongPass1!"
                })
@@ -143,14 +144,24 @@ defmodule Zaq.AccountsTest do
   describe "users" do
     test "create_user/1 creates a user" do
       role = role_fixture()
-      assert {:ok, %User{}} = Accounts.create_user(%{username: "john", role_id: role.id})
+
+      assert {:ok, %User{}} =
+               Accounts.create_user(%{
+                 username: "john",
+                 email: "john@example.com",
+                 role_id: role.id
+               })
     end
 
     test "create_user/1 enforces unique username" do
       user = user_fixture()
 
       assert {:error, changeset} =
-               Accounts.create_user(%{username: user.username, role_id: user.role_id})
+               Accounts.create_user(%{
+                 username: user.username,
+                 email: "other@example.com",
+                 role_id: user.role_id
+               })
 
       assert {"has already been taken", _} = changeset.errors[:username]
     end
@@ -219,6 +230,7 @@ defmodule Zaq.AccountsTest do
 
       Accounts.create_user(%{
         username: "superadmin",
+        email: "superadmin@zaq.local",
         role_id: role.id,
         must_change_password: true
       })
