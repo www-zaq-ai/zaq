@@ -25,8 +25,8 @@ defmodule Zaq.Accounts.User do
 
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:username, :email, :role_id, :must_change_password])
-    |> validate_required([:username, :role_id])
+    |> cast(attrs, [:username, :email, :role_id, :must_change_password, :password])
+    |> validate_required([:username, :email, :role_id])
     |> validate_format(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
       message: "must be a valid email address"
     )

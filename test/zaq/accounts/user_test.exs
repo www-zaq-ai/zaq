@@ -11,6 +11,32 @@ defmodule Zaq.Accounts.UserTest do
     assert "can't be blank" in errors_on(changeset).role_id
   end
 
+  test "changeset/2 is invalid when email is missing" do
+    changeset = User.changeset(%User{}, %{username: "alice", role_id: 1})
+    refute changeset.valid?
+    assert "can't be blank" in errors_on(changeset).email
+  end
+
+  test "changeset/2 is invalid when email format is wrong" do
+    changeset =
+      User.changeset(%User{}, %{username: "alice", email: "not-an-email", role_id: 1})
+
+    refute changeset.valid?
+    assert "must be a valid email address" in errors_on(changeset).email
+  end
+
+  test "changeset/2 is valid when email is present and valid" do
+    # role_id FK won't pass DB insert, but changeset itself should be valid
+    changeset =
+      User.changeset(%User{}, %{
+        username: "alice",
+        email: "alice@example.com",
+        role_id: 1
+      })
+
+    assert changeset.valid?
+  end
+
   test "password_changeset/2 hashes password and clears virtual field" do
     changeset = User.password_changeset(%User{}, %{password: "StrongPass1!"})
 

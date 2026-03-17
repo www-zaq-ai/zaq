@@ -1,6 +1,6 @@
-defmodule Zaq.Engine.Notifications.PasswordResetEmail do
+defmodule Zaq.Engine.Notifications.WelcomeEmail do
   @moduledoc """
-  Builds and delivers password reset emails.
+  Builds and delivers welcome emails to newly created users.
   """
 
   import Swoosh.Email
@@ -10,16 +10,13 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
   alias Zaq.System
 
   @doc """
-  Sends a password reset email to the user if they have an email address.
-  Returns `:ok` or `{:error, :no_email}` if the user has no email configured.
+  Sends a welcome email to the user with their login URL.
+  Returns `:ok` or `{:error, reason}`.
   """
-  @spec deliver(Accounts.User.t(), String.t()) :: :ok | {:error, term()}
-  def deliver(%{email: nil}, _token), do: {:error, :no_email}
-  def deliver(%{email: ""}, _token), do: {:error, :no_email}
-
-  def deliver(user, token) do
+  @spec deliver(Accounts.User.t()) :: :ok | {:error, term()}
+  def deliver(user) do
     base_url = Application.get_env(:zaq, :base_url, "http://localhost:4000")
-    reset_url = "#{base_url}/bo/reset-password/#{token}"
+    login_url = "#{base_url}/bo/login"
 
     {from_name, from_email} = System.email_sender()
 
@@ -27,9 +24,9 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
       new()
       |> to({user.username, user.email})
       |> from({from_name, from_email})
-      |> subject("Reset your ZAQ password")
-      |> text_body(build_text_body(user.username, reset_url))
-      |> html_body(build_html_body(user.username, reset_url))
+      |> subject("Welcome to ZAQ — your account is ready")
+      |> text_body(build_text_body(user.username, login_url))
+      |> html_body(build_html_body(user.username, login_url))
 
     delivery_opts =
       case System.email_delivery_opts() do
@@ -43,22 +40,21 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
     end
   end
 
-  defp build_text_body(username, reset_url) do
+  defp build_text_body(username, login_url) do
     """
     Hi #{username},
 
-    Someone requested a password reset for your ZAQ account.
-    Click the link below to set a new password (valid for 1 hour):
+    Your ZAQ account has been created. You can log in at:
 
-    #{reset_url}
+    #{login_url}
 
-    If you did not request this, you can safely ignore this email.
+    You will be asked to change your password on first login.
 
     — The ZAQ Team
     """
   end
 
-  defp build_html_body(username, reset_url) do
+  defp build_html_body(username, login_url) do
     """
     <!DOCTYPE html>
     <html>
@@ -66,22 +62,22 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
       <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden;">
         <div style="background: #2d3e50; padding: 32px; text-align: center;">
           <h1 style="color: white; margin: 0; font-size: 18px; letter-spacing: 1px;">ZAQ BACK OFFICE</h1>
-          <p style="color: #22d3ee; margin: 8px 0 0; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;">Password Reset</p>
+          <p style="color: #22d3ee; margin: 8px 0 0; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;">Welcome</p>
         </div>
         <div style="padding: 40px 32px;">
           <p style="color: #475569; font-size: 14px; margin: 0 0 16px;">Hi <strong>#{username}</strong>,</p>
           <p style="color: #475569; font-size: 14px; margin: 0 0 24px;">
-            Someone requested a password reset for your ZAQ account.
-            Click the button below to set a new password. This link is valid for <strong>1 hour</strong>.
+            Your ZAQ account has been created. Click the button below to log in.
+            You will be asked to set a new password on your first login.
           </p>
           <div style="text-align: center; margin: 32px 0;">
-            <a href="#{reset_url}"
+            <a href="#{login_url}"
                style="display: inline-block; background: #22d3ee; color: #0f172a; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: bold; font-size: 13px; letter-spacing: 1px; text-transform: uppercase;">
-              Reset Password
+              Log In to ZAQ
             </a>
           </div>
           <p style="color: #94a3b8; font-size: 12px; margin: 24px 0 0;">
-            If you did not request this, you can safely ignore this email.
+            If you did not expect this email, please contact your administrator.
           </p>
         </div>
         <div style="background: #f8fafc; padding: 16px 32px; text-align: center; border-top: 1px solid #e2e8f0;">

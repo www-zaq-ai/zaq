@@ -32,7 +32,12 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
 
     view
     |> form("form[phx-submit='save']",
-      user: %{username: "lane6_user", password: "StrongPass1!", role_id: role.id}
+      user: %{
+        username: "lane6_user",
+        email: "lane6@example.com",
+        password: "StrongPass1!",
+        role_id: role.id
+      }
     )
     |> render_submit()
 

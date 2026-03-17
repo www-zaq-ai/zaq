@@ -3,6 +3,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.PasswordPolicy
+  alias Zaq.Engine.Notifications.WelcomeEmail
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -63,7 +64,9 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
 
   defp save_user(socket, :new, params) do
     case Accounts.create_user_with_password(params) do
-      {:ok, _user} ->
+      {:ok, user} ->
+        WelcomeEmail.deliver(user)
+
         {:noreply,
          socket
          |> put_flash(:info, "User created.")

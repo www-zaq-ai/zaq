@@ -75,6 +75,7 @@ case Accounts.get_user_by_username(username) do
     {:ok, _user} =
       Accounts.create_user_with_password(%{
         username: username,
+        email: System.get_env("E2E_ADMIN_EMAIL", "e2e_admin@zaq.local"),
         role_id: admin_role.id,
         password: password
       })
