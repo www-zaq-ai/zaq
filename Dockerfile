@@ -35,7 +35,9 @@ RUN mix release
 FROM debian:trixie-slim AS app
 
 RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates && \
+    apt-get install -y --no-install-recommends \
+      libstdc++6 openssl libncurses6 locales ca-certificates \
+      python3 python3-venv python3-pip && \
     sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen && \
     rm -rf /var/lib/apt/lists/*
@@ -51,6 +53,10 @@ WORKDIR /app
 
 RUN useradd --system --uid 1000 --create-home --home-dir /app appuser
 COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
+
+RUN python3 -m venv /app/.venv && \
+    /app/.venv/bin/pip install --no-cache-dir -r /app/lib/zaq-*/priv/python/crawler-ingest/requirements.txt && \
+    chown -R appuser:appuser /app/.venv
 
 USER appuser
 
