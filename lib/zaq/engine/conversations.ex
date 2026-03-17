@@ -256,12 +256,16 @@ defmodule Zaq.Engine.Conversations do
   # Fires async so it never blocks the message-storage path.
   # Only triggers on the very first user message (conversation.title is nil).
   defp maybe_generate_title(%Conversation{id: id} = _conversation, content) do
-    Task.start(fn ->
-      case TitleGenerator.generate(content) do
-        {:ok, title} -> apply_generated_title(id, title)
-        {:error, _reason} -> :ok
-      end
-    end)
+    if Application.get_env(:zaq, :title_generation_enabled, true) do
+      Task.start(fn -> generate_and_apply_title(id, content) end)
+    end
+  end
+
+  defp generate_and_apply_title(id, content) do
+    case TitleGenerator.generate(content) do
+      {:ok, title} -> apply_generated_title(id, title)
+      {:error, _reason} -> :ok
+    end
   end
 
   defp apply_generated_title(id, title) do

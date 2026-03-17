@@ -1,6 +1,7 @@
 defmodule Zaq.Ingestion.Python.Steps.DocxToMdTest do
   use ExUnit.Case, async: true
-  import ExUnit.CaptureLog
+
+  @moduletag capture_log: true
 
   alias Zaq.Ingestion.Python.Steps.DocxToMd
 

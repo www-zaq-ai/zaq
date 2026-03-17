@@ -35,8 +35,30 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Resolves a relative path against the base path (single-volume, legacy).
   Rejects path traversal attempts (e.g. `..`).
+
+  When volumes are configured, automatically detects if the first path segment
+  is a known volume name and delegates to the volume-aware `resolve_path/2`.
+  This allows preview and file-serving URLs like `/bo/preview/documents/file.pdf`
+  to work correctly when `documents` is a configured volume.
   """
   def resolve_path(relative_path) do
+    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+    configured_volumes = Keyword.get(config, :volumes, %{})
+
+    if map_size(configured_volumes) > 0 do
+      case Path.split(relative_path) do
+        [vol | rest] when rest != [] and is_map_key(configured_volumes, vol) ->
+          resolve_path(vol, Path.join(rest))
+
+        _ ->
+          resolve_path_against_base(relative_path)
+      end
+    else
+      resolve_path_against_base(relative_path)
+    end
+  end
+
+  defp resolve_path_against_base(relative_path) do
     base = Path.expand(base_path())
     full = Path.expand(Path.join(base, relative_path))
 

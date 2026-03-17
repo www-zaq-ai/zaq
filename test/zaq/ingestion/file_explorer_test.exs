@@ -37,6 +37,37 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     end
   end
 
+  describe "resolve_path/1 with volumes configured" do
+    setup do
+      vol = Path.join(@test_base, "vol_resolve1")
+      File.mkdir_p!(vol)
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      %{vol: vol}
+    end
+
+    test "auto-resolves volume-prefixed path when volumes are configured", %{vol: vol} do
+      # Simulates preview URL like /bo/preview/docs/file.pdf
+      assert {:ok, path} = FileExplorer.resolve_path("docs/file.pdf")
+      assert path == Path.join(Path.expand(vol), "file.pdf")
+    end
+
+    test "auto-resolves nested path inside volume", %{vol: vol} do
+      assert {:ok, path} = FileExplorer.resolve_path("docs/sub/deep/file.md")
+      assert path == Path.join(Path.expand(vol), "sub/deep/file.md")
+    end
+
+    test "falls back to base_path when first segment is not a known volume" do
+      assert {:ok, path} = FileExplorer.resolve_path("unknown/file.txt")
+      assert String.ends_with?(path, "file_explorer/unknown/file.txt")
+    end
+
+    test "rejects traversal through volume prefix" do
+      assert {:error, :path_traversal} = FileExplorer.resolve_path("docs/../../etc/passwd")
+    end
+  end
+
   describe "list/1" do
     test "lists files and folders" do
       File.mkdir_p!(Path.join(@test_base, "subdir"))

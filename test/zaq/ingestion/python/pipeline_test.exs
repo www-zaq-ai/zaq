@@ -1,6 +1,8 @@
 defmodule Zaq.Ingestion.Python.PipelineTest do
   use ExUnit.Case, async: false
 
+  @moduletag capture_log: true
+
   alias Zaq.Ingestion.Python.Pipeline
 
   # ---------------------------------------------------------------------------

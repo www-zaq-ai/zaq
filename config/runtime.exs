@@ -113,9 +113,9 @@ if config_env() == :prod do
 
   # -- Image to Text (Scaleway Pixtral) --
   config :zaq, Zaq.Ingestion.Python.ImageToText,
-    api_url: System.get_env("SCALEWAY_API_URL", "https://api.scaleway.ai/v1/chat/completions"),
-    model: System.get_env("SCALEWAY_MODEL", "pixtral-12b-2409"),
-    api_key: System.get_env("SCALEWAY_API_KEY", "")
+    api_url: System.get_env("IMAGE_TO_TEXT_API_URL", "http://localhost:11434/v1"),
+    model: System.get_env("IMAGE_TO_TEXT_MODEL", "pixtral-12b-2409"),
+    api_key: System.get_env("IMAGE_TO_TEXT_API_KEY", "")
 
   # -- Oban --
   config :zaq, Oban,

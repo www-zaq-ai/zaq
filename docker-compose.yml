@@ -35,9 +35,13 @@ services:
       # Optional but recommended if your LLM/embedding server runs on host:
       LLM_ENDPOINT: "${LLM_ENDPOINT:-http://host.docker.internal:11434/v1}"
       LLM_API_KEY: "${LLM_API_KEY}"
-      LLM_MODEL: "gpt-oss-120b"
+      LLM_MODEL: "${LLM_MODEL:-gpt-oss-120b}"
       EMBEDDING_ENDPOINT: "${EMBEDDING_ENDPOINT:-http://host.docker.internal:11434/v1}"
+      EMEDDING_MODEL: "${EMBEDDING_MODEL:-bge-multilingual-gemma2}"
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY}"
+      IMAGE_TO_TEXT_API_URL: ${IMAGE_TO_TEXT_API_URL:-http://host.docker.internal:11434/v1}
+      IMAGE_TO_TEXT_MODEL: ${IMAGE_TO_TEXT_MODEL:-pixtral-12b-2409}
+      IMAGE_TO_TEXT_API_KEY: "${IMAGE_TO_TEXT_API_KEY}"
     volumes:
       - ./ingestion-volumes:/zaq/volumes
     extra_hosts:

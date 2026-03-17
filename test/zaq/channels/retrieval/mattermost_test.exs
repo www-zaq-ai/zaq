@@ -7,6 +7,8 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Repo
 
+  @moduletag capture_log: true
+
   setup do
     Application.put_env(:zaq, :mattermost_api_module, __MODULE__.APIStub)
     Application.put_env(:zaq, :mattermost_node_router_module, __MODULE__.NodeRouterStub)

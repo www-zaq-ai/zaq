@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.Notifications.PasswordResetEmailTest do
   use Zaq.DataCase, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Engine.Notifications.PasswordResetEmail
 
   describe "deliver/2" do

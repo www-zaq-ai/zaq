@@ -1,6 +1,8 @@
 defmodule Zaq.Ingestion.Python.Steps.InjectDescriptionsTest do
   use ExUnit.Case, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Ingestion.Python.Steps.InjectDescriptions
 
   describe "run/3" do

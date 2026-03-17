@@ -9,6 +9,8 @@ defmodule Zaq.Engine.Conversations.ObanEnqueueTest do
 
   use Zaq.DataCase, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Engine.Conversations
 
   defp conv_attrs do

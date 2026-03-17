@@ -1,6 +1,8 @@
 defmodule Zaq.Ingestion.Python.Steps.PdfToMdTest do
   use ExUnit.Case, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Ingestion.Python.Steps.PdfToMd
 
   # ---------------------------------------------------------------------------

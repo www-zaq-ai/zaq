@@ -2,6 +2,8 @@ defmodule Zaq.Engine.Conversations.TokenUsageAggregatorTest do
   use Zaq.DataCase, async: true
   use Oban.Testing, repo: Zaq.Repo
 
+  @moduletag capture_log: true
+
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.TokenUsageAggregator
 

@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.Notifications.WelcomeEmailTest do
   use Zaq.DataCase, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Engine.Notifications.WelcomeEmail
 
   describe "deliver/1" do

@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.IngestionSupervisorTest do
   use Zaq.DataCase, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.IngestionSupervisor
   alias Zaq.Repo

@@ -7,6 +7,8 @@ defmodule Zaq.Engine.Conversations.SchemasTest do
 
   use Zaq.DataCase, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Engine.Conversations.{Conversation, ConversationShare, Message, MessageRating}
 
   # ── Conversation changeset ───────────────────────────────────────────

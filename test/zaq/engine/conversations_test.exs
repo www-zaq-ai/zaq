@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.ConversationsTest do
   use Zaq.DataCase, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Engine.Conversations
 
   # ── Helpers ────────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 defmodule Zaq.Ingestion.IngestWorkerTest do
   use Zaq.DataCase, async: false
 
+  @moduletag capture_log: true
+
   import Mox
 
   alias Zaq.Ingestion.{Chunk, Document, IngestJob, IngestWorker}

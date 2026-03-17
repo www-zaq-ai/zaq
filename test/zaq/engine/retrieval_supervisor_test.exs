@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.RetrievalSupervisorTest do
   use Zaq.DataCase, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.RetrievalSupervisor
   alias Zaq.Repo

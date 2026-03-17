@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.SupervisorTest do
   use ExUnit.Case, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Engine.Supervisor
 
   test "init/1 defines ingestion and retrieval supervisors" do

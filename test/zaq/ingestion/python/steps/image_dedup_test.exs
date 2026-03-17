@@ -1,6 +1,8 @@
 defmodule Zaq.Ingestion.Python.Steps.ImageDedupTest do
   use ExUnit.Case, async: true
 
+  @moduletag capture_log: true
+
   alias Zaq.Ingestion.Python.Steps.ImageDedup
 
   describe "run/2" do
