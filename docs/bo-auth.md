@@ -5,11 +5,11 @@
 ### Database
 - `roles` table with `name` and `meta` (JSONB)
 - `users` table with `username`, `password_hash`, `role_id`, `must_change_password`
-- Default roles seeded on startup: `super_admin`, `admin`, `staff`
+- Default roles seeded via migration: `super_admin`, `admin`, `staff`
 
 ### Auth Flow
-- Super admin credentials set via `config/dev.secrets.exs`
-- On first boot, `SuperAdminSeeder` creates roles and super admin user (no password hash, `must_change_password: true`)
+- Bootstrap Back Office credentials are `admin` / `admin` on fresh databases
+- Migration seeds a bootstrap super admin user (hashed password, `must_change_password: true`)
 - Login POSTs to `BOSessionController`, which sets session and redirects
 - Users with `must_change_password: true` are redirected to `/bo/change-password`
 - Auth plug protects all `/bo/*` routes except `/bo/login` and `/bo/session`
@@ -37,7 +37,7 @@
 lib/zaq/accounts.ex                          # Context (roles, users, auth, CRUD)
 lib/zaq/accounts/role.ex                     # Schema
 lib/zaq/accounts/user.ex                     # Schema
-lib/zaq/accounts/super_admin_seeder.ex       # Startup seeder
+priv/repo/migrations/20260317091138_seed_default_roles_and_admin_user.exs
 lib/zaq_web/plugs/auth.ex                    # Auth plug (session + must_change_password)
 lib/zaq_web/components/bo_layout.ex          # BO sidebar layout component
 lib/zaq_web/controllers/bo_session_controller.ex
@@ -50,7 +50,6 @@ lib/zaq_web/live/bo/users_live.ex            # Users list + delete
 lib/zaq_web/live/bo/user_form_live.ex        # Users create + edit
 lib/zaq_web/live/bo/roles_live.ex            # Roles list + delete
 lib/zaq_web/live/bo/role_form_live.ex        # Roles create + edit
-config/dev.secrets.exs                       # Super admin creds
 ```
 
 ### Tests

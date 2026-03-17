@@ -163,10 +163,14 @@ defmodule Zaq.AccountsTest do
     end
 
     test "list_users/0 returns all users with roles" do
-      user_fixture()
-      user_fixture()
+      first_user = user_fixture()
+      second_user = user_fixture()
       users = Accounts.list_users()
-      assert length(users) == 2
+
+      usernames = Enum.map(users, & &1.username)
+
+      assert first_user.username in usernames
+      assert second_user.username in usernames
       assert Enum.all?(users, fn u -> %Role{} = u.role end)
     end
   end

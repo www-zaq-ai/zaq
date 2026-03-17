@@ -92,7 +92,6 @@ defmodule Zaq.MixProject do
       {:langchain, github: "Geeks-Solutions/langchain", branch: "main"},
       {:mox, "~> 1.2", only: :test},
       {:oban, "~> 2.20.3"},
-      {:file_system, "~> 1.1"},
       {:fresh, "~> 0.4.4"},
       {:httpoison, "~> 2.3"},
       {:earmark, "~> 1.4.48"},
@@ -110,7 +109,7 @@ defmodule Zaq.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build", "zaq.python.fetch"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+      "ecto.setup": ["ecto.create", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       e2e: ["cmd npm --prefix test/e2e run test:journeys"],
