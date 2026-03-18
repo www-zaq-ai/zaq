@@ -204,24 +204,15 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "track_upload/3" do
-    setup do
-      prev = Application.get_env(:zaq, Zaq.Ingestion, [])
-
-      Application.put_env(
-        :zaq,
-        Zaq.Ingestion,
-        Keyword.merge(prev, volumes: %{"default" => "tmp/volumes/default"})
-      )
-
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, prev) end)
-      :ok
-    end
-
     test "creates a document record with volume-prefixed source and uploader's role_id" do
       role = role_fixture()
       volume = "default"
       path = "file_#{System.unique_integer([:positive])}.md"
+      volume = "default"
+      path = "file_#{System.unique_integer([:positive])}.md"
 
+      assert {:ok, doc} = Ingestion.track_upload(volume, path, role.id)
+      assert doc.source == Path.join([volume, path])
       assert {:ok, doc} = Ingestion.track_upload(volume, path, role.id)
       assert doc.source == Path.join([volume, path])
       assert doc.role_id == role.id
@@ -233,7 +224,11 @@ defmodule Zaq.IngestionTest do
       role2 = role_fixture()
       volume = "default"
       path = "file_#{System.unique_integer([:positive])}.md"
+      volume = "default"
+      path = "file_#{System.unique_integer([:positive])}.md"
 
+      assert {:ok, _} = Ingestion.track_upload(volume, path, role1.id)
+      assert {:ok, doc} = Ingestion.track_upload(volume, path, role2.id)
       assert {:ok, _} = Ingestion.track_upload(volume, path, role1.id)
       assert {:ok, doc} = Ingestion.track_upload(volume, path, role2.id)
       assert doc.role_id == role2.id
@@ -247,6 +242,7 @@ defmodule Zaq.IngestionTest do
       role2 = role_fixture()
       source = "file_#{System.unique_integer([:positive])}.md"
 
+      {:ok, _} = Document.upsert(%{source: source, role_id: role1.id})
       {:ok, _} = Document.upsert(%{source: source, role_id: role1.id})
 
       assert {:ok, _} = Ingestion.share_file(source, [role2.id])
