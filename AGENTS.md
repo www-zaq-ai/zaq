@@ -53,7 +53,8 @@ lib/
 - Schemas: `Zaq.<Context>.<Entity>` (e.g. `Zaq.Accounts.User`)
 - Channel adapters: `Zaq.Channels.<Kind>.<Provider>`
 - Background jobs: Oban workers under `lib/zaq/ingestion/`
-- Run `mix format --check-formatted` and `mix coveralls` before committing
+- Run `mix precommit` before committing to validate changes
+- Do not replace `mix precommit` with ad-hoc checks; if it cannot fully run, report what was skipped and why
 
 #### Conversations Context (`Zaq.Engine.Conversations`)
 Persists every Q&A exchange as a structured Conversation with Messages.
@@ -138,6 +139,39 @@ Before creating any PR, verify:
 
 
 ## Project guidelines
+
+### Code Quality Standards (Debt Prevention)
+
+These standards complement `mix precommit` and intentionally focus on architecture, maintainability, and technical debt prevention (not duplicate gate checks).
+
+#### 1) Separation of concerns and architecture boundaries
+- Keep domain and business rules in `lib/zaq/` contexts/domain modules; LiveViews/controllers/plugs/workers should orchestrate and delegate.
+- BO modules in `lib/zaq_web/` must not access persistence or integrations directly; call context APIs and use `NodeRouter.call/4` for cross-service boundaries.
+- Treat context internals as private implementation details. Cross-context calls should use public context functions, not internal helpers.
+- Keep module responsibilities cohesive. If a module owns unrelated concerns (querying + formatting + transport), split it.
+
+#### 2) DRY and pattern reuse
+- Reuse existing context APIs, query helpers, changeset patterns, and UI components before introducing new abstractions.
+- Apply a rule-of-three for extraction: duplicate twice if needed, extract shared abstractions once the pattern is stable.
+- Prefer extending established project patterns instead of creating competing variants without a strong reason.
+- Avoid catch-all utility modules. Helpers should be domain-scoped and intent-revealing.
+
+#### 3) Module and API design
+- Public APIs should have predictable contracts; prefer `{:ok, result}` / `{:error, reason}` for fallible operations.
+- Use `raise` and bang functions only for exceptional cases or explicit bang APIs.
+- Add `@spec` for public functions in contexts, behaviours, and adapters; document non-obvious invariants with `@doc`.
+- Keep functions small and composable; move branching-heavy logic into focused private functions or dedicated domain modules.
+
+#### 4) Data access and side-effect boundaries
+- Keep Ecto queries and persistence logic in context/domain modules, never in LiveViews/components/templates.
+- Keep HTTP/external calls in adapter/integration modules; depend on behaviours at domain boundaries.
+- Preload associations when needed by rendering layers to prevent N+1 queries.
+- Make Oban workers and external side-effect operations idempotent so retries are safe.
+
+#### 5) Technical debt controls
+- Any temporary shortcut must include a TODO with a linked issue and clear removal condition.
+- Remove dead code and stale branches when replacing behavior; do not keep inactive paths "just in case".
+- If a change intentionally diverges from established patterns, document the rationale in the PR description.
 
 ## Dev Setup
 ```bash
