@@ -67,6 +67,7 @@ defmodule ZaqWeb.Router do
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive
       live "/ingestion", Live.BO.AI.IngestionLive
       live "/ontology", Live.BO.AI.OntologyLive
+      live "/knowledge-gap", Live.BO.AI.KnowledgeGapLive
 
       # Channels — index (landing page with both sections)
       live "/channels", Live.BO.Communication.ChannelsIndexLive, :index

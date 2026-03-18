@@ -232,13 +232,15 @@ defmodule ZaqWeb.Components.BOLayout do
               String.starts_with?(@current_path, "/bo/ai") or
                 String.starts_with?(@current_path, "/bo/prompt") or
                 String.starts_with?(@current_path, "/bo/ingestion") or
-                String.starts_with?(@current_path, "/bo/ontology")
+                String.starts_with?(@current_path, "/bo/ontology") or
+                @current_path == "/bo/knowledge-gap"
             }
             open={
               String.starts_with?(@current_path, "/bo/ai") or
                 String.starts_with?(@current_path, "/bo/prompt") or
                 String.starts_with?(@current_path, "/bo/ingestion") or
-                String.starts_with?(@current_path, "/bo/ontology")
+                String.starts_with?(@current_path, "/bo/ontology") or
+                @current_path == "/bo/knowledge-gap"
             }
           >
             <:item
@@ -264,6 +266,13 @@ defmodule ZaqWeb.Components.BOLayout do
               icon="ontology"
               label="Ontology"
               active={String.starts_with?(@current_path, "/bo/ontology")}
+            />
+            <:item
+              href={~p"/bo/knowledge-gap"}
+              icon="knowledge_gap"
+              label="Knowledge Gap"
+              active={@current_path == "/bo/knowledge-gap"}
+              locked={true}
             />
           </.nav_section>
           
@@ -429,6 +438,7 @@ defmodule ZaqWeb.Components.BOLayout do
     attr :icon, :string, required: true
     attr :label, :string, required: true
     attr :active, :boolean
+    attr :locked, :boolean
   end
 
   defp nav_section(assigns) do
@@ -478,16 +488,31 @@ defmodule ZaqWeb.Components.BOLayout do
               href={item.href}
               class={[
                 "flex items-center gap-3 px-2.5 py-2 rounded-lg font-mono text-[0.82rem] transition-all",
-                if(item.active,
-                  do: "bg-[#03b6d4] text-white shadow-sm",
-                  else: "text-white/55 hover:text-white hover:bg-white/8"
+                if(Map.get(item, :locked),
+                  do: "text-white/25 hover:text-white/40 hover:bg-white/5 cursor-default",
+                  else:
+                    if(item.active,
+                      do: "bg-[#03b6d4] text-white shadow-sm",
+                      else: "text-white/55 hover:text-white hover:bg-white/8"
+                    )
                 )
               ]}
             >
               <.nav_icon icon={item.icon} />
-              <span class="nav-label transition-all duration-200 whitespace-nowrap">
+              <span class="nav-label transition-all duration-200 whitespace-nowrap flex-1">
                 {item.label}
               </span>
+              <svg
+                :if={Map.get(item, :locked)}
+                class="nav-label w-3 h-3 flex-shrink-0 opacity-50"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
             </a>
             <div class="nav-tooltip">{item.label}</div>
           </div>
@@ -645,6 +670,26 @@ defmodule ZaqWeb.Components.BOLayout do
       <path d="M4.93 4.93l2.83 2.83" /><path d="M16.24 16.24l2.83 2.83" />
       <path d="M2 12h4" /><path d="M18 12h4" />
       <path d="M4.93 19.07l2.83-2.83" /><path d="M16.24 7.76l2.83-2.83" />
+    </svg>
+    <svg
+      :if={@icon == "knowledge_gap"}
+      class="w-[18px] h-[18px] flex-shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <line x1="12" y1="3" x2="12" y2="21" />
+      <path d="M12 3 L4 5 L4 21 L12 21" />
+      <path d="M12 3 L20 5 L20 21 L12 21" stroke-dasharray="3 2" />
+      <line x1="6" y1="9" x2="10" y2="9" />
+      <line x1="6" y1="12" x2="10" y2="12" />
+      <path d="M15 8 Q15 6 16.5 6 Q18 6 18 8 Q18 10 16.5 10.5" />
+      <circle cx="16.5" cy="13" r="0.6" fill="currentColor" stroke="none" />
+      <line x1="16.5" y1="1" x2="16.5" y2="4" />
+      <polyline points="15,3 16.5,4.5 18,3" />
     </svg>
     <svg
       :if={@icon == "channels"}
