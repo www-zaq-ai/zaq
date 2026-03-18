@@ -533,7 +533,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       tmp_dir: tmp_dir
     } do
       # Create the document normally, then force updated_at to the past
-      {:ok, doc} = Document.create(%{source: "alpha.md", content: "old"})
+      {:ok, doc} = Document.create(%{source: "default/alpha.md", content: "old"})
 
       Repo.update_all(
         from(d in Document, where: d.id == ^doc.id),
@@ -550,7 +550,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     test "file ingested after last modification shows as up to date", %{conn: conn} do
       # Create the document normally, then force updated_at to the future
-      {:ok, doc} = Document.create(%{source: "alpha.md", content: "# alpha"})
+      {:ok, doc} = Document.create(%{source: "default/alpha.md", content: "# alpha"})
 
       Repo.update_all(
         from(d in Document, where: d.id == ^doc.id),

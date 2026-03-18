@@ -483,19 +483,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Private helpers
   # ────────────────────────────────────────────────────────────────
 
-  # Builds a normalized source path for Document lookup.
-  # In multi-volume mode (`:volumes` configured), prefixes with the volume name.
-  # In legacy/single-volume mode (only `base_path`), uses plain relative path — matching extract_source.
+  # Builds a normalized volume-prefixed source, stripping "." path segments.
+  # e.g. build_source("default", ".", "file.md") => "default/file.md"
   defp build_source(volume, dir, name) do
-    config = Application.get_env(:zaq, Zaq.Ingestion, [])
-    configured_volumes = Keyword.get(config, :volumes, %{})
-
-    segments =
-      if map_size(configured_volumes) > 0,
-        do: [volume, dir, name],
-        else: [dir, name]
-
-    segments
+    [volume, dir, name]
     |> Enum.reject(&(&1 == "."))
     |> Path.join()
   end
@@ -524,6 +515,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     file_entries = Enum.filter(socket.assigns.entries, &(&1.type == :file))
 
+    # Sources are volume-prefixed to match what extract_source and track_upload store.
+    # We normalize by filtering "." segments to avoid "default/./file.md" mismatches.
     sources =
       Enum.map(file_entries, fn entry ->
         build_source(current_volume, current_dir, entry.name)

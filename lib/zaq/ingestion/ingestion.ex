@@ -103,14 +103,7 @@ defmodule Zaq.Ingestion do
   the file browser can enforce role-based visibility right away.
   """
   def track_upload(volume_name, path, role_id) do
-    config = Application.get_env(:zaq, Zaq.Ingestion, [])
-    configured_volumes = Keyword.get(config, :volumes, %{})
-
-    source =
-      if map_size(configured_volumes) > 0,
-        do: Path.join([volume_name, path]),
-        else: path
-
+    source = Path.join([volume_name, path])
     Document.upsert(%{source: source, role_id: role_id})
   end
 
