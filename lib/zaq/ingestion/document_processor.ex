@@ -224,31 +224,50 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp extract_image_description(raw_json, file_path) do
     image_name = Path.basename(file_path)
 
-    with {:ok, decoded} <- Jason.decode(raw_json) do
-      description =
-        case decoded do
-          %{} = map ->
-            Map.get(map, image_name) ||
-              Map.get(map, String.downcase(image_name)) ||
-              case Map.values(map) do
-                [single] -> single
-                _ -> nil
-              end
+    with {:ok, decoded} <- Jason.decode(raw_json),
+         {:ok, description} <- pick_image_description(decoded, image_name),
+         :ok <- validate_image_description(description, image_name) do
+      {:ok, description}
+    end
+  end
 
-          _ ->
-            nil
-        end
+  defp pick_image_description(%{} = payload, image_name) do
+    description =
+      Map.get(payload, image_name) ||
+        Map.get(payload, String.downcase(image_name)) ||
+        single_payload_value(payload)
 
-      cond do
-        not is_binary(description) or String.trim(description) == "" ->
-          {:error, "Image-to-text output missing description for #{image_name}"}
+    {:ok, description}
+  end
 
-        String.starts_with?(description, "ERROR:") ->
-          {:error, description}
+  defp pick_image_description(_payload, image_name) do
+    {:error, "Image-to-text output missing description for #{image_name}"}
+  end
 
-        true ->
-          {:ok, description}
-      end
+  defp single_payload_value(payload) do
+    case Map.values(payload) do
+      [single] -> single
+      _ -> nil
+    end
+  end
+
+  defp validate_image_description(description, image_name)
+       when not is_binary(description) or description == "" do
+    {:error, "Image-to-text output missing description for #{image_name}"}
+  end
+
+  defp validate_image_description(description, image_name) do
+    trimmed_description = String.trim(description)
+
+    cond do
+      trimmed_description == "" ->
+        {:error, "Image-to-text output missing description for #{image_name}"}
+
+      String.starts_with?(trimmed_description, "ERROR:") ->
+        {:error, trimmed_description}
+
+      true ->
+        :ok
     end
   end
 
@@ -257,11 +276,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       description
       |> String.trim()
       |> String.split("\n")
-      |> Enum.map(fn
+      |> Enum.map_join("\n", fn
         "" -> ">"
         line -> "> #{line}"
       end)
-      |> Enum.join("\n")
 
     "> **[Image: #{image_name}]**\n#{quoted_description}\n"
   end

@@ -67,22 +67,32 @@ _ = ensure_role.("staff")
 
 username = System.get_env("E2E_ADMIN_USERNAME", "e2e_admin")
 password = System.get_env("E2E_ADMIN_PASSWORD", "StrongPass1!")
+email = System.get_env("E2E_ADMIN_EMAIL", "e2e_admin@zaq.local")
 
 IO.puts("[e2e-bootstrap] Ensuring admin user '#{username}'")
+
+resolve_user_email = fn user ->
+  if is_binary(user.email) and user.email != "", do: user.email, else: email
+end
 
 case Accounts.get_user_by_username(username) do
   nil ->
     {:ok, _user} =
       Accounts.create_user_with_password(%{
         username: username,
-        email: System.get_env("E2E_ADMIN_EMAIL", "e2e_admin@zaq.local"),
+        email: email,
         role_id: admin_role.id,
         password: password
       })
 
   user ->
     {:ok, user} =
-      Accounts.update_user(user, %{role_id: admin_role.id, must_change_password: false})
+      Accounts.update_user(user, %{
+        username: user.username || username,
+        email: resolve_user_email.(user),
+        role_id: admin_role.id,
+        must_change_password: false
+      })
 
     {:ok, _user} = Accounts.change_password(user, %{password: password})
 end

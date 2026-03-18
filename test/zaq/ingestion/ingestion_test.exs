@@ -208,11 +208,7 @@ defmodule Zaq.IngestionTest do
       role = role_fixture()
       volume = "default"
       path = "file_#{System.unique_integer([:positive])}.md"
-      volume = "default"
-      path = "file_#{System.unique_integer([:positive])}.md"
 
-      assert {:ok, doc} = Ingestion.track_upload(volume, path, role.id)
-      assert doc.source == Path.join([volume, path])
       assert {:ok, doc} = Ingestion.track_upload(volume, path, role.id)
       assert doc.source == Path.join([volume, path])
       assert doc.role_id == role.id
@@ -224,11 +220,7 @@ defmodule Zaq.IngestionTest do
       role2 = role_fixture()
       volume = "default"
       path = "file_#{System.unique_integer([:positive])}.md"
-      volume = "default"
-      path = "file_#{System.unique_integer([:positive])}.md"
 
-      assert {:ok, _} = Ingestion.track_upload(volume, path, role1.id)
-      assert {:ok, doc} = Ingestion.track_upload(volume, path, role2.id)
       assert {:ok, _} = Ingestion.track_upload(volume, path, role1.id)
       assert {:ok, doc} = Ingestion.track_upload(volume, path, role2.id)
       assert doc.role_id == role2.id
