@@ -3,20 +3,19 @@
 defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   use ZaqWeb, :live_view
 
-  import Ecto.Query
   import ZaqWeb.Live.BO.AI.IngestionComponents
 
   alias Zaq.Accounts
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, FileExplorer, IngestJob}
-  alias Zaq.Repo
+  alias Zaq.NodeRouter
 
   @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv .png .jpg)
+  @ingestion_topic "ingestion:jobs"
 
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Ingestion.subscribe()
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, @ingestion_topic)
 
-    volumes = FileExplorer.list_volumes()
+    volumes = fetch_volumes()
     current_volume = volumes |> Map.keys() |> List.first()
 
     {:ok,
@@ -95,9 +94,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("confirm_share", _params, socket) do
-    source = normalize_source(socket.assigns.modal_path)
+    source =
+      ingestion_call(:source_for, [socket.assigns.current_volume, socket.assigns.modal_path])
 
-    {:ok, _} = Ingestion.share_file(source, socket.assigns.share_modal_role_ids)
+    {:ok, _} = ingestion_call(:share_file, [source, socket.assigns.share_modal_role_ids])
 
     {:noreply,
      socket
@@ -178,7 +178,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     else
       path = Path.join(socket.assigns.current_dir, name)
 
-      case FileExplorer.create_directory(socket.assigns.current_volume, path) do
+      case ingestion_call(:create_directory, [socket.assigns.current_volume, path]) do
         :ok ->
           {:noreply,
            socket
@@ -236,7 +236,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("confirm_delete", _params, socket) do
-    result = do_delete(socket, socket.assigns.modal_path, socket.assigns.modal_type)
+    result =
+      ingestion_call(:delete_path, [
+        socket.assigns.current_volume,
+        socket.assigns.modal_path,
+        socket.assigns.modal_type,
+        socket.assigns.volumes
+      ])
 
     case result do
       :ok ->
@@ -261,13 +267,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     volume = socket.assigns.current_volume
 
     results =
-      Enum.map(socket.assigns.selected, fn path ->
-        case FileExplorer.file_info(volume, path) do
-          {:ok, %{type: :directory}} -> {path, FileExplorer.delete_directory(volume, path)}
-          {:ok, %{type: :file}} -> {path, FileExplorer.delete(volume, path)}
-          _ -> {path, {:error, :not_found}}
-        end
-      end)
+      ingestion_call(:delete_paths, [volume, socket.assigns.selected, socket.assigns.volumes])
 
     errors = Enum.filter(results, fn {_p, res} -> res != :ok end)
 
@@ -381,7 +381,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         filename = ensure_md_extension(filename)
         dest = Path.join(socket.assigns.current_dir, filename)
 
-        case FileExplorer.upload(socket.assigns.current_volume, dest, content) do
+        case ingestion_call(:upload_file, [socket.assigns.current_volume, dest, content]) do
           {:ok, _} ->
             {:noreply,
              socket
@@ -411,10 +411,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     role_id = socket.assigns.current_user.role_id
 
     for path <- socket.assigns.selected do
-      case FileExplorer.file_info(volume, path) do
-        {:ok, %{type: :directory}} -> Ingestion.ingest_folder(path, mode, volume, role_id)
-        {:ok, %{type: :file}} -> Ingestion.ingest_file(path, mode, volume, role_id)
-        _ -> :skip
+      case ingestion_call(:file_info, [volume, path]) do
+        {:ok, %{type: :directory}} ->
+          ingestion_call(:ingest_folder, [path, mode, volume, role_id])
+
+        {:ok, %{type: :file}} ->
+          ingestion_call(:ingest_file, [path, mode, volume, role_id])
+
+        _ ->
+          :skip
       end
     end
 
@@ -426,14 +431,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("retry_job", %{"id" => id}, socket) do
-    case Ingestion.retry_job(id) do
+    case ingestion_call(:retry_job, [id]) do
       {:ok, _} -> {:noreply, socket |> load_jobs() |> put_flash(:info, "Job re-queued.")}
       {:error, reason} -> {:noreply, put_flash(socket, :error, "Retry failed: #{reason}")}
     end
   end
 
   def handle_event("cancel_job", %{"id" => id}, socket) do
-    case Ingestion.cancel_job(id) do
+    case ingestion_call(:cancel_job, [id]) do
       {:ok, _} -> {:noreply, socket |> load_jobs() |> put_flash(:info, "Job cancelled.")}
       {:error, reason} -> {:noreply, put_flash(socket, :error, "Cancel failed: #{reason}")}
     end
@@ -459,9 +464,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         binary = File.read!(tmp_path)
         dest = Path.join(socket.assigns.current_dir, entry.client_name)
 
-        with {:ok, _full_path} <- FileExplorer.upload(volume, dest, binary) do
-          Ingestion.track_upload(volume, dest, role_id)
-          {:ok, dest}
+        case ingestion_call(:upload_file, [volume, dest, binary]) do
+          {:ok, _full_path} ->
+            ingestion_call(:track_upload, [volume, dest, role_id])
+            {:ok, dest}
+
+          error ->
+            error
         end
       end)
 
@@ -483,112 +492,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Private helpers
   # ────────────────────────────────────────────────────────────────
 
-  # Builds a normalized volume-prefixed source, stripping "." path segments.
-  # e.g. build_source("default", ".", "file.md") => "default/file.md"
-  defp build_source(volume, dir, name) do
-    [volume, dir, name]
-    |> Enum.reject(&(&1 == "."))
-    |> Path.join()
-  end
-
   defp ensure_md_extension(filename) do
     if Path.extname(filename) == "", do: filename <> ".md", else: filename
-  end
-
-  defp normalize_source(path) do
-    case path do
-      "./" <> rest -> rest
-      other -> other
-    end
-  end
-
-  defp load_ingestion_status(socket) do
-    current_dir = socket.assigns.current_dir
-    current_volume = socket.assigns.current_volume
-    current_role_id = socket.assigns.current_user.role_id
-    super_admin? = socket.assigns.current_user.role.name == "super_admin"
-
-    public_role_id =
-      Enum.find_value(socket.assigns.all_roles, fn r ->
-        if r.name == "public", do: r.id
-      end)
-
-    file_entries = Enum.filter(socket.assigns.entries, &(&1.type == :file))
-
-    # Sources are volume-prefixed to match what extract_source and track_upload store.
-    # We normalize by filtering "." segments to avoid "default/./file.md" mismatches.
-    sources =
-      Enum.map(file_entries, fn entry ->
-        build_source(current_volume, current_dir, entry.name)
-      end)
-
-    documents =
-      from(d in Document, where: d.source in ^sources)
-      |> Repo.all()
-      |> Map.new(fn d -> {d.source, d} end)
-
-    # Query latest job status per file (file_path is relative to volume root)
-    file_paths = Enum.map(file_entries, fn entry -> Path.join(current_dir, entry.name) end)
-
-    jobs_map =
-      IngestJob
-      |> where([j], j.volume_name == ^current_volume and j.file_path in ^file_paths)
-      |> order_by(desc: :inserted_at)
-      |> Repo.all()
-      |> Enum.reduce(%{}, fn job, acc -> Map.put_new(acc, job.file_path, job.status) end)
-
-    {ingestion_map, visible_names} =
-      Enum.reduce(file_entries, {%{}, MapSet.new()}, fn entry, {map, visible} ->
-        source = build_source(current_volume, current_dir, entry.name)
-        doc = Map.get(documents, source)
-        file_path = Path.join(current_dir, entry.name)
-        job_status = Map.get(jobs_map, file_path)
-
-        {status, visible?} =
-          resolve_entry_status(entry, doc, super_admin?, current_role_id, public_role_id)
-
-        status = Map.put(status, :job_status, job_status)
-        map = Map.put(map, entry.name, status)
-        visible = if visible?, do: MapSet.put(visible, entry.name), else: visible
-        {map, visible}
-      end)
-
-    visible_entries =
-      Enum.filter(socket.assigns.entries, fn e ->
-        e.type == :directory or MapSet.member?(visible_names, e.name)
-      end)
-
-    socket
-    |> assign(ingestion_map: ingestion_map)
-    |> assign(entries: visible_entries)
-  end
-
-  defp resolve_entry_status(_entry, nil, _super_admin?, _current_role_id, _public_role_id) do
-    {%{ingested_at: nil, stale?: false, shared_role_ids: [], can_share?: true}, true}
-  end
-
-  defp resolve_entry_status(entry, doc, super_admin?, current_role_id, public_role_id) do
-    shared = doc.shared_role_ids
-    public? = not is_nil(public_role_id) and public_role_id in shared
-
-    visible? =
-      super_admin? or public? or is_nil(doc.role_id) or
-        doc.role_id == current_role_id or current_role_id in shared
-
-    can_share? = super_admin? or is_nil(doc.role_id) or doc.role_id == current_role_id
-    {entry_ingestion_status(entry, doc, can_share?), visible?}
-  end
-
-  defp entry_ingestion_status(entry, doc, can_share?) do
-    ingested_at = if doc.content, do: doc.updated_at, else: nil
-    stale? = not is_nil(ingested_at) and DateTime.compare(entry.modified_at, ingested_at) == :gt
-
-    %{
-      ingested_at: ingested_at,
-      stale?: stale?,
-      shared_role_ids: doc.shared_role_ids,
-      can_share?: can_share?
-    }
   end
 
   defp parent_dir("."), do: "."
@@ -603,7 +508,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp do_rename(socket, old_path, new_path, new_name) do
     volume = socket.assigns.current_volume
 
-    case FileExplorer.rename(volume, old_path, new_path) do
+    case ingestion_call(:rename_entry, [volume, old_path, new_path]) do
       :ok ->
         {:noreply,
          socket
@@ -616,29 +521,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp do_delete(socket, path, "directory") do
-    FileExplorer.delete_directory(socket.assigns.current_volume, path)
-  end
-
-  defp do_delete(socket, path, _type) do
-    source =
-      case path do
-        "./" <> rest -> rest
-        other -> other
-      end
-
-    case Document.get_by_source(source) do
-      %Document{} = doc -> Document.delete(doc)
-      nil -> :ok
-    end
-
-    FileExplorer.delete(socket.assigns.current_volume, path)
-  end
-
   defp do_move(socket, source, dest, name, dest_dir) do
     volume = socket.assigns.current_volume
 
-    case FileExplorer.rename(volume, source, dest) do
+    case ingestion_call(:rename_entry, [volume, source, dest]) do
       :ok ->
         {:noreply,
          socket
@@ -657,51 +543,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp load_entries(socket) do
     volume = socket.assigns.current_volume
 
-    case FileExplorer.list(volume, socket.assigns.current_dir) do
-      {:ok, entries} ->
-        sorted =
-          entries
-          |> Enum.sort_by(fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
-          |> group_entries()
-
+    case ingestion_call(:directory_snapshot, [
+           volume,
+           socket.assigns.current_dir,
+           socket.assigns.current_user
+         ]) do
+      {:ok, snapshot} ->
         socket
-        |> assign(entries: sorted)
-        |> load_ingestion_status()
+        |> assign(entries: snapshot.entries)
+        |> assign(ingestion_map: snapshot.ingestion_map)
 
       {:error, _} ->
         socket
         |> assign(entries: [])
         |> assign(ingestion_map: %{})
     end
-  end
-
-  # For .pdf / .xlsx / .xls / .docx files, the Python pipeline produces a
-  # companion .md with the same basename.  We attach that companion as
-  # `related_md` on the source entry and remove it from the top-level list so
-  # the browser doesn't show duplicates.
-  defp group_entries(entries) do
-    convertible = ~w(.pdf .xlsx .xls .docx)
-    entry_map = Map.new(entries, &{&1.name, &1})
-
-    paired_md_names =
-      entries
-      |> Enum.filter(fn e -> e.type == :file and Path.extname(e.name) in convertible end)
-      |> MapSet.new(fn e -> Path.rootname(e.name) <> ".md" end)
-
-    entries
-    |> Enum.reject(fn e ->
-      e.type == :file and
-        Path.extname(e.name) == ".md" and
-        MapSet.member?(paired_md_names, e.name)
-    end)
-    |> Enum.map(fn e ->
-      related =
-        if e.type == :file and Path.extname(e.name) in convertible do
-          Map.get(entry_map, Path.rootname(e.name) <> ".md")
-        end
-
-      Map.put(e, :related_md, related)
-    end)
   end
 
   defp load_jobs(socket) do
@@ -711,7 +567,24 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         status -> [status: status]
       end
 
-    assign(socket, jobs: Ingestion.list_jobs(opts))
+    jobs =
+      case ingestion_call(:list_jobs, [opts]) do
+        list when is_list(list) -> list
+        _ -> []
+      end
+
+    assign(socket, jobs: jobs)
+  end
+
+  defp fetch_volumes do
+    case ingestion_call(:list_volumes, []) do
+      volumes when is_map(volumes) and map_size(volumes) > 0 -> volumes
+      _ -> %{"default" => "priv/documents"}
+    end
+  end
+
+  defp ingestion_call(fun, args) do
+    NodeRouter.call(:ingestion, Ingestion, fun, args)
   end
 
   defp assign_breadcrumbs(socket, "."), do: assign(socket, breadcrumbs: [])
@@ -733,7 +606,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     volume = socket.assigns.current_volume
     moving_path = socket.assigns.modal_path
 
-    case FileExplorer.list(volume, dir) do
+    case ingestion_call(:list_entries, [volume, dir]) do
       {:ok, entries} ->
         folders =
           entries

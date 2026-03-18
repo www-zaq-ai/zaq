@@ -6,8 +6,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Ingestion.Document
-  alias Zaq.Ingestion.IngestJob
+  alias Zaq.Ingestion.{Chunk, Document, IngestJob}
   alias Zaq.Repo
 
   setup %{conn: conn} do
@@ -43,6 +42,44 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       Map.merge(%{file_path: "notes.txt", status: "pending", mode: "async"}, attrs)
     )
     |> Repo.insert!()
+  end
+
+  defp create_document_with_chunk(source, attrs \\ %{}) do
+    {:ok, doc} =
+      attrs
+      |> Map.merge(%{source: source, content: "doc content"})
+      |> Document.create()
+
+    {:ok, _chunk} =
+      Chunk.create(%{
+        document_id: doc.id,
+        content: "chunk content",
+        chunk_index: 0
+      })
+
+    doc
+  end
+
+  defp create_linked_documents(source_source, sidecar_source) do
+    source_doc =
+      create_document_with_chunk(source_source, %{
+        metadata: %{"sidecar_source" => sidecar_source}
+      })
+
+    sidecar_doc =
+      create_document_with_chunk(sidecar_source, %{
+        metadata: %{"source_document_source" => source_source}
+      })
+
+    {source_doc, sidecar_doc}
+  end
+
+  defp assert_linked_sources(source_source, sidecar_source) do
+    assert %Document{} = source_doc = Document.get_by_source(source_source)
+    assert source_doc.metadata["sidecar_source"] == sidecar_source
+
+    assert %Document{} = sidecar_doc = Document.get_by_source(sidecar_source)
+    assert sidecar_doc.metadata["source_document_source"] == source_source
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -148,6 +185,173 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "p", "Delete failed: :enoent")
   end
 
+  describe "single-file delete RAG cleanup" do
+    test "removes document and chunks in non-volume mode", %{conn: conn, tmp_dir: tmp_dir} do
+      doc = create_document_with_chunk("alpha.md")
+      assert Chunk.count_by_document(doc.id) == 1
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "delete_item", %{"path" => "./alpha.md", "type" => "file"})
+      render_hook(view, "confirm_delete", %{})
+
+      refute File.exists?(Path.join(tmp_dir, "alpha.md"))
+      assert Document.get_by_source("alpha.md") == nil
+      assert Chunk.count_by_document(doc.id) == 0
+    end
+
+    test "removes volume-prefixed document and chunks", %{conn: conn, tmp_dir: tmp_dir} do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      end)
+
+      doc = create_document_with_chunk("docs/alpha.md")
+      assert Chunk.count_by_document(doc.id) == 1
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "delete_item", %{"path" => "./alpha.md", "type" => "file"})
+      render_hook(view, "confirm_delete", %{})
+
+      refute File.exists?(Path.join(tmp_dir, "alpha.md"))
+      assert Document.get_by_source("docs/alpha.md") == nil
+      assert Chunk.count_by_document(doc.id) == 0
+    end
+
+    test "removes metadata-linked sidecar in non-volume mode", %{conn: conn, tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.generated.md"), "# Report sidecar")
+
+      source_doc =
+        create_document_with_chunk("report.pdf", %{
+          metadata: %{"sidecar_source" => "report.generated.md"}
+        })
+
+      sidecar_doc =
+        create_document_with_chunk("report.generated.md", %{
+          metadata: %{"source_document_source" => "report.pdf"}
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "delete_item", %{"path" => "./report.pdf", "type" => "file"})
+      render_hook(view, "confirm_delete", %{})
+
+      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
+      refute File.exists?(Path.join(tmp_dir, "report.generated.md"))
+
+      assert Document.get_by_source("report.pdf") == nil
+      assert Document.get_by_source("report.generated.md") == nil
+      assert Chunk.count_by_document(source_doc.id) == 0
+      assert Chunk.count_by_document(sidecar_doc.id) == 0
+    end
+
+    test "removes metadata-linked sidecar in volume mode", %{conn: conn, tmp_dir: tmp_dir} do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      end)
+
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.generated.md"), "# Report sidecar")
+
+      source_doc =
+        create_document_with_chunk("docs/report.pdf", %{
+          metadata: %{"sidecar_source" => "docs/report.generated.md"}
+        })
+
+      sidecar_doc =
+        create_document_with_chunk("docs/report.generated.md", %{
+          metadata: %{"source_document_source" => "docs/report.pdf"}
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "delete_item", %{"path" => "./report.pdf", "type" => "file"})
+      render_hook(view, "confirm_delete", %{})
+
+      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
+      refute File.exists?(Path.join(tmp_dir, "report.generated.md"))
+
+      assert Document.get_by_source("docs/report.pdf") == nil
+      assert Document.get_by_source("docs/report.generated.md") == nil
+      assert Chunk.count_by_document(source_doc.id) == 0
+      assert Chunk.count_by_document(sidecar_doc.id) == 0
+    end
+
+    test "removes metadata-linked image sidecar md", %{conn: conn, tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "photo.png"), "png-data")
+      File.write!(Path.join(tmp_dir, "photo.md"), "# Photo OCR")
+
+      source_doc =
+        create_document_with_chunk("photo.png", %{
+          metadata: %{"sidecar_source" => "photo.md"}
+        })
+
+      sidecar_doc =
+        create_document_with_chunk("photo.md", %{
+          metadata: %{"source_document_source" => "photo.png"}
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "delete_item", %{"path" => "./photo.png", "type" => "file"})
+      render_hook(view, "confirm_delete", %{})
+
+      refute File.exists?(Path.join(tmp_dir, "photo.png"))
+      refute File.exists?(Path.join(tmp_dir, "photo.md"))
+
+      assert Document.get_by_source("photo.png") == nil
+      assert Document.get_by_source("photo.md") == nil
+      assert Chunk.count_by_document(source_doc.id) == 0
+      assert Chunk.count_by_document(sidecar_doc.id) == 0
+    end
+  end
+
+  describe "directory delete RAG cleanup" do
+    test "deleting nested directory removes nested documents and chunks in volume mode", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      docs_root = Path.join(tmp_dir, "docs")
+      nested_dir = Path.join(docs_root, "sub/deep")
+      File.mkdir_p!(nested_dir)
+
+      File.write!(Path.join(nested_dir, "first.md"), "# First")
+      File.write!(Path.join(nested_dir, "second.md"), "# Second")
+
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => docs_root})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      end)
+
+      first_doc = create_document_with_chunk("docs/sub/deep/first.md")
+      second_doc = create_document_with_chunk("docs/sub/deep/second.md")
+
+      assert Chunk.count_by_document(first_doc.id) == 1
+      assert Chunk.count_by_document(second_doc.id) == 1
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "delete_item", %{"path" => "sub", "type" => "directory"})
+      render_hook(view, "confirm_delete", %{})
+
+      refute File.dir?(Path.join(docs_root, "sub"))
+
+      assert Document.get_by_source("docs/sub/deep/first.md") == nil
+      assert Document.get_by_source("docs/sub/deep/second.md") == nil
+      assert Chunk.count_by_document(first_doc.id) == 0
+      assert Chunk.count_by_document(second_doc.id) == 0
+    end
+  end
+
   test "bulk delete handles full success and partial failures", %{conn: conn, tmp_dir: tmp_dir} do
     File.write!(Path.join(tmp_dir, "bulk-a.txt"), "A")
     File.write!(Path.join(tmp_dir, "bulk-b.txt"), "B")
@@ -169,6 +373,31 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     render_hook(view, "confirm_delete_selected", %{})
 
     refute File.exists?(Path.join(tmp_dir, "bulk-ok.txt"))
+
+    File.write!(Path.join(tmp_dir, "bulk-report.pdf"), "%PDF")
+    File.write!(Path.join(tmp_dir, "bulk-report.md"), "# sidecar")
+
+    source_doc =
+      create_document_with_chunk("bulk-report.pdf", %{
+        metadata: %{"sidecar_source" => "bulk-report.md"}
+      })
+
+    sidecar_doc =
+      create_document_with_chunk("bulk-report.md", %{
+        metadata: %{"source_document_source" => "bulk-report.pdf"}
+      })
+
+    render_hook(view, "toggle_select", %{"path" => "bulk-report.pdf"})
+    render_hook(view, "show_delete_confirmation", %{})
+    render_hook(view, "confirm_delete_selected", %{})
+
+    refute File.exists?(Path.join(tmp_dir, "bulk-report.pdf"))
+    refute File.exists?(Path.join(tmp_dir, "bulk-report.md"))
+
+    assert Document.get_by_source("bulk-report.pdf") == nil
+    assert Document.get_by_source("bulk-report.md") == nil
+    assert Chunk.count_by_document(source_doc.id) == 0
+    assert Chunk.count_by_document(sidecar_doc.id) == 0
   end
 
   test "moves items and handles move validation branches", %{conn: conn, tmp_dir: tmp_dir} do
@@ -189,6 +418,134 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "move_go_back", %{})
     assert has_element?(view, "span", "docs")
+  end
+
+  describe "rename and move keep source/sidecar in sync" do
+    test "renaming source co-renames sidecar and updates metadata links in non-volume mode", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
+
+      {source_doc, sidecar_doc} =
+        create_linked_documents("default/report.pdf", "default/report.md")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "rename_item", %{"path" => "report.pdf", "type" => "file"})
+      render_hook(view, "confirm_rename", %{"name" => "report-v2.pdf"})
+
+      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
+      refute File.exists?(Path.join(tmp_dir, "report.md"))
+      assert File.exists?(Path.join(tmp_dir, "report-v2.pdf"))
+      assert File.exists?(Path.join(tmp_dir, "report-v2.md"))
+
+      assert Document.get_by_source("default/report.pdf") == nil
+      assert Document.get_by_source("default/report.md") == nil
+      assert_linked_sources("default/report-v2.pdf", "default/report-v2.md")
+
+      assert Chunk.count_by_document(source_doc.id) == 1
+      assert Chunk.count_by_document(sidecar_doc.id) == 1
+    end
+
+    test "moving source co-moves sidecar and updates metadata links in non-volume mode", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
+
+      {source_doc, sidecar_doc} =
+        create_linked_documents("default/report.pdf", "default/report.md")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "move_item", %{"path" => "report.pdf", "type" => "file"})
+      render_hook(view, "move_navigate", %{"path" => "target"})
+      render_hook(view, "confirm_move", %{})
+
+      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
+      refute File.exists?(Path.join(tmp_dir, "report.md"))
+      assert File.exists?(Path.join(tmp_dir, "target/report.pdf"))
+      assert File.exists?(Path.join(tmp_dir, "target/report.md"))
+
+      assert Document.get_by_source("default/report.pdf") == nil
+      assert Document.get_by_source("default/report.md") == nil
+      assert_linked_sources("default/target/report.pdf", "default/target/report.md")
+
+      assert Chunk.count_by_document(source_doc.id) == 1
+      assert Chunk.count_by_document(sidecar_doc.id) == 1
+    end
+
+    test "renaming source co-renames sidecar and updates metadata links in volume mode", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      end)
+
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
+
+      {source_doc, sidecar_doc} = create_linked_documents("docs/report.pdf", "docs/report.md")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "rename_item", %{"path" => "report.pdf", "type" => "file"})
+      render_hook(view, "confirm_rename", %{"name" => "report-v2.pdf"})
+
+      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
+      refute File.exists?(Path.join(tmp_dir, "report.md"))
+      assert File.exists?(Path.join(tmp_dir, "report-v2.pdf"))
+      assert File.exists?(Path.join(tmp_dir, "report-v2.md"))
+
+      assert Document.get_by_source("docs/report.pdf") == nil
+      assert Document.get_by_source("docs/report.md") == nil
+      assert_linked_sources("docs/report-v2.pdf", "docs/report-v2.md")
+
+      assert Chunk.count_by_document(source_doc.id) == 1
+      assert Chunk.count_by_document(sidecar_doc.id) == 1
+    end
+
+    test "moving source co-moves sidecar and updates metadata links in volume mode", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      end)
+
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
+
+      {source_doc, sidecar_doc} = create_linked_documents("docs/report.pdf", "docs/report.md")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "move_item", %{"path" => "report.pdf", "type" => "file"})
+      render_hook(view, "move_navigate", %{"path" => "target"})
+      render_hook(view, "confirm_move", %{})
+
+      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
+      refute File.exists?(Path.join(tmp_dir, "report.md"))
+      assert File.exists?(Path.join(tmp_dir, "target/report.pdf"))
+      assert File.exists?(Path.join(tmp_dir, "target/report.md"))
+
+      assert Document.get_by_source("docs/report.pdf") == nil
+      assert Document.get_by_source("docs/report.md") == nil
+      assert_linked_sources("docs/target/report.pdf", "docs/target/report.md")
+
+      assert Chunk.count_by_document(source_doc.id) == 1
+      assert Chunk.count_by_document(sidecar_doc.id) == 1
+    end
   end
 
   test "filters jobs, handles retry/cancel branches, and refreshes on job updates", %{conn: conn} do
@@ -706,81 +1063,84 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   # ────────────────────────────────────────────────────────────────
-  # group_entries — companion .md grouping
+  # Metadata-driven sidecar pairing
   # ────────────────────────────────────────────────────────────────
 
-  describe "group_entries companion .md grouping" do
-    test "hides companion .md from select_all but keeps it visible in sub-row — PDF", %{
+  describe "metadata-driven sidecar pairing" do
+    test "shows metadata-linked pdf sidecar and excludes it from select_all", %{
       conn: conn,
       tmp_dir: tmp_dir
     } do
       File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report.md"), "# Report")
+      File.write!(Path.join(tmp_dir, "report_converted.md"), "# Report sidecar")
+
+      create_document_with_chunk("default/report.pdf", %{
+        metadata: %{"sidecar_source" => "default/report_converted.md"}
+      })
+
+      create_document_with_chunk("default/report_converted.md", %{
+        metadata: %{"source_document_source" => "default/report.pdf"}
+      })
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-      # Source file appears in the browser
       assert has_element?(view, "span", "report.pdf")
+      assert render(view) =~ "report_converted.md"
 
-      # Companion name appears somewhere (the sub-row)
-      assert render(view) =~ "report.md"
-
-      # select_all includes source but NOT companion (it's not a top-level entry)
       render_hook(view, "select_all", %{})
       selected = :sys.get_state(view.pid).socket.assigns.selected
+
       assert MapSet.member?(selected, "./report.pdf")
-      refute MapSet.member?(selected, "./report.md")
+      refute MapSet.member?(selected, "./report_converted.md")
     end
 
-    test "hides companion .md from select_all — xlsx", %{conn: conn, tmp_dir: tmp_dir} do
-      File.write!(Path.join(tmp_dir, "data.xlsx"), "xlsx")
-      File.write!(Path.join(tmp_dir, "data.md"), "# Data")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      assert has_element?(view, "span", "data.xlsx")
-      assert render(view) =~ "data.md"
-
-      render_hook(view, "select_all", %{})
-      selected = :sys.get_state(view.pid).socket.assigns.selected
-      assert MapSet.member?(selected, "./data.xlsx")
-      refute MapSet.member?(selected, "./data.md")
-    end
-
-    test "hides companion .md from select_all — docx", %{conn: conn, tmp_dir: tmp_dir} do
-      File.write!(Path.join(tmp_dir, "letter.docx"), "docx")
-      File.write!(Path.join(tmp_dir, "letter.md"), "# Letter")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      assert has_element?(view, "span", "letter.docx")
-      assert render(view) =~ "letter.md"
-
-      render_hook(view, "select_all", %{})
-      selected = :sys.get_state(view.pid).socket.assigns.selected
-      assert MapSet.member?(selected, "./letter.docx")
-      refute MapSet.member?(selected, "./letter.md")
-    end
-
-    test "standalone .md with no source file is included in select_all", %{conn: conn} do
-      # alpha.md from setup has no companion source file → stays as top-level entry
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "select_all", %{})
-      selected = :sys.get_state(view.pid).socket.assigns.selected
-      assert MapSet.member?(selected, "./alpha.md")
-    end
-
-    test "source file without companion .md renders no sub-row text", %{
+    test "does not pair same-basename md without explicit metadata link", %{
       conn: conn,
       tmp_dir: tmp_dir
     } do
-      File.write!(Path.join(tmp_dir, "solo.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
+      File.write!(Path.join(tmp_dir, "report.md"), "# Manual notes")
+
+      create_document_with_chunk("default/report.pdf")
+      create_document_with_chunk("default/report.md")
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-      assert has_element?(view, "span", "solo.pdf")
-      refute render(view) =~ "solo.md"
+      assert has_element?(view, "span", "report.pdf")
+      assert has_element?(view, "span", "report.md")
+
+      render_hook(view, "select_all", %{})
+      selected = :sys.get_state(view.pid).socket.assigns.selected
+
+      assert MapSet.member?(selected, "./report.pdf")
+      assert MapSet.member?(selected, "./report.md")
+    end
+
+    test "shows metadata-linked image sidecar and excludes it from select_all", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "photo.png"), "png-bytes")
+      File.write!(Path.join(tmp_dir, "photo.md"), "# OCR output")
+
+      create_document_with_chunk("default/photo.png", %{
+        metadata: %{"sidecar_source" => "default/photo.md"}
+      })
+
+      create_document_with_chunk("default/photo.md", %{
+        metadata: %{"source_document_source" => "default/photo.png"}
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      assert has_element?(view, "span", "photo.png")
+      assert render(view) =~ "photo.md"
+
+      render_hook(view, "select_all", %{})
+      selected = :sys.get_state(view.pid).socket.assigns.selected
+
+      assert MapSet.member?(selected, "./photo.png")
+      refute MapSet.member?(selected, "./photo.md")
     end
   end
 end

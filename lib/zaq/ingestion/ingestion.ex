@@ -4,7 +4,18 @@ defmodule Zaq.Ingestion do
   query job statuses, retry and cancel jobs.
   """
 
-  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, IngestJob, IngestWorker}
+  alias Zaq.Ingestion.{
+    Chunk,
+    DeleteService,
+    DirectorySnapshot,
+    Document,
+    FileExplorer,
+    IngestJob,
+    IngestWorker,
+    RenameService,
+    SourcePath
+  }
+
   alias Zaq.Repo
 
   import Ecto.Query
@@ -69,7 +80,7 @@ defmodule Zaq.Ingestion do
   - Otherwise: only the owning role (doc.role_id) or explicitly shared roles.
   """
   def can_access_file?(relative_path, current_user) do
-    source = normalize_source(relative_path)
+    source = SourcePath.normalize_relative(relative_path)
 
     case Document.get_by_source(source) do
       nil ->
@@ -97,18 +108,56 @@ defmodule Zaq.Ingestion do
 
   # --- Upload tracking ---
 
+  def list_volumes, do: FileExplorer.list_volumes()
+
+  def list_entries(volume_name, path), do: FileExplorer.list(volume_name, path)
+
+  def create_directory(volume_name, path), do: FileExplorer.create_directory(volume_name, path)
+
+  def rename_entry(volume_name, old_path, new_path),
+    do: RenameService.rename_entry(volume_name, old_path, new_path)
+
+  def upload_file(volume_name, path, content), do: FileExplorer.upload(volume_name, path, content)
+
+  def file_info(volume_name, path), do: FileExplorer.file_info(volume_name, path)
+
+  def directory_snapshot(volume_name, current_dir, current_user) do
+    with {:ok, entries} <- list_entries(volume_name, current_dir) do
+      sorted =
+        entries
+        |> Enum.sort_by(fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
+
+      {:ok, DirectorySnapshot.build(sorted, volume_name, current_dir, current_user)}
+    end
+  end
+
+  def source_for(volume_name, path) do
+    normalized = SourcePath.normalize_relative(path)
+    candidates = SourcePath.source_candidates(volume_name, normalized)
+
+    case Enum.find_value(candidates, &Document.get_by_source/1) do
+      %Document{} = doc -> doc.source
+      nil -> normalized
+    end
+  end
+
   @doc """
   Records a newly uploaded file in the documents table with the uploader's role_id.
   This is called immediately at upload time — before any ingestion happens — so that
   the file browser can enforce role-based visibility right away.
   """
   def track_upload(volume_name, path, role_id) do
-    source = Path.join([volume_name, path])
+    source = SourcePath.build_source(volume_name, path)
     Document.upsert(%{source: source, role_id: role_id})
   end
 
-  defp normalize_source("./" <> rest), do: rest
-  defp normalize_source(path), do: path
+  def delete_path(volume_name, path, type, volumes \\ nil) do
+    DeleteService.delete_path(volume_name, path, type, volumes)
+  end
+
+  def delete_paths(volume_name, paths, volumes \\ nil) do
+    DeleteService.delete_paths(volume_name, paths, volumes)
+  end
 
   # --- Sharing ---
 
