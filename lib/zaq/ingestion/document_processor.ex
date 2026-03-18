@@ -21,7 +21,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, Sidecar, SourcePath}
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, XlsxToMd}
   alias Zaq.Repo
@@ -103,7 +103,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
     with {:ok, content} <- read_as_markdown(file_path),
          {:ok, source} <- extract_source(content, file_path),
-         {:ok, document} <- store_document(content, source, role_id),
+         {:ok, sidecar_source} <- extract_sidecar_source(file_path),
+         {:ok, document} <-
+           store_document(content, source, role_id, Sidecar.source_metadata(sidecar_source)),
+         :ok <-
+           maybe_store_sidecar_document(content, source, sidecar_source, role_id, shared_role_ids),
          {:ok, _chunks} <-
            process_and_store_chunks(content, document.id, role_id, shared_role_ids) do
       Logger.info("Successfully processed: #{source}")
@@ -156,7 +160,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         end
 
       ext when ext in [".png", ".jpg"] ->
-        read_image_as_markdown(file_path)
+        md_path = Path.rootname(file_path) <> ".md"
+
+        with {:ok, markdown} <- read_image_as_markdown(file_path),
+             :ok <- File.write(md_path, markdown) do
+          Logger.info("[DocumentProcessor] Image converted to markdown: #{md_path}")
+          {:ok, markdown}
+        end
 
       ".csv" ->
         convert_csv(file_path)
@@ -305,44 +315,41 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Example: "/zaq/volumes/docs/guide.md" => "docs/guide.md"
   """
   def extract_source(_content, file_path) do
-    expanded = Path.expand(file_path)
-    config = Application.get_env(:zaq, Zaq.Ingestion, [])
-    configured_volumes = Keyword.get(config, :volumes, %{})
+    SourcePath.absolute_to_source(file_path)
+  end
 
-    if map_size(configured_volumes) > 0 do
-      case find_volume_for_path(configured_volumes, expanded) do
-        {vol_name, vol_path} ->
-          vol_root = Path.expand(vol_path)
-          [_, rel] = String.split(expanded, vol_root <> "/", parts: 2)
-          {:ok, "#{vol_name}/#{rel}"}
-
-        nil ->
-          {:ok, Path.basename(file_path)}
-      end
-    else
-      base = FileExplorer.base_path() |> Path.expand()
-
-      relative =
-        case String.split(expanded, base <> "/", parts: 2) do
-          [_, rel] when rel != "" -> rel
-          _ -> Path.basename(file_path)
-        end
-
-      {:ok, relative}
+  defp extract_sidecar_source(file_path) do
+    case Sidecar.sidecar_path_for(file_path) do
+      nil -> {:ok, nil}
+      path -> extract_source("", path)
     end
   end
 
-  defp find_volume_for_path(volumes, expanded_path) do
-    Enum.find(volumes, fn {_name, vol_path} ->
-      String.starts_with?(expanded_path, Path.expand(vol_path) <> "/")
-    end)
+  defp maybe_store_sidecar_document(_content, _source, nil, _role_id, _shared_role_ids), do: :ok
+
+  defp maybe_store_sidecar_document(content, source, sidecar_source, role_id, shared_role_ids) do
+    attrs = %{
+      source: sidecar_source,
+      content: content,
+      content_type: "markdown",
+      role_id: role_id,
+      shared_role_ids: shared_role_ids,
+      metadata: Sidecar.sidecar_metadata(source)
+    }
+
+    case Document.upsert(attrs) do
+      {:ok, _document} -> :ok
+      {:error, changeset} -> {:error, changeset}
+    end
   end
 
   @doc """
   Upserts a `Zaq.Ingestion.Document` record.
   """
-  def store_document(content, source, role_id \\ nil) do
-    case Document.upsert(%{content: content, source: source, role_id: role_id}) do
+  def store_document(content, source, role_id \\ nil, metadata \\ %{}) do
+    attrs = %{content: content, source: source, role_id: role_id, metadata: metadata}
+
+    case Document.upsert(attrs) do
       {:ok, document} ->
         Logger.info("Document stored with ID: #{document.id}, source: #{source}")
         {:ok, document}

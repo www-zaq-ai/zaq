@@ -652,11 +652,21 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       with_image_to_text_stub("test-api-key", fn ->
         path = create_test_md_file(tmp_dir, "diagram.png", "not-a-real-png")
+        sidecar_path = Path.join(tmp_dir, "diagram.md")
 
         assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
         assert doc.source == "diagram.png"
         assert doc.content =~ "[Image: diagram.png]"
         assert doc.content =~ "Detected text from diagram.png"
+        assert doc.metadata["sidecar_source"] == "diagram.md"
+
+        assert File.exists?(sidecar_path)
+        assert {:ok, sidecar_content} = File.read(sidecar_path)
+        assert sidecar_content =~ "[Image: diagram.png]"
+
+        assert %Document{} = sidecar_doc = Document.get_by_source("diagram.md")
+        assert sidecar_doc.metadata["source_document_source"] == "diagram.png"
+        assert sidecar_doc.content =~ "Detected text from diagram.png"
       end)
     end
 
@@ -668,10 +678,15 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       with_image_to_text_stub("", fn ->
         path = create_test_md_file(tmp_dir, "missing-key.jpg", "not-a-real-jpg")
+        sidecar_path = Path.join(tmp_dir, "missing-key.md")
 
         assert {:error, reason} = DocumentProcessor.process_single_file(path)
         assert is_binary(reason)
         assert String.contains?(reason, "IMAGE_TO_TEXT_API_KEY")
+
+        refute File.exists?(sidecar_path)
+        assert Document.get_by_source("missing-key.jpg") == nil
+        assert Document.get_by_source("missing-key.md") == nil
       end)
     end
   end
@@ -725,6 +740,21 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         create_test_md_file(tmp_dir, "banner.jpg", "jpg-bytes")
 
         assert {:ok, %{processed: 2, failed: 0}} = DocumentProcessor.process_folder(tmp_dir)
+
+        assert File.exists?(Path.join(tmp_dir, "photo.md"))
+        assert File.exists?(Path.join(tmp_dir, "banner.md"))
+
+        assert %Document{} = photo_doc = Document.get_by_source("photo.png")
+        assert photo_doc.metadata["sidecar_source"] == "photo.md"
+
+        assert %Document{} = photo_sidecar = Document.get_by_source("photo.md")
+        assert photo_sidecar.metadata["source_document_source"] == "photo.png"
+
+        assert %Document{} = banner_doc = Document.get_by_source("banner.jpg")
+        assert banner_doc.metadata["sidecar_source"] == "banner.md"
+
+        assert %Document{} = banner_sidecar = Document.get_by_source("banner.md")
+        assert banner_sidecar.metadata["source_document_source"] == "banner.jpg"
       end)
     end
   end

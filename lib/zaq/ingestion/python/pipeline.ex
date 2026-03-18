@@ -15,7 +15,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
 
   require Logger
 
-  alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Ingestion.SourcePath
 
   alias Zaq.Ingestion.Python.Steps.{
     CleanMd,
@@ -69,15 +69,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   # --- Private ---
 
   defp resolve_volume_base(pdf_path) do
-    expanded = Path.expand(pdf_path)
-
-    FileExplorer.list_volumes()
-    |> Map.values()
-    |> Enum.find(fn vol_root -> String.starts_with?(expanded, vol_root <> "/") end)
-    |> case do
-      nil -> FileExplorer.base_path()
-      vol_root -> vol_root
-    end
+    SourcePath.volume_root_for_absolute(pdf_path)
   end
 
   defp resolve_api_key(opts) do
