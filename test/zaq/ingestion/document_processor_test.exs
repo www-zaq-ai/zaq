@@ -103,6 +103,23 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     path
   end
 
+  defp with_image_to_text_stub(api_key, fun) when is_function(fun, 0) do
+    original_step_module = Application.get_env(:zaq, :image_to_text_step_module)
+    original_image_to_text = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText)
+
+    try do
+      Application.put_env(:zaq, :image_to_text_step_module, Zaq.Ingestion.ImageToTextStepStub)
+      Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, api_key: api_key)
+      fun.()
+    after
+      restore_env(:image_to_text_step_module, original_step_module)
+      restore_env(Zaq.Ingestion.Python.ImageToText, original_image_to_text)
+    end
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:zaq, key)
+  defp restore_env(key, value), do: Application.put_env(:zaq, key, value)
+
   # ---------------------------------------------------------------------------
   # extract_source/2
   # ---------------------------------------------------------------------------
@@ -633,32 +650,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_embedding_success()
       stub_chunk_title_success()
 
-      original_step_module = Application.get_env(:zaq, :image_to_text_step_module)
-      original_image_to_text = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText)
+      with_image_to_text_stub("test-api-key", fn ->
+        path = create_test_md_file(tmp_dir, "diagram.png", "not-a-real-png")
 
-      on_exit(fn ->
-        if is_nil(original_step_module) do
-          Application.delete_env(:zaq, :image_to_text_step_module)
-        else
-          Application.put_env(:zaq, :image_to_text_step_module, original_step_module)
-        end
-
-        if is_nil(original_image_to_text) do
-          Application.delete_env(:zaq, Zaq.Ingestion.Python.ImageToText)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, original_image_to_text)
-        end
+        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
+        assert doc.source == "diagram.png"
+        assert doc.content =~ "[Image: diagram.png]"
+        assert doc.content =~ "Detected text from diagram.png"
       end)
-
-      Application.put_env(:zaq, :image_to_text_step_module, Zaq.Ingestion.ImageToTextStepStub)
-      Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, api_key: "test-api-key")
-
-      path = create_test_md_file(tmp_dir, "diagram.png", "not-a-real-png")
-
-      assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
-      assert doc.source == "diagram.png"
-      assert doc.content =~ "[Image: diagram.png]"
-      assert doc.content =~ "Detected text from diagram.png"
     end
 
     test "returns a descriptive error for image ingestion when API key is missing", %{
@@ -667,31 +666,13 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_embedding_success()
       stub_chunk_title_success()
 
-      original_step_module = Application.get_env(:zaq, :image_to_text_step_module)
-      original_image_to_text = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText)
+      with_image_to_text_stub("", fn ->
+        path = create_test_md_file(tmp_dir, "missing-key.jpg", "not-a-real-jpg")
 
-      on_exit(fn ->
-        if is_nil(original_step_module) do
-          Application.delete_env(:zaq, :image_to_text_step_module)
-        else
-          Application.put_env(:zaq, :image_to_text_step_module, original_step_module)
-        end
-
-        if is_nil(original_image_to_text) do
-          Application.delete_env(:zaq, Zaq.Ingestion.Python.ImageToText)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, original_image_to_text)
-        end
+        assert {:error, reason} = DocumentProcessor.process_single_file(path)
+        assert is_binary(reason)
+        assert String.contains?(reason, "IMAGE_TO_TEXT_API_KEY")
       end)
-
-      Application.put_env(:zaq, :image_to_text_step_module, Zaq.Ingestion.ImageToTextStepStub)
-      Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, api_key: "")
-
-      path = create_test_md_file(tmp_dir, "missing-key.jpg", "not-a-real-jpg")
-
-      assert {:error, reason} = DocumentProcessor.process_single_file(path)
-      assert is_binary(reason)
-      assert String.contains?(reason, "IMAGE_TO_TEXT_API_KEY")
     end
   end
 
@@ -739,30 +720,12 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_embedding_success()
       stub_chunk_title_success()
 
-      original_step_module = Application.get_env(:zaq, :image_to_text_step_module)
-      original_image_to_text = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText)
+      with_image_to_text_stub("test-api-key", fn ->
+        create_test_md_file(tmp_dir, "photo.png", "png-bytes")
+        create_test_md_file(tmp_dir, "banner.jpg", "jpg-bytes")
 
-      on_exit(fn ->
-        if is_nil(original_step_module) do
-          Application.delete_env(:zaq, :image_to_text_step_module)
-        else
-          Application.put_env(:zaq, :image_to_text_step_module, original_step_module)
-        end
-
-        if is_nil(original_image_to_text) do
-          Application.delete_env(:zaq, Zaq.Ingestion.Python.ImageToText)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, original_image_to_text)
-        end
+        assert {:ok, %{processed: 2, failed: 0}} = DocumentProcessor.process_folder(tmp_dir)
       end)
-
-      Application.put_env(:zaq, :image_to_text_step_module, Zaq.Ingestion.ImageToTextStepStub)
-      Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, api_key: "test-api-key")
-
-      create_test_md_file(tmp_dir, "photo.png", "png-bytes")
-      create_test_md_file(tmp_dir, "banner.jpg", "jpg-bytes")
-
-      assert {:ok, %{processed: 2, failed: 0}} = DocumentProcessor.process_folder(tmp_dir)
     end
   end
 
