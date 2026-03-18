@@ -11,6 +11,10 @@ config :zaq,
   ecto_repos: [Zaq.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :mime, :types, %{
+  "application/vnd.zaq-license" => ["zaq-license"]
+}
+
 config :zaq, Oban,
   repo: Zaq.Repo,
   queues: [ingestion: 3, default: 10, conversations: 5]

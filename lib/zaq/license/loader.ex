@@ -22,8 +22,9 @@ defmodule Zaq.License.Loader do
          key <- BeamDecryptor.derive_key(payload),
          {:ok, loaded_modules} <- decrypt_and_load_modules(files, key) do
       migration_files = extract_migration_files(files)
+      view_files = extract_view_files(files)
       FeatureStore.store(license_data, loaded_modules)
-      LicensePostLoader.notify(license_data, migration_files)
+      LicensePostLoader.notify(license_data, migration_files, view_files)
       Logger.info("License loaded successfully: #{license_data["license_key"]}")
       {:ok, license_data}
     else
@@ -103,6 +104,12 @@ defmodule Zaq.License.Loader do
   defp extract_migration_files(files) do
     files
     |> Enum.filter(fn {name, _} -> String.starts_with?(name, "migrations/") end)
+    |> Enum.map(fn {name, content} -> {Path.basename(name), content} end)
+  end
+
+  defp extract_view_files(files) do
+    files
+    |> Enum.filter(fn {name, _} -> String.starts_with?(name, "views/") end)
     |> Enum.map(fn {name, content} -> {Path.basename(name), content} end)
   end
 

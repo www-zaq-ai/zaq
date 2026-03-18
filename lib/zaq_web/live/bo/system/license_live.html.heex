@@ -6,6 +6,52 @@
   <%= if @license_data do %>
     <!-- Licensed State -->
     <div class="space-y-6">
+      <!-- Upload New License -->
+      <div class="bg-white rounded-xl border border-black/10 p-6">
+        <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-4">
+          Update License
+        </p>
+        <.form for={%{}} phx-submit="upload_license" phx-change="validate">
+          <div class="flex items-center gap-4">
+            <label class="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed border-black/20 cursor-pointer hover:border-black/40 transition-colors">
+              <svg
+                class="w-4 h-4 text-black/30 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                viewBox="0 0 24 24"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span class="font-mono text-[0.75rem] text-black/50">
+                {case @uploads.license_file.entries do
+                  [entry | _] -> entry.client_name
+                  [] -> "Select .zaq-license file…"
+                end}
+              </span>
+              <.live_file_input upload={@uploads.license_file} class="sr-only" />
+            </label>
+            <button
+              type="submit"
+              class="font-mono text-[0.8rem] font-bold px-4 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors flex-shrink-0"
+            >
+              Upload
+            </button>
+          </div>
+          <div class="mt-2 space-y-1">
+            <%= for entry <- @uploads.license_file.entries,
+                    err <- upload_errors(@uploads.license_file, entry) do %>
+              <p class="font-mono text-[0.75rem] text-red-600">
+                {upload_entry_error(err)}
+              </p>
+            <% end %>
+            <%= if @upload_error do %>
+              <p class="font-mono text-[0.75rem] text-red-600">{@upload_error}</p>
+            <% end %>
+          </div>
+        </.form>
+      </div>
       <!-- License Status Card -->
       <div class="bg-white rounded-xl border border-black/10 p-6">
         <div class="flex items-center justify-between mb-6">
@@ -167,6 +213,43 @@
         >
           Request a License
         </.link>
+        <div class="mt-6 pt-6 border-t border-black/10">
+          <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">
+            Already have a license?
+          </p>
+          <.form for={%{}} phx-submit="upload_license" phx-change="validate">
+            <div class="flex items-center gap-3 max-w-sm mx-auto">
+              <label class="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-black/20 cursor-pointer hover:border-black/40 transition-colors">
+                <svg
+                  class="w-4 h-4 text-black/30 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                <span class="font-mono text-[0.75rem] text-black/50">
+                  {case @uploads.license_file.entries do
+                    [entry | _] -> entry.client_name
+                    [] -> "Select .zaq-license file…"
+                  end}
+                </span>
+                <.live_file_input upload={@uploads.license_file} class="sr-only" />
+              </label>
+              <button
+                type="submit"
+                class="font-mono text-[0.8rem] font-bold px-4 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors flex-shrink-0"
+              >
+                Activate
+              </button>
+            </div>
+            <%= if @upload_error do %>
+              <p class="font-mono text-[0.75rem] text-red-600 mt-2">{@upload_error}</p>
+            <% end %>
+          </.form>
+        </div>
       </div>
       
 <!-- Feature Grid -->

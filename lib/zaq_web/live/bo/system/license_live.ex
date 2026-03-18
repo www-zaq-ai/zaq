@@ -1,7 +1,7 @@
 defmodule ZaqWeb.Live.BO.System.LicenseLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.License.FeatureStore
+  alias Zaq.License.{FeatureStore, Loader}
 
   @zaq_features [
     %{
@@ -43,6 +43,52 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
   ]
 
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "license:updated")
+    end
+
+    {:ok,
+     socket
+     |> assign_license_state()
+     |> assign(current_path: "/bo/license", upload_error: nil)
+     |> allow_upload(:license_file, accept: ~w(.zaq-license), max_entries: 1)}
+  end
+
+  def handle_event("validate", _params, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("upload_license", _params, socket) do
+    result =
+      consume_uploaded_entries(socket, :license_file, fn %{path: tmp_path}, entry ->
+        dest_dir = Application.app_dir(:zaq, "priv/licenses")
+        File.mkdir_p!(dest_dir)
+        dest = Path.join(dest_dir, entry.client_name)
+        File.cp!(tmp_path, dest)
+
+        case Loader.load(dest) do
+          {:ok, _license_data} -> {:ok, :loaded}
+          {:error, reason} -> {:ok, {:error, reason}}
+        end
+      end)
+
+    case result do
+      [:loaded] ->
+        {:noreply, socket |> assign_license_state() |> assign(upload_error: nil)}
+
+      [{:error, reason}] ->
+        {:noreply, assign(socket, upload_error: format_upload_error(reason))}
+
+      [] ->
+        {:noreply, assign(socket, upload_error: "No file selected.")}
+    end
+  end
+
+  def handle_info(:license_updated, socket) do
+    {:noreply, assign_license_state(socket)}
+  end
+
+  defp assign_license_state(socket) do
     license_data = FeatureStore.license_data()
     loaded_modules = FeatureStore.loaded_modules()
 
@@ -52,18 +98,30 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
         data -> data |> Map.get("features", []) |> Enum.map(& &1["name"])
       end
 
-    locked_features =
-      Enum.reject(@zaq_features, fn f -> f.name in licensed_names end)
+    locked_features = Enum.reject(@zaq_features, fn f -> f.name in licensed_names end)
 
-    {:ok,
-     assign(socket,
-       license_data: license_data,
-       loaded_modules: loaded_modules,
-       zaq_features: @zaq_features,
-       locked_features: locked_features,
-       current_path: "/bo/license"
-     )}
+    assign(socket,
+      license_data: license_data,
+      loaded_modules: loaded_modules,
+      zaq_features: @zaq_features,
+      locked_features: locked_features
+    )
   end
+
+  def upload_entry_error(:too_large), do: "File is too large."
+  def upload_entry_error(:not_accepted), do: "Only .zaq-license files are accepted."
+  def upload_entry_error(:too_many_files), do: "Only one file at a time."
+  def upload_entry_error(_), do: "Upload failed."
+
+  defp format_upload_error(:license_expired), do: "This license has expired."
+
+  defp format_upload_error(:missing_license_dat),
+    do: "Invalid license file: missing license data."
+
+  defp format_upload_error(:invalid_payload_json), do: "Invalid license file: malformed payload."
+  defp format_upload_error(:invalid_license_dat_format), do: "Invalid license file format."
+  defp format_upload_error({:extract_failed, _}), do: "Could not read license file."
+  defp format_upload_error(reason), do: "Failed to load license: #{inspect(reason)}"
 
   defp days_left(nil), do: nil
 
