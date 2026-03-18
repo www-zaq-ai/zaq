@@ -92,7 +92,7 @@ if e2e? do
   config :zaq,
     node_router: Zaq.NodeRouter,
     document_processor: Zaq.E2E.DocumentProcessorFake,
-    playground_live_node_router_module: Zaq.E2E.PlaygroundNodeRouterFake
+    chat_live_node_router_module: Zaq.E2E.PlaygroundNodeRouterFake
 
   config :zaq, Zaq.Ingestion, base_path: "tmp/e2e_documents"
 end

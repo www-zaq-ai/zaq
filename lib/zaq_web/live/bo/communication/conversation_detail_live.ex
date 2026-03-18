@@ -35,7 +35,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
       {:ok,
        socket
        |> put_flash(:error, "Conversation not found.")
-       |> redirect(to: ~p"/bo/playground")}
+       |> redirect(to: ~p"/bo/chat")}
   end
 
   @impl true

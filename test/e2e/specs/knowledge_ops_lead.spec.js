@@ -47,16 +47,30 @@ async function ingestSelectedInline(page) {
 }
 
 async function askQuestion(page, question) {
-  await gotoBackOfficeLive(page, "/bo/playground");
+  await gotoBackOfficeLive(page, "/bo/chat");
   await expect(page.locator("#chat-form")).toBeVisible();
   await page.locator("#clear-chat-button").click();
   await page.locator("#chat-input").fill(question);
   await page.locator("#chat-form button[type='submit']").click();
 }
 
+async function resetAnsweringPromptTemplate(page) {
+  await gotoBackOfficeLive(page, "/bo/prompt-templates");
+  await page.locator("#prompt-tab-answering").click();
+
+  const bodyField = page.locator("textarea[id^='prompt-template-body-']").first();
+  const existingBody = await bodyField.inputValue();
+
+  if (existingBody.includes(PROMPT_VARIANT_MARKER)) {
+    await bodyField.fill(existingBody.replace(`\n\n${PROMPT_VARIANT_MARKER}`, "").replace(PROMPT_VARIANT_MARKER, ""));
+    await page.locator("button[id^='save-template-']").first().click();
+  }
+}
+
 test.describe("Knowledge Ops Lead journeys", () => {
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page);
+    await resetAnsweringPromptTemplate(page);
   });
 
   test("Journey 1: ingest new knowledge and confirm it is queryable", async ({ page }) => {

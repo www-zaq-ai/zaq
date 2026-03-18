@@ -284,11 +284,11 @@ defmodule ZaqWeb.Components.BOLayout do
             current_path={@current_path}
             active={
               String.starts_with?(@current_path, "/bo/channels") or
-                @current_path in ["/bo/playground", "/bo/history"]
+                @current_path in ["/bo/chat", "/bo/history"]
             }
             open={
               String.starts_with?(@current_path, "/bo/channels") or
-                @current_path in ["/bo/playground", "/bo/history"]
+                @current_path in ["/bo/chat", "/bo/history"]
             }
           >
             <:item
@@ -298,10 +298,10 @@ defmodule ZaqWeb.Components.BOLayout do
               active={@current_path == "/bo/channels"}
             />
             <:item
-              href={~p"/bo/playground"}
-              icon="playground"
-              label="Playground"
-              active={@current_path == "/bo/playground"}
+              href={~p"/bo/chat"}
+              icon="conversations"
+              label="Chat"
+              active={@current_path == "/bo/chat"}
             />
             <:item
               href={~p"/bo/history"}
@@ -703,16 +703,6 @@ defmodule ZaqWeb.Components.BOLayout do
       <circle cx="8" cy="6" r="1.5" fill="currentColor" />
       <circle cx="16" cy="12" r="1.5" fill="currentColor" />
       <circle cx="12" cy="18" r="1.5" fill="currentColor" />
-    </svg>
-    <svg
-      :if={@icon == "playground"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <polygon points="5 3 19 12 5 21 5 3" />
     </svg>
     <svg
       :if={@icon == "history"}
