@@ -318,4 +318,71 @@ defmodule Zaq.IngestionTest do
       assert Enum.all?(jobs, &(&1.volume_name == "docs"))
     end
   end
+
+  describe "can_access_file?/2" do
+    test "allows access to files with no Document record" do
+      user = user_fixture()
+      assert Ingestion.can_access_file?("nonexistent/file.md", user)
+    end
+
+    test "denies access to files owned by different role without sharing" do
+      owner_role = role_fixture(%{name: "owner"})
+      other_role = role_fixture(%{name: "other"})
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      {:ok, _} = Ingestion.track_upload(source, owner_role.id)
+
+      other_user = user_fixture(%{role_id: other_role.id})
+      refute Ingestion.can_access_file?(source, other_user)
+    end
+
+    test "allows access when file is shared with user's role" do
+      owner_role = role_fixture(%{name: "owner"})
+      shared_role = role_fixture(%{name: "shared"})
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      {:ok, _} = Ingestion.track_upload(source, owner_role.id)
+      {:ok, _} = Ingestion.share_file(source, [shared_role.id])
+
+      shared_user = user_fixture(%{role_id: shared_role.id})
+      assert Ingestion.can_access_file?(source, shared_user)
+    end
+
+    test "allows access for super_admin regardless of ownership" do
+      owner_role = role_fixture(%{name: "owner"})
+      super_admin_role = role_fixture(%{name: "super_admin"})
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      {:ok, _} = Ingestion.track_upload(source, owner_role.id)
+
+      super_admin = user_fixture(%{role_id: super_admin_role.id, role: super_admin_role})
+      assert Ingestion.can_access_file?(source, super_admin)
+    end
+
+    test "handles volume-prefixed paths by checking without volume prefix" do
+      owner_role = role_fixture(%{name: "owner"})
+      source = "folder/file_#{System.unique_integer([:positive])}.md"
+
+      # Document is stored without volume prefix
+      {:ok, _} = Ingestion.track_upload(source, owner_role.id)
+
+      # But preview might include volume prefix
+      volume_prefixed_path = "default/#{source}"
+      owner_user = user_fixture(%{role_id: owner_role.id, role: owner_role})
+      assert Ingestion.can_access_file?(volume_prefixed_path, owner_user)
+    end
+
+    test "allows access to files shared with public role" do
+      owner_role = role_fixture(%{name: "owner"})
+      public_role = role_fixture(%{name: "public"})
+      other_role = role_fixture(%{name: "other"})
+      source = "file_#{System.unique_integer([:positive])}.md"
+
+      {:ok, _} = Ingestion.track_upload(source, owner_role.id)
+      {:ok, _} = Ingestion.share_file(source, [public_role.id])
+
+      other_user = user_fixture(%{role_id: other_role.id})
+      assert Ingestion.can_access_file?(source, other_user)
+    end
+  end
 end

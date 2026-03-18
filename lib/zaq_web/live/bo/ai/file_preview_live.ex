@@ -23,7 +23,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
       ext = relative_path |> Path.extname() |> String.downcase()
 
       result =
-        with {:ok, full_path} <- FileExplorer.resolve_path(relative_path),
+        with {:ok, full_path} <- resolve_path_with_fallback(relative_path),
              false <- File.dir?(full_path),
              {:ok, stat} <- File.stat(full_path, time: :posix) do
           {:ok, full_path, stat}
@@ -72,6 +72,34 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
        |> put_flash(:error, "You do not have access to this file.")
        |> push_navigate(to: "/bo/ingestion")}
     end
+  end
+
+  # Resolves a path, trying volume-aware resolution first if the path contains a volume prefix
+  defp resolve_path_with_fallback(relative_path) do
+    # First try the standard resolution
+    case FileExplorer.resolve_path(relative_path) do
+      {:ok, full_path} ->
+        {:ok, full_path}
+
+      {:error, :enoent} ->
+        # If not found, try to find in any volume by checking all volumes
+        try_find_in_volumes(relative_path)
+
+      error ->
+        error
+    end
+  end
+
+  defp try_find_in_volumes(relative_path) do
+    volumes = FileExplorer.list_volumes()
+
+    # Try to resolve the path in each volume
+    Enum.reduce_while(Map.keys(volumes), {:error, :enoent}, fn volume_name, acc ->
+      case FileExplorer.resolve_path(volume_name, relative_path) do
+        {:ok, full_path} -> {:halt, {:ok, full_path}}
+        _ -> {:cont, acc}
+      end
+    end)
   end
 
   # ────────────────────────────────────────────────────────────────

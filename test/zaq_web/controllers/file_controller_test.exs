@@ -74,5 +74,57 @@ defmodule ZaqWeb.FileControllerTest do
 
       assert response(conn, 500) == "Could not read file"
     end
+
+    test "serves files from configured volumes", %{conn: conn} do
+      # Create a separate volume directory
+      volume_dir = Path.join(System.tmp_dir!(), "zaq_volume_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(volume_dir)
+
+      # Configure volumes
+      original_ingestion_env = Application.get_env(:zaq, Zaq.Ingestion)
+      base_dir = Path.expand(Application.get_env(:zaq, Zaq.Ingestion)[:base_path] || "priv/documents")
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original_ingestion_env || [], volumes: %{"docs" => volume_dir})
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_env || [])
+        File.rm_rf!(volume_dir)
+      end)
+
+      # Create file in volume
+      file_path = Path.join(volume_dir, "volume_file.md")
+      File.write!(file_path, "# Volume Content")
+
+      # Request should find file in volume even without volume prefix in URL
+      conn = get(conn, "/bo/files/volume_file.md")
+
+      assert response(conn, 200) == "# Volume Content"
+      assert get_resp_header(conn, "content-disposition") == [~s(inline; filename="volume_file.md")]
+    end
+
+    test "access denied when user cannot access file", %{conn: conn, tmp_dir: tmp_dir} do
+      # Create a file
+      file_path = Path.join(tmp_dir, "private.md")
+      File.write!(file_path, "# Private")
+
+      # Create restricted user without access
+      restricted_role = Zaq.AccountsFixtures.role_fixture(%{name: "restricted"})
+      restricted_user = Zaq.AccountsFixtures.user_fixture(%{role_id: restricted_role.id})
+
+      # Track upload with a specific role
+      owner_role = Zaq.AccountsFixtures.role_fixture(%{name: "owner"})
+      {:ok, _} = Zaq.Ingestion.track_upload("private.md", owner_role.id)
+
+      # Login as restricted user
+      conn = init_test_session(conn, %{user_id: restricted_user.id})
+
+      conn = get(conn, "/bo/files/private.md")
+
+      assert response(conn, 403) == "Access denied"
+    end
   end
 end

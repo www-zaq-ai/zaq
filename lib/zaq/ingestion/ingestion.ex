@@ -67,11 +67,29 @@ defmodule Zaq.Ingestion do
   - Files with no Document record are accessible to all (backward compat).
   - Files shared with the "public" role are accessible to all.
   - Otherwise: only the owning role (doc.role_id) or explicitly shared roles.
+
+  The path can be either:
+  - A relative path like "folder/file.md" (legacy, searches all volumes)
+  - A volume-prefixed path like "volume_name/folder/file.md"
   """
   def can_access_file?(relative_path, current_user) do
     source = normalize_source(relative_path)
 
-    case Document.get_by_source(source) do
+    # Try to find document by source, handling both legacy and volume-aware paths
+    doc =
+      case Document.get_by_source(source) do
+        nil ->
+          # If not found and path has volume prefix, try without it
+          case String.split(source, "/", parts: 2) do
+            [_volume, rest] -> Document.get_by_source(rest)
+            _ -> nil
+          end
+
+        found ->
+          found
+      end
+
+    case doc do
       nil ->
         true
 
@@ -107,8 +125,12 @@ defmodule Zaq.Ingestion do
     Document.upsert(%{source: source, role_id: role_id})
   end
 
-  defp normalize_source("./" <> rest), do: rest
-  defp normalize_source(path), do: path
+  @doc """
+  Normalizes a source path by removing the ./ prefix if present.
+  Also handles volume-prefixed paths by returning the path after the volume.
+  """
+  def normalize_source("./" <> rest), do: rest
+  def normalize_source(path), do: path
 
   # --- Sharing ---
 

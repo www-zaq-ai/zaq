@@ -146,4 +146,105 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
                "2025-01-02 03:04"
     end
   end
+
+  describe "volume-aware file resolution" do
+    test "finds files in configured volumes", %{conn: conn} do
+      # Create a separate volume directory
+      volume_dir = Path.join(System.tmp_dir!(), "zaq_preview_volume_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(volume_dir)
+
+      # Configure volumes
+      original_ingestion_env = Application.get_env(:zaq, Zaq.Ingestion)
+      base_dir = Path.expand(original_ingestion_env[:base_path] || "priv/documents")
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original_ingestion_env || [], volumes: %{"docs" => volume_dir})
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_env || [])
+        File.rm_rf!(volume_dir)
+      end)
+
+      # Create file in volume
+      file_path = Path.join(volume_dir, "volume_doc.md")
+      File.write!(file_path, "# Volume Document")
+
+      # Should find file in volume even without volume prefix in URL
+      {:ok, view, _html} = live(conn, "/bo/preview/volume_doc.md")
+
+      assert has_element?(view, ".md-content h1", "Volume Document")
+    end
+
+    test "finds files in subdirectories within volumes", %{conn: conn} do
+      # Create a separate volume directory with subdirectories
+      volume_dir = Path.join(System.tmp_dir!(), "zaq_preview_subdir_#{System.unique_integer([:positive])}")
+      subdir = Path.join(volume_dir, "subfolder")
+      File.mkdir_p!(subdir)
+
+      # Configure volumes
+      original_ingestion_env = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original_ingestion_env || [], volumes: %{"docs" => volume_dir})
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_env || [])
+        File.rm_rf!(volume_dir)
+      end)
+
+      # Create file in subdirectory
+      file_path = Path.join(subdir, "nested.md")
+      File.write!(file_path, "# Nested Document")
+
+      # Should find file in subdirectory within volume
+      {:ok, view, _html} = live(conn, "/bo/preview/subfolder/nested.md")
+
+      assert has_element?(view, ".md-content h1", "Nested Document")
+    end
+
+    test "respects access control for files in volumes", %{conn: conn} do
+      # Create a separate volume directory
+      volume_dir = Path.join(System.tmp_dir!(), "zaq_preview_restricted_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(volume_dir)
+
+      # Configure volumes
+      original_ingestion_env = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original_ingestion_env || [], volumes: %{"docs" => volume_dir})
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_env || [])
+        File.rm_rf!(volume_dir)
+      end)
+
+      # Create file
+      file_path = Path.join(volume_dir, "restricted.md")
+      File.write!(file_path, "# Restricted")
+
+      # Track upload with specific role
+      owner_role = role_fixture(%{name: "owner"})
+      {:ok, _} = Zaq.Ingestion.track_upload("restricted.md", owner_role.id)
+
+      # Create restricted user
+      restricted_role = role_fixture(%{name: "restricted"})
+      restricted_user = user_fixture(%{role_id: restricted_user.id})
+      {:ok, restricted_user} = Accounts.change_password(restricted_user, %{password: "StrongPass1!"})
+
+      # Login as restricted user
+      conn = init_test_session(conn, %{user_id: restricted_user.id})
+
+      # Should redirect to ingestion page due to access denied
+      {:error, {:redirect, %{to: "/bo/ingestion"}}} = live(conn, "/bo/preview/restricted.md")
+    end
+  end
 end
