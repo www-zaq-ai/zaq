@@ -20,7 +20,7 @@ correctly in both single-node and multi-node deployments.
 ## Pipeline Flow
 
 ```
-User question (BO Playground)
+User question (BO Chat)
   → PromptGuard.validate/1              ← blocks prompt injection (runs on BO node)
   → NodeRouter.call(:agent, Retrieval)  ← routed to agent node
       → Retrieval.ask/2                 ← LLM rewrites question into search queries (JSON)
@@ -134,7 +134,7 @@ config :zaq, Zaq.Agent.LLM,
 - **ChunkTitle is injectable** — `Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)` allows test mocking
 - **Confidence is optional** — gracefully skipped when `supports_logprobs?` is false
 - **NodeRouter for cross-node calls** — BO never calls agent modules directly; always via `NodeRouter.call(:agent, ...)`
-- **Retrieval returns string keys** — callers (e.g. playground) are responsible for normalizing to atom keys after the RPC call
+- **Retrieval returns string keys** — callers (e.g. chat) are responsible for normalizing to atom keys after the RPC call
 
 ---
 

@@ -1,4 +1,4 @@
-defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
+defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   use ZaqWeb.ConnCase
 
   import Mox
@@ -42,7 +42,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
 
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
 
-    Application.put_env(:zaq, :playground_live_node_router_module, NodeRouterFake)
+    Application.put_env(:zaq, :chat_live_node_router_module, NodeRouterFake)
     :persistent_term.put(NodeRouterFake, %{})
 
     template_attrs = %{
@@ -62,7 +62,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
     end
 
     on_exit(fn ->
-      Application.delete_env(:zaq, :playground_live_node_router_module)
+      Application.delete_env(:zaq, :chat_live_node_router_module)
       :persistent_term.erase(NodeRouterFake)
     end)
 
@@ -70,10 +70,10 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   end
 
   test "renders shell, updates input, and clears chat", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     assert has_element?(view, "#chat-form")
-    assert render(view) =~ "Welcome to ZAQ Playground!"
+    assert render(view) =~ "Welcome to ZAQ Chat!"
 
     render_hook(view, "use_suggestion", %{"question" => "What is ZAQ and what does it do?"})
     assert render(view) =~ "What is ZAQ and what does it do?"
@@ -83,11 +83,11 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
 
     render_hook(view, "clear_chat", %{})
     html = render(view)
-    assert html =~ "Welcome to ZAQ Playground!"
+    assert html =~ "Welcome to ZAQ Chat!"
   end
 
   test "ignores empty and whitespace send_message payloads", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     initial = render(view)
 
@@ -99,14 +99,14 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   end
 
   test "copy_message pushes clipboard event", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     render_hook(view, "copy_message", %{"text" => "copy me"})
     assert_push_event(view, "clipboard", %{text: "copy me"})
   end
 
   test "feedback positive/negative, reason toggles, comment and submit", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view
     |> element(~s(button[phx-click="feedback"][phx-value-type="positive"]))
@@ -141,7 +141,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   end
 
   test "pipeline branch prompt injection is blocked", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view
     |> element("#chat-form")
@@ -151,7 +151,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   end
 
   test "pipeline branch role play attempt is blocked", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view
     |> element("#chat-form")
@@ -168,7 +168,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
       {:ok, %{"negative_answer" => "No matching docs."}}
     )
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -178,7 +178,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   test "pipeline branch no_results uses default fallback", %{conn: conn} do
     NodeRouterFake.put(:agent, Retrieval, :ask, {:ok, %{}})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -215,7 +215,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
       {:ok, "This leaks retrieved_data and should be blocked."}
     )
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -225,7 +225,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   test "pipeline generic error branch returns fallback message", %{conn: conn} do
     NodeRouterFake.put(:agent, Retrieval, :ask, {:error, :boom})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -235,7 +235,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   test "pipeline branch retrieval blocked shape returns fallback error", %{conn: conn} do
     NodeRouterFake.put(:agent, Retrieval, :ask, {:ok, %{"error" => "blocked"}})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -258,7 +258,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
 
     NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:ok, []})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -281,7 +281,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
 
     NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:error, :timeout})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -320,7 +320,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
        }}
     )
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
@@ -333,7 +333,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   end
 
   test "stale async pipeline messages are ignored", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     send(view.pid, {:status_update, "stale-1", :answering, "stale status"})
 
@@ -353,7 +353,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
   test "service unavailable page renders and events are guarded", %{conn: conn} do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> nil end)
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     assert render(view) =~ "Service Unavailable"
 
@@ -391,7 +391,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLiveTest do
       {:ok, %{answer: "All good [source: guide.md]", confidence: %{score: 0.92}}}
     )
 
-    {:ok, view, _html} = live(conn, ~p"/bo/playground")
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "What is ZAQ?"})
 

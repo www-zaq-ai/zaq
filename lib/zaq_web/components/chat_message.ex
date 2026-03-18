@@ -1,7 +1,7 @@
 # lib/zaq_web/components/chat_message.ex
 defmodule ZaqWeb.Components.ChatMessage do
   @moduledoc """
-  Shared chat bubble components used by PlaygroundLive and ConversationDetailLive.
+  Shared chat bubble components used by ChatLive and ConversationDetailLive.
 
   Both views render the same user/assistant bubble design:
   - User: right-aligned dark (#2c3a50) bubble
@@ -131,7 +131,7 @@ defmodule ZaqWeb.Components.ChatMessage do
               </span>
             </div>
 
-            <%!-- Actions slot (copy/feedback in playground, ratings in conversation detail) --%>
+            <%!-- Actions slot (copy/feedback in chat, ratings in conversation detail) --%>
             <div class="flex items-center gap-0.5 msg-actions">
               {render_slot(@actions)}
             </div>

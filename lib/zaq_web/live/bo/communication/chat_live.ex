@@ -1,6 +1,6 @@
-defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
+defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   @moduledoc """
-  Back-office chat playground.
+  Back-office chat.
 
   Full-size chat interface that connects to the RAG agent pipeline:
 
@@ -28,7 +28,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
 
-  # Required roles for the playground
+  # Required roles for the chat
   @required_roles [:agent, :ingestion]
 
   require Logger
@@ -52,8 +52,8 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
 
     {:ok,
      socket
-     |> assign(:page_title, "Playground")
-     |> assign(:current_path, "/bo/playground")
+     |> assign(:page_title, "Chat")
+     |> assign(:current_path, "/bo/chat")
      |> assign(:service_available, available)
      |> assign(:required_roles, @required_roles)
      |> assign(:messages, [welcome_message()])
@@ -394,7 +394,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
           }
 
         {:error, reason} ->
-          Logger.error("Playground pipeline error: #{inspect(reason)}")
+          Logger.error("Chat pipeline error: #{inspect(reason)}")
           %{answer: "Sorry, something went wrong. Please try again.", confidence: 0, error: true}
       end
 
@@ -475,10 +475,10 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
   end
 
   defp node_router do
-    Application.get_env(:zaq, :playground_live_node_router_module, NodeRouter)
+    Application.get_env(:zaq, :chat_live_node_router_module, NodeRouter)
   end
 
-  defp persist_playground_conversation(user_msg, result, current_user, current_conversation_id) do
+  defp persist_chat_conversation(user_msg, result, current_user, current_conversation_id) do
     user_id = if current_user, do: current_user.id, else: nil
 
     case resolve_conversation(current_user, current_conversation_id) do
@@ -486,7 +486,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
         add_messages_to_conversation(conv, user_id, user_msg, result)
 
       err ->
-        Logger.warning("PlaygroundLive: failed to persist conversation: #{inspect(err)}")
+        Logger.warning("ChatLive: failed to persist conversation: #{inspect(err)}")
         :error
     end
   end
@@ -538,7 +538,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
   end
 
   defp maybe_persist_conversation(socket, bot_msg, user_msg, result, current_user) do
-    case persist_playground_conversation(
+    case persist_chat_conversation(
            user_msg,
            result,
            current_user,
@@ -584,7 +584,7 @@ defmodule ZaqWeb.Live.BO.Communication.PlaygroundLive do
     %{
       id: generate_id(),
       role: :bot,
-      body: "Welcome to ZAQ Playground! Ask me anything about your knowledge base.",
+      body: "Welcome to ZAQ Chat! Ask me anything about your knowledge base.",
       confidence: nil,
       timestamp: DateTime.utc_now(),
       error: false,

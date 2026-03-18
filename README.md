@@ -5,7 +5,7 @@
 
 AI-powered sovereign company brain. ZAQ OSS lets you access your organization's knowledge base and provides instant, cited answers to people and AI agents.
 
-<img height="400" alt="Zaq Playground" src="https://github.com/user-attachments/assets/333d65d8-da9d-46f3-9a68-6689b58cb1b7" />
+<img height="400" alt="Zaq Chat" src="https://github.com/user-attachments/assets/333d65d8-da9d-46f3-9a68-6689b58cb1b7" />
 
 Built with [Elixir](https://elixir-lang.org/), [Phoenix](https://www.phoenixframework.org/), and [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).
 

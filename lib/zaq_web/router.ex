@@ -83,7 +83,7 @@ defmodule ZaqWeb.Router do
       # File preview — renders MD, plain text, images in-browser
       live "/preview/*path", Live.BO.AI.FilePreviewLive
 
-      live "/playground", Live.BO.Communication.PlaygroundLive
+      live "/chat", Live.BO.Communication.ChatLive
       live "/history", Live.BO.Communication.HistoryLive
 
       live "/conversations/:id", Live.BO.Communication.ConversationDetailLive, :show
