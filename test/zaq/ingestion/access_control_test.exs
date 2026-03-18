@@ -47,14 +47,14 @@ defmodule Zaq.Ingestion.AccessControlTest do
   describe "can_access_file?/2 — owner access" do
     test "owner role can access their own file", %{admin: admin, admin_role: admin_role} do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, admin_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
 
       assert Ingestion.can_access_file?(source, admin)
     end
 
     test "different role cannot access without sharing", %{admin: admin, staff_role: staff_role} do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, staff_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
 
       refute Ingestion.can_access_file?(source, admin)
     end
@@ -66,8 +66,8 @@ defmodule Zaq.Ingestion.AccessControlTest do
       admin_file = unique_source()
       staff_file = unique_source()
 
-      {:ok, _} = Ingestion.track_upload(admin_file, admin_role.id)
-      {:ok, _} = Ingestion.track_upload(staff_file, staff_role.id)
+      {:ok, _} = Document.upsert(%{source: admin_file, role_id: admin_role.id})
+      {:ok, _} = Document.upsert(%{source: staff_file, role_id: staff_role.id})
 
       assert Ingestion.can_access_file?(admin_file, super_admin)
       assert Ingestion.can_access_file?(staff_file, super_admin)
@@ -88,7 +88,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       admin_role: admin_role
     } do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, staff_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
       {:ok, _} = Ingestion.share_file(source, [admin_role.id])
 
       assert Ingestion.can_access_file?(source, admin)
@@ -101,7 +101,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       admin_role: admin_role
     } do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, staff_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
       {:ok, _} = Ingestion.share_file(source, [admin_role.id])
 
       # staff uploaded it but it's shared with admin, not staff
@@ -116,7 +116,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       admin_role: admin_role
     } do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, staff_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
       {:ok, _} = Ingestion.share_file(source, [admin_role.id])
 
       assert Ingestion.can_access_file?(source, admin)
@@ -136,7 +136,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       public_role: public_role
     } do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, admin_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
       {:ok, _} = Ingestion.share_file(source, [public_role.id])
 
       assert Ingestion.can_access_file?(source, admin)
@@ -150,7 +150,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       admin_role: admin_role
     } do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, admin_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
 
       assert Ingestion.can_access_file?(source, admin)
       refute Ingestion.can_access_file?(source, staff)
@@ -162,7 +162,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       public_role: public_role
     } do
       source = unique_source()
-      {:ok, _} = Ingestion.track_upload(source, admin_role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
       {:ok, _} = Ingestion.share_file(source, [public_role.id])
 
       assert Ingestion.can_access_file?(source, staff)

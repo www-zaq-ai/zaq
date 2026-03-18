@@ -96,10 +96,11 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   defp load_content(_full_path, @pdf_extension), do: {:pdf, nil, nil}
 
   defp load_content(full_path, @docx_extension) do
-    md_path = Path.rootname(full_path) <> ".md"
+    md_path = Path.join(System.tmp_dir!(), Path.basename(full_path, ".docx") <> ".md")
 
     with {:ok, _} <- DocxToMd.run(full_path, md_path),
          {:ok, content} <- File.read(md_path) do
+      File.rm(md_path)
       {:markdown, content, render_html(content, ".md")}
     else
       _ -> {:binary, nil, nil}
@@ -107,10 +108,12 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   end
 
   defp load_content(full_path, ext) when ext in @xlsx_extensions do
-    md_path = Path.rootname(full_path) <> ".md"
+    basename = Path.basename(full_path, ext)
+    md_path = Path.join(System.tmp_dir!(), basename <> ".md")
 
     with {:ok, _} <- XlsxToMd.run(full_path, md_path),
          {:ok, content} <- File.read(md_path) do
+      File.rm(md_path)
       {:markdown, content, render_html(content, ".md")}
     else
       _ -> {:binary, nil, nil}

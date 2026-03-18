@@ -16,22 +16,6 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
     %{conn: conn, user: user}
   end
 
-  defp create_conv(user_id, overrides \\ %{}) do
-    {:ok, conv} =
-      Conversations.create_conversation(
-        Map.merge(
-          %{
-            channel_type: "bo",
-            channel_user_id: "u_#{System.unique_integer([:positive])}",
-            user_id: user_id
-          },
-          overrides
-        )
-      )
-
-    conv
-  end
-
   test "renders history placeholder", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/bo/history")
 
@@ -109,5 +93,21 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
 
       assert html =~ conv.title
     end
+  end
+
+  defp create_conv(user_id, overrides) do
+    {:ok, conv} =
+      Conversations.create_conversation(
+        Map.merge(
+          %{
+            channel_type: "bo",
+            channel_user_id: "u_#{System.unique_integer([:positive])}",
+            user_id: user_id
+          },
+          overrides
+        )
+      )
+
+    conv
   end
 end

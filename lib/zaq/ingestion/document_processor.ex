@@ -185,33 +185,45 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc """
-  Extracts the source as a relative path from its volume root.
-  Checks all configured volumes to find the matching root.
-  Falls back to basename if the path is not under any known volume.
+  Extracts the source as a volume-prefixed relative path.
+  When volumes are configured, returns "<volume_name>/<relative_path_within_volume>".
+  In legacy single-volume mode, returns the path relative to `base_path`.
+  Falls back to basename if the path is not under any known root.
 
   Example: "/zaq/volumes/docs/guide.md" => "docs/guide.md"
   """
   def extract_source(_content, file_path) do
     expanded = Path.expand(file_path)
-    base = find_volume_root(expanded)
+    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+    configured_volumes = Keyword.get(config, :volumes, %{})
 
-    relative =
-      case String.split(expanded, base <> "/", parts: 2) do
-        [_, rel] when rel != "" -> rel
-        _ -> Path.basename(file_path)
+    if map_size(configured_volumes) > 0 do
+      case find_volume_for_path(configured_volumes, expanded) do
+        {vol_name, vol_path} ->
+          vol_root = Path.expand(vol_path)
+          [_, rel] = String.split(expanded, vol_root <> "/", parts: 2)
+          {:ok, "#{vol_name}/#{rel}"}
+
+        nil ->
+          {:ok, Path.basename(file_path)}
       end
+    else
+      base = FileExplorer.base_path() |> Path.expand()
 
-    {:ok, relative}
+      relative =
+        case String.split(expanded, base <> "/", parts: 2) do
+          [_, rel] when rel != "" -> rel
+          _ -> Path.basename(file_path)
+        end
+
+      {:ok, relative}
+    end
   end
 
-  defp find_volume_root(expanded_path) do
-    FileExplorer.list_volumes()
-    |> Map.values()
-    |> Enum.find(fn vol_root -> String.starts_with?(expanded_path, vol_root <> "/") end)
-    |> case do
-      nil -> FileExplorer.base_path() |> Path.expand()
-      vol_root -> vol_root
-    end
+  defp find_volume_for_path(volumes, expanded_path) do
+    Enum.find(volumes, fn {_name, vol_path} ->
+      String.starts_with?(expanded_path, Path.expand(vol_path) <> "/")
+    end)
   end
 
   @doc """

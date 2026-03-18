@@ -394,6 +394,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :entries, :list, required: true
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
+  attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :all_roles, :list, default: []
 
@@ -464,7 +465,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
                     <a
                       :if={entry.type == :file}
-                      href={"/bo/preview/#{Path.join(@current_dir, entry.name)}"}
+                      href={"/bo/preview/#{Path.join([@current_volume, @current_dir, entry.name])}"}
                       target="_blank"
                       rel="noopener noreferrer"
                       class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
@@ -582,6 +583,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       can_share?: false
                     }) %>
                   <%= cond do %>
+                    <% status.job_status == "processing" -> %>
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit animate-pulse">
+                        processing
+                      </span>
+                    <% status.job_status == "pending" -> %>
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-black/5 text-black/40 w-fit">
+                        pending
+                      </span>
                     <% status.stale? -> %>
                       <div class="flex flex-col gap-0.5">
                         <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit">
@@ -644,6 +653,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                           {format_datetime(status.ingested_at)}
                         </span>
                       </div>
+                    <% status.job_status == "failed" -> %>
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-red-100 text-red-600 w-fit">
+                        failed
+                      </span>
                     <% true -> %>
                       <div class="flex items-center gap-1 flex-wrap">
                         <span class="font-mono text-[0.65rem] text-black/20">—</span>
@@ -704,7 +717,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     {format_size(Map.get(entry, :related_md, %{}).size)}
                   </span>
                   <a
-                    href={"/bo/preview/#{Path.join(@current_dir, Map.get(entry, :related_md, %{name: ""}).name)}"}
+                    href={"/bo/preview/#{Path.join([@current_volume, @current_dir, Map.get(entry, :related_md, %{name: ""}).name])}"}
                     target="_blank"
                     rel="noopener noreferrer"
                     class="ml-auto font-mono text-[0.65rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors flex items-center gap-1 pr-2"
@@ -740,6 +753,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :entries, :list, required: true
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
+  attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :all_roles, :list, default: []
 
@@ -789,7 +803,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           <div class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
             <a
               :if={entry.type == :file}
-              href={"/bo/preview/#{Path.join(@current_dir, entry.name)}"}
+              href={"/bo/preview/#{Path.join([@current_volume, @current_dir, entry.name])}"}
               target="_blank"
               rel="noopener noreferrer"
               class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
@@ -913,8 +927,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               <span class="font-mono text-[0.6rem] text-black/30 mt-0.5">
                 {format_size(entry.size)}
               </span>
-              <% status = Map.get(@ingestion_map, entry.name, %{ingested_at: nil, stale?: false}) %>
+              <% status =
+                Map.get(@ingestion_map, entry.name, %{
+                  ingested_at: nil,
+                  stale?: false,
+                  job_status: nil
+                }) %>
               <%= cond do %>
+                <% status.job_status == "processing" -> %>
+                  <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 mt-1 animate-pulse">
+                    processing
+                  </span>
+                <% status.job_status == "pending" -> %>
+                  <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-black/5 text-black/40 mt-1">
+                    pending
+                  </span>
                 <% status.stale? -> %>
                   <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 mt-1">
                     stale
@@ -932,6 +959,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       shared
                     </span>
                   </div>
+                <% status.job_status == "failed" -> %>
+                  <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-red-100 text-red-600 mt-1">
+                    failed
+                  </span>
                 <% true -> %>
                   <span
                     :if={status.shared_role_ids != []}
@@ -943,7 +974,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               <% end %>
               <a
                 :if={Map.get(entry, :related_md)}
-                href={"/bo/preview/#{Path.join(@current_dir, Map.get(entry, :related_md, %{name: ""}).name)}"}
+                href={"/bo/preview/#{Path.join([@current_volume, @current_dir, Map.get(entry, :related_md, %{name: ""}).name])}"}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="mt-2 flex items-center gap-1 font-mono text-[0.6rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors border-t border-dashed border-black/[0.06] pt-2 w-full justify-center"

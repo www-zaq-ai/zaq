@@ -102,8 +102,15 @@ defmodule Zaq.Ingestion do
   This is called immediately at upload time — before any ingestion happens — so that
   the file browser can enforce role-based visibility right away.
   """
-  def track_upload(path, role_id) do
-    source = normalize_source(path)
+  def track_upload(volume_name, path, role_id) do
+    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+    configured_volumes = Keyword.get(config, :volumes, %{})
+
+    source =
+      if map_size(configured_volumes) > 0,
+        do: Path.join([volume_name, path]),
+        else: path
+
     Document.upsert(%{source: source, role_id: role_id})
   end
 

@@ -203,32 +203,39 @@ defmodule Zaq.IngestionTest do
     end
   end
 
-  describe "track_upload/2" do
-    test "creates a document record with the uploader's role_id" do
-      role = role_fixture()
-      source = "file_#{System.unique_integer([:positive])}.md"
+  describe "track_upload/3" do
+    setup do
+      prev = Application.get_env(:zaq, Zaq.Ingestion, [])
 
-      assert {:ok, doc} = Ingestion.track_upload(source, role.id)
-      assert doc.source == source
-      assert doc.role_id == role.id
-      assert doc.content == nil
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(prev, volumes: %{"default" => "tmp/volumes/default"})
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, prev) end)
+      :ok
     end
 
-    test "normalizes leading ./ from path" do
+    test "creates a document record with volume-prefixed source and uploader's role_id" do
       role = role_fixture()
-      source = "file_#{System.unique_integer([:positive])}.md"
+      volume = "default"
+      path = "file_#{System.unique_integer([:positive])}.md"
 
-      assert {:ok, doc} = Ingestion.track_upload("./#{source}", role.id)
-      assert doc.source == source
+      assert {:ok, doc} = Ingestion.track_upload(volume, path, role.id)
+      assert doc.source == Path.join([volume, path])
+      assert doc.role_id == role.id
+      assert doc.content == nil
     end
 
     test "upserts: does not duplicate when called again for the same source" do
       role1 = role_fixture()
       role2 = role_fixture()
-      source = "file_#{System.unique_integer([:positive])}.md"
+      volume = "default"
+      path = "file_#{System.unique_integer([:positive])}.md"
 
-      assert {:ok, _} = Ingestion.track_upload(source, role1.id)
-      assert {:ok, doc} = Ingestion.track_upload(source, role2.id)
+      assert {:ok, _} = Ingestion.track_upload(volume, path, role1.id)
+      assert {:ok, doc} = Ingestion.track_upload(volume, path, role2.id)
       assert doc.role_id == role2.id
       assert Repo.aggregate(Document, :count) >= 1
     end
@@ -240,7 +247,7 @@ defmodule Zaq.IngestionTest do
       role2 = role_fixture()
       source = "file_#{System.unique_integer([:positive])}.md"
 
-      {:ok, _} = Ingestion.track_upload(source, role1.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: role1.id})
 
       assert {:ok, _} = Ingestion.share_file(source, [role2.id])
       assert Document.get_by_source(source).shared_role_ids == [role2.id]
@@ -271,7 +278,7 @@ defmodule Zaq.IngestionTest do
       role = role_fixture()
       source = "file_#{System.unique_integer([:positive])}.md"
 
-      {:ok, _} = Ingestion.track_upload(source, role.id)
+      {:ok, _} = Document.upsert(%{source: source, role_id: role.id})
       {:ok, _} = Ingestion.share_file(source, [role.id])
       {:ok, _} = Ingestion.share_file(source, [])
 

@@ -8,7 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   alias Zaq.Accounts
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, FileExplorer}
+  alias Zaq.Ingestion.{Document, FileExplorer, IngestJob}
   alias Zaq.Repo
 
   @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv)
@@ -460,7 +460,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         dest = Path.join(socket.assigns.current_dir, entry.client_name)
 
         with {:ok, _full_path} <- FileExplorer.upload(volume, dest, binary) do
-          Ingestion.track_upload(dest, role_id)
+          Ingestion.track_upload(volume, dest, role_id)
           {:ok, dest}
         end
       end)
@@ -476,12 +476,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # ────────────────────────────────────────────────────────────────
 
   def handle_info({:job_updated, _job}, socket) do
-    {:noreply, load_jobs(socket)}
+    {:noreply, socket |> load_jobs() |> load_entries()}
   end
 
   # ────────────────────────────────────────────────────────────────
   # Private helpers
   # ────────────────────────────────────────────────────────────────
+
+  # Builds a normalized source path for Document lookup.
+  # In multi-volume mode (`:volumes` configured), prefixes with the volume name.
+  # In legacy/single-volume mode (only `base_path`), uses plain relative path — matching extract_source.
+  defp build_source(volume, dir, name) do
+    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+    configured_volumes = Keyword.get(config, :volumes, %{})
+
+    segments =
+      if map_size(configured_volumes) > 0,
+        do: [volume, dir, name],
+        else: [dir, name]
+
+    segments
+    |> Enum.reject(&(&1 == "."))
+    |> Path.join()
+  end
 
   defp ensure_md_extension(filename) do
     if Path.extname(filename) == "", do: filename <> ".md", else: filename
@@ -496,6 +513,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp load_ingestion_status(socket) do
     current_dir = socket.assigns.current_dir
+    current_volume = socket.assigns.current_volume
     current_role_id = socket.assigns.current_user.role_id
     super_admin? = socket.assigns.current_user.role.name == "super_admin"
 
@@ -508,7 +526,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     sources =
       Enum.map(file_entries, fn entry ->
-        normalize_source(Path.join(current_dir, entry.name))
+        build_source(current_volume, current_dir, entry.name)
       end)
 
     documents =
@@ -516,14 +534,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       |> Repo.all()
       |> Map.new(fn d -> {d.source, d} end)
 
+    # Query latest job status per file (file_path is relative to volume root)
+    file_paths = Enum.map(file_entries, fn entry -> Path.join(current_dir, entry.name) end)
+
+    jobs_map =
+      IngestJob
+      |> where([j], j.volume_name == ^current_volume and j.file_path in ^file_paths)
+      |> order_by(desc: :inserted_at)
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn job, acc -> Map.put_new(acc, job.file_path, job.status) end)
+
     {ingestion_map, visible_names} =
       Enum.reduce(file_entries, {%{}, MapSet.new()}, fn entry, {map, visible} ->
-        source = normalize_source(Path.join(current_dir, entry.name))
+        source = build_source(current_volume, current_dir, entry.name)
         doc = Map.get(documents, source)
+        file_path = Path.join(current_dir, entry.name)
+        job_status = Map.get(jobs_map, file_path)
 
         {status, visible?} =
           resolve_entry_status(entry, doc, super_admin?, current_role_id, public_role_id)
 
+        status = Map.put(status, :job_status, job_status)
         map = Map.put(map, entry.name, status)
         visible = if visible?, do: MapSet.put(visible, entry.name), else: visible
         {map, visible}
