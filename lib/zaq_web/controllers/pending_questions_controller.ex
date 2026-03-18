@@ -1,6 +1,7 @@
 defmodule ZaqWeb.PendingQuestionsController do
   use ZaqWeb, :controller
 
+  alias Zaq.Engine.KnowledgeGapCallbackWorker
   alias Zaq.Engine.Router
   alias Zaq.License.FeatureStore
 
@@ -92,20 +93,10 @@ defmodule ZaqWeb.PendingQuestionsController do
   end
 
   defp build_callback(question_id) do
-    knowledge_gap = knowledge_gap_module()
-
     fn answer ->
-      table_name = Application.get_env(:zaq, :knowledge_gap_table, "chunks")
-
-      case knowledge_gap.resolve(question_id, answer, table_name) do
-        {:ok, _} ->
-          Logger.info("Resolved question #{question_id} via in-process callback")
-          :ok
-
-        {:error, reason} ->
-          Logger.error("Failed to resolve question #{question_id}: #{inspect(reason)}")
-          {:error, reason}
-      end
+      %{question_id: question_id, answer: answer}
+      |> KnowledgeGapCallbackWorker.new()
+      |> Oban.insert()
     end
   end
 
@@ -115,9 +106,5 @@ defmodule ZaqWeb.PendingQuestionsController do
 
   defp feature_store_module do
     Application.get_env(:zaq, :feature_store_module, FeatureStore)
-  end
-
-  defp knowledge_gap_module do
-    Application.get_env(:zaq, :knowledge_gap_module, LicenseManager.Paid.KnowledgeGap)
   end
 end

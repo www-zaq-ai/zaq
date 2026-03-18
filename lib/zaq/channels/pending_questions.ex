@@ -20,14 +20,22 @@ defmodule Zaq.Channels.PendingQuestions do
     case send_fn.(channel_id, question) do
       {:ok, %{"id" => post_id, "user_id" => bot_user_id}} ->
         Agent.update(__MODULE__, fn state ->
-          Map.put(state, post_id, %{bot_user_id: bot_user_id, callback: on_answer})
+          Map.put(state, post_id, %{
+            bot_user_id: bot_user_id,
+            callback: on_answer,
+            inserted_at: System.os_time(:second)
+          })
         end)
 
         {:ok, post_id}
 
       {:ok, %{"id" => post_id}} ->
         Agent.update(__MODULE__, fn state ->
-          Map.put(state, post_id, %{bot_user_id: user_id, callback: on_answer})
+          Map.put(state, post_id, %{
+            bot_user_id: user_id,
+            callback: on_answer,
+            inserted_at: System.os_time(:second)
+          })
         end)
 
         {:ok, post_id}
@@ -35,6 +43,27 @@ defmodule Zaq.Channels.PendingQuestions do
       error ->
         error
     end
+  end
+
+  @doc """
+  Removes all pending questions older than `ttl_seconds`.
+  Fires each expired entry's callback with `{:error, :timeout}` before removal.
+  """
+  def expire_stale(ttl_seconds) do
+    now = System.os_time(:second)
+
+    Agent.update(__MODULE__, fn state ->
+      {expired, active} =
+        Enum.split_with(state, fn {_post_id, entry} ->
+          now - Map.get(entry, :inserted_at, now) > ttl_seconds
+        end)
+
+      Enum.each(expired, fn {_post_id, %{callback: callback}} ->
+        callback.({:error, :timeout})
+      end)
+
+      Map.new(active)
+    end)
   end
 
   @doc """
