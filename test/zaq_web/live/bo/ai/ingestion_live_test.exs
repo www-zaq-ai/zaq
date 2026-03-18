@@ -232,6 +232,35 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert File.exists?(Path.join(tmp_dir, "upload.txt"))
   end
 
+  test "uploads png and jpg files", %{conn: conn, tmp_dir: tmp_dir} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    png_upload =
+      file_input(view, "#upload-form", :files, [
+        %{name: "diagram.png", content: "png-data", type: "image/png"}
+      ])
+
+    assert render_upload(png_upload, "diagram.png")
+
+    view
+    |> form("#upload-form")
+    |> render_submit()
+
+    jpg_upload =
+      file_input(view, "#upload-form", :files, [
+        %{name: "photo.jpg", content: "jpg-data", type: "image/jpeg"}
+      ])
+
+    assert render_upload(jpg_upload, "photo.jpg")
+
+    view
+    |> form("#upload-form")
+    |> render_submit()
+
+    assert File.exists?(Path.join(tmp_dir, "diagram.png"))
+    assert File.exists?(Path.join(tmp_dir, "photo.jpg"))
+  end
+
   # ────────────────────────────────────────────────────────────────
   # NEW: Raw content modal
   # ────────────────────────────────────────────────────────────────

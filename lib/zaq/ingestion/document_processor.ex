@@ -23,7 +23,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer}
   alias Zaq.Ingestion.Python.Pipeline
-  alias Zaq.Ingestion.Python.Steps.{DocxToMd, XlsxToMd}
+  alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, XlsxToMd}
   alias Zaq.Repo
 
   require Logger
@@ -31,7 +31,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
   alias Zaq.Ingestion.CSVParser
 
-  @supported_extensions ~w(.md .pdf .docx .xlsx .csv)
+  @supported_extensions ~w(.md .pdf .docx .xlsx .csv .png .jpg)
 
   @rrf_k 60
 
@@ -65,7 +65,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Processes all supported files in the given folder path.
 
-  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`
+  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`, `.png`, `.jpg`
 
   ## Examples
 
@@ -96,7 +96,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Processes a single file: converts to markdown if needed, then reads ->
   upserts document -> chunks -> embeds -> stores.
 
-  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`
+  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`, `.png`, `.jpg`
   """
   def process_single_file(file_path, role_id \\ nil, shared_role_ids \\ []) do
     Logger.info("Processing file: #{file_path}")
@@ -155,6 +155,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           {:ok, sanitize_utf8(raw)}
         end
 
+      ext when ext in [".png", ".jpg"] ->
+        read_image_as_markdown(file_path)
+
       ".csv" ->
         convert_csv(file_path)
 
@@ -170,6 +173,97 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       rows = CSVParser.parse_string(sanitize_utf8(raw), skip_headers: false)
       {:ok, rows_to_markdown_table(rows)}
     end
+  end
+
+  defp read_image_as_markdown(file_path) do
+    output_json = image_description_output_path(file_path)
+
+    try do
+      with {:ok, api_key} <- image_to_text_api_key(),
+           {:ok, _} <- image_to_text_step().run_single(file_path, output_json, api_key),
+           {:ok, raw_json} <- File.read(output_json),
+           {:ok, description} <- extract_image_description(raw_json, file_path) do
+        image_name = Path.basename(file_path)
+        markdown = build_image_markdown(image_name, description)
+
+        {:ok, sanitize_utf8(markdown)}
+      end
+    after
+      _ = File.rm(output_json)
+    end
+  end
+
+  defp image_description_output_path(file_path) do
+    stem =
+      file_path
+      |> Path.basename(Path.extname(file_path))
+      |> String.replace(~r/\s+/, "_")
+
+    Path.join(
+      System.tmp_dir!(),
+      "zaq_image_to_text_#{stem}_#{System.unique_integer([:positive])}.json"
+    )
+  end
+
+  defp image_to_text_api_key do
+    key =
+      Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText, [])
+      |> Keyword.get(:api_key)
+
+    if is_binary(key) and key != "" do
+      {:ok, key}
+    else
+      {:error, "IMAGE_TO_TEXT_API_KEY is not configured; set it to enable PNG/JPG ingestion"}
+    end
+  end
+
+  defp image_to_text_step do
+    Application.get_env(:zaq, :image_to_text_step_module, ImageToText)
+  end
+
+  defp extract_image_description(raw_json, file_path) do
+    image_name = Path.basename(file_path)
+
+    with {:ok, decoded} <- Jason.decode(raw_json) do
+      description =
+        case decoded do
+          %{} = map ->
+            Map.get(map, image_name) ||
+              Map.get(map, String.downcase(image_name)) ||
+              case Map.values(map) do
+                [single] -> single
+                _ -> nil
+              end
+
+          _ ->
+            nil
+        end
+
+      cond do
+        not is_binary(description) or String.trim(description) == "" ->
+          {:error, "Image-to-text output missing description for #{image_name}"}
+
+        String.starts_with?(description, "ERROR:") ->
+          {:error, description}
+
+        true ->
+          {:ok, description}
+      end
+    end
+  end
+
+  defp build_image_markdown(image_name, description) do
+    quoted_description =
+      description
+      |> String.trim()
+      |> String.split("\n")
+      |> Enum.map(fn
+        "" -> ">"
+        line -> "> #{line}"
+      end)
+      |> Enum.join("\n")
+
+    "> **[Image: #{image_name}]**\n#{quoted_description}\n"
   end
 
   defp rows_to_markdown_table([]), do: ""

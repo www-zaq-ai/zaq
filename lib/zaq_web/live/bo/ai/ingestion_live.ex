@@ -11,7 +11,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Ingestion.{Document, FileExplorer, IngestJob}
   alias Zaq.Repo
 
-  @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv)
+  @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv .png .jpg)
 
   def mount(_params, _session, socket) do
     if connected?(socket), do: Ingestion.subscribe()

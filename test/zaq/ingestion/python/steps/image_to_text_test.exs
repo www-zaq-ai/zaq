@@ -31,4 +31,16 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
       assert elem(result, 0) in [:ok, :error]
     end
   end
+
+  describe "run_single/3" do
+    test "returns {:error, _} when script is absent (no real Python env)" do
+      result = ImageToText.run_single("/tmp/image.png", "/tmp/descriptions.json", "test-api-key")
+      assert match?({:error, _}, result)
+    end
+
+    test "returns a two-element tagged tuple" do
+      result = ImageToText.run_single("/tmp/nonexistent.jpg", "/tmp/output.json", "some-key")
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+  end
 end

@@ -1023,7 +1023,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </label>
             </p>
             <p class="font-mono text-[0.65rem] text-black/25">
-              .md .txt .pdf .docx .xlsx .csv — max 20 MB
+              .md .txt .pdf .docx .xlsx .csv .png .jpg — max 20 MB
             </p>
           </div>
         </div>

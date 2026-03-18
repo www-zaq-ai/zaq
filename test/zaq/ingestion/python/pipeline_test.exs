@@ -116,5 +116,21 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
       result = Pipeline.run("/tmp/missing_#{System.unique_integer()}.pdf")
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
+
+    test "cleans up temporary alias when pdf filename contains spaces", %{tmp_dir: tmp_dir} do
+      Application.delete_env(:zaq, Zaq.Ingestion.Python.ImageToText)
+
+      pdf_path = Path.join(tmp_dir, "Deck With Spaces.pdf")
+      alias_path = Path.join(tmp_dir, "Deck_With_Spaces.pdf")
+      File.write!(pdf_path, "%PDF-1.4")
+
+      refute File.exists?(alias_path)
+
+      result = Pipeline.run(pdf_path)
+
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+      assert File.exists?(pdf_path)
+      refute File.exists?(alias_path)
+    end
   end
 end
