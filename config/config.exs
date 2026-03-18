@@ -17,7 +17,10 @@ config :mime, :types, %{
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  queues: [ingestion: 3, default: 10, conversations: 5]
+  queues: [ingestion: 3, default: 10, conversations: 5, knowledge_gap: 5],
+  crontab: [
+    {"0 * * * *", Zaq.Engine.StaleQuestionsCleanupWorker}
+  ]
 
 # Configure the endpoint
 config :zaq, ZaqWeb.Endpoint,

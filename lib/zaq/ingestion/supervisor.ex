@@ -2,7 +2,9 @@ defmodule Zaq.Ingestion.Supervisor do
   @moduledoc """
   Supervisor for Ingestion-related processes.
   Started when the :ingestion role is active.
-  Starts Oban for background job processing.
+
+  Oban is started in the root application supervisor so it is available
+  to all roles — see `Zaq.Application`.
   """
 
   use Supervisor
@@ -13,10 +15,6 @@ defmodule Zaq.Ingestion.Supervisor do
 
   @impl true
   def init(_opts) do
-    children = [
-      {Oban, Application.fetch_env!(:zaq, Oban)}
-    ]
-
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init([], strategy: :one_for_one)
   end
 end

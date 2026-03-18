@@ -67,4 +67,39 @@ defmodule Zaq.Channels.PendingQuestionsTest do
 
     assert PendingQuestions.pending() == %{}
   end
+
+  describe "expire_stale/1" do
+    test "removes entries older than ttl and fires their callbacks with {:error, :timeout}" do
+      test_pid = self()
+      callback = fn result -> send(test_pid, {:expired, result}) end
+
+      fake_send = fn _ch, _q -> {:ok, %{"id" => "post_stale"}} end
+      PendingQuestions.ask("ch1", "bot_1", "Q?", fake_send, callback)
+
+      # Backdating inserted_at to simulate an old entry
+      Agent.update(PendingQuestions, fn state ->
+        Map.update!(state, "post_stale", &Map.put(&1, :inserted_at, System.os_time(:second) - 7201))
+      end)
+
+      PendingQuestions.expire_stale(3600)
+
+      assert_receive {:expired, {:error, :timeout}}
+      assert PendingQuestions.pending() == %{}
+    end
+
+    test "does not remove entries within the ttl" do
+      fake_send = fn _ch, _q -> {:ok, %{"id" => "post_fresh"}} end
+      PendingQuestions.ask("ch1", "bot_1", "Q?", fake_send, fn _ -> :ok end)
+
+      PendingQuestions.expire_stale(3600)
+
+      assert map_size(PendingQuestions.pending()) == 1
+    end
+
+    test "is a no-op when no entries are pending" do
+      assert PendingQuestions.pending() == %{}
+      PendingQuestions.expire_stale(3600)
+      assert PendingQuestions.pending() == %{}
+    end
+  end
 end

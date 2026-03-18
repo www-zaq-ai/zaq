@@ -131,7 +131,11 @@ if config_env() == :prod do
     queues: [
       ingestion: String.to_integer(System.get_env("OBAN_INGESTION_CONCURRENCY", "3")),
       knowledge_gap: String.to_integer(System.get_env("OBAN_KNOWLEDGE_GAP_CONCURRENCY", "5")),
+      conversations: String.to_integer(System.get_env("OBAN_CONVERSATIONS_CONCURRENCY", "5")),
       default: 10
+    ],
+    crontab: [
+      {"0 * * * *", Zaq.Engine.StaleQuestionsCleanupWorker}
     ]
 
   # -- Knowledge Gap (paid feature, wiring) --

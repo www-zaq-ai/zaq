@@ -52,7 +52,9 @@ defmodule ZaqWeb.PendingQuestionsControllerTest do
 
       assert is_function(callback_fun, 1)
 
-      assert :ok = callback_fun.("resolved answer")
+      # Calling the callback enqueues and (in inline test mode) immediately
+      # executes a KnowledgeGapCallbackWorker job, which calls resolve/3.
+      assert {:ok, _job} = callback_fun.("resolved answer")
 
       assert_receive {:knowledge_gap_resolve_called, 42, "resolved answer", "chunks"}
     end
