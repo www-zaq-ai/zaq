@@ -3,8 +3,7 @@ defmodule ZaqWeb.PendingQuestionsControllerTest do
 
   setup do
     Application.put_env(:zaq, :feature_store_module, __MODULE__.FeatureStoreStub)
-    Application.put_env(:zaq, :pending_questions_module, __MODULE__.PendingQuestionsStub)
-    Application.put_env(:zaq, :mattermost_api_module, __MODULE__.MattermostAPIStub)
+    Application.put_env(:zaq, :engine_router_module, __MODULE__.RouterStub)
     Application.put_env(:zaq, :knowledge_gap_module, __MODULE__.KnowledgeGapStub)
 
     Process.put(:feature_loaded?, true)
@@ -12,8 +11,7 @@ defmodule ZaqWeb.PendingQuestionsControllerTest do
 
     on_exit(fn ->
       Application.delete_env(:zaq, :feature_store_module)
-      Application.delete_env(:zaq, :pending_questions_module)
-      Application.delete_env(:zaq, :mattermost_api_module)
+      Application.delete_env(:zaq, :engine_router_module)
       Application.delete_env(:zaq, :knowledge_gap_module)
       Process.delete(:feature_loaded?)
       Process.delete(:knowledge_gap_result)
@@ -48,15 +46,11 @@ defmodule ZaqWeb.PendingQuestionsControllerTest do
 
       assert %{"status" => "ok", "post_id" => "post-123"} = json_response(conn, 200)
 
-      assert_receive {:pending_ask_called, "ok", "zaq_agent", formatted, sender_fun, callback_fun}
+      assert_receive {:dispatch_called, "ok", formatted, callback_fun}
       assert formatted =~ "How do I renew my medical license in Dubai?"
       assert formatted =~ "Reply to this thread with the answer."
 
-      assert is_function(sender_fun, 2)
       assert is_function(callback_fun, 1)
-
-      assert :ok = sender_fun.("channel-1", "hello")
-      assert_receive {:mattermost_send_called, "channel-1", "hello", nil}
 
       assert :ok = callback_fun.("resolved answer")
 
@@ -88,24 +82,14 @@ defmodule ZaqWeb.PendingQuestionsControllerTest do
     def feature_loaded?("knowledge_gap"), do: Process.get(:feature_loaded?, true)
   end
 
-  defmodule PendingQuestionsStub do
-    def ask(channel_id, agent_name, formatted, sender_fun, callback_fun) do
-      send(
-        self(),
-        {:pending_ask_called, channel_id, agent_name, formatted, sender_fun, callback_fun}
-      )
+  defmodule RouterStub do
+    def dispatch_question(channel_id, question, callback) do
+      send(self(), {:dispatch_called, channel_id, question, callback})
 
       case channel_id do
         "ok" -> {:ok, "post-123"}
         "fail" -> {:error, :mattermost_down}
       end
-    end
-  end
-
-  defmodule MattermostAPIStub do
-    def send_message(channel_id, message, thread_id) do
-      send(self(), {:mattermost_send_called, channel_id, message, thread_id})
-      :ok
     end
   end
 

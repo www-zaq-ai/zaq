@@ -1,15 +1,14 @@
 defmodule ZaqWeb.PendingQuestionsController do
   use ZaqWeb, :controller
 
-  alias Zaq.Channels.PendingQuestions
-  alias Zaq.Channels.Retrieval.Mattermost.API, as: MattermostAPI
+  alias Zaq.Engine.Router
   alias Zaq.License.FeatureStore
 
   require Logger
-  # credo:disable-for-this-file Credo.Check.Refactor.Apply
 
   @doc """
-  Receives a pending question and posts it to the appropriate channel.
+  Receives a pending question and dispatches it through the Engine Router
+  to the appropriate retrieval channel adapter.
   Gated by the knowledge_gap license check.
 
   Expected payload:
@@ -18,26 +17,16 @@ defmodule ZaqWeb.PendingQuestionsController do
       "question": "How do I renew my medical license in Dubai?",
       "language": "en",
       "source_type": "chat_widget",
-      "channel_id": "<sme_channel_id>"
+      "channel_id": "<retrieval_channel_id>"
     }
   """
   def create(conn, params) do
-    pending_questions = pending_questions_module()
-    mattermost_api = mattermost_api_module()
-
     with :ok <- check_license(),
          {:ok, attrs} <- validate_params(params) do
       formatted = format_question(attrs)
-
       callback = build_callback(attrs.question_id)
 
-      case pending_questions.ask(
-             attrs.channel_id,
-             "zaq_agent",
-             formatted,
-             &mattermost_api.send_message(&1, &2, nil),
-             callback
-           ) do
+      case engine_router_module().dispatch_question(attrs.channel_id, formatted, callback) do
         {:ok, post_id} ->
           Logger.info("Posted question #{attrs.question_id} to channel (post: #{post_id})")
 
@@ -120,12 +109,8 @@ defmodule ZaqWeb.PendingQuestionsController do
     end
   end
 
-  defp pending_questions_module do
-    Application.get_env(:zaq, :pending_questions_module, PendingQuestions)
-  end
-
-  defp mattermost_api_module do
-    Application.get_env(:zaq, :mattermost_api_module, MattermostAPI)
+  defp engine_router_module do
+    Application.get_env(:zaq, :engine_router_module, Router)
   end
 
   defp feature_store_module do

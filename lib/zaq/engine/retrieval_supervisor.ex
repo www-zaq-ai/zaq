@@ -37,6 +37,11 @@ defmodule Zaq.Engine.RetrievalSupervisor do
     Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Returns the adapter module for a given provider string, or nil if unknown.
+  """
+  def adapter_for(provider), do: Map.get(@adapters, provider)
+
   @impl true
   def init(_opts) do
     children =

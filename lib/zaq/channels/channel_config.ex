@@ -56,6 +56,18 @@ defmodule Zaq.Channels.ChannelConfig do
     Zaq.Repo.get_by(__MODULE__, provider: provider, enabled: true)
   end
 
+  @doc """
+  Returns the enabled ChannelConfig for a given platform-specific channel ID,
+  by joining through retrieval_channels. Returns nil if not found.
+  """
+  def get_by_channel_id(channel_id) do
+    Zaq.Channels.RetrievalChannel
+    |> join(:inner, [r], c in __MODULE__, on: r.channel_config_id == c.id)
+    |> where([r, c], r.channel_id == ^channel_id and c.enabled == true)
+    |> select([_r, c], c)
+    |> Zaq.Repo.one()
+  end
+
   def test_connection(%__MODULE__{} = config, channel_id) do
     case Map.get(@provider_api_modules, config.provider) do
       nil -> {:error, "Testing not supported for #{config.provider}"}

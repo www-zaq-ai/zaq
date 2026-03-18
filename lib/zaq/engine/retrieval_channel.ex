@@ -43,6 +43,19 @@ defmodule Zaq.Engine.RetrievalChannel do
               :ok | {:error, term()}
 
   @doc """
+  Sends a question to a channel and returns a platform post ID for reply tracking.
+
+  Used by `Zaq.Engine.Router` when a feature needs to dispatch a question and
+  await a reply via `Zaq.Channels.PendingQuestions`. Distinct from `send_message/3`,
+  which is fire-and-forget for delivering answers.
+
+  Implementing adapters must also call `PendingQuestions.check_reply/1` in their
+  inbound event handler so that threaded replies are matched back to the callback.
+  """
+  @callback send_question(channel_id(), message()) ::
+              {:ok, post_id :: String.t()} | {:error, term()}
+
+  @doc """
   Handles a raw incoming event from the platform.
   Adapters are responsible for parsing the event and deciding whether
   to call `forward_to_engine/1`.

@@ -87,6 +87,15 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   end
 
   @impl Zaq.Engine.RetrievalChannel
+  def send_question(channel_id, question) do
+    case api_module().send_message(channel_id, question, nil) do
+      {:ok, %{"id" => post_id}} -> {:ok, post_id}
+      {:ok, body} -> {:error, {:unexpected_response, body}}
+      error -> error
+    end
+  end
+
+  @impl Zaq.Engine.RetrievalChannel
   def handle_event(event) do
     Logger.info("[Mattermost] Received event: #{inspect(event)}")
     :ok
