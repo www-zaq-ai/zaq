@@ -37,10 +37,7 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
     feedback_factor = factor(feedback_scope, @feedback_scopes)
 
     points_count = points_count(range)
-
-    labels =
-      1..points_count
-      |> Enum.map(fn idx -> "T#{idx}" end)
+    labels = labels_for_range(range, points_count)
 
     availability =
       build_series(
@@ -176,6 +173,21 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
   defp points_count("30d"), do: 10
   defp points_count("90d"), do: 12
   defp points_count(_), do: 7
+
+  defp labels_for_range("24h", _points_count),
+    do: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"]
+
+  defp labels_for_range("7d", _points_count),
+    do: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+  defp labels_for_range("30d", _points_count),
+    do: Enum.map(0..9, fn idx -> "D#{idx * 3 + 1}" end)
+
+  defp labels_for_range("90d", _points_count),
+    do: Enum.map(1..12, fn idx -> "W#{idx}" end)
+
+  defp labels_for_range(_range, points_count),
+    do: Enum.map(1..points_count, fn idx -> "T#{idx}" end)
 
   defp build_series(points_count, base, step) do
     1..points_count

@@ -36,6 +36,7 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     assert html =~ "<svg"
     assert html =~ "polyline"
     assert html =~ "data-tip-value="
+    assert html =~ "data-line-x-axis-label=\"T1\""
   end
 
   test "bar_chart/1 renders bars with id" do

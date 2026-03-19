@@ -113,6 +113,27 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         >
           <title>{point.label <> ": " <> format_value(point.value)}</title>
         </circle>
+        <line
+          :for={tick <- @chart.x_ticks}
+          x1={tick.x}
+          y1={@chart.bottom}
+          x2={tick.x}
+          y2={@chart.bottom + 4}
+          stroke="#94a3b8"
+          stroke-width="1"
+        />
+        <text
+          :for={tick <- @chart.x_ticks}
+          x={tick.x}
+          y={@chart.bottom + 14}
+          fill="#64748b"
+          font-size="10"
+          font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          text-anchor={tick.anchor}
+          data-line-x-axis-label={tick.label}
+        >
+          {tick.label}
+        </text>
       </svg>
     </section>
     """
@@ -534,7 +555,8 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         bottom: bottom,
         polyline_points: "",
         area_path: "",
-        marker_points: []
+        marker_points: [],
+        x_ticks: []
       }
     else
       min_y = Enum.min(values)
@@ -574,7 +596,8 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         bottom: bottom,
         polyline_points: polyline_points,
         area_path: area_path,
-        marker_points: points_xy
+        marker_points: points_xy,
+        x_ticks: build_line_x_ticks(points_xy)
       }
     end
   end
@@ -738,6 +761,43 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
 
   defp line_x(left, _right, 1, _idx), do: left
   defp line_x(left, right, count, idx), do: left + idx * (right - left) / (count - 1)
+
+  defp build_line_x_ticks(points_xy) do
+    points_xy
+    |> line_tick_indexes()
+    |> Enum.map(fn idx ->
+      point = Enum.at(points_xy, idx)
+
+      %{
+        x: point.x,
+        label: point.label,
+        anchor: tick_anchor(idx, length(points_xy))
+      }
+    end)
+  end
+
+  defp line_tick_indexes(points_xy) do
+    count = length(points_xy)
+
+    cond do
+      count == 0 ->
+        []
+
+      count <= 8 ->
+        Enum.to_list(0..(count - 1))
+
+      true ->
+        step = div(count + 3, 5)
+
+        0..(count - 1)
+        |> Enum.filter(&(rem(&1, step) == 0))
+        |> then(fn indexes -> Enum.uniq(indexes ++ [count - 1]) end)
+    end
+  end
+
+  defp tick_anchor(0, _count), do: "start"
+  defp tick_anchor(idx, count) when idx == count - 1, do: "end"
+  defp tick_anchor(_idx, _count), do: "middle"
 
   defp build_donut_arc(segment, offset, total, circumference) do
     ratio = segment.value / total

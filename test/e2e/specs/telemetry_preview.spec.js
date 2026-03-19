@@ -12,13 +12,16 @@ test.describe("Telemetry Preview", () => {
     await expect(page.locator("#telemetry-preview-page")).toBeVisible()
     await expect(page.locator("#telemetry-component-gallery")).toBeVisible()
     await expect(page.locator("#telemetry-composed-dashboard")).toBeVisible()
+    await expect(page.locator("#gallery-time-series-chart [data-line-x-axis-label]").first()).toBeVisible()
 
     const tooltip = page.locator("#bo-chart-tooltip")
 
     const linePoint = page.locator("#gallery-time-series-chart [data-tip-value]").first()
     await linePoint.dispatchEvent("mouseover")
     await linePoint.dispatchEvent("mousemove")
-    await expect(tooltip.locator("[data-tip-label]")).toContainText(/T\d+/)
+    await expect(tooltip.locator("[data-tip-label]")).toContainText(
+      /Mon|Tue|Wed|Thu|Fri|Sat|Sun/
+    )
     await expect(tooltip.locator("[data-tip-value]")).not.toHaveText("--")
 
     const donutArc = page.locator("#gallery-donut-chart svg [data-tip-value]").first()
