@@ -39,6 +39,27 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     assert html =~ "data-line-x-axis-label=\"T1\""
   end
 
+  test "time_series_chart/1 renders benchmark lane when provided" do
+    html =
+      render_component(&BOTelemetryComponents.time_series_chart/1,
+        id: "chart-traffic-benchmark",
+        title: "Traffic",
+        points: [
+          %{label: "Mon", value: 120},
+          %{label: "Tue", value: 132},
+          %{label: "Wed", value: 128}
+        ],
+        benchmark_points: [
+          %{label: "Mon", value: 98},
+          %{label: "Tue", value: 104},
+          %{label: "Wed", value: 108}
+        ]
+      )
+
+    assert html =~ "data-time-series-lane=\"benchmark\""
+    assert html =~ "Mon benchmark"
+  end
+
   test "bar_chart/1 renders bars with id" do
     html =
       render_component(&BOTelemetryComponents.bar_chart/1,
@@ -153,6 +174,21 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     assert pointer_y < 110.0
   end
 
+  test "gauge_chart/1 renders benchmark pointer and value" do
+    html =
+      render_component(&BOTelemetryComponents.gauge_chart/1,
+        id: "gauge-with-benchmark",
+        label: "Load",
+        value: 73.2,
+        benchmark_value: 58.4,
+        min: 0.0,
+        max: 100.0
+      )
+
+    assert html =~ "data-gauge-pointer=\"benchmark\""
+    assert html =~ "benchmark 58.4"
+  end
+
   test "status_grid/1 renders statuses and id" do
     html =
       render_component(&BOTelemetryComponents.status_grid/1,
@@ -206,6 +242,29 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     assert html =~ "polygon"
     assert html =~ "data-tip-value="
     assert html =~ "data-radar-color="
+  end
+
+  test "radar_chart/1 renders benchmark lane when provided" do
+    html =
+      render_component(&BOTelemetryComponents.radar_chart/1,
+        id: "radar-benchmark",
+        title: "Quality",
+        axes: [
+          %{label: "Latency", value: 72},
+          %{label: "Recall", value: 84},
+          %{label: "Precision", value: 78},
+          %{label: "Coverage", value: 65}
+        ],
+        benchmark_axes: [
+          %{label: "Latency", value: 54},
+          %{label: "Recall", value: 61},
+          %{label: "Precision", value: 58},
+          %{label: "Coverage", value: 52}
+        ]
+      )
+
+    assert html =~ "data-radar-series=\"benchmark\""
+    assert html =~ "Benchmark lane"
   end
 
   test "chart components handle empty datasets" do

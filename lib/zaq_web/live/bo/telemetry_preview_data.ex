@@ -114,9 +114,24 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
           "deflection" => deflection
         },
         benchmarks: %{
-          "availability" => Enum.map(availability, &Float.round(&1 - 0.7, 2)),
-          "latency" => Enum.map(latency, &Float.round(&1 + 18, 2)),
-          "deflection" => Enum.map(deflection, &Float.round(&1 - 3.5, 2))
+          "availability" =>
+            Enum.with_index(availability)
+            |> Enum.map(fn {value, idx} ->
+              drift = 7.0 + range_factor * 0.8 + rem(idx, 3) * 0.6
+              Float.round(max(value - drift, 72.0), 2)
+            end),
+          "latency" =>
+            Enum.with_index(latency)
+            |> Enum.map(fn {value, idx} ->
+              drift = 64.0 + segment_factor * 5.5 + rem(idx, 4) * 4.0
+              Float.round(value + drift, 2)
+            end),
+          "deflection" =>
+            Enum.with_index(deflection)
+            |> Enum.map(fn {value, idx} ->
+              drift = 12.0 + feedback_factor * 2.0 + rem(idx, 2) * 1.4
+              Float.round(max(value - drift, 28.0), 2)
+            end)
         }
       },
       bar_chart: %{
@@ -137,6 +152,8 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
       gauge_chart: %{
         value:
           Float.round(72.0 + segment_factor * 3.3 - feedback_factor * 2.6 + range_factor * 1.2, 1),
+        benchmark_value:
+          Float.round(58.0 + segment_factor * 1.4 - feedback_factor * 0.8 + range_factor * 0.6, 1),
         max: 100.0,
         label: "target 80%"
       },
@@ -159,6 +176,13 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
           %{label: "Coverage", value: 62 + range_factor * 4 + segment_factor * 3},
           %{label: "Tone", value: 74 - feedback_factor * 6},
           %{label: "Citations", value: 79 + segment_factor * 4}
+        ],
+        benchmark_axes: [
+          %{label: "Trust", value: 58 + segment_factor * 2},
+          %{label: "Speed", value: 52 + range_factor * 2},
+          %{label: "Coverage", value: 50 + range_factor * 1 + segment_factor * 2},
+          %{label: "Tone", value: 60 - feedback_factor * 2},
+          %{label: "Citations", value: 63 + segment_factor * 2}
         ]
       }
     }
