@@ -1,0 +1,292 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  page_title="Telemetry Preview"
+  current_path={@current_path}
+>
+  <div id="telemetry-preview-page" class="space-y-8">
+    <section
+      id="telemetry-preview-controls"
+      class="bg-white rounded-xl border border-black/10 p-5 space-y-4"
+    >
+      <div class="flex items-center justify-between gap-4 flex-wrap">
+        <p class="font-mono text-[0.72rem] uppercase tracking-wider text-black/45">
+          Preview controls
+        </p>
+        <button
+          id="benchmark-toggle"
+          phx-click="toggle_benchmark"
+          class={[
+            "font-mono text-[0.7rem] px-3 py-1.5 rounded border transition-colors",
+            if(@benchmark_opt_in,
+              do: "bg-emerald-50 border-emerald-300 text-emerald-700",
+              else: "bg-black/5 border-black/15 text-black/55 hover:bg-black/10"
+            )
+          ]}
+        >
+          Benchmark: {if @benchmark_opt_in, do: "on", else: "off"}
+        </button>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-4">
+        <div>
+          <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-2">
+            Range
+          </p>
+          <div class="flex gap-2 flex-wrap">
+            <button
+              :for={range <- @ranges}
+              id={"range-#{range}"}
+              phx-click="set_range"
+              phx-value-range={range}
+              data-active={to_string(@range == range)}
+              class={[
+                "font-mono text-[0.7rem] px-2.5 py-1.5 rounded border transition-colors",
+                if(@range == range,
+                  do: "bg-[#03b6d4] text-white border-[#03b6d4]",
+                  else: "bg-white text-black/55 border-black/15 hover:bg-black/[0.03]"
+                )
+              ]}
+            >
+              {range}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-2">
+            Segment
+          </p>
+          <div class="flex gap-2 flex-wrap">
+            <button
+              :for={segment <- @segments}
+              id={"segment-#{segment}"}
+              phx-click="set_segment"
+              phx-value-segment={segment}
+              data-active={to_string(@segment == segment)}
+              class={[
+                "font-mono text-[0.7rem] px-2.5 py-1.5 rounded border transition-colors",
+                if(@segment == segment,
+                  do: "bg-[#2c3a50] text-white border-[#2c3a50]",
+                  else: "bg-white text-black/55 border-black/15 hover:bg-black/[0.03]"
+                )
+              ]}
+            >
+              {segment}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-2">
+            Feedback scope
+          </p>
+          <div class="flex gap-2 flex-wrap">
+            <button
+              :for={scope <- @feedback_scopes}
+              id={"feedback-#{scope}"}
+              phx-click="set_feedback_scope"
+              phx-value-scope={scope}
+              data-active={to_string(@feedback_scope == scope)}
+              class={[
+                "font-mono text-[0.7rem] px-2.5 py-1.5 rounded border transition-colors",
+                if(@feedback_scope == scope,
+                  do: "bg-amber-100 text-amber-700 border-amber-300",
+                  else: "bg-white text-black/55 border-black/15 hover:bg-black/[0.03]"
+                )
+              ]}
+            >
+              {scope}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-2">
+          Time-series visibility
+        </p>
+        <div class="flex gap-2 flex-wrap">
+          <button
+            :for={series <- @telemetry.time_series.series}
+            id={"series-toggle-#{series.key}"}
+            phx-click="toggle_series"
+            phx-value-series={series.key}
+            data-active={to_string(Map.get(@series_visibility, series.key, true))}
+            class={[
+              "font-mono text-[0.7rem] px-2.5 py-1.5 rounded border transition-colors",
+              if(Map.get(@series_visibility, series.key, true),
+                do: "bg-emerald-50 text-emerald-700 border-emerald-300",
+                else: "bg-white text-black/45 border-black/15"
+              )
+            ]}
+          >
+            {series.name}
+          </button>
+        </div>
+      </div>
+
+      <div class="hidden">
+        <span id="selected-range">{@range}</span>
+        <span id="selected-segment">{@segment}</span>
+        <span id="selected-feedback-scope">{@feedback_scope}</span>
+        <span id="benchmark-state">{if @benchmark_opt_in, do: "on", else: "off"}</span>
+      </div>
+    </section>
+
+    <section id="telemetry-component-gallery" class="space-y-3">
+      <div class="flex items-center justify-between">
+        <p class="font-mono text-[0.72rem] uppercase tracking-wider text-black/45">
+          Component gallery
+        </p>
+        <p class="font-mono text-[0.68rem] text-black/35">Each dashboard type shown once</p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ZaqWeb.Components.BOTelemetryComponents.metric_card
+          id="gallery-metric-card"
+          label={Enum.at(@telemetry.metrics, 0).label}
+          value={Enum.at(@telemetry.metrics, 0).value}
+          unit={Enum.at(@telemetry.metrics, 0).unit}
+          trend={Enum.at(@telemetry.metrics, 0).trend}
+          hint={Enum.at(@telemetry.metrics, 0).hint}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.gauge_chart
+          id="gallery-gauge-chart"
+          label="Gauge chart"
+          value={@telemetry.gauge_chart.value}
+          max={@telemetry.gauge_chart.max}
+          min={0.0}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
+          id="gallery-time-series-chart"
+          title="Time-series chart"
+          points={@time_series_points}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.bar_chart
+          id="gallery-bar-chart"
+          title="Bar chart"
+          bars={@telemetry.bar_chart.bars}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.donut_chart
+          id="gallery-donut-chart"
+          title="Donut chart"
+          segments={@telemetry.donut_chart.segments}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.status_grid
+          id="gallery-status-grid"
+          title="Status grid"
+          items={@telemetry.status_grid.items}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.progress_countdown
+          id="gallery-progress-countdown"
+          label="Progress countdown"
+          total={@telemetry.progress_countdown.total}
+          remaining={@telemetry.progress_countdown.remaining}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.radar_chart
+          id="gallery-radar-chart"
+          title="Radar chart"
+          axes={@telemetry.radar_chart.axes}
+        />
+      </div>
+    </section>
+
+    <section id="telemetry-composed-dashboard" class="space-y-4">
+      <div class="flex items-center justify-between">
+        <p class="font-mono text-[0.72rem] uppercase tracking-wider text-black/45">
+          Example composed dashboard
+        </p>
+        <p class="font-mono text-[0.68rem] text-black/35">Synthetic incident telemetry canvas</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <ZaqWeb.Components.BOTelemetryComponents.metric_card
+          :for={metric <- @telemetry.metrics}
+          id={metric.id}
+          label={metric.label}
+          value={metric.value}
+          unit={metric.unit}
+          trend={metric.trend}
+          hint={metric.hint}
+        />
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div class="xl:col-span-2">
+          <div class="mb-2 flex items-center gap-2 flex-wrap">
+            <span
+              :for={series <- @visible_time_series}
+              id={"composed-time-series-series-#{series.key}"}
+              class="font-mono text-[0.65rem] px-2 py-1 rounded bg-black/5 text-black/55"
+            >
+              {series.name}
+            </span>
+            <span
+              :if={@benchmark_opt_in}
+              id="composed-time-series-series-benchmark"
+              class="font-mono text-[0.65rem] px-2 py-1 rounded bg-amber-100 text-amber-700"
+            >
+              Benchmark blend
+            </span>
+          </div>
+
+          <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
+            id="composed-time-series"
+            title="Signals over time"
+            points={@time_series_points}
+          />
+        </div>
+
+        <div class="space-y-4">
+          <ZaqWeb.Components.BOTelemetryComponents.gauge_chart
+            id="composed-gauge"
+            label="Automation score"
+            value={@telemetry.gauge_chart.value}
+            max={@telemetry.gauge_chart.max}
+            min={0.0}
+          />
+
+          <ZaqWeb.Components.BOTelemetryComponents.progress_countdown
+            id="composed-progress"
+            label="SLA countdown"
+            total={@telemetry.progress_countdown.total}
+            remaining={@telemetry.progress_countdown.remaining}
+          />
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <ZaqWeb.Components.BOTelemetryComponents.bar_chart
+          id="composed-bar"
+          title="Top intents"
+          bars={@telemetry.bar_chart.bars}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.donut_chart
+          id="composed-donut"
+          title="Resolution mix"
+          segments={@telemetry.donut_chart.segments}
+        />
+
+        <ZaqWeb.Components.BOTelemetryComponents.radar_chart
+          id="composed-radar"
+          title="Capability profile"
+          axes={@telemetry.radar_chart.axes}
+        />
+      </div>
+
+      <ZaqWeb.Components.BOTelemetryComponents.status_grid
+        id="composed-status-grid"
+        title="Service status"
+        items={@telemetry.status_grid.items}
+      />
+    </section>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

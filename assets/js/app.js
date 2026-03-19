@@ -25,6 +25,7 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/zaq"
 import topbar from "../vendor/topbar"
 import OntologyTree from "./hooks/ontology_tree_hook"
+import ChartTooltip from "./hooks/chart_tooltip_hook"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -33,6 +34,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {
     ...colocatedHooks,
     OntologyTree,
+    ChartTooltip,
     FocusAndSelect: {
       mounted() {
         this.el.focus()
