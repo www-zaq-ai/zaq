@@ -155,6 +155,9 @@
           id="gallery-gauge-chart"
           label="Gauge chart"
           value={@telemetry.gauge_chart.value}
+          benchmark_value={
+            if @benchmark_opt_in, do: @telemetry.gauge_chart.benchmark_value, else: nil
+          }
           max={@telemetry.gauge_chart.max}
           min={0.0}
         />
@@ -163,6 +166,7 @@
           id="gallery-time-series-chart"
           title="Time-series chart"
           points={@time_series_points}
+          benchmark_points={@benchmark_time_series_points}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.bar_chart
@@ -194,6 +198,9 @@
           id="gallery-radar-chart"
           title="Radar chart"
           axes={@telemetry.radar_chart.axes}
+          benchmark_axes={
+            if @benchmark_opt_in, do: @telemetry.radar_chart.benchmark_axes, else: []
+          }
         />
       </div>
     </section>
@@ -233,7 +240,7 @@
               id="composed-time-series-series-benchmark"
               class="font-mono text-[0.65rem] px-2 py-1 rounded bg-amber-100 text-amber-700"
             >
-              Benchmark blend
+              Benchmark
             </span>
           </div>
 
@@ -241,6 +248,7 @@
             id="composed-time-series"
             title="Signals over time"
             points={@time_series_points}
+            benchmark_points={@benchmark_time_series_points}
           />
         </div>
 
@@ -249,6 +257,9 @@
             id="composed-gauge"
             label="Automation score"
             value={@telemetry.gauge_chart.value}
+            benchmark_value={
+              if @benchmark_opt_in, do: @telemetry.gauge_chart.benchmark_value, else: nil
+            }
             max={@telemetry.gauge_chart.max}
             min={0.0}
           />
@@ -279,6 +290,9 @@
           id="composed-radar"
           title="Capability profile"
           axes={@telemetry.radar_chart.axes}
+          benchmark_axes={
+            if @benchmark_opt_in, do: @telemetry.radar_chart.benchmark_axes, else: []
+          }
         />
       </div>
 

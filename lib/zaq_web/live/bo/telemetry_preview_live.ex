@@ -99,39 +99,42 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
         Map.get(socket.assigns.series_visibility, series.key, true)
       end)
 
-    chart_points =
-      build_chart_points(
-        telemetry.time_series,
-        visible_series,
-        socket.assigns.benchmark_opt_in
-      )
+    primary_chart_points = build_chart_points(telemetry.time_series, visible_series, :primary)
+
+    benchmark_chart_points =
+      if socket.assigns.benchmark_opt_in do
+        build_chart_points(telemetry.time_series, visible_series, :benchmark)
+      else
+        []
+      end
 
     socket
     |> assign(:telemetry, telemetry)
     |> assign(:visible_time_series, visible_series)
-    |> assign(:time_series_points, chart_points)
+    |> assign(:time_series_points, primary_chart_points)
+    |> assign(:benchmark_time_series_points, benchmark_chart_points)
   end
 
-  defp build_chart_points(time_series, visible_series, benchmark_opt_in) do
+  defp build_chart_points(time_series, visible_series, lane) do
     labels_count = length(time_series.labels)
 
     if labels_count == 0 do
       []
     else
       Enum.map(0..(labels_count - 1), fn idx ->
-        build_chart_point(time_series, visible_series, benchmark_opt_in, idx)
+        build_chart_point(time_series, visible_series, lane, idx)
       end)
     end
   end
 
-  defp build_chart_point(time_series, [], _benchmark_opt_in, idx) do
+  defp build_chart_point(time_series, [], _lane, idx) do
     %{label: label_for_index(time_series, idx), value: 0.0}
   end
 
-  defp build_chart_point(time_series, visible_series, benchmark_opt_in, idx) do
+  defp build_chart_point(time_series, visible_series, lane, idx) do
     values =
       Enum.map(visible_series, fn series ->
-        series_point_value(time_series, series, idx, benchmark_opt_in)
+        series_point_value(time_series, series, idx, lane)
       end)
 
     %{
@@ -140,14 +143,12 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
     }
   end
 
-  defp series_point_value(time_series, series, idx, false) do
+  defp series_point_value(time_series, series, idx, :primary) do
     Enum.at(Map.get(time_series.values, series.key, []), idx, 0.0)
   end
 
-  defp series_point_value(time_series, series, idx, true) do
-    raw = series_point_value(time_series, series, idx, false)
-    benchmark = Enum.at(Map.get(time_series.benchmarks, series.key, []), idx, raw)
-    (raw + benchmark) / 2
+  defp series_point_value(time_series, series, idx, :benchmark) do
+    Enum.at(Map.get(time_series.benchmarks, series.key, []), idx, 0.0)
   end
 
   defp label_for_index(time_series, idx) do

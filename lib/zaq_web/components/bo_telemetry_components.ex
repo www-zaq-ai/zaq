@@ -46,12 +46,33 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   attr :id, :string, required: true
   attr :title, :string, default: "Time series"
   attr :points, :list, default: []
+  attr :benchmark_points, :list, default: []
   attr :width, :integer, default: 420
   attr :height, :integer, default: 180
 
   def time_series_chart(assigns) do
-    chart = build_line_chart(assigns.points, assigns.width, assigns.height)
-    assigns = assign(assigns, :chart, chart)
+    bounds = combined_line_bounds(assigns.points, assigns.benchmark_points)
+
+    chart =
+      build_line_chart(
+        assigns.points,
+        assigns.width,
+        assigns.height,
+        Map.put(bounds, :color, @accent)
+      )
+
+    benchmark_chart =
+      build_line_chart(
+        assigns.benchmark_points,
+        assigns.width,
+        assigns.height,
+        Map.put(bounds, :color, "#f59e0b")
+      )
+
+    assigns =
+      assigns
+      |> assign(:chart, chart)
+      |> assign(:benchmark_chart, benchmark_chart)
 
     ~H"""
     <section
@@ -90,6 +111,17 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         />
         <path d={@chart.area_path} fill="rgba(3, 182, 212, 0.12)" />
         <polyline
+          :if={!@benchmark_chart.empty?}
+          points={@benchmark_chart.polyline_points}
+          fill="none"
+          stroke="#f59e0b"
+          stroke-width="2"
+          stroke-dasharray="5 4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          data-time-series-lane="benchmark"
+        />
+        <polyline
           points={@chart.polyline_points}
           fill="none"
           stroke="#03b6d4"
@@ -109,9 +141,27 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           data-tip-label={point.label}
           data-tip-value={format_value(point.value)}
           data-tip-color={point.color}
+          data-time-series-lane="primary"
           tabindex="0"
         >
           <title>{point.label <> ": " <> format_value(point.value)}</title>
+        </circle>
+        <circle
+          :for={point <- @benchmark_chart.marker_points}
+          cx={point.x}
+          cy={point.y}
+          r="3.5"
+          fill={point.color}
+          stroke="#ffffff"
+          stroke-width="1"
+          class="cursor-pointer transition-all duration-200 hover:r-[5]"
+          data-tip-label={point.label <> " benchmark"}
+          data-tip-value={format_value(point.value)}
+          data-tip-color={point.color}
+          data-time-series-lane="benchmark"
+          tabindex="0"
+        >
+          <title>{point.label <> " benchmark: " <> format_value(point.value)}</title>
         </circle>
         <line
           :for={tick <- @chart.x_ticks}
@@ -260,12 +310,22 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   attr :id, :string, required: true
   attr :label, :string, default: "Gauge"
   attr :value, :float, default: 0.0
+  attr :benchmark_value, :float, default: nil
   attr :min, :float, default: 0.0
   attr :max, :float, default: 100.0
 
   def gauge_chart(assigns) do
     gauge = build_gauge(assigns.value, assigns.min, assigns.max)
-    assigns = assign(assigns, :gauge, gauge)
+
+    benchmark_gauge =
+      if is_nil(assigns.benchmark_value),
+        do: nil,
+        else: build_gauge(assigns.benchmark_value, assigns.min, assigns.max)
+
+    assigns =
+      assigns
+      |> assign(:gauge, gauge)
+      |> assign(:benchmark_gauge, benchmark_gauge)
 
     ~H"""
     <section
@@ -301,12 +361,28 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           stroke="#0f172a"
           stroke-width="2"
         />
+        <line
+          :if={@benchmark_gauge}
+          x1="110"
+          y1="110"
+          x2={@benchmark_gauge.pointer_x}
+          y2={@benchmark_gauge.pointer_y}
+          stroke="#f59e0b"
+          stroke-width="2"
+          stroke-dasharray="4 3"
+          data-gauge-pointer="benchmark"
+        />
         <circle cx="110" cy="110" r="4" fill="#0f172a" />
       </svg>
 
       <div class="mt-2 flex items-end justify-between">
         <p class="text-2xl font-semibold text-slate-900">{format_value(@gauge.current)}</p>
-        <p class="font-mono text-xs text-slate-500">{format_value(@min)} - {format_value(@max)}</p>
+        <div class="text-right">
+          <p :if={@benchmark_gauge} class="font-mono text-[0.65rem] text-amber-600">
+            benchmark {format_value(@benchmark_gauge.current)}
+          </p>
+          <p class="font-mono text-xs text-slate-500">{format_value(@min)} - {format_value(@max)}</p>
+        </div>
       </div>
     </section>
     """
@@ -382,11 +458,21 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   attr :id, :string, required: true
   attr :title, :string, default: "Radar"
   attr :axes, :list, default: []
+  attr :benchmark_axes, :list, default: []
   attr :size, :integer, default: 220
 
   def radar_chart(assigns) do
     radar = build_radar(assigns.axes, assigns.size)
-    assigns = assign(assigns, :radar, radar)
+
+    benchmark_radar =
+      if Enum.empty?(assigns.benchmark_axes),
+        do: %{empty?: true, value_points: [], value_polygon: ""},
+        else: build_radar(assigns.benchmark_axes, assigns.size)
+
+    assigns =
+      assigns
+      |> assign(:radar, radar)
+      |> assign(:benchmark_radar, benchmark_radar)
 
     ~H"""
     <section
@@ -422,6 +508,15 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
             stroke-width="1"
           />
           <polygon
+            :if={!@benchmark_radar.empty?}
+            points={@benchmark_radar.value_polygon}
+            fill="rgba(245, 158, 11, 0.10)"
+            stroke="#f59e0b"
+            stroke-width="1.8"
+            stroke-dasharray="4 3"
+            data-radar-series="benchmark"
+          />
+          <polygon
             points={@radar.value_polygon}
             fill="rgba(3, 182, 212, 0.18)"
             stroke="#03b6d4"
@@ -443,9 +538,35 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           >
             <title>{point.label <> ": " <> format_value(point.value)}</title>
           </circle>
+          <circle
+            :for={point <- Map.get(@benchmark_radar, :value_points, [])}
+            cx={point.x}
+            cy={point.y}
+            r="3.8"
+            fill="#f59e0b"
+            stroke="#ffffff"
+            stroke-width="1"
+            class="cursor-pointer"
+            data-tip-label={point.label <> " benchmark"}
+            data-tip-value={format_value(point.value)}
+            data-tip-color="#f59e0b"
+            data-radar-series="benchmark"
+            tabindex="0"
+          >
+            <title>{point.label <> " benchmark: " <> format_value(point.value)}</title>
+          </circle>
         </svg>
 
         <div class="grid flex-1 grid-cols-2 gap-2">
+          <div
+            :if={!@benchmark_radar.empty?}
+            class="rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-2"
+          >
+            <p class="flex items-center gap-2 font-mono text-[0.65rem] text-amber-700">
+              <span class="inline-block h-2 w-2 rounded-full bg-amber-500" /> Benchmark lane
+            </p>
+            <p class="text-sm font-medium text-amber-700">Peer distant sample</p>
+          </div>
           <div
             :for={axis <- @radar.legend}
             data-radar-label={axis.label}
@@ -513,11 +634,12 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     end)
   end
 
-  defp build_line_chart(points, width, height) do
+  defp build_line_chart(points, width, height, opts) do
     left = 24
     right = max(width - 12, left + 1)
     top = 14
     bottom = max(height - 22, top + 1)
+    color = Map.get(opts, :color, @accent)
 
     normalized_points =
       points
@@ -525,23 +647,23 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
       |> Enum.with_index()
       |> Enum.map(fn
         {%{label: label, value: value}, _idx} ->
-          %{label: to_string(label), value: to_number(value), color: @accent}
+          %{label: to_string(label), value: to_number(value), color: color}
 
         {%{x: label, y: value}, _idx} ->
-          %{label: to_string(label), value: to_number(value), color: @accent}
+          %{label: to_string(label), value: to_number(value), color: color}
 
         {%{y: value} = point, idx} ->
           %{
             label: to_string(Map.get(point, :label, "T#{idx + 1}")),
             value: to_number(value),
-            color: @accent
+            color: color
           }
 
         {value, idx} when is_number(value) ->
-          %{label: "T#{idx + 1}", value: to_number(value), color: @accent}
+          %{label: "T#{idx + 1}", value: to_number(value), color: color}
 
         {_, idx} ->
-          %{label: "T#{idx + 1}", value: 0.0, color: @accent}
+          %{label: "T#{idx + 1}", value: 0.0, color: color}
       end)
 
     values = Enum.map(normalized_points, & &1.value)
@@ -559,8 +681,8 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         x_ticks: []
       }
     else
-      min_y = Enum.min(values)
-      max_y = Enum.max(values)
+      min_y = Map.get(opts, :min_value, Enum.min(values))
+      max_y = Map.get(opts, :max_value, Enum.max(values))
       span_y = if max_y == min_y, do: 1.0, else: max_y - min_y
       count = length(values)
 
@@ -761,6 +883,29 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
 
   defp line_x(left, _right, 1, _idx), do: left
   defp line_x(left, right, count, idx), do: left + idx * (right - left) / (count - 1)
+
+  defp combined_line_bounds(primary_points, benchmark_points) do
+    values = line_values(primary_points) ++ line_values(benchmark_points)
+
+    case values do
+      [] ->
+        %{}
+
+      _ ->
+        %{min_value: Enum.min(values), max_value: Enum.max(values)}
+    end
+  end
+
+  defp line_values(points) do
+    points
+    |> List.wrap()
+    |> Enum.map(fn
+      %{value: value} -> to_number(value)
+      %{y: value} -> to_number(value)
+      value when is_number(value) -> to_number(value)
+      _ -> 0.0
+    end)
+  end
 
   defp build_line_x_ticks(points_xy) do
     points_xy

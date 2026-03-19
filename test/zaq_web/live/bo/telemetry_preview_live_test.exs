@@ -44,6 +44,9 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/dashboard/telemetry-preview")
 
     assert has_element?(view, "#benchmark-state", "off")
+    refute has_element?(view, "#gallery-time-series-chart [data-time-series-lane='benchmark']")
+    refute has_element?(view, "#gallery-radar-chart [data-radar-series='benchmark']")
+    refute has_element?(view, "#gallery-gauge-chart [data-gauge-pointer='benchmark']")
 
     view
     |> element("#benchmark-toggle")
@@ -51,6 +54,9 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLiveTest do
 
     assert has_element?(view, "#benchmark-state", "on")
     assert has_element?(view, "#composed-time-series-series-benchmark")
+    assert has_element?(view, "#gallery-time-series-chart [data-time-series-lane='benchmark']")
+    assert has_element?(view, "#gallery-radar-chart [data-radar-series='benchmark']")
+    assert has_element?(view, "#gallery-gauge-chart [data-gauge-pointer='benchmark']")
   end
 
   test "set_segment and set_feedback_scope update filters", %{conn: conn} do

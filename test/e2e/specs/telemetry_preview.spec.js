@@ -56,6 +56,9 @@ test.describe("Telemetry Preview", () => {
 
     await page.locator("#benchmark-toggle").click()
     await expect(page.locator("#benchmark-state")).toHaveText("on")
+    await expect(page.locator('#gallery-time-series-chart [data-time-series-lane="benchmark"]').first()).toBeVisible()
+    await expect(page.locator('#gallery-radar-chart [data-radar-series="benchmark"]').first()).toBeVisible()
+    await expect(page.locator('#gallery-gauge-chart [data-gauge-pointer="benchmark"]')).toBeVisible()
 
     await page.locator("#segment-industry").click()
     await expect(page.locator("#selected-segment")).toHaveText("industry")
