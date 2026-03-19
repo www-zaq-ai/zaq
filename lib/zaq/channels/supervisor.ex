@@ -6,8 +6,7 @@ defmodule Zaq.Channels.Supervisor do
   They are managed by `Zaq.Engine.RetrievalSupervisor` and
   `Zaq.Engine.IngestionSupervisor` respectively.
 
-  This supervisor is kept for any shared channel infrastructure that is
-  not adapter-specific (e.g. `PendingQuestions`).
+  PendingQuestions is managed by the licensed KnowledgeGap feature module.
   """
 
   use Supervisor
@@ -18,10 +17,6 @@ defmodule Zaq.Channels.Supervisor do
 
   @impl true
   def init(_args) do
-    children = [
-      Zaq.Channels.PendingQuestions
-    ]
-
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init([], strategy: :one_for_one)
   end
 end

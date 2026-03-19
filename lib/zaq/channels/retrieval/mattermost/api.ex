@@ -17,8 +17,14 @@ defmodule Zaq.Channels.Retrieval.Mattermost.API do
   Loads config from DB.
   """
   def send_message(channel_id, message, thread_id \\ nil) do
-    send_typing(channel_id)
-    Process.sleep(@typing_delay)
+    try do
+      send_typing(channel_id)
+      Process.sleep(@typing_delay)
+    rescue
+      _ -> :ok
+    catch
+      _, _ -> :ok
+    end
 
     case ChannelConfig.get_by_provider("mattermost") do
       %ChannelConfig{} = config ->

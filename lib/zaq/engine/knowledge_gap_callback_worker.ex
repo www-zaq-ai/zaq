@@ -2,8 +2,8 @@ defmodule Zaq.Engine.KnowledgeGapCallbackWorker do
   @moduledoc """
   Oban worker that ingests an SME answer into the knowledge base.
 
-  Enqueued by `ZaqWeb.PendingQuestionsController` when a pending question
-  receives a reply via `Zaq.Channels.PendingQuestions.check_reply/1`.
+  Enqueued by `LicenseManager.Paid.KnowledgeGap` when a pending question
+  receives a reply via the `:reply_received` hook.
 
   Running the resolve step as an Oban job (rather than inline in the callback)
   provides retry semantics: if the DB or ingestion pipeline is temporarily
