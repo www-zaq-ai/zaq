@@ -13,6 +13,16 @@ defmodule Zaq.Agent.Pipeline do
   automatically. The call is guarded with `function_exported?/3` so it is a safe no-op
   in open-source deployments where the licensed module is not loaded.
 
+  ## Hook integration
+
+  The pipeline dispatches the following hook events:
+
+    * `:before_retrieval`        — sync; may mutate `%{question: string}` or halt
+    * `:after_retrieval`         — sync + async; payload is the retrieval result map
+    * `:before_answering`        — sync; may mutate the retrieval/extraction payload
+    * `:after_answer_generated`  — sync + async; payload is `%{answer: result}`
+    * `:after_pipeline_complete` — async; payload is the final result map
+
   ## Options
 
     * `:history`            — conversation history map (default: `%{}`)
@@ -20,6 +30,7 @@ defmodule Zaq.Agent.Pipeline do
     * `:on_status`          — 2-arity fn `(stage, message) :: :ok` for progress
                               callbacks; used by LiveView to push status updates
                               (default: silent no-op)
+    * `:hooks`              — Hooks module override (default: `Zaq.Hooks`)
     * `:node_router`        — NodeRouter module override
     * `:retrieval`          — Retrieval module override
     * `:document_processor` — DocumentProcessor module override
@@ -48,27 +59,44 @@ defmodule Zaq.Agent.Pipeline do
     history = Keyword.get(opts, :history, %{})
     role_ids = Keyword.get(opts, :role_ids, [])
     on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
+    ctx = %{trace_id: generate_trace_id(), node: node()}
+    hooks = hooks_mod(opts)
 
     with {:ok, clean_msg} <- prompt_guard(opts).validate(question),
+         {:ok, retrieval_payload} <-
+           hooks.dispatch_before(:before_retrieval, %{question: clean_msg}, ctx),
          :ok <- on_status.(:retrieving, "ZAQ is searching your knowledge base…"),
-         {:ok, retrieval_result} <- do_retrieval(clean_msg, history, opts),
+         {:ok, retrieval_result} <- do_retrieval(retrieval_payload.question, history, opts),
+         :ok <- hooks.dispatch_after(:after_retrieval, retrieval_result, ctx),
          :ok <- on_status.(:retrieving, retrieval_result.positive_answer),
-         {:ok, extraction_result} <- do_query_extraction(retrieval_result, role_ids, opts),
+         {:ok, answering_payload} <-
+           hooks.dispatch_before(:before_answering, retrieval_result, ctx),
+         {:ok, extraction_result} <- do_query_extraction(answering_payload, role_ids, opts),
          :ok <- on_status.(:answering, "Formulating your answer…"),
-         {:ok, answer_result} <- do_answering(clean_msg, extraction_result, retrieval_result, history, opts),
+         {:ok, answer_result} <-
+           do_answering(clean_msg, extraction_result, answering_payload, history, opts),
          {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.answer) do
-      if answering_mod(opts).no_answer?(safe_answer) do
-        maybe_capture_knowledge_gap(%{
-          question: question,
-          generated_query: retrieval_result.query,
-          history: history
-        })
+      :ok = hooks.dispatch_after(:after_answer_generated, %{answer: answer_result}, ctx)
 
-        %{answer: answering_mod(opts).clean_answer(safe_answer), confidence: 0.0}
-      else
-        %{answer: safe_answer, confidence: confidence_score(answer_result)}
-      end
+      result =
+        if answering_mod(opts).no_answer?(safe_answer) do
+          maybe_capture_knowledge_gap(%{
+            question: question,
+            generated_query: retrieval_result.query,
+            history: history
+          })
+
+          %{answer: answering_mod(opts).clean_answer(safe_answer), confidence: 0.0}
+        else
+          %{answer: safe_answer, confidence: confidence_score(answer_result)}
+        end
+
+      :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
+      result
     else
+      {:halt, _payload} ->
+        %{answer: "Request was halted by a pipeline hook.", confidence: 0.0, error: true}
+
       {:error, :prompt_injection} ->
         %{answer: "I can only help with ZAQ-related questions.", confidence: 0.0, error: true}
 
@@ -83,7 +111,10 @@ defmodule Zaq.Agent.Pipeline do
         %{answer: negative_answer, confidence: 0.0}
 
       {:error, :no_results} ->
-        %{answer: "I couldn't find relevant information to answer your question.", confidence: 0.0}
+        %{
+          answer: "I couldn't find relevant information to answer your question.",
+          confidence: 0.0
+        }
 
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")
@@ -185,28 +216,56 @@ defmodule Zaq.Agent.Pipeline do
   # Configurable modules (allow overrides for testing and per-channel config)
   # ---------------------------------------------------------------------------
 
+  defp generate_trace_id do
+    :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+  end
+
+  defp hooks_mod(opts) do
+    Keyword.get(opts, :hooks, Application.get_env(:zaq, :pipeline_hooks_module, Zaq.Hooks))
+  end
+
   defp node_router(opts) do
-    Keyword.get(opts, :node_router, Application.get_env(:zaq, :pipeline_node_router_module, Zaq.NodeRouter))
+    Keyword.get(
+      opts,
+      :node_router,
+      Application.get_env(:zaq, :pipeline_node_router_module, Zaq.NodeRouter)
+    )
   end
 
   defp retrieval_mod(opts) do
-    Keyword.get(opts, :retrieval, Application.get_env(:zaq, :pipeline_retrieval_module, Zaq.Agent.Retrieval))
+    Keyword.get(
+      opts,
+      :retrieval,
+      Application.get_env(:zaq, :pipeline_retrieval_module, Zaq.Agent.Retrieval)
+    )
   end
 
   defp document_processor_mod(opts) do
     Keyword.get(
       opts,
       :document_processor,
-      Application.get_env(:zaq, :pipeline_document_processor_module, Zaq.Ingestion.DocumentProcessor)
+      Application.get_env(
+        :zaq,
+        :pipeline_document_processor_module,
+        Zaq.Ingestion.DocumentProcessor
+      )
     )
   end
 
   defp answering_mod(opts) do
-    Keyword.get(opts, :answering, Application.get_env(:zaq, :pipeline_answering_module, Zaq.Agent.Answering))
+    Keyword.get(
+      opts,
+      :answering,
+      Application.get_env(:zaq, :pipeline_answering_module, Zaq.Agent.Answering)
+    )
   end
 
   defp prompt_guard(opts) do
-    Keyword.get(opts, :prompt_guard, Application.get_env(:zaq, :pipeline_prompt_guard_module, Zaq.Agent.PromptGuard))
+    Keyword.get(
+      opts,
+      :prompt_guard,
+      Application.get_env(:zaq, :pipeline_prompt_guard_module, Zaq.Agent.PromptGuard)
+    )
   end
 
   defp prompt_template_mod(opts) do

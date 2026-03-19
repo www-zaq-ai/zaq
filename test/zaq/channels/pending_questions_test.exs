@@ -78,7 +78,11 @@ defmodule Zaq.Channels.PendingQuestionsTest do
 
       # Backdating inserted_at to simulate an old entry
       Agent.update(PendingQuestions, fn state ->
-        Map.update!(state, "post_stale", &Map.put(&1, :inserted_at, System.os_time(:second) - 7201))
+        Map.update!(
+          state,
+          "post_stale",
+          &Map.put(&1, :inserted_at, System.os_time(:second) - 7201)
+        )
       end)
 
       PendingQuestions.expire_stale(3600)

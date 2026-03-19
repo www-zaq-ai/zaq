@@ -28,6 +28,7 @@ defmodule Zaq.Application do
         {Oban, Application.fetch_env!(:zaq, Oban)},
         Zaq.License.FeatureStore,
         Zaq.License.LicensePostLoader,
+        Zaq.Hooks.Supervisor,
         Zaq.PeerConnector
       ]
       |> maybe_add(roles, :engine, Zaq.Engine.Supervisor)
