@@ -15,10 +15,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "mount" do
     test "renders the email configuration form", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, html} = live(conn, ~p"/bo/system-config")
       assert html =~ "Email (SMTP)"
       assert html =~ "Enable email delivery"
       assert html =~ "email_config[relay]"
+      assert has_element?(view, "#smtp-advanced-section")
+      assert has_element?(view, "#smtp-transport-mode")
+      assert has_element?(view, "#smtp-tls-verify")
+      assert has_element?(view, "#smtp-ca-cert-path")
     end
   end
 
@@ -34,6 +38,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             "relay" => "smtp.test.com",
             "port" => "25",
             "tls" => "enabled",
+            "transport_mode" => "starttls",
+            "tls_verify" => "verify_peer",
+            "ca_cert_path" => "",
             "from_email" => "noreply@zaq.local",
             "from_name" => "ZAQ"
           }
@@ -48,19 +55,25 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     test "with valid params persists config to the database", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
-      view
-      |> form("form[phx-submit='save']", %{
-        "email_config" => %{
-          "enabled" => "false",
-          "relay" => "smtp.save.com",
-          "port" => "587",
-          "tls" => "enabled",
-          "from_email" => "noreply@example.com",
-          "from_name" => "ZAQ"
-        }
-      })
-      |> render_submit()
+      html =
+        view
+        |> form("form[phx-submit='save']", %{
+          "email_config" => %{
+            "enabled" => "false",
+            "relay" => "smtp.save.com",
+            "port" => "587",
+            "tls" => "enabled",
+            "transport_mode" => "starttls",
+            "tls_verify" => "verify_peer",
+            "ca_cert_path" => "",
+            "from_email" => "noreply@example.com",
+            "from_name" => "ZAQ"
+          }
+        })
+        |> render_submit()
 
+      assert html =~ "Email configuration saved."
+      assert has_element?(view, "#save-status-ok")
       # Verify that the relay was saved to DB
       assert Zaq.System.get_config("email.relay") == "smtp.save.com"
     end
@@ -76,6 +89,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             "relay" => "",
             "port" => "587",
             "tls" => "enabled",
+            "transport_mode" => "starttls",
+            "tls_verify" => "verify_peer",
+            "ca_cert_path" => "",
             "from_email" => "noreply@example.com",
             "from_name" => "ZAQ"
           }
@@ -89,50 +105,74 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
-  describe "set_test_recipient event" do
-    test "updates the test_recipient assign", %{conn: conn} do
+  describe "test email form" do
+    test "keeps recipient value after submit", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
-      # The set_test_recipient event is triggered by phx-change on the recipient input
       html =
         view
-        |> element("input[name='recipient']")
-        |> render_change(%{"recipient" => "tester@example.com"})
+        |> form("#test-email-form", %{"recipient" => "tester@example.com"})
+        |> render_submit()
 
-      # After update, the input value should reflect the new recipient
       assert html =~ "tester@example.com"
     end
   end
 
-  describe "test_connection event" do
-    test "does not send when recipient is empty and keeps test_status idle", %{conn: conn} do
+  describe "advanced SMTP warnings" do
+    test "shows ssl port warning when ssl mode uses non-465 port", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
-      # test_recipient starts as "" — the view should put_flash and not change test_status
       view
-      |> element("button[phx-click='test_connection']")
-      |> render_click()
+      |> form("#system-config-form", %{
+        "email_config" => %{"transport_mode" => "ssl", "port" => "587"}
+      })
+      |> render_change()
 
-      # test_status stays :idle (no "Sending…" text, no error text in template)
+      assert has_element?(view, "#smtp-security-warnings")
+      assert has_element?(view, "#smtp-warning-ssl-port")
+    end
+
+    test "shows verify_none warning", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> form("#system-config-form", %{"email_config" => %{"tls_verify" => "verify_none"}})
+      |> render_change()
+
+      assert has_element?(view, "#smtp-warning-verify-none")
+    end
+  end
+
+  describe "test_connection event" do
+    test "does not send when recipient is empty and shows inline validation error", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> form("#test-email-form", %{"recipient" => ""})
+      |> render_submit()
+
       html = render(view)
       refute html =~ "Sending"
-      refute html =~ "Email is not configured or disabled."
+      assert html =~ "Enter a recipient email to send a test."
+    end
+
+    test "shows validation error when recipient is not a valid email", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> form("#test-email-form", %{"recipient" => "not-an-email"})
+      |> render_submit()
+
+      assert render(view) =~ "Recipient must be a valid email address."
     end
 
     test "shows error status when email is not configured", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
-      # Set a recipient via phx-change
       view
-      |> element("input[name='recipient']")
-      |> render_change(%{"recipient" => "tester@example.com"})
+      |> form("#test-email-form", %{"recipient" => "tester@example.com"})
+      |> render_submit()
 
-      # Trigger test_connection — email not configured in test env
-      view
-      |> element("button[phx-click='test_connection']")
-      |> render_click()
-
-      # handle_info {:send_test, recipient} fires, finds :not_configured, sets test_status
       assert render(view) =~ "Email is not configured or disabled."
     end
   end

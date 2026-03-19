@@ -57,6 +57,10 @@ config :zaq, Zaq.Agent.LLM,
   supports_logprobs: false,
   supports_json_mode: false
 
+config :zaq, Zaq.System.SecretConfig,
+  encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+  key_id: "test-v1"
+
 config :zaq, roles: [:bo, :ingestion, :agent, :channels, :engine]
 
 config :zaq,

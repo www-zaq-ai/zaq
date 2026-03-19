@@ -1,5 +1,5 @@
 defmodule Zaq.SystemTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
 
   alias Zaq.System
   alias Zaq.System.EmailConfig
@@ -32,7 +32,10 @@ defmodule Zaq.SystemTest do
       assert %EmailConfig{} = config
       assert config.enabled == false
       assert config.port == 587
+      assert config.transport_mode == "starttls"
       assert config.tls == "enabled"
+      assert config.tls_verify == "verify_peer"
+      assert config.ca_cert_path == nil
       assert config.from_email == "noreply@zaq.local"
       assert config.from_name == "ZAQ"
     end
@@ -41,11 +44,17 @@ defmodule Zaq.SystemTest do
       System.set_config("email.relay", "smtp.example.com")
       System.set_config("email.enabled", "true")
       System.set_config("email.port", "465")
+      System.set_config("email.transport_mode", "ssl")
+      System.set_config("email.tls_verify", "verify_none")
+      System.set_config("email.ca_cert_path", "/etc/ssl/certs/custom-ca.pem")
 
       config = System.get_email_config()
       assert config.relay == "smtp.example.com"
       assert config.enabled == true
       assert config.port == 465
+      assert config.transport_mode == "ssl"
+      assert config.tls_verify == "verify_none"
+      assert config.ca_cert_path == "/etc/ssl/certs/custom-ca.pem"
     end
   end
 
@@ -90,13 +99,60 @@ defmodule Zaq.SystemTest do
       System.set_config("email.enabled", "true")
       System.set_config("email.relay", "smtp.example.com")
       System.set_config("email.port", "587")
+      System.set_config("email.transport_mode", "starttls")
       System.set_config("email.tls", "enabled")
 
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:relay] == "smtp.example.com"
       assert opts[:port] == 587
-      assert opts[:tls] == :enabled
+      assert opts[:ssl] == false
+      assert opts[:tls] == :if_available
       assert opts[:adapter] == Swoosh.Adapters.SMTP
+    end
+
+    test "maps supported tls values and defaults unknown values" do
+      System.set_config("email.enabled", "true")
+      System.set_config("email.relay", "smtp.example.com")
+
+      System.set_config("email.tls", "always")
+      assert {:ok, opts} = System.email_delivery_opts()
+      assert opts[:tls] == :always
+
+      System.set_config("email.tls", "never")
+      assert {:ok, opts} = System.email_delivery_opts()
+      assert opts[:tls] == :never
+
+      System.set_config("email.tls", "legacy-or-invalid")
+      assert {:ok, opts} = System.email_delivery_opts()
+      assert opts[:tls] == :if_available
+    end
+
+    test "uses ssl transport mode when configured" do
+      System.set_config("email.enabled", "true")
+      System.set_config("email.relay", "smtp.example.com")
+      System.set_config("email.transport_mode", "ssl")
+      System.set_config("email.port", "465")
+
+      assert {:ok, opts} = System.email_delivery_opts()
+      assert opts[:ssl] == true
+      assert opts[:tls] == :never
+    end
+
+    test "maps tls_verify and ca_cert_path into tls_options" do
+      System.set_config("email.enabled", "true")
+      System.set_config("email.relay", "smtp.example.com")
+      System.set_config("email.transport_mode", "starttls")
+      System.set_config("email.tls", "always")
+
+      System.set_config("email.tls_verify", "verify_none")
+      assert {:ok, opts} = System.email_delivery_opts()
+      assert Keyword.get(opts[:tls_options], :verify) == :verify_none
+
+      System.set_config("email.tls_verify", "verify_peer")
+      System.set_config("email.ca_cert_path", "/etc/ssl/certs/custom.pem")
+      assert {:ok, opts} = System.email_delivery_opts()
+      assert Keyword.get(opts[:tls_options], :verify) == :verify_peer
+      assert Keyword.get(opts[:tls_options], :cacertfile) == ~c"/etc/ssl/certs/custom.pem"
     end
 
     test "sets auth :never when username is blank" do
@@ -118,6 +174,63 @@ defmodule Zaq.SystemTest do
       assert opts[:auth] == :always
       assert opts[:username] == "user@example.com"
       assert opts[:password] == "secret"
+    end
+
+    test "returns error when encrypted password cannot be decrypted" do
+      System.set_config("email.enabled", "true")
+      System.set_config("email.relay", "smtp.example.com")
+      System.set_config("email.username", "user@example.com")
+      System.set_config("email.password", "enc:v1:broken:payload")
+
+      assert {:error, :invalid_ciphertext} = System.email_delivery_opts()
+    end
+  end
+
+  describe "password encryption" do
+    setup do
+      previous_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.System.SecretConfig, previous_config)
+      end)
+
+      :ok
+    end
+
+    test "encrypts password on save when encryption key is configured" do
+      Application.put_env(
+        :zaq,
+        Zaq.System.SecretConfig,
+        encryption_key: Base.encode64(:crypto.strong_rand_bytes(32)),
+        key_id: "test-v1"
+      )
+
+      changeset =
+        EmailConfig.changeset(%EmailConfig{}, %{
+          enabled: true,
+          relay: "smtp.example.com",
+          from_email: "noreply@example.com",
+          password: "very-secret"
+        })
+
+      assert {:ok, _} = Zaq.System.save_email_config(changeset)
+      encrypted = Zaq.System.get_config("email.password")
+      assert String.starts_with?(encrypted, "enc:test-v1:")
+      assert Zaq.System.get_email_config().password == "very-secret"
+    end
+
+    test "fails save when encryption key is missing and password is present" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig, [])
+
+      changeset =
+        EmailConfig.changeset(%EmailConfig{}, %{
+          enabled: true,
+          relay: "smtp.example.com",
+          from_email: "noreply@example.com",
+          password: "very-secret"
+        })
+
+      assert {:error, :missing_encryption_key} = Zaq.System.save_email_config(changeset)
     end
   end
 

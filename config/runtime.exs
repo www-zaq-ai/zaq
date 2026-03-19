@@ -23,6 +23,14 @@ end
 config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  # SMTP password encryption (used by BO System Configuration page)
+  # - SYSTEM_CONFIG_ENCRYPTION_KEY is required to save non-empty SMTP passwords
+  # - key must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)
+  # - SYSTEM_CONFIG_ENCRYPTION_KEY_ID is metadata for key rotation (default: v1)
+  config :zaq, Zaq.System.SecretConfig,
+    encryption_key: System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY"),
+    key_id: System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY_ID", "v1")
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
