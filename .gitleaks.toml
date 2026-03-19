@@ -1,0 +1,5 @@
+[allowlist]
+  description = "Test fixtures and known safe values"
+  regexes = [
+    "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+  ]
