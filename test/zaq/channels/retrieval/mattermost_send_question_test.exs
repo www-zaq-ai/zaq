@@ -42,7 +42,6 @@ defmodule Zaq.Channels.Retrieval.MattermostSendQuestionTest do
     end
 
     test "passes channel_id and question to the underlying API" do
-      test_pid = self()
       Process.put(:api_response, {:ok, %{"id" => "post-321"}})
 
       Mattermost.send_question("my-channel", "My question text")

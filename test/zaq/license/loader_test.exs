@@ -329,14 +329,10 @@ defmodule Zaq.License.LoaderTest do
   end
 
   defp write_public_key(pub) do
-    pem =
-      """
-      -----BEGIN ED25519 PUBLIC KEY-----
-      #{Base.encode64(pub)}
-      -----END ED25519 PUBLIC KEY-----
-      """
-      |> String.trim()
-
+    # Build SPKI DER for Ed25519: 12-byte OID header + 32-byte raw key.
+    # parse_public_pem/1 in Verifier expects SubjectPublicKeyInfo / SPKI format.
+    der = <<0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00>> <> pub
+    pem = :public_key.pem_encode([{:SubjectPublicKeyInfo, der, :not_encrypted}])
     File.write!(@public_key_path, pem)
   end
 end

@@ -46,8 +46,6 @@ defmodule Zaq.Agent.Pipeline do
     * `%{answer: String.t(), confidence: 0.0, error: true}`   — error
   """
 
-  alias LicenseManager.Paid.KnowledgeGap
-
   require Logger
 
   @no_answer_signal "I don't have enough information to answer that question."
@@ -82,13 +80,14 @@ defmodule Zaq.Agent.Pipeline do
 
       result =
         if answering_mod(opts).no_answer?(safe_answer) do
-          maybe_capture_knowledge_gap(%{
+          %{
+            answer: answering_mod(opts).clean_answer(safe_answer),
+            confidence: 0.0,
+            knowledge_gap: true,
             question: question,
             generated_query: retrieval_result.query,
             history: history
-          })
-
-          %{answer: answering_mod(opts).clean_answer(safe_answer), confidence: 0.0}
+          }
         else
           %{answer: safe_answer, confidence: confidence_score(answer_result)}
         end
@@ -121,16 +120,6 @@ defmodule Zaq.Agent.Pipeline do
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")
         %{answer: "Sorry, something went wrong. Please try again.", confidence: 0.0, error: true}
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Knowledge Gap — safe no-op when module not loaded (open-source deployments)
-  # ---------------------------------------------------------------------------
-
-  defp maybe_capture_knowledge_gap(params) do
-    if function_exported?(LicenseManager.Paid.KnowledgeGap, :capture, 1) do
-      KnowledgeGap.capture(params)
     end
   end
 

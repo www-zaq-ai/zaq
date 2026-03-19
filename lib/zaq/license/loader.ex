@@ -25,6 +25,7 @@ defmodule Zaq.License.Loader do
       view_files = extract_view_files(files)
       FeatureStore.store(license_data, loaded_modules)
       ObanProvisioner.provision(loaded_modules)
+      register_hooks(loaded_modules)
       LicensePostLoader.notify(license_data, migration_files, view_files)
       Logger.info("License loaded successfully: #{license_data["license_key"]}")
       {:ok, license_data}
@@ -100,6 +101,14 @@ defmodule Zaq.License.Loader do
     else
       {:error, :license_expired}
     end
+  end
+
+  defp register_hooks(loaded_modules) do
+    Enum.each(loaded_modules, fn module ->
+      if function_exported?(module, :register_hooks, 0) do
+        module.register_hooks()
+      end
+    end)
   end
 
   defp extract_migration_files(files) do

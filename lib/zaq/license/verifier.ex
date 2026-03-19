@@ -35,14 +35,12 @@ defmodule Zaq.License.Verifier do
   end
 
   @doc """
-  Parses a raw PEM string into a 32-byte Ed25519 public key binary.
+  Parses a PEM string (SubjectPublicKeyInfo / SPKI) into a 32-byte Ed25519 public key binary.
   """
   def parse_public_pem(pem) do
-    pem
-    |> String.trim()
-    |> String.replace("-----BEGIN ED25519 PUBLIC KEY-----", "")
-    |> String.replace("-----END ED25519 PUBLIC KEY-----", "")
-    |> String.replace(~r/\s+/, "")
-    |> Base.decode64!()
+    [{:SubjectPublicKeyInfo, der, :not_encrypted}] = :public_key.pem_decode(pem)
+    # SPKI DER for Ed25519 = 12-byte header + 32-byte raw key
+    <<_header::binary-size(12), raw_key::binary-size(32)>> = der
+    raw_key
   end
 end
