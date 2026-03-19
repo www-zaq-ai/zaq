@@ -4,30 +4,8 @@
   page_title="Knowledge Gap"
   current_path={@current_path}
 >
-  <div :if={not @licensed} class="flex items-center justify-center min-h-[60vh]">
-    <div class="bg-white rounded-xl border border-dashed border-black/15 p-10 text-center max-w-md">
-      <div class="w-10 h-10 rounded-lg bg-amber-100 grid place-items-center mx-auto mb-4">
-        <svg
-          class="w-5 h-5 text-amber-500"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          viewBox="0 0 24 24"
-        >
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-        </svg>
-      </div>
-      <p class="font-mono text-sm font-bold text-black mb-1">Feature Not Licensed</p>
-      <p class="font-mono text-[0.7rem] text-black/40 mb-5">
-        Knowledge Gap Detection is not included in your current license.
-      </p>
-      <.link
-        href={~p"/bo/license"}
-        class="inline-block font-mono text-[0.8rem] font-bold px-5 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors"
-      >
-        View License
-      </.link>
-    </div>
-  </div>
+  <ZaqWeb.Components.BOLayout.feature_gate
+    :if={not @licensed}
+    feature_name="Knowledge Gap Detection"
+  />
 </ZaqWeb.Components.BOLayout.bo_layout>

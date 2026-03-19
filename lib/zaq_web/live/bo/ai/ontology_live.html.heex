@@ -4,27 +4,5 @@
   page_title="Ontology"
   current_path={@current_path}
 >
-  <!-- ================================================================== -->
-  <!-- Unlicensed State -->
-  <!-- ================================================================== -->
-  <div :if={not @licensed} class="flex items-center justify-center min-h-[60vh]">
-    <div class="bg-white rounded-xl border border-dashed border-black/15 p-10 text-center max-w-md">
-      <div class="w-10 h-10 rounded-lg bg-red-100 grid place-items-center mx-auto mb-4">
-        <svg
-          class="w-5 h-5 text-red-500"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          viewBox="0 0 24 24"
-        >
-          <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-          <path d="M12 15.75h.007v.008H12v-.008z" />
-        </svg>
-      </div>
-      <p class="font-mono text-sm font-bold text-black mb-1">Feature Not Licensed</p>
-      <p class="font-mono text-[0.7rem] text-black/40">
-        The ontology feature is not included in your current license. Contact your administrator.
-      </p>
-    </div>
-  </div>
+  <ZaqWeb.Components.BOLayout.feature_gate :if={not @licensed} feature_name="Ontology" />
 </ZaqWeb.Components.BOLayout.bo_layout>

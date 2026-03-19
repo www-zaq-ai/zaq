@@ -213,12 +213,12 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
 
   defp fully_licensed_features do
     [
-      "Ontology Management",
-      "Knowledge Gap Detection",
-      "Slack Integration",
-      "Email Channel",
-      "Advanced RAG Pipeline",
-      "Multi-Tenant Sessions"
+      "ontology",
+      "knowledge_gap",
+      "slack_integration",
+      "email_channel",
+      "advanced_rag",
+      "multi_tenant"
     ]
     |> Enum.map(fn name ->
       %{

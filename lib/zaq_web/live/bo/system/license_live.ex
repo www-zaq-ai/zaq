@@ -5,36 +5,42 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
 
   @zaq_features [
     %{
+      key: "ontology",
       name: "Ontology Management",
       description:
         "Build and manage your organization's knowledge graph with automated entity extraction and relationship mapping.",
       icon: "ontology"
     },
     %{
+      key: "knowledge_gap",
       name: "Knowledge Gap Detection",
       description:
         "Automatically identify missing information and suggest content that should be added to your knowledge base.",
       icon: "knowledge_gap"
     },
     %{
+      key: "slack_integration",
       name: "Slack Integration",
       description:
         "Connect ZAQ to your Slack workspace. Your team can ask questions and get cited answers directly in channels.",
       icon: "slack"
     },
     %{
+      key: "email_channel",
       name: "Email Channel",
       description:
         "Process incoming emails and route them through ZAQ's AI engine for automated triage and response drafting.",
       icon: "email"
     },
     %{
+      key: "advanced_rag",
       name: "Advanced RAG Pipeline",
       description:
         "Enhanced retrieval-augmented generation with hybrid search, re-ranking, and multi-hop reasoning.",
       icon: "rag"
     },
     %{
+      key: "multi_tenant",
       name: "Multi-Tenant Sessions",
       description:
         "Isolate knowledge access per team or department with fine-grained session and permission controls.",
@@ -92,18 +98,25 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     license_data = FeatureStore.license_data()
     loaded_modules = FeatureStore.loaded_modules()
 
-    licensed_names =
+    licensed_keys =
       case license_data do
         nil -> []
         data -> data |> Map.get("features", []) |> Enum.map(& &1["name"])
       end
 
-    locked_features = Enum.reject(@zaq_features, fn f -> f.name in licensed_names end)
+    feature_lookup = Map.new(@zaq_features, &{&1.key, &1})
+
+    licensed_features =
+      licensed_keys
+      |> Enum.map(fn key -> Map.get(feature_lookup, key, %{key: key, name: key, icon: nil}) end)
+
+    locked_features = Enum.reject(@zaq_features, fn f -> f.key in licensed_keys end)
 
     assign(socket,
       license_data: license_data,
       loaded_modules: loaded_modules,
       zaq_features: @zaq_features,
+      licensed_features: licensed_features,
       locked_features: locked_features
     )
   end
@@ -132,10 +145,17 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     end
   end
 
-  defp feature_icon(%{icon: "ontology"} = assigns) do
+  defp feature_icon(%{icon: nil} = assigns), do: ~H""
+
+  defp feature_icon(assigns) do
+    assigns = assign_new(assigns, :active, fn -> false end)
+    feature_icon_for(assigns)
+  end
+
+  defp feature_icon_for(%{icon: "ontology"} = assigns) do
     ~H"""
     <svg
-      class="w-[18px] h-[18px] text-black/40"
+      class={["w-[18px] h-[18px]", if(@active, do: "text-[#03b6d4]", else: "text-black/40")]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
@@ -147,10 +167,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     """
   end
 
-  defp feature_icon(%{icon: "knowledge_gap"} = assigns) do
+  defp feature_icon_for(%{icon: "knowledge_gap"} = assigns) do
     ~H"""
     <svg
-      class="w-[18px] h-[18px] text-black/40"
+      class={[
+        "w-[18px] h-[18px]",
+        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
+      ]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
@@ -166,10 +189,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     """
   end
 
-  defp feature_icon(%{icon: "slack"} = assigns) do
+  defp feature_icon_for(%{icon: "slack"} = assigns) do
     ~H"""
     <svg
-      class="w-[18px] h-[18px] text-black/40"
+      class={[
+        "w-[18px] h-[18px]",
+        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
+      ]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
@@ -186,10 +212,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     """
   end
 
-  defp feature_icon(%{icon: "email"} = assigns) do
+  defp feature_icon_for(%{icon: "email"} = assigns) do
     ~H"""
     <svg
-      class="w-[18px] h-[18px] text-black/40"
+      class={[
+        "w-[18px] h-[18px]",
+        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
+      ]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
@@ -200,10 +229,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     """
   end
 
-  defp feature_icon(%{icon: "rag"} = assigns) do
+  defp feature_icon_for(%{icon: "rag"} = assigns) do
     ~H"""
     <svg
-      class="w-[18px] h-[18px] text-black/40"
+      class={[
+        "w-[18px] h-[18px]",
+        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
+      ]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
@@ -215,10 +247,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     """
   end
 
-  defp feature_icon(%{icon: "sessions"} = assigns) do
+  defp feature_icon_for(%{icon: "sessions"} = assigns) do
     ~H"""
     <svg
-      class="w-[18px] h-[18px] text-black/40"
+      class={[
+        "w-[18px] h-[18px]",
+        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
+      ]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
@@ -230,10 +265,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     """
   end
 
-  defp feature_icon(assigns) do
+  defp feature_icon_for(assigns) do
     ~H"""
     <svg
-      class="w-[18px] h-[18px] text-black/40"
+      class={[
+        "w-[18px] h-[18px]",
+        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
+      ]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"

@@ -18,11 +18,11 @@ defmodule ZaqWeb.Live.BO.AI.KnowledgeGapLive do
     {:ok,
      socket
      |> assign(:current_path, "/bo/knowledge-gap")
-     |> assign(:licensed, FeatureStore.feature_loaded?("Knowledge Gap Detection"))}
+     |> assign(:licensed, FeatureStore.feature_loaded?("knowledge_gap"))}
   end
 
   @impl true
   def handle_info(:license_updated, socket) do
-    {:noreply, assign(socket, :licensed, FeatureStore.feature_loaded?("Knowledge Gap Detection"))}
+    {:noreply, assign(socket, :licensed, FeatureStore.feature_loaded?("knowledge_gap"))}
   end
 end

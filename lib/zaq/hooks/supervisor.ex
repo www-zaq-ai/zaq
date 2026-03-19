@@ -2,7 +2,7 @@ defmodule Zaq.Hooks.Supervisor do
   @moduledoc """
   Supervises the ZAQ hook registry.
 
-  Started as a base child in `Zaq.Application` (before role-specific supervisors)
+  Started as a base child in the application supervisor (before role-specific supervisors)
   so that hooks are available across all node roles.
   """
 
