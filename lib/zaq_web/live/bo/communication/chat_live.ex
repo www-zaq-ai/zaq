@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts.Permissions
+  alias Zaq.Agent.Pipeline
   alias Zaq.NodeRouter
   alias ZaqWeb.Components.ServiceUnavailable
 
@@ -335,7 +336,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     role_ids = Permissions.list_accessible_role_ids(current_user)
 
     result =
-      Zaq.Agent.Pipeline.run(user_msg,
+      Pipeline.run(user_msg,
         history: history,
         role_ids: role_ids,
         on_status: fn stage, msg -> update_status(pid, request_id, stage, msg) end,

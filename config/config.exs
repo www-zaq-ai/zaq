@@ -17,10 +17,12 @@ config :mime, :types, %{
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  queues: [ingestion: 3, default: 10, conversations: 5, knowledge_gap: 5],
-  crontab: [
-    {"0 * * * *", Zaq.Engine.StaleQuestionsCleanupWorker}
-  ]
+  queues: [ingestion: 3, default: 10, conversations: 5],
+  crontab: []
+
+# Base crontab entries for always-on workers (no license required).
+# Feature modules implementing Zaq.License.ObanFeature append to this at runtime.
+config :zaq, oban_base_crontab: []
 
 # Configure the endpoint
 config :zaq, ZaqWeb.Endpoint,

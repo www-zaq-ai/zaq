@@ -164,23 +164,21 @@ defmodule Zaq.Hooks do
   # ---------------------------------------------------------------------------
 
   defp run_observer(%Hook{handler: handler}, event, payload, ctx) do
-    try do
-      handler.handle(event, payload, ctx)
-    rescue
-      e ->
-        emit_handler_error(event, handler, e)
+    handler.handle(event, payload, ctx)
+  rescue
+    e ->
+      emit_handler_error(event, handler, e)
 
-        Logger.warning(
-          "[Hooks] sync observer #{inspect(handler)} raised in #{event}: #{inspect(e)}"
-        )
-    catch
-      kind, reason ->
-        emit_handler_error(event, handler, {kind, reason})
+      Logger.warning(
+        "[Hooks] sync observer #{inspect(handler)} raised in #{event}: #{inspect(e)}"
+      )
+  catch
+    kind, reason ->
+      emit_handler_error(event, handler, {kind, reason})
 
-        Logger.warning(
-          "[Hooks] sync observer #{inspect(handler)} threw in #{event}: #{inspect({kind, reason})}"
-        )
-    end
+      Logger.warning(
+        "[Hooks] sync observer #{inspect(handler)} threw in #{event}: #{inspect({kind, reason})}"
+      )
   end
 
   defp spawn_async(%Hook{handler: handler, node_role: :local}, event, payload, ctx) do

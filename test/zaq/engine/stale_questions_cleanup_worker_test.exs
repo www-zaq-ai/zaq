@@ -34,6 +34,21 @@ defmodule Zaq.Engine.StaleQuestionsCleanupWorkerTest do
     end
   end
 
+  describe "config regression" do
+    test "perform/1 succeeds without knowledge_gap queue in static config" do
+      # The knowledge_gap queue is no longer in config.exs — it is provisioned
+      # at runtime by ObanProvisioner when the license loads. The worker itself
+      # must remain self-contained and not depend on the queue being registered
+      # at boot time.
+      refute Keyword.has_key?(
+               Application.fetch_env!(:zaq, Oban) |> Keyword.get(:queues, []),
+               :knowledge_gap
+             )
+
+      assert :ok = StaleQuestionsCleanupWorker.perform(%Oban.Job{})
+    end
+  end
+
   defmodule PendingQuestionsStub do
     def expire_stale(ttl) do
       test_pid = Application.get_env(:zaq, :worker_test_pid)

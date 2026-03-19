@@ -118,6 +118,62 @@ defmodule Zaq.License.IntegrationTest do
       assert FeatureStore.module_loaded?(module)
     end
 
+    test "loading a license with an ObanFeature module twice does not crash (idempotent)", %{
+      priv: priv,
+      tmp_dir: tmp_dir
+    } do
+      mod_name =
+        "Elixir.LicenseManager.Paid.IdempotentOban#{System.unique_integer([:positive])}"
+
+      queue = :"integration_idempotent_q_#{System.unique_integer([:positive])}"
+
+      module_code = """
+      defmodule #{mod_name} do
+        @behaviour Zaq.License.ObanFeature
+        def oban_queues, do: [{:#{queue}, 1}]
+        def oban_crontab, do: []
+      end
+      """
+
+      [{_mod, beam_binary}] = Code.compile_string(module_code)
+
+      payload =
+        Jason.encode!(%{
+          license_key: "lic_idempotent",
+          company: %{id: "cid", name: "Idem Corp"},
+          features: [],
+          issued_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+          expires_at: DateTime.utc_now() |> DateTime.add(86_400) |> DateTime.to_iso8601(),
+          max_users: 5
+        })
+
+      signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+      key = BeamDecryptor.derive_key(payload)
+      iv = :crypto.strong_rand_bytes(12)
+
+      {encrypted, tag} =
+        :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, beam_binary, "zaq-beam-v1", 16, true)
+
+      encrypted_beam = iv <> tag <> encrypted
+      license_dat = Base.encode64(payload) <> "." <> Base.encode64(signature)
+      license_path = Path.join(tmp_dir, "idempotent.zaq-license")
+
+      :erl_tar.create(
+        String.to_charlist(license_path),
+        [
+          {~c"license.dat", license_dat},
+          {String.to_charlist("modules/#{mod_name}.beam.enc"), encrypted_beam}
+        ],
+        [:compressed]
+      )
+
+      capture_log(fn ->
+        assert {:ok, _} = Loader.load(license_path)
+        # Second load must not raise even though start_queue is called again
+        assert {:ok, _} = Loader.load(license_path)
+      end)
+    end
+
     test "rejects expired license", %{priv: priv, tmp_dir: tmp_dir} do
       payload =
         Jason.encode!(%{

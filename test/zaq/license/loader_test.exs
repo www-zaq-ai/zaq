@@ -31,6 +31,8 @@ defmodule Zaq.License.LoaderTest do
     on_exit(fn ->
       FeatureStore.clear()
       File.rm_rf!(tmp_dir)
+      # Restore logger level in case a test raised it to :info for capture_log
+      Logger.configure(level: :warning)
 
       case original_key do
         {:ok, content} -> File.write!(@public_key_path, content)
@@ -157,6 +159,101 @@ defmodule Zaq.License.LoaderTest do
 
     assert {:error, {:load_failed, "Elixir.LicenseManager.Paid.LoadFail", _reason}} =
              Loader.load(path)
+  end
+
+  test "calls ObanProvisioner when loaded module implements ObanFeature", %{
+    tmp_dir: tmp_dir,
+    priv: priv
+  } do
+    # The unique suffix keeps the module atom distinct across test runs.
+    mod_name = "Elixir.LicenseManager.Paid.ObanFeatureTest#{System.unique_integer([:positive])}"
+
+    queue = :"loader_test_oban_q_#{System.unique_integer([:positive])}"
+
+    module_source = """
+    defmodule #{mod_name} do
+      @behaviour Zaq.License.ObanFeature
+      def oban_queues, do: [{:#{queue}, 1}]
+      def oban_crontab, do: []
+    end
+    """
+
+    [{_module, beam_binary}] = Code.compile_string(module_source)
+
+    payload = valid_payload("lic_oban_feature")
+    signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+    key = BeamDecryptor.derive_key(payload)
+
+    {encrypted, tag} =
+      :crypto.crypto_one_time_aead(
+        :aes_256_gcm,
+        key,
+        <<11::96>>,
+        beam_binary,
+        "zaq-beam-v1",
+        16,
+        true
+      )
+
+    encrypted_module = <<11::96>> <> tag <> encrypted
+    path = Path.join(tmp_dir, "oban_feature.zaq-license")
+
+    create_archive!(path, [
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {String.to_charlist("modules/#{mod_name}.beam.enc"), encrypted_module}
+    ])
+
+    Logger.configure(level: :info)
+
+    log = capture_log(fn -> assert {:ok, _} = Loader.load(path) end)
+
+    # Provisioner attempted start_queue (success or failure in test mode —
+    # both prove the call was made)
+    assert log =~ "queue :#{queue}"
+  end
+
+  test "does not invoke ObanProvisioner for modules without ObanFeature", %{
+    tmp_dir: tmp_dir,
+    priv: priv
+  } do
+    mod_name = "Elixir.LicenseManager.Paid.NoObanFeature#{System.unique_integer([:positive])}"
+
+    module_source = """
+    defmodule #{mod_name} do
+      def enabled?, do: true
+    end
+    """
+
+    [{_module, beam_binary}] = Code.compile_string(module_source)
+
+    payload = valid_payload("lic_no_oban_feature")
+    signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+    key = BeamDecryptor.derive_key(payload)
+
+    {encrypted, tag} =
+      :crypto.crypto_one_time_aead(
+        :aes_256_gcm,
+        key,
+        <<12::96>>,
+        beam_binary,
+        "zaq-beam-v1",
+        16,
+        true
+      )
+
+    encrypted_module = <<12::96>> <> tag <> encrypted
+    path = Path.join(tmp_dir, "no_oban_feature.zaq-license")
+
+    create_archive!(path, [
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {String.to_charlist("modules/#{mod_name}.beam.enc"), encrypted_module}
+    ])
+
+    Logger.configure(level: :info)
+
+    log = capture_log(fn -> assert {:ok, _} = Loader.load(path) end)
+
+    refute log =~ "[ObanProvisioner]"
   end
 
   test "loads valid package and updates feature store", %{tmp_dir: tmp_dir, priv: priv} do

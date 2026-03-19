@@ -40,7 +40,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.Permissions
-  alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
+  alias Zaq.Agent.{Answering, Pipeline, PromptGuard, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Channels.PendingQuestions
   alias Zaq.Channels.Retrieval.Mattermost.API
@@ -264,7 +264,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     role_ids = resolve_role_ids(sender_name)
 
     result =
-      Zaq.Agent.Pipeline.run(user_msg,
+      Pipeline.run(user_msg,
         role_ids: role_ids,
         node_router: node_router_module(),
         retrieval: retrieval_module(),

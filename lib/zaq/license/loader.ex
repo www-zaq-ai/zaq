@@ -5,7 +5,7 @@ defmodule Zaq.License.Loader do
   and loads them into the BEAM VM.
   """
 
-  alias Zaq.License.{BeamDecryptor, FeatureStore, LicensePostLoader, Verifier}
+  alias Zaq.License.{BeamDecryptor, FeatureStore, LicensePostLoader, ObanProvisioner, Verifier}
 
   require Logger
 
@@ -24,6 +24,7 @@ defmodule Zaq.License.Loader do
       migration_files = extract_migration_files(files)
       view_files = extract_view_files(files)
       FeatureStore.store(license_data, loaded_modules)
+      ObanProvisioner.provision(loaded_modules)
       LicensePostLoader.notify(license_data, migration_files, view_files)
       Logger.info("License loaded successfully: #{license_data["license_key"]}")
       {:ok, license_data}

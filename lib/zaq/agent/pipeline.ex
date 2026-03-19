@@ -46,6 +46,8 @@ defmodule Zaq.Agent.Pipeline do
     * `%{answer: String.t(), confidence: 0.0, error: true}`   — error
   """
 
+  alias LicenseManager.Paid.KnowledgeGap
+
   require Logger
 
   @no_answer_signal "I don't have enough information to answer that question."
@@ -128,7 +130,7 @@ defmodule Zaq.Agent.Pipeline do
 
   defp maybe_capture_knowledge_gap(params) do
     if function_exported?(LicenseManager.Paid.KnowledgeGap, :capture, 1) do
-      apply(LicenseManager.Paid.KnowledgeGap, :capture, [params])
+      KnowledgeGap.capture(params)
     end
   end
 
