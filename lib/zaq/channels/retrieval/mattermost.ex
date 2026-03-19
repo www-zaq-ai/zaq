@@ -53,7 +53,6 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   @behaviour Zaq.Engine.RetrievalChannel
 
   @bot_mention ~r/@zaq\b/i
-  @no_answer_signal "I don't have enough information to answer that question."
 
   # --- RetrievalChannel behaviour ---
 
@@ -260,43 +259,20 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
          channel_config_id,
          sender_name
        ) do
-    # Send typing indicator while processing
     api_module().send_typing(channel_id, thread_id)
 
     role_ids = resolve_role_ids(sender_name)
 
     result =
-      with {:ok, clean_msg} <- prompt_guard_module().validate(user_msg),
-           {:ok, retrieval_result} <- run_retrieval(clean_msg),
-           {:ok, extraction_result} <- run_query_extraction(retrieval_result, role_ids),
-           {:ok, answer_result} <- run_answering(clean_msg, extraction_result, retrieval_result),
-           {:ok, safe_answer} <- prompt_guard_module().output_safe?(answer_result.answer) do
-        if answering_module().no_answer?(safe_answer) do
-          %{answer: answering_module().clean_answer(safe_answer), confidence: 0.0}
-        else
-          %{answer: safe_answer, confidence: Map.get(answer_result, :confidence, %{score: 1.0})}
-        end
-      else
-        {:error, :prompt_injection} ->
-          %{answer: "I can only help with ZAQ-related questions.", error: true}
-
-        {:error, :role_play_attempt} ->
-          %{answer: "I can only help with ZAQ-related questions.", error: true}
-
-        {:error, {:leaked, _phrase}} ->
-          Logger.warning("[Mattermost] PromptGuard: output leak detected, blocking response")
-          %{answer: "I can only help with ZAQ-related questions.", error: true}
-
-        {:error, :no_results, negative_answer} ->
-          %{answer: negative_answer}
-
-        {:error, :no_results} ->
-          %{answer: "I couldn't find relevant information to answer your question."}
-
-        {:error, reason} ->
-          Logger.error("[Mattermost] Pipeline error: #{inspect(reason)}")
-          %{answer: "Sorry, something went wrong. Please try again.", error: true}
-      end
+      Zaq.Agent.Pipeline.run(user_msg,
+        role_ids: role_ids,
+        node_router: node_router_module(),
+        retrieval: retrieval_module(),
+        document_processor: document_processor_module(),
+        answering: answering_module(),
+        prompt_guard: prompt_guard_module(),
+        prompt_template: prompt_template_module()
+      )
 
     # Send the answer as a thread reply
     reply = clean_body(result.answer)
@@ -340,73 +316,6 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   defp extract_confidence_score(%{score: score}), do: score
   defp extract_confidence_score(score) when is_float(score), do: score
   defp extract_confidence_score(_), do: nil
-
-  defp run_retrieval(clean_msg) do
-    case node_router_module().call(:agent, retrieval_module(), :ask, [clean_msg, [history: %{}]]) do
-      {:ok,
-       %{
-         "query" => query,
-         "language" => language,
-         "positive_answer" => positive_answer,
-         "negative_answer" => negative_answer
-       }}
-      when query != "" ->
-        {:ok,
-         %{
-           query: query,
-           language: language,
-           positive_answer: positive_answer,
-           negative_answer: negative_answer
-         }}
-
-      {:ok, %{"negative_answer" => negative_answer}} ->
-        {:error, :no_results, negative_answer}
-
-      {:ok, %{"error" => _}} ->
-        {:error, :blocked}
-
-      {:ok, _} ->
-        {:error, :no_results}
-
-      error ->
-        error
-    end
-  end
-
-  defp run_query_extraction(%{query: query, negative_answer: negative_answer}, role_ids) do
-    case node_router_module().call(:ingestion, document_processor_module(), :query_extraction, [
-           query,
-           role_ids
-         ]) do
-      {:ok, results} when results != [] -> {:ok, results}
-      {:ok, []} -> {:error, :no_results, negative_answer}
-      {:error, _} -> {:error, :no_results, negative_answer}
-    end
-  end
-
-  defp run_answering(question, query_results, retrieval) do
-    language = Map.get(retrieval, :language, "en")
-
-    retrieved_data =
-      query_results
-      |> Enum.map(fn %{"content" => content, "source" => source} ->
-        %{"content" => content, "source" => source}
-      end)
-
-    system_prompt =
-      prompt_template_module().render("answering", %{
-        question: question,
-        retrieved_data: Jason.encode!(retrieved_data),
-        language: language,
-        no_answer_signal: @no_answer_signal
-      })
-
-    case node_router_module().call(:agent, answering_module(), :ask, [system_prompt]) do
-      {:ok, %{answer: _, confidence: _} = result} -> {:ok, result}
-      {:ok, answer} when is_binary(answer) -> {:ok, %{answer: answer, confidence: %{score: 1.0}}}
-      error -> error
-    end
-  end
 
   # --- Private: Helpers ---
 

@@ -2,27 +2,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   @moduledoc """
   Back-office chat.
 
-  Full-size chat interface that connects to the RAG agent pipeline:
-
-      User message
-        → PromptGuard.validate/1
-        → Retrieval.ask/2          (shows "searching …" indicator)
-        → DocumentProcessor.query_extraction/1
-        → PromptTemplate.render("answering", …)
-        → Answering.ask/2
-        → PromptGuard.output_safe?/1
-        → push answer to UI
-
-  Agent and Ingestion calls are routed via Zaq.NodeRouter so they
-  work whether the services run locally or on a peer node.
+  Full-size chat interface that delegates to `Zaq.Agent.Pipeline.run/2`
+  with live status callbacks. Agent and Ingestion calls are routed via
+  Zaq.NodeRouter so they work whether services run locally or on a peer node.
   """
 
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts.Permissions
-  alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
-  alias Zaq.Agent.PromptTemplate
-  alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
   alias ZaqWeb.Components.ServiceUnavailable
 
@@ -32,8 +19,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   @required_roles [:agent, :ingestion]
 
   require Logger
-
-  @no_answer_signal "I don't have enough information to answer that question."
 
   # ── Lifecycle ──────────────────────────────────────────────────────
 
@@ -350,53 +335,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     role_ids = Permissions.list_accessible_role_ids(current_user)
 
     result =
-      with {:ok, clean_msg} <- PromptGuard.validate(user_msg),
-           :ok <-
-             update_status(pid, request_id, :retrieving, "ZAQ is searching your knowledge base…"),
-           {:ok, retrieval_result} <- run_retrieval(clean_msg, history),
-           :ok <-
-             update_status(
-               pid,
-               request_id,
-               :retrieving,
-               retrieval_result.positive_answer
-             ),
-           {:ok, extraction_result} <- run_query_extraction(retrieval_result, role_ids),
-           :ok <- update_status(pid, request_id, :answering, "Formulating your answer…"),
-           {:ok, answer_result} <-
-             run_answering(clean_msg, extraction_result, retrieval_result, history),
-           {:ok, safe_answer} <- PromptGuard.output_safe?(answer_result.answer) do
-        confidence = Map.get(answer_result, :confidence, %{score: 1.0})
-
-        if Answering.no_answer?(safe_answer) do
-          %{answer: Answering.clean_answer(safe_answer), confidence: 0.0}
-        else
-          %{answer: safe_answer, confidence: confidence.score}
-        end
-      else
-        {:error, :prompt_injection} ->
-          %{answer: "I can only help with ZAQ-related questions.", confidence: 0, error: true}
-
-        {:error, :role_play_attempt} ->
-          %{answer: "I can only help with ZAQ-related questions.", confidence: 0, error: true}
-
-        {:error, {:leaked, _phrase}} ->
-          Logger.warning("PromptGuard: output leak detected, blocking response")
-          %{answer: "I can only help with ZAQ-related questions.", confidence: 0, error: true}
-
-        {:error, :no_results, negative_answer} ->
-          %{answer: negative_answer, confidence: 0}
-
-        {:error, :no_results} ->
-          %{
-            answer: "I couldn't find relevant information to answer your question.",
-            confidence: 0
-          }
-
-        {:error, reason} ->
-          Logger.error("Chat pipeline error: #{inspect(reason)}")
-          %{answer: "Sorry, something went wrong. Please try again.", confidence: 0, error: true}
-      end
+      Zaq.Agent.Pipeline.run(user_msg,
+        history: history,
+        role_ids: role_ids,
+        on_status: fn stage, msg -> update_status(pid, request_id, stage, msg) end,
+        node_router: node_router()
+      )
 
     send(pid, {:pipeline_result, request_id, result, user_msg})
   end
@@ -404,74 +348,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp update_status(pid, request_id, status, message) do
     send(pid, {:status_update, request_id, status, message})
     :ok
-  end
-
-  # Routes Retrieval.ask to the node running Zaq.Agent.Supervisor,
-  # then normalizes the response from string keys to atom keys locally.
-  defp run_retrieval(clean_msg, history) do
-    case node_router().call(:agent, Retrieval, :ask, [clean_msg, [history: history]]) do
-      {:ok,
-       %{
-         "query" => query,
-         "language" => language,
-         "positive_answer" => positive_answer,
-         "negative_answer" => negative_answer
-       }}
-      when query != "" ->
-        {:ok,
-         %{
-           query: query,
-           language: language,
-           positive_answer: positive_answer,
-           negative_answer: negative_answer
-         }}
-
-      {:ok, %{"negative_answer" => negative_answer}} ->
-        {:error, :no_results, negative_answer}
-
-      {:ok, %{"error" => _}} ->
-        {:error, :blocked}
-
-      {:ok, _} ->
-        {:error, :no_results}
-
-      error ->
-        error
-    end
-  end
-
-  # Routes DocumentProcessor.query_extraction to the node running Zaq.Ingestion.Supervisor.
-  defp run_query_extraction(%{query: query, negative_answer: negative_answer}, role_ids) do
-    case node_router().call(:ingestion, DocumentProcessor, :query_extraction, [query, role_ids]) do
-      {:ok, results} when results != [] -> {:ok, results}
-      {:ok, []} -> {:error, :no_results, negative_answer}
-      {:error, _} -> {:error, :no_results, negative_answer}
-    end
-  end
-
-  # Routes Answering.ask to the node running Zaq.Agent.Supervisor.
-  defp run_answering(question, query_results, retrieval, _history) do
-    language = Map.get(retrieval, :language, "en")
-
-    retrieved_data =
-      query_results
-      |> Enum.map(fn %{"content" => content, "source" => source} ->
-        %{"content" => content, "source" => source}
-      end)
-
-    system_prompt =
-      PromptTemplate.render("answering", %{
-        question: question,
-        retrieved_data: Jason.encode!(retrieved_data),
-        language: language,
-        no_answer_signal: @no_answer_signal
-      })
-
-    case node_router().call(:agent, Answering, :ask, [system_prompt]) do
-      {:ok, %{answer: _, confidence: _} = result} -> {:ok, result}
-      {:ok, answer} when is_binary(answer) -> {:ok, %{answer: answer, confidence: %{score: 1.0}}}
-      error -> error
-    end
   end
 
   defp node_router do
