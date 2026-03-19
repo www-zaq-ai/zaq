@@ -123,31 +123,20 @@
         </p>
         <div class="grid grid-cols-2 gap-4">
           <div
-            :for={feature <- @license_data["features"]}
+            :for={feature <- @licensed_features}
             class="bg-white rounded-xl border border-black/10 p-5 flex items-start gap-4"
           >
             <div class="w-9 h-9 rounded-lg bg-[#03b6d4]/10 grid place-items-center flex-shrink-0">
-              <svg
-                class="w-[18px] h-[18px] text-[#03b6d4]"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                viewBox="0 0 24 24"
-              >
-                <path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="10" />
-              </svg>
+              <.feature_icon icon={feature.icon} active={true} />
             </div>
             <div>
-              <p class="font-mono text-sm font-bold text-black">{feature["name"]}</p>
-              <p class="font-mono text-[0.75rem] text-black/50 mt-1">{feature["description"]}</p>
-              <div class="flex flex-wrap gap-1.5 mt-2">
-                <span
-                  :for={tag <- feature["module_tags"] || []}
-                  class="font-mono text-[0.6rem] px-2 py-0.5 rounded bg-black/5 text-black/40"
-                >
-                  {tag}
+              <div class="flex items-center gap-2">
+                <p class="font-mono text-sm font-bold text-black">{feature.name}</p>
+                <span class="font-mono text-[0.6rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                  Active
                 </span>
               </div>
+              <p class="font-mono text-[0.75rem] text-black/50 mt-1">{feature[:description]}</p>
             </div>
           </div>
         </div>

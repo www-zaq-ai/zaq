@@ -5,6 +5,7 @@ defmodule ZaqWeb.Components.BOLayout do
   Back office layout with collapsible sidebar and section dropdowns.
   """
   use Phoenix.Component
+  alias Zaq.License.FeatureStore
   use ZaqWeb, :verified_routes
 
   attr :current_user, :map, required: true
@@ -267,13 +268,14 @@ defmodule ZaqWeb.Components.BOLayout do
               icon="ontology"
               label="Ontology"
               active={String.starts_with?(@current_path, "/bo/ontology")}
+              locked={feature_locked?("ontology")}
             />
             <:item
               href={~p"/bo/knowledge-gap"}
               icon="knowledge_gap"
               label="Knowledge Gap"
               active={@current_path == "/bo/knowledge-gap"}
-              locked={true}
+              locked={feature_locked?("knowledge_gap")}
             />
           </.nav_section>
           
@@ -910,5 +912,58 @@ defmodule ZaqWeb.Components.BOLayout do
       </div>
     </div>
     """
+  end
+
+  @doc """
+  Renders a centered "feature not licensed" gate card.
+
+  ## Attributes
+
+    * `:feature_name` - Human-readable feature name shown in the description.
+    * `:message` - Optional override for the description line.
+  """
+  attr :feature_name, :string, required: true
+  attr :message, :string, default: nil
+
+  def feature_gate(assigns) do
+    assigns =
+      update(assigns, :message, fn
+        nil ->
+          "The #{String.downcase(assigns.feature_name)} feature is not included in your current license. Contact your administrator."
+
+        msg ->
+          msg
+      end)
+
+    ~H"""
+    <div class="flex items-center justify-center min-h-[60vh]">
+      <div class="bg-white rounded-xl border border-dashed border-black/15 p-10 text-center max-w-md">
+        <div class="w-10 h-10 rounded-lg bg-red-100 grid place-items-center mx-auto mb-4">
+          <svg
+            class="w-5 h-5 text-red-500"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+            <path d="M12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+        <p class="font-mono text-sm font-bold text-black mb-1">Feature Not Licensed</p>
+        <p class="font-mono text-[0.7rem] text-black/40 mb-5">{@message}</p>
+        <.link
+          href={~p"/bo/license"}
+          class="inline-block font-mono text-[0.8rem] font-bold px-5 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors"
+        >
+          View License
+        </.link>
+      </div>
+    </div>
+    """
+  end
+
+  defp feature_locked?(feature) do
+    not FeatureStore.feature_loaded?(feature)
   end
 end

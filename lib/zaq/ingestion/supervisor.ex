@@ -4,7 +4,7 @@ defmodule Zaq.Ingestion.Supervisor do
   Started when the :ingestion role is active.
 
   Oban is started in the root application supervisor so it is available
-  to all roles — see `Zaq.Application`.
+  to all roles.
   """
 
   use Supervisor
