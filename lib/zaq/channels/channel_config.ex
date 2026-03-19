@@ -57,13 +57,19 @@ defmodule Zaq.Channels.ChannelConfig do
   end
 
   @doc """
-  Returns the enabled ChannelConfig for a given platform-specific channel ID,
-  by joining through retrieval_channels. Returns nil if not found.
+  Returns the enabled ChannelConfig for a given provider and platform-specific
+  channel ID, by joining through retrieval_channels. Returns nil if not found.
+
+  Both `provider` and `channel_id` are required to avoid collisions: two
+  different providers may share the same channel ID string.
   """
-  def get_by_channel_id(channel_id) do
+  def get_by_channel_id(provider, channel_id) do
     Zaq.Channels.RetrievalChannel
     |> join(:inner, [r], c in __MODULE__, on: r.channel_config_id == c.id)
-    |> where([r, c], r.channel_id == ^channel_id and c.enabled == true)
+    |> where(
+      [r, c],
+      r.channel_id == ^channel_id and c.provider == ^provider and c.enabled == true
+    )
     |> select([_r, c], c)
     |> Zaq.Repo.one()
   end

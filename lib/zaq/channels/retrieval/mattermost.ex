@@ -42,7 +42,6 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{Answering, Pipeline, PromptGuard, Retrieval}
   alias Zaq.Agent.PromptTemplate
-  alias Zaq.Channels.PendingQuestions
   alias Zaq.Channels.Retrieval.Mattermost.API
   alias Zaq.Channels.Retrieval.Mattermost.EventParser
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
@@ -203,13 +202,16 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   defp handle_valid_post(post, state) do
     cond do
+      pending_reply?(post) ->
+        # Always process thread replies regardless of whether the channel is monitored.
+        # SME answers come from the (unmonitored) SME channel; pending-reply check
+        # must happen before the monitored gate.
+        handle_pending_reply(post, state)
+
       not monitored?(post.channel_id, state) ->
         Logger.debug("[Mattermost] Ignoring message from unmonitored channel: #{post.channel_id}")
 
         {:ok, state}
-
-      pending_reply?(post) ->
-        handle_pending_reply(post, state)
 
       not mentions_zaq?(post.message) ->
         Logger.debug("[Mattermost] Ignoring message without @zaq mention")
@@ -238,15 +240,13 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
   end
 
   defp handle_pending_reply(post, state) do
-    case PendingQuestions.check_reply(post) do
-      {:answered, answer, callback} ->
-        Logger.info("[Mattermost] Answer received: #{answer}")
-        callback.(answer)
-        {:ok, state}
+    ctx = %{trace_id: nil, node: node()}
 
-      :ignore ->
-        {:ok, state}
-    end
+    Zaq.Hooks.Registry.lookup(:reply_received)
+    |> Enum.filter(&(&1.mode == :sync))
+    |> Enum.each(& &1.handler.handle(:reply_received, post, ctx))
+
+    {:ok, state}
   end
 
   # --- Private: RAG Pipeline ---

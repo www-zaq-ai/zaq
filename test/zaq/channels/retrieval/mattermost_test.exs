@@ -2,9 +2,9 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.PendingQuestions
   alias Zaq.Channels.Retrieval.Mattermost
   alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Hooks.{Hook, Registry}
   alias Zaq.Repo
 
   @moduletag capture_log: true
@@ -36,12 +36,12 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
       Application.delete_env(:zaq, :mattermost_test_pid)
     end)
 
-    case Process.whereis(PendingQuestions) do
-      nil -> start_supervised!({PendingQuestions, []})
-      _pid -> :ok
-    end
+    registry_name = :"mattermost_test_registry_#{System.unique_integer([:positive])}"
+    start_supervised!({Registry, name: registry_name})
+    Application.put_env(:zaq, :hooks_registry_name, registry_name)
 
-    Agent.update(PendingQuestions, fn _state -> %{} end)
+    on_exit(fn -> Application.delete_env(:zaq, :hooks_registry_name) end)
+
     :ok
   end
 
@@ -237,17 +237,19 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
   end
 
-  test "handle_in/2 resolves pending thread replies through PendingQuestions" do
+  test "handle_in/2 dispatches :reply_received hook when a pending thread reply arrives" do
     test_pid = self()
 
-    on_answer = fn answer -> send(test_pid, {:answered, answer}) end
+    Registry.register(%Hook{
+      handler: __MODULE__.ReplyHook,
+      events: [:reply_received],
+      mode: :sync,
+      node_role: :local,
+      priority: 10
+    })
 
-    send_fn = fn _channel_id, _question ->
-      {:ok, %{"id" => "root-post-1", "user_id" => "bot-user-1"}}
-    end
-
-    assert {:ok, "root-post-1"} =
-             PendingQuestions.ask("channel-1", "bot-user-1", "question", send_fn, on_answer)
+    Application.put_env(:zaq, :reply_hook_test_pid, test_pid)
+    on_exit(fn -> Application.delete_env(:zaq, :reply_hook_test_pid) end)
 
     state = %{monitored_channel_ids: MapSet.new(["channel-1"])}
 
@@ -262,8 +264,9 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
       })
 
     assert {:ok, ^state} = Mattermost.handle_in({:text, payload}, state)
-    assert_receive {:answered, "Answer from human"}
-    assert PendingQuestions.pending() == %{}
+
+    assert_receive {:reply_received_hook_called,
+                    %{root_id: "root-post-1", message: "Answer from human"}}
   end
 
   test "forward_to_engine/1 sends cleaned successful answer in thread" do
@@ -594,5 +597,16 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
 
     def clean_answer("NO_ANSWER: " <> rest), do: rest
     def clean_answer(answer), do: answer
+  end
+
+  defmodule ReplyHook do
+    @behaviour Zaq.Hooks.Handler
+
+    @impl true
+    def handle(:reply_received, post, _ctx) do
+      test_pid = Application.get_env(:zaq, :reply_hook_test_pid)
+      send(test_pid, {:reply_received_hook_called, post})
+      :ok
+    end
   end
 end
