@@ -313,9 +313,7 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     end
   end
 
-  defp extract_confidence_score(%{score: score}), do: score
   defp extract_confidence_score(score) when is_float(score), do: score
-  defp extract_confidence_score(_), do: nil
 
   # --- Private: Helpers ---
 

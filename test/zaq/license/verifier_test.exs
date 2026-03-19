@@ -36,13 +36,7 @@ defmodule Zaq.License.VerifierTest do
 
   test "parse_public_pem extracts key bytes from PEM" do
     {pub, _priv} = :crypto.generate_key(:eddsa, :ed25519)
-
-    pem =
-      """
-      -----BEGIN ED25519 PUBLIC KEY-----
-      #{Base.encode64(pub)}
-      -----END ED25519 PUBLIC KEY-----
-      """
+    pem = spki_pem(pub)
 
     assert Verifier.parse_public_pem(pem) == pub
   end
@@ -69,14 +63,13 @@ defmodule Zaq.License.VerifierTest do
   end
 
   defp write_public_key(pub) do
-    pem =
-      """
-      -----BEGIN ED25519 PUBLIC KEY-----
-      #{Base.encode64(pub)}
-      -----END ED25519 PUBLIC KEY-----
-      """
-      |> String.trim()
+    File.write!(@public_key_path, spki_pem(pub))
+  end
 
-    File.write!(@public_key_path, pem)
+  defp spki_pem(pub) do
+    # SPKI DER for Ed25519: 12-byte OID header + 32-byte raw key.
+    # parse_public_pem/1 expects SubjectPublicKeyInfo / SPKI format.
+    der = <<0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00>> <> pub
+    :public_key.pem_encode([{:SubjectPublicKeyInfo, der, :not_encrypted}])
   end
 end

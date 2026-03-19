@@ -44,6 +44,8 @@ defmodule Zaq.Engine.RetrievalSupervisor do
 
   @impl true
   def init(_opts) do
+    register_dispatch_hooks()
+
     children =
       :retrieval
       |> load_configs()
@@ -53,6 +55,16 @@ defmodule Zaq.Engine.RetrievalSupervisor do
   end
 
   # --- Private ---
+
+  @dispatch_hooks %{
+    "mattermost" => Zaq.Channels.Retrieval.Mattermost.DispatchHook
+  }
+
+  defp register_dispatch_hooks do
+    Enum.each(@dispatch_hooks, fn {_provider, hook_module} ->
+      hook_module.register()
+    end)
+  end
 
   defp load_configs(kind) do
     case ChannelConfig.list_enabled_by_kind(kind) do
