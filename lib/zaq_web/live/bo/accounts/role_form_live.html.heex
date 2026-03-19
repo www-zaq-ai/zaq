@@ -1,6 +1,10 @@
 <!-- lib/zaq_web/live/bo/role_form_live.html.heex -->
 
-<ZaqWeb.Components.BOLayout.bo_layout current_user={@current_user} page_title={@page_title}>
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title={@page_title}
+>
   <div class="max-w-xl">
     <a
       href={~p"/bo/roles"}

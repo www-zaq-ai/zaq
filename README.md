@@ -99,13 +99,29 @@ export BASE_URL_SCHEME="http"
 export BASE_URL="http://localhost:4000"
 ```
 
-3. Build and start the stack:
+3. Configure SMTP secret encryption (required to save SMTP passwords from BO):
+
+```bash
+# recommended: base64 key that decodes to exactly 32 bytes
+export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
+```
+
+`SYSTEM_CONFIG_ENCRYPTION_KEY` accepts one of:
+
+- raw 32-byte value
+- Base64 value decoding to 32 bytes (recommended)
+- 64-char hex value (32 bytes)
+
+If the key is missing or invalid, ZAQ blocks saving sensitive SMTP settings (strict mode).
+
+4. Build and start the stack:
 
 ```bash
 docker compose up --build
 ```
 
-4. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
+5. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
 
 To stop containers:
 
@@ -162,6 +178,26 @@ iex -S mix phx.server
 ```
 
 The Back Office will be available at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
+
+#### SMTP Secret Encryption (Local)
+
+If you configure SMTP from BO and set a password, ZAQ encrypts it before storing in DB.
+Configure `Zaq.System.SecretConfig` in local config (for example `config/dev.secret.exs`):
+
+```elixir
+config :zaq, Zaq.System.SecretConfig,
+  encryption_key: System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY"),
+  key_id: System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY_ID", "v1")
+```
+
+Then export a valid key:
+
+```bash
+export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
+```
+
+More details: `docs/system-config.md`.
 
 #### Python Pipeline (PDF Ingestion)
 

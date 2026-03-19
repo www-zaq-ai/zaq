@@ -74,5 +74,31 @@ defmodule Zaq.System.EmailConfigTest do
       changeset = EmailConfig.changeset(base_config(), attrs)
       assert changeset.valid?
     end
+
+    test "valid with transport mode set to ssl" do
+      attrs = %{enabled: false, transport_mode: "ssl"}
+      changeset = EmailConfig.changeset(base_config(), attrs)
+      assert changeset.valid?
+    end
+
+    test "invalid with bad transport mode" do
+      attrs = %{enabled: false, transport_mode: "invalid"}
+      changeset = EmailConfig.changeset(base_config(), attrs)
+      refute changeset.valid?
+      assert %{transport_mode: _} = errors_on(changeset)
+    end
+
+    test "valid with tls_verify set to verify_none" do
+      attrs = %{enabled: false, tls_verify: "verify_none"}
+      changeset = EmailConfig.changeset(base_config(), attrs)
+      assert changeset.valid?
+    end
+
+    test "invalid with bad tls_verify value" do
+      attrs = %{enabled: false, tls_verify: "strict"}
+      changeset = EmailConfig.changeset(base_config(), attrs)
+      refute changeset.valid?
+      assert %{tls_verify: _} = errors_on(changeset)
+    end
   end
 end

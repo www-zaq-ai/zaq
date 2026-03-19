@@ -10,6 +10,7 @@ defmodule ZaqWeb.Components.BOLayout do
   attr :current_user, :map, required: true
   attr :page_title, :string, default: "Dashboard"
   attr :current_path, :string, default: ""
+  attr :flash, :map, default: %{}
   slot :inner_block, required: true
 
   def bo_layout(assigns) do
@@ -372,7 +373,17 @@ defmodule ZaqWeb.Components.BOLayout do
         
     <!-- User / Logout -->
         <div class="border-t border-white/10 p-3 flex-shrink-0">
-          <div class="flex items-center gap-2.5">
+          <a
+            id="sidebar-profile-link"
+            href={~p"/bo/profile"}
+            class={[
+              "flex items-center gap-2.5 rounded-lg px-1.5 py-1.5 transition-colors",
+              if(@current_path == "/bo/profile",
+                do: "bg-[#03b6d4]/20",
+                else: "hover:bg-white/10"
+              )
+            ]}
+          >
             <div class="w-8 h-8 rounded-lg bg-[#03b6d4]/20 grid place-items-center text-xs font-bold font-mono text-[#03b6d4] flex-shrink-0 border border-[#03b6d4]/20">
               {String.first(@current_user.username) |> String.upcase()}
             </div>
@@ -382,7 +393,7 @@ defmodule ZaqWeb.Components.BOLayout do
               </p>
               <p class="font-mono text-[0.65rem] text-white/40 truncate">{@current_user.role.name}</p>
             </div>
-          </div>
+          </a>
           <form method="post" action={~p"/bo/session"} class="mt-2.5">
             <input type="hidden" name="_method" value="delete" />
             <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
@@ -417,6 +428,36 @@ defmodule ZaqWeb.Components.BOLayout do
         </header>
         <!-- Content -->
         <div class="p-8">
+          <div
+            :if={Phoenix.Flash.get(@flash, :info)}
+            class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+          >
+            <svg
+              class="w-4 h-4 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M5 13l4 4L19 7" />
+            </svg>
+            <span>{Phoenix.Flash.get(@flash, :info)}</span>
+          </div>
+          <div
+            :if={Phoenix.Flash.get(@flash, :error)}
+            class="mb-4 rounded-xl bg-red-100 border border-red-200 text-red-600 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+          >
+            <svg
+              class="w-4 h-4 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+            </svg>
+            <span>{Phoenix.Flash.get(@flash, :error)}</span>
+          </div>
           {render_slot(@inner_block)}
         </div>
       </main>

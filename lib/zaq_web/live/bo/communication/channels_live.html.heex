@@ -1,5 +1,6 @@
 <ZaqWeb.Components.BOLayout.bo_layout
   current_user={@current_user}
+  flash={@flash}
   page_title={@provider_label}
   current_path={@current_path}
 >
@@ -50,38 +51,6 @@
         Add Config
       </button>
     </div>
-  </div>
-  
-<!-- Flash Messages -->
-  <div
-    :if={Phoenix.Flash.get(@flash, :info)}
-    class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
-  >
-    <svg
-      class="w-4 h-4 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      viewBox="0 0 24 24"
-    >
-      <path d="M5 13l4 4L19 7" />
-    </svg>
-    <span>{Phoenix.Flash.get(@flash, :info)}</span>
-  </div>
-  <div
-    :if={Phoenix.Flash.get(@flash, :error)}
-    class="mb-4 rounded-xl bg-red-100 border border-red-200 text-red-600 text-sm px-4 py-3 flex items-center gap-2 font-mono"
-  >
-    <svg
-      class="w-4 h-4 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      viewBox="0 0 24 24"
-    >
-      <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
-    </svg>
-    <span>{Phoenix.Flash.get(@flash, :error)}</span>
   </div>
   
 <!-- ================================================================== -->
