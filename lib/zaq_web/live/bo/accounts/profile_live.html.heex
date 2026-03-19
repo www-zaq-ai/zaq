@@ -1,0 +1,79 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title={@page_title}
+  current_path={@current_path}
+>
+  <div class="max-w-2xl space-y-6">
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa] flex items-center justify-between gap-4">
+        <div>
+          <h2 class="font-mono text-[0.95rem] font-bold text-black">Your Account</h2>
+          <p class="font-mono text-[0.75rem] text-black/40 mt-1">
+            Review your account details and open the user edit page.
+          </p>
+        </div>
+        <a
+          href={~p"/bo/users/#{@user.id}/edit"}
+          id="edit-profile-button"
+          class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+        >
+          Edit Profile
+        </a>
+      </div>
+
+      <div class="px-8 py-6">
+        <dl class="grid gap-5 sm:grid-cols-2">
+          <div>
+            <dt class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider mb-1.5">
+              Username
+            </dt>
+            <dd id="profile-username" class="font-mono text-[0.9rem] text-black">
+              {@user.username}
+            </dd>
+          </div>
+
+          <div>
+            <dt class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider mb-1.5">
+              Email
+            </dt>
+            <dd id="profile-email" class="font-mono text-[0.9rem] text-black/70">
+              {@user.email}
+            </dd>
+          </div>
+
+          <div>
+            <dt class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider mb-1.5">
+              Role
+            </dt>
+            <dd id="profile-role" class="font-mono text-[0.9rem] text-black/70">
+              {@user.role.name}
+            </dd>
+          </div>
+
+          <div>
+            <dt class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider mb-1.5">
+              Password Status
+            </dt>
+            <dd class="font-mono text-[0.75rem]">
+              <span
+                :if={@user.must_change_password}
+                id="profile-password-status-pending"
+                class="px-2 py-1 rounded bg-amber-100 text-amber-700"
+              >
+                Must change password
+              </span>
+              <span
+                :if={!@user.must_change_password}
+                id="profile-password-status-active"
+                class="px-2 py-1 rounded bg-emerald-100 text-emerald-700"
+              >
+                Active
+              </span>
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

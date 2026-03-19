@@ -12,7 +12,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
 
     conn = init_test_session(conn, %{user_id: admin.id})
 
-    %{conn: conn}
+    %{conn: conn, admin: admin}
   end
 
   test "validates required fields on new form", %{conn: conn} do
@@ -54,7 +54,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/bo/users/#{user.id}/edit")
 
-    refute has_element?(view, "input[name='user[password]']")
+    refute has_element?(view, "#password-change-fieldset")
 
     view
     |> form("form[phx-submit='save']",
@@ -64,6 +64,56 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
 
     assert_redirect(view, ~p"/bo/users")
     assert Accounts.get_user!(user.id).username == "lane6_edited"
+  end
+
+  test "allows user to change own password from dedicated fieldset", %{conn: conn, admin: admin} do
+    {:ok, view, _html} = live(conn, ~p"/bo/users/#{admin.id}/edit")
+
+    view
+    |> element("#toggle-password-edit")
+    |> render_click()
+
+    assert has_element?(view, "#password-change-fieldset")
+
+    view
+    |> form("form[phx-submit='save_password_change']",
+      password_change: %{
+        current_password: "StrongPass1!",
+        new_password: "NextStrong1!",
+        new_password_confirmation: "NextStrong1!"
+      }
+    )
+    |> render_submit()
+
+    refute has_element?(view, "#password-change-fieldset")
+    assert {:ok, _user} = Accounts.authenticate_user(admin.username, "NextStrong1!")
+  end
+
+  test "rejects password change when editing another user", %{conn: conn} do
+    role = role_fixture(%{name: "lane6_target_role"})
+    target = user_fixture(%{username: "lane6_target_user", role: role})
+    {:ok, _target} = Accounts.change_password(target, %{password: "TargetPass1!"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/users/#{target.id}/edit")
+
+    view
+    |> element("#toggle-password-edit")
+    |> render_click()
+
+    view
+    |> form("form[phx-submit='save_password_change']",
+      password_change: %{
+        current_password: "TargetPass1!",
+        new_password: "AnotherStrong1!",
+        new_password_confirmation: "AnotherStrong1!"
+      }
+    )
+    |> render_submit()
+
+    assert has_element?(view, "#password-change-error", "you can only change your own password")
+
+    assert {:error, :invalid_password} =
+             Accounts.authenticate_user(target.username, "AnotherStrong1!")
   end
 
   test "new save with invalid params stays on form", %{conn: conn} do

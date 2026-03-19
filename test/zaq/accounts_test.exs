@@ -204,6 +204,65 @@ defmodule Zaq.AccountsTest do
     end
   end
 
+  describe "change_user_password/3" do
+    test "allows a user to change their own password with valid current password" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "CurrentPass1!"})
+
+      assert {:ok, updated} =
+               Accounts.change_user_password(user, user, %{
+                 current_password: "CurrentPass1!",
+                 new_password: "NextPass1!",
+                 new_password_confirmation: "NextPass1!"
+               })
+
+      assert Bcrypt.verify_pass("NextPass1!", updated.password_hash)
+    end
+
+    test "rejects password change when current password is invalid" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "CurrentPass1!"})
+
+      assert {:error, changeset} =
+               Accounts.change_user_password(user, user, %{
+                 current_password: "WrongPass1!",
+                 new_password: "NextPass1!",
+                 new_password_confirmation: "NextPass1!"
+               })
+
+      assert "is invalid" in errors_on(changeset).current_password
+    end
+
+    test "rejects password change when actor edits another user" do
+      actor = user_fixture()
+      target = user_fixture()
+      {:ok, target} = Accounts.change_password(target, %{password: "CurrentPass1!"})
+
+      assert {:error, changeset} =
+               Accounts.change_user_password(actor, target, %{
+                 current_password: "CurrentPass1!",
+                 new_password: "NextPass1!",
+                 new_password_confirmation: "NextPass1!"
+               })
+
+      assert "you can only change your own password" in errors_on(changeset).new_password
+    end
+
+    test "rejects weak new password" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "CurrentPass1!"})
+
+      assert {:error, changeset} =
+               Accounts.change_user_password(user, user, %{
+                 current_password: "CurrentPass1!",
+                 new_password: "short",
+                 new_password_confirmation: "short"
+               })
+
+      assert "should be at least 8 character(s)" in errors_on(changeset).new_password
+    end
+  end
+
   describe "authenticate_user/2" do
     test "authenticates user with valid password" do
       user = user_fixture()

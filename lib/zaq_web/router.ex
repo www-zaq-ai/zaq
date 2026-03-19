@@ -58,6 +58,7 @@ defmodule ZaqWeb.Router do
       live "/users", Live.BO.Accounts.UsersLive
       live "/users/new", Live.BO.Accounts.UserFormLive, :new
       live "/users/:id/edit", Live.BO.Accounts.UserFormLive, :edit
+      live "/profile", Live.BO.Accounts.ProfileLive
       live "/roles", Live.BO.Accounts.RolesLive
       live "/roles/new", Live.BO.Accounts.RoleFormLive, :new
       live "/roles/:id/edit", Live.BO.Accounts.RoleFormLive, :edit

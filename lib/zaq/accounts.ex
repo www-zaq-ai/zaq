@@ -91,6 +91,19 @@ defmodule Zaq.Accounts do
     |> Repo.update()
   end
 
+  def change_user_password(actor, user, attrs) do
+    attrs = normalize_password_attrs(attrs)
+
+    with :ok <- authorize_password_change(actor, user),
+         {:ok, attrs} <- validate_password_change_attrs(attrs),
+         :ok <- verify_current_password(user, attrs.current_password) do
+      case change_password(user, %{password: attrs.new_password}) do
+        {:ok, updated_user} -> {:ok, updated_user}
+        {:error, changeset} -> {:error, remap_password_changeset(changeset)}
+      end
+    end
+  end
+
   def get_user_by_email(email) when is_binary(email) do
     User
     |> Repo.get_by(email: email)
@@ -153,5 +166,85 @@ defmodule Zaq.Accounts do
         Bcrypt.no_user_verify()
         {:error, :not_found}
     end
+  end
+
+  defp normalize_password_attrs(attrs) when is_map(attrs) do
+    %{
+      current_password: Map.get(attrs, :current_password) || Map.get(attrs, "current_password"),
+      new_password: Map.get(attrs, :new_password) || Map.get(attrs, "new_password"),
+      new_password_confirmation:
+        Map.get(attrs, :new_password_confirmation) ||
+          Map.get(attrs, "new_password_confirmation")
+    }
+  end
+
+  defp authorize_password_change(%User{id: actor_id}, %User{id: target_id})
+       when actor_id == target_id,
+       do: :ok
+
+  defp authorize_password_change(_actor, _target) do
+    {:error, password_error_changeset(:new_password, "you can only change your own password")}
+  end
+
+  defp validate_password_change_attrs(attrs) do
+    types = %{
+      current_password: :string,
+      new_password: :string,
+      new_password_confirmation: :string
+    }
+
+    changeset =
+      {%{}, types}
+      |> Ecto.Changeset.cast(attrs, Map.keys(types))
+      |> Ecto.Changeset.validate_required([
+        :current_password,
+        :new_password,
+        :new_password_confirmation
+      ])
+      |> Ecto.Changeset.validate_confirmation(:new_password,
+        required: true,
+        message: "does not match confirmation"
+      )
+
+    case Ecto.Changeset.apply_action(changeset, :validate) do
+      {:ok, valid_attrs} -> {:ok, valid_attrs}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  defp verify_current_password(%User{password_hash: hash}, current_password)
+       when is_binary(hash) and is_binary(current_password) do
+    if Bcrypt.verify_pass(current_password, hash) do
+      :ok
+    else
+      {:error, password_error_changeset(:current_password, "is invalid")}
+    end
+  end
+
+  defp verify_current_password(_user, _current_password) do
+    {:error, password_error_changeset(:current_password, "is invalid")}
+  end
+
+  defp password_error_changeset(field, message) do
+    empty_password_changeset()
+    |> Ecto.Changeset.add_error(field, message)
+  end
+
+  defp remap_password_changeset(changeset) do
+    changeset_with_errors =
+      Enum.reduce(changeset.errors, empty_password_changeset(), fn
+        {:password, {message, opts}}, acc ->
+          Ecto.Changeset.add_error(acc, :new_password, message, opts)
+
+        {field, {message, opts}}, acc ->
+          Ecto.Changeset.add_error(acc, field, message, opts)
+      end)
+
+    %{changeset_with_errors | action: :validate}
+  end
+
+  defp empty_password_changeset do
+    {%{}, %{current_password: :string, new_password: :string, new_password_confirmation: :string}}
+    |> Ecto.Changeset.change()
   end
 end

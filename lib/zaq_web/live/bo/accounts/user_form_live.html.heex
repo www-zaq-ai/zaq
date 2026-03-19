@@ -1,6 +1,10 @@
 <!-- lib/zaq_web/live/bo/user_form_live.html.heex -->
 
-<ZaqWeb.Components.BOLayout.bo_layout current_user={@current_user} page_title={@page_title}>
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title={@page_title}
+>
   <div class="max-w-xl">
     <a
       href={~p"/bo/users"}
@@ -109,36 +113,10 @@
               </button>
             </div>
 
-            <div
+            <ZaqWeb.Components.PasswordPolicyComponents.password_requirements
               :if={@password_requirements}
-              id="password-requirements"
-              class="mt-3 rounded-xl border border-black/[0.06] bg-[#fafafa] px-4 py-3"
-            >
-              <p class="font-mono text-[0.66rem] uppercase tracking-[0.18em] text-black/40">
-                Password Requirements
-              </p>
-              <ul class="mt-3 space-y-2">
-                <li
-                  :for={requirement <- @password_requirements}
-                  id={"password-requirement-#{requirement.id}"}
-                  class={[
-                    "flex items-center gap-2 font-mono text-[0.72rem] transition-colors",
-                    requirement.met? && "text-emerald-600",
-                    !requirement.met? && "text-black/40"
-                  ]}
-                >
-                  <.icon
-                    name={if(requirement.met?, do: "hero-check-circle", else: "hero-x-circle")}
-                    class={[
-                      "h-4 w-4 shrink-0",
-                      requirement.met? && "text-emerald-500",
-                      !requirement.met? && "text-black/20"
-                    ]}
-                  />
-                  <span>{requirement.label}</span>
-                </li>
-              </ul>
-            </div>
+              requirements={@password_requirements}
+            />
 
             <p
               :if={@form[:password].errors != []}
@@ -201,6 +179,15 @@
             >
               {if @live_action == :new, do: "Create User", else: "Save Changes"}
             </button>
+            <button
+              :if={@live_action == :edit}
+              id="toggle-password-edit"
+              type="button"
+              phx-click="toggle_password_form"
+              class="font-mono text-[0.82rem] text-[#03b6d4] hover:text-[#029ab3] px-2 py-3 transition-colors"
+            >
+              Edit Password
+            </button>
             <a
               href={~p"/bo/users"}
               class="font-mono text-[0.82rem] text-black/40 hover:text-black/60 px-4 py-3 transition-colors"
@@ -209,6 +196,140 @@
             </a>
           </div>
         </.form>
+
+        <div
+          :if={@live_action == :edit and @password_change_open?}
+          id="password-change-fieldset"
+          class="mt-8 border border-black/[0.08] rounded-xl p-5 bg-[#fafafa]"
+        >
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="font-mono text-[0.82rem] font-bold text-black">Change Password</h3>
+              <p class="font-mono text-[0.7rem] text-black/45 mt-0.5">
+                Enter current password, then choose a new one.
+              </p>
+            </div>
+          </div>
+
+          <p
+            :if={@password_change_error}
+            id="password-change-error"
+            class="font-mono text-[0.72rem] text-red-500 mb-3"
+          >
+            {@password_change_error}
+          </p>
+
+          <.form
+            for={@password_change_form}
+            as={:password_change}
+            phx-submit="save_password_change"
+            phx-change="validate_password_change"
+            class="space-y-5"
+          >
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Current Password
+              </label>
+              <input
+                id="current-password"
+                type="password"
+                name="password_change[current_password]"
+                value={@password_change_form[:current_password].value}
+                required
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-12 px-4 bg-white placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :if={@password_change_form[:current_password].errors != []}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {elem(hd(@password_change_form[:current_password].errors), 0)}
+              </p>
+            </div>
+
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                New Password
+              </label>
+              <input
+                id="new-password"
+                type="password"
+                name="password_change[new_password]"
+                value={@password_change_form[:new_password].value}
+                phx-debounce="300"
+                required
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-12 px-4 bg-white placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :if={@password_change_form[:new_password].errors != []}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {elem(hd(@password_change_form[:new_password].errors), 0)}
+              </p>
+
+              <ZaqWeb.Components.PasswordPolicyComponents.password_requirements requirements={
+                @password_change_requirements
+              } />
+            </div>
+
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Confirm New Password
+              </label>
+              <input
+                id="new-password-confirmation"
+                type="password"
+                name="password_change[new_password_confirmation]"
+                value={@password_change_form[:new_password_confirmation].value}
+                phx-debounce="300"
+                required
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-12 px-4 bg-white placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :if={@password_change_form[:new_password_confirmation].errors != []}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {elem(hd(@password_change_form[:new_password_confirmation].errors), 0)}
+              </p>
+              <p
+                :if={@password_change_confirmation_touched?}
+                id="password-change-confirmation-status"
+                class={[
+                  "mt-2 font-mono text-[0.72rem]",
+                  @password_change_match? && "text-emerald-600",
+                  !@password_change_match? && "text-red-500"
+                ]}
+              >
+                {if(@password_change_match?,
+                  do: "Passwords match",
+                  else: "Passwords do not match"
+                )}
+              </p>
+            </div>
+
+            <div class="flex items-center gap-3 pt-2">
+              <button
+                id="save-password-change"
+                type="submit"
+                disabled={!@password_change_requirements_met? or !@password_change_match?}
+                class={[
+                  "font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#2c3a50] text-white transition-all",
+                  (!@password_change_requirements_met? or !@password_change_match?) &&
+                    "opacity-45 cursor-not-allowed"
+                ]}
+              >
+                Save Password
+              </button>
+              <button
+                id="cancel-password-change"
+                type="button"
+                phx-click="cancel_password_change"
+                class="font-mono text-[0.82rem] text-black/50 hover:text-black/70 px-3 py-2.5 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </.form>
+        </div>
       </div>
     </div>
   </div>
