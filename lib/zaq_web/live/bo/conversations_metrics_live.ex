@@ -2,6 +2,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Engine.Telemetry
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.NodeRouter
 
   @ranges ["24h", "7d", "30d", "90d"]
@@ -63,54 +64,6 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
     |> assign(:answer_confidence_distribution_chart, answer_confidence_distribution_chart)
     |> assign(:no_answer_rate_chart, no_answer_rate_chart)
     |> assign(:average_response_time_chart, average_response_time_chart)
-    |> assign(:questions_asked_points, chart_points(questions_asked_chart, "questions"))
-    |> assign(:no_answer_rate_points, chart_points(no_answer_rate_chart, "no_answer_rate"))
-    |> assign(
-      :no_answer_threshold_points,
-      benchmark_points(no_answer_rate_chart, "no_answer_rate")
-    )
-    |> assign(
-      :average_response_time_points,
-      chart_points(average_response_time_chart, "average_response_time")
-    )
-    |> assign(
-      :response_sla_points,
-      benchmark_points(average_response_time_chart, "average_response_time")
-    )
-  end
-
-  defp chart_points(chart, key) do
-    labels = ensure_list(get_in_contract(chart, :labels, []))
-
-    values =
-      chart
-      |> get_in_contract(:summary, %{})
-      |> get_in_contract(:values, %{})
-      |> get_in_contract(key, [])
-      |> ensure_list()
-
-    values
-    |> Enum.with_index()
-    |> Enum.map(fn {value, idx} ->
-      %{label: Enum.at(labels, idx, "T#{idx + 1}"), value: to_float(value, 0.0)}
-    end)
-  end
-
-  defp benchmark_points(chart, key) do
-    labels = ensure_list(get_in_contract(chart, :labels, []))
-
-    values =
-      chart
-      |> get_in_contract(:summary, %{})
-      |> get_in_contract(:benchmarks, %{})
-      |> get_in_contract(key, [])
-      |> ensure_list()
-
-    values
-    |> Enum.with_index()
-    |> Enum.map(fn {value, idx} ->
-      %{label: Enum.at(labels, idx, "T#{idx + 1}"), value: to_float(value, 0.0)}
-    end)
   end
 
   defp load_conversations_metrics_data(filters) do
@@ -145,7 +98,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
   defp default_questions_asked_chart(labels \\ labels_for_range("7d")) do
     zeroes = Enum.map(labels, fn _ -> 0.0 end)
 
-    %{
+    DashboardChart.new(%{
       id: "questions_asked",
       kind: :time_series,
       title: "Questions asked",
@@ -153,11 +106,11 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
       series: [%{key: "questions", name: "Questions (cumulative)", values: zeroes}],
       summary: %{labels: labels, values: %{"questions" => zeroes}},
       meta: %{}
-    }
+    })
   end
 
   defp default_questions_per_channel_chart do
-    %{
+    DashboardChart.new(%{
       id: "questions_per_channel",
       kind: :donut,
       title: "Questions per channel",
@@ -165,11 +118,11 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
       series: [],
       summary: %{segments: [%{label: "unknown", value: 0.0}]},
       meta: %{}
-    }
+    })
   end
 
   defp default_answer_confidence_distribution_chart do
-    %{
+    DashboardChart.new(%{
       id: "answer_confidence_distribution",
       kind: :radar,
       title: "Answer confidence distribution",
@@ -185,14 +138,14 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
         ]
       },
       meta: %{}
-    }
+    })
   end
 
   defp default_no_answer_rate_chart(labels \\ labels_for_range("7d")) do
     zeroes = Enum.map(labels, fn _ -> 0.0 end)
     threshold = Enum.map(labels, fn _ -> 10.0 end)
 
-    %{
+    DashboardChart.new(%{
       id: "no_answer_rate",
       kind: :time_series,
       title: "No-answer rate",
@@ -207,14 +160,14 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
         benchmarks: %{"no_answer_rate" => threshold}
       },
       meta: %{threshold_percent: 10.0}
-    }
+    })
   end
 
   defp default_average_response_time_chart(labels \\ labels_for_range("7d")) do
     zeroes = Enum.map(labels, fn _ -> 0.0 end)
     sla = Enum.map(labels, fn _ -> 1500.0 end)
 
-    %{
+    DashboardChart.new(%{
       id: "average_response_time",
       kind: :time_series,
       title: "Average response time",
@@ -229,7 +182,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
         benchmarks: %{"average_response_time" => sla}
       },
       meta: %{sla_ms: 1500.0}
-    }
+    })
   end
 
   defp labels_for_range("24h"), do: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"]
@@ -237,20 +190,4 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
   defp labels_for_range("30d"), do: Enum.map(0..9, fn idx -> "D#{idx * 3 + 1}" end)
   defp labels_for_range("90d"), do: Enum.map(1..12, fn idx -> "W#{idx}" end)
   defp labels_for_range(_), do: labels_for_range("7d")
-
-  defp get_in_contract(map, key, default) when is_map(map) and is_atom(key) do
-    Map.get(map, key, Map.get(map, Atom.to_string(key), default))
-  end
-
-  defp get_in_contract(map, key, default) when is_map(map) and is_binary(key),
-    do: Map.get(map, key, default)
-
-  defp get_in_contract(_value, _key, default), do: default
-
-  defp ensure_list(value) when is_list(value), do: value
-  defp ensure_list(_), do: []
-
-  defp to_float(value, _default) when is_float(value), do: value
-  defp to_float(value, _default) when is_integer(value), do: value * 1.0
-  defp to_float(_, default), do: default
 end

@@ -176,7 +176,7 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
       }
     ]
 
-    contract_charts = Enum.map(charts, &DashboardChart.from_legacy_map/1)
+    contract_charts = Enum.map(charts, &DashboardChart.new/1)
 
     %{
       filters: %{

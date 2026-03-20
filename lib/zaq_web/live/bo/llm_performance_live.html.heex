@@ -49,17 +49,12 @@
     <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
       <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
         id="llm-performance-api-calls-chart"
-        title="LLM API calls"
-        points={@llm_api_call_points}
+        chart={@llm_api_calls_chart}
       />
 
       <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
         id="llm-performance-token-usage-chart"
-        title="Token usage"
-        points={@output_token_points}
-        secondary_points={@input_token_points}
-        secondary_label="Input tokens"
-        secondary_color="#6b7280"
+        chart={@token_usage_chart}
       />
     </section>
 
@@ -67,10 +62,7 @@
       <div class="xl:col-span-1">
         <ZaqWeb.Components.BOTelemetryComponents.gauge_chart
           id="llm-performance-retrieval-effectiveness"
-          label="Retrieval effectiveness"
-          value={get_in(@retrieval_effectiveness_chart, [:summary, :value]) || 0.0}
-          max={get_in(@retrieval_effectiveness_chart, [:summary, :max]) || 100.0}
-          min={0.0}
+          chart={@retrieval_effectiveness_chart}
         />
       </div>
     </section>

@@ -63,12 +63,7 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
              )
 
       assert has_element?(view, "#dashboard-metric-qa-response-time[href='/bo/chat']")
-
-      assert has_element?(
-               view,
-               "#dashboard-metric-qa-response-time",
-               "Conversations average response time"
-             )
+      assert has_element?(view, "#dashboard-metric-qa-response-time-card")
 
       assert has_element?(view, "#dashboard-metric-documents-ingested", "range: 30d")
     end

@@ -5,8 +5,16 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
 
   use Phoenix.Component
 
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.Engine.Telemetry.Contracts.DisplayMeta
-  alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
+
+  alias Zaq.Engine.Telemetry.Contracts.Payloads.{
+    CategoryVectorPayload,
+    ProgressPayload,
+    ScalarPayload,
+    SeriesPayload,
+    StatusListPayload
+  }
 
   @accent "#03b6d4"
 
@@ -119,17 +127,73 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   defp blank_meta_value?(value) when value in [nil, ""], do: true
   defp blank_meta_value?(_value), do: false
 
-  attr :id, :string, required: true
-  attr :title, :string, default: "Time series"
-  attr :points, :list, default: []
-  attr :secondary_points, :list, default: []
-  attr :secondary_label, :string, default: nil
+  defp assign_time_series_from_chart(%{chart: %DashboardChart{} = chart} = assigns) do
+    payload = time_series_payload(chart)
+
+    primary_series = List.first(payload.series)
+    secondary_series = Enum.at(payload.series, 1)
+
+    points = series_points(payload.labels, Map.get(primary_series || %{}, :values, []))
+
+    secondary_points =
+      series_points(payload.labels, Map.get(secondary_series || %{}, :values, []))
+
+    primary_key = Map.get(primary_series || %{}, :key, "")
+
+    benchmark_points =
+      payload.benchmarks
+      |> Map.get(primary_key, Map.get(payload.benchmarks, to_string(primary_key), []))
+      |> then(&series_points(payload.labels, &1))
+
+    secondary_points =
+      maybe_drop_threshold_secondary(secondary_points, benchmark_points, secondary_series)
+
+    assigns
+    |> assign(:id, assigns.id || chart.id)
+    |> assign(:title, assigns.title || chart.title)
+    |> assign(:points, points)
+    |> assign(:secondary_points, secondary_points)
+    |> assign(:secondary_label, Map.get(secondary_series || %{}, :name))
+    |> assign(:benchmark_points, benchmark_points)
+  end
+
+  defp assign_time_series_from_chart(assigns), do: assigns
+
+  defp time_series_payload(%DashboardChart{payload: %SeriesPayload{} = payload}), do: payload
+
+  defp time_series_payload(%DashboardChart{} = chart) do
+    SeriesPayload.from_parts(chart.labels, chart.series, Map.get(chart.summary, :benchmarks, %{}))
+  end
+
+  defp maybe_drop_threshold_secondary(points, benchmark_points, series) do
+    if benchmark_points != [] and Map.get(series || %{}, :key) in ["alert_threshold", "sla"] do
+      []
+    else
+      points
+    end
+  end
+
+  defp series_points(labels, values) when is_list(labels) and is_list(values) do
+    labels
+    |> Enum.with_index()
+    |> Enum.map(fn {label, idx} ->
+      value = Enum.at(values, idx, 0.0)
+      %{label: label, value: to_number(value)}
+    end)
+  end
+
+  defp series_points(_labels, _values), do: []
+
+  attr :chart, :map, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: nil
   attr :secondary_color, :string, default: "#6b7280"
-  attr :benchmark_points, :list, default: []
   attr :width, :integer, default: 420
   attr :height, :integer, default: 180
 
   def time_series_chart(assigns) do
+    assigns = assign_time_series_from_chart(assigns)
+
     bounds =
       combined_line_bounds([assigns.points, assigns.secondary_points, assigns.benchmark_points])
 
@@ -331,14 +395,29 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     """
   end
 
-  attr :id, :string, required: true
-  attr :title, :string, default: "Bars"
-  attr :bars, :list, default: []
+  attr :chart, :map, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: nil
 
   def bar_chart(assigns) do
-    bars = normalize_bars(assigns.bars)
+    chart = Map.get(assigns, :chart)
+
+    bars =
+      case chart do
+        %DashboardChart{payload: %CategoryVectorPayload{entries: entries}} -> entries
+        %DashboardChart{} -> get_in(chart.summary, [:bars]) || []
+        _ -> []
+      end
+
+    bars = normalize_bars(bars)
     max_value = max_value(bars)
-    assigns = assign(assigns, bars: bars, max_value: max_value)
+
+    assigns =
+      assigns
+      |> assign(:id, assigns.id || Map.get(chart || %{}, :id, "bar-chart"))
+      |> assign(:title, assigns.title || Map.get(chart || %{}, :title, "Bars"))
+      |> assign(:bars, bars)
+      |> assign(:max_value, max_value)
 
     ~H"""
     <section id={@id} class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -369,14 +448,29 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     """
   end
 
-  attr :id, :string, required: true
-  attr :title, :string, default: "Distribution"
-  attr :segments, :list, default: []
+  attr :chart, :map, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: nil
 
   def donut_chart(assigns) do
-    segments = normalize_segments(assigns.segments)
+    chart = Map.get(assigns, :chart)
+
+    segments =
+      case chart do
+        %DashboardChart{payload: %CategoryVectorPayload{entries: entries}} -> entries
+        %DashboardChart{} -> get_in(chart.summary, [:segments]) || []
+        _ -> []
+      end
+
+    segments = normalize_segments(segments)
     donut = build_donut(segments)
-    assigns = assign(assigns, segments: segments, donut: donut)
+
+    assigns =
+      assigns
+      |> assign(:id, assigns.id || Map.get(chart || %{}, :id, "donut-chart"))
+      |> assign(:title, assigns.title || Map.get(chart || %{}, :title, "Distribution"))
+      |> assign(:segments, segments)
+      |> assign(:donut, donut)
 
     ~H"""
     <section
@@ -449,23 +543,29 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     """
   end
 
-  attr :id, :string, required: true
-  attr :label, :string, default: "Gauge"
-  attr :value, :float, default: 0.0
-  attr :benchmark_value, :float, default: nil
-  attr :min, :float, default: 0.0
-  attr :max, :float, default: 100.0
+  attr :chart, :map, required: true
+  attr :id, :string, default: nil
+  attr :label, :string, default: nil
 
   def gauge_chart(assigns) do
-    gauge = build_gauge(assigns.value, assigns.min, assigns.max)
+    chart = Map.get(assigns, :chart)
 
-    benchmark_gauge =
-      if is_nil(assigns.benchmark_value),
-        do: nil,
-        else: build_gauge(assigns.benchmark_value, assigns.min, assigns.max)
+    scalar = scalar_payload(chart)
+
+    min = scalar.min || 0.0
+    max = scalar.max || 100.0
+    benchmark = scalar.benchmark
+
+    gauge = build_gauge(scalar.value, min, max)
+
+    benchmark_gauge = maybe_build_benchmark_gauge(benchmark, min, max)
 
     assigns =
       assigns
+      |> assign(:id, assigns.id || Map.get(chart || %{}, :id, "gauge-chart"))
+      |> assign(:label, assigns.label || scalar.label || Map.get(chart || %{}, :title, "Gauge"))
+      |> assign(:min, min)
+      |> assign(:max, max)
       |> assign(:gauge, gauge)
       |> assign(:benchmark_gauge, benchmark_gauge)
 
@@ -530,13 +630,32 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     """
   end
 
-  attr :id, :string, required: true
-  attr :title, :string, default: "Status"
-  attr :items, :list, default: []
+  defp scalar_payload(%DashboardChart{payload: %ScalarPayload{} = payload}), do: payload
+  defp scalar_payload(%DashboardChart{} = chart), do: ScalarPayload.from_map(chart.summary)
+  defp scalar_payload(_), do: %ScalarPayload{}
+
+  defp maybe_build_benchmark_gauge(nil, _min, _max), do: nil
+  defp maybe_build_benchmark_gauge(benchmark, min, max), do: build_gauge(benchmark, min, max)
+
+  attr :chart, :map, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: nil
 
   def status_grid(assigns) do
-    items = normalize_status_items(assigns.items)
-    assigns = assign(assigns, :items, items)
+    chart = Map.get(assigns, :chart)
+
+    items =
+      case chart do
+        %DashboardChart{payload: %StatusListPayload{items: values}} -> values
+        %DashboardChart{} -> get_in(chart.summary, [:items]) || []
+        _ -> []
+      end
+
+    assigns =
+      assigns
+      |> assign(:id, assigns.id || Map.get(chart || %{}, :id, "status-grid"))
+      |> assign(:title, assigns.title || Map.get(chart || %{}, :title, "Status"))
+      |> assign(:items, normalize_status_items(items))
 
     ~H"""
     <section id={@id} class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -568,14 +687,35 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     """
   end
 
-  attr :id, :string, required: true
-  attr :label, :string, default: "Countdown"
-  attr :total, :integer, default: 100
-  attr :remaining, :integer, default: 0
+  attr :chart, :map, required: true
+  attr :id, :string, default: nil
+  attr :label, :string, default: nil
 
   def progress_countdown(assigns) do
-    progress = build_progress(assigns.total, assigns.remaining)
-    assigns = assign(assigns, :progress, progress)
+    chart = Map.get(assigns, :chart)
+
+    payload =
+      case chart do
+        %DashboardChart{payload: %ProgressPayload{} = value} ->
+          value
+
+        %DashboardChart{} ->
+          ProgressPayload.from_values(
+            get_in(chart.summary, [:total]),
+            get_in(chart.summary, [:remaining])
+          )
+
+        _ ->
+          %ProgressPayload{}
+      end
+
+    progress = build_progress(payload.total, payload.remaining)
+
+    assigns =
+      assigns
+      |> assign(:id, assigns.id || Map.get(chart || %{}, :id, "progress"))
+      |> assign(:label, assigns.label || Map.get(chart || %{}, :title, "Countdown"))
+      |> assign(:progress, progress)
 
     ~H"""
     <section id={@id} class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -597,22 +737,27 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     """
   end
 
-  attr :id, :string, required: true
-  attr :title, :string, default: "Radar"
-  attr :axes, :list, default: []
-  attr :benchmark_axes, :list, default: []
+  attr :chart, :map, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: nil
   attr :size, :integer, default: 220
 
   def radar_chart(assigns) do
-    radar = build_radar(assigns.axes, assigns.size)
+    chart = Map.get(assigns, :chart)
+
+    {axes, benchmark_axes} = radar_entries(chart)
+
+    radar = build_radar(axes, assigns.size)
 
     benchmark_radar =
-      if Enum.empty?(assigns.benchmark_axes),
+      if Enum.empty?(benchmark_axes),
         do: %{empty?: true, value_points: [], value_polygon: ""},
-        else: build_radar(assigns.benchmark_axes, assigns.size)
+        else: build_radar(benchmark_axes, assigns.size)
 
     assigns =
       assigns
+      |> assign(:id, assigns.id || Map.get(chart || %{}, :id, "radar"))
+      |> assign(:title, assigns.title || Map.get(chart || %{}, :title, "Radar"))
       |> assign(:radar, radar)
       |> assign(:benchmark_radar, benchmark_radar)
 
@@ -729,6 +874,16 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     </section>
     """
   end
+
+  defp radar_entries(%DashboardChart{
+         payload: %CategoryVectorPayload{entries: entries, benchmark_entries: benchmark_entries}
+       }),
+       do: {entries, benchmark_entries}
+
+  defp radar_entries(%DashboardChart{} = chart),
+    do: {get_in(chart.summary, [:axes]) || [], get_in(chart.summary, [:benchmark_axes]) || []}
+
+  defp radar_entries(_), do: {[], []}
 
   defp normalize_bars(bars) do
     bars

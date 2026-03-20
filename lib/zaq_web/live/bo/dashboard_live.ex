@@ -4,10 +4,8 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
-  alias Zaq.Engine.Telemetry.Contracts.{DisplayMeta, RuntimeMeta}
-  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
-  alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
   alias Zaq.Engine.Telemetry
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.License.FeatureStore
   alias Zaq.NodeRouter
 
@@ -105,10 +103,55 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
         metrics
 
       _ ->
-        []
+        default_telemetry_metric_cards()
     end
   rescue
-    _ -> []
+    _ -> default_telemetry_metric_cards()
+  end
+
+  defp default_telemetry_metric_cards do
+    %{
+      id: "main_dashboard_metrics",
+      kind: :metric_cards,
+      title: "Main dashboard metrics",
+      labels: [],
+      series: [],
+      summary: %{
+        metrics: [
+          %{
+            id: "dashboard-metric-documents-ingested",
+            label: "Documents ingested",
+            value: 0.0,
+            unit: nil,
+            trend: nil,
+            hint: "ingestion pipeline completions",
+            meta: %{range: @kpi_range, href: "/bo/ingestion"}
+          },
+          %{
+            id: "dashboard-metric-llm-api-calls",
+            label: "LLM API calls",
+            value: 0,
+            unit: nil,
+            trend: nil,
+            hint: "answering throughput",
+            meta: %{range: @kpi_range, href: "/bo/ai-diagnostics"}
+          },
+          %{
+            id: "dashboard-metric-qa-response-time",
+            label: "Conversations average response time",
+            value: 0.0,
+            unit: "ms",
+            trend: nil,
+            hint: "weighted mean latency",
+            meta: %{range: @kpi_range, href: "/bo/chat"}
+          }
+        ]
+      },
+      meta: %{range: @kpi_range}
+    }
+    |> DashboardChart.new()
+    |> Map.get(:summary, %{})
+    |> Map.get(:metrics, [])
   end
 
   defp build_user_metric_card(user_count) do
