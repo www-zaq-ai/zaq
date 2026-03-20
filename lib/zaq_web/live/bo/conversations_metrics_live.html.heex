@@ -49,41 +49,30 @@
     <section class="grid grid-cols-1 gap-4 xl:grid-cols-3">
       <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
         id="conversations-metrics-questions-asked-chart"
-        title="Questions asked (cumulative)"
-        points={@questions_asked_points}
+        chart={@questions_asked_chart}
       />
 
       <ZaqWeb.Components.BOTelemetryComponents.donut_chart
         id="conversations-metrics-questions-per-channel-chart"
-        title="Questions per channel"
-        segments={get_in(@questions_per_channel_chart, [:summary, :segments]) || []}
+        chart={@questions_per_channel_chart}
       />
 
       <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
         id="conversations-metrics-no-answer-rate-chart"
-        title="No-answer rate"
-        points={@no_answer_rate_points}
-        benchmark_points={@no_answer_threshold_points}
-        secondary_color="#6b7280"
+        chart={@no_answer_rate_chart}
       />
     </section>
 
     <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
       <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
         id="conversations-metrics-average-response-time-chart"
-        title="Average response time"
-        points={@average_response_time_points}
-        benchmark_points={@response_sla_points}
-        secondary_color="#6b7280"
+        chart={@average_response_time_chart}
       />
 
-            <ZaqWeb.Components.BOTelemetryComponents.radar_chart
+      <ZaqWeb.Components.BOTelemetryComponents.radar_chart
         id="conversations-metrics-confidence-distribution-chart"
-        title="Answer confidence distribution"
-        axes={get_in(@answer_confidence_distribution_chart, [:summary, :axes]) || []}
+        chart={@answer_confidence_distribution_chart}
       />
-
-
     </section>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>

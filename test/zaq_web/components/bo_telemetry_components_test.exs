@@ -3,9 +3,10 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
 
   import Phoenix.LiveViewTest
 
-  alias ZaqWeb.Components.BOTelemetryComponents
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.Engine.Telemetry.Contracts.{DisplayMeta, RuntimeMeta}
   alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
+  alias ZaqWeb.Components.BOTelemetryComponents
 
   test "metric_card/1 renders label, value, and id" do
     html =
@@ -46,8 +47,16 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.time_series_chart/1,
         id: "chart-traffic",
-        title: "Traffic",
-        points: [8, 13, 11, 17, 15]
+        chart:
+          DashboardChart.new(%{
+            id: "chart-traffic",
+            kind: :time_series,
+            title: "Traffic",
+            labels: ["T1", "T2", "T3", "T4", "T5"],
+            series: [%{key: "primary", name: "Primary", values: [8, 13, 11, 17, 15]}],
+            summary: %{benchmarks: %{}},
+            meta: %{}
+          })
       )
 
     assert html =~ "id=\"chart-traffic\""
@@ -63,17 +72,16 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.time_series_chart/1,
         id: "chart-traffic-benchmark",
-        title: "Traffic",
-        points: [
-          %{label: "Mon", value: 120},
-          %{label: "Tue", value: 132},
-          %{label: "Wed", value: 128}
-        ],
-        benchmark_points: [
-          %{label: "Mon", value: 98},
-          %{label: "Tue", value: 104},
-          %{label: "Wed", value: 108}
-        ]
+        chart:
+          DashboardChart.new(%{
+            id: "chart-traffic-benchmark",
+            kind: :time_series,
+            title: "Traffic",
+            labels: ["Mon", "Tue", "Wed"],
+            series: [%{key: "primary", name: "Primary", values: [120, 132, 128]}],
+            summary: %{benchmarks: %{"primary" => [98, 104, 108]}},
+            meta: %{}
+          })
       )
 
     assert html =~ "data-time-series-lane=\"benchmark\""
@@ -84,11 +92,14 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.bar_chart/1,
         id: "chart-bars",
-        title: "Sources",
-        bars: [
-          %{label: "Mattermost", value: 48},
-          %{label: "API", value: 32}
-        ]
+        chart:
+          DashboardChart.new(%{
+            id: "chart-bars",
+            kind: :bar,
+            title: "Sources",
+            summary: %{bars: [%{label: "Mattermost", value: 48}, %{label: "API", value: 32}]},
+            meta: %{}
+          })
       )
 
     assert html =~ "id=\"chart-bars\""
@@ -101,11 +112,16 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.donut_chart/1,
         id: "chart-donut",
-        title: "Resolution",
-        segments: [
-          %{label: "Resolved", value: 72},
-          %{label: "Pending", value: 28}
-        ]
+        chart:
+          DashboardChart.new(%{
+            id: "chart-donut",
+            kind: :donut,
+            title: "Resolution",
+            summary: %{
+              segments: [%{label: "Resolved", value: 72}, %{label: "Pending", value: 28}]
+            },
+            meta: %{}
+          })
       )
 
     assert html =~ "id=\"chart-donut\""
@@ -119,10 +135,14 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.gauge_chart/1,
         id: "gauge-load",
-        label: "Load",
-        value: 67.5,
-        min: 0.0,
-        max: 100.0
+        chart:
+          DashboardChart.new(%{
+            id: "gauge-load",
+            kind: :gauge,
+            title: "Load",
+            summary: %{value: 67.5, min: 0.0, max: 100.0},
+            meta: %{}
+          })
       )
 
     assert html =~ "id=\"gauge-load\""
@@ -137,28 +157,40 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     min_html =
       render_component(&BOTelemetryComponents.gauge_chart/1,
         id: "gauge-min",
-        label: "Load",
-        value: 0.0,
-        min: 0.0,
-        max: 100.0
+        chart:
+          DashboardChart.new(%{
+            id: "gauge-min",
+            kind: :gauge,
+            title: "Load",
+            summary: %{value: 0.0, min: 0.0, max: 100.0},
+            meta: %{}
+          })
       )
 
     mid_html =
       render_component(&BOTelemetryComponents.gauge_chart/1,
         id: "gauge-mid",
-        label: "Load",
-        value: 50.0,
-        min: 0.0,
-        max: 100.0
+        chart:
+          DashboardChart.new(%{
+            id: "gauge-mid",
+            kind: :gauge,
+            title: "Load",
+            summary: %{value: 50.0, min: 0.0, max: 100.0},
+            meta: %{}
+          })
       )
 
     max_html =
       render_component(&BOTelemetryComponents.gauge_chart/1,
         id: "gauge-max",
-        label: "Load",
-        value: 100.0,
-        min: 0.0,
-        max: 100.0
+        chart:
+          DashboardChart.new(%{
+            id: "gauge-max",
+            kind: :gauge,
+            title: "Load",
+            summary: %{value: 100.0, min: 0.0, max: 100.0},
+            meta: %{}
+          })
       )
 
     min_x = extract_data_number(min_html, "data-pointer-x")
@@ -181,10 +213,14 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.gauge_chart/1,
         id: "gauge-high",
-        label: "Load",
-        value: 73.2,
-        min: 0.0,
-        max: 100.0
+        chart:
+          DashboardChart.new(%{
+            id: "gauge-high",
+            kind: :gauge,
+            title: "Load",
+            summary: %{value: 73.2, min: 0.0, max: 100.0},
+            meta: %{}
+          })
       )
 
     pointer_x = extract_data_number(html, "data-pointer-x")
@@ -198,11 +234,14 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.gauge_chart/1,
         id: "gauge-with-benchmark",
-        label: "Load",
-        value: 73.2,
-        benchmark_value: 58.4,
-        min: 0.0,
-        max: 100.0
+        chart:
+          DashboardChart.new(%{
+            id: "gauge-with-benchmark",
+            kind: :gauge,
+            title: "Load",
+            summary: %{value: 73.2, benchmark_value: 58.4, min: 0.0, max: 100.0},
+            meta: %{}
+          })
       )
 
     assert html =~ "data-gauge-pointer=\"benchmark\""
@@ -213,11 +252,19 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.status_grid/1,
         id: "status-grid",
-        title: "Services",
-        items: [
-          %{label: "Agent", status: :ok, detail: "Healthy"},
-          %{label: "Ingestion", status: :warn, detail: "Delayed"}
-        ]
+        chart:
+          DashboardChart.new(%{
+            id: "status-grid",
+            kind: :status_grid,
+            title: "Services",
+            summary: %{
+              items: [
+                %{label: "Agent", status: :ok, detail: "Healthy"},
+                %{label: "Ingestion", status: :warn, detail: "Delayed"}
+              ]
+            },
+            meta: %{}
+          })
       )
 
     assert html =~ "id=\"status-grid\""
@@ -231,9 +278,14 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.progress_countdown/1,
         id: "progress-sync",
-        label: "Sync",
-        total: 120,
-        remaining: 30
+        chart:
+          DashboardChart.new(%{
+            id: "progress-sync",
+            kind: :progress,
+            title: "Sync",
+            summary: %{total: 120, remaining: 30},
+            meta: %{}
+          })
       )
 
     assert html =~ "id=\"progress-sync\""
@@ -246,13 +298,21 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.radar_chart/1,
         id: "radar-quality",
-        title: "Quality",
-        axes: [
-          %{label: "Latency", value: 72},
-          %{label: "Recall", value: 84},
-          %{label: "Precision", value: 78},
-          %{label: "Coverage", value: 65}
-        ]
+        chart:
+          DashboardChart.new(%{
+            id: "radar-quality",
+            kind: :radar,
+            title: "Quality",
+            summary: %{
+              axes: [
+                %{label: "Latency", value: 72},
+                %{label: "Recall", value: 84},
+                %{label: "Precision", value: 78},
+                %{label: "Coverage", value: 65}
+              ]
+            },
+            meta: %{}
+          })
       )
 
     assert html =~ "id=\"radar-quality\""
@@ -268,19 +328,27 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     html =
       render_component(&BOTelemetryComponents.radar_chart/1,
         id: "radar-benchmark",
-        title: "Quality",
-        axes: [
-          %{label: "Latency", value: 72},
-          %{label: "Recall", value: 84},
-          %{label: "Precision", value: 78},
-          %{label: "Coverage", value: 65}
-        ],
-        benchmark_axes: [
-          %{label: "Latency", value: 54},
-          %{label: "Recall", value: 61},
-          %{label: "Precision", value: 58},
-          %{label: "Coverage", value: 52}
-        ]
+        chart:
+          DashboardChart.new(%{
+            id: "radar-benchmark",
+            kind: :radar,
+            title: "Quality",
+            summary: %{
+              axes: [
+                %{label: "Latency", value: 72},
+                %{label: "Recall", value: 84},
+                %{label: "Precision", value: 78},
+                %{label: "Coverage", value: 65}
+              ],
+              benchmark_axes: [
+                %{label: "Latency", value: 54},
+                %{label: "Recall", value: 61},
+                %{label: "Precision", value: 58},
+                %{label: "Coverage", value: 52}
+              ]
+            },
+            meta: %{}
+          })
       )
 
     assert html =~ "data-radar-series=\"benchmark\""
@@ -291,25 +359,55 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     line_html =
       render_component(&BOTelemetryComponents.time_series_chart/1,
         id: "line-empty",
-        points: []
+        chart:
+          DashboardChart.new(%{
+            id: "line-empty",
+            kind: :time_series,
+            title: "Line",
+            labels: [],
+            series: [],
+            summary: %{benchmarks: %{}},
+            meta: %{}
+          })
       )
 
     bar_html =
       render_component(&BOTelemetryComponents.bar_chart/1,
         id: "bar-empty",
-        bars: []
+        chart:
+          DashboardChart.new(%{
+            id: "bar-empty",
+            kind: :bar,
+            title: "Bar",
+            summary: %{bars: []},
+            meta: %{}
+          })
       )
 
     donut_html =
       render_component(&BOTelemetryComponents.donut_chart/1,
         id: "donut-empty",
-        segments: []
+        chart:
+          DashboardChart.new(%{
+            id: "donut-empty",
+            kind: :donut,
+            title: "Donut",
+            summary: %{segments: []},
+            meta: %{}
+          })
       )
 
     radar_html =
       render_component(&BOTelemetryComponents.radar_chart/1,
         id: "radar-empty",
-        axes: []
+        chart:
+          DashboardChart.new(%{
+            id: "radar-empty",
+            kind: :radar,
+            title: "Radar",
+            summary: %{axes: []},
+            meta: %{}
+          })
       )
 
     assert line_html =~ "id=\"line-empty\""

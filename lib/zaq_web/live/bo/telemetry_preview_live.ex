@@ -2,8 +2,9 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Engine.Telemetry
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.Engine.Telemetry.Contracts.{DisplayMeta, RuntimeMeta}
-  alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
+  alias Zaq.Engine.Telemetry.Contracts.Payloads.{ScalarPayload, SeriesPayload}
   alias Zaq.NodeRouter
   alias ZaqWeb.Live.BO.TelemetryPreviewData
 
@@ -119,96 +120,49 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
 
     telemetry = load_dashboard_data(filters)
 
-    time_series =
-      Map.get(telemetry, :time_series, %{labels: [], series: [], values: %{}, benchmarks: %{}})
+    charts = ensure_list(Map.get(telemetry, :charts, []))
+    metric_cards = chart_or_default(charts, "metric_cards", :metric_cards)
+    time_series_chart = chart_or_default(charts, "time_series", :time_series)
+    gauge_chart = chart_or_default(charts, "gauge", :gauge)
+    bar_chart = chart_or_default(charts, "bar", :bar)
+    donut_chart = chart_or_default(charts, "donut", :donut)
+    status_grid = chart_or_default(charts, "status_grid", :status_grid)
+    progress_countdown = chart_or_default(charts, "progress", :progress)
+    radar_chart = chart_or_default(charts, "radar", :radar)
 
-    metrics = ensure_list(Map.get(telemetry, :metrics, []))
+    metrics = ensure_list(get_in(metric_cards, [:summary, :metrics]))
     gallery_metric = List.first(metrics) || @default_metric
 
-    gauge_chart =
-      Map.get(telemetry, :gauge_chart, %{value: 0.0, benchmark_value: nil, max: 100.0})
+    base_series =
+      case time_series_chart do
+        %DashboardChart{payload: %SeriesPayload{series: series}} -> series
+        _ -> []
+      end
 
-    bar_chart = Map.get(telemetry, :bar_chart, %{bars: []})
-    donut_chart = Map.get(telemetry, :donut_chart, %{segments: []})
-    status_grid = Map.get(telemetry, :status_grid, %{items: []})
-    progress_countdown = Map.get(telemetry, :progress_countdown, %{total: 240, remaining: 240})
-    radar_chart = Map.get(telemetry, :radar_chart, %{axes: [], benchmark_axes: []})
+    series_toggles = Enum.reject(base_series, &(&1.key == "benchmark"))
 
     visible_series =
-      Enum.filter(time_series.series, fn series ->
-        Map.get(socket.assigns.series_visibility, series.key, true)
+      Enum.filter(series_toggles, fn series ->
+        series.key != "benchmark" and Map.get(socket.assigns.series_visibility, series.key, true)
       end)
 
-    primary_chart_points = build_chart_points(time_series, visible_series, :primary)
-
-    benchmark_chart_points =
-      if socket.assigns.benchmark_opt_in do
-        build_chart_points(time_series, visible_series, :benchmark)
-      else
-        []
-      end
+    composed_time_series_chart =
+      with_visible_time_series(time_series_chart, visible_series, socket.assigns.benchmark_opt_in)
 
     socket
     |> assign(:telemetry, telemetry)
     |> assign(:metrics, metrics)
     |> assign(:gallery_metric, gallery_metric)
-    |> assign(:time_series, time_series)
+    |> assign(:time_series, time_series_chart)
     |> assign(:gauge_chart, gauge_chart)
     |> assign(:bar_chart, bar_chart)
     |> assign(:donut_chart, donut_chart)
     |> assign(:status_grid, status_grid)
     |> assign(:progress_countdown, progress_countdown)
     |> assign(:radar_chart, radar_chart)
+    |> assign(:series_toggles, series_toggles)
     |> assign(:visible_time_series, visible_series)
-    |> assign(:time_series_points, primary_chart_points)
-    |> assign(:benchmark_time_series_points, benchmark_chart_points)
-  end
-
-  defp build_chart_points(time_series, visible_series, lane) do
-    labels_count = length(time_series.labels)
-
-    if labels_count == 0 do
-      []
-    else
-      Enum.map(0..(labels_count - 1), fn idx ->
-        build_chart_point(time_series, visible_series, lane, idx)
-      end)
-    end
-  end
-
-  defp build_chart_point(time_series, [], _lane, idx) do
-    %{label: label_for_index(time_series, idx), value: 0.0}
-  end
-
-  defp build_chart_point(time_series, visible_series, lane, idx) do
-    values =
-      Enum.map(visible_series, fn series ->
-        series_point_value(time_series, series, idx, lane)
-      end)
-
-    %{
-      label: label_for_index(time_series, idx),
-      value: average(values)
-    }
-  end
-
-  defp series_point_value(time_series, series, idx, :primary) do
-    Enum.at(Map.get(time_series.values, series.key, []), idx, 0.0)
-  end
-
-  defp series_point_value(time_series, series, idx, :benchmark) do
-    Enum.at(Map.get(time_series.benchmarks, series.key, []), idx, 0.0)
-  end
-
-  defp label_for_index(time_series, idx) do
-    Enum.at(time_series.labels, idx, "T#{idx + 1}")
-  end
-
-  defp average(values) do
-    values
-    |> Enum.sum()
-    |> Kernel./(length(values))
-    |> Float.round(2)
+    |> assign(:composed_time_series_chart, composed_time_series_chart)
   end
 
   defp load_dashboard_data(filters) do
@@ -229,50 +183,9 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
     charts = ensure_list(get_in_contract(dashboard, :charts, []))
     chart_index = chart_index(charts)
 
-    if contract_valid?(filters, chart_index) do
-      metric_cards = chart_summary(chart_index, "metric_cards")
-      time_series_chart = Map.get(chart_index, "time_series", %{})
-      time_series_summary = chart_summary(chart_index, "time_series")
-      bar_chart = chart_summary(chart_index, "bar")
-      donut_chart = chart_summary(chart_index, "donut")
-      gauge_chart = chart_summary(chart_index, "gauge")
-      status_grid = chart_summary(chart_index, "status_grid")
-      progress_countdown = chart_summary(chart_index, "progress")
-      radar_chart = chart_summary(chart_index, "radar")
-
-      {:ok,
-       %{
-         filters: filters,
-         charts: charts,
-         metrics: ensure_list(get_in_contract(metric_cards, :metrics, [])),
-         time_series: %{
-           labels: ensure_list(get_in_contract(time_series_summary, :labels, [])),
-           series: normalize_time_series_series(get_in_contract(time_series_chart, :series, [])),
-           values: ensure_map(get_in_contract(time_series_summary, :values, %{})),
-           benchmarks: ensure_map(get_in_contract(time_series_summary, :benchmarks, %{}))
-         },
-         bar_chart: %{bars: ensure_list(get_in_contract(bar_chart, :bars, []))},
-         donut_chart: %{segments: ensure_list(get_in_contract(donut_chart, :segments, []))},
-         gauge_chart: %{
-           value: to_float(get_in_contract(gauge_chart, :value, 0.0), 0.0),
-           benchmark_value:
-             to_optional_float(get_in_contract(gauge_chart, :benchmark_value, nil)),
-           max: to_float(get_in_contract(gauge_chart, :max, 100.0), 100.0),
-           label: get_in_contract(gauge_chart, :label, "target 80%")
-         },
-         status_grid: %{items: ensure_list(get_in_contract(status_grid, :items, []))},
-         progress_countdown: %{
-           total: to_integer(get_in_contract(progress_countdown, :total, 240), 240),
-           remaining: to_integer(get_in_contract(progress_countdown, :remaining, 240), 240)
-         },
-         radar_chart: %{
-           axes: ensure_list(get_in_contract(radar_chart, :axes, [])),
-           benchmark_axes: ensure_list(get_in_contract(radar_chart, :benchmark_axes, []))
-         }
-       }}
-    else
-      :error
-    end
+    if contract_valid?(filters, chart_index),
+      do: {:ok, %{filters: filters, charts: charts}},
+      else: :error
   end
 
   defp contract_valid?(filters, chart_index) when map_size(filters) > 0 do
@@ -290,37 +203,43 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
     end)
   end
 
-  defp chart_summary(chart_index, chart_id) do
-    chart_index
-    |> Map.get(chart_id, %{})
-    |> get_in_contract(:summary, %{})
-    |> ensure_map()
+  defp chart_by_id(charts, id), do: Enum.find(charts, &(&1.id == id))
+
+  defp chart_or_default(charts, id, kind) do
+    chart_by_id(charts, id) ||
+      DashboardChart.new(%{id: id, kind: kind, title: "", summary: %{}, meta: %{}})
   end
 
-  defp normalize_time_series_series(series) do
-    case ensure_list(series) do
-      [] ->
-        [
-          %{key: "availability", name: "Availability"},
-          %{key: "latency", name: "Latency"},
-          %{key: "deflection", name: "Deflection"}
-        ]
+  defp with_visible_time_series(
+         %DashboardChart{payload: %SeriesPayload{} = payload} = chart,
+         visible_series,
+         benchmark_opt_in
+       ) do
+    visible_keys = MapSet.new(Enum.map(visible_series, & &1.key))
 
-      values ->
-        Enum.flat_map(values, &normalize_series_item/1)
-    end
+    values =
+      visible_series
+      |> Enum.map(fn series -> {series.key, series.values} end)
+      |> Map.new()
+
+    benchmarks =
+      if benchmark_opt_in do
+        payload.benchmarks
+        |> Enum.filter(fn {key, _values} -> MapSet.member?(visible_keys, to_string(key)) end)
+        |> Map.new()
+      else
+        %{}
+      end
+
+    %DashboardChart{
+      chart
+      | payload: %SeriesPayload{payload | series: visible_series, benchmarks: benchmarks},
+        series: visible_series,
+        summary: Map.merge(chart.summary, %{values: values, benchmarks: benchmarks})
+    }
   end
 
-  defp normalize_series_item(series_item) do
-    key = get_in_contract(series_item, :key, nil)
-    name = get_in_contract(series_item, :name, nil)
-
-    if is_binary(key) and is_binary(name) and key != "benchmark" do
-      [%{key: key, name: name}]
-    else
-      []
-    end
-  end
+  defp with_visible_time_series(chart, _visible_series, _benchmark_opt_in), do: chart
 
   defp get_in_contract(map, key, default) when is_map(map) and is_atom(key) do
     Map.get(map, key, Map.get(map, Atom.to_string(key), default))
@@ -333,15 +252,4 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
 
   defp ensure_map(value) when is_map(value), do: value
   defp ensure_map(_), do: %{}
-
-  defp to_float(value, _default) when is_float(value), do: value
-  defp to_float(value, _default) when is_integer(value), do: value * 1.0
-  defp to_float(_, default), do: default
-
-  defp to_optional_float(nil), do: nil
-  defp to_optional_float(value), do: to_float(value, nil)
-
-  defp to_integer(value, _default) when is_integer(value), do: value
-  defp to_integer(value, _default) when is_float(value), do: trunc(value)
-  defp to_integer(_, default), do: default
 end

@@ -126,6 +126,7 @@ defmodule Zaq.MixProject do
         "deps.unlock --unused",
         "format",
         "credo --strict",
+        "mix docs --warnings-as-errors",
         "test",
         "e2e"
       ]
