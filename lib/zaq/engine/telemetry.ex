@@ -69,7 +69,6 @@ defmodule Zaq.Engine.Telemetry do
     - `CategoryVectorPayload` -> bar, donut, radar charts
     - `StatusListPayload` -> status grid
     - `ProgressPayload` -> progress countdown
-  ```
   """
 
   import Ecto.Query
@@ -134,6 +133,10 @@ defmodule Zaq.Engine.Telemetry do
   @doc "Returns conversations dashboard payload for the provided filters."
   @spec load_conversations_metrics(map()) :: map()
   def load_conversations_metrics(filters), do: DashboardData.load_conversations_metrics(filters)
+
+  @doc "Returns knowledge base dashboard payload for the provided filters."
+  @spec load_knowledge_base_metrics(map()) :: map()
+  def load_knowledge_base_metrics(filters), do: DashboardData.load_knowledge_base_metrics(filters)
 
   @doc "Returns main dashboard metric card payload for the provided filters."
   @spec load_main_dashboard_metrics(map()) :: map()

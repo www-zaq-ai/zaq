@@ -56,6 +56,7 @@ defmodule ZaqWeb.Router do
       live "/dashboard/telemetry-preview", Live.BO.TelemetryPreviewLive
       live "/dashboard/llm-performance", Live.BO.LLMPerformanceLive
       live "/dashboard/conversations-metrics", Live.BO.ConversationsMetricsLive
+      live "/dashboard/knowledge-base-metrics", Live.BO.KnowledgeBaseMetricsLive
       live "/change-password", Live.BO.System.ChangePasswordLive
       live "/users", Live.BO.Accounts.UsersLive
       live "/users/new", Live.BO.Accounts.UserFormLive, :new

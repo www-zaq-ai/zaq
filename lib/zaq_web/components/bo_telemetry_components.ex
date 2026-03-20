@@ -131,54 +131,63 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
 
   defp assign_time_series_from_chart(%{chart: %DashboardChart{} = chart} = assigns) do
     payload = time_series_payload(chart)
+    labels = payload.labels
 
     primary_series = List.first(payload.series)
     secondary_series = Enum.at(payload.series, 1)
 
-    points = series_points(payload.labels, Map.get(primary_series || %{}, :values, []))
+    points = series_points(labels, series_values(primary_series))
+
+    benchmark_points = benchmark_points(payload, labels, primary_series)
 
     secondary_points =
-      series_points_if_present(payload.labels, Map.get(secondary_series || %{}, :values, []))
+      labels
+      |> series_points_if_present(series_values(secondary_series))
+      |> maybe_drop_threshold_secondary(benchmark_points, secondary_series)
 
-    primary_key = Map.get(primary_series || %{}, :key, "")
-
-    benchmark_points =
-      payload.benchmarks
-      |> Map.get(primary_key, Map.get(payload.benchmarks, to_string(primary_key), []))
-      |> then(&series_points_if_present(payload.labels, &1))
-
-    baseline = Map.get(payload, :baseline, nil)
-
-    baseline_points =
-      case baseline do
-        %{values: values} when is_list(values) -> series_points(payload.labels, values)
-        %{"values" => values} when is_list(values) -> series_points(payload.labels, values)
-        _ -> []
-      end
-
-    baseline_label =
-      case baseline do
-        %{label: label} when is_binary(label) and label != "" -> label
-        %{"label" => label} when is_binary(label) and label != "" -> label
-        _ -> "Baseline"
-      end
-
-    secondary_points =
-      maybe_drop_threshold_secondary(secondary_points, benchmark_points, secondary_series)
+    baseline = Map.get(payload, :baseline)
 
     assigns
     |> assign(:id, assigns.id || chart.id)
     |> assign(:title, assigns.title || chart.title)
-    |> assign(:primary_label, Map.get(primary_series || %{}, :name) || "Primary")
+    |> assign(:primary_label, series_name(primary_series, "Primary"))
     |> assign(:points, points)
     |> assign(:secondary_points, secondary_points)
-    |> assign(:secondary_label, Map.get(secondary_series || %{}, :name))
+    |> assign(:secondary_label, series_name(secondary_series, nil))
     |> assign(:benchmark_points, benchmark_points)
-    |> assign(:baseline_points, baseline_points)
-    |> assign(:baseline_label, baseline_label)
+    |> assign(:baseline_points, baseline_points(baseline, labels))
+    |> assign(:baseline_label, baseline_label(baseline))
   end
 
   defp assign_time_series_from_chart(assigns), do: assigns
+
+  defp series_values(series), do: Map.get(series || %{}, :values, [])
+
+  defp series_name(series, default), do: Map.get(series || %{}, :name) || default
+
+  defp series_key(series), do: Map.get(series || %{}, :key, "")
+
+  defp benchmark_points(payload, labels, primary_series) do
+    key = series_key(primary_series)
+
+    payload.benchmarks
+    |> Map.get(key, Map.get(payload.benchmarks, to_string(key), []))
+    |> then(&series_points_if_present(labels, &1))
+  end
+
+  defp baseline_points(%{values: values}, labels) when is_list(values),
+    do: series_points(labels, values)
+
+  defp baseline_points(%{"values" => values}, labels) when is_list(values),
+    do: series_points(labels, values)
+
+  defp baseline_points(_baseline, _labels), do: []
+
+  defp baseline_label(%{label: label}) when is_binary(label) and label != "", do: label
+
+  defp baseline_label(%{"label" => label}) when is_binary(label) and label != "", do: label
+
+  defp baseline_label(_baseline), do: "Baseline"
 
   defp time_series_payload(%DashboardChart{payload: %SeriesPayload{} = payload}), do: payload
 
