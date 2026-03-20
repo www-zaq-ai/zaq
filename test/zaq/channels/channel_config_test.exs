@@ -3,6 +3,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Repo
+  alias Zaq.System.SecretConfig
 
   defmodule StubPlug do
     import Plug.Conn
@@ -28,6 +29,71 @@ defmodule Zaq.Channels.ChannelConfigTest do
       end
     end
   end
+
+  # ── Token encryption ────────────────────────────────────────────────────
+
+  test "token is stored encrypted in DB on insert" do
+    config = insert_channel_config(%{token: "plaintext-token"})
+
+    [[raw_token]] =
+      Repo.query!("SELECT token FROM channel_configs WHERE id = $1", [config.id]).rows
+
+    assert SecretConfig.encrypted?(raw_token),
+           "expected DB value to be encrypted, got: #{inspect(raw_token)}"
+  end
+
+  test "loaded struct exposes decrypted token" do
+    inserted = insert_channel_config(%{token: "my-secret"})
+    loaded = Repo.get!(ChannelConfig, inserted.id)
+
+    assert loaded.token == "my-secret"
+  end
+
+  test "update re-encrypts legacy plaintext token in DB" do
+    # Write a plaintext token directly to simulate a legacy row
+    {:ok, config} =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Legacy",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: "https://example.com",
+        token: "legacy",
+        enabled: true
+      })
+      |> Repo.insert()
+
+    Repo.query!("UPDATE channel_configs SET token = 'legacy' WHERE id = $1", [config.id])
+
+    # Reload and update without changing token
+    loaded = Repo.get!(ChannelConfig, config.id)
+    {:ok, _} = loaded |> ChannelConfig.changeset(%{name: "Updated"}) |> Repo.update()
+
+    [[raw_token]] =
+      Repo.query!("SELECT token FROM channel_configs WHERE id = $1", [config.id]).rows
+
+    assert SecretConfig.encrypted?(raw_token),
+           "expected token to be re-encrypted after update, got: #{inspect(raw_token)}"
+
+    reloaded = Repo.get!(ChannelConfig, config.id)
+    assert reloaded.token == "legacy"
+  end
+
+  test "update with new token encrypts the new value" do
+    config = insert_channel_config(%{token: "old-token"})
+    loaded = Repo.get!(ChannelConfig, config.id)
+
+    {:ok, _} = loaded |> ChannelConfig.changeset(%{token: "new-token"}) |> Repo.update()
+
+    [[raw_token]] =
+      Repo.query!("SELECT token FROM channel_configs WHERE id = $1", [config.id]).rows
+
+    assert SecretConfig.encrypted?(raw_token)
+    reloaded = Repo.get!(ChannelConfig, config.id)
+    assert reloaded.token == "new-token"
+  end
+
+  # ── Validation ──────────────────────────────────────────────────────────
 
   test "changeset/2 validates required fields and inclusion" do
     changeset = ChannelConfig.changeset(%ChannelConfig{}, %{provider: "unknown", kind: "bad"})

@@ -1,26 +1,33 @@
-defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
+defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Mailer
   alias Zaq.System
   alias Zaq.System.EmailConfig
-  alias Zaq.System.TelemetryConfig
 
+  @impl true
   def mount(_params, _session, socket) do
     config = System.get_email_config()
     changeset = EmailConfig.changeset(config, %{})
 
     {:ok,
      socket
-     |> assign(:current_path, "/bo/system-config")
-     |> assign(:page_title, "System Configuration")
+     |> assign(:current_path, "/bo/channels/notifications/email/smtp")
+     |> assign(:page_title, "SMTP Configuration")
      |> assign(:form, to_form(changeset))
      |> assign(:smtp_warnings, smtp_warnings(changeset))
+     |> assign(:email_enabled, config.enabled)
      |> assign(:save_status, :idle)
      |> assign(:test_status, :idle)
      |> assign(:test_recipient, "")}
   end
 
+  @impl true
+  def handle_params(%{"type" => type}, _uri, socket) do
+    {:noreply, assign(socket, :current_path, "/bo/channels/notifications/email/#{type}")}
+  end
+
+  @impl true
   def handle_event("validate", %{"email_config" => params}, socket) do
     config = System.get_email_config()
 
@@ -36,19 +43,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:save_status, :idle)}
   end
 
+  @impl true
   def handle_event("save", %{"email_config" => params}, socket) do
     config = System.get_email_config()
-
-    changeset = EmailConfig.changeset(config, params)
+    # Preserve the current enabled state — it's controlled by activate/deactivate
+    params_with_enabled = Map.put(params, "enabled", to_string(config.enabled))
+    changeset = EmailConfig.changeset(config, params_with_enabled)
 
     case System.save_email_config(changeset) do
       {:ok, _} ->
-        fresh_changeset = EmailConfig.changeset(System.get_email_config(), %{})
+        fresh_config = System.get_email_config()
+        fresh_changeset = EmailConfig.changeset(fresh_config, %{})
 
         {:noreply,
          socket
-         |> put_flash(:info, "Email configuration saved.")
          |> assign(:save_status, :ok)
+         |> assign(:email_enabled, fresh_config.enabled)
          |> assign(:form, to_form(fresh_changeset))
          |> assign(:smtp_warnings, smtp_warnings(fresh_changeset))}
 
@@ -82,9 +92,40 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
+  @impl true
+  def handle_event("activate", _params, socket) do
+    config = System.get_email_config()
+    new_enabled = !config.enabled
+    changeset = EmailConfig.changeset(config, %{"enabled" => to_string(new_enabled)})
+
+    case System.save_email_config(changeset) do
+      {:ok, _} ->
+        fresh_config = System.get_email_config()
+        fresh_changeset = EmailConfig.changeset(fresh_config, %{})
+
+        {:noreply,
+         socket
+         |> assign(:email_enabled, fresh_config.enabled)
+         |> assign(:form, to_form(fresh_changeset))
+         |> assign(:smtp_warnings, smtp_warnings(fresh_changeset))
+         |> assign(:save_status, :idle)}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         socket
+         |> assign(:save_status, {:error, format_changeset_errors(changeset)})}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to update email status.")
+         |> assign(:save_status, {:error, inspect(reason)})}
+    end
+  end
+
+  @impl true
   def handle_event("test_connection", %{"recipient" => raw_recipient}, socket) do
     recipient = String.trim(raw_recipient)
-
     socket = assign(socket, :test_recipient, raw_recipient)
 
     cond do
@@ -102,10 +143,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
+  @impl true
   def handle_event("test_connection", _params, socket) do
     {:noreply, assign(socket, :test_status, {:error, "Enter a recipient email to send a test."})}
   end
 
+  @impl true
   def handle_info({:send_test, recipient}, socket) do
     result =
       try do
@@ -156,10 +199,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp error_opt_value(opts, key) do
     Enum.find_value(opts, key, fn {opt_key, opt_value} ->
-      case Atom.to_string(opt_key) == key do
-        true -> opt_value
-        false -> nil
-      end
+      if Atom.to_string(opt_key) == key, do: opt_value
     end)
   end
 
@@ -183,33 +223,28 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp format_email_error({:network_failure, _}),
     do: "Network error while contacting the SMTP server."
 
-  defp format_email_error({:temporary_failure, :tls_failed}) do
-    "TLS handshake failed. Check TLS verification mode or CA certificate path."
-  end
+  defp format_email_error({:temporary_failure, :tls_failed}),
+    do: "TLS handshake failed. Check TLS verification mode or CA certificate path."
 
-  defp format_email_error({:error, :missing_encryption_key}) do
-    "Missing SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
-  end
+  defp format_email_error({:error, :missing_encryption_key}),
+    do: "Missing SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
 
-  defp format_email_error({:error, :invalid_encryption_key}) do
-    "Invalid SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
-  end
+  defp format_email_error({:error, :invalid_encryption_key}),
+    do: "Invalid SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
 
-  defp format_email_error({:error, :invalid_ciphertext}) do
-    "Stored SMTP password cannot be decrypted. Please re-save the password with a valid encryption key."
-  end
+  defp format_email_error({:error, :invalid_ciphertext}),
+    do:
+      "Stored SMTP password cannot be decrypted. Please re-save the password with a valid encryption key."
 
-  defp format_email_error(:invalid_ciphertext) do
-    "Stored SMTP password cannot be decrypted. Please re-save the password with a valid encryption key."
-  end
+  defp format_email_error(:invalid_ciphertext),
+    do:
+      "Stored SMTP password cannot be decrypted. Please re-save the password with a valid encryption key."
 
-  defp format_email_error(:missing_encryption_key) do
-    "Missing SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
-  end
+  defp format_email_error(:missing_encryption_key),
+    do: "Missing SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
 
-  defp format_email_error(:invalid_encryption_key) do
-    "Invalid SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
-  end
+  defp format_email_error(:invalid_encryption_key),
+    do: "Invalid SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."
 
   defp format_email_error(reason), do: inspect(reason)
 
@@ -229,19 +264,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  defp valid_email?(email) do
-    String.match?(email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
-  end
+  defp valid_email?(email), do: String.match?(email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
 
   defp smtp_warnings(changeset) do
     transport_mode = Ecto.Changeset.get_field(changeset, :transport_mode, "starttls")
     tls = Ecto.Changeset.get_field(changeset, :tls, "enabled")
     tls_verify = Ecto.Changeset.get_field(changeset, :tls_verify, "verify_peer")
-    port = Ecto.Changeset.get_field(changeset, :port, 587)
 
     []
     |> maybe_add_warning(
-      transport_mode == "ssl" and port != 465,
+      transport_mode == "ssl" and Ecto.Changeset.get_field(changeset, :port, 587) != 465,
       "smtp-warning-ssl-port",
       "SSL transport usually expects port 465."
     )

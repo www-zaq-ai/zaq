@@ -15,9 +15,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "mount" do
     test "renders the email configuration form", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/bo/system-config")
-      assert html =~ "Email (SMTP)"
-      assert html =~ "Enable email delivery"
+      {:ok, view, html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+      assert html =~ "SMTP Settings"
       assert html =~ "email_config[relay]"
       assert has_element?(view, "#smtp-advanced-section")
       assert has_element?(view, "#smtp-transport-mode")
@@ -45,13 +44,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "validate event" do
     test "updates the form without saving", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       html =
         view
         |> form("form[phx-submit='save']", %{
           "email_config" => %{
-            "enabled" => "false",
             "relay" => "smtp.test.com",
             "port" => "25",
             "tls" => "enabled",
@@ -127,13 +125,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "save event" do
     test "with valid params persists config to the database", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       html =
         view
         |> form("form[phx-submit='save']", %{
           "email_config" => %{
-            "enabled" => "false",
             "relay" => "smtp.save.com",
             "port" => "587",
             "tls" => "enabled",
@@ -146,21 +143,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
         |> render_submit()
 
-      assert html =~ "Email configuration saved."
+      assert html =~ "Saved"
       assert has_element?(view, "#save-status-ok")
-      # Verify that key email fields were saved to DB
       assert Zaq.System.get_config("email.relay") == "smtp.save.com"
       assert Zaq.System.get_config("email.from_email") == "noreply@example.com"
     end
 
     test "with enabled=true but no relay shows validation errors in form", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      # Set enabled=true in DB so the save handler picks it up
+      Zaq.System.set_config("email.enabled", "true")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       html =
         view
         |> form("form[phx-submit='save']", %{
           "email_config" => %{
-            "enabled" => "true",
             "relay" => "",
             "port" => "587",
             "tls" => "enabled",
@@ -182,7 +180,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "test email form" do
     test "keeps recipient value after submit", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       html =
         view
@@ -195,10 +193,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "advanced SMTP warnings" do
     test "shows ssl port warning when ssl mode uses non-465 port", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       view
-      |> form("#system-config-form", %{
+      |> form("#smtp-config-form", %{
         "email_config" => %{"transport_mode" => "ssl", "port" => "587"}
       })
       |> render_change()
@@ -208,10 +206,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows verify_none warning", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       view
-      |> form("#system-config-form", %{"email_config" => %{"tls_verify" => "verify_none"}})
+      |> form("#smtp-config-form", %{"email_config" => %{"tls_verify" => "verify_none"}})
       |> render_change()
 
       assert has_element?(view, "#smtp-warning-verify-none")
@@ -220,7 +218,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "test_connection event" do
     test "does not send when recipient is empty and shows inline validation error", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       view
       |> form("#test-email-form", %{"recipient" => ""})
@@ -232,7 +230,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows validation error when recipient is not a valid email", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       view
       |> form("#test-email-form", %{"recipient" => "not-an-email"})
@@ -242,7 +240,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows error status when email is not configured", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
 
       view
       |> form("#test-email-form", %{"recipient" => "tester@example.com"})

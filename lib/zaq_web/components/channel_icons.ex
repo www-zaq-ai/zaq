@@ -261,6 +261,32 @@ defmodule ZaqWeb.Components.ChannelIcons do
         </svg>
       <% "zaq_local" -> %>
         <image src="/images/zaq.png" class={@class} />
+      <% "email" -> %>
+        <svg
+          class={@class}
+          fill="none"
+          stroke="#16a34a"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+        </svg>
+      <% "smtp" -> %>
+        <svg
+          class={@class}
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect x="2" y="2" width="20" height="8" rx="2" />
+          <rect x="2" y="14" width="20" height="8" rx="2" />
+          <line x1="6" y1="6" x2="6.01" y2="6" stroke-linecap="round" stroke-width="2" />
+          <line x1="6" y1="18" x2="6.01" y2="18" stroke-linecap="round" stroke-width="2" />
+        </svg>
       <% "ai_agents" -> %>
         <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z" />

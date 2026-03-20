@@ -11,7 +11,7 @@ defmodule Zaq.System do
   alias Zaq.Repo
   alias Zaq.System.Config
   alias Zaq.System.EmailConfig
-  alias Zaq.System.SecretConfig
+  alias Zaq.Types.EncryptedString
   alias Zaq.System.TelemetryConfig
 
   @email_fields ~w(
@@ -85,7 +85,7 @@ defmodule Zaq.System do
   @doc """
   Persists email config from a validated `%EmailConfig{}` changeset.
 
-  SMTP password values are encrypted at rest via `Zaq.System.SecretConfig`.
+  SMTP password values are encrypted at rest via `Zaq.System.EncryptedString`.
   In strict mode, saves fail when a non-empty password is provided but
   encryption key configuration is missing or invalid.
   """
@@ -202,11 +202,14 @@ defmodule Zaq.System do
 
   defp smtp_tls_options(%EmailConfig{} = cfg) do
     verify = normalize_tls_verify_mode(cfg.tls_verify)
+    relay = String.trim(cfg.relay)
 
     options =
       [
+        versions: [:"tlsv1.2", :"tlsv1.3"],
         verify: verify,
-        server_name_indication: to_charlist(cfg.relay)
+        depth: 4,
+        server_name_indication: to_charlist(relay)
       ]
 
     cond do
@@ -222,16 +225,17 @@ defmodule Zaq.System do
   end
 
   defp default_cacerts do
-    case :public_key.cacerts_get() do
-      certs when is_list(certs) -> certs
-      _ -> []
-    end
+    :public_key.cacerts_get()
+    |> Enum.map(fn
+      {:cert, der, _} -> der
+      der when is_binary(der) -> der
+    end)
   rescue
     _ -> []
   end
 
   defp decrypt_password_value(value) do
-    case SecretConfig.decrypt(value) do
+    case EncryptedString.decrypt(value) do
       {:ok, decrypted} -> decrypted
       {:error, _reason} -> nil
     end
@@ -242,7 +246,7 @@ defmodule Zaq.System do
   end
 
   defp password_for_delivery(%EmailConfig{}) do
-    case SecretConfig.decrypt(get_config("email.password")) do
+    case EncryptedString.decrypt(get_config("email.password")) do
       {:ok, nil} -> {:ok, ""}
       {:ok, password} -> {:ok, password}
       {:error, reason} -> {:error, reason}
@@ -263,7 +267,7 @@ defmodule Zaq.System do
     opts =
       [
         adapter: Swoosh.Adapters.SMTP,
-        relay: cfg.relay,
+        relay: String.trim(cfg.relay),
         port: cfg.port,
         ssl: ssl,
         tls: tls,
@@ -298,7 +302,7 @@ defmodule Zaq.System do
   end
 
   defp persist_encrypted_password(value) when is_binary(value) do
-    with {:ok, encrypted} <- SecretConfig.encrypt(value) do
+    with {:ok, encrypted} <- EncryptedString.encrypt(value) do
       set_config("email.password", encrypted)
     end
   end

@@ -166,7 +166,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
         "form" => %{"provider" => "mattermost", "name" => "", "url" => "", "token" => ""}
       })
 
-    assert html =~ "Kind can&#39;t be blank"
+    assert html =~ "Name can&#39;t be blank"
     assert Repo.aggregate(ChannelConfig, :count) == initial_count
     assert has_element?(view, "#config-form")
   end
