@@ -31,12 +31,16 @@ defmodule Zaq.System do
 
   @doc "Upserts a single config entry."
   def set_config(key, value) do
-    case Repo.get_by(Config, key: key) do
-      nil -> %Config{}
-      row -> row
-    end
-    |> Config.changeset(%{key: key, value: to_string(value)})
-    |> Repo.insert_or_update()
+    string_value = to_string(value)
+
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    %Config{}
+    |> Config.changeset(%{key: key, value: string_value})
+    |> Repo.insert(
+      on_conflict: [set: [value: string_value, updated_at: now]],
+      conflict_target: :key
+    )
   end
 
   # ── Email / SMTP ───────────────────────────────────────────────────────

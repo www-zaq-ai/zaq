@@ -85,25 +85,9 @@ defmodule Zaq.Agent.Answering do
       prompt_tokens = usage_value(usage, :input)
       completion_tokens = usage_value(usage, :output)
 
-      total_tokens =
-        case {prompt_tokens, completion_tokens} do
-          {p, c} when is_integer(p) and is_integer(c) -> p + c
-          _ -> nil
-        end
-
-      confidence_score =
-        if include_confidence do
-          logprobs_content = bot_response.metadata.logprobs["content"]
-
-          score = LogprobsAnalyzer.calculate_confidence(logprobs_content, true)
-          Logger.info("Response confidence: #{score * 100}%")
-          score
-        else
-          nil
-        end
-
-      if is_integer(prompt_tokens), do: Logger.info("Input tokens: #{prompt_tokens}")
-      if is_integer(completion_tokens), do: Logger.info("Output tokens: #{completion_tokens}")
+      total_tokens = maybe_total_tokens(prompt_tokens, completion_tokens)
+      confidence_score = maybe_confidence_score(bot_response, include_confidence)
+      log_token_usage(prompt_tokens, completion_tokens)
 
       result = %Result{
         answer: answer,
@@ -129,24 +113,16 @@ defmodule Zaq.Agent.Answering do
   def normalize_result(%Result{} = result), do: {:ok, result}
 
   def normalize_result(%{answer: answer} = payload) when is_binary(answer) do
-    confidence =
-      case Map.get(payload, :confidence) || Map.get(payload, "confidence") do
-        %{score: score} when is_number(score) -> score * 1.0
-        %{"score" => score} when is_number(score) -> score * 1.0
-        score when is_number(score) -> score * 1.0
-        _ -> nil
-      end
+    confidence = payload_confidence(payload)
 
     {:ok,
      %Result{
        answer: answer,
        confidence_score: confidence,
-       latency_ms: as_int(Map.get(payload, :latency_ms) || Map.get(payload, "latency_ms")),
-       prompt_tokens:
-         as_int(Map.get(payload, :prompt_tokens) || Map.get(payload, "prompt_tokens")),
-       completion_tokens:
-         as_int(Map.get(payload, :completion_tokens) || Map.get(payload, "completion_tokens")),
-       total_tokens: as_int(Map.get(payload, :total_tokens) || Map.get(payload, "total_tokens"))
+       latency_ms: payload_int(payload, :latency_ms),
+       prompt_tokens: payload_int(payload, :prompt_tokens),
+       completion_tokens: payload_int(payload, :completion_tokens),
+       total_tokens: payload_int(payload, :total_tokens)
      }}
   end
 
@@ -205,6 +181,40 @@ defmodule Zaq.Agent.Answering do
     value = Map.get(usage, key) || Map.get(usage, Atom.to_string(key))
     as_int(value)
   end
+
+  defp maybe_total_tokens(prompt_tokens, completion_tokens)
+       when is_integer(prompt_tokens) and is_integer(completion_tokens),
+       do: prompt_tokens + completion_tokens
+
+  defp maybe_total_tokens(_, _), do: nil
+
+  defp maybe_confidence_score(_bot_response, false), do: nil
+
+  defp maybe_confidence_score(bot_response, true) do
+    logprobs_content = get_in(bot_response.metadata, [:logprobs, "content"])
+    score = LogprobsAnalyzer.calculate_confidence(logprobs_content, true)
+    Logger.info("Response confidence: #{score * 100}%")
+    score
+  end
+
+  defp log_token_usage(prompt_tokens, completion_tokens) do
+    if is_integer(prompt_tokens), do: Logger.info("Input tokens: #{prompt_tokens}")
+    if is_integer(completion_tokens), do: Logger.info("Output tokens: #{completion_tokens}")
+  end
+
+  defp payload_confidence(payload) do
+    case payload_value(payload, :confidence) do
+      %{score: score} when is_number(score) -> score * 1.0
+      %{"score" => score} when is_number(score) -> score * 1.0
+      score when is_number(score) -> score * 1.0
+      _ -> nil
+    end
+  end
+
+  defp payload_int(payload, key), do: payload |> payload_value(key) |> as_int()
+
+  defp payload_value(payload, key),
+    do: Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
 
   defp as_int(value) when is_integer(value), do: value
   defp as_int(value) when is_float(value), do: trunc(value)

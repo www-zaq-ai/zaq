@@ -2,8 +2,8 @@ defmodule Zaq.Application do
   @moduledoc false
 
   use Application
-  alias Zaq.Ingestion.ObanTelemetry
   alias Zaq.Engine.Telemetry.Buffer
+  alias Zaq.Ingestion.ObanTelemetry
 
   @impl true
   def start(_type, _args) do

@@ -339,6 +339,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       Pipeline.run(user_msg,
         history: history,
         role_ids: role_ids,
+        telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
         on_status: fn stage, msg -> update_status(pid, request_id, stage, msg) end,
         node_router: node_router()
       )
