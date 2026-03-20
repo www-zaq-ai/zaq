@@ -124,11 +124,12 @@ defmodule Zaq.Engine.Telemetry do
 
     documents_ingested_30d = documents_ingested_since(window_start)
     qa_avg_response_ms_30d = avg_qa_latency_since(window_start)
+    llm_api_calls_30d = llm_api_calls_since(window_start)
 
     %{
       documents_ingested_30d: documents_ingested_30d,
       qa_avg_response_ms_30d: qa_avg_response_ms_30d,
-      llm_api_calls_30d: 0
+      llm_api_calls_30d: llm_api_calls_30d
     }
   end
 
@@ -274,6 +275,18 @@ defmodule Zaq.Engine.Telemetry do
     else
       0.0
     end
+  end
+
+  defp llm_api_calls_since(window_start) do
+    from(r in Rollup,
+      where:
+        r.source == "local" and
+          r.metric_key == "qa.tokens.total" and
+          r.bucket_start >= ^window_start,
+      select: sum(r.value_count)
+    )
+    |> Repo.one()
+    |> Kernel.||(0)
   end
 
   defp benchmark_rollup_entry(row, now) do
