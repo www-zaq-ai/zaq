@@ -2,6 +2,8 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Engine.Telemetry
+  alias Zaq.Engine.Telemetry.Contracts.{DisplayMeta, RuntimeMeta}
+  alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
   alias Zaq.NodeRouter
   alias ZaqWeb.Live.BO.TelemetryPreviewData
 
@@ -16,13 +18,14 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
     "radar"
   ]
 
-  @default_metric %{
+  @default_metric %ScalarPayload{
     id: "metric-total-events",
     label: "Total Events",
-    value: 0,
+    value: 0.0,
     unit: nil,
     trend: 0.0,
-    hint: ""
+    display: %DisplayMeta{hint: ""},
+    runtime: %RuntimeMeta{}
   }
 
   @impl true

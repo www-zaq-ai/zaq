@@ -10,7 +10,7 @@ defmodule Zaq.Engine.Telemetry.KpisTest do
     :ok
   end
 
-  test "dashboard_kpis/1 returns weighted KPI aggregates for local rollups" do
+  test "load_main_dashboard_metrics/1 returns standardized metric cards" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_rollup("ingestion.completed.count", DateTime.add(now, -2 * 86_400, :second), 8.0, 2)
@@ -30,24 +30,33 @@ defmodule Zaq.Engine.Telemetry.KpisTest do
       source: "benchmark"
     )
 
-    kpis = Telemetry.dashboard_kpis(%{days: 7})
+    payload = Telemetry.load_main_dashboard_metrics(%{range: "7d"})
 
-    assert kpis.documents_ingested_30d == 8.0
-    assert_in_delta kpis.qa_avg_response_ms_30d, 320.0, 0.0001
-    assert kpis.llm_api_calls_30d == 3
+    metrics = get_in(payload, [:metric_cards_chart, :summary, :metrics])
+
+    docs = Enum.find(metrics, &(&1.id == "dashboard-metric-documents-ingested"))
+    llm_calls = Enum.find(metrics, &(&1.id == "dashboard-metric-llm-api-calls"))
+    latency = Enum.find(metrics, &(&1.id == "dashboard-metric-qa-response-time"))
+
+    assert docs.value == 8.0
+    assert llm_calls.value == 3
+    assert_in_delta latency.value, 320.0, 0.0001
+    assert docs.display.range == "7d"
   end
 
-  test "dashboard_kpis/1 defaults to 30 days and returns zeros when no local rows match" do
+  test "load_main_dashboard_metrics/1 returns zero-safe values when no local rows match" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_rollup("ingestion.completed.count", DateTime.add(now, -40 * 86_400, :second), 12.0, 3)
     insert_rollup("qa.answer.latency_ms", DateTime.add(now, -40 * 86_400, :second), 2_500.0, 5)
 
-    kpis = Telemetry.dashboard_kpis([])
+    payload = Telemetry.load_main_dashboard_metrics(%{range: "30d"})
 
-    assert kpis.documents_ingested_30d == 0.0
-    assert kpis.qa_avg_response_ms_30d == 0.0
-    assert kpis.llm_api_calls_30d == 0
+    metrics = get_in(payload, [:metric_cards_chart, :summary, :metrics])
+
+    assert Enum.find(metrics, &(&1.id == "dashboard-metric-documents-ingested")).value == 0.0
+    assert Enum.find(metrics, &(&1.id == "dashboard-metric-qa-response-time")).value == 0.0
+    assert Enum.find(metrics, &(&1.id == "dashboard-metric-llm-api-calls")).value == 0
   end
 
   defp insert_rollup(metric_key, bucket_start, value_sum, value_count, opts \\ []) do

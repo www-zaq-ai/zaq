@@ -4,6 +4,8 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
   import Phoenix.LiveViewTest
 
   alias ZaqWeb.Components.BOTelemetryComponents
+  alias Zaq.Engine.Telemetry.Contracts.{DisplayMeta, RuntimeMeta}
+  alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
 
   test "metric_card/1 renders label, value, and id" do
     html =
@@ -20,6 +22,24 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     assert html =~ "12,450"
     assert html =~ "+4.2%"
     assert html =~ "Last 24h"
+  end
+
+  test "metric_card/1 renders display metadata but not runtime metadata" do
+    html =
+      render_component(&BOTelemetryComponents.metric_card/1,
+        id: "metric-runtime-separation",
+        card: %ScalarPayload{
+          id: "metric-runtime-separation",
+          label: "API calls",
+          value: 120,
+          display: %DisplayMeta{range: "30d", hint: "scope: critical"},
+          runtime: %RuntimeMeta{href: "/bo/hidden-runtime"}
+        }
+      )
+
+    assert html =~ "range: 30d"
+    assert html =~ "scope: critical"
+    refute html =~ "/bo/hidden-runtime"
   end
 
   test "time_series_chart/1 renders representative data and id" do

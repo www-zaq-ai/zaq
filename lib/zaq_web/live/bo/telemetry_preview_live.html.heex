@@ -144,11 +144,7 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ZaqWeb.Components.BOTelemetryComponents.metric_card
           id="gallery-metric-card"
-          label={@gallery_metric.label}
-          value={@gallery_metric.value}
-          unit={@gallery_metric.unit}
-          trend={@gallery_metric.trend}
-          hint={@gallery_metric.hint}
+          card={@gallery_metric}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.gauge_chart
@@ -213,11 +209,7 @@
         <ZaqWeb.Components.BOTelemetryComponents.metric_card
           :for={metric <- @metrics}
           id={metric.id}
-          label={metric.label}
-          value={metric.value}
-          unit={metric.unit}
-          trend={metric.trend}
-          hint={metric.hint}
+          card={metric}
         />
       </div>
 

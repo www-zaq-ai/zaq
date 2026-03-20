@@ -1,4 +1,6 @@
 defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
+
   @moduledoc """
   Deterministic fallback payload for the telemetry preview page.
 
@@ -174,6 +176,8 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
       }
     ]
 
+    contract_charts = Enum.map(charts, &DashboardChart.from_legacy_map/1)
+
     %{
       filters: %{
         range: range,
@@ -181,8 +185,8 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
         segment: segment,
         feedback_scope: feedback_scope
       },
-      charts: charts,
-      metrics: metrics,
+      charts: contract_charts,
+      metrics: Enum.find(contract_charts, &(&1.id == "metric_cards")).summary.metrics,
       time_series: time_series,
       bar_chart: bar_chart,
       donut_chart: donut_chart,

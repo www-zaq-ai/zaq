@@ -4,16 +4,14 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
+  alias Zaq.Engine.Telemetry.Contracts.{DisplayMeta, RuntimeMeta}
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
+  alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
   alias Zaq.Engine.Telemetry
   alias Zaq.License.FeatureStore
   alias Zaq.NodeRouter
 
-  @kpi_window_days 30
-  @default_kpis %{
-    documents_ingested_30d: 0.0,
-    llm_api_calls_30d: 0,
-    qa_avg_response_ms_30d: 0.0
-  }
+  @kpi_range "30d"
 
   @supervisor_map %{
     engine: Zaq.Engine.Supervisor,
@@ -28,7 +26,11 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, "node:events")
 
     license_data = FeatureStore.license_data()
-    kpis = load_telemetry_kpis()
+    telemetry_metrics = load_main_dashboard_metrics()
+
+    user_card = build_user_metric_card(length(Accounts.list_users()))
+
+    metric_cards = [user_card | telemetry_metrics]
 
     days_left =
       case license_data do
@@ -48,10 +50,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
        license_data: license_data,
        days_left: days_left,
        services: refresh_services(),
-       user_count: length(Accounts.list_users()),
-       documents_ingested_30d: kpis.documents_ingested_30d,
-       llm_api_calls: kpis.llm_api_calls_30d,
-       qa_avg_response_time_ms: round(kpis.qa_avg_response_ms_30d)
+       metric_cards: metric_cards
      )}
   end
 
@@ -100,19 +99,43 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     if :rpc.call(n, Process, :whereis, [supervisor]) != nil, do: {true, n}
   end
 
-  defp load_telemetry_kpis do
-    case NodeRouter.call(:engine, Telemetry, :dashboard_kpis, [@kpi_window_days]) do
-      %{
-        documents_ingested_30d: _docs,
-        llm_api_calls_30d: _calls,
-        qa_avg_response_ms_30d: _latency
-      } = kpis ->
-        kpis
+  defp load_main_dashboard_metrics do
+    case NodeRouter.call(:engine, Telemetry, :load_main_dashboard_metrics, [%{range: @kpi_range}]) do
+      %{metric_cards_chart: %{summary: %{metrics: metrics}}} when is_list(metrics) ->
+        metrics
 
       _ ->
-        @default_kpis
+        []
     end
   rescue
-    _ -> @default_kpis
+    _ -> []
+  end
+
+  defp build_user_metric_card(user_count) do
+    %{
+      id: "dashboard-metric-total-users-chart",
+      kind: :metric_cards,
+      title: "Main dashboard local metrics",
+      labels: [],
+      series: [],
+      summary: %{
+        metrics: [
+          %{
+            id: "dashboard-metric-total-users",
+            label: "Total users count",
+            value: user_count,
+            unit: nil,
+            trend: nil,
+            hint: "organization users",
+            meta: %{href: "/bo/users"}
+          }
+        ]
+      },
+      meta: %{range: @kpi_range}
+    }
+    |> DashboardChart.new()
+    |> Map.get(:summary, %{})
+    |> Map.get(:metrics, [])
+    |> List.first()
   end
 end

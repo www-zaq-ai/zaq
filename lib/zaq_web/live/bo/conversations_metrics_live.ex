@@ -1,0 +1,256 @@
+defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
+  use ZaqWeb, :live_view
+
+  alias Zaq.Engine.Telemetry
+  alias Zaq.NodeRouter
+
+  @ranges ["24h", "7d", "30d", "90d"]
+  @refresh_interval_ms 15_000
+
+  @impl true
+  def mount(_params, _session, socket) do
+    if connected?(socket), do: :timer.send_interval(@refresh_interval_ms, :refresh_telemetry)
+
+    {:ok,
+     socket
+     |> assign(:current_path, "/bo/dashboard/conversations-metrics")
+     |> assign(:ranges, @ranges)
+     |> assign(:range, "7d")
+     |> assign_telemetry()}
+  end
+
+  @impl true
+  def handle_event("set_range", %{"range" => range}, socket) do
+    next_range = if range in @ranges, do: range, else: socket.assigns.range
+
+    {:noreply,
+     socket
+     |> assign(:range, next_range)
+     |> assign_telemetry()}
+  end
+
+  @impl true
+  def handle_info(:refresh_telemetry, socket) do
+    {:noreply, assign_telemetry(socket)}
+  end
+
+  defp assign_telemetry(socket) do
+    telemetry = load_conversations_metrics_data(%{range: socket.assigns.range})
+
+    questions_asked_chart =
+      Map.get(telemetry, :questions_asked_chart, default_questions_asked_chart())
+
+    questions_per_channel_chart =
+      Map.get(telemetry, :questions_per_channel_chart, default_questions_per_channel_chart())
+
+    answer_confidence_distribution_chart =
+      Map.get(
+        telemetry,
+        :answer_confidence_distribution_chart,
+        default_answer_confidence_distribution_chart()
+      )
+
+    no_answer_rate_chart =
+      Map.get(telemetry, :no_answer_rate_chart, default_no_answer_rate_chart())
+
+    average_response_time_chart =
+      Map.get(telemetry, :average_response_time_chart, default_average_response_time_chart())
+
+    socket
+    |> assign(:telemetry, telemetry)
+    |> assign(:questions_asked_chart, questions_asked_chart)
+    |> assign(:questions_per_channel_chart, questions_per_channel_chart)
+    |> assign(:answer_confidence_distribution_chart, answer_confidence_distribution_chart)
+    |> assign(:no_answer_rate_chart, no_answer_rate_chart)
+    |> assign(:average_response_time_chart, average_response_time_chart)
+    |> assign(:questions_asked_points, chart_points(questions_asked_chart, "questions"))
+    |> assign(:no_answer_rate_points, chart_points(no_answer_rate_chart, "no_answer_rate"))
+    |> assign(
+      :no_answer_threshold_points,
+      benchmark_points(no_answer_rate_chart, "no_answer_rate")
+    )
+    |> assign(
+      :average_response_time_points,
+      chart_points(average_response_time_chart, "average_response_time")
+    )
+    |> assign(
+      :response_sla_points,
+      benchmark_points(average_response_time_chart, "average_response_time")
+    )
+  end
+
+  defp chart_points(chart, key) do
+    labels = ensure_list(get_in_contract(chart, :labels, []))
+
+    values =
+      chart
+      |> get_in_contract(:summary, %{})
+      |> get_in_contract(:values, %{})
+      |> get_in_contract(key, [])
+      |> ensure_list()
+
+    values
+    |> Enum.with_index()
+    |> Enum.map(fn {value, idx} ->
+      %{label: Enum.at(labels, idx, "T#{idx + 1}"), value: to_float(value, 0.0)}
+    end)
+  end
+
+  defp benchmark_points(chart, key) do
+    labels = ensure_list(get_in_contract(chart, :labels, []))
+
+    values =
+      chart
+      |> get_in_contract(:summary, %{})
+      |> get_in_contract(:benchmarks, %{})
+      |> get_in_contract(key, [])
+      |> ensure_list()
+
+    values
+    |> Enum.with_index()
+    |> Enum.map(fn {value, idx} ->
+      %{label: Enum.at(labels, idx, "T#{idx + 1}"), value: to_float(value, 0.0)}
+    end)
+  end
+
+  defp load_conversations_metrics_data(filters) do
+    case NodeRouter.call(:engine, Telemetry, :load_conversations_metrics, [filters]) do
+      %{} = payload -> payload
+      _ -> default_payload(filters)
+    end
+  rescue
+    _ -> default_payload(filters)
+  end
+
+  defp default_payload(filters) do
+    labels = labels_for_range(Map.get(filters, :range, "7d"))
+
+    %{
+      filters: %{range: Map.get(filters, :range, "7d")},
+      charts: [
+        default_questions_asked_chart(labels),
+        default_questions_per_channel_chart(),
+        default_answer_confidence_distribution_chart(),
+        default_no_answer_rate_chart(labels),
+        default_average_response_time_chart(labels)
+      ],
+      questions_asked_chart: default_questions_asked_chart(labels),
+      questions_per_channel_chart: default_questions_per_channel_chart(),
+      answer_confidence_distribution_chart: default_answer_confidence_distribution_chart(),
+      no_answer_rate_chart: default_no_answer_rate_chart(labels),
+      average_response_time_chart: default_average_response_time_chart(labels)
+    }
+  end
+
+  defp default_questions_asked_chart(labels \\ labels_for_range("7d")) do
+    zeroes = Enum.map(labels, fn _ -> 0.0 end)
+
+    %{
+      id: "questions_asked",
+      kind: :time_series,
+      title: "Questions asked",
+      labels: labels,
+      series: [%{key: "questions", name: "Questions (cumulative)", values: zeroes}],
+      summary: %{labels: labels, values: %{"questions" => zeroes}},
+      meta: %{}
+    }
+  end
+
+  defp default_questions_per_channel_chart do
+    %{
+      id: "questions_per_channel",
+      kind: :donut,
+      title: "Questions per channel",
+      labels: [],
+      series: [],
+      summary: %{segments: [%{label: "unknown", value: 0.0}]},
+      meta: %{}
+    }
+  end
+
+  defp default_answer_confidence_distribution_chart do
+    %{
+      id: "answer_confidence_distribution",
+      kind: :radar,
+      title: "Answer confidence distribution",
+      labels: [],
+      series: [],
+      summary: %{
+        axes: [
+          %{label: "Over 90", value: 0.0},
+          %{label: "80-90", value: 0.0},
+          %{label: "70-80", value: 0.0},
+          %{label: "50-70", value: 0.0},
+          %{label: "Below 50", value: 0.0}
+        ]
+      },
+      meta: %{}
+    }
+  end
+
+  defp default_no_answer_rate_chart(labels \\ labels_for_range("7d")) do
+    zeroes = Enum.map(labels, fn _ -> 0.0 end)
+    threshold = Enum.map(labels, fn _ -> 10.0 end)
+
+    %{
+      id: "no_answer_rate",
+      kind: :time_series,
+      title: "No-answer rate",
+      labels: labels,
+      series: [
+        %{key: "no_answer_rate", name: "No-answer rate", values: zeroes},
+        %{key: "alert_threshold", name: "Alert threshold", values: threshold}
+      ],
+      summary: %{
+        labels: labels,
+        values: %{"no_answer_rate" => zeroes},
+        benchmarks: %{"no_answer_rate" => threshold}
+      },
+      meta: %{threshold_percent: 10.0}
+    }
+  end
+
+  defp default_average_response_time_chart(labels \\ labels_for_range("7d")) do
+    zeroes = Enum.map(labels, fn _ -> 0.0 end)
+    sla = Enum.map(labels, fn _ -> 1500.0 end)
+
+    %{
+      id: "average_response_time",
+      kind: :time_series,
+      title: "Average response time",
+      labels: labels,
+      series: [
+        %{key: "average_response_time", name: "Average response time", values: zeroes},
+        %{key: "sla", name: "SLA", values: sla}
+      ],
+      summary: %{
+        labels: labels,
+        values: %{"average_response_time" => zeroes},
+        benchmarks: %{"average_response_time" => sla}
+      },
+      meta: %{sla_ms: 1500.0}
+    }
+  end
+
+  defp labels_for_range("24h"), do: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"]
+  defp labels_for_range("7d"), do: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  defp labels_for_range("30d"), do: Enum.map(0..9, fn idx -> "D#{idx * 3 + 1}" end)
+  defp labels_for_range("90d"), do: Enum.map(1..12, fn idx -> "W#{idx}" end)
+  defp labels_for_range(_), do: labels_for_range("7d")
+
+  defp get_in_contract(map, key, default) when is_map(map) and is_atom(key) do
+    Map.get(map, key, Map.get(map, Atom.to_string(key), default))
+  end
+
+  defp get_in_contract(map, key, default) when is_map(map) and is_binary(key),
+    do: Map.get(map, key, default)
+
+  defp get_in_contract(_value, _key, default), do: default
+
+  defp ensure_list(value) when is_list(value), do: value
+  defp ensure_list(_), do: []
+
+  defp to_float(value, _default) when is_float(value), do: value
+  defp to_float(value, _default) when is_integer(value), do: value * 1.0
+  defp to_float(_, default), do: default
+end

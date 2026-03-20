@@ -55,6 +55,21 @@ defmodule Zaq.Engine.Telemetry do
   Collector (Phoenix/Ecto/Oban events) -> Telemetry.record/4 (allow_infra: true)
   Only persisted when telemetry.capture_infra_metrics is enabled.
   ```
+
+  Canonical telemetry contract mapping:
+
+  - Envelope: `Zaq.Engine.Telemetry.Contracts.DashboardChart`
+  - Shared metadata:
+    - visible: `Zaq.Engine.Telemetry.Contracts.DisplayMeta`
+    - runtime: `Zaq.Engine.Telemetry.Contracts.RuntimeMeta`
+  - Payload families:
+    - `ScalarPayload` -> metric cards, gauge KPIs
+    - `ScalarListPayload` -> metric card grids
+    - `SeriesPayload` -> time-series charts
+    - `CategoryVectorPayload` -> bar, donut, radar charts
+    - `StatusListPayload` -> status grid
+    - `ProgressPayload` -> progress countdown
+  ```
   """
 
   import Ecto.Query
@@ -116,7 +131,16 @@ defmodule Zaq.Engine.Telemetry do
   @spec load_llm_performance(map()) :: map()
   def load_llm_performance(filters), do: DashboardData.load_llm_performance(filters)
 
-  @doc "Returns dashboard KPI values aggregated from local rollups."
+  @doc "Returns conversations dashboard payload for the provided filters."
+  @spec load_conversations_metrics(map()) :: map()
+  def load_conversations_metrics(filters), do: DashboardData.load_conversations_metrics(filters)
+
+  @doc "Returns main dashboard metric card payload for the provided filters."
+  @spec load_main_dashboard_metrics(map()) :: map()
+  def load_main_dashboard_metrics(filters), do: DashboardData.load_main_dashboard_metrics(filters)
+
+  @deprecated "Use load_main_dashboard_metrics/1 and consume metric_cards_chart.summary.metrics"
+  @doc "Legacy dashboard KPI helper retained for compatibility during migration."
   @spec dashboard_kpis(integer() | map() | keyword()) :: %{
           documents_ingested_30d: float(),
           qa_avg_response_ms_30d: float(),
@@ -124,16 +148,18 @@ defmodule Zaq.Engine.Telemetry do
         }
   def dashboard_kpis(params \\ 30) do
     days = normalize_days(params)
-    window_start = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+    range = range_for_days(days)
 
-    documents_ingested_30d = documents_ingested_since(window_start)
-    qa_avg_response_ms_30d = avg_qa_latency_since(window_start)
-    llm_api_calls_30d = llm_api_calls_since(window_start)
+    metrics =
+      %{range: range}
+      |> load_main_dashboard_metrics()
+      |> get_in([:metric_cards_chart, :summary, :metrics])
+      |> List.wrap()
 
     %{
-      documents_ingested_30d: documents_ingested_30d,
-      qa_avg_response_ms_30d: qa_avg_response_ms_30d,
-      llm_api_calls_30d: llm_api_calls_30d
+      documents_ingested_30d: metric_value(metrics, "dashboard-metric-documents-ingested", 0.0),
+      qa_avg_response_ms_30d: metric_value(metrics, "dashboard-metric-qa-response-time", 0.0),
+      llm_api_calls_30d: round(metric_value(metrics, "dashboard-metric-llm-api-calls", 0.0))
     }
   end
 
@@ -193,6 +219,16 @@ defmodule Zaq.Engine.Telemetry do
   def repo_query_duration_threshold_ms,
     do: System.get_telemetry_config().repo_query_duration_threshold_ms
 
+  @doc "Returns no-answer alert threshold percentage for conversations dashboards."
+  @spec no_answer_alert_threshold_percent() :: non_neg_integer()
+  def no_answer_alert_threshold_percent,
+    do: System.get_telemetry_config().no_answer_alert_threshold_percent
+
+  @doc "Returns response SLA in milliseconds for conversations dashboards."
+  @spec conversation_response_sla_ms() :: non_neg_integer()
+  def conversation_response_sla_ms,
+    do: System.get_telemetry_config().conversation_response_sla_ms
+
   @doc "Returns the configured remote telemetry endpoint URL."
   @spec remote_url() :: String.t()
   def remote_url do
@@ -251,46 +287,16 @@ defmodule Zaq.Engine.Telemetry do
     }
   end
 
-  defp documents_ingested_since(window_start) do
-    from(r in Rollup,
-      where:
-        r.source == "local" and
-          r.metric_key == "ingestion.completed.count" and
-          r.bucket_start >= ^window_start,
-      select: sum(r.value_sum)
-    )
-    |> Repo.one()
-    |> Kernel.||(0.0)
-  end
+  defp range_for_days(days) when days <= 1, do: "24h"
+  defp range_for_days(days) when days <= 7, do: "7d"
+  defp range_for_days(days) when days <= 30, do: "30d"
+  defp range_for_days(_days), do: "90d"
 
-  defp avg_qa_latency_since(window_start) do
-    %{value_sum: latency_sum, value_count: latency_count} =
-      from(r in Rollup,
-        where:
-          r.source == "local" and
-            r.metric_key == "qa.answer.latency_ms" and
-            r.bucket_start >= ^window_start,
-        select: %{value_sum: sum(r.value_sum), value_count: sum(r.value_count)}
-      )
-      |> Repo.one() || %{value_sum: nil, value_count: nil}
-
-    if (latency_count || 0) > 0 do
-      (latency_sum || 0.0) / latency_count
-    else
-      0.0
+  defp metric_value(metrics, metric_id, default) do
+    case Enum.find(metrics, &(&1.id == metric_id)) do
+      %{value: value} when is_number(value) -> value * 1.0
+      _ -> default
     end
-  end
-
-  defp llm_api_calls_since(window_start) do
-    from(r in Rollup,
-      where:
-        r.source == "local" and
-          r.metric_key == "qa.tokens.total" and
-          r.bucket_start >= ^window_start,
-      select: sum(r.value_count)
-    )
-    |> Repo.one()
-    |> Kernel.||(0)
   end
 
   defp benchmark_rollup_entry(row, now) do

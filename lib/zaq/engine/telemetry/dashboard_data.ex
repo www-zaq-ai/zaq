@@ -16,6 +16,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
 
   import Ecto.Query
 
+  alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.Engine.Telemetry.Rollup
   alias Zaq.Repo
 
@@ -80,7 +81,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       |> min(100.0)
       |> Float.round(1)
 
-    charts = [
+    legacy_charts = [
       %{
         id: "llm_api_calls",
         kind: :time_series,
@@ -122,12 +123,196 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       }
     ]
 
+    charts = to_contract_charts(legacy_charts)
+
     %{
       filters: %{range: normalized.range},
       charts: charts,
       llm_api_calls_chart: chart!(charts, "llm_api_calls"),
       token_usage_chart: chart!(charts, "token_usage"),
       retrieval_effectiveness_chart: chart!(charts, "retrieval_effectiveness")
+    }
+  end
+
+  @spec load_conversations_metrics(map()) :: map()
+  def load_conversations_metrics(filters) do
+    normalized = normalize_filters(filters)
+    labels = labels_for_range(normalized.range)
+    local_rows = load_rollups(labels.from, "local")
+
+    question_points = sum_points(local_rows, "qa.question.count", labels.labels, :value_sum)
+    cumulative_questions = cumulative_points(question_points)
+
+    no_answer_rate_points =
+      ratio_points(
+        local_rows,
+        "qa.no_answer.count",
+        "qa.question.count",
+        labels.labels,
+        fn ratio -> Float.round(ratio * 100, 2) end
+      )
+
+    response_time_points = metric_points(local_rows, "qa.answer.latency_ms", labels.labels)
+
+    confidence_axes =
+      confidence_distribution_axes(local_rows, [
+        {"Over 90", "qa.answer.confidence.bucket.gt_90"},
+        {"80-90", "qa.answer.confidence.bucket.between_80_90"},
+        {"70-80", "qa.answer.confidence.bucket.between_70_80"},
+        {"50-70", "qa.answer.confidence.bucket.between_50_70"},
+        {"Below 50", "qa.answer.confidence.bucket.lt_50"}
+      ])
+
+    questions_by_channel =
+      metric_distribution_by_dimension(local_rows, "qa.question.count", "channel_type")
+
+    telemetry_config = Zaq.System.get_telemetry_config()
+    no_answer_alert_threshold = telemetry_config.no_answer_alert_threshold_percent * 1.0
+    response_sla_ms = telemetry_config.conversation_response_sla_ms * 1.0
+
+    no_answer_threshold_line = Enum.map(labels.labels, fn _label -> no_answer_alert_threshold end)
+    response_sla_line = Enum.map(labels.labels, fn _label -> response_sla_ms end)
+
+    legacy_charts = [
+      %{
+        id: "questions_asked",
+        kind: :time_series,
+        title: "Questions asked",
+        labels: labels.labels,
+        series: [
+          %{key: "questions", name: "Questions (cumulative)", values: cumulative_questions}
+        ],
+        summary: %{
+          labels: labels.labels,
+          values: %{"questions" => cumulative_questions}
+        },
+        meta: %{range: normalized.range}
+      },
+      %{
+        id: "questions_per_channel",
+        kind: :donut,
+        title: "Questions per channel",
+        labels: [],
+        series: [],
+        summary: %{segments: questions_by_channel},
+        meta: %{range: normalized.range}
+      },
+      %{
+        id: "answer_confidence_distribution",
+        kind: :radar,
+        title: "Answer confidence distribution",
+        labels: [],
+        series: [],
+        summary: %{axes: confidence_axes},
+        meta: %{range: normalized.range}
+      },
+      %{
+        id: "no_answer_rate",
+        kind: :time_series,
+        title: "No-answer rate",
+        labels: labels.labels,
+        series: [
+          %{key: "no_answer_rate", name: "No-answer rate", values: no_answer_rate_points},
+          %{key: "alert_threshold", name: "Alert threshold", values: no_answer_threshold_line}
+        ],
+        summary: %{
+          labels: labels.labels,
+          values: %{"no_answer_rate" => no_answer_rate_points},
+          benchmarks: %{"no_answer_rate" => no_answer_threshold_line}
+        },
+        meta: %{threshold_percent: no_answer_alert_threshold}
+      },
+      %{
+        id: "average_response_time",
+        kind: :time_series,
+        title: "Average response time",
+        labels: labels.labels,
+        series: [
+          %{
+            key: "average_response_time",
+            name: "Average response time",
+            values: response_time_points
+          },
+          %{key: "sla", name: "SLA", values: response_sla_line}
+        ],
+        summary: %{
+          labels: labels.labels,
+          values: %{"average_response_time" => response_time_points},
+          benchmarks: %{"average_response_time" => response_sla_line}
+        },
+        meta: %{sla_ms: response_sla_ms}
+      }
+    ]
+
+    charts = to_contract_charts(legacy_charts)
+
+    %{
+      filters: %{range: normalized.range},
+      charts: charts,
+      questions_asked_chart: chart!(charts, "questions_asked"),
+      questions_per_channel_chart: chart!(charts, "questions_per_channel"),
+      answer_confidence_distribution_chart: chart!(charts, "answer_confidence_distribution"),
+      no_answer_rate_chart: chart!(charts, "no_answer_rate"),
+      average_response_time_chart: chart!(charts, "average_response_time")
+    }
+  end
+
+  @spec load_main_dashboard_metrics(map()) :: map()
+  def load_main_dashboard_metrics(filters) do
+    normalized = normalize_filters(filters)
+    labels = labels_for_range(normalized.range)
+    local_rows = load_rollups(labels.from, "local")
+
+    documents_ingested = sum_metric(local_rows, "ingestion.completed.count")
+    llm_api_calls = sum_metric_count(local_rows, "qa.tokens.total")
+    avg_response_time_ms = weighted_average_metric(local_rows, "qa.answer.latency_ms")
+
+    metric_cards_chart = %{
+      id: "main_dashboard_metrics",
+      kind: :metric_cards,
+      title: "Main dashboard metrics",
+      labels: [],
+      series: [],
+      summary: %{
+        metrics: [
+          %{
+            id: "dashboard-metric-documents-ingested",
+            label: "Documents ingested",
+            value: documents_ingested,
+            unit: nil,
+            trend: nil,
+            hint: "ingestion pipeline completions",
+            meta: %{range: normalized.range, href: "/bo/ingestion"}
+          },
+          %{
+            id: "dashboard-metric-llm-api-calls",
+            label: "LLM API calls",
+            value: llm_api_calls,
+            unit: nil,
+            trend: nil,
+            hint: "answering throughput",
+            meta: %{range: normalized.range, href: "/bo/ai-diagnostics"}
+          },
+          %{
+            id: "dashboard-metric-qa-response-time",
+            label: "Conversations response time",
+            value: avg_response_time_ms,
+            unit: "ms",
+            trend: nil,
+            hint: "weighted mean latency",
+            meta: %{range: normalized.range, href: "/bo/chat"}
+          }
+        ]
+      },
+      meta: %{range: normalized.range}
+    }
+
+    charts = to_contract_charts([metric_cards_chart])
+
+    %{
+      filters: %{range: normalized.range},
+      charts: charts,
+      metric_cards_chart: chart!(charts, "main_dashboard_metrics")
     }
   end
 
@@ -372,6 +557,68 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     |> Float.round(2)
   end
 
+  defp sum_metric_count(rows, metric_key) do
+    rows
+    |> Enum.filter(&(&1.metric_key == metric_key))
+    |> Enum.reduce(0, fn row, acc -> acc + row.value_count end)
+  end
+
+  defp weighted_average_metric(rows, metric_key) do
+    {sum, count} =
+      rows
+      |> Enum.filter(&(&1.metric_key == metric_key))
+      |> Enum.reduce({0.0, 0}, fn row, {sum_acc, count_acc} ->
+        {sum_acc + row.value_sum, count_acc + row.value_count}
+      end)
+
+    if count > 0 do
+      Float.round(sum / count, 2)
+    else
+      0.0
+    end
+  end
+
+  defp cumulative_points(values) do
+    values
+    |> Enum.reduce({0.0, []}, fn value, {acc, out} ->
+      amount = if is_number(value), do: value * 1.0, else: 0.0
+      next = Float.round(acc + amount, 2)
+      {next, out ++ [next]}
+    end)
+    |> elem(1)
+  end
+
+  defp metric_distribution_by_dimension(rows, metric_key, dimension_key) do
+    rows
+    |> Enum.filter(&(&1.metric_key == metric_key))
+    |> Enum.reduce(%{}, fn row, acc ->
+      label =
+        row
+        |> Map.get(:dimensions, %{})
+        |> Map.get(dimension_key, "unknown")
+        |> to_string()
+
+      Map.update(acc, label, row.value_sum, &(&1 + row.value_sum))
+    end)
+    |> Enum.map(fn {label, value} -> %{label: label, value: Float.round(value, 2)} end)
+    |> Enum.sort_by(& &1.value, :desc)
+  end
+
+  defp confidence_distribution_axes(rows, buckets) do
+    total =
+      buckets
+      |> Enum.map(fn {_label, key} -> sum_metric(rows, key) end)
+      |> Enum.sum()
+
+    Enum.map(buckets, fn {label, key} ->
+      value = sum_metric(rows, key)
+      %{label: label, value: to_percent(value, total)}
+    end)
+  end
+
+  defp to_percent(_value, total) when total <= 0, do: 0.0
+  defp to_percent(value, total), do: Float.round(value / total * 100, 2)
+
   defp apply_transform(row, transform) do
     if row.value_count <= 0 do
       0.0
@@ -415,7 +662,9 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
 
   defp chart!(charts, id), do: Enum.find(charts, &(&1.id == id))
 
-  defp dashboard_payload(charts, filters) do
+  defp dashboard_payload(legacy_charts, filters) do
+    charts = to_contract_charts(legacy_charts)
+
     %{
       filters: filters,
       charts: charts,
@@ -428,6 +677,10 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       progress_countdown: chart!(charts, "progress").summary,
       radar_chart: chart!(charts, "radar").summary
     }
+  end
+
+  defp to_contract_charts(charts) do
+    Enum.map(charts, &DashboardChart.new/1)
   end
 
   defp latest_or_default([], default), do: default

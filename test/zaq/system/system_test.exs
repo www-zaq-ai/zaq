@@ -255,17 +255,23 @@ defmodule Zaq.SystemTest do
       assert config.capture_infra_metrics == false
       assert config.request_duration_threshold_ms == 10
       assert config.repo_query_duration_threshold_ms == 5
+      assert config.no_answer_alert_threshold_percent == 10
+      assert config.conversation_response_sla_ms == 1500
     end
 
     test "returns stored telemetry values from DB" do
       System.set_config("telemetry.capture_infra_metrics", "false")
       System.set_config("telemetry.request_duration_threshold_ms", "250")
       System.set_config("telemetry.repo_query_duration_threshold_ms", "15")
+      System.set_config("telemetry.no_answer_alert_threshold_percent", "12")
+      System.set_config("telemetry.conversation_response_sla_ms", "1800")
 
       config = System.get_telemetry_config()
       assert config.capture_infra_metrics == false
       assert config.request_duration_threshold_ms == 250
       assert config.repo_query_duration_threshold_ms == 15
+      assert config.no_answer_alert_threshold_percent == 12
+      assert config.conversation_response_sla_ms == 1800
     end
   end
 
@@ -275,24 +281,32 @@ defmodule Zaq.SystemTest do
         TelemetryConfig.changeset(%TelemetryConfig{}, %{
           capture_infra_metrics: false,
           request_duration_threshold_ms: 500,
-          repo_query_duration_threshold_ms: 30
+          repo_query_duration_threshold_ms: 30,
+          no_answer_alert_threshold_percent: 14,
+          conversation_response_sla_ms: 1700
         })
 
       assert {:ok, saved} = System.save_telemetry_config(changeset)
       assert saved.capture_infra_metrics == false
       assert saved.request_duration_threshold_ms == 500
       assert saved.repo_query_duration_threshold_ms == 30
+      assert saved.no_answer_alert_threshold_percent == 14
+      assert saved.conversation_response_sla_ms == 1700
 
       assert System.get_config("telemetry.capture_infra_metrics") == "false"
       assert System.get_config("telemetry.request_duration_threshold_ms") == "500"
       assert System.get_config("telemetry.repo_query_duration_threshold_ms") == "30"
+      assert System.get_config("telemetry.no_answer_alert_threshold_percent") == "14"
+      assert System.get_config("telemetry.conversation_response_sla_ms") == "1700"
     end
 
     test "returns error for invalid telemetry changeset" do
       changeset =
         TelemetryConfig.changeset(%TelemetryConfig{}, %{
           request_duration_threshold_ms: -1,
-          repo_query_duration_threshold_ms: -10
+          repo_query_duration_threshold_ms: -10,
+          no_answer_alert_threshold_percent: 101,
+          conversation_response_sla_ms: -1
         })
 
       assert {:error, %Ecto.Changeset{valid?: false}} = System.save_telemetry_config(changeset)
