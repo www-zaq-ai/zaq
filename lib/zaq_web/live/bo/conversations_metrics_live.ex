@@ -143,44 +143,30 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
 
   defp default_no_answer_rate_chart(labels \\ labels_for_range("7d")) do
     zeroes = Enum.map(labels, fn _ -> 0.0 end)
-    threshold = Enum.map(labels, fn _ -> 10.0 end)
 
     DashboardChart.new(%{
       id: "no_answer_rate",
       kind: :time_series,
       title: "No-answer rate",
       labels: labels,
-      series: [
-        %{key: "no_answer_rate", name: "No-answer rate", values: zeroes},
-        %{key: "alert_threshold", name: "Alert threshold", values: threshold}
-      ],
-      summary: %{
-        labels: labels,
-        values: %{"no_answer_rate" => zeroes},
-        benchmarks: %{"no_answer_rate" => threshold}
-      },
+      baseline: %{for: "no_answer_rate", value: 10.0, label: "Alert threshold"},
+      series: [%{key: "no_answer_rate", name: "No-answer rate", values: zeroes}],
+      summary: %{labels: labels, values: %{"no_answer_rate" => zeroes}},
       meta: %{threshold_percent: 10.0}
     })
   end
 
   defp default_average_response_time_chart(labels \\ labels_for_range("7d")) do
     zeroes = Enum.map(labels, fn _ -> 0.0 end)
-    sla = Enum.map(labels, fn _ -> 1500.0 end)
 
     DashboardChart.new(%{
       id: "average_response_time",
       kind: :time_series,
       title: "Average response time",
       labels: labels,
-      series: [
-        %{key: "average_response_time", name: "Average response time", values: zeroes},
-        %{key: "sla", name: "SLA", values: sla}
-      ],
-      summary: %{
-        labels: labels,
-        values: %{"average_response_time" => zeroes},
-        benchmarks: %{"average_response_time" => sla}
-      },
+      baseline: %{for: "average_response_time", value: 1500.0, label: "SLA"},
+      series: [%{key: "average_response_time", name: "Average response time", values: zeroes}],
+      summary: %{labels: labels, values: %{"average_response_time" => zeroes}},
       meta: %{sla_ms: 1500.0}
     })
   end

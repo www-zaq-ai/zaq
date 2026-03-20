@@ -132,10 +132,14 @@ defmodule Zaq.Engine.Telemetry.Contracts.DashboardChart do
   end
 
   defp payload_for_kind(:time_series, chart, summary) do
+    labels = map_get(chart, :labels, [])
+    series = map_get(chart, :series, [])
+
     SeriesPayload.from_parts(
-      map_get(chart, :labels, []),
-      map_get(chart, :series, []),
-      map_get(summary, :benchmarks, %{})
+      labels,
+      series,
+      time_series_benchmarks(map_get(summary, :benchmarks, %{})),
+      time_series_baseline(labels, series, map_get(chart, :baseline, nil))
     )
   end
 
@@ -170,7 +174,51 @@ defmodule Zaq.Engine.Telemetry.Contracts.DashboardChart do
     Map.put(summary, :metrics, payload.items)
   end
 
+  defp normalize_summary(:time_series, summary, %SeriesPayload{} = payload) do
+    summary
+    |> Map.put(:benchmarks, payload.benchmarks)
+    |> Map.put(:baseline, payload.baseline)
+  end
+
   defp normalize_summary(_kind, summary, _payload), do: summary
+
+  defp time_series_benchmarks(benchmarks) when is_map(benchmarks), do: benchmarks
+  defp time_series_benchmarks(_benchmarks), do: %{}
+
+  defp time_series_baseline(labels, series, baseline) when is_map(baseline) do
+    value = map_get(baseline, :value, nil)
+    key = normalize_series_key(map_get(baseline, :for, nil))
+
+    if is_number(value) and valid_series_key?(series, key) do
+      label =
+        baseline
+        |> map_get(:label, map_get(baseline, :name, "Baseline"))
+        |> to_string()
+
+      %{
+        key: key,
+        label: label,
+        value: value * 1.0,
+        values: Enum.map(List.wrap(labels), fn _ -> value * 1.0 end)
+      }
+    else
+      nil
+    end
+  end
+
+  defp time_series_baseline(_labels, _series, _baseline), do: nil
+
+  defp valid_series_key?(series, key) when is_binary(key) and key != "" do
+    series
+    |> List.wrap()
+    |> Enum.any?(fn item -> normalize_series_key(map_get(item, :key, nil)) == key end)
+  end
+
+  defp valid_series_key?(_series, _key), do: false
+
+  defp normalize_series_key(key) when is_binary(key) and key != "", do: key
+  defp normalize_series_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_series_key(_key), do: nil
 
   defp map_get(map, key, default),
     do: Map.get(map, key, Map.get(map, Atom.to_string(key), default))

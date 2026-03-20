@@ -98,7 +98,7 @@ defmodule ZaqWeb.Live.BO.LLMPerformanceLive do
       title: "Token usage",
       labels: labels,
       series: [
-        %{key: "output_tokens", name: "Output tokens", values: zeroes},
+        %{key: "output_tokens", name: "Output token", values: zeroes},
         %{key: "input_tokens", name: "Input tokens", values: zeroes}
       ],
       summary: %{labels: labels, values: %{"output_tokens" => zeroes, "input_tokens" => zeroes}},
