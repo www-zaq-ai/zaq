@@ -11,7 +11,7 @@ defmodule Zaq.System.TelemetryConfig do
     field :request_duration_threshold_ms, :integer, default: 10
     field :repo_query_duration_threshold_ms, :integer, default: 5
     field :no_answer_alert_threshold_percent, :integer, default: 10
-    field :conversation_response_sla_ms, :integer, default: 1500
+    field :conversation_response_sla_ms, :integer, default: 5_000
   end
 
   def changeset(config, attrs) do

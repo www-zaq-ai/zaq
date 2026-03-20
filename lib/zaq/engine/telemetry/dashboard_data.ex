@@ -117,7 +117,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         title: "Retrieval effectiveness",
         labels: [],
         series: [],
-        summary: %{value: retrieval_effectiveness, max: 100.0, label: "strict no-answer adjusted"},
+        summary: %{value: retrieval_effectiveness, max: 100.0, label: "Retrieval effectiveness"},
         meta: %{
           question_count: question_count,
           answer_count: answer_count,
@@ -787,12 +787,13 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
   end
 
   defp label_for_bucket(bucket_start, labels) do
-    minute = bucket_start.minute
     hour = bucket_start.hour
 
     cond do
       Enum.any?(labels, &String.contains?(&1, ":")) ->
-        [hour, minute]
+        slot_hour = div(hour, 4) * 4
+
+        [slot_hour, 0]
         |> Enum.map_join(":", &(Integer.to_string(&1) |> String.pad_leading(2, "0")))
 
       Enum.any?(labels, &(&1 in ~w[Mon Tue Wed Thu Fri Sat Sun])) ->
@@ -807,7 +808,15 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         "W" <> Integer.to_string(week)
 
       true ->
-        "D" <> Integer.to_string(bucket_start.day)
+        day_slot =
+          bucket_start.day
+          |> Kernel.-(1)
+          |> div(3)
+          |> Kernel.*(3)
+          |> Kernel.+(1)
+          |> min(28)
+
+        "D" <> Integer.to_string(day_slot)
     end
   end
 
