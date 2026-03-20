@@ -158,6 +158,68 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 0.0
   end
 
+  test "load_knowledge_base_metrics/1 returns ingestion and chunk metrics payload" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_rollup("ingestion.chunks.created", DateTime.add(now, -2 * 86_400, :second), 120.0, 10)
+
+    insert_rollup(
+      "ingestion.chunks.created",
+      DateTime.add(now, -9 * 86_400, :second),
+      100.0,
+      8
+    )
+
+    insert_rollup("ingestion.completed.count", DateTime.add(now, -2 * 86_400, :second), 10.0, 10)
+
+    insert_rollup(
+      "ingestion.document.failed.count",
+      DateTime.add(now, -2 * 86_400, :second),
+      2.0,
+      2
+    )
+
+    payload = Telemetry.load_knowledge_base_metrics(%{range: "7d"})
+
+    assert payload.total_chunks_created_chart.id == "total_chunks_created"
+    assert payload.ingestion_volume_chart.id == "ingestion_volume_over_time"
+    assert payload.ingestion_success_rate_chart.id == "ingestion_success_rate"
+
+    assert payload.average_chunks_per_document_chart.id == "average_chunks_per_document"
+
+    total_chunks_metric =
+      get_in(payload.total_chunks_created_chart, [:summary, :metrics]) |> List.first()
+
+    average_chunks_metric =
+      get_in(payload.average_chunks_per_document_chart, [:summary, :metrics]) |> List.first()
+
+    assert total_chunks_metric.value == 120.0
+    assert total_chunks_metric.trend == 20.0
+    assert average_chunks_metric.value == 12.0
+
+    assert get_in(payload.ingestion_volume_chart, [:summary, :values, "documents_ingested"])
+           |> Enum.sum() ==
+             10.0
+
+    assert get_in(payload.ingestion_success_rate_chart, [:summary, :value]) == 83.33
+  end
+
+  test "load_knowledge_base_metrics/1 returns zero-safe payload with empty rollups" do
+    payload = Telemetry.load_knowledge_base_metrics(%{range: "24h"})
+
+    assert payload.total_chunks_created_chart.id == "total_chunks_created"
+    assert payload.ingestion_volume_chart.id == "ingestion_volume_over_time"
+    assert payload.ingestion_success_rate_chart.id == "ingestion_success_rate"
+    assert payload.average_chunks_per_document_chart.id == "average_chunks_per_document"
+
+    assert get_in(payload.total_chunks_created_chart, [:summary, :metrics])
+           |> List.first()
+           |> Map.get(:value) ==
+             0.0
+
+    assert get_in(payload.ingestion_success_rate_chart, [:summary, :value]) == 0.0
+  end
+
   test "load_conversations_metrics/1 returns conversations dashboard payload" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 

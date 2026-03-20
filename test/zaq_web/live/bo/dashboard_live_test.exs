@@ -62,6 +62,11 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
                "#dashboard-conversations-metrics-link[href='/bo/dashboard/conversations-metrics']"
              )
 
+      assert has_element?(
+               view,
+               "#dashboard-knowledge-base-metrics-link[href='/bo/dashboard/knowledge-base-metrics']"
+             )
+
       assert has_element?(view, "#dashboard-metric-qa-response-time[href='/bo/chat']")
       assert has_element?(view, "#dashboard-metric-qa-response-time-card")
 

@@ -257,6 +257,160 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     }
   end
 
+  @spec load_knowledge_base_metrics(map()) :: map()
+  def load_knowledge_base_metrics(filters) do
+    normalized = normalize_filters(filters)
+    labels = labels_for_range(normalized.range)
+
+    previous_from =
+      DateTime.add(labels.from, -window_seconds_for_range(normalized.range), :second)
+
+    historical_rows = load_rollups(previous_from, "local")
+
+    current_rows =
+      historical_rows
+      |> Enum.filter(&(DateTime.compare(&1.bucket_start, labels.from) in [:eq, :gt]))
+
+    previous_rows =
+      historical_rows
+      |> Enum.filter(fn row ->
+        DateTime.compare(row.bucket_start, previous_from) in [:eq, :gt] and
+          DateTime.compare(row.bucket_start, labels.from) == :lt
+      end)
+
+    chunks_created = sum_metric(current_rows, "ingestion.chunks.created")
+    chunks_created_previous = sum_metric(previous_rows, "ingestion.chunks.created")
+
+    ingested_documents = sum_metric(current_rows, "ingestion.completed.count")
+    ingested_documents_previous = sum_metric(previous_rows, "ingestion.completed.count")
+
+    terminal_failed_documents =
+      case sum_metric(current_rows, "ingestion.document.failed.count") do
+        value when value <= 0.0 -> sum_metric(current_rows, "ingestion.failed.count")
+        value -> value
+      end
+
+    ingestion_volume_points =
+      sum_points(current_rows, "ingestion.completed.count", labels.labels, :value_sum)
+
+    chunks_over_time_points =
+      sum_points(current_rows, "ingestion.chunks.created", labels.labels, :value_sum)
+
+    ingestion_success_rate =
+      ingested_documents
+      |> ratio_or_zero(ingested_documents + terminal_failed_documents)
+      |> Kernel.*(100.0)
+      |> Float.round(2)
+
+    average_chunks_per_document =
+      chunks_created
+      |> ratio_or_zero(ingested_documents)
+      |> Float.round(2)
+
+    average_chunks_previous =
+      chunks_created_previous
+      |> ratio_or_zero(ingested_documents_previous)
+      |> Float.round(2)
+
+    charts =
+      to_contract_charts([
+        %{
+          id: "total_chunks_created",
+          kind: :metric_cards,
+          title: "Total chunks created",
+          labels: [],
+          series: [],
+          summary: %{
+            metrics: [
+              %{
+                id: "knowledge-base-total-chunks-created",
+                label: "Total chunks created",
+                value: chunks_created,
+                unit: nil,
+                trend: percent_change(chunks_created, chunks_created_previous),
+                hint: "growth versus previous period",
+                meta: %{range: normalized.range}
+              }
+            ]
+          },
+          meta: %{range: normalized.range}
+        },
+        %{
+          id: "ingestion_volume_over_time",
+          kind: :time_series,
+          title: "Ingestion volume over time",
+          labels: labels.labels,
+          series: [
+            %{
+              key: "documents_ingested",
+              name: "Documents ingested",
+              values: ingestion_volume_points
+            },
+            %{
+              key: "chunks_created",
+              name: "Chunks created",
+              values: chunks_over_time_points
+            }
+          ],
+          summary: %{
+            labels: labels.labels,
+            values: %{
+              "documents_ingested" => ingestion_volume_points,
+              "chunks_created" => chunks_over_time_points
+            }
+          },
+          meta: %{range: normalized.range}
+        },
+        %{
+          id: "ingestion_success_rate",
+          kind: :gauge,
+          title: "Ingestion success rate",
+          labels: [],
+          series: [],
+          summary: %{
+            value: ingestion_success_rate,
+            max: 100.0,
+            label: "terminal document success"
+          },
+          meta: %{
+            range: normalized.range,
+            completed_documents: ingested_documents,
+            terminal_failed_documents: terminal_failed_documents
+          }
+        },
+        %{
+          id: "average_chunks_per_document",
+          kind: :metric_cards,
+          title: "Average chunks per document",
+          labels: [],
+          series: [],
+          summary: %{
+            metrics: [
+              %{
+                id: "knowledge-base-average-chunks-per-document",
+                label: "Average chunks per document",
+                value: average_chunks_per_document,
+                unit: nil,
+                trend: percent_change(average_chunks_per_document, average_chunks_previous),
+                hint: "chunk density per successfully ingested document",
+                meta: %{range: normalized.range}
+              }
+            ]
+          },
+          meta: %{range: normalized.range}
+        }
+      ])
+
+    %{
+      filters: %{range: normalized.range},
+      charts: charts,
+      total_chunks_created_chart: chart!(charts, "total_chunks_created"),
+      ingestion_volume_chart: chart!(charts, "ingestion_volume_over_time"),
+      ingestion_success_rate_chart: chart!(charts, "ingestion_success_rate"),
+      average_chunks_per_document_chart: chart!(charts, "average_chunks_per_document")
+    }
+  end
+
   @spec load_main_dashboard_metrics(map()) :: map()
   def load_main_dashboard_metrics(filters) do
     normalized = normalize_filters(filters)
@@ -711,6 +865,16 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
   defp maybe_benchmark_line(_key, []), do: %{}
   defp maybe_benchmark_line(key, values), do: %{key => values}
 
+  defp percent_change(_current, previous) when previous <= 0, do: nil
+
+  defp percent_change(current, previous) do
+    current
+    |> Kernel.-(previous)
+    |> ratio_or_zero(previous)
+    |> Kernel.*(100.0)
+    |> Float.round(2)
+  end
+
   defp ratio_or_zero(_n, d) when d <= 0, do: 0.0
   defp ratio_or_zero(n, d), do: n / d
 
@@ -750,6 +914,12 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     }
 
   defp labels_for_range(_), do: labels_for_range("7d")
+
+  defp window_seconds_for_range("24h"), do: 24 * 60 * 60
+  defp window_seconds_for_range("7d"), do: 7 * 24 * 60 * 60
+  defp window_seconds_for_range("30d"), do: 30 * 24 * 60 * 60
+  defp window_seconds_for_range("90d"), do: 90 * 24 * 60 * 60
+  defp window_seconds_for_range(_), do: window_seconds_for_range("7d")
 
   defp empty_charts(labels, filters) do
     base = Map.get(filters, :segment, "size")

@@ -28,19 +28,20 @@ defmodule Zaq.Ingestion.IngestWorker do
       |> broadcast_update()
 
     file_path = resolve_file_path(updated_job.file_path, updated_job.volume_name)
+    telemetry_dimensions = %{mode: updated_job.mode, volume: updated_job.volume_name || "default"}
 
     case safe_process(file_path, role_id, shared_role_ids) do
       {:ok, document} ->
-        Telemetry.record("ingestion.completed.count", 1, %{
-          mode: updated_job.mode,
-          volume: updated_job.volume_name || "default"
-        })
+        chunks_count = count_chunks(document.id)
+
+        Telemetry.record("ingestion.completed.count", 1, telemetry_dimensions)
+        Telemetry.record("ingestion.chunks.created", chunks_count, telemetry_dimensions)
 
         updated_job
         |> IngestJob.changeset(%{
           status: "completed",
           completed_at: DateTime.utc_now(),
-          chunks_count: count_chunks(document.id),
+          chunks_count: chunks_count,
           document_id: document.id
         })
         |> Repo.update!()
@@ -51,12 +52,11 @@ defmodule Zaq.Ingestion.IngestWorker do
       {:error, reason} ->
         error_msg = format_error(reason)
 
-        Telemetry.record("ingestion.failed.count", 1, %{
-          mode: updated_job.mode,
-          volume: updated_job.volume_name || "default"
-        })
+        Telemetry.record("ingestion.failed.count", 1, telemetry_dimensions)
 
         if attempt >= max do
+          Telemetry.record("ingestion.document.failed.count", 1, telemetry_dimensions)
+
           updated_job
           |> IngestJob.changeset(%{
             status: "failed",
