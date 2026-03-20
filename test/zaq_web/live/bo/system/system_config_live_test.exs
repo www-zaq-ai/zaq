@@ -82,7 +82,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           "telemetry_config" => %{
             "capture_infra_metrics" => "true",
             "request_duration_threshold_ms" => "250",
-            "repo_query_duration_threshold_ms" => "15"
+            "repo_query_duration_threshold_ms" => "15",
+            "no_answer_alert_threshold_percent" => "10",
+            "conversation_response_sla_ms" => "1500"
           }
         })
         |> render_change()
@@ -92,6 +94,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert Zaq.System.get_config("telemetry.request_duration_threshold_ms") == nil
       assert Zaq.System.get_config("telemetry.repo_query_duration_threshold_ms") == nil
+      assert Zaq.System.get_config("telemetry.no_answer_alert_threshold_percent") == nil
+      assert Zaq.System.get_config("telemetry.conversation_response_sla_ms") == nil
     end
 
     test "save telemetry settings persists config", %{conn: conn} do
@@ -106,7 +110,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         "telemetry_config" => %{
           "capture_infra_metrics" => "false",
           "request_duration_threshold_ms" => "300",
-          "repo_query_duration_threshold_ms" => "25"
+          "repo_query_duration_threshold_ms" => "25",
+          "no_answer_alert_threshold_percent" => "11",
+          "conversation_response_sla_ms" => "1600"
         }
       })
       |> render_submit()
@@ -114,6 +120,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert Zaq.System.get_config("telemetry.capture_infra_metrics") == "false"
       assert Zaq.System.get_config("telemetry.request_duration_threshold_ms") == "300"
       assert Zaq.System.get_config("telemetry.repo_query_duration_threshold_ms") == "25"
+      assert Zaq.System.get_config("telemetry.no_answer_alert_threshold_percent") == "11"
+      assert Zaq.System.get_config("telemetry.conversation_response_sla_ms") == "1600"
     end
   end
 

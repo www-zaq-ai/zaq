@@ -34,22 +34,22 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
       assert has_element?(view, "#dashboard-metric-total-users[href='/bo/users']")
-      assert has_element?(view, "#dashboard-metric-total-users-label", "Total users count")
+      assert has_element?(view, "#dashboard-metric-total-users", "Total users count")
 
       assert has_element?(view, "#dashboard-metric-documents-ingested[href='/bo/ingestion']")
 
       assert has_element?(
                view,
-               "#dashboard-metric-documents-ingested-label",
-               "Documents ingested (last 30 days)"
+               "#dashboard-metric-documents-ingested",
+               "Documents ingested"
              )
 
       assert has_element?(view, "#dashboard-metric-llm-api-calls[href='/bo/ai-diagnostics']")
 
       assert has_element?(
                view,
-               "#dashboard-metric-llm-api-calls-label",
-               "LLM API calls (last 30 days)"
+               "#dashboard-metric-llm-api-calls",
+               "LLM API calls"
              )
 
       assert has_element?(
@@ -57,13 +57,20 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
                "#dashboard-llm-performance-link[href='/bo/dashboard/llm-performance']"
              )
 
+      assert has_element?(
+               view,
+               "#dashboard-conversations-metrics-link[href='/bo/dashboard/conversations-metrics']"
+             )
+
       assert has_element?(view, "#dashboard-metric-qa-response-time[href='/bo/chat']")
 
       assert has_element?(
                view,
-               "#dashboard-metric-qa-response-time-label",
-               "Q&A average response time (last 30 days)"
+               "#dashboard-metric-qa-response-time",
+               "Conversations average response time"
              )
+
+      assert has_element?(view, "#dashboard-metric-documents-ingested", "range: 30d")
     end
 
     test "shows bo service as active since endpoint is running", %{conn: conn} do

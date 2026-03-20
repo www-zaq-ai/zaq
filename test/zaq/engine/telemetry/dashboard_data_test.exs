@@ -4,6 +4,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Rollup
   alias Zaq.Repo
+  alias Zaq.System, as: SystemConfig
 
   @required_dashboard_keys [
     :filters,
@@ -31,6 +32,8 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
 
   setup do
     Repo.delete_all(Rollup)
+    SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
+    SystemConfig.set_config("telemetry.conversation_response_sla_ms", "1500")
     :ok
   end
 
@@ -100,14 +103,69 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 100.0
   end
 
-  defp insert_rollup(metric_key, bucket_start, sum, count) do
+  test "load_conversations_metrics/1 returns conversations dashboard payload" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
+    SystemConfig.set_config("telemetry.conversation_response_sla_ms", "1500")
+
+    insert_rollup("qa.question.count", now, 20.0, 20, dimensions: %{"channel_type" => "bo"})
+
+    insert_rollup("qa.question.count", now, 10.0, 10,
+      dimensions: %{"channel_type" => "mattermost"}
+    )
+
+    insert_rollup("qa.no_answer.count", now, 3.0, 3)
+    insert_rollup("qa.answer.latency_ms", now, 1_200.0, 3)
+    insert_rollup("qa.answer.confidence.bucket.gt_90", now, 3.0, 3)
+    insert_rollup("qa.answer.confidence.bucket.between_80_90", now, 2.0, 2)
+    insert_rollup("qa.answer.confidence.bucket.between_70_80", now, 1.0, 1)
+
+    payload = Telemetry.load_conversations_metrics(%{range: "7d"})
+
+    assert payload.questions_asked_chart.id == "questions_asked"
+    assert payload.questions_per_channel_chart.id == "questions_per_channel"
+    assert payload.answer_confidence_distribution_chart.id == "answer_confidence_distribution"
+    assert payload.no_answer_rate_chart.id == "no_answer_rate"
+    assert payload.average_response_time_chart.id == "average_response_time"
+
+    assert get_in(payload.questions_asked_chart, [:summary, :values, "questions"]) |> List.last() ==
+             30.0
+
+    assert get_in(payload.questions_per_channel_chart, [:summary, :segments]) == [
+             %{label: "bo", value: 20.0},
+             %{label: "mattermost", value: 10.0}
+           ]
+
+    assert get_in(payload.no_answer_rate_chart, [:summary, :benchmarks, "no_answer_rate"])
+           |> Enum.uniq() == [10.0]
+
+    assert get_in(payload.average_response_time_chart, [
+             :summary,
+             :benchmarks,
+             "average_response_time"
+           ])
+           |> Enum.uniq() == [1500.0]
+
+    assert get_in(payload.answer_confidence_distribution_chart, [:summary, :axes]) == [
+             %{label: "Over 90", value: 50.0},
+             %{label: "80-90", value: 33.33},
+             %{label: "70-80", value: 16.67},
+             %{label: "50-70", value: 0.0},
+             %{label: "Below 50", value: 0.0}
+           ]
+  end
+
+  defp insert_rollup(metric_key, bucket_start, sum, count, opts \\ []) do
+    dimensions = Keyword.get(opts, :dimensions, %{})
+
     Repo.insert!(%Rollup{
       metric_key: metric_key,
       bucket_start: bucket_start,
       bucket_size: "10m",
       source: "local",
-      dimensions: %{},
-      dimension_key: "global",
+      dimensions: dimensions,
+      dimension_key: Telemetry.dimension_key(dimensions),
       value_sum: sum,
       value_count: count,
       value_min: sum,

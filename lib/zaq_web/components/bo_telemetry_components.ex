@@ -5,16 +5,24 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
 
   use Phoenix.Component
 
+  alias Zaq.Engine.Telemetry.Contracts.DisplayMeta
+  alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
+
   @accent "#03b6d4"
 
   attr :id, :string, required: true
-  attr :label, :string, required: true
+  attr :card, :map, default: nil
+  attr :label, :string, default: nil
   attr :value, :any, default: nil
   attr :unit, :string, default: nil
   attr :trend, :float, default: nil
+  attr :meta, :map, default: %{}
+  attr :range, :string, default: nil
   attr :hint, :string, default: nil
 
   def metric_card(assigns) do
+    assigns = assign_from_card(assigns)
+
     ~H"""
     <article
       id={@id}
@@ -38,17 +46,85 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           {trend_label(@trend)}
         </p>
       </div>
-      <p :if={@hint} class="mt-3 text-xs text-slate-500">{@hint}</p>
+      <p :if={metadata_line(@display, @range, @hint)} class="mt-3 text-xs text-slate-500">
+        {metadata_line(@display, @range, @hint)}
+      </p>
     </article>
     """
   end
+
+  defp assign_from_card(%{card: %ScalarPayload{} = card} = assigns) do
+    assigns
+    |> assign(:label, card.label)
+    |> assign(:value, card.value)
+    |> assign(:unit, card.unit)
+    |> assign(:trend, card.trend)
+    |> assign(:display, card.display)
+  end
+
+  defp assign_from_card(assigns) do
+    display =
+      case Map.get(assigns, :meta) do
+        %DisplayMeta{} = value -> value
+        meta when is_map(meta) -> DisplayMeta.from_map(meta)
+        _ -> %DisplayMeta{}
+      end
+
+    assign(assigns, :display, display)
+  end
+
+  defp metadata_line(display, range, hint) do
+    range_value = display_range(display) || range
+    hint_value = display_hint(display) || hint
+
+    extra_meta =
+      display_extra(display)
+      |> Enum.reject(fn {_key, value} -> blank_meta_value?(value) end)
+      |> Enum.map(fn {key, value} -> "#{format_meta_key(key)}: #{format_meta_value(value)}" end)
+
+    ([metadata_part("range", range_value), hint_value] ++ extra_meta)
+    |> Enum.reject(&blank_meta_value?/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  defp metadata_part(_name, value) when value in [nil, ""], do: nil
+  defp metadata_part(name, value), do: "#{name}: #{value}"
+
+  defp display_range(%DisplayMeta{range: value}), do: value
+  defp display_range(_), do: nil
+
+  defp display_hint(%DisplayMeta{hint: value}), do: value
+  defp display_hint(_), do: nil
+
+  defp display_extra(%DisplayMeta{extra: value}) when is_map(value), do: value
+  defp display_extra(_), do: %{}
+
+  defp format_meta_key(key) do
+    key
+    |> key_string()
+    |> String.replace("_", " ")
+  end
+
+  defp key_string(key) when is_atom(key), do: Atom.to_string(key)
+  defp key_string(key) when is_binary(key), do: key
+  defp key_string(key), do: to_string(key)
+
+  defp format_meta_value(value) when is_binary(value), do: value
+  defp format_meta_value(value) when is_number(value), do: format_value(value)
+  defp format_meta_value(value), do: to_string(value)
+
+  defp blank_meta_value?(value) when value in [nil, ""], do: true
+  defp blank_meta_value?(_value), do: false
 
   attr :id, :string, required: true
   attr :title, :string, default: "Time series"
   attr :points, :list, default: []
   attr :secondary_points, :list, default: []
   attr :secondary_label, :string, default: nil
-  attr :secondary_color, :string, default: "#0ea5a4"
+  attr :secondary_color, :string, default: "#6b7280"
   attr :benchmark_points, :list, default: []
   attr :width, :integer, default: 420
   attr :height, :integer, default: 180
@@ -101,7 +177,7 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           </span>
           <span
             :if={!@secondary_chart.empty?}
-            class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-teal-700"
+            class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-slate-700"
           >
             <span
               class="inline-block h-2 w-2 rounded-full"

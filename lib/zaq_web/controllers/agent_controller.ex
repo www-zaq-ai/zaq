@@ -4,7 +4,9 @@ defmodule ZaqWeb.AgentController do
   require Logger
 
   alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
+  alias Zaq.Engine.Telemetry
   alias Zaq.Ingestion.DocumentProcessor
+  alias Zaq.NodeRouter
 
   @doc """
   POST /api/ask
@@ -17,8 +19,10 @@ defmodule ZaqWeb.AgentController do
     answering = answering_module()
 
     history = Map.get(params, "history", %{})
+    telemetry_dimensions = %{channel_type: "api", channel_config_id: "unknown"}
 
     with {:ok, clean_msg} <- prompt_guard.validate(question),
+         :ok <- record_metric("qa.question.count", 1, telemetry_dimensions),
          {:ok, %{"query" => query, "language" => lang}} <-
            retrieval.ask(clean_msg, history: history),
          {:ok, [%{"total_count" => count}]} <-
@@ -31,6 +35,8 @@ defmodule ZaqWeb.AgentController do
          score <- result.confidence_score || 0.0,
          {:ok, safe_answer} <- prompt_guard.output_safe?(answer) do
       if answering.no_answer?(safe_answer) do
+        :ok = record_metric("qa.no_answer.count", 1, telemetry_dimensions)
+
         json(conn, %{
           answer: answering.clean_answer(safe_answer),
           confidence: 0,
@@ -41,6 +47,7 @@ defmodule ZaqWeb.AgentController do
       end
     else
       false ->
+        :ok = record_metric("qa.no_answer.count", 1, telemetry_dimensions)
         json(conn, %{answer: "No relevant information found.", confidence: 0})
 
       {:error, {:leaked, _phrase}} ->
@@ -96,5 +103,12 @@ defmodule ZaqWeb.AgentController do
     else
       Answering.normalize_result(result)
     end
+  end
+
+  defp record_metric(metric_key, value, dimensions) do
+    _ = NodeRouter.call(:engine, Telemetry, :record, [metric_key, value, dimensions])
+    :ok
+  rescue
+    _ -> :ok
   end
 end

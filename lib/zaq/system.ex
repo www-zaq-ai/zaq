@@ -17,7 +17,13 @@ defmodule Zaq.System do
   @email_fields ~w(
     enabled relay port transport_mode tls tls_verify ca_cert_path username password from_email from_name
   )
-  @telemetry_fields ~w(capture_infra_metrics request_duration_threshold_ms repo_query_duration_threshold_ms)
+  @telemetry_fields ~w(
+    capture_infra_metrics
+    request_duration_threshold_ms
+    repo_query_duration_threshold_ms
+    no_answer_alert_threshold_percent
+    conversation_response_sla_ms
+  )
 
   # ── Generic key/value ─────────────────────────────────────────────────
 
@@ -110,7 +116,9 @@ defmodule Zaq.System do
     %TelemetryConfig{
       capture_infra_metrics: parse_bool(raw["capture_infra_metrics"], false),
       request_duration_threshold_ms: parse_int(raw["request_duration_threshold_ms"], 10),
-      repo_query_duration_threshold_ms: parse_int(raw["repo_query_duration_threshold_ms"], 5)
+      repo_query_duration_threshold_ms: parse_int(raw["repo_query_duration_threshold_ms"], 5),
+      no_answer_alert_threshold_percent: parse_int(raw["no_answer_alert_threshold_percent"], 10),
+      conversation_response_sla_ms: parse_int(raw["conversation_response_sla_ms"], 1500)
     }
   end
 

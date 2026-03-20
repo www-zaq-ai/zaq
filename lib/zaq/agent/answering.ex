@@ -241,10 +241,25 @@ defmodule Zaq.Agent.Answering do
 
     if is_number(result.confidence_score) do
       Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
+      Telemetry.record(confidence_bucket_metric(result.confidence_score), 1, dims)
     end
 
     :ok
   end
+
+  defp confidence_bucket_metric(score) when is_number(score) and score > 0.9,
+    do: "qa.answer.confidence.bucket.gt_90"
+
+  defp confidence_bucket_metric(score) when is_number(score) and score > 0.8,
+    do: "qa.answer.confidence.bucket.between_80_90"
+
+  defp confidence_bucket_metric(score) when is_number(score) and score > 0.7,
+    do: "qa.answer.confidence.bucket.between_70_80"
+
+  defp confidence_bucket_metric(score) when is_number(score) and score >= 0.5,
+    do: "qa.answer.confidence.bucket.between_50_70"
+
+  defp confidence_bucket_metric(_score), do: "qa.answer.confidence.bucket.lt_50"
 
   defp normalize_dimensions(dimensions) when is_map(dimensions), do: dimensions
   defp normalize_dimensions(_), do: %{}
