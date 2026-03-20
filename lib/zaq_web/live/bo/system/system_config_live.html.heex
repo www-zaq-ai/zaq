@@ -58,7 +58,7 @@
 
         <div class="px-8 py-6">
           <.form
-            for={@form}
+            for={@email_form}
             id="system-config-form"
             phx-submit="save"
             phx-change="validate"
@@ -84,7 +84,7 @@
                   type="checkbox"
                   name="email_config[enabled]"
                   value="true"
-                  checked={@form[:enabled].value == true}
+                  checked={@email_form[:enabled].value == true}
                   class="sr-only peer"
                 />
                 <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm">
@@ -100,16 +100,16 @@
                 <input
                   type="text"
                   name="email_config[relay]"
-                  value={@form[:relay].value}
+                  value={@email_form[:relay].value}
                   phx-debounce="400"
                   placeholder="smtp.example.com"
                   class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
                 />
                 <p
-                  :if={@form[:relay].errors != []}
+                  :if={@email_form[:relay].errors != []}
                   class="font-mono text-[0.72rem] text-red-500 mt-1.5"
                 >
-                  {elem(hd(@form[:relay].errors), 0)}
+                  {elem(hd(@email_form[:relay].errors), 0)}
                 </p>
               </div>
 
@@ -120,16 +120,16 @@
                 <input
                   type="number"
                   name="email_config[port]"
-                  value={@form[:port].value}
+                  value={@email_form[:port].value}
                   phx-debounce="400"
                   placeholder="587"
                   class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
                 />
                 <p
-                  :if={@form[:port].errors != []}
+                  :if={@email_form[:port].errors != []}
                   class="font-mono text-[0.72rem] text-red-500 mt-1.5"
                 >
-                  {elem(hd(@form[:port].errors), 0)}
+                  {elem(hd(@email_form[:port].errors), 0)}
                 </p>
               </div>
             </div>
@@ -143,13 +143,13 @@
                 name="email_config[tls]"
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all appearance-none"
               >
-                <option value="enabled" selected={to_string(@form[:tls].value) == "enabled"}>
+                <option value="enabled" selected={to_string(@email_form[:tls].value) == "enabled"}>
                   enabled (if available)
                 </option>
-                <option value="always" selected={to_string(@form[:tls].value) == "always"}>
+                <option value="always" selected={to_string(@email_form[:tls].value) == "always"}>
                   always (require TLS)
                 </option>
-                <option value="never" selected={to_string(@form[:tls].value) == "never"}>
+                <option value="never" selected={to_string(@email_form[:tls].value) == "never"}>
                   never (no TLS)
                 </option>
               </select>
@@ -176,13 +176,13 @@
                   >
                     <option
                       value="starttls"
-                      selected={to_string(@form[:transport_mode].value) == "starttls"}
+                      selected={to_string(@email_form[:transport_mode].value) == "starttls"}
                     >
                       STARTTLS (explicit TLS)
                     </option>
                     <option
                       value="ssl"
-                      selected={to_string(@form[:transport_mode].value) == "ssl"}
+                      selected={to_string(@email_form[:transport_mode].value) == "ssl"}
                     >
                       SSL/TLS (implicit TLS)
                     </option>
@@ -200,13 +200,13 @@
                   >
                     <option
                       value="verify_peer"
-                      selected={to_string(@form[:tls_verify].value) == "verify_peer"}
+                      selected={to_string(@email_form[:tls_verify].value) == "verify_peer"}
                     >
                       verify_peer (recommended)
                     </option>
                     <option
                       value="verify_none"
-                      selected={to_string(@form[:tls_verify].value) == "verify_none"}
+                      selected={to_string(@email_form[:tls_verify].value) == "verify_none"}
                     >
                       verify_none (insecure)
                     </option>
@@ -223,7 +223,7 @@
                   id="smtp-ca-cert-path"
                   type="text"
                   name="email_config[ca_cert_path]"
-                  value={@form[:ca_cert_path].value}
+                  value={@email_form[:ca_cert_path].value}
                   phx-debounce="400"
                   placeholder="/etc/ssl/certs/custom-ca.pem"
                   class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-white placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
@@ -252,7 +252,7 @@
                 <input
                   type="text"
                   name="email_config[username]"
-                  value={@form[:username].value}
+                  value={@email_form[:username].value}
                   phx-debounce="400"
                   placeholder="you@example.com"
                   class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
@@ -267,7 +267,7 @@
                     id="smtp-password"
                     type="password"
                     name="email_config[password]"
-                    value={@form[:password].value}
+                    value={@email_form[:password].value}
                     phx-debounce="400"
                     placeholder="••••••••"
                     class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-11 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
@@ -325,7 +325,7 @@
                 <input
                   type="text"
                   name="email_config[from_name]"
-                  value={@form[:from_name].value}
+                  value={@email_form[:from_name].value}
                   phx-debounce="400"
                   placeholder="ZAQ"
                   class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
@@ -337,21 +337,18 @@
                 </label>
                 <input
                   type="email"
+                  name="email_config[from_email]"
+                  value={@email_form[:from_email].value}
+                  phx-debounce="400"
                   placeholder="you@example.com"
-                  value={@test_recipient}
-                  phx-change="set_test_recipient"
-                  name="recipient"
                   class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
                 />
-              </div>
-              <div class="pt-[1.45rem]">
-                <button
-                  phx-click="test_connection"
-                  disabled={@test_status == :loading}
-                  class="font-mono text-[0.82rem] font-bold px-5 py-3 rounded-xl bg-[#2c3a50] text-white hover:bg-[#2c3a50]/80 disabled:opacity-40 transition-all whitespace-nowrap h-11"
+                <p
+                  :if={@email_form[:from_email].errors != []}
+                  class="font-mono text-[0.72rem] text-red-500 mt-1.5"
                 >
-                  {if @test_status == :loading, do: "Sending…", else: "Send Test"}
-                </button>
+                  {elem(hd(@email_form[:from_email].errors), 0)}
+                </p>
               </div>
             </div>
             

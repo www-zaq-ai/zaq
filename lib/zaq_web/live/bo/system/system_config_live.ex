@@ -18,6 +18,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:email_form, to_form(email_changeset))
      |> assign(:smtp_warnings, smtp_warnings(email_changeset))
      |> assign(:telemetry_form, to_form(telemetry_changeset))
+     |> assign(:save_status, :idle)
      |> assign(:test_status, :idle)
      |> assign(:test_recipient, "")}
   end
@@ -56,13 +57,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          socket
          |> put_flash(:info, "Email configuration saved.")
          |> assign(:save_status, :ok)
-         |> assign(:form, to_form(fresh_changeset))
+         |> assign(:email_form, to_form(fresh_changeset))
          |> assign(:smtp_warnings, smtp_warnings(fresh_changeset))}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
          socket
-         |> assign(:form, to_form(Map.put(changeset, :action, :validate)))
+         |> assign(:email_form, to_form(Map.put(changeset, :action, :validate)))
          |> assign(:smtp_warnings, smtp_warnings(changeset))
          |> assign(:save_status, {:error, format_changeset_errors(changeset)})}
 

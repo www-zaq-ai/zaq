@@ -203,7 +203,7 @@ defmodule Zaq.Agent.Pipeline do
       })
 
     case node_router(opts).call(:agent, answering_mod(opts), :ask, [system_prompt]) do
-      {:ok, answer} -> normalize_answer_result(answering_mod(opts), result)
+      {:ok, answer} -> normalize_answer_result(answering_mod(opts), answer)
       error -> error
     end
   end

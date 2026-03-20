@@ -140,8 +140,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "Email configuration saved."
       assert has_element?(view, "#save-status-ok")
-      # Verify that the relay was saved to DB
+      # Verify that key email fields were saved to DB
       assert Zaq.System.get_config("email.relay") == "smtp.save.com"
+      assert Zaq.System.get_config("email.from_email") == "noreply@example.com"
     end
 
     test "with enabled=true but no relay shows validation errors in form", %{conn: conn} do
