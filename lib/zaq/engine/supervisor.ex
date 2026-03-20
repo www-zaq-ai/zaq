@@ -17,6 +17,7 @@ defmodule Zaq.Engine.Supervisor do
 
   ## Children
 
+  - `Zaq.Engine.Telemetry.Supervisor` — runtime telemetry collection
   - `Zaq.Engine.IngestionSupervisor` — supervises all ingestion channel adapters
   - `Zaq.Engine.RetrievalSupervisor` — supervises all retrieval channel adapters
   """
@@ -30,6 +31,7 @@ defmodule Zaq.Engine.Supervisor do
   @impl true
   def init(_opts) do
     children = [
+      Zaq.Engine.Telemetry.Supervisor,
       Zaq.Engine.IngestionSupervisor,
       Zaq.Engine.RetrievalSupervisor
     ]

@@ -11,6 +11,7 @@ defmodule Zaq.Ingestion.IngestWorker do
   import Ecto.Query
   require Logger
 
+  alias Zaq.Engine.Telemetry
   alias Zaq.Ingestion.{FileExplorer, IngestJob}
   alias Zaq.Repo
 
@@ -30,6 +31,11 @@ defmodule Zaq.Ingestion.IngestWorker do
 
     case safe_process(file_path, role_id, shared_role_ids) do
       {:ok, document} ->
+        Telemetry.record("ingestion.completed.count", 1, %{
+          mode: updated_job.mode,
+          volume: updated_job.volume_name || "default"
+        })
+
         updated_job
         |> IngestJob.changeset(%{
           status: "completed",
@@ -44,6 +50,11 @@ defmodule Zaq.Ingestion.IngestWorker do
 
       {:error, reason} ->
         error_msg = format_error(reason)
+
+        Telemetry.record("ingestion.failed.count", 1, %{
+          mode: updated_job.mode,
+          volume: updated_job.volume_name || "default"
+        })
 
         if attempt >= max do
           updated_job

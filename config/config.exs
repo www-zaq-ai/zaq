@@ -17,12 +17,17 @@ config :mime, :types, %{
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  queues: [ingestion: 3, default: 10, conversations: 5],
-  crontab: []
-
-# Base crontab entries for always-on workers (no license required).
-# Feature modules implementing Zaq.License.ObanFeature append to this at runtime.
-config :zaq, oban_base_crontab: []
+  queues: [ingestion: 3, default: 10, conversations: 5, telemetry: 5, telemetry_remote: 3],
+  crontab: [],
+  plugins: [
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
+       {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
+       {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
+       {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker}
+     ]}
+  ]
 
 # Configure the endpoint
 config :zaq, ZaqWeb.Endpoint,

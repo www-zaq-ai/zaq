@@ -131,12 +131,21 @@ if config_env() == :prod do
     queues: [
       ingestion: String.to_integer(System.get_env("OBAN_INGESTION_CONCURRENCY", "3")),
       conversations: String.to_integer(System.get_env("OBAN_CONVERSATIONS_CONCURRENCY", "5")),
+      telemetry: String.to_integer(System.get_env("OBAN_TELEMETRY_CONCURRENCY", "5")),
+      telemetry_remote:
+        String.to_integer(System.get_env("OBAN_TELEMETRY_REMOTE_CONCURRENCY", "3")),
       default: 10
     ],
+    plugins: [
+      {Oban.Plugins.Cron,
+       crontab: [
+         {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
+         {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
+         {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
+         {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker}
+       ]}
+    ],
     crontab: []
-
-  # knowledge_gap queue and StaleQuestionsCleanupWorker crontab are provisioned
-  # at runtime by ObanProvisioner when the knowledge-gap license module is loaded.
 
   # -- Knowledge Gap (paid feature, wiring) --
   config :zaq,

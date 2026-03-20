@@ -23,6 +23,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert has_element?(view, "#smtp-transport-mode")
       assert has_element?(view, "#smtp-tls-verify")
       assert has_element?(view, "#smtp-ca-cert-path")
+      assert html =~ "system-config-tab-telemetry"
+    end
+  end
+
+  describe "tab navigation" do
+    test "switches to telemetry settings tab", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      html =
+        view
+        |> element("#system-config-tab-telemetry")
+        |> render_click()
+
+      assert html =~ "Telemetry Collection"
+      assert html =~ "telemetry_config[capture_infra_metrics]"
+      assert html =~ "telemetry-config-form"
+      refute html =~ "Test Email Delivery"
     end
   end
 
@@ -48,6 +65,55 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         |> render_change()
 
       assert html =~ "smtp.test.com"
+    end
+  end
+
+  describe "telemetry save/validate" do
+    test "validate telemetry form without saving", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("#system-config-tab-telemetry")
+      |> render_click()
+
+      html =
+        view
+        |> form("#telemetry-config-form", %{
+          "telemetry_config" => %{
+            "capture_infra_metrics" => "true",
+            "request_duration_threshold_ms" => "250",
+            "repo_query_duration_threshold_ms" => "15"
+          }
+        })
+        |> render_change()
+
+      assert html =~ "250"
+      assert html =~ "15"
+
+      assert Zaq.System.get_config("telemetry.request_duration_threshold_ms") == nil
+      assert Zaq.System.get_config("telemetry.repo_query_duration_threshold_ms") == nil
+    end
+
+    test "save telemetry settings persists config", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("#system-config-tab-telemetry")
+      |> render_click()
+
+      view
+      |> form("#telemetry-config-form", %{
+        "telemetry_config" => %{
+          "capture_infra_metrics" => "false",
+          "request_duration_threshold_ms" => "300",
+          "repo_query_duration_threshold_ms" => "25"
+        }
+      })
+      |> render_submit()
+
+      assert Zaq.System.get_config("telemetry.capture_infra_metrics") == "false"
+      assert Zaq.System.get_config("telemetry.request_duration_threshold_ms") == "300"
+      assert Zaq.System.get_config("telemetry.repo_query_duration_threshold_ms") == "25"
     end
   end
 

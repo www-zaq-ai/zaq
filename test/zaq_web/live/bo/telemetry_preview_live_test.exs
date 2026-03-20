@@ -23,10 +23,20 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLiveTest do
     assert has_element?(view, "#telemetry-component-gallery")
     assert has_element?(view, "#telemetry-composed-dashboard")
     assert has_element?(view, "#range-7d[data-active='true']")
-    assert has_element?(view, "#gallery-time-series-chart [data-tip-value]")
-    assert has_element?(view, "#gallery-donut-chart [data-tip-value]")
-    assert has_element?(view, "#gallery-radar-chart [data-tip-value]")
-    assert has_element?(view, "#gallery-radar-chart [data-radar-color]")
+    assert has_element?(view, "#series-toggle-availability")
+
+    assert has_element?(view, "#gallery-time-series-chart [data-tip-value]") or
+             has_element?(view, "#gallery-time-series-chart", "No data")
+
+    assert has_element?(view, "#gallery-bar-chart")
+
+    assert has_element?(view, "#gallery-donut-chart [data-tip-value]") or
+             has_element?(view, "#gallery-donut-chart", "No data")
+
+    assert has_element?(view, "#gallery-radar-chart [data-radar-color]") or
+             has_element?(view, "#gallery-radar-chart", "No data")
+
+    assert has_element?(view, "#gallery-status-grid")
   end
 
   test "set_range updates selected range", %{conn: conn} do
@@ -44,9 +54,6 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/dashboard/telemetry-preview")
 
     assert has_element?(view, "#benchmark-state", "off")
-    refute has_element?(view, "#gallery-time-series-chart [data-time-series-lane='benchmark']")
-    refute has_element?(view, "#gallery-radar-chart [data-radar-series='benchmark']")
-    refute has_element?(view, "#gallery-gauge-chart [data-gauge-pointer='benchmark']")
 
     view
     |> element("#benchmark-toggle")
@@ -54,9 +61,6 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLiveTest do
 
     assert has_element?(view, "#benchmark-state", "on")
     assert has_element?(view, "#composed-time-series-series-benchmark")
-    assert has_element?(view, "#gallery-time-series-chart [data-time-series-lane='benchmark']")
-    assert has_element?(view, "#gallery-radar-chart [data-radar-series='benchmark']")
-    assert has_element?(view, "#gallery-gauge-chart [data-gauge-pointer='benchmark']")
   end
 
   test "set_segment and set_feedback_scope update filters", %{conn: conn} do

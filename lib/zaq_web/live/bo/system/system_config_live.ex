@@ -4,21 +4,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.Mailer
   alias Zaq.System
   alias Zaq.System.EmailConfig
+  alias Zaq.System.TelemetryConfig
 
   def mount(_params, _session, socket) do
-    config = System.get_email_config()
-    changeset = EmailConfig.changeset(config, %{})
+    email_changeset = EmailConfig.changeset(System.get_email_config(), %{})
+    telemetry_changeset = TelemetryConfig.changeset(System.get_telemetry_config(), %{})
 
     {:ok,
      socket
      |> assign(:current_path, "/bo/system-config")
      |> assign(:page_title, "System Configuration")
-     |> assign(:form, to_form(changeset))
-     |> assign(:smtp_warnings, smtp_warnings(changeset))
-     |> assign(:save_status, :idle)
+     |> assign(:active_tab, :email)
+     |> assign(:email_form, to_form(email_changeset))
+     |> assign(:smtp_warnings, smtp_warnings(email_changeset))
+     |> assign(:telemetry_form, to_form(telemetry_changeset))
      |> assign(:test_status, :idle)
      |> assign(:test_recipient, "")}
   end
+
+  def handle_event("switch_tab", %{"tab" => tab}, socket) when tab in ["email", "telemetry"] do
+    {:noreply, assign(socket, :active_tab, String.to_atom(tab))}
+  end
+
+  def handle_event("switch_tab", _params, socket), do: {:noreply, socket}
 
   def handle_event("validate", %{"email_config" => params}, socket) do
     config = System.get_email_config()
@@ -30,7 +38,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     {:noreply,
      socket
-     |> assign(:form, to_form(changeset))
+     |> assign(:email_form, to_form(changeset))
      |> assign(:smtp_warnings, smtp_warnings(changeset))
      |> assign(:save_status, :idle)}
   end
@@ -78,6 +86,36 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          socket
          |> put_flash(:error, "Failed to save email configuration.")
          |> assign(:save_status, {:error, inspect(reason)})}
+    end
+  end
+
+  def handle_event("validate", %{"telemetry_config" => params}, socket) do
+    config = System.get_telemetry_config()
+
+    changeset =
+      config
+      |> TelemetryConfig.changeset(params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :telemetry_form, to_form(changeset))}
+  end
+
+  def handle_event("save", %{"telemetry_config" => params}, socket) do
+    config = System.get_telemetry_config()
+    changeset = TelemetryConfig.changeset(config, params)
+
+    case System.save_telemetry_config(changeset) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Telemetry settings saved.")
+         |> assign(
+           :telemetry_form,
+           to_form(TelemetryConfig.changeset(System.get_telemetry_config(), %{}))
+         )}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :telemetry_form, to_form(changeset))}
     end
   end
 

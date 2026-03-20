@@ -107,7 +107,7 @@
         </p>
         <div class="flex gap-2 flex-wrap">
           <button
-            :for={series <- @telemetry.time_series.series}
+            :for={series <- @time_series.series}
             id={"series-toggle-#{series.key}"}
             phx-click="toggle_series"
             phx-value-series={series.key}
@@ -144,21 +144,19 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ZaqWeb.Components.BOTelemetryComponents.metric_card
           id="gallery-metric-card"
-          label={Enum.at(@telemetry.metrics, 0).label}
-          value={Enum.at(@telemetry.metrics, 0).value}
-          unit={Enum.at(@telemetry.metrics, 0).unit}
-          trend={Enum.at(@telemetry.metrics, 0).trend}
-          hint={Enum.at(@telemetry.metrics, 0).hint}
+          label={@gallery_metric.label}
+          value={@gallery_metric.value}
+          unit={@gallery_metric.unit}
+          trend={@gallery_metric.trend}
+          hint={@gallery_metric.hint}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.gauge_chart
           id="gallery-gauge-chart"
           label="Gauge chart"
-          value={@telemetry.gauge_chart.value}
-          benchmark_value={
-            if @benchmark_opt_in, do: @telemetry.gauge_chart.benchmark_value, else: nil
-          }
-          max={@telemetry.gauge_chart.max}
+          value={@gauge_chart.value}
+          benchmark_value={if @benchmark_opt_in, do: @gauge_chart.benchmark_value, else: nil}
+          max={@gauge_chart.max}
           min={0.0}
         />
 
@@ -172,35 +170,33 @@
         <ZaqWeb.Components.BOTelemetryComponents.bar_chart
           id="gallery-bar-chart"
           title="Bar chart"
-          bars={@telemetry.bar_chart.bars}
+          bars={@bar_chart.bars}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.donut_chart
           id="gallery-donut-chart"
           title="Donut chart"
-          segments={@telemetry.donut_chart.segments}
+          segments={@donut_chart.segments}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.status_grid
           id="gallery-status-grid"
           title="Status grid"
-          items={@telemetry.status_grid.items}
+          items={@status_grid.items}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.progress_countdown
           id="gallery-progress-countdown"
           label="Progress countdown"
-          total={@telemetry.progress_countdown.total}
-          remaining={@telemetry.progress_countdown.remaining}
+          total={@progress_countdown.total}
+          remaining={@progress_countdown.remaining}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.radar_chart
           id="gallery-radar-chart"
           title="Radar chart"
-          axes={@telemetry.radar_chart.axes}
-          benchmark_axes={
-            if @benchmark_opt_in, do: @telemetry.radar_chart.benchmark_axes, else: []
-          }
+          axes={@radar_chart.axes}
+          benchmark_axes={if @benchmark_opt_in, do: @radar_chart.benchmark_axes, else: []}
         />
       </div>
     </section>
@@ -215,7 +211,7 @@
 
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <ZaqWeb.Components.BOTelemetryComponents.metric_card
-          :for={metric <- @telemetry.metrics}
+          :for={metric <- @metrics}
           id={metric.id}
           label={metric.label}
           value={metric.value}
@@ -256,19 +252,17 @@
           <ZaqWeb.Components.BOTelemetryComponents.gauge_chart
             id="composed-gauge"
             label="Automation score"
-            value={@telemetry.gauge_chart.value}
-            benchmark_value={
-              if @benchmark_opt_in, do: @telemetry.gauge_chart.benchmark_value, else: nil
-            }
-            max={@telemetry.gauge_chart.max}
+            value={@gauge_chart.value}
+            benchmark_value={if @benchmark_opt_in, do: @gauge_chart.benchmark_value, else: nil}
+            max={@gauge_chart.max}
             min={0.0}
           />
 
           <ZaqWeb.Components.BOTelemetryComponents.progress_countdown
             id="composed-progress"
             label="SLA countdown"
-            total={@telemetry.progress_countdown.total}
-            remaining={@telemetry.progress_countdown.remaining}
+            total={@progress_countdown.total}
+            remaining={@progress_countdown.remaining}
           />
         </div>
       </div>
@@ -277,29 +271,27 @@
         <ZaqWeb.Components.BOTelemetryComponents.bar_chart
           id="composed-bar"
           title="Top intents"
-          bars={@telemetry.bar_chart.bars}
+          bars={@bar_chart.bars}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.donut_chart
           id="composed-donut"
           title="Resolution mix"
-          segments={@telemetry.donut_chart.segments}
+          segments={@donut_chart.segments}
         />
 
         <ZaqWeb.Components.BOTelemetryComponents.radar_chart
           id="composed-radar"
           title="Capability profile"
-          axes={@telemetry.radar_chart.axes}
-          benchmark_axes={
-            if @benchmark_opt_in, do: @telemetry.radar_chart.benchmark_axes, else: []
-          }
+          axes={@radar_chart.axes}
+          benchmark_axes={if @benchmark_opt_in, do: @radar_chart.benchmark_axes, else: []}
         />
       </div>
 
       <ZaqWeb.Components.BOTelemetryComponents.status_grid
         id="composed-status-grid"
         title="Service status"
-        items={@telemetry.status_grid.items}
+        items={@status_grid.items}
       />
     </section>
   </div>

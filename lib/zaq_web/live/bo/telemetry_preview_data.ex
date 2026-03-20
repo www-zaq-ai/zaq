@@ -1,6 +1,10 @@
 defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
   @moduledoc """
-  Deterministic dummy data for the telemetry preview page.
+  Deterministic fallback payload for the telemetry preview page.
+
+  The payload mirrors the canonical telemetry dashboard contract
+  (`filters` + `charts`) and also includes convenience keys used by
+  existing preview assigns.
   """
 
   @ranges ["24h", "7d", "30d", "90d"]
@@ -28,196 +32,164 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewData do
   def available_series_keys, do: @series_keys
 
   def build(filters) do
-    range = filters.range
-    segment = filters.segment
-    feedback_scope = filters.feedback_scope
+    range = Map.get(filters, :range, "7d")
+    segment = Map.get(filters, :segment, "size")
+    feedback_scope = Map.get(filters, :feedback_scope, "critical")
+    benchmark_opt_in = Map.get(filters, :benchmark_opt_in, false)
 
-    range_factor = factor(range, @ranges)
-    segment_factor = factor(segment, @segments)
-    feedback_factor = factor(feedback_scope, @feedback_scopes)
+    metrics = [
+      %{
+        id: "metric-total-events",
+        label: "Total Events",
+        value: 0,
+        unit: nil,
+        trend: 0.0,
+        hint: "#{String.upcase(segment)} segment"
+      },
+      %{
+        id: "metric-availability",
+        label: "Availability",
+        value: 0.0,
+        unit: "%",
+        trend: 0.0,
+        hint: "scope: #{feedback_scope}"
+      },
+      %{
+        id: "metric-latency",
+        label: "Median Latency",
+        value: 0,
+        unit: "ms",
+        trend: 0.0,
+        hint: "p50 user response"
+      },
+      %{
+        id: "metric-quality",
+        label: "Quality Score",
+        value: 0.0,
+        unit: nil,
+        trend: 0.0,
+        hint: "derived telemetry score"
+      }
+    ]
 
-    points_count = points_count(range)
-    labels = labels_for_range(range, points_count)
-
-    availability =
-      build_series(
-        points_count,
-        95.4 + segment_factor * 0.4 + range_factor * 0.25 - feedback_factor * 0.2,
-        0.35
-      )
-
-    latency =
-      build_series(
-        points_count,
-        420 - segment_factor * 12 + feedback_factor * 15 + range_factor * 6,
-        18
-      )
-
-    deflection =
-      build_series(
-        points_count,
-        68 + segment_factor * 1.2 + range_factor * 0.7 - feedback_factor * 0.8,
-        1.1
-      )
-
-    metric_base =
-      1700 + range_factor * 420 + segment_factor * 70 - feedback_factor * 55
-
-    quality_score =
-      Float.round(82.0 + segment_factor * 1.3 - feedback_factor * 2.0 + range_factor * 0.8, 1)
-
-    %{
-      metrics: [
-        %{
-          id: "metric-total-events",
-          label: "Total Events",
-          value: metric_base,
-          unit: nil,
-          trend: Float.round(2.0 + range_factor * 0.6 + segment_factor * 0.4, 2),
-          hint: "#{String.upcase(segment)} segment"
-        },
-        %{
-          id: "metric-availability",
-          label: "Availability",
-          value: Float.round(List.last(availability), 1),
-          unit: "%",
-          trend: Float.round(0.6 + range_factor * 0.3, 2),
-          hint: "scope: #{feedback_scope}"
-        },
-        %{
-          id: "metric-latency",
-          label: "Median Latency",
-          value: round(List.last(latency)),
-          unit: "ms",
-          trend: -Float.round(8.0 + segment_factor * 3.0, 2),
-          hint: "p50 user response"
-        },
-        %{
-          id: "metric-quality",
-          label: "Quality Score",
-          value: quality_score,
-          unit: nil,
-          trend: Float.round(0.7 + segment_factor * 0.4, 2),
-          hint: "derived synthetic score"
-        }
+    time_series = %{
+      labels: [],
+      series: [
+        %{key: "availability", name: "Availability", values: []},
+        %{key: "latency", name: "Latency", values: []},
+        %{key: "deflection", name: "Deflection", values: []},
+        %{key: "benchmark", name: "Benchmark", values: []}
       ],
-      time_series: %{
-        labels: labels,
-        series: [
-          %{key: "availability", name: "Availability"},
-          %{key: "latency", name: "Latency"},
-          %{key: "deflection", name: "Deflection"}
-        ],
-        values: %{
-          "availability" => availability,
-          "latency" => latency,
-          "deflection" => deflection
-        },
-        benchmarks: %{
-          "availability" =>
-            Enum.with_index(availability)
-            |> Enum.map(fn {value, idx} ->
-              drift = 7.0 + range_factor * 0.8 + rem(idx, 3) * 0.6
-              Float.round(max(value - drift, 72.0), 2)
-            end),
-          "latency" =>
-            Enum.with_index(latency)
-            |> Enum.map(fn {value, idx} ->
-              drift = 64.0 + segment_factor * 5.5 + rem(idx, 4) * 4.0
-              Float.round(value + drift, 2)
-            end),
-          "deflection" =>
-            Enum.with_index(deflection)
-            |> Enum.map(fn {value, idx} ->
-              drift = 12.0 + feedback_factor * 2.0 + rem(idx, 2) * 1.4
-              Float.round(max(value - drift, 28.0), 2)
-            end)
-        }
+      values: %{
+        "availability" => [],
+        "latency" => [],
+        "deflection" => []
       },
-      bar_chart: %{
-        bars: [
-          %{label: "Password reset", value: 110 + range_factor * 7 + segment_factor * 3},
-          %{label: "Billing", value: 96 + range_factor * 6 + feedback_factor * 5},
-          %{label: "Provisioning", value: 82 + segment_factor * 4},
-          %{label: "Permissions", value: 73 + range_factor * 4}
-        ]
-      },
-      donut_chart: %{
-        segments: [
-          %{label: "Auto-resolved", value: 58 + segment_factor * 3},
-          %{label: "Escalated", value: 27 + feedback_factor * 4},
-          %{label: "Pending", value: 15 + range_factor * 2}
-        ]
-      },
-      gauge_chart: %{
-        value:
-          Float.round(72.0 + segment_factor * 3.3 - feedback_factor * 2.6 + range_factor * 1.2, 1),
-        benchmark_value:
-          Float.round(58.0 + segment_factor * 1.4 - feedback_factor * 0.8 + range_factor * 0.6, 1),
-        max: 100.0,
-        label: "target 80%"
-      },
-      status_grid: %{
-        items: [
-          %{label: "Engine", detail: "healthy", status: :ok},
-          %{label: "Agent", detail: "healthy", status: :ok},
-          %{label: "Ingestion", detail: "degraded", status: :warn},
-          %{label: "Channels", detail: "healthy", status: :ok}
-        ]
-      },
-      progress_countdown: %{
-        total: 240,
-        remaining: 92 - range_factor * 12 + feedback_factor * 8 + segment_factor * 4
-      },
-      radar_chart: %{
-        axes: [
-          %{label: "Trust", value: 70 + segment_factor * 7},
-          %{label: "Speed", value: 66 + range_factor * 6},
-          %{label: "Coverage", value: 62 + range_factor * 4 + segment_factor * 3},
-          %{label: "Tone", value: 74 - feedback_factor * 6},
-          %{label: "Citations", value: 79 + segment_factor * 4}
-        ],
-        benchmark_axes: [
-          %{label: "Trust", value: 58 + segment_factor * 2},
-          %{label: "Speed", value: 52 + range_factor * 2},
-          %{label: "Coverage", value: 50 + range_factor * 1 + segment_factor * 2},
-          %{label: "Tone", value: 60 - feedback_factor * 2},
-          %{label: "Citations", value: 63 + segment_factor * 2}
-        ]
+      benchmarks: %{
+        "availability" => [],
+        "latency" => [],
+        "deflection" => []
       }
     }
-  end
 
-  defp factor(value, list) do
-    Enum.find_index(list, fn item -> item == value end) || 0
-  end
+    bar_chart = %{bars: []}
+    donut_chart = %{segments: []}
+    gauge_chart = %{value: 0.0, benchmark_value: nil, max: 100.0, label: "target 80%"}
+    status_grid = %{items: []}
+    progress_countdown = %{total: 240, remaining: 240}
+    radar_chart = %{axes: [], benchmark_axes: []}
 
-  defp points_count("24h"), do: 6
-  defp points_count("7d"), do: 7
-  defp points_count("30d"), do: 10
-  defp points_count("90d"), do: 12
-  defp points_count(_), do: 7
+    charts = [
+      %{
+        id: "metric_cards",
+        kind: :metric_cards,
+        title: "Overview",
+        labels: [],
+        series: [],
+        summary: %{metrics: metrics},
+        meta: %{}
+      },
+      %{
+        id: "time_series",
+        kind: :time_series,
+        title: "Signals over time",
+        labels: [],
+        series: time_series.series,
+        summary: %{labels: [], values: time_series.values, benchmarks: time_series.benchmarks},
+        meta: %{range: range}
+      },
+      %{
+        id: "bar",
+        kind: :bar,
+        title: "Top intents",
+        labels: [],
+        series: [],
+        summary: bar_chart,
+        meta: %{}
+      },
+      %{
+        id: "donut",
+        kind: :donut,
+        title: "Feedback distribution",
+        labels: [],
+        series: [],
+        summary: donut_chart,
+        meta: %{}
+      },
+      %{
+        id: "gauge",
+        kind: :gauge,
+        title: "Automation score",
+        labels: [],
+        series: [],
+        summary: gauge_chart,
+        meta: %{}
+      },
+      %{
+        id: "status_grid",
+        kind: :status_grid,
+        title: "Service status",
+        labels: [],
+        series: [],
+        summary: status_grid,
+        meta: %{}
+      },
+      %{
+        id: "progress",
+        kind: :progress,
+        title: "SLA countdown",
+        labels: [],
+        series: [],
+        summary: progress_countdown,
+        meta: %{}
+      },
+      %{
+        id: "radar",
+        kind: :radar,
+        title: "Capability profile",
+        labels: [],
+        series: [],
+        summary: radar_chart,
+        meta: %{}
+      }
+    ]
 
-  defp labels_for_range("24h", _points_count),
-    do: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"]
-
-  defp labels_for_range("7d", _points_count),
-    do: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-  defp labels_for_range("30d", _points_count),
-    do: Enum.map(0..9, fn idx -> "D#{idx * 3 + 1}" end)
-
-  defp labels_for_range("90d", _points_count),
-    do: Enum.map(1..12, fn idx -> "W#{idx}" end)
-
-  defp labels_for_range(_range, points_count),
-    do: Enum.map(1..points_count, fn idx -> "T#{idx}" end)
-
-  defp build_series(points_count, base, step) do
-    1..points_count
-    |> Enum.map(fn idx ->
-      wave = :math.sin(idx / 2) * step
-      Float.round(base + idx * (step / 3) + wave, 2)
-    end)
+    %{
+      filters: %{
+        range: range,
+        benchmark_opt_in: benchmark_opt_in,
+        segment: segment,
+        feedback_scope: feedback_scope
+      },
+      charts: charts,
+      metrics: metrics,
+      time_series: time_series,
+      bar_chart: bar_chart,
+      donut_chart: donut_chart,
+      gauge_chart: gauge_chart,
+      status_grid: status_grid,
+      progress_countdown: progress_countdown,
+      radar_chart: radar_chart
+    }
   end
 end

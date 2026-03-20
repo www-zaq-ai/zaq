@@ -7,14 +7,17 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
+  alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Repo
   alias Zaq.System.Config
   alias Zaq.System.EmailConfig
   alias Zaq.System.SecretConfig
+  alias Zaq.System.TelemetryConfig
 
   @email_fields ~w(
     enabled relay port transport_mode tls tls_verify ca_cert_path username password from_email from_name
   )
+  @telemetry_fields ~w(capture_infra_metrics request_duration_threshold_ms repo_query_duration_threshold_ms)
 
   # ── Generic key/value ─────────────────────────────────────────────────
 
@@ -87,6 +90,42 @@ defmodule Zaq.System do
 
   def save_email_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
+  # ── Telemetry ─────────────────────────────────────────────────────────
+
+  @doc "Loads telemetry collection settings from DB as `%TelemetryConfig{}`."
+  def get_telemetry_config do
+    keys = Enum.map(@telemetry_fields, &"telemetry.#{&1}")
+    rows = Repo.all(from c in Config, where: c.key in ^keys)
+
+    raw =
+      Enum.reduce(rows, %{}, fn row, acc ->
+        short = String.replace_prefix(row.key, "telemetry.", "")
+        Map.put(acc, short, row.value)
+      end)
+
+    %TelemetryConfig{
+      capture_infra_metrics: parse_bool(raw["capture_infra_metrics"], false),
+      request_duration_threshold_ms: parse_int(raw["request_duration_threshold_ms"], 10),
+      repo_query_duration_threshold_ms: parse_int(raw["repo_query_duration_threshold_ms"], 5)
+    }
+  end
+
+  @doc "Persists telemetry settings from a validated `%TelemetryConfig{}` changeset."
+  def save_telemetry_config(%Ecto.Changeset{valid?: true} = changeset) do
+    config = Ecto.Changeset.apply_changes(changeset)
+
+    Enum.each(@telemetry_fields, fn field ->
+      value = Map.get(config, String.to_existing_atom(field))
+      set_config("telemetry.#{field}", value)
+    end)
+
+    maybe_reload_telemetry_collector()
+
+    {:ok, config}
+  end
+
+  def save_telemetry_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
+
   @doc """
   Returns `{:ok, keyword_list}` with Swoosh SMTP delivery options built from
   the DB config, or `{:error, :not_configured}` when email is disabled or the
@@ -124,6 +163,10 @@ defmodule Zaq.System do
       :error -> default
     end
   end
+
+  defp parse_bool(nil, default), do: default
+  defp parse_bool(value, _default) when value in [true, "true", "1", 1], do: true
+  defp parse_bool(_value, _default), do: false
 
   defp blank?(nil), do: true
   defp blank?(""), do: true
@@ -246,5 +289,13 @@ defmodule Zaq.System do
     with {:ok, encrypted} <- SecretConfig.encrypt(value) do
       set_config("email.password", encrypted)
     end
+  end
+
+  defp maybe_reload_telemetry_collector do
+    if Process.whereis(Collector) do
+      Collector.reload_policy()
+    end
+
+    :ok
   end
 end

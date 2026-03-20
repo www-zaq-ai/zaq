@@ -17,6 +17,7 @@ defmodule Zaq.Engine.Conversations do
     TokenUsageAggregator
   }
 
+  alias Zaq.Engine.Telemetry
   alias Zaq.Repo
 
   # ── Conversations ──────────────────────────────────────────────────
@@ -131,6 +132,8 @@ defmodule Zaq.Engine.Conversations do
       |> Repo.insert()
 
     with {:ok, msg} <- result do
+      maybe_record_message_telemetry(conversation, msg)
+
       if msg.role == "assistant" do
         enqueue_token_aggregator(conversation.id, msg)
       end
@@ -162,6 +165,10 @@ defmodule Zaq.Engine.Conversations do
     %MessageRating{}
     |> MessageRating.changeset(attrs)
     |> Repo.insert()
+    |> tap(fn
+      {:ok, rating} -> maybe_record_rating_telemetry(rating)
+      _ -> :ok
+    end)
   end
 
   @doc "Returns the rating for a message by a given user or channel_user."
@@ -188,6 +195,10 @@ defmodule Zaq.Engine.Conversations do
     rating
     |> MessageRating.changeset(attrs)
     |> Repo.update()
+    |> tap(fn
+      {:ok, updated} -> maybe_record_rating_telemetry(updated)
+      _ -> :ok
+    end)
   end
 
   @doc "Deletes a rating."
@@ -252,6 +263,50 @@ defmodule Zaq.Engine.Conversations do
   end
 
   defp enqueue_token_aggregator(_conversation_id, _msg), do: :ok
+
+  defp maybe_record_message_telemetry(conversation, %Message{} = msg) do
+    base = %{
+      channel_type: conversation.channel_type,
+      channel_config_id: to_string(conversation.channel_config_id || "unknown"),
+      role: msg.role
+    }
+
+    case msg.role do
+      "user" ->
+        Telemetry.record("qa.question.count", 1, base)
+
+      "assistant" ->
+        Telemetry.record("qa.answer.count", 1, base)
+
+        if is_integer(msg.prompt_tokens),
+          do: Telemetry.record("qa.tokens.prompt", msg.prompt_tokens, base)
+
+        if is_integer(msg.completion_tokens),
+          do: Telemetry.record("qa.tokens.completion", msg.completion_tokens, base)
+
+        if is_integer(msg.total_tokens),
+          do: Telemetry.record("qa.tokens.total", msg.total_tokens, base)
+
+        if is_integer(msg.latency_ms),
+          do: Telemetry.record("qa.answer.latency_ms", msg.latency_ms, base)
+
+        if is_number(msg.confidence_score) do
+          Telemetry.record("qa.answer.confidence", msg.confidence_score, base)
+        end
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  end
+
+  defp maybe_record_rating_telemetry(%MessageRating{} = rating) do
+    Telemetry.record_feedback(rating.rating, %{
+      channel_user_id: rating.channel_user_id || "bo_user",
+      user_id: to_string(rating.user_id || "anonymous")
+    })
+  end
 
   # Fires async so it never blocks the message-storage path.
   # Only triggers on the very first user message (conversation.title is nil).

@@ -3,6 +3,7 @@ defmodule Zaq.Application do
 
   use Application
   alias Zaq.Ingestion.ObanTelemetry
+  alias Zaq.Engine.Telemetry.Buffer
 
   @impl true
   def start(_type, _args) do
@@ -45,6 +46,15 @@ defmodule Zaq.Application do
   def config_change(changed, _new, removed) do
     ZaqWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  @impl true
+  def prep_stop(state) do
+    if Process.whereis(Buffer) do
+      _ = Buffer.flush(Buffer, 1_500)
+    end
+
+    state
   end
 
   # -- Private --
