@@ -932,6 +932,7 @@
 
       <.form for={@form} id="config-form" phx-submit="save" phx-change="validate">
         <input :if={@modal == :new} type="hidden" name="form[provider]" value={@provider} />
+        <input type="hidden" name="form[kind]" value={Atom.to_string(@live_action)} />
 
         <div class="mb-4">
           <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
@@ -966,8 +967,12 @@
           <input
             type="password"
             name="form[token]"
-            value={@form[:token].value}
-            placeholder="••••••••••••••••"
+            value={if @modal == :edit, do: "", else: @form[:token].value}
+            placeholder={
+              if @modal == :edit,
+                do: "Leave blank to keep existing token",
+                else: "••••••••••••••••"
+            }
             class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           />
           <p class="font-mono text-[0.6rem] text-black/30 mt-1">
@@ -976,10 +981,12 @@
         </div>
 
         <div class="flex items-center gap-3 mb-6">
+          <input type="hidden" name="form[enabled]" value="false" />
           <input
             type="checkbox"
             name="form[enabled]"
             id="form_enabled"
+            value="true"
             checked={@form[:enabled].value}
             class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
           />

@@ -1,0 +1,87 @@
+<%= if !@service_available do %>
+  <ZaqWeb.Components.ServiceUnavailable.page
+    current_user={@current_user}
+    current_path={@current_path}
+    page_title={@page_title}
+    services={@required_roles}
+  />
+<% else %>
+  <ZaqWeb.Components.BOLayout.bo_layout
+    current_user={@current_user}
+    flash={@flash}
+    page_title={@page_title}
+    current_path={@current_path}
+  >
+    <div class="mb-6">
+      <.link
+        navigate={~p"/bo/channels/notifications"}
+        class="inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-black/40 hover:text-black transition-colors mb-4"
+      >
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M19 12H5M12 5l-7 7 7 7" />
+        </svg>
+        Notification Channels
+      </.link>
+      <h1 class="font-mono text-xl font-bold text-black tracking-tight">{@page_title}</h1>
+      <p class="font-mono text-[0.75rem] text-black/40 mt-1">
+        Choose a connection type to configure email delivery.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <.link
+        :for={card <- @cards}
+        id={"connection-type-card-#{card.id}"}
+        navigate={~p"/bo/channels/notifications/email/#{card.id}"}
+        class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden"
+      >
+        <div
+          class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          style={"background: linear-gradient(to bottom right, #{card.color}08, transparent)"}
+        />
+        <div class="flex items-start justify-between">
+          <div
+            class="w-12 h-12 rounded-xl grid place-items-center"
+            style={"background-color: #{card.color}14"}
+          >
+            <ZaqWeb.Components.ChannelIcons.icon provider={card.id} class="w-6 h-6" />
+          </div>
+          <span class={[
+            "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
+            if(@smtp_active && card.id == "smtp",
+              do: "bg-emerald-100 text-emerald-700",
+              else: "bg-black/5 text-black/30"
+            )
+          ]}>
+            {if @smtp_active && card.id == "smtp", do: "active", else: "Not configured"}
+          </span>
+        </div>
+        <div>
+          <h3 class="font-mono text-sm font-bold text-black mb-1">{card.label}</h3>
+          <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">{card.desc}</p>
+        </div>
+        <div
+          class="flex items-center gap-1 font-mono text-[0.65rem] mt-auto group-hover:gap-2 transition-all"
+          style={"color: #{card.color}99"}
+        >
+          <span>Configure</span>
+          <svg
+            class="w-3 h-3"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+        </div>
+      </.link>
+    </div>
+  </ZaqWeb.Components.BOLayout.bo_layout>
+<% end %>

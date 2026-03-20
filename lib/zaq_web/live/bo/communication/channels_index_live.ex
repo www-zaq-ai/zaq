@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Repo
+  alias Zaq.System
   alias ZaqWeb.Components.ServiceUnavailable
 
   import Ecto.Query
@@ -61,6 +62,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     }
   ]
 
+  @notification_cards [
+    %{
+      id: "email",
+      label: "Email",
+      color: "#16a34a",
+      desc:
+        "Send email notifications to users for password resets, invitations, and system alerts."
+    }
+  ]
+
   @ingestion_cards [
     %{
       id: "zaq_local",
@@ -85,6 +96,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   # Provider IDs shown as mini-logos inside category cards on the index page
   @retrieval_preview ~w(slack teams mattermost discord telegram)
   @ingestion_preview ~w(zaq_local google_drive sharepoint)
+  @notification_preview ~w(email)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -96,6 +108,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
      |> assign(:required_roles, @required_roles)
      |> assign(:retrieval_preview, @retrieval_preview)
      |> assign(:ingestion_preview, @ingestion_preview)
+     |> assign(:notification_preview, @notification_preview)
      |> assign(:stats, if(available, do: compute_stats(), else: %{}))}
   end
 
@@ -105,9 +118,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
     {page_title, current_path, cards} =
       case kind do
-        :retrieval -> {"Retrieval Channels", "/bo/channels/retrieval", @retrieval_cards}
-        :ingestion -> {"Ingestion Channels", "/bo/channels/ingestion", @ingestion_cards}
-        _index -> {"Channels", "/bo/channels", []}
+        :retrieval ->
+          {"Retrieval Channels", "/bo/channels/retrieval", @retrieval_cards}
+
+        :ingestion ->
+          {"Ingestion Channels", "/bo/channels/ingestion", @ingestion_cards}
+
+        :notification ->
+          {"Notification Channels", "/bo/channels/notifications", @notification_cards}
+
+        _index ->
+          {"Channels", "/bo/channels", []}
       end
 
     {:noreply,
@@ -136,9 +157,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     end)
   end
 
+  def notification_total(stats), do: Map.get(stats, :email, 0)
+
   def provider_path(_kind, "zaq_local"), do: "/bo/ingestion"
   def provider_path(:retrieval, id), do: "/bo/channels/retrieval/#{id}"
   def provider_path(:ingestion, id), do: "/bo/channels/ingestion/#{id}"
+  def provider_path(:notification, id), do: "/bo/channels/notifications/#{id}"
 
   # --- Private ---
 
@@ -153,8 +177,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
       |> Repo.all()
       |> Map.new()
 
-    Enum.reduce(all_providers, %{}, fn provider, acc ->
-      Map.put(acc, String.to_atom(provider), Map.get(counts, provider, 0))
-    end)
+    base =
+      Enum.reduce(all_providers, %{}, fn provider, acc ->
+        Map.put(acc, String.to_atom(provider), Map.get(counts, provider, 0))
+      end)
+
+    email_active = if System.get_email_config().enabled, do: 1, else: 0
+    Map.put(base, :email, email_active)
   end
 end

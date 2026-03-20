@@ -16,6 +16,10 @@ config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 
 config :zaq, :base_url, "http://localhost:4000"
 
+config :zaq, Zaq.System.SecretConfig,
+  encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+  key_id: "v1"
+
 config :zaq, Zaq.Ingestion,
   base_path: "priv/documents",
   volumes: %{

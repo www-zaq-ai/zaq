@@ -152,6 +152,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("validate", %{"form" => params}, socket) do
+    params =
+      case socket.assigns.modal do
+        :edit -> if params["token"] == "", do: Map.delete(params, "token"), else: params
+        _ -> params
+      end
+
     changeset =
       socket.assigns.changeset.data
       |> ChannelConfig.changeset(params)
@@ -164,6 +170,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("save", %{"form" => params}, socket) do
+    params =
+      case socket.assigns.modal do
+        :edit -> if params["token"] == "", do: Map.delete(params, "token"), else: params
+        _ -> params
+      end
+
     result =
       case socket.assigns.modal do
         :new -> %ChannelConfig{} |> ChannelConfig.changeset(params) |> Repo.insert()

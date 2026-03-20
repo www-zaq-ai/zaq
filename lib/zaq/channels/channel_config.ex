@@ -26,7 +26,7 @@ defmodule Zaq.Channels.ChannelConfig do
     field :provider, :string
     field :kind, :string
     field :url, :string
-    field :token, :string
+    field :token, Zaq.Types.EncryptedString
     field :enabled, :boolean, default: true
 
     timestamps(type: :utc_datetime)
@@ -39,6 +39,20 @@ defmodule Zaq.Channels.ChannelConfig do
     |> validate_inclusion(:provider, @valid_providers)
     |> validate_inclusion(:kind, @valid_kinds)
     |> unique_constraint(:provider)
+    |> force_token_encryption()
+  end
+
+  # For existing records, force the token field into the changeset so Ecto
+  # always calls dump/1 — which encrypts any legacy plaintext tokens.
+  defp force_token_encryption(changeset) do
+    if changeset.data.__meta__.state == :loaded do
+      case get_field(changeset, :token) do
+        nil -> changeset
+        token -> force_change(changeset, :token, token)
+      end
+    else
+      changeset
+    end
   end
 
   @doc """

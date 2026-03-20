@@ -84,6 +84,14 @@ defmodule ZaqWeb.Router do
       live "/channels/ingestion", Live.BO.Communication.ChannelsIndexLive, :ingestion
       live "/channels/ingestion/:provider", Live.BO.Communication.ChannelsLive, :ingestion
 
+      # Notification channels
+      live "/channels/notifications", Live.BO.Communication.ChannelsIndexLive, :notification
+      live "/channels/notifications/email", Live.BO.Communication.NotificationEmailLive, :index
+
+      live "/channels/notifications/email/:type",
+           Live.BO.Communication.NotificationSmtpLive,
+           :index
+
       # File preview — renders MD, plain text, images in-browser
       live "/preview/*path", Live.BO.AI.FilePreviewLive
 
