@@ -47,6 +47,7 @@ defmodule Zaq.Agent.Pipeline do
   """
 
   require Logger
+  alias Zaq.Agent.Answering.Result
 
   @no_answer_signal "I don't have enough information to answer that question."
 
@@ -83,13 +84,26 @@ defmodule Zaq.Agent.Pipeline do
           %{
             answer: answering_mod(opts).clean_answer(safe_answer),
             confidence: 0.0,
+            confidence_score: 0.0,
+            latency_ms: answer_result.latency_ms,
+            prompt_tokens: answer_result.prompt_tokens,
+            completion_tokens: answer_result.completion_tokens,
+            total_tokens: answer_result.total_tokens,
             knowledge_gap: true,
             question: question,
             generated_query: retrieval_result.query,
             history: history
           }
         else
-          %{answer: safe_answer, confidence: confidence_score(answer_result)}
+          %{
+            answer: safe_answer,
+            confidence: answer_result.confidence_score || 1.0,
+            confidence_score: answer_result.confidence_score || 1.0,
+            latency_ms: answer_result.latency_ms,
+            prompt_tokens: answer_result.prompt_tokens,
+            completion_tokens: answer_result.completion_tokens,
+            total_tokens: answer_result.total_tokens
+          }
         end
 
       :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
@@ -189,8 +203,7 @@ defmodule Zaq.Agent.Pipeline do
       })
 
     case node_router(opts).call(:agent, answering_mod(opts), :ask, [system_prompt]) do
-      {:ok, %{answer: _, confidence: _} = result} -> {:ok, result}
-      {:ok, answer} when is_binary(answer) -> {:ok, %{answer: answer, confidence: %{score: 1.0}}}
+      {:ok, answer} -> normalize_answer_result(answering_mod(opts), result)
       error -> error
     end
   end
@@ -198,6 +211,17 @@ defmodule Zaq.Agent.Pipeline do
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
+
+  defp normalize_answer_result(module, %Result{} = result) when module == Answering,
+    do: {:ok, result}
+
+  defp normalize_answer_result(module, result) do
+    if function_exported?(module, :normalize_result, 1) do
+      module.normalize_result(result)
+    else
+      Answering.normalize_result(result)
+    end
+  end
 
   defp confidence_score(%{confidence: %{score: s}}), do: s
   defp confidence_score(%{confidence: s}) when is_float(s), do: s

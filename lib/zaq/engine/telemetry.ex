@@ -112,6 +112,50 @@ defmodule Zaq.Engine.Telemetry do
   @spec load_chart(String.t(), map()) :: {:ok, map()} | {:error, :unknown_chart}
   def load_chart(chart_id, filters), do: DashboardData.load_chart(chart_id, filters)
 
+  @doc "Returns dashboard KPI values aggregated from local rollups."
+  @spec dashboard_kpis(integer() | map() | keyword()) :: %{
+          documents_ingested_30d: float(),
+          qa_avg_response_ms_30d: float(),
+          llm_api_calls_30d: non_neg_integer()
+        }
+  def dashboard_kpis(params \\ 30) do
+    days = normalize_days(params)
+    window_start = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+
+    documents_ingested_30d =
+      from(r in Rollup,
+        where:
+          r.source == "local" and
+            r.metric_key == "ingestion.completed.count" and
+            r.bucket_start >= ^window_start,
+        select: sum(r.value_sum)
+      )
+      |> Repo.one()
+      |> Kernel.||(0.0)
+
+    %{value_sum: latency_sum, value_count: latency_count} =
+      from(r in Rollup,
+        where:
+          r.source == "local" and
+            r.metric_key == "qa.answer.latency_ms" and
+            r.bucket_start >= ^window_start,
+        select: %{value_sum: sum(r.value_sum), value_count: sum(r.value_count)}
+      )
+      |> Repo.one() || %{value_sum: nil, value_count: nil}
+
+    qa_avg_response_ms_30d =
+      case latency_count || 0 do
+        count when count > 0 -> (latency_sum || 0.0) / count
+        _ -> 0.0
+      end
+
+    %{
+      documents_ingested_30d: documents_ingested_30d,
+      qa_avg_response_ms_30d: qa_avg_response_ms_30d,
+      llm_api_calls_30d: 0
+    }
+  end
+
   @doc "Returns local rollups updated after the given cursor."
   @spec list_local_rollups_since(DateTime.t() | nil, non_neg_integer()) :: [map()]
   def list_local_rollups_since(cursor, limit \\ 500) do
@@ -307,4 +351,20 @@ defmodule Zaq.Engine.Telemetry do
   end
 
   defp to_integer(_), do: 0
+
+  defp normalize_days(days) when is_integer(days) and days > 0, do: days
+
+  defp normalize_days(params) when is_map(params) do
+    params
+    |> Map.get(:days)
+    |> normalize_days()
+  end
+
+  defp normalize_days(params) when is_list(params) do
+    params
+    |> Keyword.get(:days)
+    |> normalize_days()
+  end
+
+  defp normalize_days(_), do: 30
 end

@@ -305,7 +305,14 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
         Conversations.add_message(conv, %{
           role: "assistant",
           content: result.answer,
-          confidence_score: extract_confidence_score(result.confidence)
+          confidence_score:
+            extract_confidence_score(
+              Map.get(result, :confidence_score) || Map.get(result, :confidence)
+            ),
+          latency_ms: Map.get(result, :latency_ms),
+          prompt_tokens: Map.get(result, :prompt_tokens),
+          completion_tokens: Map.get(result, :completion_tokens),
+          total_tokens: Map.get(result, :total_tokens)
         })
 
       err ->

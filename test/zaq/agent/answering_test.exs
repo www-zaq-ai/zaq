@@ -2,6 +2,7 @@ defmodule Zaq.Agent.AnsweringTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.{Answering, LLM}
+  alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.PromptTemplate
   alias Zaq.TestSupport.OpenAIStub
 
@@ -76,6 +77,31 @@ defmodule Zaq.Agent.AnsweringTest do
     end
   end
 
+  describe "normalize_result/1" do
+    test "normalizes legacy map result" do
+      assert {:ok, %Result{} = result} =
+               Answering.normalize_result(%{
+                 answer: "ok",
+                 confidence: %{score: 0.8},
+                 latency_ms: 120,
+                 prompt_tokens: 10,
+                 completion_tokens: 5,
+                 total_tokens: 15
+               })
+
+      assert result.answer == "ok"
+      assert result.confidence_score == 0.8
+      assert result.latency_ms == 120
+      assert result.prompt_tokens == 10
+      assert result.completion_tokens == 5
+      assert result.total_tokens == 15
+    end
+
+    test "normalizes plain string result" do
+      assert {:ok, %Result{answer: "ok"}} = Answering.normalize_result("ok")
+    end
+  end
+
   describe "ask/2 deterministic lane" do
     test "returns plain answer when confidence is explicitly disabled" do
       handler = fn _conn, body ->
@@ -89,8 +115,15 @@ defmodule Zaq.Agent.AnsweringTest do
 
       Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
 
-      assert {:ok, "The BEAM VM."} =
+      assert {:ok, %Result{} = result} =
                Answering.ask("Context + question", include_confidence: false)
+
+      assert result.answer == "The BEAM VM."
+      assert is_integer(result.latency_ms)
+      assert is_integer(result.prompt_tokens)
+      assert is_integer(result.completion_tokens)
+      assert is_integer(result.total_tokens)
+      assert is_nil(result.confidence_score)
     end
 
     test "returns answer with confidence when confidence is enabled" do
@@ -107,10 +140,16 @@ defmodule Zaq.Agent.AnsweringTest do
 
       Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
 
-      assert {:ok, %{answer: "The BEAM VM.", confidence: %{score: score}}} =
+      assert {:ok, %Result{} = result} =
                Answering.ask("Context + question", include_confidence: true)
 
+      assert result.answer == "The BEAM VM."
+      score = result.confidence_score
       assert is_float(score)
+      assert is_integer(result.latency_ms)
+      assert is_integer(result.prompt_tokens)
+      assert is_integer(result.completion_tokens)
+      assert is_integer(result.total_tokens)
     end
 
     test "uses supports_logprobs default when include_confidence is omitted" do
@@ -127,8 +166,9 @@ defmodule Zaq.Agent.AnsweringTest do
 
       Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
 
-      assert {:ok, %{answer: "Default confidence path.", confidence: %{score: _score}}} =
-               Answering.ask("Prompt")
+      assert {:ok, %Result{} = result} = Answering.ask("Prompt")
+      assert result.answer == "Default confidence path."
+      assert is_float(result.confidence_score)
     end
 
     test "builds history from map including non-binary bodies" do
@@ -163,7 +203,8 @@ defmodule Zaq.Agent.AnsweringTest do
 
       Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: false))
 
-      assert {:ok, "ok"} = Answering.ask("Prompt", history: history)
+      assert {:ok, %Result{} = result} = Answering.ask("Prompt", history: history)
+      assert result.answer == "ok"
     end
 
     test "returns error tuple when confidence parsing fails" do
@@ -189,10 +230,9 @@ defmodule Zaq.Agent.AnsweringTest do
           include_confidence: true
         )
 
-      assert is_map(result)
-      assert Map.has_key?(result, :answer)
-      assert Map.has_key?(result, :confidence)
-      assert is_float(result.confidence.score)
+      assert %Result{} = result
+      assert is_binary(result.answer)
+      assert is_float(result.confidence_score)
     end
 
     test "returns plain answer when confidence disabled" do
@@ -201,7 +241,8 @@ defmodule Zaq.Agent.AnsweringTest do
           include_confidence: false
         )
 
-      assert is_binary(result)
+      assert %Result{} = result
+      assert is_binary(result.answer)
     end
 
     test "handles conversation history" do
