@@ -69,11 +69,54 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert chart.kind == :time_series
   end
 
+  test "load_dashboard/1 only includes benchmarks when benchmark opt-in is enabled" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_rollup("qa.answer.latency_ms", now, 420.0, 1)
+
+    Repo.insert!(%Rollup{
+      metric_key: "qa.answer.latency_ms",
+      bucket_start: now,
+      bucket_size: "10m",
+      source: "benchmark",
+      dimensions: %{},
+      dimension_key: Telemetry.dimension_key(%{}),
+      value_sum: 390.0,
+      value_count: 1,
+      value_min: 390.0,
+      value_max: 390.0,
+      last_value: 390.0,
+      last_at: now
+    })
+
+    disabled =
+      Telemetry.load_dashboard(%{
+        range: "7d",
+        segment: "size",
+        feedback_scope: "all",
+        benchmark_opt_in: false
+      })
+
+    enabled =
+      Telemetry.load_dashboard(%{
+        range: "7d",
+        segment: "size",
+        feedback_scope: "all",
+        benchmark_opt_in: true
+      })
+
+    assert get_in(disabled.time_series, [:summary, :benchmarks]) == %{}
+
+    assert get_in(enabled.time_series, [:summary, :benchmarks, "latency"])
+           |> Enum.max() == 390.0
+  end
+
   test "load_llm_performance/1 returns strict retrieval effectiveness" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_rollup("qa.question.count", now, 20.0, 20)
     insert_rollup("qa.no_answer.count", now, 4.0, 4)
+    insert_rollup("qa.answer.count", now, 16.0, 16)
     insert_rollup("qa.tokens.total", now, 1200.0, 12)
     insert_rollup("qa.tokens.prompt", now, 700.0, 12)
     insert_rollup("qa.tokens.completion", now, 500.0, 12)
@@ -83,6 +126,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert payload.llm_api_calls_chart.id == "llm_api_calls"
     assert payload.token_usage_chart.id == "token_usage"
     assert payload.retrieval_effectiveness_chart.id == "retrieval_effectiveness"
+    assert payload.token_usage_chart.series |> List.first() |> Map.get(:name) == "Output token"
 
     assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 80.0
     assert get_in(payload.llm_api_calls_chart, [:summary, :values, "calls"]) |> Enum.sum() == 12.0
@@ -100,7 +144,18 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert payload.llm_api_calls_chart.id == "llm_api_calls"
     assert payload.token_usage_chart.id == "token_usage"
     assert payload.retrieval_effectiveness_chart.id == "retrieval_effectiveness"
-    assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 100.0
+    assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 0.0
+  end
+
+  test "load_llm_performance/1 returns zero effectiveness when there are no answers" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_rollup("qa.question.count", now, 20.0, 20)
+    insert_rollup("qa.no_answer.count", now, 0.0, 0)
+
+    payload = Telemetry.load_llm_performance(%{range: "7d"})
+
+    assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 0.0
   end
 
   test "load_conversations_metrics/1 returns conversations dashboard payload" do
@@ -137,15 +192,16 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
              %{label: "mattermost", value: 10.0}
            ]
 
-    assert get_in(payload.no_answer_rate_chart, [:summary, :benchmarks, "no_answer_rate"])
+    assert get_in(payload.no_answer_rate_chart, [:summary, :baseline, :values])
            |> Enum.uniq() == [10.0]
 
-    assert get_in(payload.average_response_time_chart, [
-             :summary,
-             :benchmarks,
-             "average_response_time"
-           ])
+    assert get_in(payload.no_answer_rate_chart, [:summary, :baseline, :label]) ==
+             "Alert threshold"
+
+    assert get_in(payload.average_response_time_chart, [:summary, :baseline, :values])
            |> Enum.uniq() == [1500.0]
+
+    assert get_in(payload.average_response_time_chart, [:summary, :baseline, :label]) == "SLA"
 
     assert get_in(payload.answer_confidence_distribution_chart, [:summary, :axes]) == [
              %{label: "Over 90", value: 50.0},

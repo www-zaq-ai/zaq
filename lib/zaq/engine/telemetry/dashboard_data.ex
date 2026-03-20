@@ -70,16 +70,15 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     output_tokens = sum_points(local_rows, "qa.tokens.completion", labels.labels, :value_sum)
 
     question_count = sum_metric(local_rows, "qa.question.count")
+    answer_count = sum_metric(local_rows, "qa.answer.count")
     no_answer_count = sum_metric(local_rows, "qa.no_answer.count")
 
     retrieval_effectiveness =
-      no_answer_count
-      |> ratio_or_zero(question_count)
-      |> then(&(1.0 - &1))
-      |> Kernel.*(100.0)
-      |> max(0.0)
-      |> min(100.0)
-      |> Float.round(1)
+      if answer_count <= 0 do
+        0.0
+      else
+        strict_effectiveness_score(no_answer_count, question_count)
+      end
 
     legacy_charts = [
       %{
@@ -100,7 +99,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         title: "Token usage",
         labels: labels.labels,
         series: [
-          %{key: "output_tokens", name: "Output tokens", values: output_tokens},
+          %{key: "output_tokens", name: "Output token", values: output_tokens},
           %{key: "input_tokens", name: "Input tokens", values: input_tokens}
         ],
         summary: %{
@@ -119,7 +118,11 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         labels: [],
         series: [],
         summary: %{value: retrieval_effectiveness, max: 100.0, label: "strict no-answer adjusted"},
-        meta: %{question_count: question_count, no_answer_count: no_answer_count}
+        meta: %{
+          question_count: question_count,
+          answer_count: answer_count,
+          no_answer_count: no_answer_count
+        }
       }
     ]
 
@@ -170,9 +173,6 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     no_answer_alert_threshold = telemetry_config.no_answer_alert_threshold_percent * 1.0
     response_sla_ms = telemetry_config.conversation_response_sla_ms * 1.0
 
-    no_answer_threshold_line = Enum.map(labels.labels, fn _label -> no_answer_alert_threshold end)
-    response_sla_line = Enum.map(labels.labels, fn _label -> response_sla_ms end)
-
     legacy_charts = [
       %{
         id: "questions_asked",
@@ -209,36 +209,36 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       %{
         id: "no_answer_rate",
         kind: :time_series,
-        title: "No-answer rate",
+        title: "No-answer rate (%)",
         labels: labels.labels,
-        series: [
-          %{key: "no_answer_rate", name: "No-answer rate", values: no_answer_rate_points},
-          %{key: "alert_threshold", name: "Alert threshold", values: no_answer_threshold_line}
-        ],
+        baseline: %{
+          for: "no_answer_rate",
+          value: no_answer_alert_threshold,
+          label: "Alert threshold"
+        },
+        series: [%{key: "no_answer_rate", name: "No-answer rate", values: no_answer_rate_points}],
         summary: %{
           labels: labels.labels,
-          values: %{"no_answer_rate" => no_answer_rate_points},
-          benchmarks: %{"no_answer_rate" => no_answer_threshold_line}
+          values: %{"no_answer_rate" => no_answer_rate_points}
         },
         meta: %{threshold_percent: no_answer_alert_threshold}
       },
       %{
         id: "average_response_time",
         kind: :time_series,
-        title: "Average response time",
+        title: "Average response time (ms)",
         labels: labels.labels,
+        baseline: %{for: "average_response_time", value: response_sla_ms, label: "SLA"},
         series: [
           %{
             key: "average_response_time",
             name: "Average response time",
             values: response_time_points
-          },
-          %{key: "sla", name: "SLA", values: response_sla_line}
+          }
         ],
         summary: %{
           labels: labels.labels,
-          values: %{"average_response_time" => response_time_points},
-          benchmarks: %{"average_response_time" => response_sla_line}
+          values: %{"average_response_time" => response_time_points}
         },
         meta: %{sla_ms: response_sla_ms}
       }
@@ -335,11 +335,17 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       )
 
     benchmark_latency =
-      metric_points(benchmark_rows, "qa.answer.latency_ms", labels.labels)
+      if filters.benchmark_opt_in and benchmark_rows != [] do
+        metric_points(benchmark_rows, "qa.answer.latency_ms", labels.labels)
+      else
+        []
+      end
+
+    time_series_benchmarks = maybe_benchmark_line("latency", benchmark_latency)
 
     feedback_neg = sum_metric(local_rows, "feedback.negative.count")
     feedback_total = sum_metric(local_rows, "feedback.rating")
-    feedback_ratio = ratio_or_zero(feedback_neg, feedback_total)
+    automation_score = strict_effectiveness_score(feedback_neg, feedback_total)
 
     total_questions = sum_metric(local_rows, "qa.question.count")
     total_ingestions = sum_metric(local_rows, "ingestion.completed.count")
@@ -397,8 +403,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         series: [
           %{key: "availability", name: "Availability", values: confidence_points},
           %{key: "latency", name: "Latency", values: latency_points},
-          %{key: "deflection", name: "Deflection", values: no_answer_points},
-          %{key: "benchmark", name: "Benchmark", values: benchmark_latency}
+          %{key: "deflection", name: "Deflection", values: no_answer_points}
         ],
         summary: %{
           labels: labels.labels,
@@ -407,7 +412,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
             "latency" => latency_points,
             "deflection" => no_answer_points
           },
-          benchmarks: %{"latency" => benchmark_latency}
+          benchmarks: time_series_benchmarks
         },
         meta: %{range: filters.range}
       },
@@ -449,7 +454,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         labels: [],
         series: [],
         summary: %{
-          value: Float.round((1.0 - feedback_ratio) * 100, 1),
+          value: automation_score,
           max: 100.0,
           label: "target 80%"
         },
@@ -488,7 +493,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         series: [],
         summary: %{
           axes: [
-            %{label: "Trust", value: Float.round((1.0 - feedback_ratio) * 100, 1)},
+            %{label: "Trust", value: automation_score},
             %{label: "Speed", value: percentile_from_latency(latency_points)},
             %{label: "Coverage", value: latest_or_default(no_answer_points, 70.0)},
             %{label: "Tone", value: max(100 - feedback_neg * 5, 35)},
@@ -691,6 +696,21 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     Float.round(max(0.0, min(100.0, 100.0 - value / 10.0)), 1)
   end
 
+  defp strict_effectiveness_score(_negative, total) when total <= 0, do: 0.0
+
+  defp strict_effectiveness_score(negative, total) do
+    negative
+    |> ratio_or_zero(total)
+    |> then(&(1.0 - &1))
+    |> Kernel.*(100.0)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(1)
+  end
+
+  defp maybe_benchmark_line(_key, []), do: %{}
+  defp maybe_benchmark_line(key, values), do: %{key => values}
+
   defp ratio_or_zero(_n, d) when d <= 0, do: 0.0
   defp ratio_or_zero(n, d), do: n / d
 
@@ -788,8 +808,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         series: [
           %{key: "availability", name: "Availability", values: zeroes},
           %{key: "latency", name: "Latency", values: zeroes},
-          %{key: "deflection", name: "Deflection", values: zeroes},
-          %{key: "benchmark", name: "Benchmark", values: zeroes}
+          %{key: "deflection", name: "Deflection", values: zeroes}
         ],
         summary: %{
           labels: labels.labels,
@@ -798,7 +817,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
             "latency" => zeroes,
             "deflection" => zeroes
           },
-          benchmarks: %{"latency" => zeroes}
+          benchmarks: %{}
         },
         meta: %{range: filters.range}
       },

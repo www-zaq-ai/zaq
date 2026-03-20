@@ -235,7 +235,12 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
       chart
       | payload: %SeriesPayload{payload | series: visible_series, benchmarks: benchmarks},
         series: visible_series,
-        summary: Map.merge(chart.summary, %{values: values, benchmarks: benchmarks})
+        summary:
+          Map.merge(chart.summary, %{
+            values: values,
+            benchmarks: benchmarks,
+            baseline: payload.baseline
+          })
     }
   end
 

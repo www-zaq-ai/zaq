@@ -17,6 +17,8 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   }
 
   @accent "#03b6d4"
+  @benchmark_color "#f59e0b"
+  @baseline_color "#e11d48"
 
   attr :id, :string, required: true
   attr :card, :map, default: nil
@@ -136,14 +138,30 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     points = series_points(payload.labels, Map.get(primary_series || %{}, :values, []))
 
     secondary_points =
-      series_points(payload.labels, Map.get(secondary_series || %{}, :values, []))
+      series_points_if_present(payload.labels, Map.get(secondary_series || %{}, :values, []))
 
     primary_key = Map.get(primary_series || %{}, :key, "")
 
     benchmark_points =
       payload.benchmarks
       |> Map.get(primary_key, Map.get(payload.benchmarks, to_string(primary_key), []))
-      |> then(&series_points(payload.labels, &1))
+      |> then(&series_points_if_present(payload.labels, &1))
+
+    baseline = Map.get(payload, :baseline, nil)
+
+    baseline_points =
+      case baseline do
+        %{values: values} when is_list(values) -> series_points(payload.labels, values)
+        %{"values" => values} when is_list(values) -> series_points(payload.labels, values)
+        _ -> []
+      end
+
+    baseline_label =
+      case baseline do
+        %{label: label} when is_binary(label) and label != "" -> label
+        %{"label" => label} when is_binary(label) and label != "" -> label
+        _ -> "Baseline"
+      end
 
     secondary_points =
       maybe_drop_threshold_secondary(secondary_points, benchmark_points, secondary_series)
@@ -151,10 +169,13 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     assigns
     |> assign(:id, assigns.id || chart.id)
     |> assign(:title, assigns.title || chart.title)
+    |> assign(:primary_label, Map.get(primary_series || %{}, :name) || "Primary")
     |> assign(:points, points)
     |> assign(:secondary_points, secondary_points)
     |> assign(:secondary_label, Map.get(secondary_series || %{}, :name))
     |> assign(:benchmark_points, benchmark_points)
+    |> assign(:baseline_points, baseline_points)
+    |> assign(:baseline_label, baseline_label)
   end
 
   defp assign_time_series_from_chart(assigns), do: assigns
@@ -184,6 +205,12 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
 
   defp series_points(_labels, _values), do: []
 
+  defp series_points_if_present(labels, values) when is_list(values) and values != [] do
+    series_points(labels, values)
+  end
+
+  defp series_points_if_present(_labels, _values), do: []
+
   attr :chart, :map, required: true
   attr :id, :string, default: nil
   attr :title, :string, default: nil
@@ -195,7 +222,12 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     assigns = assign_time_series_from_chart(assigns)
 
     bounds =
-      combined_line_bounds([assigns.points, assigns.secondary_points, assigns.benchmark_points])
+      combined_line_bounds([
+        assigns.points,
+        assigns.secondary_points,
+        assigns.benchmark_points,
+        assigns.baseline_points
+      ])
 
     chart =
       build_line_chart(
@@ -210,7 +242,15 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         assigns.benchmark_points,
         assigns.width,
         assigns.height,
-        Map.put(bounds, :color, "#f59e0b")
+        Map.put(bounds, :color, @benchmark_color)
+      )
+
+    baseline_chart =
+      build_line_chart(
+        assigns.baseline_points,
+        assigns.width,
+        assigns.height,
+        Map.put(bounds, :color, @baseline_color)
       )
 
     secondary_chart =
@@ -225,6 +265,7 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
       assigns
       |> assign(:chart, chart)
       |> assign(:benchmark_chart, benchmark_chart)
+      |> assign(:baseline_chart, baseline_chart)
       |> assign(:secondary_chart, secondary_chart)
 
     ~H"""
@@ -237,7 +278,7 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         <p class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">{@title}</p>
         <div class="flex items-center gap-2">
           <span class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-cyan-700">
-            <span class="inline-block h-2 w-2 rounded-full bg-[#03b6d4]" /> primary
+            <span class="inline-block h-2 w-2 rounded-full bg-[#03b6d4]" /> {@primary_label}
           </span>
           <span
             :if={!@secondary_chart.empty?}
@@ -254,6 +295,12 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
             class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-amber-700"
           >
             <span class="inline-block h-2 w-2 rounded-full bg-amber-500" /> benchmark
+          </span>
+          <span
+            :if={!@baseline_chart.empty?}
+            class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-rose-700"
+          >
+            <span class="inline-block h-2 w-2 rounded-full bg-rose-600" /> {@baseline_label}
           </span>
         </div>
       </div>
@@ -293,6 +340,17 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           stroke-linecap="round"
           stroke-linejoin="round"
           data-time-series-lane="benchmark"
+        />
+        <polyline
+          :if={!@baseline_chart.empty?}
+          points={@baseline_chart.polyline_points}
+          fill="none"
+          stroke="#e11d48"
+          stroke-width="2"
+          stroke-dasharray="5 4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          data-time-series-lane="baseline"
         />
         <polyline
           :if={!@secondary_chart.empty?}
@@ -368,6 +426,23 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           tabindex="0"
         >
           <title>{point.label <> " benchmark: " <> format_value(point.value)}</title>
+        </circle>
+        <circle
+          :for={point <- @baseline_chart.marker_points}
+          cx={point.x}
+          cy={point.y}
+          r="3.5"
+          fill={point.color}
+          stroke="#ffffff"
+          stroke-width="1"
+          class="cursor-pointer transition-all duration-200 hover:r-[5]"
+          data-tip-label={point.label <> " " <> @baseline_label}
+          data-tip-value={format_value(point.value)}
+          data-tip-color={point.color}
+          data-time-series-lane="baseline"
+          tabindex="0"
+        >
+          <title>{point.label <> " " <> @baseline_label <> ": " <> format_value(point.value)}</title>
         </circle>
         <line
           :for={tick <- @chart.x_ticks}

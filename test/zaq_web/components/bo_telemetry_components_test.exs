@@ -66,6 +66,8 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     assert html =~ "polyline"
     assert html =~ "data-tip-value="
     assert html =~ "data-line-x-axis-label=\"T1\""
+    refute html =~ "data-time-series-lane=\"secondary\""
+    assert html =~ "Primary"
   end
 
   test "time_series_chart/1 renders benchmark lane when provided" do
@@ -86,6 +88,72 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
 
     assert html =~ "data-time-series-lane=\"benchmark\""
     assert html =~ "Mon benchmark"
+    assert html =~ "text-amber-700"
+    assert html =~ "bg-amber-500"
+  end
+
+  test "time_series_chart/1 hides benchmark lane when benchmark data is missing" do
+    html =
+      render_component(&BOTelemetryComponents.time_series_chart/1,
+        id: "chart-traffic-no-benchmark",
+        chart:
+          DashboardChart.new(%{
+            id: "chart-traffic-no-benchmark",
+            kind: :time_series,
+            title: "Traffic",
+            labels: ["Mon", "Tue", "Wed"],
+            series: [%{key: "primary", name: "Primary", values: [120, 132, 128]}],
+            summary: %{benchmarks: %{}},
+            meta: %{}
+          })
+      )
+
+    refute html =~ "data-time-series-lane=\"benchmark\""
+    refute html =~ "Mon benchmark"
+  end
+
+  test "time_series_chart/1 renders baseline lane from scalar baseline" do
+    html =
+      render_component(&BOTelemetryComponents.time_series_chart/1,
+        id: "chart-traffic-baseline",
+        chart:
+          DashboardChart.new(%{
+            id: "chart-traffic-baseline",
+            kind: :time_series,
+            title: "Traffic",
+            labels: ["Mon", "Tue", "Wed"],
+            baseline: %{for: "primary", value: 100.0, label: "SLA"},
+            series: [%{key: "primary", name: "Primary", values: [120, 132, 128]}],
+            summary: %{},
+            meta: %{}
+          })
+      )
+
+    assert html =~ "data-time-series-lane=\"baseline\""
+    assert html =~ "Mon SLA"
+  end
+
+  test "time_series_chart/1 renders baseline and benchmark lanes simultaneously" do
+    html =
+      render_component(&BOTelemetryComponents.time_series_chart/1,
+        id: "chart-traffic-baseline-and-benchmark",
+        chart:
+          DashboardChart.new(%{
+            id: "chart-traffic-baseline-and-benchmark",
+            kind: :time_series,
+            title: "Traffic",
+            labels: ["Mon", "Tue", "Wed"],
+            baseline: %{for: "primary", value: 100.0, label: "Alert threshold"},
+            series: [%{key: "primary", name: "Primary", values: [120, 132, 128]}],
+            summary: %{benchmarks: %{"primary" => [98, 104, 108]}},
+            meta: %{}
+          })
+      )
+
+    assert html =~ "data-time-series-lane=\"benchmark\""
+    assert html =~ "data-time-series-lane=\"baseline\""
+    assert html =~ "Mon benchmark"
+    assert html =~ "Mon Alert threshold"
   end
 
   test "bar_chart/1 renders bars with id" do
