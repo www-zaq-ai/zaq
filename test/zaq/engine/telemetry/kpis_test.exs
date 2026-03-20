@@ -16,6 +16,13 @@ defmodule Zaq.Engine.Telemetry.KpisTest do
     insert_rollup("ingestion.completed.count", DateTime.add(now, -2 * 86_400, :second), 8.0, 2)
     insert_rollup("ingestion.completed.count", DateTime.add(now, -8 * 86_400, :second), 5.0, 1)
 
+    insert_rollup("qa.tokens.total", DateTime.add(now, -2 * 86_400, :second), 1_600.0, 3)
+    insert_rollup("qa.tokens.total", DateTime.add(now, -9 * 86_400, :second), 900.0, 2)
+
+    insert_rollup("qa.tokens.total", DateTime.add(now, -1 * 86_400, :second), 2_000.0, 7,
+      source: "benchmark"
+    )
+
     insert_rollup("qa.answer.latency_ms", DateTime.add(now, -3 * 86_400, :second), 900.0, 3)
     insert_rollup("qa.answer.latency_ms", DateTime.add(now, -6 * 86_400, :second), 700.0, 2)
 
@@ -27,7 +34,7 @@ defmodule Zaq.Engine.Telemetry.KpisTest do
 
     assert kpis.documents_ingested_30d == 8.0
     assert_in_delta kpis.qa_avg_response_ms_30d, 320.0, 0.0001
-    assert kpis.llm_api_calls_30d == 0
+    assert kpis.llm_api_calls_30d == 3
   end
 
   test "dashboard_kpis/1 defaults to 30 days and returns zeros when no local rows match" do

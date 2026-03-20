@@ -13,8 +13,8 @@ Flush triggers:
 
 Graceful shutdown behavior:
 
-- `Zaq.Application.prep_stop/1` performs a best-effort explicit buffer flush
-- `Zaq.Engine.Telemetry.Buffer.terminate/2` performs a best-effort final flush
+- the application shutdown callback performs a best-effort explicit buffer flush
+- the telemetry buffer process termination callback performs a best-effort final flush
 
 This improves persistence of in-flight telemetry points during graceful stop.
 
