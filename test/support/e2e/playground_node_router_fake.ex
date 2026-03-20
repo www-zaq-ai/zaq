@@ -24,6 +24,18 @@ defmodule Zaq.E2E.PlaygroundNodeRouterFake do
   end
 
   def call(:agent, Answering, :ask, [system_prompt]) do
+    respond_with_fake_answer(system_prompt)
+  end
+
+  def call(:agent, Answering, :ask, [system_prompt, _opts]) do
+    respond_with_fake_answer(system_prompt)
+  end
+
+  def call(_role, mod, fun, args) do
+    apply(mod, fun, args)
+  end
+
+  defp respond_with_fake_answer(system_prompt) do
     sources = extract_sources(system_prompt)
     source = List.first(sources)
     tuned? = String.contains?(system_prompt, @prompt_variant_marker)
@@ -43,10 +55,6 @@ defmodule Zaq.E2E.PlaygroundNodeRouterFake do
       end
 
     {:ok, %{answer: answer, confidence: %{score: confidence}}}
-  end
-
-  def call(_role, mod, fun, args) do
-    apply(mod, fun, args)
   end
 
   def find_node(_supervisor), do: node()

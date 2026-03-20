@@ -266,6 +266,10 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
     result =
       Pipeline.run(user_msg,
         role_ids: role_ids,
+        telemetry_dimensions: %{
+          channel_type: "mattermost",
+          channel_config_id: to_string(channel_config_id || "unknown")
+        },
         node_router: node_router_module(),
         retrieval: retrieval_module(),
         document_processor: document_processor_module(),

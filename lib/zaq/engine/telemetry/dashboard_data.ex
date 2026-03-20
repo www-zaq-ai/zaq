@@ -296,8 +296,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     cond do
       Enum.any?(labels, &String.contains?(&1, ":")) ->
         [hour, minute]
-        |> Enum.map(&(Integer.to_string(&1) |> String.pad_leading(2, "0")))
-        |> Enum.join(":")
+        |> Enum.map_join(":", &(Integer.to_string(&1) |> String.pad_leading(2, "0")))
 
       Enum.any?(labels, &(&1 in ~w[Mon Tue Wed Thu Fri Sat Sun])) ->
         bucket_start

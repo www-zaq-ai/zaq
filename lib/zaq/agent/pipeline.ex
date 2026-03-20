@@ -40,13 +40,20 @@ defmodule Zaq.Agent.Pipeline do
 
   ## Returns
 
-  Always returns a plain map:
+  Always returns a plain map with a stable shape:
 
-    * `%{answer: String.t(), confidence: float()}`            — success
-    * `%{answer: String.t(), confidence: 0.0, error: true}`   — error
+    * `:answer`
+    * `:confidence`
+    * `:confidence_score`
+    * `:latency_ms`
+    * `:prompt_tokens`
+    * `:completion_tokens`
+    * `:total_tokens`
+    * `:error`
   """
 
   require Logger
+  alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
 
   @no_answer_signal "I don't have enough information to answer that question."
@@ -55,7 +62,7 @@ defmodule Zaq.Agent.Pipeline do
   # Public API
   # ---------------------------------------------------------------------------
 
-  @spec run(String.t(), keyword()) :: %{answer: String.t(), confidence: float()}
+  @spec run(String.t(), keyword()) :: map()
   def run(question, opts \\ []) do
     history = Keyword.get(opts, :history, %{})
     role_ids = Keyword.get(opts, :role_ids, [])
@@ -81,59 +88,44 @@ defmodule Zaq.Agent.Pipeline do
 
       result =
         if answering_mod(opts).no_answer?(safe_answer) do
-          %{
-            answer: answering_mod(opts).clean_answer(safe_answer),
-            confidence: 0.0,
-            confidence_score: 0.0,
-            latency_ms: answer_result.latency_ms,
-            prompt_tokens: answer_result.prompt_tokens,
-            completion_tokens: answer_result.completion_tokens,
-            total_tokens: answer_result.total_tokens,
+          answer_result
+          |> result_from_answering(answering_mod(opts).clean_answer(safe_answer), 0.0)
+          |> Map.merge(%{
             knowledge_gap: true,
             question: question,
             generated_query: retrieval_result.query,
             history: history
-          }
+          })
         else
-          %{
-            answer: safe_answer,
-            confidence: answer_result.confidence_score || 1.0,
-            confidence_score: answer_result.confidence_score || 1.0,
-            latency_ms: answer_result.latency_ms,
-            prompt_tokens: answer_result.prompt_tokens,
-            completion_tokens: answer_result.completion_tokens,
-            total_tokens: answer_result.total_tokens
-          }
+          confidence = answer_result.confidence_score || 1.0
+          result_from_answering(answer_result, safe_answer, confidence)
         end
 
       :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
       result
     else
       {:halt, _payload} ->
-        %{answer: "Request was halted by a pipeline hook.", confidence: 0.0, error: true}
+        error_result("Request was halted by a pipeline hook.")
 
       {:error, :prompt_injection} ->
-        %{answer: "I can only help with ZAQ-related questions.", confidence: 0.0, error: true}
+        error_result("I can only help with ZAQ-related questions.")
 
       {:error, :role_play_attempt} ->
-        %{answer: "I can only help with ZAQ-related questions.", confidence: 0.0, error: true}
+        error_result("I can only help with ZAQ-related questions.")
 
       {:error, {:leaked, _phrase}} ->
         Logger.warning("[Pipeline] PromptGuard: output leak detected, blocking response")
-        %{answer: "I can only help with ZAQ-related questions.", confidence: 0.0, error: true}
+        error_result("I can only help with ZAQ-related questions.")
 
       {:error, :no_results, negative_answer} ->
-        %{answer: negative_answer, confidence: 0.0}
+        success_result(negative_answer, 0.0)
 
       {:error, :no_results} ->
-        %{
-          answer: "I couldn't find relevant information to answer your question.",
-          confidence: 0.0
-        }
+        success_result("I couldn't find relevant information to answer your question.", 0.0)
 
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")
-        %{answer: "Sorry, something went wrong. Please try again.", confidence: 0.0, error: true}
+        error_result("Sorry, something went wrong. Please try again.")
     end
   end
 
@@ -186,7 +178,7 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_answering(question, query_results, retrieval, _history, opts) do
+  defp do_answering(question, query_results, retrieval, history, opts) do
     language = Map.get(retrieval, :language, "en")
 
     retrieved_data =
@@ -202,7 +194,16 @@ defmodule Zaq.Agent.Pipeline do
         no_answer_signal: @no_answer_signal
       })
 
-    case node_router(opts).call(:agent, answering_mod(opts), :ask, [system_prompt]) do
+    answer_opts = [history: history, telemetry_dimensions: telemetry_dimensions(opts)]
+
+    ask_args =
+      if function_exported?(answering_mod(opts), :ask, 2) do
+        [system_prompt, answer_opts]
+      else
+        [system_prompt]
+      end
+
+    case node_router(opts).call(:agent, answering_mod(opts), :ask, ask_args) do
       {:ok, answer} -> normalize_answer_result(answering_mod(opts), answer)
       error -> error
     end
@@ -223,9 +224,48 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp confidence_score(%{confidence: %{score: s}}), do: s
-  defp confidence_score(%{confidence: s}) when is_float(s), do: s
-  defp confidence_score(_), do: 1.0
+  defp telemetry_dimensions(opts) do
+    Keyword.get(opts, :telemetry_dimensions, %{})
+  end
+
+  defp result_from_answering(%Result{} = result, answer, confidence) do
+    %{
+      answer: answer,
+      confidence: confidence,
+      confidence_score: confidence,
+      latency_ms: result.latency_ms,
+      prompt_tokens: result.prompt_tokens,
+      completion_tokens: result.completion_tokens,
+      total_tokens: result.total_tokens,
+      error: false
+    }
+  end
+
+  defp success_result(answer, confidence) do
+    %{
+      answer: answer,
+      confidence: confidence,
+      confidence_score: confidence,
+      latency_ms: nil,
+      prompt_tokens: nil,
+      completion_tokens: nil,
+      total_tokens: nil,
+      error: false
+    }
+  end
+
+  defp error_result(answer) do
+    %{
+      answer: answer,
+      confidence: 0.0,
+      confidence_score: 0.0,
+      latency_ms: nil,
+      prompt_tokens: nil,
+      completion_tokens: nil,
+      total_tokens: nil,
+      error: true
+    }
+  end
 
   # ---------------------------------------------------------------------------
   # Configurable modules (allow overrides for testing and per-channel config)

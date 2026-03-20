@@ -1,8 +1,8 @@
 defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.NodeRouter
   alias Zaq.Engine.Telemetry
+  alias Zaq.NodeRouter
   alias ZaqWeb.Live.BO.TelemetryPreviewData
 
   @required_chart_ids [
@@ -304,17 +304,18 @@ defmodule ZaqWeb.Live.BO.TelemetryPreviewLive do
         ]
 
       values ->
-        Enum.reduce(values, [], fn series_item, acc ->
-          key = get_in_contract(series_item, :key, nil)
-          name = get_in_contract(series_item, :name, nil)
+        Enum.flat_map(values, &normalize_series_item/1)
+    end
+  end
 
-          if is_binary(key) and is_binary(name) and key != "benchmark" do
-            [%{key: key, name: name} | acc]
-          else
-            acc
-          end
-        end)
-        |> Enum.reverse()
+  defp normalize_series_item(series_item) do
+    key = get_in_contract(series_item, :key, nil)
+    name = get_in_contract(series_item, :name, nil)
+
+    if is_binary(key) and is_binary(name) and key != "benchmark" do
+      [%{key: key, name: name}]
+    else
+      []
     end
   end
 

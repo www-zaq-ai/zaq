@@ -12,23 +12,27 @@ defmodule Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker do
 
   @impl Oban.Worker
   def perform(_job) do
-    if Telemetry.telemetry_enabled?() and Telemetry.benchmark_opt_in?() do
-      cursor = Telemetry.get_cursor(@cursor_key)
+    if sync_enabled?(), do: pull_and_store_rollups(), else: :ok
+  end
 
-      request = %{
-        org: Telemetry.organization_profile(),
-        since: if(cursor, do: DateTime.to_iso8601(cursor), else: nil)
-      }
+  defp pull_and_store_rollups do
+    request = benchmark_request(Telemetry.get_cursor(@cursor_key))
 
-      with {:ok, %{"rollups" => rows} = body} <- connector().pull_rollups(request),
-           {_count, _} <- Telemetry.upsert_benchmark_rollups(rows),
-           {:ok, _} <- maybe_update_cursor(body, rows) do
-        :ok
-      end
-    else
+    with {:ok, %{"rollups" => rows} = body} <- connector().pull_rollups(request),
+         {_count, _} <- Telemetry.upsert_benchmark_rollups(rows),
+         {:ok, _} <- maybe_update_cursor(body, rows) do
       :ok
     end
   end
+
+  defp benchmark_request(cursor) do
+    %{
+      org: Telemetry.organization_profile(),
+      since: if(cursor, do: DateTime.to_iso8601(cursor), else: nil)
+    }
+  end
+
+  defp sync_enabled?, do: Telemetry.telemetry_enabled?() and Telemetry.benchmark_opt_in?()
 
   defp connector do
     Application.get_env(:zaq, :telemetry_benchmark_connector, HTTP)
@@ -44,21 +48,7 @@ defmodule Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker do
     rows
     |> Enum.map(&(&1["last_at"] || &1[:last_at]))
     |> Enum.reject(&is_nil/1)
-    |> Enum.map(fn value ->
-      case value do
-        %DateTime{} = dt ->
-          dt
-
-        binary when is_binary(binary) ->
-          case DateTime.from_iso8601(binary) do
-            {:ok, dt, _} -> dt
-            _ -> nil
-          end
-
-        _ ->
-          nil
-      end
-    end)
+    |> Enum.map(&parse_last_at/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.max_by(&DateTime.to_unix/1, fn -> nil end)
     |> case do
@@ -66,4 +56,15 @@ defmodule Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker do
       dt -> Telemetry.put_cursor(@cursor_key, dt)
     end
   end
+
+  defp parse_last_at(%DateTime{} = dt), do: dt
+
+  defp parse_last_at(binary) when is_binary(binary) do
+    case DateTime.from_iso8601(binary) do
+      {:ok, dt, _} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_last_at(_), do: nil
 end

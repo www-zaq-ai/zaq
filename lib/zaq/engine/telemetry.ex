@@ -122,32 +122,8 @@ defmodule Zaq.Engine.Telemetry do
     days = normalize_days(params)
     window_start = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
 
-    documents_ingested_30d =
-      from(r in Rollup,
-        where:
-          r.source == "local" and
-            r.metric_key == "ingestion.completed.count" and
-            r.bucket_start >= ^window_start,
-        select: sum(r.value_sum)
-      )
-      |> Repo.one()
-      |> Kernel.||(0.0)
-
-    %{value_sum: latency_sum, value_count: latency_count} =
-      from(r in Rollup,
-        where:
-          r.source == "local" and
-            r.metric_key == "qa.answer.latency_ms" and
-            r.bucket_start >= ^window_start,
-        select: %{value_sum: sum(r.value_sum), value_count: sum(r.value_count)}
-      )
-      |> Repo.one() || %{value_sum: nil, value_count: nil}
-
-    qa_avg_response_ms_30d =
-      case latency_count || 0 do
-        count when count > 0 -> (latency_sum || 0.0) / count
-        _ -> 0.0
-      end
+    documents_ingested_30d = documents_ingested_since(window_start)
+    qa_avg_response_ms_30d = avg_qa_latency_since(window_start)
 
     %{
       documents_ingested_30d: documents_ingested_30d,
@@ -181,25 +157,7 @@ defmodule Zaq.Engine.Telemetry do
   def upsert_benchmark_rollups(rows) when is_list(rows) do
     now = DateTime.utc_now()
 
-    entries =
-      Enum.map(rows, fn row ->
-        %{
-          metric_key: row["metric_key"] || row[:metric_key],
-          bucket_start: parse_datetime(row["bucket_start"] || row[:bucket_start]),
-          bucket_size: row["bucket_size"] || row[:bucket_size] || @bucket_size,
-          source: "benchmark",
-          dimensions: row["dimensions"] || row[:dimensions] || %{},
-          dimension_key: dimension_key(row["dimensions"] || row[:dimensions] || %{}),
-          value_sum: to_float(row["value_sum"] || row[:value_sum] || 0),
-          value_count: to_integer(row["value_count"] || row[:value_count] || 0),
-          value_min: to_float(row["value_min"] || row[:value_min] || 0),
-          value_max: to_float(row["value_max"] || row[:value_max] || 0),
-          last_value: to_float(row["last_value"] || row[:last_value] || 0),
-          last_at: parse_datetime(row["last_at"] || row[:last_at]) || now,
-          inserted_at: now,
-          updated_at: now
-        }
-      end)
+    entries = Enum.map(rows, &benchmark_rollup_entry(&1, now))
 
     Repo.insert_all(Rollup, entries,
       conflict_target: [:metric_key, :bucket_start, :bucket_size, :source, :dimension_key],
@@ -286,6 +244,71 @@ defmodule Zaq.Engine.Telemetry do
       geography: System.get_config("telemetry.geography") || "unknown",
       industry: System.get_config("telemetry.industry") || "unknown"
     }
+  end
+
+  defp documents_ingested_since(window_start) do
+    from(r in Rollup,
+      where:
+        r.source == "local" and
+          r.metric_key == "ingestion.completed.count" and
+          r.bucket_start >= ^window_start,
+      select: sum(r.value_sum)
+    )
+    |> Repo.one()
+    |> Kernel.||(0.0)
+  end
+
+  defp avg_qa_latency_since(window_start) do
+    %{value_sum: latency_sum, value_count: latency_count} =
+      from(r in Rollup,
+        where:
+          r.source == "local" and
+            r.metric_key == "qa.answer.latency_ms" and
+            r.bucket_start >= ^window_start,
+        select: %{value_sum: sum(r.value_sum), value_count: sum(r.value_count)}
+      )
+      |> Repo.one() || %{value_sum: nil, value_count: nil}
+
+    if (latency_count || 0) > 0 do
+      (latency_sum || 0.0) / latency_count
+    else
+      0.0
+    end
+  end
+
+  defp benchmark_rollup_entry(row, now) do
+    dimensions = row_value(row, "dimensions", %{})
+
+    %{
+      metric_key: row_value(row, "metric_key", nil),
+      bucket_start: parse_datetime(row_value(row, "bucket_start", nil)),
+      bucket_size: row_value(row, "bucket_size", @bucket_size),
+      source: "benchmark",
+      dimensions: dimensions,
+      dimension_key: dimension_key(dimensions),
+      value_sum: to_float(row_value(row, "value_sum", 0)),
+      value_count: to_integer(row_value(row, "value_count", 0)),
+      value_min: to_float(row_value(row, "value_min", 0)),
+      value_max: to_float(row_value(row, "value_max", 0)),
+      last_value: to_float(row_value(row, "last_value", 0)),
+      last_at: parse_datetime(row_value(row, "last_at", nil)) || now,
+      inserted_at: now,
+      updated_at: now
+    }
+  end
+
+  defp row_value(row, key, default) when is_binary(key) do
+    atom_key =
+      try do
+        String.to_existing_atom(key)
+      rescue
+        ArgumentError -> nil
+      end
+
+    case atom_key do
+      nil -> Map.get(row, key, default)
+      atom -> Map.get(row, key, Map.get(row, atom, default))
+    end
   end
 
   defp normalize_dimensions(dimensions) when is_map(dimensions) do

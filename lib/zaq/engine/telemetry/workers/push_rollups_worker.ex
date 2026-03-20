@@ -15,30 +15,32 @@ defmodule Zaq.Engine.Telemetry.Workers.PushRollupsWorker do
 
   @impl Oban.Worker
   def perform(_job) do
-    if Telemetry.telemetry_enabled?() and Telemetry.benchmark_opt_in?() do
-      cursor = Telemetry.get_cursor(@cursor_key)
-      rollups = Telemetry.list_local_rollups_since(cursor, 1_000)
+    if sync_enabled?(), do: push_rollups_from_cursor(), else: :ok
+  end
 
-      case rollups do
-        [] ->
-          :ok
+  defp push_rollups_from_cursor do
+    cursor = Telemetry.get_cursor(@cursor_key)
 
-        _ ->
-          payload = %{
-            org: Telemetry.organization_profile(),
-            rollups: Enum.map(rollups, &to_wire_rollup/1)
-          }
+    case Telemetry.list_local_rollups_since(cursor, 1_000) do
+      [] -> :ok
+      rollups -> push_rollups_and_advance_cursor(rollups)
+    end
+  end
 
-          with :ok <- connector().push_rollups(payload),
-               %DateTime{} = last <- List.last(rollups).updated_at,
-               {:ok, _} <- Telemetry.put_cursor(@cursor_key, last) do
-            :ok
-          end
-      end
-    else
+  defp push_rollups_and_advance_cursor(rollups) do
+    payload = %{
+      org: Telemetry.organization_profile(),
+      rollups: Enum.map(rollups, &to_wire_rollup/1)
+    }
+
+    with :ok <- connector().push_rollups(payload),
+         %DateTime{} = last <- List.last(rollups).updated_at,
+         {:ok, _} <- Telemetry.put_cursor(@cursor_key, last) do
       :ok
     end
   end
+
+  defp sync_enabled?, do: Telemetry.telemetry_enabled?() and Telemetry.benchmark_opt_in?()
 
   defp connector do
     Application.get_env(:zaq, :telemetry_benchmark_connector, HTTP)
