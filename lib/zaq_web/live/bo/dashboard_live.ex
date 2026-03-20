@@ -4,7 +4,16 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
+  alias Zaq.Engine.Telemetry
   alias Zaq.License.FeatureStore
+  alias Zaq.NodeRouter
+
+  @kpi_window_days 30
+  @default_kpis %{
+    documents_ingested_30d: 0.0,
+    llm_api_calls_30d: 0,
+    qa_avg_response_ms_30d: 0.0
+  }
 
   @supervisor_map %{
     engine: Zaq.Engine.Supervisor,
@@ -19,6 +28,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, "node:events")
 
     license_data = FeatureStore.license_data()
+    kpis = load_telemetry_kpis()
 
     days_left =
       case license_data do
@@ -39,11 +49,9 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
        days_left: days_left,
        services: refresh_services(),
        user_count: length(Accounts.list_users()),
-       # Placeholders — wire up later
-       session_count: 0,
-       document_count: 0,
-       embedding_count: 0,
-       channel_count: 0
+       documents_ingested_30d: kpis.documents_ingested_30d,
+       llm_api_calls: kpis.llm_api_calls_30d,
+       qa_avg_response_time_ms: round(kpis.qa_avg_response_ms_30d)
      )}
   end
 
@@ -90,5 +98,21 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
 
   defp node_running_supervisor?(n, supervisor) do
     if :rpc.call(n, Process, :whereis, [supervisor]) != nil, do: {true, n}
+  end
+
+  defp load_telemetry_kpis do
+    case NodeRouter.call(:engine, Telemetry, :dashboard_kpis, [@kpi_window_days]) do
+      %{
+        documents_ingested_30d: _docs,
+        llm_api_calls_30d: _calls,
+        qa_avg_response_ms_30d: _latency
+      } = kpis ->
+        kpis
+
+      _ ->
+        @default_kpis
+    end
+  rescue
+    _ -> @default_kpis
   end
 end

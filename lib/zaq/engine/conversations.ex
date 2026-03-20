@@ -278,22 +278,6 @@ defmodule Zaq.Engine.Conversations do
       "assistant" ->
         Telemetry.record("qa.answer.count", 1, base)
 
-        if is_integer(msg.prompt_tokens),
-          do: Telemetry.record("qa.tokens.prompt", msg.prompt_tokens, base)
-
-        if is_integer(msg.completion_tokens),
-          do: Telemetry.record("qa.tokens.completion", msg.completion_tokens, base)
-
-        if is_integer(msg.total_tokens),
-          do: Telemetry.record("qa.tokens.total", msg.total_tokens, base)
-
-        if is_integer(msg.latency_ms),
-          do: Telemetry.record("qa.answer.latency_ms", msg.latency_ms, base)
-
-        if is_number(msg.confidence_score) do
-          Telemetry.record("qa.answer.confidence", msg.confidence_score, base)
-        end
-
       _ ->
         :ok
     end

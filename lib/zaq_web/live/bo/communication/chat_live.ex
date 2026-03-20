@@ -403,7 +403,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         %{
           role: "assistant",
           content: clean_body(result.answer),
-          confidence_score: extract_confidence(result.confidence),
+          confidence_score:
+            extract_confidence(Map.get(result, :confidence_score) || Map.get(result, :confidence)),
+          latency_ms: Map.get(result, :latency_ms),
+          prompt_tokens: Map.get(result, :prompt_tokens),
+          completion_tokens: Map.get(result, :completion_tokens),
+          total_tokens: Map.get(result, :total_tokens),
           sources: result.answer |> extract_sources() |> Enum.map(&%{"path" => &1})
         }
       ])

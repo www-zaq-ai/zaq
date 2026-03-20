@@ -25,8 +25,10 @@ defmodule ZaqWeb.AgentController do
            document_processor.similarity_search_count(query),
          true <- count > 0,
          {:ok, query_results} <- document_processor.query_extraction(query),
-         {:ok, %{answer: answer, confidence: %{score: score}}} <-
-           answering.ask(query_results, history: history),
+         {:ok, raw_result} <- answering.ask(query_results, history: history),
+         {:ok, result} <- normalize_answer_result(answering, raw_result),
+         answer when is_binary(answer) <- result.answer,
+         score <- result.confidence_score || 0.0,
          {:ok, safe_answer} <- prompt_guard.output_safe?(answer) do
       if answering.no_answer?(safe_answer) do
         json(conn, %{
@@ -86,5 +88,13 @@ defmodule ZaqWeb.AgentController do
 
   defp answering_module do
     Application.get_env(:zaq, :agent_answering_module, Answering)
+  end
+
+  defp normalize_answer_result(module, result) do
+    if function_exported?(module, :normalize_result, 1) do
+      module.normalize_result(result)
+    else
+      Answering.normalize_result(result)
+    end
   end
 end

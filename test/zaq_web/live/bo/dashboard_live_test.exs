@@ -30,9 +30,35 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       assert html =~ "Back Office"
     end
 
-    test "shows user count", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
-      assert html =~ "Users"
+    test "renders KPI metric cards with expected labels and routes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      assert has_element?(view, "#dashboard-metric-total-users[href='/bo/users']")
+      assert has_element?(view, "#dashboard-metric-total-users-label", "Total users count")
+
+      assert has_element?(view, "#dashboard-metric-documents-ingested[href='/bo/ingestion']")
+
+      assert has_element?(
+               view,
+               "#dashboard-metric-documents-ingested-label",
+               "Documents ingested (last 30 days)"
+             )
+
+      assert has_element?(view, "#dashboard-metric-llm-api-calls[href='/bo/ai-diagnostics']")
+
+      assert has_element?(
+               view,
+               "#dashboard-metric-llm-api-calls-label",
+               "LLM API calls (currently zero)"
+             )
+
+      assert has_element?(view, "#dashboard-metric-qa-response-time[href='/bo/chat']")
+
+      assert has_element?(
+               view,
+               "#dashboard-metric-qa-response-time-label",
+               "Q&A average response time (last 30 days)"
+             )
     end
 
     test "shows bo service as active since endpoint is running", %{conn: conn} do
