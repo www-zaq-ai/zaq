@@ -46,12 +46,16 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   attr :id, :string, required: true
   attr :title, :string, default: "Time series"
   attr :points, :list, default: []
+  attr :secondary_points, :list, default: []
+  attr :secondary_label, :string, default: nil
+  attr :secondary_color, :string, default: "#0ea5a4"
   attr :benchmark_points, :list, default: []
   attr :width, :integer, default: 420
   attr :height, :integer, default: 180
 
   def time_series_chart(assigns) do
-    bounds = combined_line_bounds(assigns.points, assigns.benchmark_points)
+    bounds =
+      combined_line_bounds([assigns.points, assigns.secondary_points, assigns.benchmark_points])
 
     chart =
       build_line_chart(
@@ -69,10 +73,19 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
         Map.put(bounds, :color, "#f59e0b")
       )
 
+    secondary_chart =
+      build_line_chart(
+        assigns.secondary_points,
+        assigns.width,
+        assigns.height,
+        Map.put(bounds, :color, assigns.secondary_color)
+      )
+
     assigns =
       assigns
       |> assign(:chart, chart)
       |> assign(:benchmark_chart, benchmark_chart)
+      |> assign(:secondary_chart, secondary_chart)
 
     ~H"""
     <section
@@ -82,7 +95,27 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
     >
       <div class="mb-3 flex items-center justify-between">
         <p class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">{@title}</p>
-        <p class="font-mono text-[0.68rem] text-cyan-700">line</p>
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-cyan-700">
+            <span class="inline-block h-2 w-2 rounded-full bg-[#03b6d4]" /> primary
+          </span>
+          <span
+            :if={!@secondary_chart.empty?}
+            class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-teal-700"
+          >
+            <span
+              class="inline-block h-2 w-2 rounded-full"
+              style={"background-color: #{@secondary_color}"}
+            />
+            {@secondary_label || "secondary"}
+          </span>
+          <span
+            :if={!@benchmark_chart.empty?}
+            class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-amber-700"
+          >
+            <span class="inline-block h-2 w-2 rounded-full bg-amber-500" /> benchmark
+          </span>
+        </div>
       </div>
 
       <div
@@ -122,6 +155,16 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           data-time-series-lane="benchmark"
         />
         <polyline
+          :if={!@secondary_chart.empty?}
+          points={@secondary_chart.polyline_points}
+          fill="none"
+          stroke={@secondary_color}
+          stroke-width="2.3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          data-time-series-lane="secondary"
+        />
+        <polyline
           points={@chart.polyline_points}
           fill="none"
           stroke="#03b6d4"
@@ -145,6 +188,29 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
           tabindex="0"
         >
           <title>{point.label <> ": " <> format_value(point.value)}</title>
+        </circle>
+        <circle
+          :for={point <- @secondary_chart.marker_points}
+          cx={point.x}
+          cy={point.y}
+          r="3.6"
+          fill={point.color}
+          stroke="#ffffff"
+          stroke-width="1"
+          class="cursor-pointer transition-all duration-200 hover:r-[5]"
+          data-tip-label={
+            if @secondary_label, do: point.label <> " " <> @secondary_label, else: point.label
+          }
+          data-tip-value={format_value(point.value)}
+          data-tip-color={point.color}
+          data-time-series-lane="secondary"
+          tabindex="0"
+        >
+          <title>
+            {if @secondary_label,
+              do: point.label <> " " <> @secondary_label <> ": " <> format_value(point.value),
+              else: point.label <> ": " <> format_value(point.value)}
+          </title>
         </circle>
         <circle
           :for={point <- @benchmark_chart.marker_points}
@@ -884,8 +950,11 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   defp line_x(left, _right, 1, _idx), do: left
   defp line_x(left, right, count, idx), do: left + idx * (right - left) / (count - 1)
 
-  defp combined_line_bounds(primary_points, benchmark_points) do
-    values = line_values(primary_points) ++ line_values(benchmark_points)
+  defp combined_line_bounds(point_sets) do
+    values =
+      point_sets
+      |> List.wrap()
+      |> Enum.flat_map(&line_values/1)
 
     case values do
       [] ->

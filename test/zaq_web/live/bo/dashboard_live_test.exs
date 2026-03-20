@@ -52,6 +52,11 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
                "LLM API calls (last 30 days)"
              )
 
+      assert has_element?(
+               view,
+               "#dashboard-llm-performance-link[href='/bo/dashboard/llm-performance']"
+             )
+
       assert has_element?(view, "#dashboard-metric-qa-response-time[href='/bo/chat']")
 
       assert has_element?(

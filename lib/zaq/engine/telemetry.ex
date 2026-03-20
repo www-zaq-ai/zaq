@@ -112,6 +112,10 @@ defmodule Zaq.Engine.Telemetry do
   @spec load_chart(String.t(), map()) :: {:ok, map()} | {:error, :unknown_chart}
   def load_chart(chart_id, filters), do: DashboardData.load_chart(chart_id, filters)
 
+  @doc "Returns LLM performance dashboard payload for the provided filters."
+  @spec load_llm_performance(map()) :: map()
+  def load_llm_performance(filters), do: DashboardData.load_llm_performance(filters)
+
   @doc "Returns dashboard KPI values aggregated from local rollups."
   @spec dashboard_kpis(integer() | map() | keyword()) :: %{
           documents_ingested_30d: float(),

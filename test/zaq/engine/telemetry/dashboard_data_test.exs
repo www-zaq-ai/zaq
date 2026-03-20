@@ -66,6 +66,40 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert chart.kind == :time_series
   end
 
+  test "load_llm_performance/1 returns strict retrieval effectiveness" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_rollup("qa.question.count", now, 20.0, 20)
+    insert_rollup("qa.no_answer.count", now, 4.0, 4)
+    insert_rollup("qa.tokens.total", now, 1200.0, 12)
+    insert_rollup("qa.tokens.prompt", now, 700.0, 12)
+    insert_rollup("qa.tokens.completion", now, 500.0, 12)
+
+    payload = Telemetry.load_llm_performance(%{range: "7d"})
+
+    assert payload.llm_api_calls_chart.id == "llm_api_calls"
+    assert payload.token_usage_chart.id == "token_usage"
+    assert payload.retrieval_effectiveness_chart.id == "retrieval_effectiveness"
+
+    assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 80.0
+    assert get_in(payload.llm_api_calls_chart, [:summary, :values, "calls"]) |> Enum.sum() == 12.0
+
+    assert get_in(payload.token_usage_chart, [:summary, :values, "input_tokens"]) |> Enum.sum() ==
+             700.0
+
+    assert get_in(payload.token_usage_chart, [:summary, :values, "output_tokens"]) |> Enum.sum() ==
+             500.0
+  end
+
+  test "load_llm_performance/1 returns zero-safe payload with empty rollups" do
+    payload = Telemetry.load_llm_performance(%{range: "24h"})
+
+    assert payload.llm_api_calls_chart.id == "llm_api_calls"
+    assert payload.token_usage_chart.id == "token_usage"
+    assert payload.retrieval_effectiveness_chart.id == "retrieval_effectiveness"
+    assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 100.0
+  end
+
   defp insert_rollup(metric_key, bucket_start, sum, count) do
     Repo.insert!(%Rollup{
       metric_key: metric_key,

@@ -1,0 +1,78 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  page_title="LLM Performance"
+  current_path={@current_path}
+>
+  <div id="llm-performance-page" class="space-y-6">
+    <section class="rounded-xl border border-black/10 bg-white p-4">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p class="font-mono text-[0.72rem] uppercase tracking-wider text-black/45">
+            LLM telemetry
+          </p>
+          <p class="font-mono text-[0.68rem] text-black/40">
+            Live trends from rollup telemetry buckets
+          </p>
+        </div>
+        <.link
+          id="llm-performance-back-to-dashboard"
+          navigate={~p"/bo/dashboard"}
+          class="font-mono text-[0.72rem] text-[#03b6d4] hover:underline"
+        >
+          Back to dashboard
+        </.link>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <button
+          :for={range <- @ranges}
+          id={"llm-performance-range-#{range}"}
+          phx-click="set_range"
+          phx-value-range={range}
+          data-active={to_string(@range == range)}
+          class={[
+            "font-mono text-[0.7rem] px-2.5 py-1.5 rounded border transition-colors",
+            if(@range == range,
+              do: "bg-[#03b6d4] text-white border-[#03b6d4]",
+              else: "bg-white text-black/55 border-black/15 hover:bg-black/[0.03]"
+            )
+          ]}
+        >
+          {range}
+        </button>
+      </div>
+      <div class="hidden">
+        <span id="llm-performance-selected-range">{@range}</span>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
+        id="llm-performance-api-calls-chart"
+        title="LLM API calls"
+        points={@llm_api_call_points}
+      />
+
+      <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
+        id="llm-performance-token-usage-chart"
+        title="Token usage"
+        points={@output_token_points}
+        secondary_points={@input_token_points}
+        secondary_label="Input tokens"
+        secondary_color="#0ea5a4"
+      />
+    </section>
+
+    <section class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <div class="xl:col-span-1">
+        <ZaqWeb.Components.BOTelemetryComponents.gauge_chart
+          id="llm-performance-retrieval-effectiveness"
+          label="Retrieval effectiveness"
+          value={get_in(@retrieval_effectiveness_chart, [:summary, :value]) || 0.0}
+          max={get_in(@retrieval_effectiveness_chart, [:summary, :max]) || 100.0}
+          min={0.0}
+        />
+      </div>
+    </section>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

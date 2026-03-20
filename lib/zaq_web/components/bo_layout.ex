@@ -201,7 +201,7 @@ defmodule ZaqWeb.Components.BOLayout do
               href={~p"/bo/dashboard"}
               class={[
                 "flex items-center gap-3 px-2.5 py-2.5 rounded-lg font-mono text-[0.82rem] transition-all",
-                if(@current_path == "/bo/dashboard",
+                if(String.starts_with?(@current_path, "/bo/dashboard"),
                   do: "bg-[#03b6d4] text-white shadow-sm",
                   else: "text-white/60 hover:text-white hover:bg-white/8"
                 )

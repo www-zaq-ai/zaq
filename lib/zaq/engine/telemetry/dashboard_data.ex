@@ -58,6 +58,79 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     end
   end
 
+  @spec load_llm_performance(map()) :: map()
+  def load_llm_performance(filters) do
+    normalized = normalize_filters(filters)
+    labels = labels_for_range(normalized.range)
+    local_rows = load_rollups(labels.from, "local")
+
+    llm_api_calls = sum_points(local_rows, "qa.tokens.total", labels.labels, :value_count)
+    input_tokens = sum_points(local_rows, "qa.tokens.prompt", labels.labels, :value_sum)
+    output_tokens = sum_points(local_rows, "qa.tokens.completion", labels.labels, :value_sum)
+
+    question_count = sum_metric(local_rows, "qa.question.count")
+    no_answer_count = sum_metric(local_rows, "qa.no_answer.count")
+
+    retrieval_effectiveness =
+      no_answer_count
+      |> ratio_or_zero(question_count)
+      |> then(&(1.0 - &1))
+      |> Kernel.*(100.0)
+      |> max(0.0)
+      |> min(100.0)
+      |> Float.round(1)
+
+    charts = [
+      %{
+        id: "llm_api_calls",
+        kind: :time_series,
+        title: "LLM API calls",
+        labels: labels.labels,
+        series: [%{key: "calls", name: "API calls", values: llm_api_calls}],
+        summary: %{
+          labels: labels.labels,
+          values: %{"calls" => llm_api_calls}
+        },
+        meta: %{range: normalized.range}
+      },
+      %{
+        id: "token_usage",
+        kind: :time_series,
+        title: "Token usage",
+        labels: labels.labels,
+        series: [
+          %{key: "output_tokens", name: "Output tokens", values: output_tokens},
+          %{key: "input_tokens", name: "Input tokens", values: input_tokens}
+        ],
+        summary: %{
+          labels: labels.labels,
+          values: %{
+            "output_tokens" => output_tokens,
+            "input_tokens" => input_tokens
+          }
+        },
+        meta: %{range: normalized.range}
+      },
+      %{
+        id: "retrieval_effectiveness",
+        kind: :gauge,
+        title: "Retrieval effectiveness",
+        labels: [],
+        series: [],
+        summary: %{value: retrieval_effectiveness, max: 100.0, label: "strict no-answer adjusted"},
+        meta: %{question_count: question_count, no_answer_count: no_answer_count}
+      }
+    ]
+
+    %{
+      filters: %{range: normalized.range},
+      charts: charts,
+      llm_api_calls_chart: chart!(charts, "llm_api_calls"),
+      token_usage_chart: chart!(charts, "token_usage"),
+      retrieval_effectiveness_chart: chart!(charts, "retrieval_effectiveness")
+    }
+  end
+
   defp build_charts(local_rows, benchmark_rows, labels, filters) do
     latency_points =
       metric_points(local_rows, "qa.answer.latency_ms", labels.labels)
@@ -271,6 +344,24 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     |> Enum.map(fn {n, d} ->
       ratio = if d <= 0, do: 0.0, else: n / d
       transform.(ratio)
+    end)
+  end
+
+  defp sum_points(rows, metric_key, labels, field) when field in [:value_sum, :value_count] do
+    by_label =
+      rows
+      |> Enum.filter(&(&1.metric_key == metric_key))
+      |> Enum.reduce(%{}, fn row, acc ->
+        label = label_for_bucket(row.bucket_start, labels)
+        amount = Map.get(row, field, 0.0)
+        Map.update(acc, label, amount, &(&1 + amount))
+      end)
+
+    Enum.map(labels, fn label ->
+      by_label
+      |> Map.get(label, 0.0)
+      |> Kernel.*(1.0)
+      |> Float.round(2)
     end)
   end
 

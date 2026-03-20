@@ -55,6 +55,7 @@ defmodule Zaq.Agent.Pipeline do
   require Logger
   alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
+  alias Zaq.Engine.Telemetry
 
   @no_answer_signal "I don't have enough information to answer that question."
 
@@ -88,6 +89,8 @@ defmodule Zaq.Agent.Pipeline do
 
       result =
         if answering_mod(opts).no_answer?(safe_answer) do
+          :ok = record_no_answer_telemetry(opts)
+
           answer_result
           |> result_from_answering(answering_mod(opts).clean_answer(safe_answer), 0.0)
           |> Map.merge(%{
@@ -118,9 +121,11 @@ defmodule Zaq.Agent.Pipeline do
         error_result("I can only help with ZAQ-related questions.")
 
       {:error, :no_results, negative_answer} ->
+        :ok = record_no_answer_telemetry(opts)
         success_result(negative_answer, 0.0)
 
       {:error, :no_results} ->
+        :ok = record_no_answer_telemetry(opts)
         success_result("I couldn't find relevant information to answer your question.", 0.0)
 
       {:error, reason} ->
@@ -226,6 +231,10 @@ defmodule Zaq.Agent.Pipeline do
 
   defp telemetry_dimensions(opts) do
     Keyword.get(opts, :telemetry_dimensions, %{})
+  end
+
+  defp record_no_answer_telemetry(opts) do
+    Telemetry.record("qa.no_answer.count", 1, telemetry_dimensions(opts))
   end
 
   defp result_from_answering(%Result{} = result, answer, confidence) do
