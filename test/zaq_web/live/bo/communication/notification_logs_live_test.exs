@@ -36,21 +36,22 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
   # ---------------------------------------------------------------------------
 
   describe "mount" do
-    test "mounts at /bo/notification-logs with valid session", %{conn: conn} do
+    test "mounts at /bo/channels/notifications/logs with valid session", %{conn: conn} do
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "Notification Logs"
     end
 
     test "redirects to login without session", %{conn: conn} do
-      assert {:error, {:redirect, %{to: "/bo/login"}}} = live(conn, ~p"/bo/notification-logs")
+      assert {:error, {:redirect, %{to: "/bo/login"}}} =
+               live(conn, ~p"/bo/channels/notifications/logs")
     end
   end
 
   describe "empty state" do
     test "shows empty state when no logs exist", %{conn: conn} do
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "No notifications sent yet"
     end
   end
@@ -59,7 +60,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
     test "lists sender and recipient name", %{conn: conn} do
       log_fixture(%{sender: "knowledge_gap", recipient_name: "Alice"})
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "knowledge_gap"
       assert html =~ "Alice"
     end
@@ -74,7 +75,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       NotificationLog.transition_status(log, "sent")
 
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "sent"
     end
 
@@ -88,7 +89,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       NotificationLog.append_attempt(log.id, "email", :ok)
 
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "✓"
       assert html =~ "email"
     end
@@ -103,7 +104,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       NotificationLog.append_attempt(log.id, "email", {:error, :smtp_down})
 
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "✗"
     end
   end
@@ -117,7 +118,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
         })
 
       conn = authed_conn(conn)
-      {:ok, view, _html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/logs")
 
       html =
         view
@@ -131,7 +132,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
     test "closing modal hides payload", %{conn: conn} do
       log_fixture()
       conn = authed_conn(conn)
-      {:ok, view, _html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/logs")
 
       log = Repo.one!(NotificationLog)
 
@@ -155,7 +156,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       end)
 
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "3 total"
     end
 
@@ -166,7 +167,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       end)
 
       conn = authed_conn(conn)
-      {:ok, view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "Page 1 of 2"
 
       html = view |> element("button", "Next →") |> render_click()
@@ -176,7 +177,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
     test "prev page is disabled on first page", %{conn: conn} do
       log_fixture()
       conn = authed_conn(conn)
-      {:ok, _view, html} = live(conn, ~p"/bo/notification-logs")
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "← Prev"
     end
   end

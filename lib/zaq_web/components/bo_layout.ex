@@ -287,11 +287,11 @@ defmodule ZaqWeb.Components.BOLayout do
             current_path={@current_path}
             active={
               String.starts_with?(@current_path, "/bo/channels") or
-                @current_path in ["/bo/chat", "/bo/history", "/bo/notification-logs"]
+                @current_path in ["/bo/chat", "/bo/history"]
             }
             open={
               String.starts_with?(@current_path, "/bo/channels") or
-                @current_path in ["/bo/chat", "/bo/history", "/bo/notification-logs"]
+                @current_path in ["/bo/chat", "/bo/history"]
             }
           >
             <:item
@@ -311,12 +311,6 @@ defmodule ZaqWeb.Components.BOLayout do
               icon="history"
               label="History"
               active={@current_path == "/bo/history"}
-            />
-            <:item
-              href={~p"/bo/notification-logs"}
-              icon="history"
-              label="Notification Logs"
-              active={@current_path == "/bo/notification-logs"}
             />
           </.nav_section>
           

@@ -1,43 +1,36 @@
 defmodule Zaq.Engine.Notifications.WelcomeEmail do
   @moduledoc """
-  Builds and delivers welcome emails to newly created users.
+  Builds and delivers welcome emails to newly created users via the notification center.
   """
-
-  import Swoosh.Email
 
   alias Zaq.Accounts
-  alias Zaq.Mailer
-  alias Zaq.System
+  alias Zaq.Engine.Notifications
+  alias Zaq.Engine.Notifications.Notification
 
   @doc """
-  Sends a welcome email to the user with their login URL.
-  Returns `:ok` or `{:error, reason}`.
+  Sends a welcome email to the user with their login URL through the notification center.
+  Returns `{:ok, :dispatched}`, `{:ok, :skipped}`, or `{:ok, :skipped}` when the user
+  has no email address.
   """
-  @spec deliver(Accounts.User.t()) :: :ok | {:error, term()}
+  @spec deliver(Accounts.User.t()) :: {:ok, :dispatched} | {:ok, :skipped}
+  def deliver(%{email: email}) when email in [nil, ""], do: {:ok, :skipped}
+
   def deliver(user) do
     base_url = Application.get_env(:zaq, :base_url, "http://localhost:4000")
     login_url = "#{base_url}/bo/login"
 
-    {from_name, from_email} = System.email_sender()
+    {:ok, notification} =
+      Notification.build(%{
+        recipient_channels: [%{platform: "email", identifier: user.email, preferred: true}],
+        sender: "system",
+        subject: "Welcome to ZAQ — your account is ready",
+        body: build_text_body(user.username, login_url),
+        html_body: build_html_body(user.username, login_url),
+        recipient_name: user.username,
+        recipient_ref: {:user, user.id}
+      })
 
-    email =
-      new()
-      |> to({user.username, user.email})
-      |> from({from_name, from_email})
-      |> subject("Welcome to ZAQ — your account is ready")
-      |> text_body(build_text_body(user.username, login_url))
-      |> html_body(build_html_body(user.username, login_url))
-
-    delivery_opts =
-      case System.email_delivery_opts() do
-        {:ok, opts} -> opts
-        {:error, :not_configured} -> []
-      end
-
-    case Mailer.deliver(email, delivery_opts) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    Notifications.notify(notification)
   end
 
   defp build_text_body(username, login_url) do

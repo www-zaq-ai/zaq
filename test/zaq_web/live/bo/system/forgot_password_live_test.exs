@@ -18,6 +18,8 @@ defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
 
   describe "submitting the form with a known email" do
     test "sends reset email and shows success page", %{conn: conn} do
+      Zaq.System.set_config("email.enabled", "true")
+
       user = user_fixture()
       {:ok, _user} = Accounts.update_user(user, %{email: "valid@example.com"})
 

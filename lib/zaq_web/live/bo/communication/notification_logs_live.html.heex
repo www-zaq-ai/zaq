@@ -13,6 +13,21 @@
     current_path={@current_path}
   >
     <div class="mb-6">
+      <.link
+        navigate={~p"/bo/channels/notifications"}
+        class="inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-black/40 hover:text-black transition-colors mb-4"
+      >
+        <svg
+          class="w-3 h-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M19 12H5M12 5l-7 7 7 7" />
+        </svg>
+        Notifications
+      </.link>
       <h1 class="font-mono text-xl font-bold text-black tracking-tight">{@page_title}</h1>
       <p class="font-mono text-[0.75rem] text-black/40 mt-1">
         Audit log of all outbound notifications sent by ZAQ.
@@ -104,9 +119,27 @@
                 <button
                   phx-click="view_log"
                   phx-value-id={log.id}
-                  class="font-mono text-[0.65rem] text-black/40 hover:text-black transition-colors underline underline-offset-2"
+                  class="inline-flex items-center gap-1 font-mono text-[0.65rem] text-black/40 hover:text-black hover:bg-black/[0.04] transition-colors px-2 py-1 rounded-lg"
                 >
-                  View more
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                    />
+                  </svg>
+                  Inspect
                 </button>
               </td>
             </tr>
@@ -144,16 +177,17 @@
 <!-- Modal -->
     <%= if @selected_log do %>
       <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
         phx-click="close_modal"
       >
         <div
-          class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6"
+          class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
           phx-click-away="close_modal"
         >
-          <div class="flex items-start justify-between mb-4">
+          <%!-- Header --%>
+          <div class="flex items-start justify-between px-6 py-5 border-b border-black/[0.06] bg-[#fafafa] shrink-0">
             <div>
-              <h2 class="font-mono text-base font-bold text-black">Notification Details</h2>
+              <h2 class="font-mono text-[0.95rem] font-bold text-black">Notification Details</h2>
               <p class="font-mono text-[0.7rem] text-black/40 mt-0.5">
                 Log #{@selected_log.id} · {Calendar.strftime(
                   @selected_log.inserted_at,
@@ -163,7 +197,7 @@
             </div>
             <button
               phx-click="close_modal"
-              class="text-black/30 hover:text-black transition-colors"
+              class="text-black/30 hover:text-black transition-colors mt-0.5"
             >
               <svg
                 class="w-5 h-5"
@@ -172,34 +206,136 @@
                 stroke-width="2"
                 viewBox="0 0 24 24"
               >
-                <path d="M6 18L18 6M6 6l12 12" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
 
-          <div class="space-y-4">
-            <div>
-              <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+          <%!-- Scrollable body --%>
+          <div class="overflow-y-auto flex-1 px-6 py-5 space-y-5">
+            <%!-- Meta row --%>
+            <div class="flex flex-wrap gap-x-6 gap-y-2">
+              <div>
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-0.5">
+                  Sender
+                </p>
+                <p class="font-mono text-[0.8rem] text-black">{@selected_log.sender}</p>
+              </div>
+              <div>
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-0.5">
+                  Recipient
+                </p>
+                <p class="font-mono text-[0.8rem] text-black/70">
+                  {@selected_log.recipient_name || "—"}
+                </p>
+              </div>
+              <div>
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-0.5">
+                  Status
+                </p>
+                <span class={[
+                  "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
+                  case @selected_log.status do
+                    "sent" -> "bg-emerald-100 text-emerald-700"
+                    "failed" -> "bg-red-100 text-red-600"
+                    "skipped" -> "bg-amber-100 text-amber-700"
+                    _ -> "bg-black/5 text-black/40"
+                  end
+                ]}>
+                  {@selected_log.status}
+                </span>
+              </div>
+            </div>
+
+            <%!-- Subject --%>
+            <div class="border-t border-black/[0.05] pt-4">
+              <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-1">
                 Subject
               </p>
-              <p class="font-mono text-sm text-black">
+              <p class="font-mono text-[0.88rem] font-semibold text-black leading-snug">
                 {@selected_log.payload["subject"] || "—"}
               </p>
             </div>
-            <div>
-              <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-                Body
-              </p>
-              <p class="font-mono text-sm text-black/80 whitespace-pre-wrap">
-                {@selected_log.payload["body"] || "—"}
-              </p>
+
+            <%!-- Body: HTML preview or plain text --%>
+            <div class="border-t border-black/[0.05] pt-4">
+              <%= if @selected_log.payload["html_body"] do %>
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-2">
+                  HTML Preview
+                </p>
+                <div class="rounded-xl border border-black/10 overflow-hidden bg-white">
+                  <iframe
+                    srcdoc={@selected_log.payload["html_body"]}
+                    class="w-full"
+                    style="height: 320px; display: block;"
+                    sandbox="allow-same-origin"
+                    title="Email HTML preview"
+                  />
+                </div>
+              <% else %>
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-2">
+                  Body
+                </p>
+                <div class="bg-[#fafafa] rounded-xl border border-black/[0.06] px-4 py-3">
+                  <pre class="font-mono text-[0.78rem] text-black/70 whitespace-pre-wrap break-all leading-relaxed"><%= @selected_log.payload["body"] || "—" %></pre>
+                </div>
+              <% end %>
             </div>
-            <div>
-              <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-                Sender
-              </p>
-              <p class="font-mono text-sm text-black">{@selected_log.sender}</p>
-            </div>
+
+            <%!-- Text body (shown alongside HTML if both exist) --%>
+            <%= if @selected_log.payload["html_body"] && @selected_log.payload["body"] do %>
+              <div class="border-t border-black/[0.05] pt-4">
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-2">
+                  Plain Text
+                </p>
+                <div class="bg-[#fafafa] rounded-xl border border-black/[0.06] px-4 py-3">
+                  <pre class="font-mono text-[0.78rem] text-black/70 whitespace-pre-wrap break-all leading-relaxed"><%= @selected_log.payload["body"] %></pre>
+                </div>
+              </div>
+            <% end %>
+
+            <%!-- Channels tried --%>
+            <%= if @selected_log.channels_tried != [] do %>
+              <div class="border-t border-black/[0.05] pt-4">
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-2">
+                  Delivery Attempts
+                </p>
+                <div class="space-y-2">
+                  <div
+                    :for={attempt <- @selected_log.channels_tried}
+                    class={[
+                      "flex items-start gap-3 rounded-xl px-3 py-2.5 border",
+                      if(attempt["status"] == "ok",
+                        do: "bg-emerald-50 border-emerald-100",
+                        else: "bg-red-50 border-red-100"
+                      )
+                    ]}
+                  >
+                    <span class={[
+                      "mt-0.5 text-[0.7rem] font-bold",
+                      if(attempt["status"] == "ok", do: "text-emerald-600", else: "text-red-500")
+                    ]}>
+                      {if attempt["status"] == "ok", do: "✓", else: "✗"}
+                    </span>
+                    <div class="flex-1 min-w-0">
+                      <p class="font-mono text-[0.78rem] font-semibold text-black">
+                        {attempt["platform"]}
+                      </p>
+                      <%= if attempt["error"] do %>
+                        <p class="font-mono text-[0.72rem] text-red-600 mt-0.5 break-all">
+                          {attempt["error"]}
+                        </p>
+                      <% end %>
+                      <%= if attempt["attempted_at"] do %>
+                        <p class="font-mono text-[0.65rem] text-black/35 mt-0.5">
+                          {attempt["attempted_at"]}
+                        </p>
+                      <% end %>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            <% end %>
           </div>
         </div>
       </div>

@@ -4,8 +4,8 @@ defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
 
   Delivers notifications via SMTP using Swoosh/Mailer.
   The recipient address comes from the `identifier` argument — it is never
-  read from `ChannelConfig`. SMTP server settings are read from the
-  application config (set via env vars).
+  read from `ChannelConfig`. SMTP settings are read from `Zaq.System`
+  (same source as the SMTP configuration UI).
   """
 
   @behaviour Zaq.Engine.NotificationAdapter
@@ -13,15 +13,20 @@ defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
   import Swoosh.Email
 
   alias Zaq.Mailer
+  alias Zaq.System
 
   @impl true
   def platform, do: "email"
 
   @impl true
   def send(identifier, payload, _metadata) do
-    config = Application.get_env(:zaq, Zaq.Engine.Notifications, [])
-    from_email = Keyword.get(config, :from_email, "noreply@zaq.local")
-    from_name = Keyword.get(config, :from_name, "ZAQ")
+    {from_name, from_email} = System.email_sender()
+
+    delivery_opts =
+      case System.email_delivery_opts() do
+        {:ok, opts} -> opts
+        {:error, :not_configured} -> []
+      end
 
     subject = Map.get(payload, "subject", "")
     body = Map.get(payload, "body", "")
@@ -35,7 +40,7 @@ defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
       |> text_body(body)
       |> html_body(html)
 
-    case Mailer.deliver(email) do
+    case Mailer.deliver(email, delivery_opts) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end

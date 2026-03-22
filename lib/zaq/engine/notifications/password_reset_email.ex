@@ -1,19 +1,18 @@
 defmodule Zaq.Engine.Notifications.PasswordResetEmail do
   @moduledoc """
-  Builds and delivers password reset emails.
+  Builds and delivers password reset emails via the notification center.
   """
 
-  import Swoosh.Email
-
   alias Zaq.Accounts
-  alias Zaq.Mailer
-  alias Zaq.System
+  alias Zaq.Engine.Notifications
+  alias Zaq.Engine.Notifications.Notification
 
   @doc """
   Sends a password reset email to the user if they have an email address.
-  Returns `:ok` or `{:error, :no_email}` if the user has no email configured.
+  Returns `{:ok, :dispatched}`, `{:ok, :skipped}`, or `{:error, :no_email}`.
   """
-  @spec deliver(Accounts.User.t(), String.t()) :: :ok | {:error, term()}
+  @spec deliver(Accounts.User.t(), String.t()) ::
+          {:ok, :dispatched} | {:ok, :skipped} | {:error, :no_email}
   def deliver(%{email: nil}, _token), do: {:error, :no_email}
   def deliver(%{email: ""}, _token), do: {:error, :no_email}
 
@@ -21,26 +20,18 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
     base_url = Application.get_env(:zaq, :base_url, "http://localhost:4000")
     reset_url = "#{base_url}/bo/reset-password/#{token}"
 
-    {from_name, from_email} = System.email_sender()
+    {:ok, notification} =
+      Notification.build(%{
+        recipient_channels: [%{platform: "email", identifier: user.email, preferred: true}],
+        sender: "system",
+        subject: "Reset your ZAQ password",
+        body: build_text_body(user.username, reset_url),
+        html_body: build_html_body(user.username, reset_url),
+        recipient_name: user.username,
+        recipient_ref: {:user, user.id}
+      })
 
-    email =
-      new()
-      |> to({user.username, user.email})
-      |> from({from_name, from_email})
-      |> subject("Reset your ZAQ password")
-      |> text_body(build_text_body(user.username, reset_url))
-      |> html_body(build_html_body(user.username, reset_url))
-
-    delivery_opts =
-      case System.email_delivery_opts() do
-        {:ok, opts} -> opts
-        {:error, :not_configured} -> []
-      end
-
-    case Mailer.deliver(email, delivery_opts) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    Notifications.notify(notification)
   end
 
   defp build_text_body(username, reset_url) do

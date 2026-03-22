@@ -92,7 +92,7 @@ defmodule ZaqWeb.Router do
            Live.BO.Communication.NotificationSmtpLive,
            :index
 
-      live "/notification-logs", Live.BO.Communication.NotificationLogsLive
+      live "/channels/notifications/logs", Live.BO.Communication.NotificationLogsLive
 
       # File preview — renders MD, plain text, images in-browser
       live "/preview/*path", Live.BO.AI.FilePreviewLive

@@ -24,7 +24,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
     socket =
       socket
       |> assign(:page_title, "Notification Logs")
-      |> assign(:current_path, "/bo/notification-logs")
+      |> assign(:current_path, "/bo/channels/notifications/logs")
       |> assign(:service_available, available)
       |> assign(:required_roles, @required_roles)
       |> assign(:page, 1)

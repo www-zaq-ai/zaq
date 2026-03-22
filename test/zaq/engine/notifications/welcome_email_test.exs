@@ -6,15 +6,19 @@ defmodule Zaq.Engine.Notifications.WelcomeEmailTest do
   alias Zaq.Engine.Notifications.WelcomeEmail
 
   describe "deliver/1" do
-    test "delivers successfully to a user with an email address" do
+    test "returns {:ok, _} for a user with an email address" do
       user = user_fixture(%{email: "welcome@example.com"})
-      assert :ok = WelcomeEmail.deliver(user)
+      assert {:ok, _} = WelcomeEmail.deliver(user)
     end
 
-    test "delivers successfully when email delivery is not configured (falls back to test adapter)" do
-      # In test env the Swoosh test adapter is used — always succeeds regardless of delivery_opts
-      user = user_fixture(%{email: "another@example.com"})
-      assert :ok = WelcomeEmail.deliver(user)
+    test "returns {:ok, :skipped} when user email is nil" do
+      user = %Zaq.Accounts.User{username: "noemail", email: nil}
+      assert {:ok, :skipped} = WelcomeEmail.deliver(user)
+    end
+
+    test "returns {:ok, :skipped} when user email is empty string" do
+      user = %Zaq.Accounts.User{username: "noemail", email: ""}
+      assert {:ok, :skipped} = WelcomeEmail.deliver(user)
     end
   end
 end

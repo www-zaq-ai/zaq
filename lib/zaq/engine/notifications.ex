@@ -43,6 +43,7 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
+  alias Zaq.System
 
   @adapter_registry %{
     "email" => Zaq.Engine.Notifications.Adapters.EmailAdapter,
@@ -131,11 +132,18 @@ defmodule Zaq.Engine.Notifications do
   end
 
   defp configured_platforms do
-    from(c in ChannelConfig,
-      where: c.kind == "retrieval" and c.enabled == true,
-      select: c.provider
-    )
-    |> Repo.all()
-    |> MapSet.new()
+    channel_platforms =
+      from(c in ChannelConfig,
+        where: c.kind == "retrieval" and c.enabled == true,
+        select: c.provider
+      )
+      |> Repo.all()
+      |> MapSet.new()
+
+    if System.get_email_config().enabled do
+      MapSet.put(channel_platforms, "email")
+    else
+      channel_platforms
+    end
   end
 end
