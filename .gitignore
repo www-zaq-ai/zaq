@@ -57,3 +57,5 @@ config/dev.secret.exs
 
 .serena
 .swarm
+swarm
+swarm.config.yaml

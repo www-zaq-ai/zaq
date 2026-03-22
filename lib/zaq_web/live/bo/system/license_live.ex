@@ -136,12 +136,29 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
   defp format_upload_error({:extract_failed, _}), do: "Could not read license file."
   defp format_upload_error(reason), do: "Failed to load license: #{inspect(reason)}"
 
-  defp days_left(nil), do: nil
+  defp seconds_left(nil), do: nil
 
-  defp days_left(date_string) when is_binary(date_string) do
+  defp seconds_left(date_string) when is_binary(date_string) do
     case DateTime.from_iso8601(date_string) do
-      {:ok, dt, _} -> DateTime.diff(dt, DateTime.utc_now(), :day)
+      {:ok, dt, _} -> DateTime.diff(dt, DateTime.utc_now(), :second)
       _ -> nil
+    end
+  end
+
+  defp format_time_left(nil), do: nil
+
+  defp format_time_left(seconds) when seconds < 0, do: "Expired"
+
+  defp format_time_left(seconds) do
+    days = div(seconds, 86_400)
+    hours = div(rem(seconds, 86_400), 3600)
+    minutes = div(rem(seconds, 3600), 60)
+
+    cond do
+      days >= 2 -> "#{days} days"
+      days == 1 -> "1 day #{hours}h"
+      hours >= 1 -> "#{hours}h #{minutes}min"
+      true -> "#{minutes}min"
     end
   end
 

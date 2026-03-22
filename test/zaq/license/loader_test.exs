@@ -80,11 +80,14 @@ defmodule Zaq.License.LoaderTest do
   test "returns missing_expires_at when field is absent", %{tmp_dir: tmp_dir, priv: priv} do
     payload = Jason.encode!(%{"license_key" => "lic_missing_exp", "features" => []})
     signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+    key = BeamDecryptor.derive_key(payload)
+    encrypted_module = encrypt_module(paid_license_beam(), key, <<20::96>>)
 
     path = Path.join(tmp_dir, "missing_exp.zaq-license")
 
     create_archive!(path, [
-      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)}
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
     assert {:error, :missing_expires_at} = Loader.load(path)
@@ -99,10 +102,14 @@ defmodule Zaq.License.LoaderTest do
       })
 
     signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+    key = BeamDecryptor.derive_key(payload)
+    encrypted_module = encrypt_module(paid_license_beam(), key, <<21::96>>)
+
     path = Path.join(tmp_dir, "expired.zaq-license")
 
     create_archive!(path, [
-      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)}
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
     assert {:error, :license_expired} = Loader.load(path)
@@ -326,6 +333,37 @@ defmodule Zaq.License.LoaderTest do
       nil -> start_supervised!(module)
       _pid -> :ok
     end
+  end
+
+  defp paid_license_beam do
+    module_source = """
+    defmodule LicenseManager.Paid.License do
+      def check_expiry(license_data) do
+        case Map.fetch(license_data, "expires_at") do
+          :error ->
+            {:error, :missing_expires_at}
+
+          {:ok, expires_at_str} ->
+            with {:ok, expires_at, _} <- DateTime.from_iso8601(expires_at_str),
+                 :gt <- DateTime.compare(expires_at, DateTime.utc_now()) do
+              :ok
+            else
+              _ -> {:error, :license_expired}
+            end
+        end
+      end
+    end
+    """
+
+    [{_module, beam_binary}] = Code.compile_string(module_source)
+    beam_binary
+  end
+
+  defp encrypt_module(beam_binary, key, nonce) do
+    {encrypted, tag} =
+      :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, beam_binary, "zaq-beam-v1", 16, true)
+
+    nonce <> tag <> encrypted
   end
 
   defp write_public_key(pub) do
