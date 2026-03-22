@@ -99,18 +99,18 @@
           </div>
           <div>
             <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-              Days Left
+              Time Left
             </p>
             <p class={[
               "font-mono text-sm font-bold",
               cond do
-                days_left(@license_data["expires_at"]) == nil -> "text-black"
-                days_left(@license_data["expires_at"]) <= 30 -> "text-red-600"
-                days_left(@license_data["expires_at"]) <= 90 -> "text-amber-600"
+                seconds_left(@license_data["expires_at"]) == nil -> "text-black"
+                seconds_left(@license_data["expires_at"]) <= 2_592_000 -> "text-red-600"
+                seconds_left(@license_data["expires_at"]) <= 7_776_000 -> "text-amber-600"
                 true -> "text-emerald-600"
               end
             ]}>
-              {days_left(@license_data["expires_at"])} days
+              {format_time_left(seconds_left(@license_data["expires_at"]))}
             </p>
           </div>
         </div>

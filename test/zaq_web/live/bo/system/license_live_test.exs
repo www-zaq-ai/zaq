@@ -87,10 +87,9 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
       assert html =~ "2"
     end
 
-    test "shows days left", %{conn: conn} do
+    test "shows time left", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/license")
-      assert html =~ "Days Left"
-      assert html =~ "days"
+      assert html =~ "Time Left"
     end
 
     test "shows locked features for upgrade", %{conn: conn} do
@@ -152,28 +151,28 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
     end
   end
 
-  describe "date formatting and days-left branches" do
+  describe "date formatting and time-left branches" do
     setup do
       on_exit(fn -> FeatureStore.clear() end)
       :ok
     end
 
-    test "renders nil expiration with fallback date and neutral days class", %{conn: conn} do
+    test "renders nil expiration with neutral class", %{conn: conn} do
       store_license(nil)
 
       {:ok, _view, html} = live(conn, ~p"/bo/license")
 
       assert html =~ "—"
-      assert html =~ ~r/Days Left.*?text-black.*?days/s
+      assert html =~ ~r/Time Left.*?text-black/s
     end
 
-    test "renders invalid expiration string and neutral days class", %{conn: conn} do
+    test "renders invalid expiration string with neutral class", %{conn: conn} do
       store_license("not-a-date")
 
       {:ok, _view, html} = live(conn, ~p"/bo/license")
 
       assert html =~ "not-a-date"
-      assert html =~ ~r/Days Left.*?text-black.*?days/s
+      assert html =~ ~r/Time Left.*?text-black/s
     end
 
     test "renders amber class for medium-term expiration", %{conn: conn} do
@@ -181,7 +180,7 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/bo/license")
 
-      assert html =~ ~r/Days Left.*?text-amber-600.*?days/s
+      assert html =~ ~r/Time Left.*?text-amber-600/s
     end
 
     test "renders green class for long-term expiration", %{conn: conn} do
@@ -189,7 +188,7 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/bo/license")
 
-      assert html =~ ~r/Days Left.*?text-emerald-600.*?days/s
+      assert html =~ ~r/Time Left.*?text-emerald-600/s
     end
   end
 

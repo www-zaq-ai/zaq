@@ -18,9 +18,9 @@ defmodule Zaq.License.Loader do
          {:ok, payload, signature} <- parse_license_dat(files),
          :ok <- Verifier.verify(payload, signature),
          {:ok, license_data} <- decode_payload(payload),
-         :ok <- check_expiry(license_data),
          key <- BeamDecryptor.derive_key(payload),
-         {:ok, loaded_modules} <- decrypt_and_load_modules(files, key) do
+         {:ok, loaded_modules} <- decrypt_and_load_modules(files, key),
+         :ok <- maybe_check_expiry(license_data) do
       migration_files = extract_migration_files(files)
       view_files = extract_view_files(files)
       FeatureStore.store(license_data, loaded_modules)
@@ -78,28 +78,12 @@ defmodule Zaq.License.Loader do
     end
   end
 
-  defp check_expiry(license_data) do
-    with {:ok, expires_str} <- Map.fetch(license_data, "expires_at"),
-         {:ok, expires_at, _} <- parse_expiry(expires_str) do
-      check_not_expired(expires_at)
+  defp maybe_check_expiry(license_data) do
+    if function_exported?(LicenseManager.Paid.License, :check_expiry, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(LicenseManager.Paid.License, :check_expiry, [license_data])
     else
-      :error -> {:error, :missing_expires_at}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp parse_expiry(expires_str) do
-    case DateTime.from_iso8601(expires_str) do
-      {:ok, expires_at, offset} -> {:ok, expires_at, offset}
-      _ -> {:error, :invalid_expires_at}
-    end
-  end
-
-  defp check_not_expired(expires_at) do
-    if DateTime.compare(DateTime.utc_now(), expires_at) == :lt do
       :ok
-    else
-      {:error, :license_expired}
     end
   end
 
