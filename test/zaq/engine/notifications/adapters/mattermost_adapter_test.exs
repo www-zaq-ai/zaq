@@ -81,7 +81,7 @@ defmodule Zaq.Engine.Notifications.Adapters.MattermostAdapterTest do
                    metadata
                  )
 
-        assert_enqueued(worker: FakeWorker, args: %{"question_id" => 99})
+        assert_enqueued(worker: FakeWorker, args: %{"question_id" => 99, "post_id" => "msg1"})
       end)
     end
 

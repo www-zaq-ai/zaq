@@ -30,8 +30,9 @@ defmodule Zaq.Engine.Notifications.Adapters.MattermostAdapter do
     message = format_message(payload)
 
     case mattermost_api().send_message(identifier, message) do
-      {:ok, _} ->
-        dispatch_on_reply(metadata)
+      {:ok, post} ->
+        post_id = Map.get(post, "id") || Map.get(post, :id)
+        dispatch_on_reply(metadata, post_id)
         :ok
 
       {:error, reason} ->
@@ -51,21 +52,27 @@ defmodule Zaq.Engine.Notifications.Adapters.MattermostAdapter do
     )
   end
 
-  defp format_message(%{"subject" => subject, "body" => body}) do
-    "**#{subject}**\n\n#{body}"
-  end
-
   defp format_message(%{"body" => body}), do: body
 
-  defp dispatch_on_reply(%{"on_reply" => %{"module" => mod_str, "args" => args}}) do
+  defp dispatch_on_reply(%{"on_reply" => %{"module" => mod_str, "args" => args}}, post_id) do
     module = String.to_existing_atom(mod_str)
-    module.new(args) |> Oban.insert()
+    full_args = if post_id, do: Map.put(args, "post_id", post_id), else: args
+
+    case module.new(full_args) |> Oban.insert() do
+      {:ok, job} ->
+        Logger.info("[MattermostAdapter] on_reply job #{job.id} enqueued for #{inspect(mod_str)}")
+
+      {:error, changeset} ->
+        Logger.warning(
+          "[MattermostAdapter] failed to enqueue on_reply for #{inspect(mod_str)}: #{inspect(changeset.errors)}"
+        )
+    end
   rescue
-    ArgumentError ->
+    e ->
       Logger.warning(
-        "[MattermostAdapter] on_reply module #{inspect(mod_str)} is not loaded — skipping callback"
+        "[MattermostAdapter] on_reply dispatch failed for #{inspect(mod_str)}: #{Exception.message(e)}"
       )
   end
 
-  defp dispatch_on_reply(_metadata), do: :ok
+  defp dispatch_on_reply(_metadata, _post_id), do: :ok
 end

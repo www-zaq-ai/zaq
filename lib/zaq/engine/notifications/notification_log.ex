@@ -21,6 +21,9 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
   use Ecto.Schema
 
   import Ecto.Changeset
+  import Ecto.Query
+
+  require Logger
 
   alias Zaq.Repo
 
@@ -65,24 +68,28 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
 
     attempted_at = DateTime.utc_now() |> DateTime.to_iso8601()
 
-    %{num_rows: 1} =
-      Repo.query!(
-        """
-        UPDATE notification_logs
-        SET channels_tried = channels_tried || jsonb_build_array(
-          jsonb_build_object(
-            'platform', $1::text,
-            'status',   $2::text,
-            'error',    $3::text,
-            'attempted_at', $4::text
-          )
-        )
-        WHERE id = $5
-        """,
-        [platform, status_str, error_str, attempted_at, log_id]
-      )
+    case Repo.query!(
+           """
+           UPDATE notification_logs
+           SET channels_tried = channels_tried || jsonb_build_array(
+             jsonb_build_object(
+               'platform', $1::text,
+               'status',   $2::text,
+               'error',    $3::text,
+               'attempted_at', $4::text
+             )
+           )
+           WHERE id = $5
+           """,
+           [platform, status_str, error_str, attempted_at, log_id]
+         ) do
+      %{num_rows: 1} ->
+        :ok
 
-    :ok
+      %{num_rows: 0} ->
+        Logger.warning("[NotificationLog] append_attempt: log #{log_id} not found")
+        :ok
+    end
   end
 
   @doc """
@@ -93,17 +100,20 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
   Returns `{:ok, updated_log}` or `{:error, :invalid_transition}`.
   """
   @spec transition_status(%__MODULE__{}, String.t()) ::
-          {:ok, %__MODULE__{}} | {:error, :invalid_transition}
+          {:ok, %__MODULE__{}} | {:error, :invalid_transition | :stale_record}
   def transition_status(%__MODULE__{status: current_status} = log, new_status) do
     allowed = Map.get(@valid_transitions, current_status, [])
 
     if new_status in allowed do
-      log
-      |> status_changeset(%{status: new_status})
-      |> Repo.update()
-      |> case do
-        {:ok, updated} -> {:ok, updated}
-        {:error, _changeset} = err -> err
+      {count, _} =
+        Repo.update_all(
+          from(l in __MODULE__, where: l.id == ^log.id and l.status == ^current_status),
+          set: [status: new_status]
+        )
+
+      case count do
+        1 -> {:ok, %{log | status: new_status}}
+        0 -> {:error, :stale_record}
       end
     else
       {:error, :invalid_transition}
@@ -126,13 +136,6 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
       :status
     ])
     |> validate_required([:sender, :payload])
-    |> validate_inclusion(:status, @valid_statuses)
-  end
-
-  defp status_changeset(log, attrs) do
-    log
-    |> cast(attrs, [:status])
-    |> validate_required([:status])
     |> validate_inclusion(:status, @valid_statuses)
   end
 end

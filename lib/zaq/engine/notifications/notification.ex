@@ -56,6 +56,7 @@ defmodule Zaq.Engine.Notifications.Notification do
   def build(attrs) when is_map(attrs) do
     with :ok <- validate_subject(attrs),
          :ok <- validate_body(attrs),
+         :ok <- validate_channels(attrs),
          :ok <- validate_preferred(attrs) do
       notification = %__MODULE__{
         recipient_channels: Map.get(attrs, :recipient_channels, []),
@@ -83,6 +84,24 @@ defmodule Zaq.Engine.Notifications.Notification do
     case Map.get(attrs, :body) do
       b when is_binary(b) and b != "" -> :ok
       _ -> {:error, "body is required and must be a non-blank string"}
+    end
+  end
+
+  defp validate_channels(attrs) do
+    channels = Map.get(attrs, :recipient_channels, [])
+
+    invalid =
+      Enum.any?(channels, fn ch ->
+        platform = Map.get(ch, :platform)
+        identifier = Map.get(ch, :identifier)
+
+        not (is_binary(platform) and platform != "" and is_binary(identifier) and identifier != "")
+      end)
+
+    if invalid do
+      {:error, "each recipient_channel must have a non-empty :platform and :identifier"}
+    else
+      :ok
     end
   end
 

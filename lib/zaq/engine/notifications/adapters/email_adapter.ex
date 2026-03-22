@@ -19,7 +19,7 @@ defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
   def platform, do: "email"
 
   @impl true
-  def send(identifier, payload, _metadata) do
+  def send(identifier, payload, metadata) do
     {from_name, from_email} = System.email_sender()
 
     delivery_opts =
@@ -29,7 +29,7 @@ defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
       end
 
     subject = Map.get(payload, "subject", "")
-    body = Map.get(payload, "body", "")
+    body = Map.get(metadata, "email_body") || Map.get(payload, "body", "")
     html = Map.get(payload, "html_body") || text_to_html(body)
 
     email =
@@ -52,8 +52,12 @@ defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
 
   defp text_to_html(text) do
     text
-    |> String.split("\n")
-    |> Enum.map_join("", &("<p>" <> html_escape(&1) <> "</p>"))
+    |> String.split("\n\n")
+    |> Enum.reject(&(String.trim(&1) == ""))
+    |> Enum.map_join("", fn paragraph ->
+      lines = paragraph |> String.split("\n") |> Enum.map(&html_escape/1)
+      "<p>" <> Enum.join(lines, "<br>") <> "</p>"
+    end)
   end
 
   defp html_escape(str) do
