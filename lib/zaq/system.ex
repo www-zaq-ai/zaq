@@ -11,8 +11,8 @@ defmodule Zaq.System do
   alias Zaq.Repo
   alias Zaq.System.Config
   alias Zaq.System.EmailConfig
-  alias Zaq.Types.EncryptedString
   alias Zaq.System.TelemetryConfig
+  alias Zaq.Types.EncryptedString
 
   @email_fields ~w(
     enabled relay port transport_mode tls tls_verify ca_cert_path username password from_email from_name

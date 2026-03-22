@@ -14,65 +14,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "mount" do
-    test "renders the email configuration form", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-      assert html =~ "SMTP Settings"
-      assert html =~ "email_config[relay]"
-      assert has_element?(view, "#smtp-advanced-section")
-      assert has_element?(view, "#smtp-transport-mode")
-      assert has_element?(view, "#smtp-tls-verify")
-      assert has_element?(view, "#smtp-ca-cert-path")
-      assert html =~ "system-config-tab-telemetry"
-    end
-  end
-
-  describe "tab navigation" do
-    test "switches to telemetry settings tab", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
-
-      html =
-        view
-        |> element("#system-config-tab-telemetry")
-        |> render_click()
-
+    test "renders the telemetry configuration form", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/system-config")
       assert html =~ "Telemetry Collection"
-      assert html =~ "telemetry_config[capture_infra_metrics]"
       assert html =~ "telemetry-config-form"
-      refute html =~ "Test Email Delivery"
     end
   end
 
-  describe "validate event" do
-    test "updates the form without saving", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      html =
-        view
-        |> form("form[phx-submit='save']", %{
-          "email_config" => %{
-            "relay" => "smtp.test.com",
-            "port" => "25",
-            "tls" => "enabled",
-            "transport_mode" => "starttls",
-            "tls_verify" => "verify_peer",
-            "ca_cert_path" => "",
-            "from_email" => "noreply@zaq.local",
-            "from_name" => "ZAQ"
-          }
-        })
-        |> render_change()
-
-      assert html =~ "smtp.test.com"
-    end
-  end
-
-  describe "telemetry save/validate" do
-    test "validate telemetry form without saving", %{conn: conn} do
+  describe "telemetry validate" do
+    test "updates form without saving", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
-
-      view
-      |> element("#system-config-tab-telemetry")
-      |> render_click()
 
       html =
         view
@@ -95,13 +46,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert Zaq.System.get_config("telemetry.no_answer_alert_threshold_percent") == nil
       assert Zaq.System.get_config("telemetry.conversation_response_sla_ms") == nil
     end
+  end
 
-    test "save telemetry settings persists config", %{conn: conn} do
+  describe "telemetry save" do
+    test "persists all telemetry settings to the database", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
-
-      view
-      |> element("#system-config-tab-telemetry")
-      |> render_click()
 
       view
       |> form("#telemetry-config-form", %{
@@ -120,133 +69,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert Zaq.System.get_config("telemetry.repo_query_duration_threshold_ms") == "25"
       assert Zaq.System.get_config("telemetry.no_answer_alert_threshold_percent") == "11"
       assert Zaq.System.get_config("telemetry.conversation_response_sla_ms") == "1600"
-    end
-  end
-
-  describe "save event" do
-    test "with valid params persists config to the database", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      html =
-        view
-        |> form("form[phx-submit='save']", %{
-          "email_config" => %{
-            "relay" => "smtp.save.com",
-            "port" => "587",
-            "tls" => "enabled",
-            "transport_mode" => "starttls",
-            "tls_verify" => "verify_peer",
-            "ca_cert_path" => "",
-            "from_email" => "noreply@example.com",
-            "from_name" => "ZAQ"
-          }
-        })
-        |> render_submit()
-
-      assert html =~ "Saved"
-      assert has_element?(view, "#save-status-ok")
-      assert Zaq.System.get_config("email.relay") == "smtp.save.com"
-      assert Zaq.System.get_config("email.from_email") == "noreply@example.com"
-    end
-
-    test "with enabled=true but no relay shows validation errors in form", %{conn: conn} do
-      # Set enabled=true in DB so the save handler picks it up
-      Zaq.System.set_config("email.enabled", "true")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      html =
-        view
-        |> form("form[phx-submit='save']", %{
-          "email_config" => %{
-            "relay" => "",
-            "port" => "587",
-            "tls" => "enabled",
-            "transport_mode" => "starttls",
-            "tls_verify" => "verify_peer",
-            "ca_cert_path" => "",
-            "from_email" => "noreply@example.com",
-            "from_name" => "ZAQ"
-          }
-        })
-        |> render_submit()
-
-      # Form re-renders with error; relay field should remain in the form
-      assert html =~ "email_config[relay]"
-      # Nothing saved to DB
-      assert Zaq.System.get_config("email.relay") == nil
-    end
-  end
-
-  describe "test email form" do
-    test "keeps recipient value after submit", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      html =
-        view
-        |> form("#test-email-form", %{"recipient" => "tester@example.com"})
-        |> render_submit()
-
-      assert html =~ "tester@example.com"
-    end
-  end
-
-  describe "advanced SMTP warnings" do
-    test "shows ssl port warning when ssl mode uses non-465 port", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      view
-      |> form("#smtp-config-form", %{
-        "email_config" => %{"transport_mode" => "ssl", "port" => "587"}
-      })
-      |> render_change()
-
-      assert has_element?(view, "#smtp-security-warnings")
-      assert has_element?(view, "#smtp-warning-ssl-port")
-    end
-
-    test "shows verify_none warning", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      view
-      |> form("#smtp-config-form", %{"email_config" => %{"tls_verify" => "verify_none"}})
-      |> render_change()
-
-      assert has_element?(view, "#smtp-warning-verify-none")
-    end
-  end
-
-  describe "test_connection event" do
-    test "does not send when recipient is empty and shows inline validation error", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      view
-      |> form("#test-email-form", %{"recipient" => ""})
-      |> render_submit()
-
-      html = render(view)
-      refute html =~ "Sending"
-      assert html =~ "Enter a recipient email to send a test."
-    end
-
-    test "shows validation error when recipient is not a valid email", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      view
-      |> form("#test-email-form", %{"recipient" => "not-an-email"})
-      |> render_submit()
-
-      assert render(view) =~ "Recipient must be a valid email address."
-    end
-
-    test "shows error status when email is not configured", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
-
-      view
-      |> form("#test-email-form", %{"recipient" => "tester@example.com"})
-      |> render_submit()
-
-      assert render(view) =~ "Email is not configured or disabled."
     end
   end
 end

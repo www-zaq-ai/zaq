@@ -1,32 +1,35 @@
-defmodule Zaq.Engine.Notifications.EmailChannel do
+defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
   @moduledoc """
-  Email notification channel adapter.
+  Email notification adapter.
 
-  Delivers notifications to users who have an email address via Swoosh/SMTP.
-  Configured via `Zaq.Engine.Notifications` application config (set from env vars).
+  Delivers notifications via SMTP using Swoosh/Mailer.
+  The recipient address comes from the `identifier` argument — it is never
+  read from `ChannelConfig`. SMTP server settings are read from the
+  application config (set via env vars).
   """
 
-  @behaviour Zaq.Engine.NotificationChannel
+  @behaviour Zaq.Engine.NotificationAdapter
 
   import Swoosh.Email
 
   alias Zaq.Mailer
 
   @impl true
-  def available?(%{email: email}) when is_binary(email) and email != "", do: true
-  def available?(_user), do: false
+  def platform, do: "email"
 
   @impl true
-  def send_notification(user, %{subject: subject, body: body} = notification) do
+  def send(identifier, payload, _metadata) do
     config = Application.get_env(:zaq, Zaq.Engine.Notifications, [])
     from_email = Keyword.get(config, :from_email, "noreply@zaq.local")
     from_name = Keyword.get(config, :from_name, "ZAQ")
 
-    html = Map.get(notification, :html_body, text_to_html(body))
+    subject = Map.get(payload, "subject", "")
+    body = Map.get(payload, "body", "")
+    html = Map.get(payload, "html_body") || text_to_html(body)
 
     email =
       new()
-      |> to({user.username, user.email})
+      |> to(identifier)
       |> from({from_name, from_email})
       |> subject(subject)
       |> text_body(body)
@@ -37,6 +40,10 @@ defmodule Zaq.Engine.Notifications.EmailChannel do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Private
+  # ---------------------------------------------------------------------------
 
   defp text_to_html(text) do
     text

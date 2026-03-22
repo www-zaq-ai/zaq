@@ -1,0 +1,208 @@
+<%= if !@service_available do %>
+  <ZaqWeb.Components.ServiceUnavailable.page
+    current_user={@current_user}
+    current_path={@current_path}
+    page_title={@page_title}
+    services={@required_roles}
+  />
+<% else %>
+  <ZaqWeb.Components.BOLayout.bo_layout
+    current_user={@current_user}
+    flash={@flash}
+    page_title={@page_title}
+    current_path={@current_path}
+  >
+    <div class="mb-6">
+      <h1 class="font-mono text-xl font-bold text-black tracking-tight">{@page_title}</h1>
+      <p class="font-mono text-[0.75rem] text-black/40 mt-1">
+        Audit log of all outbound notifications sent by ZAQ.
+      </p>
+    </div>
+
+    <%= if @logs == [] do %>
+      <div class="flex flex-col items-center justify-center py-24 text-center">
+        <p class="font-mono text-sm text-black/30">No notifications sent yet.</p>
+      </div>
+    <% else %>
+      <!-- Table -->
+      <div class="bg-white rounded-2xl border border-black/10 overflow-hidden">
+        <table class="w-full text-left">
+          <thead>
+            <tr class="border-b border-black/5">
+              <th class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider px-4 py-3">
+                Sender
+              </th>
+              <th class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider px-4 py-3">
+                Recipient
+              </th>
+              <th class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider px-4 py-3">
+                Channels Tried
+              </th>
+              <th class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider px-4 py-3">
+                Status
+              </th>
+              <th class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider px-4 py-3">
+                Sent At
+              </th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={log <- @logs}
+              id={"log-#{log.id}"}
+              class="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors"
+            >
+              <td class="font-mono text-[0.75rem] text-black px-4 py-3">{log.sender}</td>
+              <td class="font-mono text-[0.75rem] text-black/60 px-4 py-3">
+                {log.recipient_name || "—"}
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex flex-wrap gap-1">
+                  <span
+                    :for={attempt <- log.channels_tried}
+                    class={[
+                      "inline-flex items-center gap-1 font-mono text-[0.6rem] px-1.5 py-0.5 rounded-full",
+                      if(attempt["status"] == "ok",
+                        do: "bg-emerald-100 text-emerald-700",
+                        else: "bg-red-100 text-red-600"
+                      )
+                    ]}
+                  >
+                    <%= if attempt["status"] == "ok" do %>
+                      ✓
+                    <% else %>
+                      ✗
+                    <% end %>
+                    {attempt["platform"]}
+                  </span>
+                  <span
+                    :if={log.channels_tried == []}
+                    class="font-mono text-[0.6rem] text-black/30"
+                  >
+                    —
+                  </span>
+                </div>
+              </td>
+              <td class="px-4 py-3">
+                <span class={[
+                  "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
+                  case log.status do
+                    "sent" -> "bg-emerald-100 text-emerald-700"
+                    "failed" -> "bg-red-100 text-red-600"
+                    "skipped" -> "bg-amber-100 text-amber-700"
+                    _ -> "bg-black/5 text-black/40"
+                  end
+                ]}>
+                  {log.status}
+                </span>
+              </td>
+              <td class="font-mono text-[0.7rem] text-black/40 px-4 py-3">
+                {Calendar.strftime(log.inserted_at, "%Y-%m-%d %H:%M")}
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  phx-click="view_log"
+                  phx-value-id={log.id}
+                  class="font-mono text-[0.65rem] text-black/40 hover:text-black transition-colors underline underline-offset-2"
+                >
+                  View more
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      
+<!-- Pagination -->
+      <div class="flex items-center justify-between mt-4">
+        <p class="font-mono text-[0.7rem] text-black/40">
+          {@total} total
+        </p>
+        <div class="flex items-center gap-2">
+          <button
+            phx-click="prev_page"
+            disabled={@page <= 1}
+            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/60 hover:bg-black/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            ← Prev
+          </button>
+          <span class="font-mono text-[0.7rem] text-black/40">
+            Page {@page} of {max(1, ceil(@total / @per_page))}
+          </span>
+          <button
+            phx-click="next_page"
+            disabled={@page >= ceil(@total / @per_page)}
+            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/60 hover:bg-black/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            Next →
+          </button>
+        </div>
+      </div>
+    <% end %>
+    
+<!-- Modal -->
+    <%= if @selected_log do %>
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        phx-click="close_modal"
+      >
+        <div
+          class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6"
+          phx-click-away="close_modal"
+        >
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <h2 class="font-mono text-base font-bold text-black">Notification Details</h2>
+              <p class="font-mono text-[0.7rem] text-black/40 mt-0.5">
+                Log #{@selected_log.id} · {Calendar.strftime(
+                  @selected_log.inserted_at,
+                  "%Y-%m-%d %H:%M"
+                )}
+              </p>
+            </div>
+            <button
+              phx-click="close_modal"
+              class="text-black/30 hover:text-black transition-colors"
+            >
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+                Subject
+              </p>
+              <p class="font-mono text-sm text-black">
+                {@selected_log.payload["subject"] || "—"}
+              </p>
+            </div>
+            <div>
+              <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+                Body
+              </p>
+              <p class="font-mono text-sm text-black/80 whitespace-pre-wrap">
+                {@selected_log.payload["body"] || "—"}
+              </p>
+            </div>
+            <div>
+              <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+                Sender
+              </p>
+              <p class="font-mono text-sm text-black">{@selected_log.sender}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  </ZaqWeb.Components.BOLayout.bo_layout>
+<% end %>

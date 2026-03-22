@@ -17,7 +17,14 @@ config :mime, :types, %{
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  queues: [ingestion: 3, default: 10, conversations: 5, telemetry: 5, telemetry_remote: 3],
+  queues: [
+    ingestion: 3,
+    default: 10,
+    conversations: 5,
+    telemetry: 5,
+    telemetry_remote: 3,
+    notifications: 5
+  ],
   crontab: [],
   plugins: [
     {Zaq.Oban.DynamicCron,
