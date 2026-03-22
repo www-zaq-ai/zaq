@@ -69,6 +69,12 @@ defmodule Zaq.Engine.Telemetry do
     - `CategoryVectorPayload` -> bar, donut, radar charts
     - `StatusListPayload` -> status grid
     - `ProgressPayload` -> progress countdown
+
+  Metric naming conventions:
+
+  - Business metrics (always persisted): `qa.*`, `feedback.*`, `ingestion.*`
+  - Infrastructure metrics (opt-in): `repo.*`, `oban.*`, `phoenix.*`
+  - Any other prefix is ignored by `record/4`
   """
 
   import Ecto.Query
@@ -324,17 +330,23 @@ defmodule Zaq.Engine.Telemetry do
   end
 
   defp row_value(row, key, default) when is_binary(key) do
-    atom_key =
-      try do
-        String.to_existing_atom(key)
-      rescue
-        ArgumentError -> nil
-      end
+    case Map.fetch(row, key) do
+      {:ok, value} ->
+        value
 
-    case atom_key do
-      nil -> Map.get(row, key, default)
-      atom -> Map.get(row, key, Map.get(row, atom, default))
+      :error ->
+        case row_existing_atom_key(row, key) do
+          nil -> default
+          atom -> Map.get(row, atom, default)
+        end
     end
+  end
+
+  defp row_existing_atom_key(row, key) do
+    Enum.find(Map.keys(row), fn
+      atom when is_atom(atom) -> Atom.to_string(atom) == key
+      _other -> false
+    end)
   end
 
   defp normalize_dimensions(dimensions) when is_map(dimensions) do

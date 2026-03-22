@@ -2,7 +2,6 @@ defmodule Zaq.Application do
   @moduledoc false
 
   use Application
-  alias Zaq.Engine.Telemetry.Buffer
   alias Zaq.Ingestion.ObanTelemetry
 
   @impl true
@@ -50,10 +49,6 @@ defmodule Zaq.Application do
 
   @impl true
   def prep_stop(state) do
-    if Process.whereis(Buffer) do
-      _ = Buffer.flush(Buffer, 1_500)
-    end
-
     state
   end
 

@@ -13,10 +13,22 @@ Flush triggers:
 
 Graceful shutdown behavior:
 
-- the application shutdown callback performs a best-effort explicit buffer flush
-- the telemetry buffer process termination callback performs a best-effort final flush
+- the telemetry buffer process `terminate/2` callback performs a best-effort final flush
 
 This improves persistence of in-flight telemetry points during graceful stop.
+
+## Metric naming conventions
+
+`Zaq.Engine.Telemetry.record/4` persists metrics by prefix allowlist:
+
+- business metrics (always allowed): `qa.*`, `feedback.*`, `ingestion.*`
+- infrastructure metrics (opt-in only): `repo.*`, `oban.*`, `phoenix.*`
+
+Notes:
+
+- infra metrics are persisted only when callers pass `allow_infra: true`
+- unknown prefixes are intentionally ignored
+- keep metric keys lowercase, dot-separated, and domain-first (for example: `qa.answer.confidence`, `ingestion.documents.count`)
 
 ## Limitations
 

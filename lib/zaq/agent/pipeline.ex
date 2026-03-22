@@ -43,7 +43,6 @@ defmodule Zaq.Agent.Pipeline do
   Always returns a plain map with a stable shape:
 
     * `:answer`
-    * `:confidence`
     * `:confidence_score`
     * `:latency_ms`
     * `:prompt_tokens`
@@ -100,8 +99,8 @@ defmodule Zaq.Agent.Pipeline do
             history: history
           })
         else
-          confidence = answer_result.confidence_score || 1.0
-          result_from_answering(answer_result, safe_answer, confidence)
+          confidence_score = answer_result.confidence_score || 1.0
+          result_from_answering(answer_result, safe_answer, confidence_score)
         end
 
       :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
@@ -237,11 +236,10 @@ defmodule Zaq.Agent.Pipeline do
     Telemetry.record("qa.no_answer.count", 1, telemetry_dimensions(opts))
   end
 
-  defp result_from_answering(%Result{} = result, answer, confidence) do
+  defp result_from_answering(%Result{} = result, answer, confidence_score) do
     %{
       answer: answer,
-      confidence: confidence,
-      confidence_score: confidence,
+      confidence_score: confidence_score,
       latency_ms: result.latency_ms,
       prompt_tokens: result.prompt_tokens,
       completion_tokens: result.completion_tokens,
@@ -250,11 +248,10 @@ defmodule Zaq.Agent.Pipeline do
     }
   end
 
-  defp success_result(answer, confidence) do
+  defp success_result(answer, confidence_score) do
     %{
       answer: answer,
-      confidence: confidence,
-      confidence_score: confidence,
+      confidence_score: confidence_score,
       latency_ms: nil,
       prompt_tokens: nil,
       completion_tokens: nil,
@@ -266,7 +263,6 @@ defmodule Zaq.Agent.Pipeline do
   defp error_result(answer) do
     %{
       answer: answer,
-      confidence: 0.0,
       confidence_score: 0.0,
       latency_ms: nil,
       prompt_tokens: nil,

@@ -112,8 +112,26 @@ defmodule Zaq.Engine.Telemetry.Buffer do
   defp flush_points(%{points: []} = state), do: state
 
   defp flush_points(%{points: points} = state) do
-    Repo.insert_all(Point, Enum.reverse(points), on_conflict: :nothing)
-    %{state | points: []}
+    entries = Enum.reverse(points)
+
+    try do
+      {inserted_count, _} = Repo.insert_all(Point, entries, on_conflict: :nothing)
+
+      if inserted_count < length(entries) do
+        Logger.warning(
+          "[Telemetry.Buffer] insert_all inserted #{inserted_count}/#{length(entries)} points (on_conflict: :nothing)"
+        )
+      end
+
+      %{state | points: []}
+    rescue
+      error ->
+        Logger.error(
+          "[Telemetry.Buffer] Failed to flush #{length(entries)} points: #{Exception.message(error)}"
+        )
+
+        state
+    end
   end
 
   defp safe_terminate_flush(reason, state) do

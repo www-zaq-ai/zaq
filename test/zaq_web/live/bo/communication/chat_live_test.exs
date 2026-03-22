@@ -339,7 +339,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     send(
       view.pid,
-      {:pipeline_result, "stale-1", %{answer: "stale answer", confidence: 1.0}, "user"}
+      {:pipeline_result, "stale-1", %{answer: "stale answer", confidence_score: 1.0}, "user"}
     )
 
     state = :sys.get_state(view.pid)

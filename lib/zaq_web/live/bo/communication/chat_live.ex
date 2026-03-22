@@ -292,7 +292,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         id: generate_id(),
         role: :bot,
         body: clean_body(result.answer),
-        confidence: result.confidence,
+        confidence: Map.get(result, :confidence_score),
         timestamp: DateTime.utc_now(),
         error: result[:error] || false,
         feedback: nil,
@@ -308,7 +308,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         end
 
       updated_history =
-        if result[:error] || result.confidence == 0 do
+        if result[:error] || Map.get(result, :confidence_score, 0.0) == 0.0 do
           history
         else
           now = DateTime.utc_now() |> DateTime.to_iso8601()
@@ -404,8 +404,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         %{
           role: "assistant",
           content: clean_body(result.answer),
-          confidence_score:
-            extract_confidence(Map.get(result, :confidence_score) || Map.get(result, :confidence)),
+          confidence_score: extract_confidence(Map.get(result, :confidence_score)),
           latency_ms: Map.get(result, :latency_ms),
           prompt_tokens: Map.get(result, :prompt_tokens),
           completion_tokens: Map.get(result, :completion_tokens),

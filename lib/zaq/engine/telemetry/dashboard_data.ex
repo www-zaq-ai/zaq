@@ -742,9 +742,10 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     |> Enum.reduce({0.0, []}, fn value, {acc, out} ->
       amount = if is_number(value), do: value * 1.0, else: 0.0
       next = Float.round(acc + amount, 2)
-      {next, out ++ [next]}
+      {next, [next | out]}
     end)
     |> elem(1)
+    |> Enum.reverse()
   end
 
   defp metric_distribution_by_dimension(rows, metric_key, dimension_key) do
