@@ -9,12 +9,11 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
 
   @doc """
   Sends a password reset email to the user if they have an email address.
-  Returns `{:ok, :dispatched}`, `{:ok, :skipped}`, or `{:error, :no_email}`.
+  Returns `{:ok, :dispatched}` or `{:ok, :skipped}`.
   """
-  @spec deliver(Accounts.User.t(), String.t()) ::
-          {:ok, :dispatched} | {:ok, :skipped} | {:error, :no_email}
-  def deliver(%{email: nil}, _token), do: {:error, :no_email}
-  def deliver(%{email: ""}, _token), do: {:error, :no_email}
+  @spec deliver(Accounts.User.t(), String.t()) :: {:ok, :dispatched} | {:ok, :skipped}
+  def deliver(%{email: nil}, _token), do: {:ok, :skipped}
+  def deliver(%{email: ""}, _token), do: {:ok, :skipped}
 
   def deliver(user, token) do
     base_url = Application.get_env(:zaq, :base_url, "http://localhost:4000")
