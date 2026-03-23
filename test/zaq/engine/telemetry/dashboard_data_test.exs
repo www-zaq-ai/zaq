@@ -274,6 +274,50 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
            ]
   end
 
+  test "load_conversations_metrics/1 includes weights in no_answer_rate chart meta for weighted average calculation" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
+
+    # Simulate scenario: 11 questions total (1 in one bucket, 10 in another)
+    # 6 no-answers total (1 in first bucket, 5 in second)
+    # Expected weighted average: 6/11 = 54.5%
+
+    # First bucket: 1 question, 1 no-answer (100% no-answer rate)
+    insert_rollup("qa.question.count", DateTime.add(now, -1, :day), 1.0, 1)
+    insert_rollup("qa.no_answer.count", DateTime.add(now, -1, :day), 1.0, 1)
+
+    # Second bucket: 10 questions, 5 no-answers (50% no-answer rate)
+    insert_rollup("qa.question.count", now, 10.0, 10)
+    insert_rollup("qa.no_answer.count", now, 5.0, 5)
+
+    payload = Telemetry.load_conversations_metrics(%{range: "7d"})
+
+    # Verify weights are present in meta
+    weights = get_in(payload.no_answer_rate_chart, [:meta, :weights])
+    assert is_list(weights)
+    assert length(weights) == 7
+
+    # Verify the weights correspond to question counts per bucket
+    # Two buckets should have non-zero weights: 1 and 10
+    non_zero_weights = Enum.filter(weights, &(&1 > 0))
+    assert Enum.sort(non_zero_weights) == [1.0, 10.0]
+
+    # Verify no_answer_rate values are present
+    no_answer_rates = get_in(payload.no_answer_rate_chart, [:summary, :values, "no_answer_rate"])
+    assert is_list(no_answer_rates)
+    assert length(no_answer_rates) == 7
+
+    # The weighted average should be calculable from the weights and rates
+    # (1*100 + 10*50) / 11 = 54.5%
+    non_zero_rates =
+      Enum.zip(no_answer_rates, weights)
+      |> Enum.filter(fn {_rate, weight} -> weight > 0 end)
+      |> Enum.map(fn {rate, _weight} -> rate end)
+
+    assert Enum.sort(non_zero_rates) == [50.0, 100.0]
+  end
+
   defp insert_rollup(metric_key, bucket_start, sum, count, opts \\ []) do
     dimensions = Keyword.get(opts, :dimensions, %{})
 

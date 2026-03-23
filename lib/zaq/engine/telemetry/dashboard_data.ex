@@ -146,7 +146,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     question_points = sum_points(local_rows, "qa.question.count", labels.labels, :value_sum)
     cumulative_questions = cumulative_points(question_points)
 
-    no_answer_rate_points =
+    {no_answer_rate_points, no_answer_weights} =
       ratio_points(
         local_rows,
         "qa.no_answer.count",
@@ -221,7 +221,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           labels: labels.labels,
           values: %{"no_answer_rate" => no_answer_rate_points}
         },
-        meta: %{threshold_percent: no_answer_alert_threshold}
+        meta: %{threshold_percent: no_answer_alert_threshold, weights: no_answer_weights}
       },
       %{
         id: "average_response_time",
@@ -479,7 +479,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         Float.round(v * 100, 2)
       end)
 
-    no_answer_points =
+    {no_answer_points, _no_answer_weights} =
       ratio_points(
         local_rows,
         "qa.no_answer.count",
@@ -684,11 +684,14 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     numerators = metric_points(rows, numerator_key, labels)
     denominators = metric_points(rows, denominator_key, labels)
 
-    Enum.zip(numerators, denominators)
-    |> Enum.map(fn {n, d} ->
-      ratio = if d <= 0, do: 0.0, else: n / d
-      transform.(ratio)
-    end)
+    ratios =
+      Enum.zip(numerators, denominators)
+      |> Enum.map(fn {n, d} ->
+        ratio = if d <= 0, do: 0.0, else: n / d
+        transform.(ratio)
+      end)
+
+    {ratios, denominators}
   end
 
   defp sum_points(rows, metric_key, labels, field) when field in [:value_sum, :value_count] do
