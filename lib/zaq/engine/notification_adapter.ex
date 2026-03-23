@@ -5,21 +5,18 @@ defmodule Zaq.Engine.NotificationAdapter do
   Each adapter is responsible for delivering a notification to a recipient
   via a specific platform (email, Mattermost, etc.).
 
+  The platform name is declared in the `@adapter_registry` of
+  `Zaq.Engine.Notifications` — adapters do not need to self-identify.
+
   ## Implementing an adapter
 
-      defmodule Zaq.Engine.Notifications.Adapters.MyAdapter do
+      defmodule Zaq.Channels.Retrieval.MyPlatform.Notification do
         @behaviour Zaq.Engine.NotificationAdapter
 
         @impl true
-        def platform, do: "my_platform"
-
-        @impl true
-        def send(identifier, payload, metadata), do: ...
+        def send_notification(identifier, payload, metadata), do: ...
       end
   """
-
-  @doc ~S'Returns the platform string this adapter handles (e.g. "email", "mattermost").'
-  @callback platform() :: String.t()
 
   @doc """
   Delivers the notification to the recipient.
@@ -30,6 +27,6 @@ defmodule Zaq.Engine.NotificationAdapter do
 
   Returns `:ok` or `{:error, reason}`.
   """
-  @callback send(identifier :: String.t(), payload :: map(), metadata :: map()) ::
+  @callback send_notification(identifier :: String.t(), payload :: map(), metadata :: map()) ::
               :ok | {:error, term()}
 end

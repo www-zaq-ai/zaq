@@ -9,7 +9,7 @@ defmodule Zaq.Engine.Notifications do
   ## Usage (new API — Phase 1+)
 
       {:ok, notification} = Notification.build(%{
-        recipient_channels: [%{platform: "email", identifier: "u@example.com", preferred: true}],
+        recipient_channels: [%{platform: "email", identifier: "u@example.com"}],
         sender: "system",
         subject: "Hello",
         body: "World"
@@ -46,8 +46,8 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.System
 
   @adapter_registry %{
-    "email" => Zaq.Engine.Notifications.Adapters.EmailAdapter,
-    "mattermost" => Zaq.Engine.Notifications.Adapters.MattermostAdapter
+    "email" => Zaq.Engine.Notifications.EmailNotification,
+    "mattermost" => Zaq.Channels.Retrieval.Mattermost.Notification
   }
 
   @doc "Returns the adapter module for a given platform, or nil if not registered."
@@ -80,18 +80,22 @@ defmodule Zaq.Engine.Notifications do
   def notify(%Notification{} = notification) do
     configured_platforms = configured_platforms()
 
-    channels =
-      notification.recipient_channels
-      |> Enum.sort_by(fn ch -> if Map.get(ch, :preferred, false), do: 0, else: 1 end)
-      |> Enum.flat_map(fn ch ->
+    {channels, skipped_platforms} =
+      Enum.reduce(notification.recipient_channels, {[], []}, fn ch, {configured, skipped} ->
         platform = Map.get(ch, :platform)
         identifier = Map.get(ch, :identifier)
         adapter = Map.get(@adapter_registry, platform)
 
         if platform in configured_platforms and adapter do
-          [%{"platform" => platform, "identifier" => identifier, "adapter" => to_string(adapter)}]
+          entry = %{
+            "platform" => platform,
+            "identifier" => identifier,
+            "adapter" => to_string(adapter)
+          }
+
+          {configured ++ [entry], skipped}
         else
-          []
+          {configured, skipped ++ [platform]}
         end
       end)
 
@@ -113,6 +117,10 @@ defmodule Zaq.Engine.Notifications do
           "html_body" => notification.html_body
         }
       })
+
+    Enum.each(skipped_platforms, fn platform ->
+      NotificationLog.append_attempt(log.id, platform, {:error, "not configured"})
+    end)
 
     if channels == [] do
       NotificationLog.transition_status(log, "skipped")

@@ -121,11 +121,35 @@ defmodule Zaq.Agent.Pipeline do
 
       {:error, :no_results, negative_answer} ->
         :ok = record_no_answer_telemetry(opts)
-        success_result(negative_answer, 0.0)
+
+        result =
+          negative_answer
+          |> success_result(0.0)
+          |> Map.merge(%{
+            knowledge_gap: true,
+            question: question,
+            generated_query: nil,
+            history: history
+          })
+
+        :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
+        result
 
       {:error, :no_results} ->
         :ok = record_no_answer_telemetry(opts)
-        success_result("I couldn't find relevant information to answer your question.", 0.0)
+
+        result =
+          "I couldn't find relevant information to answer your question."
+          |> success_result(0.0)
+          |> Map.merge(%{
+            knowledge_gap: true,
+            question: question,
+            generated_query: nil,
+            history: history
+          })
+
+        :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
+        result
 
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")

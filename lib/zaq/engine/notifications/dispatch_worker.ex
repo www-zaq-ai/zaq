@@ -13,7 +13,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
       %{
         "platform"   => "email",
         "identifier" => "u@example.com",
-        "adapter"    => "Elixir.Zaq.Engine.Notifications.Adapters.EmailAdapter"
+        "adapter"    => "Elixir.Zaq.Engine.Notifications.EmailNotification"
       }
   """
 
@@ -63,7 +63,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
         do_dispatch(log, rest, metadata)
 
       adapter ->
-        result = adapter.send(identifier, log.payload, metadata)
+        result = adapter.send_notification(identifier, log.payload, metadata)
         NotificationLog.append_attempt(log.id, platform, result)
 
         case result do

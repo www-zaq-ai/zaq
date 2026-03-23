@@ -52,7 +52,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
     back_label =
       case kind do
-        :retrieval -> "Retrieval Channels"
+        :retrieval -> "Communication Channels"
         :ingestion -> "Ingestion Channels"
         _ -> "All Channels"
       end

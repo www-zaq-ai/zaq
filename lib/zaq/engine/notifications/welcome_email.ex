@@ -21,8 +21,8 @@ defmodule Zaq.Engine.Notifications.WelcomeEmail do
 
     {:ok, notification} =
       Notification.build(%{
-        recipient_channels: [%{platform: "email", identifier: user.email, preferred: true}],
-        sender: "system",
+        recipient_channels: [%{platform: "email", identifier: user.email}],
+        sender: "welcome",
         subject: "Welcome to ZAQ — your account is ready",
         body: build_text_body(user.username, login_url),
         html_body: build_html_body(user.username, login_url),
