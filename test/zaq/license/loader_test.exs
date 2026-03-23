@@ -180,6 +180,7 @@ defmodule Zaq.License.LoaderTest do
     module_source = """
     defmodule #{mod_name} do
       @behaviour Zaq.License.ObanFeature
+      def feature_key, do: :loader_test_oban_feature
       def oban_queues, do: [{:#{queue}, 1}]
       def oban_crontab, do: []
     end

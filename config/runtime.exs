@@ -137,7 +137,7 @@ if config_env() == :prod do
       default: 10
     ],
     plugins: [
-      {Oban.Plugins.Cron,
+      {Zaq.Oban.DynamicCron,
        crontab: [
          {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
          {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},

@@ -4,9 +4,11 @@ defmodule Zaq.License.ObanProvisioner do
 
   Called by `Zaq.License.Loader` after modules are loaded into the BEAM.
   Any loaded module implementing `Zaq.License.ObanFeature` will have its
-  declared queues started and crontab entries merged into the running Oban
-  instance — with no static config changes required.
+  declared queues started and crontab entries injected into the running
+  `Zaq.Oban.DynamicCron` plugin — with no Oban supervisor restart required.
   """
+
+  alias Zaq.Oban.DynamicCron
 
   require Logger
 
@@ -26,6 +28,7 @@ defmodule Zaq.License.ObanProvisioner do
 
   defp implements_oban_feature?(module) do
     Code.ensure_loaded?(module) and
+      function_exported?(module, :feature_key, 0) and
       function_exported?(module, :oban_queues, 0) and
       function_exported?(module, :oban_crontab, 0)
   end
@@ -49,52 +52,13 @@ defmodule Zaq.License.ObanProvisioner do
   defp provision_crontab([]), do: :ok
 
   defp provision_crontab(feature_modules) do
-    new_entries = Enum.flat_map(feature_modules, & &1.oban_crontab())
+    Enum.each(feature_modules, fn module ->
+      key = module.feature_key()
+      entries = module.oban_crontab()
 
-    if new_entries == [] do
-      :ok
-    else
-      base_crontab = Application.get_env(:zaq, :oban_base_crontab, [])
-      merged = Enum.uniq_by(base_crontab ++ new_entries, fn {_expr, worker} -> worker end)
-      restart_cron_plugin(merged)
-    end
-  end
-
-  defp restart_cron_plugin(crontab) do
-    # Oban's cron plugin has no public API for adding entries at runtime.
-    # We terminate and re-add the child with the merged crontab list.
-    # The window without a running cron supervisor is negligible and safe —
-    # Oban.insert is idempotent so any missed tick is rescheduled correctly.
-    if Process.whereis(@oban_name) == nil do
-      Logger.warning("[ObanProvisioner] cron plugin restart skipped — Oban not running")
-    else
-      plugin_name = {Oban.Plugins.Cron, @oban_name}
-
-      case Supervisor.terminate_child(@oban_name, plugin_name) do
-        :ok ->
-          Supervisor.delete_child(@oban_name, plugin_name)
-          start_cron_child(crontab)
-
-        {:error, reason} ->
-          Logger.warning("[ObanProvisioner] Could not terminate cron plugin: #{inspect(reason)}")
+      if entries != [] do
+        DynamicCron.add_schedules(key, entries)
       end
-    end
-  end
-
-  defp start_cron_child(crontab) do
-    child_spec =
-      {Oban.Plugins.Cron,
-       [
-         conf: Oban.config(@oban_name),
-         crontab: crontab
-       ]}
-
-    case Supervisor.start_child(@oban_name, child_spec) do
-      {:ok, _} ->
-        Logger.info("[ObanProvisioner] Cron plugin restarted with #{length(crontab)} entries")
-
-      {:error, reason} ->
-        Logger.error("[ObanProvisioner] Failed to restart cron plugin: #{inspect(reason)}")
-    end
+    end)
   end
 end

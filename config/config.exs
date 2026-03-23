@@ -20,7 +20,7 @@ config :zaq, Oban,
   queues: [ingestion: 3, default: 10, conversations: 5, telemetry: 5, telemetry_remote: 3],
   crontab: [],
   plugins: [
-    {Oban.Plugins.Cron,
+    {Zaq.Oban.DynamicCron,
      crontab: [
        {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},

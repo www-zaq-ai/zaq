@@ -4,12 +4,31 @@ defmodule Zaq.License.ObanProvisionerTest do
   import ExUnit.CaptureLog
 
   alias Zaq.License.ObanProvisioner
+  alias Zaq.Oban.DynamicCron
 
   # Lower log level so Logger.info messages from ObanProvisioner reach capture_log.
   # Restored on_exit so we don't pollute other test runs.
   setup do
     Logger.configure(level: :info)
     on_exit(fn -> Logger.configure(level: :warning) end)
+
+    # DynamicCron is only started as an Oban plugin in runtime.exs (prod).
+    # In the test env, start it under its Oban-assigned name if not already running.
+    plugin_name = Oban.Registry.via(Oban, {:plugin, DynamicCron})
+
+    unless Oban.Registry.whereis(Oban, {:plugin, DynamicCron}) do
+      conf = Oban.config(Oban)
+      {:ok, pid} = GenServer.start_link(DynamicCron, [conf: conf], name: plugin_name)
+
+      on_exit(fn ->
+        try do
+          GenServer.stop(pid, :normal)
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+    end
+
     :ok
   end
 
@@ -37,6 +56,16 @@ defmodule Zaq.License.ObanProvisionerTest do
 
     test "skips a module that only implements oban_queues/0 but not oban_crontab/0" do
       mod = compile_module("defmodule %MOD% do\n  def oban_queues, do: []\nend")
+
+      log = capture_log(fn -> ObanProvisioner.provision([mod]) end)
+      refute log =~ "[ObanProvisioner]"
+    end
+
+    test "skips a module that is missing feature_key/0" do
+      mod =
+        compile_module(
+          "defmodule %MOD% do\n  def oban_queues, do: []\n  def oban_crontab, do: []\nend"
+        )
 
       log = capture_log(fn -> ObanProvisioner.provision([mod]) end)
       refute log =~ "[ObanProvisioner]"
@@ -104,56 +133,64 @@ defmodule Zaq.License.ObanProvisionerTest do
   # ---------------------------------------------------------------------------
 
   describe "provision/1 — crontab handling" do
-    test "does not touch cron plugin when all modules return empty crontab" do
+    test "does not log cron activity when all modules return empty crontab" do
       mod = compile_oban_feature(queues: [], crontab: [])
 
       log = capture_log(fn -> ObanProvisioner.provision([mod]) end)
-      refute log =~ "Cron plugin"
-      refute log =~ "terminate cron"
+      refute log =~ "[DynamicCron]"
     end
 
-    test "attempts to restart cron plugin when a module declares crontab entries" do
-      worker = Zaq.Engine.StaleQuestionsCleanupWorker
+    test "delegates crontab entries to DynamicCron.add_schedules/2" do
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
       mod = compile_oban_feature(queues: [], crontab: [{"0 * * * *", worker}])
 
       log = capture_log(fn -> ObanProvisioner.provision([mod]) end)
-      # Success or warning — either proves the restart was attempted
-      assert log =~ "Cron plugin" or log =~ "cron plugin"
+      assert log =~ "[DynamicCron]"
     end
 
-    test "deduplicates crontab entries by worker when two modules declare the same worker" do
-      worker = Zaq.Engine.StaleQuestionsCleanupWorker
-      mod_a = compile_oban_feature(queues: [], crontab: [{"0 * * * *", worker}])
-      mod_b = compile_oban_feature(queues: [], crontab: [{"30 * * * *", worker}])
-
-      # Both modules declare the same worker — only one entry should be kept.
-      # We verify by checking the "restarted with N entries" message, or that the
-      # restart was only attempted once.
-      log = capture_log(fn -> ObanProvisioner.provision([mod_a, mod_b]) end)
-      assert log =~ "1 entries" or log =~ "cron plugin"
-    end
-
-    test "merges oban_base_crontab with feature crontab entries" do
-      base_worker = Zaq.Engine.StaleQuestionsCleanupWorker
-      original = Application.get_env(:zaq, :oban_base_crontab, [])
-      Application.put_env(:zaq, :oban_base_crontab, [{"@hourly", base_worker}])
-
-      on_exit(fn ->
-        if original == [],
-          do: Application.delete_env(:zaq, :oban_base_crontab),
-          else: Application.put_env(:zaq, :oban_base_crontab, original)
-      end)
-
-      # Use a distinct worker so it is not deduped with the base entry
-      feature_worker =
-        compile_module(
-          "defmodule %MOD% do\n  use Oban.Worker, queue: :default\n  def perform(_), do: :ok\nend"
-        )
-
-      mod = compile_oban_feature(queues: [], crontab: [{"0 6 * * *", feature_worker}])
+    test "uses the module's feature_key as the idempotency key" do
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+      mod = compile_oban_feature(key: :test_feature, queues: [], crontab: [{"0 * * * *", worker}])
 
       log = capture_log(fn -> ObanProvisioner.provision([mod]) end)
-      assert log =~ "2 entries" or log =~ "cron plugin"
+      assert log =~ "test_feature"
+    end
+
+    test "does not call DynamicCron when crontab is empty" do
+      mod = compile_oban_feature(queues: [], crontab: [])
+
+      log = capture_log(fn -> ObanProvisioner.provision([mod]) end)
+      refute log =~ "[DynamicCron]"
+    end
+
+    test "empty crontab does not register the feature key in DynamicCron" do
+      # If the key is never registered, a future provision call with non-empty
+      # crontab for the same key will correctly add the entries.
+      key = :"empty_feature_#{System.unique_integer([:positive])}"
+      mod = compile_oban_feature(key: key, queues: [], crontab: [])
+
+      capture_log(fn -> ObanProvisioner.provision([mod]) end)
+
+      pid = Oban.Registry.whereis(Oban, {:plugin, DynamicCron})
+      registered = :sys.get_state(pid).registered_keys
+      refute MapSet.member?(registered, key)
+    end
+
+    test "license reload — calling provision twice does not double-add crontab entries" do
+      key = :"reload_feature_#{System.unique_integer([:positive])}"
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+      mod = compile_oban_feature(key: key, queues: [], crontab: [{"0 * * * *", worker}])
+
+      capture_log(fn -> ObanProvisioner.provision([mod]) end)
+      capture_log(fn -> ObanProvisioner.provision([mod]) end)
+
+      pid = Oban.Registry.whereis(Oban, {:plugin, DynamicCron})
+
+      count =
+        :sys.get_state(pid).crontab
+        |> Enum.count(fn {_, _, w, _} -> w == worker end)
+
+      assert count == 1
     end
   end
 
@@ -172,8 +209,8 @@ defmodule Zaq.License.ObanProvisionerTest do
                capture_log(fn -> ObanProvisioner.provision([mod]) end) |> then(fn _ -> :ok end)
     end
 
-    test "does not raise when cron plugin supervisor returns an error" do
-      worker = Zaq.Engine.StaleQuestionsCleanupWorker
+    test "does not raise when DynamicCron.add_schedules is called with crontab entries" do
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
       mod = compile_oban_feature(queues: [], crontab: [{"0 * * * *", worker}])
 
       assert :ok =
@@ -223,9 +260,12 @@ defmodule Zaq.License.ObanProvisionerTest do
   end
 
   # Compiles a module implementing Zaq.License.ObanFeature with the given
-  # queues and crontab. Crontab entries must be {expr, worker_module} tuples.
-  defp compile_oban_feature(queues: queues, crontab: crontab) do
+  # feature_key, queues and crontab. Crontab entries must be {expr, worker_module} tuples.
+  defp compile_oban_feature(opts) do
     mod_name = "Elixir.ObanProvisionerTest.F#{System.unique_integer([:positive])}"
+    key = Keyword.get(opts, :key, :"feature_#{System.unique_integer([:positive])}")
+    queues = Keyword.get(opts, :queues, [])
+    crontab = Keyword.get(opts, :crontab, [])
 
     queues_literal = inspect(queues)
 
@@ -238,6 +278,7 @@ defmodule Zaq.License.ObanProvisionerTest do
     source = """
     defmodule #{mod_name} do
       @behaviour Zaq.License.ObanFeature
+      def feature_key, do: #{inspect(key)}
       def oban_queues, do: #{queues_literal}
       def oban_crontab, do: #{crontab_literal}
     end
