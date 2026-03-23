@@ -226,6 +226,7 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   attr :secondary_color, :string, default: "#6b7280"
   attr :width, :integer, default: 420
   attr :height, :integer, default: 180
+  attr :weighted_average, :float, default: nil
 
   def time_series_chart(assigns) do
     assigns = assign_time_series_from_chart(assigns)
@@ -284,7 +285,12 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
       class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
     >
       <div class="mb-3 flex items-center justify-between">
-        <p class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">{@title}</p>
+        <div class="flex items-center gap-2">
+          <p class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">{@title}</p>
+          <span :if={is_number(@weighted_average)} class="font-mono text-[0.65rem] text-cyan-700">
+            (weighted avg: {@weighted_average}%)
+          </span>
+        </div>
         <div class="flex items-center gap-2">
           <span class="inline-flex items-center gap-1 font-mono text-[0.66rem] text-cyan-700">
             <span class="inline-block h-2 w-2 rounded-full bg-[#03b6d4]" /> {@primary_label}

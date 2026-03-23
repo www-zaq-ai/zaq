@@ -57,13 +57,33 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
     average_response_time_chart =
       Map.get(telemetry, :average_response_time_chart, default_average_response_time_chart())
 
+    no_answer_weighted_average = calculate_no_answer_weighted_average(no_answer_rate_chart)
+
     socket
     |> assign(:telemetry, telemetry)
     |> assign(:questions_asked_chart, questions_asked_chart)
     |> assign(:questions_per_channel_chart, questions_per_channel_chart)
     |> assign(:answer_confidence_distribution_chart, answer_confidence_distribution_chart)
     |> assign(:no_answer_rate_chart, no_answer_rate_chart)
+    |> assign(:no_answer_weighted_average, no_answer_weighted_average)
     |> assign(:average_response_time_chart, average_response_time_chart)
+  end
+
+  defp calculate_no_answer_weighted_average(chart) do
+    rates = get_in(chart.summary, [:values, "no_answer_rate"]) || []
+    weights = get_in(chart.meta, [:weights]) || []
+
+    weighted_sum =
+      Enum.zip(rates, weights)
+      |> Enum.reduce(0.0, fn {rate, weight}, acc -> acc + rate * weight end)
+
+    total_weight = Enum.sum(weights)
+
+    if total_weight > 0 do
+      Float.round(weighted_sum / total_weight, 2)
+    else
+      0.0
+    end
   end
 
   defp load_conversations_metrics_data(filters) do
@@ -152,7 +172,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
       baseline: %{for: "no_answer_rate", value: 10.0, label: "Alert threshold"},
       series: [%{key: "no_answer_rate", name: "No-answer rate", values: zeroes}],
       summary: %{labels: labels, values: %{"no_answer_rate" => zeroes}},
-      meta: %{threshold_percent: 10.0}
+      meta: %{threshold_percent: 10.0, weights: zeroes}
     })
   end
 
