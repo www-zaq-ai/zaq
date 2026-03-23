@@ -11,11 +11,11 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
   # ---------------------------------------------------------------------------
 
   defmodule OkAdapter do
-    def send(_identifier, _payload, _metadata), do: :ok
+    def send_notification(_identifier, _payload, _metadata), do: :ok
   end
 
   defmodule ErrorAdapter do
-    def send(_identifier, _payload, _metadata), do: {:error, :delivery_failed}
+    def send_notification(_identifier, _payload, _metadata), do: {:error, :delivery_failed}
   end
 
   # ---------------------------------------------------------------------------

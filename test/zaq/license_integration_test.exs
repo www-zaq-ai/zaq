@@ -27,6 +27,9 @@ defmodule Zaq.License.IntegrationTest do
     File.mkdir_p!(@keys_dir)
     {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
 
+    original_public = File.read(@public_key_path)
+    original_private = File.read(@private_key_path)
+
     private_pem = """
     -----BEGIN ED25519 PRIVATE KEY-----
     #{Base.encode64(priv <> pub)}
@@ -46,6 +49,16 @@ defmodule Zaq.License.IntegrationTest do
     File.mkdir_p!(tmp_dir)
 
     on_exit(fn ->
+      case original_public do
+        {:ok, content} -> File.write!(@public_key_path, content)
+        {:error, _} -> File.rm_rf!(@public_key_path)
+      end
+
+      case original_private do
+        {:ok, content} -> File.write!(@private_key_path, content)
+        {:error, _} -> File.rm_rf!(@private_key_path)
+      end
+
       File.rm_rf!(tmp_dir)
       FeatureStore.clear()
     end)

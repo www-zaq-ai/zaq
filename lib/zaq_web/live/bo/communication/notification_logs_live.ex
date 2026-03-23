@@ -30,6 +30,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
       |> assign(:page, 1)
       |> assign(:per_page, @per_page)
       |> assign(:selected_log, nil)
+      |> assign(:recipient_filter, "")
 
     socket = if available, do: load_logs(socket), else: socket
 
@@ -64,6 +65,16 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
     {:noreply, socket}
   end
 
+  def handle_event("filter_recipient", %{"value" => value}, socket) do
+    socket =
+      socket
+      |> assign(:recipient_filter, value)
+      |> assign(:page, 1)
+      |> load_logs()
+
+    {:noreply, socket}
+  end
+
   def handle_event("view_log", %{"id" => id}, socket) do
     log = Repo.get(NotificationLog, id)
     {:noreply, assign(socket, :selected_log, log)}
@@ -81,11 +92,20 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
     page = socket.assigns.page
     per_page = socket.assigns.per_page
     offset = (page - 1) * per_page
+    filter = String.trim(socket.assigns.recipient_filter)
 
-    total = Repo.aggregate(NotificationLog, :count)
+    base_query =
+      if filter == "" do
+        from(l in NotificationLog)
+      else
+        pattern = "%#{filter}%"
+        from(l in NotificationLog, where: ilike(l.recipient_name, ^pattern))
+      end
+
+    total = Repo.aggregate(base_query, :count)
 
     logs =
-      from(l in NotificationLog,
+      from(l in base_query,
         order_by: [desc: l.inserted_at],
         limit: ^per_page,
         offset: ^offset

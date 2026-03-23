@@ -119,7 +119,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     {page_title, current_path, cards} =
       case kind do
         :retrieval ->
-          {"Retrieval Channels", "/bo/channels/retrieval", @retrieval_cards}
+          {"Communication Channels", "/bo/channels/retrieval", @retrieval_cards}
 
         :ingestion ->
           {"Ingestion Channels", "/bo/channels/ingestion", @ingestion_cards}

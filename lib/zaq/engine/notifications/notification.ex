@@ -21,8 +21,7 @@ defmodule Zaq.Engine.Notifications.Notification do
 
   @type channel :: %{
           platform: String.t(),
-          identifier: String.t(),
-          preferred: boolean()
+          identifier: String.t()
         }
 
   @type recipient_ref :: {:user, integer()} | {:person, integer()} | nil
@@ -47,7 +46,7 @@ defmodule Zaq.Engine.Notifications.Notification do
 
   Validation rules:
   - `subject` and `body` must be non-blank strings
-  - At most one entry in `recipient_channels` may have `preferred: true`
+  - Each channel must have a non-empty `:platform` and `:identifier`
   - Empty `recipient_channels` is valid
 
   Returns `{:ok, %Notification{}}` or `{:error, reason}`.
@@ -56,8 +55,7 @@ defmodule Zaq.Engine.Notifications.Notification do
   def build(attrs) when is_map(attrs) do
     with :ok <- validate_subject(attrs),
          :ok <- validate_body(attrs),
-         :ok <- validate_channels(attrs),
-         :ok <- validate_preferred(attrs) do
+         :ok <- validate_channels(attrs) do
       notification = %__MODULE__{
         recipient_channels: Map.get(attrs, :recipient_channels, []),
         recipient_name: Map.get(attrs, :recipient_name),
@@ -100,21 +98,6 @@ defmodule Zaq.Engine.Notifications.Notification do
 
     if invalid do
       {:error, "each recipient_channel must have a non-empty :platform and :identifier"}
-    else
-      :ok
-    end
-  end
-
-  defp validate_preferred(attrs) do
-    channels = Map.get(attrs, :recipient_channels, [])
-
-    preferred_count =
-      Enum.count(channels, fn ch ->
-        Map.get(ch, :preferred, false) == true
-      end)
-
-    if preferred_count > 1 do
-      {:error, "at most one recipient_channel may have preferred: true"}
     else
       :ok
     end

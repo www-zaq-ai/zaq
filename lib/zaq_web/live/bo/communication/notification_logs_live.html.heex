@@ -34,6 +34,17 @@
       </p>
     </div>
 
+    <div class="mb-4">
+      <input
+        type="text"
+        value={@recipient_filter}
+        phx-keyup="filter_recipient"
+        phx-debounce="300"
+        placeholder="Filter by recipient…"
+        class="font-mono text-[0.75rem] w-64 px-3 py-1.5 rounded-lg border border-black/10 bg-white placeholder-black/25 focus:outline-none focus:ring-1 focus:ring-black/20 text-black"
+      />
+    </div>
+
     <%= if @logs == [] do %>
       <div class="flex flex-col items-center justify-center py-24 text-center">
         <p class="font-mono text-sm text-black/30">No notifications sent yet.</p>
@@ -73,31 +84,27 @@
                 {log.recipient_name || "—"}
               </td>
               <td class="px-4 py-3">
-                <div class="flex flex-wrap gap-1">
-                  <span
-                    :for={attempt <- log.channels_tried}
-                    class={[
-                      "inline-flex items-center gap-1 font-mono text-[0.6rem] px-1.5 py-0.5 rounded-full",
-                      if(attempt["status"] == "ok",
-                        do: "bg-emerald-100 text-emerald-700",
-                        else: "bg-red-100 text-red-600"
-                      )
-                    ]}
-                  >
-                    <%= if attempt["status"] == "ok" do %>
-                      ✓
-                    <% else %>
-                      ✗
+                <%= if log.channels_tried == [] do %>
+                  <span class="font-mono text-[0.6rem] text-black/30">—</span>
+                <% else %>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <%= for {attempt, idx} <- Enum.with_index(log.channels_tried) do %>
+                      <%= if idx > 0 do %>
+                        <span class="font-mono text-[0.6rem] text-black/25">→</span>
+                      <% end %>
+                      <span class={[
+                        "inline-flex items-center gap-1 font-mono text-[0.6rem] px-1.5 py-0.5 rounded-full",
+                        if(attempt["status"] == "ok",
+                          do: "bg-emerald-100 text-emerald-700",
+                          else: "bg-red-100 text-red-600"
+                        )
+                      ]}>
+                        {if attempt["status"] == "ok", do: "✓", else: "✗"}
+                        {attempt["platform"]}
+                      </span>
                     <% end %>
-                    {attempt["platform"]}
-                  </span>
-                  <span
-                    :if={log.channels_tried == []}
-                    class="font-mono text-[0.6rem] text-black/30"
-                  >
-                    —
-                  </span>
-                </div>
+                  </div>
+                <% end %>
               </td>
               <td class="px-4 py-3">
                 <span class={[
@@ -297,43 +304,85 @@
             <%!-- Channels tried --%>
             <%= if @selected_log.channels_tried != [] do %>
               <div class="border-t border-black/[0.05] pt-4">
-                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-2">
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-3">
                   Delivery Attempts
                 </p>
-                <div class="space-y-2">
-                  <div
-                    :for={attempt <- @selected_log.channels_tried}
-                    class={[
-                      "flex items-start gap-3 rounded-xl px-3 py-2.5 border",
-                      if(attempt["status"] == "ok",
-                        do: "bg-emerald-50 border-emerald-100",
-                        else: "bg-red-50 border-red-100"
-                      )
-                    ]}
-                  >
+                <%= if length(@selected_log.channels_tried) == 1 do %>
+                  <% primary_attempt = hd(@selected_log.channels_tried) %>
+                  <%!-- Single attempt: flat card --%>
+                  <div class={[
+                    "flex items-start gap-3 rounded-xl px-3 py-2.5 border",
+                    if(primary_attempt["status"] == "ok",
+                      do: "bg-emerald-50 border-emerald-100",
+                      else: "bg-red-50 border-red-100"
+                    )
+                  ]}>
                     <span class={[
                       "mt-0.5 text-[0.7rem] font-bold",
-                      if(attempt["status"] == "ok", do: "text-emerald-600", else: "text-red-500")
+                      if(primary_attempt["status"] == "ok",
+                        do: "text-emerald-600",
+                        else: "text-red-500"
+                      )
                     ]}>
-                      {if attempt["status"] == "ok", do: "✓", else: "✗"}
+                      {if primary_attempt["status"] == "ok", do: "✓", else: "✗"}
                     </span>
                     <div class="flex-1 min-w-0">
                       <p class="font-mono text-[0.78rem] font-semibold text-black">
-                        {attempt["platform"]}
+                        {primary_attempt["platform"]}
                       </p>
-                      <%= if attempt["error"] do %>
+                      <%= if primary_attempt["error"] do %>
                         <p class="font-mono text-[0.72rem] text-red-600 mt-0.5 break-all">
-                          {attempt["error"]}
+                          {primary_attempt["error"]}
                         </p>
                       <% end %>
-                      <%= if attempt["attempted_at"] do %>
+                      <%= if primary_attempt["attempted_at"] do %>
                         <p class="font-mono text-[0.65rem] text-black/35 mt-0.5">
-                          {attempt["attempted_at"]}
+                          {primary_attempt["attempted_at"]}
                         </p>
                       <% end %>
                     </div>
                   </div>
-                </div>
+                <% else %>
+                  <%!-- Thread: all attempts connected --%>
+                  <% total = length(@selected_log.channels_tried) %>
+                  <%= for {attempt, idx} <- Enum.with_index(@selected_log.channels_tried) do %>
+                    <% is_last = idx == total - 1 %>
+                    <div class="flex gap-3">
+                      <div class="flex flex-col items-center w-5 shrink-0">
+                        <div class={[
+                          "w-5 h-5 rounded-full flex items-center justify-center text-[0.6rem] font-bold shrink-0",
+                          if(attempt["status"] == "ok",
+                            do: "bg-emerald-100 text-emerald-600",
+                            else: "bg-red-100 text-red-500"
+                          )
+                        ]}>
+                          {if attempt["status"] == "ok", do: "✓", else: "✗"}
+                        </div>
+                        <%= if !is_last do %>
+                          <div class="w-px flex-1 bg-black/10 mt-1 mb-1"></div>
+                        <% end %>
+                      </div>
+                      <div class={["flex-1 min-w-0", if(is_last, do: "pb-0", else: "pb-3")]}>
+                        <p class="font-mono text-[0.6rem] text-black/30 uppercase tracking-wider mb-0.5">
+                          {if idx == 0, do: "Primary", else: "Fallback"}
+                        </p>
+                        <p class="font-mono text-[0.78rem] font-semibold text-black">
+                          {attempt["platform"]}
+                        </p>
+                        <%= if attempt["error"] do %>
+                          <p class="font-mono text-[0.72rem] text-red-600 mt-0.5 break-all">
+                            {attempt["error"]}
+                          </p>
+                        <% end %>
+                        <%= if attempt["attempted_at"] do %>
+                          <p class="font-mono text-[0.65rem] text-black/35 mt-0.5">
+                            {attempt["attempted_at"]}
+                          </p>
+                        <% end %>
+                      </div>
+                    </div>
+                  <% end %>
+                <% end %>
               </div>
             <% end %>
           </div>

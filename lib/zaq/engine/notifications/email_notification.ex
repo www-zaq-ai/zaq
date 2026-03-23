@@ -1,11 +1,11 @@
-defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
+defmodule Zaq.Engine.Notifications.EmailNotification do
   @moduledoc """
-  Email notification adapter.
+  Email notification delivery.
 
-  Delivers notifications via SMTP using Swoosh/Mailer.
-  The recipient address comes from the `identifier` argument — it is never
-  read from `ChannelConfig`. SMTP settings are read from `Zaq.System`
-  (same source as the SMTP configuration UI).
+  Implements `Zaq.Engine.NotificationAdapter` — delivers notifications via SMTP
+  using Swoosh/Mailer. The recipient address comes from the `identifier`
+  argument. SMTP settings are read from `Zaq.System` (same source as the SMTP
+  configuration UI).
   """
 
   @behaviour Zaq.Engine.NotificationAdapter
@@ -16,10 +16,7 @@ defmodule Zaq.Engine.Notifications.Adapters.EmailAdapter do
   alias Zaq.System
 
   @impl true
-  def platform, do: "email"
-
-  @impl true
-  def send(identifier, payload, metadata) do
+  def send_notification(identifier, payload, metadata) do
     {from_name, from_email} = System.email_sender()
 
     delivery_opts =

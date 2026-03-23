@@ -10,7 +10,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
   alias Zaq.Repo
 
   @valid_attrs %{
-    recipient_channels: [%{platform: "email", identifier: "test@example.com", preferred: true}],
+    recipient_channels: [%{platform: "email", identifier: "test@example.com"}],
     sender: "system",
     subject: "Hello",
     body: "World"
@@ -64,12 +64,12 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
       assert n.metadata == %{foo: "bar"}
     end
 
-    test "single preferred: true channel is valid" do
+    test "multiple channels without preferred flag are all valid" do
       attrs = %{
         @valid_attrs
         | recipient_channels: [
-            %{platform: "email", identifier: "a@b.com", preferred: true},
-            %{platform: "slack", identifier: "U01", preferred: false}
+            %{platform: "email", identifier: "a@b.com"},
+            %{platform: "slack", identifier: "U01"}
           ]
       }
 
@@ -102,17 +102,16 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
       assert reason =~ "body"
     end
 
-    test "two preferred: true channels returns {:error, _}" do
-      attrs = %{
-        @valid_attrs
-        | recipient_channels: [
-            %{platform: "email", identifier: "a@b.com", preferred: true},
-            %{platform: "slack", identifier: "U01", preferred: true}
-          ]
-      }
-
+    test "channel missing platform returns {:error, _}" do
+      attrs = %{@valid_attrs | recipient_channels: [%{identifier: "U01"}]}
       assert {:error, reason} = Notification.build(attrs)
-      assert reason =~ "preferred"
+      assert reason =~ "platform"
+    end
+
+    test "channel missing identifier returns {:error, _}" do
+      attrs = %{@valid_attrs | recipient_channels: [%{platform: "email"}]}
+      assert {:error, reason} = Notification.build(attrs)
+      assert reason =~ "identifier"
     end
   end
 
@@ -154,10 +153,28 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
       {:ok, n} =
         Notification.build(%{
           @valid_attrs
-          | recipient_channels: [%{platform: "mattermost", identifier: "U123", preferred: true}]
+          | recipient_channels: [%{platform: "mattermost", identifier: "U123"}]
         })
 
       assert {:ok, :skipped} = Notifications.notify(n)
+    end
+
+    test "channels are dispatched in the order provided — no internal sorting" do
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [
+              %{platform: "email", identifier: "first@example.com"},
+              %{platform: "email", identifier: "second@example.com"}
+            ]
+        })
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, :dispatched} = Notifications.notify(n)
+        [job] = all_enqueued(worker: DispatchWorker)
+        channels = job.args["channels"]
+        assert hd(channels)["identifier"] == "first@example.com"
+      end)
     end
 
     test "rejects a plain map — only %Notification{} accepted" do
