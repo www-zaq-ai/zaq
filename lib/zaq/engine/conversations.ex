@@ -220,6 +220,24 @@ defmodule Zaq.Engine.Conversations do
           nil -> rate_message(message, rater_attrs)
           existing -> update_rating(existing, Map.take(rater_attrs, [:rating, :comment]))
         end
+        |> tap(fn
+          {:ok, rating} ->
+            conversation_history = list_conversation_messages(message.conversation_id)
+
+            Zaq.Hooks.dispatch_after(
+              :feedback_provided,
+              %{
+                message: message,
+                rating: rating,
+                conversation_history: conversation_history,
+                rater_attrs: rater_attrs
+              },
+              %{}
+            )
+
+          _ ->
+            :ok
+        end)
     end
   end
 
@@ -254,6 +272,14 @@ defmodule Zaq.Engine.Conversations do
   end
 
   # ── Private ────────────────────────────────────────────────────────
+
+  defp list_conversation_messages(conversation_id) do
+    from(m in Message,
+      where: m.conversation_id == ^conversation_id,
+      order_by: [asc: m.inserted_at]
+    )
+    |> Repo.all()
+  end
 
   defp enqueue_token_aggregator(conversation_id, %Message{model: model})
        when is_binary(model) do
