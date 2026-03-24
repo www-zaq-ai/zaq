@@ -111,6 +111,43 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
            |> Enum.max() == 390.0
   end
 
+  test "90d range surfaces data across dashboard payloads" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_rollup("qa.answer.latency_ms", now, 420.0, 1)
+    insert_rollup("qa.answer.confidence", now, 0.82, 1)
+    insert_rollup("qa.question.count", now, 10.0, 10)
+    insert_rollup("qa.no_answer.count", now, 2.0, 2)
+    insert_rollup("qa.answer.count", now, 8.0, 8)
+    insert_rollup("qa.tokens.total", now, 1200.0, 12)
+    insert_rollup("qa.tokens.prompt", now, 700.0, 12)
+    insert_rollup("qa.tokens.completion", now, 500.0, 12)
+    insert_rollup("feedback.rating", now, 8.0, 8)
+    insert_rollup("feedback.negative.count", now, 1.0, 1)
+    insert_rollup("ingestion.completed.count", now, 4.0, 4)
+    insert_rollup("ingestion.chunks.created", now, 20.0, 4)
+    insert_rollup("ingestion.document.failed.count", now, 1.0, 1)
+
+    dashboard = Telemetry.load_dashboard(%{range: "90d", segment: "size", feedback_scope: "all"})
+
+    assert Enum.any?(get_in(dashboard.time_series, [:summary, :values, "latency"]), &(&1 > 0.0))
+
+    conversations = Telemetry.load_conversations_metrics(%{range: "90d"})
+
+    assert Enum.any?(
+             get_in(conversations.no_answer_rate_chart, [:summary, :values, "no_answer_rate"]),
+             &(&1 > 0.0)
+           )
+
+    llm = Telemetry.load_llm_performance(%{range: "90d"})
+    assert get_in(llm.llm_api_calls_chart, [:summary, :values, "calls"]) |> Enum.sum() == 12.0
+
+    knowledge_base = Telemetry.load_knowledge_base_metrics(%{range: "90d"})
+
+    assert get_in(knowledge_base.ingestion_volume_chart, [:summary, :values, "documents_ingested"])
+           |> Enum.sum() == 4.0
+  end
+
   test "load_llm_performance/1 returns strict retrieval effectiveness" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
@@ -274,50 +311,46 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
            ]
   end
 
-  test "load_conversations_metrics/1 includes weights in no_answer_rate chart meta and computes weighted averages" do
+  test "load_conversations_metrics/1 includes weights in no_answer_rate chart meta and computes per-label weighted rates" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
 
-    # Simulate scenario: 11 questions total (1 in one bucket, 10 in another)
-    # 6 no-answers total (1 in first bucket, 5 in second)
-    # Expected weighted average: 6/11 = 54.5%
+    # Simulate scenario:
+    # - Yesterday: 1 question, 1 no-answer (100%)
+    # - Today, split across two chunks: 10 questions, 5 no-answers (50%)
+    yesterday = DateTime.add(now, -1, :day)
+    today_chunk_1 = now
+    today_chunk_2 = DateTime.add(now, -2, :hour)
 
-    # First bucket: 1 question, 1 no-answer (100% no-answer rate)
-    insert_rollup("qa.question.count", DateTime.add(now, -1, :day), 1.0, 1)
-    insert_rollup("qa.no_answer.count", DateTime.add(now, -1, :day), 1.0, 1)
+    insert_rollup("qa.question.count", yesterday, 1.0, 1)
+    insert_rollup("qa.no_answer.count", yesterday, 1.0, 1)
 
-    # Second bucket: 10 questions, 5 no-answers (50% no-answer rate)
-    insert_rollup("qa.question.count", now, 10.0, 10)
-    insert_rollup("qa.no_answer.count", now, 5.0, 5)
+    insert_rollup("qa.question.count", today_chunk_1, 6.0, 6)
+    insert_rollup("qa.no_answer.count", today_chunk_1, 3.0, 3)
+
+    insert_rollup("qa.question.count", today_chunk_2, 4.0, 4)
+    insert_rollup("qa.no_answer.count", today_chunk_2, 2.0, 2)
 
     payload = Telemetry.load_conversations_metrics(%{range: "7d"})
 
-    # Verify weights are present in meta
     weights = get_in(payload.no_answer_rate_chart, [:meta, :weights])
     assert is_list(weights)
     assert length(weights) == 7
 
-    # Verify the weights correspond to question counts per bucket
-    # Two buckets should have non-zero weights: 1 and 10
     non_zero_weights = Enum.filter(weights, &(&1 > 0))
     assert Enum.sort(non_zero_weights) == [1.0, 10.0]
 
-    # Verify no_answer_rate values are present and are weighted averages
     no_answer_rates = get_in(payload.no_answer_rate_chart, [:summary, :values, "no_answer_rate"])
     assert is_list(no_answer_rates)
     assert length(no_answer_rates) == 7
 
-    # All non-zero values should be the same weighted average
-    # (1*100 + 10*50) / 11 = 54.5%
     non_zero_rates =
       Enum.zip(no_answer_rates, weights)
       |> Enum.filter(fn {_rate, weight} -> weight > 0 end)
       |> Enum.map(fn {rate, _weight} -> rate end)
 
-    # All non-zero rates should equal the weighted average
-    expected_weighted_avg = 54.5
-    assert Enum.all?(non_zero_rates, &(&1 == expected_weighted_avg))
+    assert Enum.sort(non_zero_rates) == [50.0, 100.0]
   end
 
   defp insert_rollup(metric_key, bucket_start, sum, count, opts \\ []) do

@@ -146,18 +146,15 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     question_points = sum_points(local_rows, "qa.question.count", labels.labels, :value_sum)
     cumulative_questions = cumulative_points(question_points)
 
-    {no_answer_rate_points, no_answer_weights} =
+    {no_answer_rate_weighted, no_answer_weights} =
       ratio_points(
         local_rows,
         "qa.no_answer.count",
         "qa.question.count",
         labels.labels,
-        fn ratio -> Float.round(ratio * 100, 2) end
+        fn ratio -> Float.round(ratio * 100, 2) end,
+        :weighted_per_label
       )
-
-    # Compute weighted averages per range for the no-answer rate chart
-    no_answer_rate_weighted =
-      compute_weighted_averages_per_range(no_answer_rate_points, no_answer_weights, labels.labels)
 
     response_time_points = metric_points(local_rows, "qa.answer.latency_ms", labels.labels)
 
@@ -227,7 +224,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           labels: labels.labels,
           values: %{"no_answer_rate" => no_answer_rate_weighted}
         },
-        meta: %{threshold_percent: no_answer_alert_threshold}
+        meta: %{threshold_percent: no_answer_alert_threshold, weights: no_answer_weights}
       },
       %{
         id: "average_response_time",
@@ -686,9 +683,20 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     Enum.map(labels, fn label -> Map.get(by_label, label, 0.0) end)
   end
 
-  defp ratio_points(rows, numerator_key, denominator_key, labels, transform) do
-    numerators = metric_points(rows, numerator_key, labels)
-    denominators = metric_points(rows, denominator_key, labels)
+  defp ratio_points(rows, numerator_key, denominator_key, labels, transform, mode \\ :raw)
+       when mode in [:raw, :weighted_per_label] do
+    {numerators, denominators} =
+      case mode do
+        :raw ->
+          {metric_points(rows, numerator_key, labels),
+           metric_points(rows, denominator_key, labels)}
+
+        :weighted_per_label ->
+          {
+            sum_points(rows, numerator_key, labels, :value_sum),
+            sum_points(rows, denominator_key, labels, :value_sum)
+          }
+      end
 
     ratios =
       Enum.zip(numerators, denominators)
@@ -813,9 +821,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         |> day_name()
 
       Enum.any?(labels, &String.starts_with?(&1, "W")) ->
-        date = DateTime.to_date(bucket_start)
-        {_year, week} = :calendar.iso_week_number({date.year, date.month, date.day})
-        "W" <> Integer.to_string(week)
+        week_label_for_datetime(bucket_start)
 
       true ->
         day_slot =
@@ -897,28 +903,6 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
   defp ratio_or_zero(_n, d) when d <= 0, do: 0.0
   defp ratio_or_zero(n, d), do: n / d
 
-  # Computes weighted averages per range for time-series data.
-  # For each time bucket, calculates the weighted average using the question count as weight.
-  defp compute_weighted_averages_per_range(rates, weights, _labels) do
-    # Calculate total weight for the entire range
-    total_weight = Enum.sum(weights)
-
-    if total_weight > 0 do
-      # Compute weighted average across all buckets
-      weighted_sum =
-        Enum.zip(rates, weights)
-        |> Enum.reduce(0.0, fn {rate, weight}, acc -> acc + rate * weight end)
-
-      weighted_avg = Float.round(weighted_sum / total_weight, 2)
-
-      # Return the weighted average for each bucket (consistent value across the range)
-      Enum.map(rates, fn _ -> weighted_avg end)
-    else
-      # If no weights, return original rates
-      rates
-    end
-  end
-
   defp normalize_filters(filters) do
     %{
       range: Map.get(filters, :range) || Map.get(filters, "range") || "7d",
@@ -948,13 +932,38 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       from: DateTime.add(DateTime.utc_now(), -30, :day)
     }
 
-  defp labels_for_range("90d"),
-    do: %{
-      labels: Enum.map(1..12, fn idx -> "W#{idx}" end),
-      from: DateTime.add(DateTime.utc_now(), -90, :day)
+  defp labels_for_range("90d") do
+    from = DateTime.add(DateTime.utc_now(), -90, :day)
+    now = DateTime.utc_now()
+
+    %{
+      labels: weekly_labels_for_range(from, now),
+      from: from
     }
+  end
 
   defp labels_for_range(_), do: labels_for_range("7d")
+
+  defp weekly_labels_for_range(from, to) do
+    total_days = Date.diff(DateTime.to_date(to), DateTime.to_date(from))
+
+    sampled_weeks =
+      0..div(total_days, 7)
+      |> Enum.map(fn offset ->
+        from
+        |> DateTime.add(offset * 7, :day)
+        |> week_label_for_datetime()
+      end)
+
+    (sampled_weeks ++ [week_label_for_datetime(to)])
+    |> Enum.uniq()
+  end
+
+  defp week_label_for_datetime(datetime) do
+    date = DateTime.to_date(datetime)
+    {_year, week} = :calendar.iso_week_number({date.year, date.month, date.day})
+    "W#{week}"
+  end
 
   defp window_seconds_for_range("24h"), do: 24 * 60 * 60
   defp window_seconds_for_range("7d"), do: 7 * 24 * 60 * 60
