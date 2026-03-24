@@ -143,6 +143,22 @@ config :zaq, Oban,
   queues: [ingestion: 10]
 ```
 
+### Docker storage defaults
+
+For containerized runs, ZAQ defaults to:
+
+- `INGESTION_VOLUMES=documents`
+- `INGESTION_VOLUMES_BASE=/zaq/volumes`
+- `INGESTION_BASE_PATH=/zaq/volumes/documents`
+
+When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists before startup:
+
+```bash
+mkdir -p ingestion-volumes/documents
+```
+
+All variables above are optional overrides; only change them if your deployment uses a different filesystem layout.
+
 ---
 
 ## Key Design Decisions

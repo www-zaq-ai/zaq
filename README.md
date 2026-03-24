@@ -78,13 +78,25 @@ This path uses `docker-compose.yml` with:
 - `zaq` service (Phoenix release built from `Dockerfile`)
 - automatic DB migration on container start
 
-1. Set a production secret key base (required by `runtime.exs`):
+Defaults used by the Docker setup:
+
+- ingestion volume root: `/zaq/volumes`
+- default ingestion folder: `/zaq/volumes/documents`
+- named volume map: `documents -> /zaq/volumes/documents`
+
+1. Create the host folder used by the default bind mount:
+
+```bash
+mkdir -p ingestion-volumes/documents
+```
+
+2. Set a production secret key base (required by `runtime.exs`):
 
 ```bash
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 ```
 
-2. Optionally override model endpoints, models, and base URL from your host environment:
+3. Optionally override model endpoints, models, base URL, and ingestion paths from your host environment:
 
 ```bash
 export LLM_ENDPOINT="http://host.docker.internal:11434/v1"
@@ -95,11 +107,18 @@ export EMBEDDING_ENDPOINT="http://host.docker.internal:11434/v1"
 export EMBEDDING_API_KEY=""
 export EMBEDDING_MODEL="bge-multilingual-gemma2"
 
+export IMAGE_TO_TEXT_API_URL=""
+export IMAGE_TO_TEXT_API_KEY=""
+
 export BASE_URL_SCHEME="http"
 export BASE_URL="http://localhost:4000"
+
+export INGESTION_VOLUMES="documents"
+export INGESTION_VOLUMES_BASE="/zaq/volumes"
+export INGESTION_BASE_PATH="/zaq/volumes/documents"
 ```
 
-3. Configure SMTP secret encryption (required to save SMTP passwords from BO):
+4. Configure SMTP secret encryption (required to save SMTP passwords from BO):
 
 ```bash
 # recommended: base64 key that decodes to exactly 32 bytes
@@ -115,13 +134,13 @@ export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
 
 If the key is missing or invalid, ZAQ blocks saving sensitive SMTP settings (strict mode).
 
-4. Build and start the stack:
+5. Build and start the stack:
 
 ```bash
 docker compose up --build
 ```
 
-5. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
+6. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
 
 To stop containers:
 
@@ -136,6 +155,25 @@ docker compose down -v
 ```
 
 `docker compose down -v` removes the Postgres named volume only. Files in `./ingestion-volumes` are bind-mounted and remain on disk.
+
+### Environment Variables (required vs optional)
+
+| Variable | Docker Compose default | Required | Notes |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database |
+| `SECRET_KEY_BASE` | none | Yes (prod runtime) | Generate with `openssl rand -hex 64` |
+| `INGESTION_VOLUMES` | `documents` | No | Optional override |
+| `INGESTION_VOLUMES_BASE` | `/zaq/volumes` | No | Optional override |
+| `INGESTION_BASE_PATH` | `/zaq/volumes/documents` | No | Fallback path used by file preview and file serving |
+| `LLM_ENDPOINT` | `http://host.docker.internal:11434/v1` | No | Optional override |
+| `LLM_API_KEY` | empty | No | Optional override |
+| `LLM_MODEL` | `gpt-oss-120b` | No | Optional override |
+| `EMBEDDING_ENDPOINT` | `http://host.docker.internal:11434/v1` | No | Optional override |
+| `EMBEDDING_API_KEY` | empty | No | Optional override |
+| `EMBEDDING_MODEL` | `bge-multilingual-gemma2` | No | Optional override |
+| `IMAGE_TO_TEXT_API_URL` | `http://host.docker.internal:11434/v1` | No | Optional override |
+| `IMAGE_TO_TEXT_API_KEY` | empty | No | Optional override |
+| `IMAGE_TO_TEXT_MODEL` | `pixtral-12b-2409` | No | Optional override |
 
 ### Local (Mix)
 
