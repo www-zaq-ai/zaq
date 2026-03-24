@@ -16,7 +16,8 @@ defmodule Zaq.License.Loader do
   def load(license_path) do
     with {:ok, files} <- extract_package(license_path),
          {:ok, payload, signature} <- parse_license_dat(files),
-         :ok <- Verifier.verify(payload, signature),
+         {:ok, public_key} <- parse_public_key(files),
+         :ok <- Verifier.verify(payload, signature, public_key),
          {:ok, license_data} <- decode_payload(payload),
          key <- BeamDecryptor.derive_key(payload),
          {:ok, loaded_modules} <- decrypt_and_load_modules(files, key),
@@ -61,6 +62,19 @@ defmodule Zaq.License.Loader do
       :error -> {:error, :missing_license_dat}
       :invalid_format -> {:error, :invalid_license_dat_format}
       _ -> {:error, :invalid_license_dat_encoding}
+    end
+  end
+
+  defp parse_public_key(files) do
+    case Map.fetch(files, "public.key") do
+      {:ok, encoded} ->
+        case Base.decode64(to_string(encoded)) do
+          {:ok, key} -> {:ok, key}
+          :error -> {:error, :invalid_public_key_encoding}
+        end
+
+      :error ->
+        {:error, :missing_public_key}
     end
   end
 

@@ -61,14 +61,22 @@ defmodule Zaq.Repo.Migrations.SeedDefaultPromptTemplates do
   - Be EXTREMELY concise - answer in 1-2 sentences maximum
   - Only include the specific information requested
   - Do NOT include quotes from the source
-  - Cite source as: [source: filename.md]
+  - Cite the source using EXACTLY this format: [source: <value of the "source" field from retrieved_data>]
+  - NEVER write [source] or [source:] without the actual filename — if you don't have a source, omit the citation entirely
 
   STRICT RULES:
-  - ALWAYS cite the exact source document
+  - ALWAYS cite the exact source document using its "source" value from retrieved_data
   - Never output the advanced reasoning
   - Write your answer in <%= @language %> ISO 639-3 language
   - Format your response in HTML
   - When you cannot answer, ALWAYS start with <%= @no_answer_signal %>
+
+  <%= if @has_history do %>
+  CONVERSATION CONTEXT:
+  The messages above represent prior conversation turns between the user and you.
+  Take them into account when formulating your answer — especially for follow-up questions,
+  pronouns referring to earlier topics, or requests to clarify a previous answer.
+  <% end %>
 
   USER QUESTION: <%= @question %>
 
