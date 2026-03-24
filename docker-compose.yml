@@ -43,6 +43,7 @@ services:
       IMAGE_TO_TEXT_API_URL: ${IMAGE_TO_TEXT_API_URL:-http://host.docker.internal:11434/v1}
       IMAGE_TO_TEXT_MODEL: ${IMAGE_TO_TEXT_MODEL:-pixtral-12b-2409}
       IMAGE_TO_TEXT_API_KEY: "${IMAGE_TO_TEXT_API_KEY}"
+      SYSTEM_CONFIG_ENCRYPTION_KEY: "${SYSTEM_CONFIG_ENCRYPTION_KEY}"
     volumes:
       - ./ingestion-volumes:/zaq/volumes
     extra_hosts:
