@@ -152,7 +152,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
       baseline: %{for: "no_answer_rate", value: 10.0, label: "Alert threshold"},
       series: [%{key: "no_answer_rate", name: "No-answer rate", values: zeroes}],
       summary: %{labels: labels, values: %{"no_answer_rate" => zeroes}},
-      meta: %{threshold_percent: 10.0, weights: zeroes}
+      meta: %{threshold_percent: 10.0}
     })
   end
 

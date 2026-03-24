@@ -225,7 +225,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           labels: labels.labels,
           values: %{"no_answer_rate" => no_answer_rate_weighted}
         },
-        meta: %{threshold_percent: no_answer_alert_threshold, weights: no_answer_weights}
+        meta: %{threshold_percent: no_answer_alert_threshold}
       },
       %{
         id: "average_response_time",
