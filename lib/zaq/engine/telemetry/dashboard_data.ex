@@ -155,6 +155,10 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         fn ratio -> Float.round(ratio * 100, 2) end
       )
 
+    # Compute weighted averages per range for the no-answer rate chart
+    no_answer_rate_weighted =
+      compute_weighted_averages_per_range(no_answer_rate_points, no_answer_weights, labels.labels)
+
     response_time_points = metric_points(local_rows, "qa.answer.latency_ms", labels.labels)
 
     confidence_axes =
@@ -216,10 +220,10 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           value: no_answer_alert_threshold,
           label: "Alert threshold"
         },
-        series: [%{key: "no_answer_rate", name: "No-answer rate", values: no_answer_rate_points}],
+        series: [%{key: "no_answer_rate", name: "No-answer rate", values: no_answer_rate_weighted}],
         summary: %{
           labels: labels.labels,
-          values: %{"no_answer_rate" => no_answer_rate_points}
+          values: %{"no_answer_rate" => no_answer_rate_weighted}
         },
         meta: %{threshold_percent: no_answer_alert_threshold, weights: no_answer_weights}
       },
@@ -890,6 +894,28 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
 
   defp ratio_or_zero(_n, d) when d <= 0, do: 0.0
   defp ratio_or_zero(n, d), do: n / d
+
+  # Computes weighted averages per range for time-series data.
+  # For each time bucket, calculates the weighted average using the question count as weight.
+  defp compute_weighted_averages_per_range(rates, weights, _labels) do
+    # Calculate total weight for the entire range
+    total_weight = Enum.sum(weights)
+
+    if total_weight > 0 do
+      # Compute weighted average across all buckets
+      weighted_sum =
+        Enum.zip(rates, weights)
+        |> Enum.reduce(0.0, fn {rate, weight}, acc -> acc + rate * weight end)
+
+      weighted_avg = Float.round(weighted_sum / total_weight, 2)
+
+      # Return the weighted average for each bucket (consistent value across the range)
+      Enum.map(rates, fn _ -> weighted_avg end)
+    else
+      # If no weights, return original rates
+      rates
+    end
+  end
 
   defp normalize_filters(filters) do
     %{
