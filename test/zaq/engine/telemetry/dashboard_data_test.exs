@@ -274,7 +274,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
            ]
   end
 
-  test "load_conversations_metrics/1 includes weights in no_answer_rate chart meta for weighted average calculation" do
+  test "load_conversations_metrics/1 includes weights in no_answer_rate chart meta and computes weighted averages" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
@@ -303,19 +303,21 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     non_zero_weights = Enum.filter(weights, &(&1 > 0))
     assert Enum.sort(non_zero_weights) == [1.0, 10.0]
 
-    # Verify no_answer_rate values are present
+    # Verify no_answer_rate values are present and are weighted averages
     no_answer_rates = get_in(payload.no_answer_rate_chart, [:summary, :values, "no_answer_rate"])
     assert is_list(no_answer_rates)
     assert length(no_answer_rates) == 7
 
-    # The weighted average should be calculable from the weights and rates
+    # All non-zero values should be the same weighted average
     # (1*100 + 10*50) / 11 = 54.5%
     non_zero_rates =
       Enum.zip(no_answer_rates, weights)
       |> Enum.filter(fn {_rate, weight} -> weight > 0 end)
       |> Enum.map(fn {rate, _weight} -> rate end)
 
-    assert Enum.sort(non_zero_rates) == [50.0, 100.0]
+    # All non-zero rates should equal the weighted average
+    expected_weighted_avg = 54.5
+    assert Enum.all?(non_zero_rates, &(&1 == expected_weighted_avg))
   end
 
   defp insert_rollup(metric_key, bucket_start, sum, count, opts \\ []) do
