@@ -83,7 +83,7 @@ defmodule Zaq.Agent.RetrievalTest do
                end)
 
         assert Enum.any?(messages, fn msg ->
-                 msg["role"] == "system" and
+                 msg["role"] == "assistant" and
                    message_text(msg) == Jason.encode!(%{"step" => "done"})
                end)
 

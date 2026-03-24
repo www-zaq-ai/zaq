@@ -10,7 +10,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts.Permissions
-  alias Zaq.Agent.Pipeline
+  alias Zaq.Agent.{History, Pipeline}
   alias Zaq.NodeRouter
   alias ZaqWeb.Components.ServiceUnavailable
 
@@ -311,11 +311,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         if result[:error] || Map.get(result, :confidence_score, 0.0) == 0.0 do
           history
         else
-          now = DateTime.utc_now() |> DateTime.to_iso8601()
+          now = DateTime.utc_now()
 
           history
-          |> Map.put("#{now}_user", %{"body" => user_msg, "type" => "user"})
-          |> Map.put("#{now}_bot", %{"body" => result.answer, "type" => "bot"})
+          |> Map.put(History.entry_key(now, :user), %{"body" => user_msg, "type" => "user"})
+          |> Map.put(History.entry_key(now, :bot), %{"body" => result.answer, "type" => "bot"})
         end
 
       socket =
@@ -508,7 +508,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       timestamp: msg.inserted_at,
       error: false,
       feedback: infer_feedback_from_ratings(ratings),
-      sources: if(msg.sources != [], do: msg.sources, else: extract_sources(content))
+      sources: if(msg.sources in [nil, []], do: extract_sources(content), else: msg.sources)
     }
   end
 
@@ -532,12 +532,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           {history, msg.content}
 
         "assistant" when not is_nil(last_user) ->
-          now = msg.inserted_at |> DateTime.to_iso8601()
+          now = msg.inserted_at
 
           updated =
             history
-            |> Map.put("#{now}_user", %{"body" => last_user, "type" => "user"})
-            |> Map.put("#{now}_bot", %{"body" => msg.content, "type" => "bot"})
+            |> Map.put(History.entry_key(now, :user), %{"body" => last_user, "type" => "user"})
+            |> Map.put(History.entry_key(now, :bot), %{
+              "body" => clean_body(msg.content || ""),
+              "type" => "bot"
+            })
 
           {updated, nil}
 
@@ -556,11 +559,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp extract_sources(body) do
     Regex.scan(~r/\[source:\s*([^\]]+)\]/, body)
     |> Enum.map(fn [_, source] -> String.trim(source) end)
+    |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
 
   defp clean_body(body) do
-    Regex.replace(~r/\s*\[source:\s*[^\]]+\]/u, body, "")
+    Regex.replace(~r/\s*\[source[^\]]*\]/u, body, "")
     |> String.trim()
   end
 end

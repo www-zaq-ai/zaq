@@ -17,7 +17,7 @@ defmodule Zaq.Agent.Answering do
   alias LangChain.Message
   alias LangChain.Utils.ChainResult
   alias Zaq.Agent.Answering.Result
-  alias Zaq.Agent.{LLM, LogprobsAnalyzer}
+  alias Zaq.Agent.{History, LLM, LogprobsAnalyzer}
   alias Zaq.Engine.Telemetry
 
   @no_answer_signals [
@@ -55,7 +55,9 @@ defmodule Zaq.Agent.Answering do
 
     history =
       Keyword.get(opts, :history, [])
-      |> build_history()
+      |> History.build()
+
+    question = Keyword.get(opts, :question)
 
     llm_config =
       LLM.chat_config()
@@ -73,6 +75,11 @@ defmodule Zaq.Agent.Answering do
         |> LLMChain.add_message(Message.new_system!(system_prompt))
         |> then(fn chain ->
           if history != [], do: LLMChain.add_messages(chain, history), else: chain
+        end)
+        |> then(fn chain ->
+          if is_binary(question) && question != "",
+            do: LLMChain.add_message(chain, Message.new_user!(question)),
+            else: chain
         end)
         |> LLMChain.run()
 
@@ -159,20 +166,6 @@ defmodule Zaq.Agent.Answering do
   def clean_answer(answer), do: answer
 
   # -- Private --
-
-  defp build_history([]), do: []
-
-  defp build_history(history) when is_map(history) do
-    Enum.map(history, fn
-      {_timestamp, %{"body" => msg, "type" => "bot"}} ->
-        msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
-        Message.new_assistant!(msg)
-
-      {_timestamp, %{"body" => msg, "type" => "user"}} ->
-        msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
-        Message.new_user!(msg)
-    end)
-  end
 
   defp maybe_add_logprobs(config, true), do: Map.put(config, :logprobs, true)
   defp maybe_add_logprobs(config, false), do: config

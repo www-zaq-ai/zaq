@@ -15,7 +15,7 @@ defmodule Zaq.Agent.Retrieval do
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
   alias LangChain.Utils.ChainResult
-  alias Zaq.Agent.LLM
+  alias Zaq.Agent.{History, LLM}
   alias Zaq.Agent.PromptTemplate
 
   @doc """
@@ -30,6 +30,8 @@ defmodule Zaq.Agent.Retrieval do
   Returns `{:ok, decoded_json}` on success.
   """
   def ask(question, opts \\ []) do
+    Logger.info("Retrieval: Received question: #{question}")
+
     system_prompt =
       Keyword.get_lazy(opts, :system_prompt, fn ->
         PromptTemplate.get_active!("retrieval")
@@ -37,7 +39,7 @@ defmodule Zaq.Agent.Retrieval do
 
     history =
       Keyword.get(opts, :history, [])
-      |> build_history()
+      |> History.build()
 
     llm_config =
       LLM.chat_config()
@@ -67,20 +69,6 @@ defmodule Zaq.Agent.Retrieval do
         Logger.error("Retrieval failed: #{inspect(e)}")
         {:error, "Failed to process question: #{Exception.message(e)}"}
     end
-  end
-
-  defp build_history([]), do: []
-
-  defp build_history(history) when is_map(history) do
-    Enum.map(history, fn
-      {_timestamp, %{"body" => msg, "type" => "bot"}} ->
-        msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
-        Message.new_system!(msg)
-
-      {_timestamp, %{"body" => msg, "type" => "user"}} ->
-        msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
-        Message.new_user!(msg)
-    end)
   end
 
   defp maybe_add_json_mode(config) do

@@ -219,10 +219,15 @@ defmodule Zaq.Agent.Pipeline do
         question: question,
         retrieved_data: Jason.encode!(retrieved_data),
         language: language,
-        no_answer_signal: @no_answer_signal
+        no_answer_signal: @no_answer_signal,
+        has_history: history != %{}
       })
 
-    answer_opts = [history: history, telemetry_dimensions: telemetry_dimensions(opts)]
+    answer_opts = [
+      history: history,
+      question: question,
+      telemetry_dimensions: telemetry_dimensions(opts)
+    ]
 
     ask_args =
       if function_exported?(answering_mod(opts), :ask, 2) do
