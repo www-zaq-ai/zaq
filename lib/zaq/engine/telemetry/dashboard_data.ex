@@ -220,7 +220,9 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           value: no_answer_alert_threshold,
           label: "Alert threshold"
         },
-        series: [%{key: "no_answer_rate", name: "No-answer rate", values: no_answer_rate_weighted}],
+        series: [
+          %{key: "no_answer_rate", name: "No-answer rate", values: no_answer_rate_weighted}
+        ],
         summary: %{
           labels: labels.labels,
           values: %{"no_answer_rate" => no_answer_rate_weighted}
