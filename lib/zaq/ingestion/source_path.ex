@@ -11,8 +11,10 @@ defmodule Zaq.Ingestion.SourcePath do
   @doc """
   Normalizes relative paths produced by the UI (e.g. strips leading "./").
   """
-  def normalize_relative("./" <> rest), do: rest
-  def normalize_relative(path), do: path
+  def normalize_relative("./" <> rest), do: nfc(rest)
+  def normalize_relative(path), do: nfc(path)
+
+  defp nfc(path), do: :unicode.characters_to_nfc_binary(path)
 
   @doc """
   Builds a canonical volume-prefixed source for a relative path.

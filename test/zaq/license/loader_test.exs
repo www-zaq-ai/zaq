@@ -40,7 +40,7 @@ defmodule Zaq.License.LoaderTest do
       end
     end)
 
-    {:ok, tmp_dir: tmp_dir, priv: priv}
+    {:ok, tmp_dir: tmp_dir, pub: pub, priv: priv}
   end
 
   test "returns extract_failed for non archive file", %{tmp_dir: tmp_dir} do
@@ -64,20 +64,29 @@ defmodule Zaq.License.LoaderTest do
     assert {:error, :invalid_license_dat_format} = Loader.load(path)
   end
 
-  test "returns invalid_payload_json for non-json payload", %{tmp_dir: tmp_dir, priv: priv} do
+  test "returns invalid_payload_json for non-json payload", %{
+    tmp_dir: tmp_dir,
+    pub: pub,
+    priv: priv
+  } do
     payload = "not-json"
     signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
 
     path = Path.join(tmp_dir, "bad_json.zaq-license")
 
     create_archive!(path, [
-      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)}
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)}
     ])
 
     assert {:error, :invalid_payload_json} = Loader.load(path)
   end
 
-  test "returns missing_expires_at when field is absent", %{tmp_dir: tmp_dir, priv: priv} do
+  test "returns missing_expires_at when field is absent", %{
+    tmp_dir: tmp_dir,
+    pub: pub,
+    priv: priv
+  } do
     payload = Jason.encode!(%{"license_key" => "lic_missing_exp", "features" => []})
     signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
     key = BeamDecryptor.derive_key(payload)
@@ -87,13 +96,18 @@ defmodule Zaq.License.LoaderTest do
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
       {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
     assert {:error, :missing_expires_at} = Loader.load(path)
   end
 
-  test "returns license_expired when expiry is in the past", %{tmp_dir: tmp_dir, priv: priv} do
+  test "returns license_expired when expiry is in the past", %{
+    tmp_dir: tmp_dir,
+    pub: pub,
+    priv: priv
+  } do
     payload =
       Jason.encode!(%{
         "license_key" => "lic_expired",
@@ -109,13 +123,18 @@ defmodule Zaq.License.LoaderTest do
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
       {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
     assert {:error, :license_expired} = Loader.load(path)
   end
 
-  test "returns decrypt_failed when module cannot be decrypted", %{tmp_dir: tmp_dir, priv: priv} do
+  test "returns decrypt_failed when module cannot be decrypted", %{
+    tmp_dir: tmp_dir,
+    pub: pub,
+    priv: priv
+  } do
     payload = valid_payload("lic_dec_fail")
     signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
     key = BeamDecryptor.derive_key(payload)
@@ -130,6 +149,7 @@ defmodule Zaq.License.LoaderTest do
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
       {~c"modules/Elixir.LicenseManager.Paid.DecFail.beam.enc", encrypted_module}
     ])
 
@@ -139,6 +159,7 @@ defmodule Zaq.License.LoaderTest do
 
   test "returns load_failed when decrypted bytes are not a beam file", %{
     tmp_dir: tmp_dir,
+    pub: pub,
     priv: priv
   } do
     payload = valid_payload("lic_load_fail")
@@ -161,6 +182,7 @@ defmodule Zaq.License.LoaderTest do
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
       {~c"modules/Elixir.LicenseManager.Paid.LoadFail.beam.enc", encrypted_module}
     ])
 
@@ -170,6 +192,7 @@ defmodule Zaq.License.LoaderTest do
 
   test "calls ObanProvisioner when loaded module implements ObanFeature", %{
     tmp_dir: tmp_dir,
+    pub: pub,
     priv: priv
   } do
     # The unique suffix keeps the module atom distinct across test runs.
@@ -208,6 +231,7 @@ defmodule Zaq.License.LoaderTest do
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
       {String.to_charlist("modules/#{mod_name}.beam.enc"), encrypted_module}
     ])
 
@@ -222,6 +246,7 @@ defmodule Zaq.License.LoaderTest do
 
   test "does not invoke ObanProvisioner for modules without ObanFeature", %{
     tmp_dir: tmp_dir,
+    pub: pub,
     priv: priv
   } do
     mod_name = "Elixir.LicenseManager.Paid.NoObanFeature#{System.unique_integer([:positive])}"
@@ -254,6 +279,7 @@ defmodule Zaq.License.LoaderTest do
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
       {String.to_charlist("modules/#{mod_name}.beam.enc"), encrypted_module}
     ])
 
@@ -264,7 +290,7 @@ defmodule Zaq.License.LoaderTest do
     refute log =~ "[ObanProvisioner]"
   end
 
-  test "loads valid package and updates feature store", %{tmp_dir: tmp_dir, priv: priv} do
+  test "loads valid package and updates feature store", %{tmp_dir: tmp_dir, pub: pub, priv: priv} do
     module_name = "Elixir.LicenseManager.Paid.LoaderSuccess#{System.unique_integer([:positive])}"
 
     module_source =
@@ -304,6 +330,7 @@ defmodule Zaq.License.LoaderTest do
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
       {String.to_charlist("modules/#{module_name}.beam.enc"), encrypted_module},
       {~c"migrations/20260101000000_add_thing.exs", "defmodule TempMigration do end"}
     ])

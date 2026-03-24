@@ -94,7 +94,12 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   end
 
   defp maybe_inject_descriptions(_api_key, md_path, descriptions_json) do
-    InjectDescriptions.run(md_path, descriptions_json)
+    if File.exists?(descriptions_json) do
+      InjectDescriptions.run(md_path, descriptions_json)
+    else
+      Logger.info("[Pipeline] No descriptions.json found — skipping injection")
+      {:ok, :skipped}
+    end
   end
 
   defp cleanup_images(images_dir, images_folder) do
