@@ -184,7 +184,9 @@ defmodule ZaqWeb.Components.ChatMessage do
   defp source_label(%{"title" => title}), do: title
   defp source_label(_), do: "source"
 
-  defp source_preview_path(source) when is_binary(source), do: "/bo/preview/#{source}"
+  defp source_preview_path(source) when is_binary(source) and source != "",
+    do: "/bo/preview/#{source}"
+
   defp source_preview_path(%{"path" => path}), do: "/bo/preview/#{path}"
   defp source_preview_path(%{"id" => id}), do: "/bo/files/#{id}"
   defp source_preview_path(_), do: "#"
