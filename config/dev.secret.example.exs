@@ -24,7 +24,7 @@ config :zaq, Zaq.Embedding.Client,
 # -- Ingestion --
 config :zaq, Zaq.Ingestion,
   max_context_window: String.to_integer("5000"),
-  distance_threshold: String.to_float("0.75"),
+  distance_threshold: String.to_float("1.2"),
   hybrid_search_limit: String.to_integer("20"),
   chunk_min_tokens: String.to_integer("400"),
   chunk_max_tokens: String.to_integer("900"),

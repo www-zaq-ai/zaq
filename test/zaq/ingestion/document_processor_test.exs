@@ -778,7 +778,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       :ok
     end
 
-    test "passes embedding errors through from hybrid_search" do
+    test "passes embedding errors through from similarity_search_group_by" do
       stub_embedding_failure()
       assert {:error, reason} = DocumentProcessor.query_extraction("query")
       assert is_binary(reason)
@@ -812,7 +812,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       Enum.each(results, fn r ->
         assert Map.has_key?(r, "content")
         assert Map.has_key?(r, "source")
-        assert Map.has_key?(r, "rrf_score")
+        assert Map.has_key?(r, "distance")
       end)
     end
 
@@ -838,7 +838,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         %{
           "content" => "Boundary-only chunk with deterministic payload.",
           "source" => "strict-boundary.md",
-          "rrf_score" => 1.0
+          "distance" => 1.0
         }
         |> Jason.encode!()
         |> TokenEstimator.estimate()

@@ -46,7 +46,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp distance_threshold do
     Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:distance_threshold, 0.75)
+    |> Keyword.get(:distance_threshold, 1.2)
   end
 
   defp hybrid_search_limit do
@@ -489,40 +489,105 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Extracts token-limited chunks for a given query using hybrid search.
-  Returns a list of maps with `"content"`, `"source"`, and `"rrf_score"`.
+  Extracts token-limited chunks for a given query.
+  Groups by document_id and section_path, sorted by vector distance.
+
+  Returns a list of maps with `"content"`, `"source"`, and `"distance"`.
   """
+  @spec query_extraction(String.t(), list(integer()) | nil) ::
+          {:ok, list(map())} | {:error, term()}
   def query_extraction(query, role_ids \\ nil) do
-    with {:ok, results} <- hybrid_search(query, role_ids) do
-      answer = build_answer_from_results(results)
-      {:ok, answer}
+    with {:ok, ss} <- similarity_search_group_by(query, role_ids),
+         sections = build_query_sections(ss),
+         {:ok, data} <- fetch_sections_with_source(sections) do
+      {:ok, limit_to_context_window(data)}
     end
   end
 
-  defp build_answer_from_results(results) do
-    {answer, _token_count} =
-      Enum.reduce_while(results, {[], 0}, &accumulate_chunk/2)
-
-    answer
+  defp build_query_sections(ss) do
+    ss
+    |> Enum.flat_map(fn {doc_id, paths} ->
+      Enum.flat_map(paths, fn
+        {_path, []} -> []
+        {path, [first | _]} -> [{doc_id, path, first.vector_distance}]
+      end)
+    end)
+    |> List.keysort(2)
+    |> Enum.uniq_by(fn {doc_id, path, _} -> {doc_id, path} end)
   end
 
-  defp accumulate_chunk(%{chunk: chunk, source: source, rrf_score: rrf_score}, {acc, acc_tokens}) do
-    chunk_map = %{
-      "content" => chunk.content,
-      "source" => source,
-      "rrf_score" => rrf_score
-    }
+  defp limit_to_context_window(data) do
+    {answer, _} =
+      Enum.reduce_while(data, {[], 0}, fn chunk, {acc, acc_tokens} ->
+        output_tokens = chunk |> Jason.encode!() |> TokenEstimator.estimate()
 
-    output_tokens =
-      chunk_map
-      |> Jason.encode!()
-      |> TokenEstimator.estimate()
+        if acc_tokens + output_tokens < max_context_window() do
+          {:cont, {[chunk | acc], acc_tokens + output_tokens}}
+        else
+          {:halt, {acc, acc_tokens}}
+        end
+      end)
 
-    if acc_tokens + output_tokens < max_context_window() do
-      {:cont, {acc ++ [chunk_map], acc_tokens + output_tokens}}
-    else
-      {:halt, {acc, acc_tokens}}
+    Enum.reverse(answer)
+  end
+
+  defp similarity_search_group_by(query_text, role_ids) do
+    with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
+      embedding_vector = Pgvector.HalfVector.new(embedding)
+      threshold = distance_threshold()
+
+      results =
+        Chunk
+        |> join(:inner, [c], d in Document, on: c.document_id == d.id)
+        |> where([c, _d], fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold))
+        |> maybe_filter_roles(role_ids)
+        |> order_by([c, _d], asc: fragment("? <-> ?", c.embedding, ^embedding_vector))
+        |> select([c, _d], %{
+          document_id: c.document_id,
+          section_path: c.section_path,
+          vector_distance: fragment("? <-> ?", c.embedding, ^embedding_vector)
+        })
+        |> Repo.all()
+
+      grouped =
+        results
+        |> Enum.group_by(& &1.document_id)
+        |> Map.new(fn {doc_id, items} ->
+          {doc_id, Enum.group_by(items, & &1.section_path)}
+        end)
+
+      {:ok, grouped}
     end
+  end
+
+  defp fetch_sections_with_source([]), do: {:ok, []}
+
+  defp fetch_sections_with_source(sections) do
+    distance_map = Map.new(sections, fn {doc_id, path, dist} -> {{doc_id, path}, dist} end)
+
+    or_filter =
+      Enum.reduce(sections, dynamic(false), fn {doc_id, path, _dist}, acc ->
+        dynamic([c], ^acc or (c.document_id == ^doc_id and c.section_path == ^path))
+      end)
+
+    results =
+      Chunk
+      |> join(:inner, [c], d in Document, on: c.document_id == d.id)
+      |> where([c, _d], ^or_filter)
+      |> select([c, d], %{
+        content: c.content,
+        source: d.source,
+        document_id: c.document_id,
+        section_path: c.section_path
+      })
+      |> Repo.all()
+      |> Enum.map(fn r ->
+        dist = distance_map[{r.document_id, r.section_path}]
+        %{"content" => r.content, "source" => r.source, "distance" => dist}
+      end)
+      |> Enum.sort_by(& &1["distance"])
+
+    {:ok, results}
   end
 
   # ---------------------------------------------------------------------------
