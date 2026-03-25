@@ -1,93 +1,23 @@
 defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.Agent.{LLM, PromptTemplate, TokenEstimator}
+  alias Zaq.Agent.{LLM, PromptTemplate, Retrieval, TokenEstimator}
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document}
-  alias Zaq.Ingestion.Python.Runner
-
-  @modules [
-    # Phase 1
-    %{
-      phase: "1",
-      name: "Zaq.Agent.LLM",
-      file: "lib/zaq/agent/llm.ex",
-      description: "LLM config & chat wrapper"
-    },
-    %{
-      phase: "1",
-      name: "Zaq.Embedding.Client",
-      file: "lib/zaq/embedding/client.ex",
-      description: "OpenAI-compatible embedding HTTP client"
-    },
-    %{
-      phase: "1",
-      name: "Zaq.Agent.PromptTemplate",
-      file: "lib/zaq/agent/prompt_template.ex",
-      description: "DB-managed system prompts"
-    },
-    %{
-      phase: "1",
-      name: "Zaq.Ingestion.Document",
-      file: "lib/zaq/ingestion/document.ex",
-      description: "Document Ecto schema"
-    },
-    %{
-      phase: "1",
-      name: "Zaq.Ingestion.Chunk",
-      file: "lib/zaq/ingestion/chunk.ex",
-      description: "Chunk schema with pgvector halfvec column"
-    },
-    # Phase 2
-    %{
-      phase: "2",
-      name: "Zaq.Agent.PromptGuard",
-      file: "lib/zaq/agent/prompt_guard.ex",
-      description: "Input/output safety guard"
-    },
-    %{
-      phase: "2",
-      name: "Zaq.Agent.LogprobsAnalyzer",
-      file: "lib/zaq/agent/logprobs_analyzer.ex",
-      description: "Confidence scoring via logprobs"
-    },
-    %{
-      phase: "2",
-      name: "Zaq.Agent.TokenEstimator",
-      file: "lib/zaq/agent/token_estimator.ex",
-      description: "Token estimation (words x 1.3)"
-    },
-    %{
-      phase: "2",
-      name: "Zaq.Agent.Retrieval",
-      file: "lib/zaq/agent/retrieval.ex",
-      description: "Query rewriting via LLM + hybrid search"
-    },
-    %{
-      phase: "2",
-      name: "Zaq.Agent.Answering",
-      file: "lib/zaq/agent/answering.ex",
-      description: "Response generation with confidence scoring"
-    },
-    %{
-      phase: "2",
-      name: "Zaq.Agent.ChunkTitle",
-      file: "lib/zaq/agent/chunk_title.ex",
-      description: "LLM-powered chunk title generation"
-    }
-  ]
+  alias Zaq.Ingestion.Python.{Runner, Steps.ImageToText}
 
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
        current_path: "/bo/ai-diagnostics",
-       modules: @modules,
+
        llm_config: load_llm_config(),
        embedding_config: load_embedding_config(),
        ingestion_config: load_ingestion_config(),
        image_to_text_config: load_image_to_text_config(),
        llm_status: :idle,
        embedding_status: :idle,
+       image_to_text_status: :idle,
        pdf_pipeline_status: :idle,
        token_test_result: nil,
        prompt_templates: load_prompt_templates(),
@@ -99,27 +29,10 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   def handle_event("test_llm", _params, socket) do
     socket = assign(socket, llm_status: :loading)
 
-    cfg = LLM.chat_config()
-
     status =
-      try do
-        case Req.post(cfg.endpoint,
-               json: %{
-                 model: cfg.model,
-                 temperature: cfg.temperature,
-                 top_p: cfg.top_p,
-                 messages: [%{role: "user", content: "ping"}],
-                 max_tokens: 1
-               },
-               headers: [{"authorization", "Bearer #{cfg.api_key}"}],
-               receive_timeout: 10_000
-             ) do
-          {:ok, %{status: 200}} -> :ok
-          {:ok, %{status: code}} -> {:error, "HTTP #{code}"}
-          {:error, reason} -> {:error, inspect(reason)}
-        end
-      rescue
-        e -> {:error, Exception.message(e)}
+      case Retrieval.ask("ping") do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, inspect(reason)}
       end
 
     {:noreply, assign(socket, llm_status: status)}
@@ -139,6 +52,11 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
       end
 
     {:noreply, assign(socket, embedding_status: status)}
+  end
+
+  def handle_event("test_image_to_text", _params, socket) do
+    socket = assign(socket, image_to_text_status: :loading)
+    {:noreply, assign(socket, image_to_text_status: ImageToText.ping())}
   end
 
   def handle_event("test_token_estimator", _params, socket) do
@@ -170,8 +88,6 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
 
     {:noreply, assign(socket, pdf_pipeline_status: status)}
   end
-
-  # --- Private helpers ---
 
   defp load_llm_config do
     %{

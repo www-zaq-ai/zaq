@@ -143,22 +143,22 @@
       </:footer_extra>
     </ZaqWeb.Components.BOLayout.diagnostic_card>
     
-<!-- PDF Pipeline -->
+<!-- Image to Text -->
     <ZaqWeb.Components.BOLayout.diagnostic_card
-      label="PDF Pipeline"
-      status={@pdf_pipeline_status}
-      event="test_pdf_pipeline"
+      label="Image to Text"
+      status={@image_to_text_status}
+      event="test_image_to_text"
     >
       <ZaqWeb.Components.BOLayout.config_row
         label="API URL"
         value={@image_to_text_config.api_url}
         truncate
-        hint="IMAGE_TO_TEXT_API_KEY"
+        hint="IMAGE_TO_TEXT_API_URL"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Model"
         value={@image_to_text_config.model}
-        hint="SCALEWAY_MODEL"
+        hint="IMAGE_TO_TEXT_MODEL"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="API Key"
@@ -167,7 +167,19 @@
             do: "configured",
             else: "not set — image steps skipped"
         }
-        hint="SCALEWAY_API_KEY"
+        hint="IMAGE_TO_TEXT_API_KEY"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="PDF Python"
+        value={
+          case @pdf_pipeline_status do
+            :idle -> "not tested"
+            :loading -> "checking…"
+            :ok -> "available"
+            {:error, msg} -> msg
+          end
+        }
+        hint="mix zaq.python.fetch"
       />
     </ZaqWeb.Components.BOLayout.diagnostic_card>
   </div>
