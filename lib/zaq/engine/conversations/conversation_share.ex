@@ -23,7 +23,7 @@ defmodule Zaq.Engine.Conversations.ConversationShare do
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
 
-  @valid_permissions ~w[read comment]
+  @valid_permissions ~w[read]
 
   @doc "Changeset for creating a conversation share."
   def changeset(share, attrs) do

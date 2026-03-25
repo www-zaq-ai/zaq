@@ -260,16 +260,14 @@ defmodule Zaq.Engine.Conversations.SchemasTest do
       assert %{permission: _} = errors_on(cs)
     end
 
-    test "accepts both valid permissions" do
-      for p <- ~w[read comment] do
-        cs =
-          ConversationShare.changeset(%ConversationShare{}, %{
-            conversation_id: @valid_conv_id,
-            permission: p
-          })
+    test "accepts valid permission" do
+      cs =
+        ConversationShare.changeset(%ConversationShare{}, %{
+          conversation_id: @valid_conv_id,
+          permission: "read"
+        })
 
-        assert cs.valid?, "expected permission #{p} to be valid"
-      end
+      assert cs.valid?
     end
 
     test "does not overwrite existing share_token" do

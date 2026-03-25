@@ -81,7 +81,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       assert html =~ "Share Conversation"
     end
 
-    test "creates a share and shows token", %{conn: conn, user: user} do
+    test "creates a share and shows link with copy button", %{conn: conn, user: user} do
       {conv, _} = create_conv_with_messages(user.id)
       {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
 
@@ -94,7 +94,11 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
 
       shares = Conversations.list_shares(conv)
       assert length(shares) == 1
-      assert html =~ shares |> hd() |> Map.get(:share_token)
+
+      share = hd(shares)
+      assert html =~ "/s/#{share.share_token}"
+      assert has_element?(view, "#copy-#{share.id}")
+      assert has_element?(view, "#copy-#{share.id}[phx-hook='CopyToClipboard']")
     end
 
     test "revokes a share", %{conn: conn, user: user} do
