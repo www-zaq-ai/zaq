@@ -24,6 +24,7 @@ defmodule ZaqWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    live "/s/:token", Live.SharedConversationLive
   end
 
   scope "/api", ZaqWeb do

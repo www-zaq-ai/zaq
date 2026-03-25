@@ -334,11 +334,11 @@ defmodule Zaq.Engine.ConversationsTest do
       assert {:ok, share} =
                Conversations.share_conversation(conv, %{
                  shared_with_user_id: user.id,
-                 permission: "comment"
+                 permission: "read"
                })
 
       assert share.shared_with_user_id == user.id
-      assert share.permission == "comment"
+      assert share.permission == "read"
     end
 
     test "token is unique across shares" do
@@ -551,7 +551,7 @@ defmodule Zaq.Engine.ConversationsTest do
     test "returns all shares for a conversation" do
       {:ok, conv} = Conversations.create_conversation(conv_attrs())
       {:ok, _s1} = Conversations.share_conversation(conv, %{permission: "read"})
-      {:ok, _s2} = Conversations.share_conversation(conv, %{permission: "comment"})
+      {:ok, _s2} = Conversations.share_conversation(conv, %{permission: "read"})
 
       shares = Conversations.list_shares(conv)
       assert length(shares) == 2

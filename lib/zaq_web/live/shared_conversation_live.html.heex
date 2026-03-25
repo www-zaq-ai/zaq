@@ -1,0 +1,34 @@
+<div class="min-h-screen bg-[#f7f6f3]">
+  <div class="max-w-3xl mx-auto px-6 py-8">
+    <div class="mb-6">
+      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-1">
+        Shared Conversation
+      </p>
+      <h1 class="font-mono text-lg font-bold text-[#2c3a50]">
+        {@conversation.title || "Untitled"}
+      </h1>
+    </div>
+
+    <div class="space-y-5">
+      <div :for={msg <- @messages}>
+        <ZaqWeb.Components.ChatMessage.user_bubble
+          :if={msg.role == "user"}
+          content={msg.content}
+          timestamp={msg.inserted_at}
+        />
+        <ZaqWeb.Components.ChatMessage.assistant_bubble
+          :if={msg.role != "user"}
+          content={msg.content}
+          timestamp={msg.inserted_at}
+          html_content={true}
+          confidence={msg.confidence_score}
+          sources={[]}
+        />
+      </div>
+
+      <div :if={@messages == []} class="py-16 text-center">
+        <p class="font-mono text-sm text-black/30">No messages yet.</p>
+      </div>
+    </div>
+  </div>
+</div>

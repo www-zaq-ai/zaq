@@ -44,6 +44,23 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this.el.focus()
       }
     },
+    CopyToClipboard: {
+      mounted() {
+        this.el.addEventListener("click", () => {
+          const url = this.el.dataset.shareUrl
+          if (!url) return
+          navigator.clipboard.writeText(url).then(() => {
+            const orig = this.el.textContent
+            this.el.textContent = "Copied!"
+            setTimeout(() => { this.el.textContent = orig }, 1500)
+          }).catch(() => {
+            const orig = this.el.textContent
+            this.el.textContent = "Failed"
+            setTimeout(() => { this.el.textContent = orig }, 1500)
+          })
+        })
+      }
+    },
     ScrollBottom: {
       mounted() {
         this.el.scrollTop = this.el.scrollHeight
