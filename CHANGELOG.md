@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.1](https://github.com/www-zaq-ai/zaq/compare/v0.6.0...v0.6.1) (2026-03-25)
+
+
+### Features
+
+* **sharing:** add public shared conversation view with copy-link UI ([#161](https://github.com/www-zaq-ai/zaq/issues/161)) ([cc29151](https://github.com/www-zaq-ai/zaq/commit/cc29151d7dd344e143fd96585427ac0462790de7))
+
+
+### Bug Fixes
+
+* **agent:** pipeline ([e4b4487](https://github.com/www-zaq-ai/zaq/commit/e4b448759ea67dce525c214ad89fc87070d17f66))
+* **docker:** Expose the env for sensitive config encryption ([dd38e64](https://github.com/www-zaq-ai/zaq/commit/dd38e646ee1b67bae82b9a0d2c5832e68a8d9dab))
+* **history:** extract shared History module and centralize key format ([9066f2a](https://github.com/www-zaq-ai/zaq/commit/9066f2a8a2d12796f8dff5dc793427efac6358a3))
+* **ingestion:** preview on docker by providing sane defaults and updating docs ([6e7a29a](https://github.com/www-zaq-ai/zaq/commit/6e7a29a8c4d5ac7a5d2a87c357d02512fd72686a))
+* **license:** load public key from .zaq-license package ([0120e67](https://github.com/www-zaq-ai/zaq/commit/0120e6744199574f05858502db7def1de995897d))
+* **sharing:** correct commit type for shared conversation view ([04261ca](https://github.com/www-zaq-ai/zaq/commit/04261ca6f00bd71ddb935ce05bcb1e05bdaf18e0))
+* **sidebar:** refresh locked menu items on license activation ([#159](https://github.com/www-zaq-ai/zaq/issues/159)) ([185c56c](https://github.com/www-zaq-ai/zaq/commit/185c56c1a4d500547fa0145b7787064d0cb99b4d))
+* **telemetry:** 90D time range display based on actual Weeks. Simplify weighted average computation on time-series ([32f2f80](https://github.com/www-zaq-ai/zaq/commit/32f2f808f72115e72ded76f94cbe7ce7388caa6c))
+* **telemetry:** code format ([434c6f0](https://github.com/www-zaq-ai/zaq/commit/434c6f098548e5abc45b3dbe0199f05fc9014edc))
+* **telemetry:** consume weights for no-answer rate weighted average display ([9b47e37](https://github.com/www-zaq-ai/zaq/commit/9b47e37b9f4c4786766c9de46ce9b361f0a36bd3))
+
 ## [0.6.0](https://github.com/www-zaq-ai/zaq/compare/v0.5.0...v0.6.0) (2026-03-23)
 
 
