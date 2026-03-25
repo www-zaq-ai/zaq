@@ -12,6 +12,7 @@ defmodule ZaqWeb.Components.BOLayout do
   attr :page_title, :string, default: "Dashboard"
   attr :current_path, :string, default: ""
   attr :flash, :map, default: %{}
+  attr :features_version, :integer, default: 0
   slot :inner_block, required: true
 
   def bo_layout(assigns) do
@@ -268,14 +269,14 @@ defmodule ZaqWeb.Components.BOLayout do
               icon="ontology"
               label="Ontology"
               active={String.starts_with?(@current_path, "/bo/ontology")}
-              locked={feature_locked?("ontology")}
+              locked={feature_locked?("ontology", @features_version)}
             />
             <:item
               href={~p"/bo/knowledge-gap"}
               icon="knowledge_gap"
               label="Knowledge Gap"
               active={@current_path == "/bo/knowledge-gap"}
-              locked={feature_locked?("knowledge_gap")}
+              locked={feature_locked?("knowledge_gap", @features_version)}
             />
           </.nav_section>
           
@@ -963,7 +964,7 @@ defmodule ZaqWeb.Components.BOLayout do
     """
   end
 
-  defp feature_locked?(feature) do
+  defp feature_locked?(feature, _features_version) do
     not FeatureStore.feature_loaded?(feature)
   end
 end

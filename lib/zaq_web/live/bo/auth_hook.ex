@@ -20,8 +20,27 @@ defmodule ZaqWeb.Live.BO.AuthHook do
         if user.must_change_password and socket.view != ZaqWeb.Live.BO.System.ChangePasswordLive do
           {:halt, push_navigate(socket, to: ~p"/bo/change-password")}
         else
-          {:cont, assign(socket, :current_user, user)}
+          {:cont, setup_license_hook(socket, user)}
         end
     end
+  end
+
+  defp setup_license_hook(socket, user) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "license:updated")
+    end
+
+    socket
+    |> assign(:current_user, user)
+    |> assign(:features_version, 0)
+    |> attach_hook(:license_updated, :handle_info, &handle_license_updated/2)
+  end
+
+  defp handle_license_updated(:license_updated, socket) do
+    {:cont, assign(socket, :features_version, socket.assigns.features_version + 1)}
+  end
+
+  defp handle_license_updated(_msg, socket) do
+    {:cont, socket}
   end
 end
