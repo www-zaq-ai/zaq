@@ -3,24 +3,48 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToText do
 
   alias Zaq.Ingestion.Python.Runner
 
-  def run(images_folder, output_json, api_key) do
-    Runner.run("image_to_text.py", [
-      "--folder",
-      images_folder,
-      "--output",
-      output_json,
-      "--api-key",
-      api_key
-    ])
+  @doc """
+  Tests the image-to-text pipeline by invoking the Python script with `--ping`.
+
+  Returns `:ok` on success, `{:error, reason}` otherwise.
+  """
+  @spec ping() :: :ok | {:error, String.t()}
+  def ping do
+    cfg = Application.get_env(:zaq, __MODULE__, [])
+
+    case Runner.run("image_to_text.py", ["--ping"] ++ build_args(cfg)) do
+      {:ok, _} -> :ok
+      {:error, %{output: output}} -> {:error, output}
+    end
   end
 
-  def run_single(image_path, output_json, api_key) do
-    Runner.run("image_to_text.py", [
-      image_path,
-      "--output",
-      output_json,
-      "--api-key",
-      api_key
-    ])
+  def run(images_folder, output_json, opts) when is_list(opts) do
+    Runner.run(
+      "image_to_text.py",
+      ["--folder", images_folder, "--output", output_json] ++ build_args(opts)
+    )
+  end
+
+  def run(images_folder, output_json, api_key) when is_binary(api_key) do
+    run(images_folder, output_json, api_key: api_key)
+  end
+
+  def run_single(image_path, output_json, opts) when is_list(opts) do
+    Runner.run(
+      "image_to_text.py",
+      [image_path, "--output", output_json] ++ build_args(opts)
+    )
+  end
+
+  def run_single(image_path, output_json, api_key) when is_binary(api_key) do
+    run_single(image_path, output_json, api_key: api_key)
+  end
+
+  defp build_args(opts) do
+    args = []
+    args = if opts[:api_key], do: args ++ ["--api-key", opts[:api_key]], else: args
+    args = if opts[:api_url], do: args ++ ["--api-url", opts[:api_url]], else: args
+    args = if opts[:model], do: args ++ ["--model", opts[:model]], else: args
+    args
   end
 end

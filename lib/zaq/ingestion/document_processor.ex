@@ -189,8 +189,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     output_json = image_description_output_path(file_path)
 
     try do
-      with {:ok, api_key} <- image_to_text_api_key(),
-           {:ok, _} <- image_to_text_step().run_single(file_path, output_json, api_key),
+      with {:ok, opts} <- image_to_text_opts(),
+           {:ok, _} <- image_to_text_step().run_single(file_path, output_json, opts),
            {:ok, raw_json} <- File.read(output_json),
            {:ok, description} <- extract_image_description(raw_json, file_path) do
         image_name = Path.basename(file_path)
@@ -215,17 +215,25 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     )
   end
 
-  defp image_to_text_api_key do
-    key =
-      Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText, [])
-      |> Keyword.get(:api_key)
+  defp image_to_text_opts do
+    cfg = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText, [])
+    api_key = Keyword.get(cfg, :api_key)
 
-    if is_binary(key) and key != "" do
-      {:ok, key}
+    if is_binary(api_key) and api_key != "" do
+      opts =
+        [api_key: api_key]
+        |> maybe_put(:api_url, Keyword.get(cfg, :api_url))
+        |> maybe_put(:model, Keyword.get(cfg, :model))
+
+      {:ok, opts}
     else
       {:error, "IMAGE_TO_TEXT_API_KEY is not configured; set it to enable PNG/JPG ingestion"}
     end
   end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, _key, ""), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp image_to_text_step do
     Application.get_env(:zaq, :image_to_text_step_module, ImageToText)
@@ -371,24 +379,53 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
     Logger.info("Created #{length(chunks)} layout-aware chunks for document_id: #{document_id}")
 
-    results =
-      chunks
-      |> Enum.with_index(1)
-      |> Enum.map(fn {chunk, index} ->
-        store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)
-      end)
+    chunks
+    |> Enum.with_index(1)
+    |> store_chunks_fail_fast(document_id, role_id, shared_role_ids, [])
+  end
 
+  # Processes chunks sequentially; aborts on structural (non-retriable) errors
+  # like dimension mismatches or DB connection failures.
+  defp store_chunks_fail_fast([], _document_id, _role_id, _shared_role_ids, acc) do
+    results = Enum.reverse(acc)
     failed = Enum.count(results, &match?({:error, _}, &1))
 
     if failed == 0 do
       {:ok, results}
     else
-      Logger.error("Failed to store #{failed} out of #{length(chunks)} chunks")
+      Logger.error("Failed to store #{failed} out of #{length(results)} chunks")
       first_error = Enum.find(results, &match?({:error, _}, &1))
       Logger.error("First error example: #{inspect(first_error)}")
       {:error, "#{failed} chunks failed to store"}
     end
   end
+
+  defp store_chunks_fail_fast(
+         [{chunk, index} | rest],
+         document_id,
+         role_id,
+         shared_role_ids,
+         acc
+       ) do
+    result = store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)
+
+    if structural_error?(result) do
+      total = length(rest) + length(acc) + 1
+
+      Logger.error(
+        "Structural error on chunk #{index}/#{total}, aborting remaining chunks: #{inspect(result)}"
+      )
+
+      {:error, "Structural error on chunk #{index}: #{inspect(result)}"}
+    else
+      store_chunks_fail_fast(rest, document_id, role_id, shared_role_ids, [result | acc])
+    end
+  end
+
+  defp structural_error?({:error, :dimension_mismatch}), do: true
+  defp structural_error?({:error, %DBConnection.ConnectionError{}}), do: true
+  defp structural_error?({:error, %Postgrex.Error{}}), do: true
+  defp structural_error?(_), do: false
 
   @doc """
   Stores a single chunk: generates a descriptive title via LLM,

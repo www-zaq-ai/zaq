@@ -35,6 +35,21 @@ const liveSocket = new LiveSocket("/live", Socket, {
     ...colocatedHooks,
     OntologyTree,
     ChartTooltip,
+    DownloadFile: {
+      mounted() {
+        this.handleEvent("download_file", ({ filename, content, content_type }) => {
+          const blob = new Blob([content], { type: content_type });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        });
+      }
+    },
     FocusAndSelect: {
       mounted() {
         this.el.focus()

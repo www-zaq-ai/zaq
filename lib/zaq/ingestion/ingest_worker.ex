@@ -50,34 +50,42 @@ defmodule Zaq.Ingestion.IngestWorker do
         :ok
 
       {:error, reason} ->
-        error_msg = format_error(reason)
-
         Telemetry.record("ingestion.failed.count", 1, telemetry_dimensions)
+        handle_error(updated_job, reason, attempt, max, telemetry_dimensions)
+    end
+  end
 
-        if attempt >= max do
-          Telemetry.record("ingestion.document.failed.count", 1, telemetry_dimensions)
+  defp handle_error(job, reason, attempt, max, telemetry_dimensions) do
+    error_msg = format_error(reason)
 
-          updated_job
-          |> IngestJob.changeset(%{
-            status: "failed",
-            completed_at: DateTime.utc_now(),
-            error: "Failed after #{max} attempts: #{error_msg}"
-          })
-          |> Repo.update!()
-          |> broadcast_update()
+    if attempt >= max or structural_error?(reason) do
+      Telemetry.record("ingestion.document.failed.count", 1, telemetry_dimensions)
 
-          {:cancel, reason}
-        else
-          updated_job
-          |> IngestJob.changeset(%{
-            status: "pending",
-            error: "Attempt #{attempt} failed: #{error_msg}"
-          })
-          |> Repo.update!()
-          |> broadcast_update()
+      label =
+        if structural_error?(reason),
+          do: "Structural error (not retriable): #{error_msg}",
+          else: "Failed after #{max} attempts: #{error_msg}"
 
-          {:error, reason}
-        end
+      job
+      |> IngestJob.changeset(%{
+        status: "failed",
+        completed_at: DateTime.utc_now(),
+        error: label
+      })
+      |> Repo.update!()
+      |> broadcast_update()
+
+      {:cancel, reason}
+    else
+      job
+      |> IngestJob.changeset(%{
+        status: "pending",
+        error: "Attempt #{attempt} failed: #{error_msg}"
+      })
+      |> Repo.update!()
+      |> broadcast_update()
+
+      {:error, reason}
     end
   end
 
@@ -123,6 +131,13 @@ defmodule Zaq.Ingestion.IngestWorker do
       :count
     )
   end
+
+  defp structural_error?(reason) when is_binary(reason) do
+    String.contains?(reason, "Structural error")
+  end
+
+  defp structural_error?(:dimension_mismatch), do: true
+  defp structural_error?(_), do: false
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
