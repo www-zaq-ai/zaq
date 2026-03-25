@@ -55,6 +55,8 @@ config/dev.secret.exs
 
 .env
 
+.vscode/
+
 .serena
 .swarm
 swarm

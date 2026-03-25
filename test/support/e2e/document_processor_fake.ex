@@ -108,7 +108,7 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     %{
       "content" => compact_content(doc.content),
       "source" => doc.source,
-      "rrf_score" => 1.0
+      "distance" => 1.0
     }
   end
 

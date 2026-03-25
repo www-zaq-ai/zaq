@@ -195,7 +195,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   end
 
   defp load_ingestion_config do
-    cfg = Application.get_env(:zaq, :ingestion, [])
+    cfg = Application.get_env(:zaq, Zaq.Ingestion, [])
 
     %{
       max_context_window: cfg[:max_context_window] || 5_000,
