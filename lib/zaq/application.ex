@@ -38,7 +38,10 @@ defmodule Zaq.Application do
       |> maybe_add(roles, :bo, ZaqWeb.Endpoint)
 
     opts = [strategy: :one_for_one, name: Zaq.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+    LLMDB.load()
+    Zaq.System.apply_ai_configs_from_db()
+    result
   end
 
   @impl true

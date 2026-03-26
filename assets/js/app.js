@@ -119,6 +119,90 @@ const liveSocket = new LiveSocket("/live", Socket, {
         if (!this.el.disabled) this.el.focus()
       }
     },
+    SearchableSelect: {
+      mounted() {
+        const root = this.el
+        this._search = ''
+        this._open = false
+
+        const hidden = () => root.querySelector('input[type=hidden][data-select-value]')
+        const trigger = () => root.querySelector('[data-select-trigger]')
+        const panel = () => root.querySelector('[data-select-panel]')
+        const search = () => root.querySelector('[data-select-search]')
+        const list = () => root.querySelector('[data-select-list]')
+        const labelEl = () => root.querySelector('[data-select-label]')
+
+        const filter = (q) => {
+          this._search = q
+          list().querySelectorAll('[data-select-option]').forEach(opt => {
+            opt.style.display = opt.dataset.selectOption.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'
+          })
+        }
+
+        const openPanel = () => {
+          this._open = true
+          panel().classList.remove('hidden')
+          search().value = ''
+          filter('')
+          search().focus()
+        }
+
+        const closePanel = () => {
+          this._open = false
+          panel().classList.add('hidden')
+        }
+
+        const selectOption = (value, label) => {
+          hidden().value = value
+          labelEl().textContent = label
+          closePanel()
+          hidden().dispatchEvent(new Event('input', { bubbles: true }))
+        }
+
+        trigger().addEventListener('click', (e) => {
+          e.preventDefault()
+          this._open ? closePanel() : openPanel()
+        })
+
+        this._outsideClick = (e) => { if (!root.contains(e.target)) closePanel() }
+        document.addEventListener('click', this._outsideClick, true)
+
+        search().addEventListener('input', () => filter(search().value))
+
+        list().addEventListener('click', (e) => {
+          const opt = e.target.closest('[data-select-option]')
+          if (opt) selectOption(opt.dataset.selectValue, opt.dataset.selectOption)
+        })
+
+        search().addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') { e.stopPropagation(); closePanel() }
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            const visible = [...list().querySelectorAll('[data-select-option]')].find(o => o.style.display !== 'none')
+            if (visible) selectOption(visible.dataset.selectValue, visible.dataset.selectOption)
+          }
+        })
+
+        this._hidden = hidden
+        this._labelEl = labelEl
+        this._list = list
+        this._filter = filter
+      },
+      updated() {
+        if (this._open && this._filter) this._filter(this._search || '')
+        const hidden = this._hidden && this._hidden()
+        const labelEl = this._labelEl && this._labelEl()
+        const list = this._list && this._list()
+        if (!hidden || !labelEl || !list) return
+        const current = hidden.value
+        for (const opt of list.querySelectorAll('[data-select-option]')) {
+          if (opt.dataset.selectValue === current) { labelEl.textContent = opt.dataset.selectOption; return }
+        }
+      },
+      destroyed() {
+        if (this._outsideClick) document.removeEventListener('click', this._outsideClick, true)
+      }
+    },
     AutoExpand: {
       mounted() {
         const el = this.el

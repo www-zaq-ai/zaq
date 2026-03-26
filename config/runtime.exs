@@ -78,24 +78,10 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
-  # -- Agent LLM --
-  config :zaq, Zaq.Agent.LLM,
-    endpoint: System.get_env("LLM_ENDPOINT", "http://localhost:11434/v1"),
-    api_key: System.get_env("LLM_API_KEY", ""),
-    model: System.get_env("LLM_MODEL", "llama-3.3-70b-instruct"),
-    temperature: 0.0,
-    top_p: 0.9,
-    supports_logprobs: System.get_env("LLM_SUPPORTS_LOGPROBS", "true") == "true",
-    supports_json_mode: System.get_env("LLM_SUPPORTS_JSON_MODE", "true") == "true"
-
-  # -- Embedding --
-  config :zaq, Zaq.Embedding.Client,
-    endpoint: System.get_env("EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
-    api_key: System.get_env("EMBEDDING_API_KEY", ""),
-    model: System.get_env("EMBEDDING_MODEL", "bge-multilingual-gemma2"),
-    dimension: String.to_integer(System.get_env("EMBEDDING_DIMENSION", "3584"))
-
-  # -- Ingestion --
+  # -- Ingestion volumes --
+  # LLM, Embedding, Image-to-Text, and Ingestion settings are managed via the
+  # back-office UI at /bo/system-config and persisted in the database.
+  # Only volume mounts (infrastructure-level) are configured here.
   ingestion_volumes_env = System.get_env("INGESTION_VOLUMES", "")
   ingestion_volumes_base = System.get_env("INGESTION_VOLUMES_BASE", "/zaq/volumes")
 
@@ -110,20 +96,7 @@ if config_env() == :prod do
       %{}
     end
 
-  config :zaq, Zaq.Ingestion,
-    max_context_window: String.to_integer(System.get_env("INGESTION_MAX_CONTEXT_WINDOW", "5000")),
-    distance_threshold: String.to_float(System.get_env("INGESTION_DISTANCE_THRESHOLD", "1.2")),
-    hybrid_search_limit: String.to_integer(System.get_env("INGESTION_HYBRID_SEARCH_LIMIT", "20")),
-    chunk_min_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MIN_TOKENS", "400")),
-    chunk_max_tokens: String.to_integer(System.get_env("INGESTION_CHUNK_MAX_TOKENS", "900")),
-    base_path: System.get_env("INGESTION_BASE_PATH", "/zaq/volumes/documents"),
-    volumes: ingestion_volumes
-
-  # -- Image to Text (Scaleway Pixtral) --
-  config :zaq, Zaq.Ingestion.Python.ImageToText,
-    api_url: System.get_env("IMAGE_TO_TEXT_API_URL", "http://localhost:11434/v1"),
-    model: System.get_env("IMAGE_TO_TEXT_MODEL", "pixtral-12b-2409"),
-    api_key: System.get_env("IMAGE_TO_TEXT_API_KEY", "")
+  config :zaq, Zaq.Ingestion, volumes: ingestion_volumes
 
   # -- Oban --
   config :zaq, Oban,

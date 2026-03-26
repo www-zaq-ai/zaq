@@ -97,7 +97,8 @@ defmodule Zaq.MixProject do
       {:httpoison, "~> 2.3"},
       {:earmark, "~> 1.4.48"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:nimble_csv, "~> 1.2"}
+      {:nimble_csv, "~> 1.2"},
+      {:llm_db, "~> 2026.3"}
     ]
   end
 

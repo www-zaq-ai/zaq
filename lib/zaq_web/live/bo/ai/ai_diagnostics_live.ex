@@ -1,7 +1,7 @@
 defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.Agent.{LLM, PromptTemplate, Retrieval, TokenEstimator}
+  alias Zaq.Agent.{PromptTemplate, Retrieval, TokenEstimator}
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document}
   alias Zaq.Ingestion.Python.{Runner, Steps.ImageToText}
@@ -10,7 +10,6 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
     {:ok,
      assign(socket,
        current_path: "/bo/ai-diagnostics",
-
        llm_config: load_llm_config(),
        embedding_config: load_embedding_config(),
        ingestion_config: load_ingestion_config(),
@@ -90,45 +89,47 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   end
 
   defp load_llm_config do
+    cfg = Zaq.System.get_llm_config()
+
     %{
-      endpoint: LLM.endpoint() || "not set",
-      model: LLM.model(),
-      temperature: LLM.temperature(),
-      top_p: LLM.top_p(),
-      supports_logprobs: LLM.supports_logprobs?(),
-      supports_json_mode: LLM.supports_json_mode?()
+      endpoint: cfg.endpoint || "not set",
+      model: cfg.model,
+      temperature: cfg.temperature,
+      top_p: cfg.top_p,
+      supports_logprobs: cfg.supports_logprobs,
+      supports_json_mode: cfg.supports_json_mode
     }
   end
 
   defp load_embedding_config do
-    cfg = Application.get_env(:zaq, EmbeddingClient, [])
+    cfg = Zaq.System.get_embedding_config()
 
     %{
-      endpoint: cfg[:endpoint] || "not set",
-      model: cfg[:model] || "not set",
-      dimension: cfg[:dimension] || "not set"
+      endpoint: cfg.endpoint || "not set",
+      model: cfg.model || "not set",
+      dimension: cfg.dimension || "not set"
     }
   end
 
   defp load_ingestion_config do
-    cfg = Application.get_env(:zaq, Zaq.Ingestion, [])
+    cfg = Zaq.System.get_ingestion_config()
 
     %{
-      max_context_window: cfg[:max_context_window] || 5_000,
-      distance_threshold: cfg[:distance_threshold] || 0.75,
-      hybrid_search_limit: cfg[:hybrid_search_limit] || 20,
-      chunk_min_tokens: cfg[:chunk_min_tokens] || 400,
-      chunk_max_tokens: cfg[:chunk_max_tokens] || 900
+      max_context_window: cfg.max_context_window,
+      distance_threshold: cfg.distance_threshold,
+      hybrid_search_limit: cfg.hybrid_search_limit,
+      chunk_min_tokens: cfg.chunk_min_tokens,
+      chunk_max_tokens: cfg.chunk_max_tokens
     }
   end
 
   defp load_image_to_text_config do
-    cfg = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText, [])
+    cfg = Zaq.System.get_image_to_text_config()
 
     %{
-      api_url: cfg[:api_url] || "not set",
-      model: cfg[:model] || "not set",
-      api_key_set: cfg[:api_key] not in [nil, ""]
+      api_url: cfg.api_url || "not set",
+      model: cfg.model || "not set",
+      api_key_set: cfg.api_key not in [nil, ""]
     }
   end
 

@@ -10,12 +10,9 @@ defmodule Zaq.Embedding.Client do
 
   ## Configuration
 
-      # config/runtime.exs
-      config :zaq, Zaq.Embedding.Client,
-        endpoint:  System.get_env("EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
-        api_key:   System.get_env("EMBEDDING_API_KEY", ""),
-        model:     System.get_env("EMBEDDING_MODEL", "bge-multilingual-gemma2"),
-        dimension: String.to_integer(System.get_env("EMBEDDING_DIMENSION", "3584"))
+  Embedding settings are managed via the back-office UI at `/bo/system-config`
+  and persisted in the database. The application env is kept in sync
+  automatically via `Zaq.System.apply_embedding_to_app_env/0`.
 
   ## Testing
 

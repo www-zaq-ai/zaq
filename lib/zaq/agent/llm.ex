@@ -10,15 +10,9 @@ defmodule Zaq.Agent.LLM do
 
   ## Configuration
 
-      # config/runtime.exs
-      config :zaq, Zaq.Agent.LLM,
-        endpoint:           System.get_env("LLM_ENDPOINT", "http://localhost:11434/v1"),
-        api_key:            System.get_env("LLM_API_KEY", ""),
-        model:              System.get_env("LLM_MODEL", "llama-3.3-70b-instruct"),
-        temperature:        0.0,
-        top_p:              0.9,
-        supports_logprobs:  true,
-        supports_json_mode: true
+  LLM settings are managed via the back-office UI at `/bo/system-config`
+  and persisted in the database. The application env is kept in sync
+  automatically via `Zaq.System.apply_llm_to_app_env/0`.
   """
 
   @doc """
