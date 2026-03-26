@@ -6,7 +6,7 @@ defmodule Zaq.Accounts.UserNotificationChannelTest do
   alias Zaq.Accounts.UserNotificationChannel
   alias Zaq.Repo
 
-  defp insert_channel(user, attrs \\ %{}) do
+  defp insert_channel(user, attrs) do
     defaults = %{platform: "email", identifier: "u@example.com", is_preferred: false}
 
     %UserNotificationChannel{user_id: user.id}

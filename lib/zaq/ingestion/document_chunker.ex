@@ -53,13 +53,11 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # ---------------------------------------------------------------------------
 
   defp chunk_min_tokens do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:chunk_min_tokens, 400)
+    Zaq.System.get_embedding_config().chunk_min_tokens
   end
 
   defp chunk_max_tokens do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:chunk_max_tokens, 900)
+    Zaq.System.get_embedding_config().chunk_max_tokens
   end
 
   # ---------------------------------------------------------------------------

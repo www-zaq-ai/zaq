@@ -3,6 +3,19 @@ defmodule Zaq.Ingestion.AccessControlTest do
 
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
+  alias Zaq.System.EmbeddingConfig
+
+  setup do
+    changeset =
+      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+        endpoint: "http://localhost:11434/v1",
+        model: "test-model",
+        dimension: "1536"
+      })
+
+    {:ok, _} = Zaq.System.save_embedding_config(changeset)
+    :ok
+  end
 
   # Builds a user-like struct with role preloaded, matching what
   # Accounts.get_user!/1 returns (used by AuthHook and Plugs.Auth).

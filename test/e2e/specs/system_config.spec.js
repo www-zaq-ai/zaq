@@ -1,0 +1,578 @@
+const { test, expect } = require("@playwright/test")
+const { gotoBackOfficeLive, loginToBackOffice } = require("../support/bo")
+
+const CONFIG_PATH = "/bo/system-config"
+
+// Selectors using phx-click/phx-value attributes — never rely on text position
+const SEL = {
+  tabTelemetry: '[phx-value-tab="telemetry"]',
+  tabLLM: '[phx-value-tab="llm"]',
+  tabEmbedding: '[phx-value-tab="embedding"]',
+  tabImageToText: '[phx-value-tab="image_to_text"]',
+
+  llmForm: "#llm-config-form",
+  embeddingForm: "#embedding-config-form",
+  imageToTextForm: "#image-to-text-config-form",
+  telemetryForm: "#telemetry-config-form",
+
+  unlockTrigger: '[phx-click="unlock_embedding"]',
+  cancelUnlock: '[phx-click="cancel_unlock_embedding"]',
+  confirmUnlock: '[phx-click="confirm_unlock_embedding"]',
+  cancelSave: '[phx-click="cancel_save_embedding"]',
+  confirmSave: '[phx-click="confirm_save_embedding"]',
+
+  // Parent <label> wrappers for sr-only checkboxes — the div overlay intercepts clicks on the input
+  jsonModeLabel: 'label:has(input[name="llm_config[supports_json_mode]"][type="checkbox"])',
+  logprobsLabel: 'label:has(input[name="llm_config[supports_logprobs]"][type="checkbox"])',
+}
+
+// Read the numeric value of an input and return an integer guaranteed != current
+async function differentDimension(page) {
+  const raw = await page.locator('input[name="embedding_config[dimension]"]').inputValue()
+  const current = parseInt(raw, 10) || 3584
+  // Use an alternating pair so re-runs always differ from the DB
+  return current === 512 ? 768 : 512
+}
+
+test.describe("System Config", () => {
+  test.beforeEach(async ({ page }) => {
+    await loginToBackOffice(page)
+    await gotoBackOfficeLive(page, CONFIG_PATH)
+  })
+
+  // ── Tab navigation ─────────────────────────────────────────────────────
+
+  test.describe("tab navigation", () => {
+    test("default tab is Telemetry", async ({ page }) => {
+      await expect(page.locator(SEL.telemetryForm)).toBeVisible()
+      await expect(page.locator(SEL.llmForm)).not.toBeVisible()
+      await expect(page.locator(SEL.embeddingForm)).not.toBeVisible()
+      await expect(page.locator(SEL.imageToTextForm)).not.toBeVisible()
+    })
+
+    test("switching to LLM shows only LLM form and updates URL", async ({ page }) => {
+      await page.locator(SEL.tabLLM).click()
+      await expect(page.locator(SEL.llmForm)).toBeVisible()
+      await expect(page.locator(SEL.telemetryForm)).not.toBeVisible()
+      await expect(page).toHaveURL(/tab=llm/)
+    })
+
+    test("switching to Embedding shows only embedding form and updates URL", async ({ page }) => {
+      await page.locator(SEL.tabEmbedding).click()
+      await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+      await expect(page).toHaveURL(/tab=embedding/)
+    })
+
+    test("switching to Image to Text shows only that form and updates URL", async ({ page }) => {
+      await page.locator(SEL.tabImageToText).click()
+      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+      await expect(page).toHaveURL(/tab=image_to_text/)
+    })
+
+    test("direct URL ?tab=llm loads LLM tab", async ({ page }) => {
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
+      await expect(page.locator(SEL.llmForm)).toBeVisible()
+    })
+
+    test("direct URL ?tab=embedding loads Embedding tab", async ({ page }) => {
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
+      await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+    })
+
+    test("direct URL ?tab=image_to_text loads Image to Text tab", async ({ page }) => {
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=image_to_text`)
+      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+    })
+
+    test("unknown ?tab value falls back to Telemetry", async ({ page }) => {
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=nonexistent`)
+      await expect(page.locator(SEL.telemetryForm)).toBeVisible()
+    })
+  })
+
+  // ── LLM tab ────────────────────────────────────────────────────────────
+
+  test.describe("LLM tab", () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator(SEL.tabLLM).click()
+      await expect(page.locator(SEL.llmForm)).toBeVisible()
+    })
+
+    test("renders all required form fields", async ({ page }) => {
+      await expect(page.locator('input[name="llm_config[endpoint]"]')).toBeVisible()
+      await expect(page.locator("#llm-api-key-input")).toBeVisible()
+      await expect(page.locator('input[name="llm_config[temperature]"]')).toBeVisible()
+      await expect(page.locator('input[name="llm_config[top_p]"]')).toBeVisible()
+      await expect(page.locator('input[name="llm_config[max_context_window]"]')).toBeVisible()
+      await expect(page.locator('input[name="llm_config[distance_threshold]"]')).toBeVisible()
+    })
+
+    test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
+      const input = page.locator("#llm-api-key-input")
+      const showBtn = page.locator("#llm-api-key-show")
+      const hideBtn = page.locator("#llm-api-key-hide")
+
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await expect(hideBtn).toHaveClass(/hidden/)
+
+      await showBtn.click()
+      await expect(input).not.toHaveAttribute("style", /-webkit-text-security/)
+      await expect(showBtn).toHaveClass(/hidden/)
+      await expect(hideBtn).not.toHaveClass(/hidden/)
+
+      await hideBtn.click()
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await expect(hideBtn).toHaveClass(/hidden/)
+      await expect(showBtn).not.toHaveClass(/hidden/)
+    })
+
+    // NOTE: top_p default is 0.9 but the HTML input has step="0.05" (min=0.01), making 0.9 an
+    // invalid step value per browser constraint validation (nearest valid: 0.86, 0.91).
+    // This is a real UI bug — the default can never be saved without first adjusting top_p.
+    // Tests that save must set top_p to a valid step value first.
+    test("successful save shows flash message (requires valid top_p step value)", async ({ page }) => {
+      // Set top_p to 0.91 — the nearest valid value on the step grid (0.01 + n×0.05)
+      await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).toBeVisible()
+    })
+
+    // ── Validation: required fields ──────────────────────────────────────
+
+    test("clearing endpoint blocks save (required field)", async ({ page }) => {
+      await page.locator('input[name="llm_config[endpoint]"]').fill("")
+      await page.locator('input[name="llm_config[endpoint]"]').press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+    })
+
+    test("clearing model (text input) blocks save (required field)", async ({ page }) => {
+      const modelInput = page.locator('input[name="llm_config[model]"]')
+      if (await modelInput.isVisible()) {
+        await modelInput.fill("")
+        await modelInput.press("Tab")
+        await page.getByRole("button", { name: "Save LLM Settings" }).click()
+        await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+      }
+    })
+
+    // ── Validation: numeric boundaries ───────────────────────────────────
+
+    test("temperature below 0 is rejected", async ({ page }) => {
+      const field = page.locator('input[name="llm_config[temperature]"]')
+      await field.fill("-1")
+      await field.press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+    })
+
+    test("temperature above 2.0 is rejected", async ({ page }) => {
+      const field = page.locator('input[name="llm_config[temperature]"]')
+      await field.fill("2.1")
+      await field.press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+    })
+
+    test("temperature boundary 0.0 and 2.0 have no inline validation error", async ({ page }) => {
+      const field = page.locator('input[name="llm_config[temperature]"]')
+
+      await field.fill("0.0")
+      await field.press("Tab")
+      await expect(
+        page.locator('p.text-red-500').filter({ hasText: /temperature/i })
+      ).not.toBeVisible()
+
+      await field.fill("2.0")
+      await field.press("Tab")
+      await expect(
+        page.locator('p.text-red-500').filter({ hasText: /temperature/i })
+      ).not.toBeVisible()
+    })
+
+    test("top_p of 0 is rejected (must be > 0)", async ({ page }) => {
+      const field = page.locator('input[name="llm_config[top_p]"]')
+      await field.fill("0")
+      await field.press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+    })
+
+    test("top_p above 1.0 is rejected", async ({ page }) => {
+      const field = page.locator('input[name="llm_config[top_p]"]')
+      await field.fill("1.1")
+      await field.press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+    })
+
+    test("max_context_window of 0 is rejected (must be > 0)", async ({ page }) => {
+      const field = page.locator('input[name="llm_config[max_context_window]"]')
+      await field.fill("0")
+      await field.press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+    })
+
+    test("distance_threshold of 0 is rejected (must be > 0)", async ({ page }) => {
+      const field = page.locator('input[name="llm_config[distance_threshold]"]')
+      await field.fill("0")
+      await field.press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+    })
+
+    // ── Toggles ───────────────────────────────────────────────────────────
+    // The checkbox is sr-only; a <div> overlay intercepts direct pointer events.
+    // Click the wrapping <label> element which is the actual interactive target.
+
+    test("JSON mode toggle changes state", async ({ page }) => {
+      const checkbox = page.locator('input[name="llm_config[supports_json_mode]"][type="checkbox"]')
+      const initial = await checkbox.isChecked()
+      await page.locator(SEL.jsonModeLabel).click()
+      await expect(checkbox).toBeChecked({ checked: !initial })
+    })
+
+    test("Logprobs toggle changes state", async ({ page }) => {
+      const checkbox = page.locator('input[name="llm_config[supports_logprobs]"][type="checkbox"]')
+      const initial = await checkbox.isChecked()
+      await page.locator(SEL.logprobsLabel).click()
+      await expect(checkbox).toBeChecked({ checked: !initial })
+    })
+
+    // ── API key persistence ───────────────────────────────────────────────
+
+    test("changing api key saves and persists after page reload", async ({ page }) => {
+      const newKey = `e2e-llm-key-${Date.now()}`
+      const keyInput = page.locator("#llm-api-key-input")
+
+      await keyInput.fill(newKey)
+      // Set top_p to a valid step value before saving (see NOTE above)
+      await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).toBeVisible()
+
+      // Full reload — triggers mount → load_llm_form → reads from DB
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
+      await expect(page.locator(SEL.llmForm)).toBeVisible()
+
+      await expect(keyInput).toHaveValue(newKey)
+    })
+  })
+
+  // ── Embedding tab ──────────────────────────────────────────────────────
+
+  test.describe("Embedding tab", () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator(SEL.tabEmbedding).click()
+      await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+    })
+
+    test("renders all required form fields", async ({ page }) => {
+      await expect(page.locator('input[name="embedding_config[endpoint]"]')).toBeVisible()
+      await expect(page.locator("#embedding-api-key-input")).toBeVisible()
+      await expect(page.locator('input[name="embedding_config[dimension]"]')).toBeVisible()
+      await expect(page.locator('input[name="embedding_config[chunk_min_tokens]"]')).toBeVisible()
+      await expect(page.locator('input[name="embedding_config[chunk_max_tokens]"]')).toBeVisible()
+    })
+
+    test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
+      const input = page.locator("#embedding-api-key-input")
+      const showBtn = page.locator("#embedding-api-key-show")
+      const hideBtn = page.locator("#embedding-api-key-hide")
+
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await expect(hideBtn).toHaveClass(/hidden/)
+
+      await showBtn.click()
+      await expect(input).not.toHaveAttribute("style", /-webkit-text-security/)
+      await expect(showBtn).toHaveClass(/hidden/)
+      await expect(hideBtn).not.toHaveClass(/hidden/)
+
+      await hideBtn.click()
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+    })
+
+    // ── Lock / Unlock ─────────────────────────────────────────────────────
+
+    test("model is locked by default: unlock button present, dimension disabled", async ({ page }) => {
+      await expect(page.locator(SEL.unlockTrigger)).toBeVisible()
+      await expect(page.locator('input[name="embedding_config[dimension]"]')).toBeDisabled()
+    })
+
+    test("unlock modal opens on Unlock click", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      // Use heading role to avoid strict-mode violation from case-insensitive substring match on <p>
+      await expect(page.getByRole("heading", { name: "Unlock Model Selection" })).toBeVisible()
+      await expect(page.getByText("permanently delete all existing embeddings")).toBeVisible()
+    })
+
+    test("cancel unlock: modal closes and model stays locked", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      await expect(page.getByRole("heading", { name: "Unlock Model Selection" })).toBeVisible()
+
+      await page.locator(SEL.cancelUnlock).click()
+
+      await expect(page.getByRole("heading", { name: "Unlock Model Selection" })).not.toBeVisible()
+      await expect(page.locator(SEL.unlockTrigger)).toBeVisible()
+      await expect(page.locator('input[name="embedding_config[dimension]"]')).toBeDisabled()
+    })
+
+    test("confirm unlock: modal closes, unlock button gone, dimension enabled", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      await page.locator(SEL.confirmUnlock).click()
+
+      await expect(page.getByRole("heading", { name: "Unlock Model Selection" })).not.toBeVisible()
+      await expect(page.locator(SEL.unlockTrigger)).not.toBeVisible()
+      await expect(page.locator('input[name="embedding_config[dimension]"]')).not.toBeDisabled()
+    })
+
+    // NOTE: handle_params only assigns active_tab — it does NOT reload the embedding form.
+    // Only a full page navigation (mount) resets embedding_locked to true.
+    test("full page reload re-engages the lock after it was unlocked", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      await page.locator(SEL.confirmUnlock).click()
+      await expect(page.locator(SEL.unlockTrigger)).not.toBeVisible()
+
+      // Full reload — triggers mount → load_embedding_form → embedding_locked: true
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
+
+      await expect(page.locator(SEL.unlockTrigger)).toBeVisible()
+      await expect(page.locator('input[name="embedding_config[dimension]"]')).toBeDisabled()
+    })
+
+    // ── Save without model change ─────────────────────────────────────────
+    // NOTE: Changing endpoint while locked triggers phx-change, which excludes the disabled
+    // model input from params → params["model"] = nil ≠ saved_model → model_changed = true.
+    // To test a genuinely non-destructive save, submit without triggering phx-change.
+
+    test("saving with current config (no field change) succeeds without confirm modal", async ({ page }) => {
+      // model_changed is false at mount; no phx-change fired → goes straight to do_save_embedding
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+
+      await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
+      await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+    })
+
+    // ── Destructive save flow ─────────────────────────────────────────────
+
+    test("changing dimension after unlock marks save button red and triggers confirm modal", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      await page.locator(SEL.confirmUnlock).click()
+
+      const dimInput = page.locator('input[name="embedding_config[dimension]"]')
+      const newDim = await differentDimension(page)
+      await dimInput.fill(String(newDim))
+      await dimInput.press("Tab")
+
+      const saveBtn = page.getByRole("button", { name: "Save Embedding Settings" })
+      // Wait for server to process validate_embedding and set model_changed: true
+      await expect(saveBtn).toHaveClass(/bg-red-500/)
+
+      await saveBtn.click()
+      await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).toBeVisible()
+      await expect(page.getByText("This cannot be undone")).toBeVisible()
+    })
+
+    test("cancel destructive save: modal closes, form intact, no success flash", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      await page.locator(SEL.confirmUnlock).click()
+
+      const dimInput = page.locator('input[name="embedding_config[dimension]"]')
+      const newDim = await differentDimension(page)
+      await dimInput.fill(String(newDim))
+      await dimInput.press("Tab")
+
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).toBeVisible()
+
+      await page.locator(SEL.cancelSave).click()
+
+      await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
+      await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
+    })
+
+    test("confirm destructive save: modal closes and save succeeds", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      await page.locator(SEL.confirmUnlock).click()
+
+      const dimInput = page.locator('input[name="embedding_config[dimension]"]')
+      const newDim = await differentDimension(page)
+      await dimInput.fill(String(newDim))
+      await dimInput.press("Tab")
+
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).toBeVisible()
+
+      await page.locator(SEL.confirmSave).click()
+
+      await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
+      await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+    })
+
+    // ── Validation: required & numeric ───────────────────────────────────
+
+    test("clearing endpoint blocks save (required field)", async ({ page }) => {
+      await page.locator('input[name="embedding_config[endpoint]"]').fill("")
+      await page.locator('input[name="embedding_config[endpoint]"]').press("Tab")
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
+    })
+
+    test("dimension of 0 is rejected after unlock", async ({ page }) => {
+      await page.locator(SEL.unlockTrigger).click()
+      await page.locator(SEL.confirmUnlock).click()
+
+      const dimInput = page.locator('input[name="embedding_config[dimension]"]')
+      await dimInput.fill("0")
+      await dimInput.press("Tab")
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+
+      // If the confirm modal appears (model_changed = true), proceed through it
+      const modal = page.getByRole("heading", { name: "Delete All Embeddings?" })
+      if (await modal.isVisible()) {
+        await page.locator(SEL.confirmSave).click()
+      }
+      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
+    })
+
+    test("chunk_min_tokens equal to chunk_max_tokens shows order error", async ({ page }) => {
+      const minInput = page.locator('input[name="embedding_config[chunk_min_tokens]"]')
+      const maxInput = page.locator('input[name="embedding_config[chunk_max_tokens]"]')
+
+      await minInput.fill("500")
+      await minInput.press("Tab")
+      await maxInput.fill("500")
+      await maxInput.press("Tab")
+
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expect(page.getByText("must be greater than min tokens")).toBeVisible()
+      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
+    })
+
+    test("chunk_min_tokens greater than chunk_max_tokens shows order error", async ({ page }) => {
+      const minInput = page.locator('input[name="embedding_config[chunk_min_tokens]"]')
+      const maxInput = page.locator('input[name="embedding_config[chunk_max_tokens]"]')
+
+      await minInput.fill("900")
+      await minInput.press("Tab")
+      await maxInput.fill("400")
+      await maxInput.press("Tab")
+
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expect(page.getByText("must be greater than min tokens")).toBeVisible()
+      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
+    })
+
+    test("chunk_min_tokens of 0 is rejected (must be > 0)", async ({ page }) => {
+      const minInput = page.locator('input[name="embedding_config[chunk_min_tokens]"]')
+      await minInput.fill("0")
+      await minInput.press("Tab")
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
+    })
+
+    // ── API key persistence ───────────────────────────────────────────────
+
+    test("changing api key saves and persists after page reload", async ({ page }) => {
+      const newKey = `e2e-test-key-${Date.now()}`
+      const keyInput = page.locator("#embedding-api-key-input")
+
+      await keyInput.fill(newKey)
+      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+
+      // Full reload — triggers mount → load_embedding_form → reads from DB
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
+      await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+
+      await expect(keyInput).toHaveValue(newKey)
+    })
+  })
+
+  // ── Image to Text tab ──────────────────────────────────────────────────
+
+  test.describe("Image to Text tab", () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator(SEL.tabImageToText).click()
+      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+    })
+
+    test("renders endpoint and api key fields", async ({ page }) => {
+      await expect(page.locator('input[name="image_to_text_config[endpoint]"]')).toBeVisible()
+      await expect(page.locator("#image-to-text-api-key-input")).toBeVisible()
+    })
+
+    test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
+      const input = page.locator("#image-to-text-api-key-input")
+      const showBtn = page.locator("#image-to-text-api-key-show")
+      const hideBtn = page.locator("#image-to-text-api-key-hide")
+
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await expect(hideBtn).toHaveClass(/hidden/)
+
+      await showBtn.click()
+      await expect(input).not.toHaveAttribute("style", /-webkit-text-security/)
+      await expect(showBtn).toHaveClass(/hidden/)
+      await expect(hideBtn).not.toHaveClass(/hidden/)
+
+      await hideBtn.click()
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+    })
+
+    test("successful save shows flash message", async ({ page }) => {
+      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
+      await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
+    })
+
+    // NOTE: Ecto's cast/4 treats "" as blank for string fields and silently resets to the field
+    // default. This means clearing endpoint or model to "" never triggers validate_required.
+    // These tests verify the UI response is idempotent (form stays on page, no unintended redirect).
+    test("clearing endpoint and saving keeps the form (no redirect / error state)", async ({ page }) => {
+      const endpointInput = page.locator('input[name="image_to_text_config[endpoint]"]')
+      await endpointInput.fill("")
+      await endpointInput.press("Tab")
+      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
+      // Form should remain visible — no redirect or crash
+      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+    })
+
+    test("clearing model (text input) and saving keeps the form (no redirect / error state)", async ({ page }) => {
+      // Model is a text input only when model_options == [] (custom provider)
+      const modelInput = page.locator('input[name="image_to_text_config[model]"]')
+      if (await modelInput.isVisible()) {
+        await modelInput.fill("")
+        await modelInput.press("Tab")
+        await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
+        // Form should remain visible — no redirect or crash
+        await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+      }
+    })
+
+    test("either model text input or model dropdown is present", async ({ page }) => {
+      const textInput = page.locator('input[name="image_to_text_config[model]"]')
+      const dropdown = page.locator("#image-to-text-model-select")
+      const inputVisible = await textInput.isVisible()
+      const dropdownVisible = await dropdown.isVisible()
+      expect(inputVisible || dropdownVisible).toBe(true)
+    })
+
+    // ── API key persistence ───────────────────────────────────────────────
+
+    test("changing api key saves and persists after page reload", async ({ page }) => {
+      const newKey = `e2e-itt-key-${Date.now()}`
+      const keyInput = page.locator("#image-to-text-api-key-input")
+
+      await keyInput.fill(newKey)
+      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
+      await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
+
+      // Full reload — triggers mount → load_image_to_text_form → reads from DB
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=image_to_text`)
+      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+
+      await expect(keyInput).toHaveValue(newKey)
+    })
+  })
+})

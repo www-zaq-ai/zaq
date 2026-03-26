@@ -6,11 +6,24 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor}
   alias Zaq.Repo
+  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig}
 
   import Ecto.Query
   @moduletag capture_log: true
 
   setup :verify_on_exit!
+
+  setup do
+    changeset =
+      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+        endpoint: "http://localhost:11434/v1",
+        model: "test-model",
+        dimension: "1536"
+      })
+
+    {:ok, _} = Zaq.System.save_embedding_config(changeset)
+    :ok
+  end
 
   # ---------------------------------------------------------------------------
   # Test helpers
@@ -105,20 +118,27 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   defp with_image_to_text_stub(api_key, fun) when is_function(fun, 0) do
     original_step_module = Application.get_env(:zaq, :image_to_text_step_module)
-    original_image_to_text = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText)
+
+    changeset =
+      ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
+        endpoint: "http://localhost:11434/v1",
+        model: "test-model",
+        api_key: api_key
+      })
+
+    {:ok, _} = Zaq.System.save_image_to_text_config(changeset)
 
     try do
       Application.put_env(:zaq, :image_to_text_step_module, Zaq.Ingestion.ImageToTextStepStub)
-      Application.put_env(:zaq, Zaq.Ingestion.Python.ImageToText, api_key: api_key)
       fun.()
     after
-      restore_env(:image_to_text_step_module, original_step_module)
-      restore_env(Zaq.Ingestion.Python.ImageToText, original_image_to_text)
+      if is_nil(original_step_module) do
+        Application.delete_env(:zaq, :image_to_text_step_module)
+      else
+        Application.put_env(:zaq, :image_to_text_step_module, original_step_module)
+      end
     end
   end
-
-  defp restore_env(key, nil), do: Application.delete_env(:zaq, key)
-  defp restore_env(key, value), do: Application.put_env(:zaq, key, value)
 
   # ---------------------------------------------------------------------------
   # extract_source/2
@@ -607,7 +627,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       })
       |> Repo.insert!()
 
-      Application.put_env(:zaq, Zaq.Ingestion, max_context_window: 1)
+      Zaq.System.set_config("llm.max_context_window", 1)
 
       assert {:ok, []} = DocumentProcessor.query_extraction("token heavy")
     end
@@ -682,7 +702,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
         assert {:error, reason} = DocumentProcessor.process_single_file(path)
         assert is_binary(reason)
-        assert String.contains?(reason, "IMAGE_TO_TEXT_API_KEY")
+        assert String.contains?(reason, "not configured")
 
         refute File.exists?(sidecar_path)
         assert Document.get_by_source("missing-key.jpg") == nil
@@ -764,20 +784,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "query_extraction/1" do
-    setup do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-
-      on_exit(fn ->
-        if is_nil(original) do
-          Application.delete_env(:zaq, Zaq.Ingestion)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion, original)
-        end
-      end)
-
-      :ok
-    end
-
     test "passes embedding errors through from similarity_search_group_by" do
       stub_embedding_failure()
       assert {:error, reason} = DocumentProcessor.query_extraction("query")
@@ -843,10 +849,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Jason.encode!()
         |> TokenEstimator.estimate()
 
-      Application.put_env(:zaq, Zaq.Ingestion, max_context_window: boundary_tokens)
+      Zaq.System.set_config("llm.max_context_window", boundary_tokens)
       assert {:ok, []} = DocumentProcessor.query_extraction("deterministic payload")
 
-      Application.put_env(:zaq, Zaq.Ingestion, max_context_window: boundary_tokens + 1)
+      Zaq.System.set_config("llm.max_context_window", boundary_tokens + 1)
       assert {:ok, [first | _]} = DocumentProcessor.query_extraction("deterministic payload")
       assert first["content"] == "Boundary-only chunk with deterministic payload."
     end

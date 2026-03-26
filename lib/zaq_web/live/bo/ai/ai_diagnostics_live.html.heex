@@ -40,7 +40,7 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-4 gap-6">
+  <div class="grid grid-cols-3 gap-6">
     <!-- LLM -->
     <ZaqWeb.Components.BOLayout.diagnostic_card
       label="LLM"
@@ -51,32 +51,42 @@
         label="Endpoint"
         value={@llm_config.endpoint}
         truncate
-        hint="LLM_ENDPOINT"
+        hint="System Config → LLM"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Model"
         value={@llm_config.model}
-        hint="LLM_MODEL"
+        hint="System Config → LLM"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Temperature"
         value={to_string(@llm_config.temperature)}
-        hint="config/runtime.exs"
+        hint="System Config → LLM"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Top-p"
         value={to_string(@llm_config.top_p)}
-        hint="config/runtime.exs"
+        hint="System Config → LLM"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Logprobs"
         value={if @llm_config.supports_logprobs, do: "yes", else: "no"}
-        hint="config/runtime.exs"
+        hint="System Config → LLM"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="JSON Mode"
         value={if @llm_config.supports_json_mode, do: "yes", else: "no"}
-        hint="config/runtime.exs"
+        hint="System Config → LLM"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Max Context"
+        value={"#{@llm_config.max_context_window} tokens"}
+        hint="System Config → LLM"
+      />
+      <ZaqWeb.Components.BOLayout.config_row
+        label="Distance Threshold"
+        value={to_string(@llm_config.distance_threshold)}
+        hint="System Config → LLM"
       />
     </ZaqWeb.Components.BOLayout.diagnostic_card>
     
@@ -86,61 +96,56 @@
       status={@embedding_status}
       event="test_embedding"
     >
+      <div
+        :if={not @embedding_ready}
+        class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2"
+      >
+        <svg
+          class="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+          />
+        </svg>
+        <p class="font-mono text-[0.7rem] text-amber-700 leading-relaxed">
+          Chunks table not created.
+          <a href="/bo/system-config?tab=embedding" class="underline">
+            Configure embedding settings →
+          </a>
+        </p>
+      </div>
       <ZaqWeb.Components.BOLayout.config_row
         label="Endpoint"
         value={@embedding_config.endpoint}
         truncate
-        hint="EMBEDDING_ENDPOINT"
+        hint="System Config → Embedding"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Model"
         value={@embedding_config.model}
-        hint="EMBEDDING_MODEL"
+        hint="System Config → Embedding"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Dimension"
         value={to_string(@embedding_config.dimension)}
-        hint="EMBEDDING_DIMENSION"
-      />
-    </ZaqWeb.Components.BOLayout.diagnostic_card>
-    
-<!-- Ingestion -->
-    <ZaqWeb.Components.BOLayout.diagnostic_card
-      label="Ingestion"
-      event="test_token_estimator"
-      button_label="Test TokenEstimator"
-    >
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Max Context"
-        value={"#{@ingestion_config.max_context_window} tokens"}
-        hint="config/runtime.exs"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Distance Threshold"
-        value={to_string(@ingestion_config.distance_threshold)}
-        hint="config/runtime.exs"
-      />
-      <ZaqWeb.Components.BOLayout.config_row
-        label="Hybrid Search Limit"
-        value={to_string(@ingestion_config.hybrid_search_limit)}
-        hint="config/runtime.exs"
+        hint="System Config → Embedding"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Chunk Min Tokens"
-        value={to_string(@ingestion_config.chunk_min_tokens)}
-        hint="config/runtime.exs"
+        value={to_string(@embedding_config.chunk_min_tokens)}
+        hint="System Config → Embedding"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Chunk Max Tokens"
-        value={to_string(@ingestion_config.chunk_max_tokens)}
-        hint="config/runtime.exs"
+        value={to_string(@embedding_config.chunk_max_tokens)}
+        hint="System Config → Embedding"
       />
-      <:footer_extra>
-        <p :if={@token_test_result} class="font-mono text-[0.7rem] text-black/50 mt-2 text-center">
-          "The quick brown fox…" →
-          <span class="text-black font-bold">{@token_test_result} tokens</span>
-        </p>
-      </:footer_extra>
     </ZaqWeb.Components.BOLayout.diagnostic_card>
     
 <!-- Image to Text -->
@@ -150,15 +155,15 @@
       event="test_image_to_text"
     >
       <ZaqWeb.Components.BOLayout.config_row
-        label="API URL"
-        value={@image_to_text_config.api_url}
+        label="Endpoint"
+        value={@image_to_text_config.endpoint}
         truncate
-        hint="IMAGE_TO_TEXT_API_URL"
+        hint="System Config → Image to Text"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="Model"
         value={@image_to_text_config.model}
-        hint="IMAGE_TO_TEXT_MODEL"
+        hint="System Config → Image to Text"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="API Key"
@@ -167,7 +172,7 @@
             do: "configured",
             else: "not set — image steps skipped"
         }
-        hint="IMAGE_TO_TEXT_API_KEY"
+        hint="System Config → Image to Text"
       />
       <ZaqWeb.Components.BOLayout.config_row
         label="PDF Python"

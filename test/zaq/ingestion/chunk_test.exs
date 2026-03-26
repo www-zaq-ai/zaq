@@ -2,6 +2,19 @@ defmodule Zaq.Ingestion.ChunkTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Ingestion.{Chunk, Document}
+  alias Zaq.System.EmbeddingConfig
+
+  setup do
+    changeset =
+      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+        endpoint: "http://localhost:11434/v1",
+        model: "test-model",
+        dimension: "1536"
+      })
+
+    {:ok, _} = Zaq.System.save_embedding_config(changeset)
+    :ok
+  end
 
   setup do
     {:ok, doc} =

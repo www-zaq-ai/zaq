@@ -11,8 +11,8 @@ defmodule Zaq.Agent.LLM do
   ## Configuration
 
   LLM settings are managed via the back-office UI at `/bo/system-config`
-  and persisted in the database. The application env is kept in sync
-  automatically via `Zaq.System.apply_llm_to_app_env/0`.
+  and persisted in the database. All values are read directly from the
+  database via `Zaq.System.get_llm_config/0`.
   """
 
   @doc """
@@ -26,13 +26,13 @@ defmodule Zaq.Agent.LLM do
       iex> Zaq.Agent.LLM.endpoint()
       "http://localhost:11434/v1"
   """
-  def endpoint, do: config(:endpoint)
+  def endpoint, do: Zaq.System.get_llm_config().endpoint
 
   @doc """
   API key for authentication. Empty string for local deployments
   that don't require authentication (e.g. Ollama).
   """
-  def api_key, do: config(:api_key, "")
+  def api_key, do: Zaq.System.get_llm_config().api_key || ""
 
   @doc """
   Model identifier. Provider-specific string.
@@ -43,27 +43,27 @@ defmodule Zaq.Agent.LLM do
       "llama-3.3-70b-instruct"    # Ollama / vLLM
       "gpt-4o"                    # OpenAI
   """
-  def model, do: config(:model, "llama-3.3-70b-instruct")
+  def model, do: Zaq.System.get_llm_config().model
 
   @doc "LLM sampling temperature. Default: 0.0 (deterministic)."
-  def temperature, do: config(:temperature, 0.0)
+  def temperature, do: Zaq.System.get_llm_config().temperature
 
   @doc "Top-p (nucleus) sampling. Default: 0.9."
-  def top_p, do: config(:top_p, 0.9)
+  def top_p, do: Zaq.System.get_llm_config().top_p
 
   @doc """
   Whether the LLM provider supports logprobs in the response.
   Used by the Answering agent for confidence scoring.
   When false, confidence calculation is skipped gracefully.
   """
-  def supports_logprobs?, do: config(:supports_logprobs, true)
+  def supports_logprobs?, do: Zaq.System.get_llm_config().supports_logprobs
 
   @doc """
   Whether the LLM provider supports JSON response mode.
   Used by the Retrieval agent to force structured JSON output.
   When false, the agent will parse JSON from the text response.
   """
-  def supports_json_mode?, do: config(:supports_json_mode, true)
+  def supports_json_mode?, do: Zaq.System.get_llm_config().supports_json_mode
 
   @doc """
   Returns the full configuration map. Useful for passing to
@@ -81,22 +81,16 @@ defmodule Zaq.Agent.LLM do
       # }
   """
   def chat_config(overrides \\ []) do
+    cfg = Zaq.System.get_llm_config()
+
     base = %{
-      model: model(),
-      temperature: temperature(),
-      top_p: top_p(),
-      endpoint: endpoint() <> "/chat/completions",
-      api_key: api_key()
+      model: cfg.model,
+      temperature: cfg.temperature,
+      top_p: cfg.top_p,
+      endpoint: cfg.endpoint <> "/chat/completions",
+      api_key: cfg.api_key
     }
 
     Map.merge(base, Map.new(overrides))
-  end
-
-  # -- Private --
-
-  defp config(key, default \\ nil) do
-    :zaq
-    |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(key, default)
   end
 end

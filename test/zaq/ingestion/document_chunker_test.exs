@@ -1,9 +1,10 @@
 defmodule Zaq.Ingestion.DocumentChunkerTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: false
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion.DocumentChunker
   alias Zaq.Ingestion.DocumentChunker.{Chunk, Section}
+  alias Zaq.System
 
   # ---------------------------------------------------------------------------
   # parse_layout/2 — basics
@@ -302,20 +303,6 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
   # ---------------------------------------------------------------------------
 
   describe "chunk_sections/2" do
-    setup do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-
-      on_exit(fn ->
-        if is_nil(original) do
-          Application.delete_env(:zaq, Zaq.Ingestion)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion, original)
-        end
-      end)
-
-      :ok
-    end
-
     test "produces chunks from sections" do
       sections = [
         %Section{
@@ -390,7 +377,8 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
     end
 
     test "splits paragraphs when a combined chunk exceeds max tokens" do
-      Application.put_env(:zaq, Zaq.Ingestion, chunk_min_tokens: 1, chunk_max_tokens: 7)
+      System.set_config("embedding.chunk_min_tokens", 1)
+      System.set_config("embedding.chunk_max_tokens", 7)
 
       sections = [
         %Section{
@@ -410,7 +398,8 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
     end
 
     test "splits oversized single paragraph into sentence chunks" do
-      Application.put_env(:zaq, Zaq.Ingestion, chunk_min_tokens: 1, chunk_max_tokens: 3)
+      System.set_config("embedding.chunk_min_tokens", 1)
+      System.set_config("embedding.chunk_max_tokens", 3)
 
       sections = [
         %Section{
@@ -431,7 +420,8 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
     end
 
     test "keeps overlong sentence as its own chunk when sentence exceeds max" do
-      Application.put_env(:zaq, Zaq.Ingestion, chunk_min_tokens: 1, chunk_max_tokens: 1)
+      System.set_config("embedding.chunk_min_tokens", 1)
+      System.set_config("embedding.chunk_max_tokens", 1)
 
       sections = [
         %Section{

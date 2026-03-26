@@ -37,10 +37,16 @@ defmodule Zaq.Application do
       |> maybe_add(roles, :channels, Zaq.Channels.Supervisor)
       |> maybe_add(roles, :bo, ZaqWeb.Endpoint)
 
+    children =
+      if Application.get_env(:zaq, :e2e_routes, false) do
+        children ++ [Zaq.E2E.ProcessorState]
+      else
+        children
+      end
+
     opts = [strategy: :one_for_one, name: Zaq.Supervisor]
     result = Supervisor.start_link(children, opts)
     LLMDB.load()
-    Zaq.System.apply_ai_configs_from_db()
     result
   end
 

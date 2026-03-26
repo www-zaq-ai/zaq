@@ -75,7 +75,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   defp resolve_api_key(opts) do
     key =
       opts[:api_key] ||
-        Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText, [])[:api_key]
+        Zaq.System.get_image_to_text_config().api_key
 
     if key && key != "", do: key, else: nil
   end

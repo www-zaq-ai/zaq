@@ -6,6 +6,34 @@
   current_path={@current_path}
   features_version={@features_version}
 >
+  <div
+    :if={not @embedding_ready}
+    class="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4"
+  >
+    <svg
+      class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+      />
+    </svg>
+    <div>
+      <p class="font-mono text-[0.8rem] font-semibold text-amber-800">Embedding not configured</p>
+      <p class="font-mono text-[0.75rem] text-amber-700 mt-0.5">
+        Please configure and save your embedding settings before ingesting documents.
+        <a href="/bo/system-config?tab=embedding" class="underline hover:text-amber-900">
+          Go to Settings →
+        </a>
+      </p>
+    </div>
+  </div>
+
   <div class="grid grid-cols-3 gap-6">
     <%!-- =============== LEFT: File Browser + Upload =============== --%>
     <div class="col-span-2 space-y-6">
@@ -16,7 +44,11 @@
       />
 
       <div>
-        <.file_browser_header selected={@selected} ingest_mode={@ingest_mode} />
+        <.file_browser_header
+          selected={@selected}
+          ingest_mode={@ingest_mode}
+          embedding_ready={@embedding_ready}
+        />
         <.breadcrumbs breadcrumbs={@breadcrumbs} current_dir={@current_dir} />
         <.view_mode_toggle view_mode={@view_mode} entries={@entries} />
         <.file_list_view
@@ -39,7 +71,7 @@
         />
       </div>
 
-      <.upload_section uploads={@uploads} />
+      <.upload_section uploads={@uploads} embedding_ready={@embedding_ready} />
     </div>
 
     <%!-- =============== RIGHT: Ingestion Jobs =============== --%>

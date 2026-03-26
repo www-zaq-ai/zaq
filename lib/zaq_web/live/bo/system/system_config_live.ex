@@ -1,12 +1,12 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   use ZaqWeb, :live_view
 
-  import ZaqWeb.Live.BO.System.SystemConfigComponents
+  import ZaqWeb.Components.SearchableSelect
 
+  alias Phoenix.LiveView.JS
   alias Zaq.System
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
-  alias Zaq.System.IngestionConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
 
@@ -17,19 +17,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:page_title, "System Configuration")
      |> assign(:active_tab, :telemetry)
      |> assign(:llm_providers, llm_provider_options())
-     |> assign(:embedding_providers, embedding_provider_options())
      |> assign(:image_to_text_providers, image_to_text_provider_options())
+     |> assign(:embedding_unlock_modal, false)
+     |> assign(:embedding_save_confirm_modal, false)
+     |> assign(:pending_embedding_params, nil)
      |> load_telemetry_form()
      |> load_llm_form()
      |> load_embedding_form()
-     |> load_image_to_text_form()
-     |> load_ingestion_form()}
+     |> load_image_to_text_form()}
+  end
+
+  def handle_params(%{"tab" => tab}, _uri, socket)
+      when tab in ~w(telemetry llm embedding image_to_text) do
+    {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
+  end
+
+  def handle_params(_params, _uri, socket) do
+    {:noreply, assign(socket, :active_tab, :telemetry)}
   end
 
   # ── Tab navigation ─────────────────────────────────────────────────────
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
+    {:noreply, push_patch(socket, to: ~p"/bo/system-config?tab=#{tab}")}
   end
 
   # ── Telemetry ──────────────────────────────────────────────────────────
@@ -90,10 +100,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         socket.assigns.llm_capabilities
       end
 
+    api_key_value =
+      case params["api_key"] do
+        v when v not in [nil, ""] -> v
+        _ -> socket.assigns.llm_api_key_value
+      end
+
     {:noreply,
      socket
      |> assign(:llm_model_options, llm_model_options(provider_id))
      |> assign(:llm_capabilities, capabilities)
+     |> assign(:llm_api_key_value, api_key_value)
      |> assign(:llm_form, to_form(changeset, as: :llm_config))}
   end
 
@@ -115,58 +132,74 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   # ── Embedding ─────────────────────────────────────────────────────────
 
+  def handle_event("unlock_embedding", _params, socket) do
+    {:noreply, assign(socket, :embedding_unlock_modal, true)}
+  end
+
+  def handle_event("cancel_unlock_embedding", _params, socket) do
+    {:noreply, assign(socket, :embedding_unlock_modal, false)}
+  end
+
+  def handle_event("confirm_unlock_embedding", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:embedding_locked, false)
+     |> assign(:embedding_unlock_modal, false)
+     |> assign(:embedding_providers, embedding_provider_options())}
+  end
+
   def handle_event("validate_embedding", %{"embedding_config" => params}, socket) do
     provider_id = params["provider"] || "custom"
     previous_provider = socket.assigns.embedding_form[:provider].value
     previous_model = socket.assigns.embedding_form[:model].value
-    model_id = params["model"]
 
-    params =
-      cond do
-        provider_id != previous_provider ->
-          params
-          |> Map.put("endpoint", embedding_provider_endpoint(provider_id))
-          |> Map.put("dimension", "")
-
-        model_id != previous_model ->
-          case embedding_model_dimension(provider_id, model_id) do
-            nil -> params
-            dim -> Map.put(params, "dimension", to_string(dim))
-          end
-
-        true ->
-          params
-      end
+    params = adjust_embedding_params(params, provider_id, previous_provider, previous_model)
 
     changeset =
       System.get_embedding_config()
       |> EmbeddingConfig.changeset(params)
       |> Map.put(:action, :validate)
 
+    model_changed =
+      embedding_model_changed?(params, socket.assigns.saved_model, socket.assigns.saved_dimension)
+
+    api_key_value =
+      resolve_embedding_api_key(params["api_key"], socket.assigns.embedding_api_key_value)
+
     {:noreply,
      socket
      |> assign(:embedding_model_options, embedding_model_options(provider_id))
+     |> assign(:model_changed, model_changed)
+     |> assign(:embedding_api_key_value, api_key_value)
      |> assign(:embedding_form, to_form(changeset, as: :embedding_config))}
   end
 
   def handle_event("save_embedding", %{"embedding_config" => params}, socket) do
-    changeset = EmbeddingConfig.changeset(System.get_embedding_config(), params)
-
-    case System.save_embedding_config(changeset) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> load_embedding_form()
-         |> put_flash(:info, "Embedding settings saved.")}
-
-      {:error, %Ecto.Changeset{} = cs} ->
-        {:noreply,
-         assign(
-           socket,
-           :embedding_form,
-           to_form(Map.put(cs, :action, :validate), as: :embedding_config)
-         )}
+    if socket.assigns.model_changed do
+      {:noreply,
+       socket
+       |> assign(:embedding_save_confirm_modal, true)
+       |> assign(:pending_embedding_params, params)}
+    else
+      do_save_embedding(socket, params)
     end
+  end
+
+  def handle_event("cancel_save_embedding", _params, socket) do
+    {:noreply, assign(socket, :embedding_save_confirm_modal, false)}
+  end
+
+  def handle_event("confirm_save_embedding", _params, socket) do
+    do_save_embedding(
+      assign(socket, :embedding_save_confirm_modal, false),
+      socket.assigns.pending_embedding_params
+    )
+  rescue
+    e ->
+      {:noreply,
+       socket
+       |> assign(:embedding_save_confirm_modal, false)
+       |> put_flash(:error, "Failed to apply embedding settings: #{Exception.message(e)}")}
   end
 
   # ── Image to Text ──────────────────────────────────────────────────────
@@ -177,7 +210,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     params =
       if provider_id != previous_provider do
-        Map.put(params, "api_url", image_to_text_provider_endpoint(provider_id))
+        Map.put(params, "endpoint", image_to_text_provider_endpoint(provider_id))
       else
         params
       end
@@ -187,9 +220,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       |> ImageToTextConfig.changeset(params)
       |> Map.put(:action, :validate)
 
+    # Preserve whatever the user has typed in the API key field
+    api_key_value =
+      case params["api_key"] do
+        v when v not in [nil, ""] -> v
+        _ -> socket.assigns.image_to_text_api_key_value
+      end
+
     {:noreply,
      socket
      |> assign(:image_to_text_model_options, image_to_text_model_options(provider_id))
+     |> assign(:image_to_text_api_key_value, api_key_value)
      |> assign(:image_to_text_form, to_form(changeset, as: :image_to_text_config))}
   end
 
@@ -213,38 +254,28 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  # ── Ingestion ─────────────────────────────────────────────────────────
+  # ── Private ────────────────────────────────────────────────────────────
 
-  def handle_event("validate_ingestion", %{"ingestion_config" => params}, socket) do
-    changeset =
-      System.get_ingestion_config()
-      |> IngestionConfig.changeset(params)
-      |> Map.put(:action, :validate)
+  defp do_save_embedding(socket, params) do
+    changeset = EmbeddingConfig.changeset(System.get_embedding_config(), params)
 
-    {:noreply, assign(socket, :ingestion_form, to_form(changeset, as: :ingestion_config))}
-  end
-
-  def handle_event("save_ingestion", %{"ingestion_config" => params}, socket) do
-    changeset = IngestionConfig.changeset(System.get_ingestion_config(), params)
-
-    case System.save_ingestion_config(changeset) do
+    case System.save_embedding_config(changeset) do
       {:ok, _} ->
         {:noreply,
          socket
-         |> load_ingestion_form()
-         |> put_flash(:info, "Ingestion settings saved.")}
+         |> assign(:pending_embedding_params, nil)
+         |> load_embedding_form()
+         |> put_flash(:info, "Embedding settings saved.")}
 
       {:error, %Ecto.Changeset{} = cs} ->
         {:noreply,
          assign(
            socket,
-           :ingestion_form,
-           to_form(Map.put(cs, :action, :validate), as: :ingestion_config)
+           :embedding_form,
+           to_form(Map.put(cs, :action, :validate), as: :embedding_config)
          )}
     end
   end
-
-  # ── Private ────────────────────────────────────────────────────────────
 
   defp load_telemetry_form(socket) do
     changeset = TelemetryConfig.changeset(System.get_telemetry_config(), %{})
@@ -268,10 +299,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     provider_id = cfg.provider || "custom"
     changeset = EmbeddingConfig.changeset(%EmbeddingConfig{cfg | api_key: ""}, %{})
 
+    providers = embedding_provider_options_for_model(cfg.model)
+
     socket
+    |> assign(:embedding_providers, providers)
     |> assign(:embedding_model_options, embedding_model_options(provider_id))
     |> assign(:embedding_api_key_value, cfg.api_key || "")
     |> assign(:embedding_form, to_form(changeset, as: :embedding_config))
+    |> assign(:embedding_locked, true)
+    |> assign(:embedding_ready, System.embedding_ready?())
+    |> assign(:saved_model, cfg.model)
+    |> assign(:saved_dimension, cfg.dimension)
+    |> assign(:model_changed, false)
   end
 
   defp load_image_to_text_form(socket) do
@@ -283,11 +322,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> assign(:image_to_text_model_options, image_to_text_model_options(provider_id))
     |> assign(:image_to_text_api_key_value, cfg.api_key || "")
     |> assign(:image_to_text_form, to_form(changeset, as: :image_to_text_config))
-  end
-
-  defp load_ingestion_form(socket) do
-    changeset = IngestionConfig.changeset(System.get_ingestion_config(), %{})
-    assign(socket, :ingestion_form, to_form(changeset, as: :ingestion_config))
   end
 
   # Returns %{json_mode: bool | nil, logprobs: bool | nil} from LLMDB for the given model.
@@ -312,36 +346,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ArgumentError -> %{json_mode: nil, logprobs: nil}
   end
 
-  # Returns [{display_name, provider_id_string}] for the provider dropdown.
-  # Includes all LLMDB providers that support chat, plus a "Custom" fallback.
-  defp llm_provider_options do
-    llmdb_options =
-      LLMDB.providers()
-      |> Enum.reject(& &1.alias_of)
-      |> Enum.map(&{&1.name || Atom.to_string(&1.id), Atom.to_string(&1.id)})
-      |> Enum.sort_by(&elem(&1, 0))
+  # ── Shared LLMDB helpers ───────────────────────────────────────────────
 
-    llmdb_options ++ [{"Custom", "custom"}]
-  end
+  # Returns the base_url for any provider, or "" for "custom".
+  defp provider_endpoint("custom"), do: ""
 
-  # Returns [{model_name, model_id}] for the model dropdown, or [] for custom providers.
-  defp llm_model_options("custom"), do: []
-
-  defp llm_model_options(provider_id) do
-    provider_atom = String.to_existing_atom(provider_id)
-
-    LLMDB.models(provider_atom)
-    |> Enum.reject(&(&1.deprecated or &1.retired))
-    |> Enum.map(&{&1.name || &1.id, &1.id})
-    |> Enum.sort_by(&elem(&1, 0))
-  rescue
-    ArgumentError -> []
-  end
-
-  # Returns the base_url for a provider, or empty string for custom.
-  defp llm_provider_endpoint("custom"), do: ""
-
-  defp llm_provider_endpoint(provider_id) do
+  defp provider_endpoint(provider_id) do
     provider_atom = String.to_existing_atom(provider_id)
 
     case LLMDB.provider(provider_atom) do
@@ -352,14 +362,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ArgumentError -> ""
   end
 
-  # Returns [{display_name, provider_id_string}] for providers with embedding models, plus "Custom".
-  defp embedding_provider_options do
+  # Returns [{display_name, provider_id_string}] for providers whose models satisfy
+  # model_filter, plus a "Custom" fallback. Pass `fn _ -> true end` for no filter.
+  defp provider_options(model_filter) do
     llmdb_options =
       LLMDB.providers()
       |> Enum.reject(& &1.alias_of)
       |> Enum.filter(fn p ->
         LLMDB.models(p.id)
-        |> Enum.any?(fn m -> not m.deprecated and not m.retired and embedding_model?(m) end)
+        |> Enum.any?(fn m -> not m.deprecated and not m.retired and model_filter.(m) end)
       end)
       |> Enum.map(&{&1.name || Atom.to_string(&1.id), Atom.to_string(&1.id)})
       |> Enum.sort_by(&elem(&1, 0))
@@ -367,20 +378,36 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     llmdb_options ++ [{"Custom", "custom"}]
   end
 
-  # Returns [{model_name, model_id}] filtered to embedding models, or [] for custom.
-  defp embedding_model_options("custom"), do: []
+  # Returns [{model_name, model_id}] filtered by model_filter, or [] for "custom".
+  defp model_options("custom", _model_filter), do: []
 
-  defp embedding_model_options(provider_id) do
+  defp model_options(provider_id, model_filter) do
     provider_atom = String.to_existing_atom(provider_id)
 
     LLMDB.models(provider_atom)
     |> Enum.reject(&(&1.deprecated or &1.retired))
-    |> Enum.filter(&embedding_model?/1)
+    |> Enum.filter(model_filter)
     |> Enum.map(&{&1.name || &1.id, &1.id})
     |> Enum.sort_by(&elem(&1, 0))
   rescue
     ArgumentError -> []
   end
+
+  # ── LLM-specific helpers ───────────────────────────────────────────────
+
+  defp llm_provider_options, do: provider_options(fn _ -> true end)
+  defp llm_model_options(provider_id), do: model_options(provider_id, fn _ -> true end)
+  defp llm_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
+
+  # ── Embedding-specific helpers ─────────────────────────────────────────
+
+  defp embedding_provider_options, do: provider_options(&embedding_model?/1)
+
+  defp embedding_provider_options_for_model(model_id),
+    do: provider_options(fn m -> m.id == model_id end)
+
+  defp embedding_model_options(provider_id), do: model_options(provider_id, &embedding_model?/1)
+  defp embedding_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
 
   @embedding_name_patterns ~w(embed bge e5- gte- nomic rerank)
 
@@ -413,68 +440,1044 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ArgumentError -> nil
   end
 
-  # Returns the base_url for an embedding provider, or empty string for custom.
-  defp embedding_provider_endpoint("custom"), do: ""
+  defp adjust_embedding_params(params, provider_id, previous_provider, previous_model) do
+    model_id = params["model"]
 
-  defp embedding_provider_endpoint(provider_id) do
-    provider_atom = String.to_existing_atom(provider_id)
+    cond do
+      provider_id != previous_provider ->
+        params
+        |> Map.put("endpoint", embedding_provider_endpoint(provider_id))
+        |> Map.put("dimension", "")
 
-    case LLMDB.provider(provider_atom) do
-      {:ok, provider} -> provider.base_url || ""
-      _ -> ""
+      model_id != previous_model ->
+        case embedding_model_dimension(provider_id, model_id) do
+          nil -> params
+          dim -> Map.put(params, "dimension", to_string(dim))
+        end
+
+      true ->
+        params
     end
-  rescue
-    ArgumentError -> ""
   end
 
-  # Returns [{display_name, provider_id_string}] for providers that have at least
-  # one non-deprecated, non-retired model supporting image input, plus "Custom".
-  defp image_to_text_provider_options do
-    llmdb_options =
-      LLMDB.providers()
-      |> Enum.reject(& &1.alias_of)
-      |> Enum.filter(fn p ->
-        LLMDB.models(p.id)
-        |> Enum.any?(fn m ->
-          input = (m.modalities && m.modalities.input) || []
-          not m.deprecated and not m.retired and :image in input
-        end)
-      end)
-      |> Enum.map(&{&1.name || Atom.to_string(&1.id), Atom.to_string(&1.id)})
-      |> Enum.sort_by(&elem(&1, 0))
-
-    llmdb_options ++ [{"Custom", "custom"}]
+  defp embedding_model_changed?(params, saved_model, saved_dimension) do
+    (not is_nil(params["model"]) && params["model"] != saved_model) ||
+      (params["dimension"] not in [nil, ""] &&
+         params["dimension"] != to_string(saved_dimension))
   end
 
-  # Returns [{model_name, model_id}] filtered to models with image input, or [] for custom.
-  defp image_to_text_model_options("custom"), do: []
+  defp resolve_embedding_api_key(v, _current) when v not in [nil, ""], do: v
+  defp resolve_embedding_api_key(_v, current), do: current
 
-  defp image_to_text_model_options(provider_id) do
-    provider_atom = String.to_existing_atom(provider_id)
+  # ── Image-to-Text-specific helpers ────────────────────────────────────
 
-    LLMDB.models(provider_atom)
-    |> Enum.reject(&(&1.deprecated or &1.retired))
-    |> Enum.filter(fn m ->
-      input = (m.modalities && m.modalities.input) || []
-      :image in input
-    end)
-    |> Enum.map(&{&1.name || &1.id, &1.id})
-    |> Enum.sort_by(&elem(&1, 0))
-  rescue
-    ArgumentError -> []
+  defp image_to_text_provider_options, do: provider_options(&image_input_model?/1)
+
+  defp image_to_text_model_options(provider_id),
+    do: model_options(provider_id, &image_input_model?/1)
+
+  defp image_to_text_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
+
+  defp image_input_model?(m) do
+    input = (m.modalities && m.modalities.input) || []
+    :image in input
   end
 
-  # Returns the base_url for an image-to-text provider, or empty string for custom.
-  defp image_to_text_provider_endpoint("custom"), do: ""
+  # ── Telemetry Panel ────────────────────────────────────────────────────
 
-  defp image_to_text_provider_endpoint(provider_id) do
-    provider_atom = String.to_existing_atom(provider_id)
+  attr :form, :any, required: true
 
-    case LLMDB.provider(provider_atom) do
-      {:ok, provider} -> provider.base_url || ""
-      _ -> ""
-    end
-  rescue
-    ArgumentError -> ""
+  defp telemetry_panel(assigns) do
+    ~H"""
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Telemetry Collection</h2>
+        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+          Control infra event capture and minimum duration thresholds.
+        </p>
+      </div>
+      <div class="px-8 py-6">
+        <.form
+          id="telemetry-config-form"
+          for={@form}
+          phx-submit="save_telemetry"
+          phx-change="validate_telemetry"
+          class="space-y-5"
+        >
+          <div class="flex items-center justify-between py-2 border-b border-black/[0.05]">
+            <div>
+              <p class="font-mono text-[0.82rem] font-semibold text-black">
+                Capture infra metrics
+              </p>
+              <p class="font-mono text-[0.72rem] text-black/40 mt-0.5">
+                Collect Phoenix request, Repo query, and Oban runtime metrics.
+              </p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="hidden" name="telemetry_config[capture_infra_metrics]" value="false" />
+              <input
+                type="checkbox"
+                name="telemetry_config[capture_infra_metrics]"
+                value="true"
+                checked={@form[:capture_infra_metrics].value in [true, "true"]}
+                class="sr-only peer"
+              />
+              <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm">
+              </div>
+            </label>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Request Duration Threshold (ms)
+              </label>
+              <input
+                type="number"
+                min="0"
+                name="telemetry_config[request_duration_threshold_ms]"
+                value={@form[:request_duration_threshold_ms].value}
+                phx-debounce="400"
+                placeholder="0"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:request_duration_threshold_ms].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Repo Query Threshold (ms)
+              </label>
+              <input
+                type="number"
+                min="0"
+                name="telemetry_config[repo_query_duration_threshold_ms]"
+                value={@form[:repo_query_duration_threshold_ms].value}
+                phx-debounce="400"
+                placeholder="0"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:repo_query_duration_threshold_ms].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                No-Answer Alert Threshold (%)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                name="telemetry_config[no_answer_alert_threshold_percent]"
+                value={@form[:no_answer_alert_threshold_percent].value}
+                phx-debounce="400"
+                placeholder="10"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:no_answer_alert_threshold_percent].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Conversations Response SLA (ms)
+              </label>
+              <input
+                type="number"
+                min="0"
+                name="telemetry_config[conversation_response_sla_ms]"
+                value={@form[:conversation_response_sla_ms].value}
+                phx-debounce="400"
+                placeholder="1500"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:conversation_response_sla_ms].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+          </div>
+          <div class="bg-[#fafafa] rounded-xl border border-black/5 px-4 py-3">
+            <p class="font-mono text-[0.72rem] text-black/50 leading-relaxed">
+              Thresholds are applied by the telemetry collector and Conversations dashboard alerts.
+              Use <span class="font-semibold text-black/70">0</span> to capture every event.
+            </p>
+          </div>
+          <div class="pt-2">
+            <button
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+            >
+              Save Telemetry Settings
+            </button>
+          </div>
+        </.form>
+      </div>
+    </div>
+    """
+  end
+
+  # ── LLM Panel ─────────────────────────────────────────────────────────
+
+  attr :form, :any, required: true
+  attr :providers, :list, required: true
+  attr :model_options, :list, required: true
+  attr :capabilities, :map, required: true
+  attr :api_key_value, :string, default: ""
+
+  defp llm_panel(assigns) do
+    ~H"""
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">LLM</h2>
+        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+          OpenAI-compatible language model endpoint used for chat and retrieval.
+        </p>
+      </div>
+      <div class="px-8 py-6">
+        <.form
+          id="llm-config-form"
+          for={@form}
+          phx-submit="save_llm"
+          phx-change="validate_llm"
+          class="space-y-5"
+        >
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Provider
+              </label>
+              <.searchable_select
+                id="llm-provider-select"
+                name="llm_config[provider]"
+                value={@form[:provider].value}
+                options={@providers}
+                placeholder="Search providers..."
+                empty_label="Custom"
+              />
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Model
+              </label>
+              <.searchable_select
+                :if={@model_options != []}
+                id="llm-model-select"
+                name="llm_config[model]"
+                value={@form[:model].value}
+                options={@model_options}
+                placeholder="Search models..."
+                empty_label="Select a model..."
+              />
+              <input
+                :if={@model_options == []}
+                type="text"
+                name="llm_config[model]"
+                value={@form[:model].value}
+                required
+                phx-debounce="400"
+                placeholder="llama-3.3-70b-instruct"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:model].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Endpoint
+            </label>
+            <input
+              type="text"
+              name="llm_config[endpoint]"
+              value={@form[:endpoint].value}
+              required
+              phx-debounce="400"
+              placeholder="http://localhost:11434/v1"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+            />
+            <p
+              :for={{msg, _opts} <- @form[:endpoint].errors}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {msg}
+            </p>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              API Key
+            </label>
+            <div class="relative">
+              <input
+                type="text"
+                name="llm_config[api_key]"
+                value={@api_key_value}
+                placeholder="Enter API key"
+                autocomplete="off"
+                style="-webkit-text-security: disc;"
+                phx-debounce="blur"
+                id="llm-api-key-input"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-10 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <button
+                type="button"
+                id="llm-api-key-show"
+                phx-click={
+                  JS.remove_attribute("style", to: "#llm-api-key-input")
+                  |> JS.add_class("hidden", to: "#llm-api-key-show")
+                  |> JS.remove_class("hidden", to: "#llm-api-key-hide")
+                }
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                  class="w-4 h-4"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                  /><path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="llm-api-key-hide"
+                phx-click={
+                  JS.set_attribute({"style", "-webkit-text-security: disc;"},
+                    to: "#llm-api-key-input"
+                  )
+                  |> JS.remove_class("hidden", to: "#llm-api-key-show")
+                  |> JS.add_class("hidden", to: "#llm-api-key-hide")
+                }
+                class="hidden absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                  class="w-4 h-4"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Temperature
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                name="llm_config[temperature]"
+                value={@form[:temperature].value}
+                phx-debounce="400"
+                placeholder="0.0"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:temperature].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Top-P
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                max="1"
+                step="0.05"
+                name="llm_config[top_p]"
+                value={@form[:top_p].value}
+                phx-debounce="400"
+                placeholder="0.9"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:top_p].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4 border-t border-black/[0.06] pt-4">
+            <div>
+              <div class="flex items-center justify-between py-1">
+                <div>
+                  <p class="font-mono text-[0.82rem] font-semibold text-black">JSON Mode</p>
+                  <p class="font-mono text-[0.72rem] text-black/40 mt-0.5">
+                    Force structured JSON output.
+                  </p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                  <input type="hidden" name="llm_config[supports_json_mode]" value="false" />
+                  <input
+                    type="checkbox"
+                    name="llm_config[supports_json_mode]"
+                    value="true"
+                    checked={@form[:supports_json_mode].value in [true, "true"]}
+                    class="sr-only peer"
+                  />
+                  <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm">
+                  </div>
+                </label>
+              </div>
+              <p
+                :if={
+                  @capabilities.json_mode == false &&
+                    @form[:supports_json_mode].value in [true, "true"]
+                }
+                class="font-mono text-[0.72rem] text-amber-600 mt-1"
+              >
+                Model doesn't support JSON mode — recommend turning off.
+              </p>
+            </div>
+            <div>
+              <div class="flex items-center justify-between py-1">
+                <div>
+                  <p class="font-mono text-[0.82rem] font-semibold text-black">Logprobs</p>
+                  <p class="font-mono text-[0.72rem] text-black/40 mt-0.5">
+                    Log-probability confidence scores.
+                  </p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                  <input type="hidden" name="llm_config[supports_logprobs]" value="false" />
+                  <input
+                    type="checkbox"
+                    name="llm_config[supports_logprobs]"
+                    value="true"
+                    checked={@form[:supports_logprobs].value in [true, "true"]}
+                    class="sr-only peer"
+                  />
+                  <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm">
+                  </div>
+                </label>
+              </div>
+              <p
+                :if={
+                  @capabilities.logprobs == false && @form[:supports_logprobs].value in [true, "true"]
+                }
+                class="font-mono text-[0.72rem] text-amber-600 mt-1"
+              >
+                Model doesn't support logprobs — recommend turning off.
+              </p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4 border-t border-black/[0.06] pt-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Max Context Window (tokens)
+              </label>
+              <input
+                type="number"
+                min="1"
+                name="llm_config[max_context_window]"
+                value={@form[:max_context_window].value}
+                phx-debounce="400"
+                placeholder="5000"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:max_context_window].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Distance Threshold
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                name="llm_config[distance_threshold]"
+                value={@form[:distance_threshold].value}
+                phx-debounce="400"
+                placeholder="1.2"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:distance_threshold].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+          </div>
+          <div class="pt-2">
+            <button
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+            >
+              Save LLM Settings
+            </button>
+          </div>
+        </.form>
+      </div>
+    </div>
+    """
+  end
+
+  # ── Embedding Panel ───────────────────────────────────────────────────
+
+  attr :form, :any, required: true
+  attr :providers, :list, required: true
+  attr :model_options, :list, required: true
+  attr :api_key_value, :string, default: ""
+  attr :locked, :boolean, default: false
+  attr :unlock_modal, :boolean, default: false
+  attr :model_changed, :boolean, default: false
+  attr :save_confirm_modal, :boolean, default: false
+
+  defp embedding_panel(assigns) do
+    ~H"""
+    <%!-- Unlock model — informational note --%>
+    <div
+      :if={@unlock_modal}
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+    >
+      <div class="bg-white rounded-2xl shadow-xl border border-black/[0.08] w-full max-w-md mx-4 p-6">
+        <h3 class="font-mono text-[0.95rem] font-bold text-black mb-2">Unlock Model Selection</h3>
+        <p class="font-mono text-[0.8rem] text-black/60 leading-relaxed mb-5">
+          You are about to unlock model selection. If you pick a different model, saving will permanently delete all existing embeddings and require full re-ingestion.
+        </p>
+        <div class="flex justify-end gap-3">
+          <button
+            type="button"
+            phx-click="cancel_unlock_embedding"
+            class="font-mono text-[0.82rem] px-5 py-2.5 rounded-xl border border-black/10 text-black/60 hover:bg-black/[0.04] transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            phx-click="confirm_unlock_embedding"
+            class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+          >
+            Unlock
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Destructive save confirmation modal --%>
+    <div
+      :if={@save_confirm_modal}
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+    >
+      <div class="bg-white rounded-2xl shadow-xl border border-black/[0.08] w-full max-w-md mx-4 p-6">
+        <h3 class="font-mono text-[0.95rem] font-bold text-black mb-2">Delete All Embeddings?</h3>
+        <p class="font-mono text-[0.8rem] text-black/60 leading-relaxed mb-5">
+          All existing embeddings will be permanently deleted and full re-ingestion will be required. This cannot be undone.
+        </p>
+        <div class="flex justify-end gap-3">
+          <button
+            type="button"
+            phx-click="cancel_save_embedding"
+            class="font-mono text-[0.82rem] px-5 py-2.5 rounded-xl border border-black/10 text-black/60 hover:bg-black/[0.04] transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            phx-click="confirm_save_embedding"
+            class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-all"
+          >
+            Proceed
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Embedding</h2>
+        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+          OpenAI-compatible embedding endpoint used for vector search.
+        </p>
+      </div>
+      <div class="px-8 py-6">
+        <.form
+          id="embedding-config-form"
+          for={@form}
+          phx-submit="save_embedding"
+          phx-change="validate_embedding"
+          class="space-y-5"
+        >
+          <div class="grid grid-cols-2 gap-4 items-start">
+            <div>
+              <div class="h-7 flex items-center mb-2">
+                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider">
+                  Provider
+                </label>
+              </div>
+              <.searchable_select
+                id="embedding-provider-select"
+                name="embedding_config[provider]"
+                value={@form[:provider].value}
+                options={@providers}
+                placeholder="Search providers..."
+                empty_label="Custom"
+              />
+            </div>
+            <div>
+              <div class="h-7 flex items-center justify-between mb-2">
+                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider">
+                  Model
+                </label>
+                <div :if={@locked} class="flex items-center gap-2">
+                  <span class="flex items-center gap-1 font-mono text-[0.68rem] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-md">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
+                    </svg>
+                    Locked
+                  </span>
+                  <button
+                    type="button"
+                    phx-click="unlock_embedding"
+                    class="font-mono text-[0.68rem] font-semibold px-2 py-1 rounded-md border border-amber-300 text-amber-600 bg-amber-50 hover:bg-amber-100 transition-all"
+                  >
+                    Unlock
+                  </button>
+                </div>
+              </div>
+              <div class={[@locked && "opacity-50 pointer-events-none"]}>
+                <.searchable_select
+                  :if={@model_options != []}
+                  id="embedding-model-select"
+                  name="embedding_config[model]"
+                  value={@form[:model].value}
+                  options={@model_options}
+                  placeholder="Search models..."
+                  empty_label="Select a model..."
+                />
+                <input
+                  :if={@model_options == []}
+                  type="text"
+                  name="embedding_config[model]"
+                  value={@form[:model].value}
+                  phx-debounce="400"
+                  placeholder="bge-multilingual-gemma2"
+                  disabled={@locked}
+                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+                />
+              </div>
+              <p
+                :for={{msg, _opts} <- @form[:model].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Endpoint
+            </label>
+            <input
+              type="text"
+              name="embedding_config[endpoint]"
+              value={@form[:endpoint].value}
+              required
+              phx-debounce="400"
+              placeholder="http://localhost:11434/v1"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+            />
+            <p
+              :for={{msg, _opts} <- @form[:endpoint].errors}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {msg}
+            </p>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              API Key
+            </label>
+            <div class="relative">
+              <input
+                type="text"
+                name="embedding_config[api_key]"
+                value={@api_key_value}
+                placeholder="Enter API key"
+                autocomplete="off"
+                style="-webkit-text-security: disc;"
+                phx-debounce="blur"
+                id="embedding-api-key-input"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-10 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <button
+                type="button"
+                id="embedding-api-key-show"
+                phx-click={
+                  JS.remove_attribute("style", to: "#embedding-api-key-input")
+                  |> JS.add_class("hidden", to: "#embedding-api-key-show")
+                  |> JS.remove_class("hidden", to: "#embedding-api-key-hide")
+                }
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                  class="w-4 h-4"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                  /><path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="embedding-api-key-hide"
+                phx-click={
+                  JS.set_attribute({"style", "-webkit-text-security: disc;"},
+                    to: "#embedding-api-key-input"
+                  )
+                  |> JS.remove_class("hidden", to: "#embedding-api-key-show")
+                  |> JS.add_class("hidden", to: "#embedding-api-key-hide")
+                }
+                class="hidden absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                  class="w-4 h-4"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Dimension
+            </label>
+            <input
+              type="number"
+              min="1"
+              name="embedding_config[dimension]"
+              value={@form[:dimension].value}
+              phx-debounce="400"
+              placeholder="3584"
+              disabled={@locked}
+              class={[
+                "w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 placeholder:text-black/25 transition-all",
+                if(@locked,
+                  do: "bg-black/[0.03] text-black/40 cursor-not-allowed",
+                  else:
+                    "bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4]"
+                )
+              ]}
+            />
+            <p
+              :for={{msg, _opts} <- @form[:dimension].errors}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {msg}
+            </p>
+            <p
+              :if={not @locked and @form[:dimension].value not in [nil, ""]}
+              class="font-mono text-[0.72rem] text-amber-600 mt-1.5"
+            >
+              Changing the model or dimension will permanently delete all chunks and require re-ingestion.
+            </p>
+          </div>
+          <div class="grid grid-cols-2 gap-4 border-t border-black/[0.06] pt-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Chunk Min Tokens
+              </label>
+              <input
+                type="number"
+                min="1"
+                name="embedding_config[chunk_min_tokens]"
+                value={@form[:chunk_min_tokens].value}
+                phx-debounce="400"
+                placeholder="400"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:chunk_min_tokens].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Chunk Max Tokens
+              </label>
+              <input
+                type="number"
+                min="1"
+                name="embedding_config[chunk_max_tokens]"
+                value={@form[:chunk_max_tokens].value}
+                phx-debounce="400"
+                placeholder="900"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:chunk_max_tokens].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+          </div>
+          <div class="pt-2">
+            <button
+              type="submit"
+              class={[
+                "font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl text-white shadow-sm transition-all",
+                if(@model_changed,
+                  do: "bg-red-500 hover:bg-red-600 shadow-red-500/20",
+                  else: "bg-[#03b6d4] hover:bg-[#029ab3] shadow-[#03b6d4]/20"
+                )
+              ]}
+            >
+              Save Embedding Settings
+            </button>
+          </div>
+        </.form>
+      </div>
+    </div>
+    """
+  end
+
+  # ── Image to Text Panel ───────────────────────────────────────────────
+
+  attr :form, :any, required: true
+  attr :providers, :list, required: true
+  attr :model_options, :list, required: true
+  attr :api_key_value, :string, default: ""
+
+  defp image_to_text_panel(assigns) do
+    ~H"""
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Image to Text</h2>
+        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+          Vision model endpoint used to extract text from images and PDFs during ingestion.
+        </p>
+      </div>
+      <div class="px-8 py-6">
+        <.form
+          id="image-to-text-config-form"
+          for={@form}
+          phx-submit="save_image_to_text"
+          phx-change="validate_image_to_text"
+          class="space-y-5"
+        >
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Provider
+              </label>
+              <.searchable_select
+                id="image-to-text-provider-select"
+                name="image_to_text_config[provider]"
+                value={@form[:provider].value}
+                options={@providers}
+                placeholder="Search providers..."
+                empty_label="Custom"
+              />
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Model
+              </label>
+              <.searchable_select
+                :if={@model_options != []}
+                id="image-to-text-model-select"
+                name="image_to_text_config[model]"
+                value={@form[:model].value}
+                options={@model_options}
+                placeholder="Search models..."
+                empty_label="Select a model..."
+              />
+              <input
+                :if={@model_options == []}
+                type="text"
+                name="image_to_text_config[model]"
+                value={@form[:model].value}
+                phx-debounce="400"
+                placeholder="pixtral-12b-2409"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <p
+                :for={{msg, _opts} <- @form[:model].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {msg}
+              </p>
+            </div>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Endpoint
+            </label>
+            <input
+              type="text"
+              name="image_to_text_config[endpoint]"
+              value={@form[:endpoint].value}
+              phx-debounce="400"
+              placeholder="http://localhost:11434/v1"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+            />
+            <p
+              :for={{msg, _opts} <- @form[:endpoint].errors}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {msg}
+            </p>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              API Key
+            </label>
+            <div class="relative">
+              <input
+                type="text"
+                name="image_to_text_config[api_key]"
+                value={@api_key_value}
+                placeholder="Enter API key"
+                autocomplete="off"
+                style="-webkit-text-security: disc;"
+                phx-debounce="blur"
+                id="image-to-text-api-key-input"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-10 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              />
+              <button
+                type="button"
+                id="image-to-text-api-key-show"
+                phx-click={
+                  JS.remove_attribute("style", to: "#image-to-text-api-key-input")
+                  |> JS.add_class("hidden", to: "#image-to-text-api-key-show")
+                  |> JS.remove_class("hidden", to: "#image-to-text-api-key-hide")
+                }
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                  class="w-4 h-4"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                  /><path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="image-to-text-api-key-hide"
+                phx-click={
+                  JS.set_attribute({"style", "-webkit-text-security: disc;"},
+                    to: "#image-to-text-api-key-input"
+                  )
+                  |> JS.remove_class("hidden", to: "#image-to-text-api-key-show")
+                  |> JS.add_class("hidden", to: "#image-to-text-api-key-hide")
+                }
+                class="hidden absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                  class="w-4 h-4"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="pt-2">
+            <button
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+            >
+              Save Image to Text Settings
+            </button>
+          </div>
+        </.form>
+      </div>
+    </div>
+    """
   end
 end

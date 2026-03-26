@@ -13,6 +13,8 @@ defmodule Zaq.System.LLMConfig do
     field :top_p, :float, default: 0.9
     field :supports_logprobs, :boolean, default: true
     field :supports_json_mode, :boolean, default: true
+    field :max_context_window, :integer, default: 5_000
+    field :distance_threshold, :float, default: 1.2
   end
 
   def changeset(config, attrs) do
@@ -25,10 +27,14 @@ defmodule Zaq.System.LLMConfig do
       :temperature,
       :top_p,
       :supports_logprobs,
-      :supports_json_mode
+      :supports_json_mode,
+      :max_context_window,
+      :distance_threshold
     ])
     |> validate_required([:endpoint, :model])
     |> validate_number(:temperature, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 2.0)
     |> validate_number(:top_p, greater_than: 0.0, less_than_or_equal_to: 1.0)
+    |> validate_number(:max_context_window, greater_than: 0)
+    |> validate_number(:distance_threshold, greater_than: 0.0)
   end
 end

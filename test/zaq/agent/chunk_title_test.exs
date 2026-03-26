@@ -1,22 +1,8 @@
 defmodule Zaq.Agent.ChunkTitleTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: false
 
-  alias Zaq.Agent.{ChunkTitle, LLM}
+  alias Zaq.Agent.ChunkTitle
   alias Zaq.TestSupport.OpenAIStub
-
-  setup do
-    original = Application.get_env(:zaq, LLM)
-
-    on_exit(fn ->
-      if original do
-        Application.put_env(:zaq, LLM, original)
-      else
-        Application.delete_env(:zaq, LLM)
-      end
-    end)
-
-    :ok
-  end
 
   describe "max_words/0" do
     test "returns the configured max word limit" do
@@ -33,7 +19,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+      OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Northwind Industries Founder Eleanor Vance"} =
                ChunkTitle.ask("chunk content")
@@ -47,7 +33,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+      OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, title} = ChunkTitle.ask("chunk content")
       assert title == "One Two Three Four Five Six Seven Eight"
@@ -64,7 +50,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, model: "base-model"))
+      OpenAIStub.seed_llm_config(endpoint, model: "base-model")
 
       assert {:ok, "Custom Model Title"} = ChunkTitle.ask("chunk content", model: "custom-model")
       assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}
@@ -78,7 +64,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+      OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = ChunkTitle.ask("chunk content")
       assert String.starts_with?(message, "Failed to generate title:")

@@ -10,9 +10,10 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToText do
   """
   @spec ping() :: :ok | {:error, String.t()}
   def ping do
-    cfg = Application.get_env(:zaq, __MODULE__, [])
+    cfg = Zaq.System.get_image_to_text_config()
+    args = [api_key: cfg.api_key, endpoint: cfg.endpoint, model: cfg.model]
 
-    case Runner.run("image_to_text.py", ["--ping"] ++ build_args(cfg)) do
+    case Runner.run("image_to_text.py", ["--ping"] ++ build_args(args)) do
       {:ok, _} -> :ok
       {:error, %{output: output}} -> {:error, output}
     end
@@ -43,7 +44,7 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToText do
   defp build_args(opts) do
     args = []
     args = if opts[:api_key], do: args ++ ["--api-key", opts[:api_key]], else: args
-    args = if opts[:api_url], do: args ++ ["--api-url", opts[:api_url]], else: args
+    args = if opts[:endpoint], do: args ++ ["--api-url", opts[:endpoint]], else: args
     args = if opts[:model], do: args ++ ["--model", opts[:model]], else: args
     args
   end

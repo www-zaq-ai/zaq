@@ -40,13 +40,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   defp max_context_window do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:max_context_window, 5_000)
+    Zaq.System.get_llm_config().max_context_window
   end
 
   defp distance_threshold do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:distance_threshold, 1.2)
+    Zaq.System.get_llm_config().distance_threshold
   end
 
   defp hybrid_search_limit do
@@ -134,39 +132,19 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     case Path.extname(file_path) |> String.downcase() do
       ".pdf" ->
         md_path = Path.rootname(file_path) <> ".md"
-
-        with {:ok, _} <- Pipeline.run(file_path),
-             {:ok, raw} <- File.read(md_path) do
-          Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
-          {:ok, sanitize_utf8(raw)}
-        end
+        read_sidecar_or_convert(md_path, "PDF", fn -> convert_pdf(file_path, md_path) end)
 
       ".docx" ->
         md_path = Path.rootname(file_path) <> ".md"
-
-        with {:ok, _} <- DocxToMd.run(file_path, md_path),
-             {:ok, raw} <- File.read(md_path) do
-          Logger.info("[DocumentProcessor] DOCX converted to markdown: #{md_path}")
-          {:ok, sanitize_utf8(raw)}
-        end
+        read_sidecar_or_convert(md_path, "DOCX", fn -> convert_docx(file_path, md_path) end)
 
       ".xlsx" ->
         md_path = Path.rootname(file_path) <> ".md"
-
-        with {:ok, _} <- XlsxToMd.run(file_path, md_path),
-             {:ok, raw} <- File.read(md_path) do
-          Logger.info("[DocumentProcessor] XLSX converted to markdown: #{md_path}")
-          {:ok, sanitize_utf8(raw)}
-        end
+        read_sidecar_or_convert(md_path, "XLSX", fn -> convert_xlsx(file_path, md_path) end)
 
       ext when ext in [".png", ".jpg"] ->
         md_path = Path.rootname(file_path) <> ".md"
-
-        with {:ok, markdown} <- read_image_as_markdown(file_path),
-             :ok <- File.write(md_path, markdown) do
-          Logger.info("[DocumentProcessor] Image converted to markdown: #{md_path}")
-          {:ok, markdown}
-        end
+        read_sidecar_or_convert(md_path, "image", fn -> convert_image(file_path, md_path) end)
 
       ".csv" ->
         convert_csv(file_path)
@@ -182,6 +160,47 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     with {:ok, raw} <- File.read(file_path) do
       rows = CSVParser.parse_string(sanitize_utf8(raw), skip_headers: false)
       {:ok, rows_to_markdown_table(rows)}
+    end
+  end
+
+  defp convert_pdf(file_path, md_path) do
+    with {:ok, _} <- Pipeline.run(file_path),
+         {:ok, raw} <- File.read(md_path) do
+      Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
+      {:ok, sanitize_utf8(raw)}
+    end
+  end
+
+  defp convert_docx(file_path, md_path) do
+    with {:ok, _} <- DocxToMd.run(file_path, md_path),
+         {:ok, raw} <- File.read(md_path) do
+      Logger.info("[DocumentProcessor] DOCX converted to markdown: #{md_path}")
+      {:ok, sanitize_utf8(raw)}
+    end
+  end
+
+  defp convert_xlsx(file_path, md_path) do
+    with {:ok, _} <- XlsxToMd.run(file_path, md_path),
+         {:ok, raw} <- File.read(md_path) do
+      Logger.info("[DocumentProcessor] XLSX converted to markdown: #{md_path}")
+      {:ok, sanitize_utf8(raw)}
+    end
+  end
+
+  defp convert_image(file_path, md_path) do
+    with {:ok, markdown} <- read_image_as_markdown(file_path),
+         :ok <- File.write(md_path, markdown) do
+      Logger.info("[DocumentProcessor] Image converted to markdown: #{md_path}")
+      {:ok, markdown}
+    end
+  end
+
+  defp read_sidecar_or_convert(md_path, label, convert_fn) do
+    if File.exists?(md_path) do
+      Logger.info("[DocumentProcessor] Using existing sidecar for #{label}: #{md_path}")
+      with {:ok, raw} <- File.read(md_path), do: {:ok, sanitize_utf8(raw)}
+    else
+      convert_fn.()
     end
   end
 
@@ -207,7 +226,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     stem =
       file_path
       |> Path.basename(Path.extname(file_path))
-      |> String.replace(~r/\s+/, "_")
+      |> String.replace(~r/\s+/u, "_")
 
     Path.join(
       System.tmp_dir!(),
@@ -216,18 +235,18 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp image_to_text_opts do
-    cfg = Application.get_env(:zaq, Zaq.Ingestion.Python.ImageToText, [])
-    api_key = Keyword.get(cfg, :api_key)
+    cfg = Zaq.System.get_image_to_text_config()
 
-    if is_binary(api_key) and api_key != "" do
+    if is_binary(cfg.api_key) and cfg.api_key != "" do
       opts =
-        [api_key: api_key]
-        |> maybe_put(:api_url, Keyword.get(cfg, :api_url))
-        |> maybe_put(:model, Keyword.get(cfg, :model))
+        [api_key: cfg.api_key]
+        |> maybe_put(:endpoint, cfg.endpoint)
+        |> maybe_put(:model, cfg.model)
 
       {:ok, opts}
     else
-      {:error, "IMAGE_TO_TEXT_API_KEY is not configured; set it to enable PNG/JPG ingestion"}
+      {:error,
+       "Image to text is not configured; set it in System settings to enable PNG/JPG ingestion"}
     end
   end
 
