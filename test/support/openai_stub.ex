@@ -3,6 +3,8 @@ defmodule Zaq.TestSupport.OpenAIStub do
 
   import Plug.Conn
 
+  alias Zaq.System.LLMConfig
+
   def init(opts), do: opts
 
   def call(conn, opts) do
@@ -50,6 +52,17 @@ defmodule Zaq.TestSupport.OpenAIStub do
       supports_json_mode: false
     ]
     |> Keyword.merge(overrides)
+  end
+
+  def seed_llm_config(endpoint, overrides \\ []) do
+    params =
+      llm_config(endpoint, overrides)
+      |> Map.new()
+      |> Map.merge(%{provider: "custom", max_context_window: 5000, distance_threshold: 1.2})
+
+    changeset = LLMConfig.changeset(%LLMConfig{}, params)
+    {:ok, _} = Zaq.System.save_llm_config(changeset)
+    :ok
   end
 
   def chat_completion(content, opts \\ []) do

@@ -1,16 +1,22 @@
 defmodule Zaq.Embedding.ClientTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: false
 
   alias Zaq.Embedding.Client
+  alias Zaq.System
+  alias Zaq.System.EmbeddingConfig
 
-  # Config is set in config/test.exs:
-  #
-  #   config :zaq, Zaq.Embedding.Client,
-  #     endpoint: "http://localhost",
-  #     api_key: "",
-  #     model: "test-model",
-  #     dimension: 1536,
-  #     req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
+  setup do
+    changeset =
+      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+        endpoint: "http://localhost",
+        api_key: "",
+        model: "test-model",
+        dimension: 1536
+      })
+
+    {:ok, _} = System.save_embedding_config(changeset)
+    :ok
+  end
 
   describe "config readers" do
     test "reads endpoint from config" do
@@ -92,9 +98,15 @@ defmodule Zaq.Embedding.ClientTest do
     end
 
     test "includes authorization header when api_key is set" do
-      original = Application.get_env(:zaq, Client)
+      changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          endpoint: "http://localhost",
+          api_key: "sk-test-key",
+          model: "test-model",
+          dimension: 1536
+        })
 
-      Application.put_env(:zaq, Client, Keyword.merge(original, api_key: "sk-test-key"))
+      {:ok, _} = System.save_embedding_config(changeset)
 
       Req.Test.stub(Client, fn conn ->
         [auth] = Plug.Conn.get_req_header(conn, "authorization")
@@ -106,9 +118,6 @@ defmodule Zaq.Embedding.ClientTest do
       end)
 
       assert {:ok, [0.1]} = Client.embed("test")
-
-      # Restore
-      Application.put_env(:zaq, Client, original)
     end
   end
 end

@@ -16,6 +16,7 @@ defmodule Zaq.Ingestion.Chunk do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL, as: EctoSQL
   alias Zaq.Accounts.Role
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
@@ -103,6 +104,97 @@ defmodule Zaq.Ingestion.Chunk do
       select: count(c.id)
     )
     |> Repo.one()
+  end
+
+  # ── Table lifecycle ───────────────────────────────────────────────────
+
+  @doc "Returns true if the chunks table exists in the database."
+  def table_exists? do
+    {:ok, %{rows: rows}} =
+      EctoSQL.query(
+        Repo,
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'chunks'",
+        []
+      )
+
+    rows != []
+  end
+
+  @doc "Creates the chunks table with the given dimension. No-op if the table already exists."
+  def create_table(dimension) when is_integer(dimension) do
+    EctoSQL.query!(Repo, "CREATE EXTENSION IF NOT EXISTS vector", [])
+
+    EctoSQL.query!(
+      Repo,
+      """
+      CREATE TABLE IF NOT EXISTS chunks (
+        id bigserial PRIMARY KEY,
+        document_id bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        role_id bigint REFERENCES roles(id) ON DELETE SET NULL,
+        content text NOT NULL,
+        chunk_index integer NOT NULL,
+        section_path text[] DEFAULT '{}',
+        metadata jsonb DEFAULT '{}',
+        shared_role_ids integer[] DEFAULT '{}',
+        inserted_at timestamp(0) NOT NULL,
+        updated_at timestamp(0) NOT NULL
+      )
+      """,
+      []
+    )
+
+    EctoSQL.query!(
+      Repo,
+      "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding halfvec(#{dimension})",
+      []
+    )
+
+    EctoSQL.query!(
+      Repo,
+      """
+      CREATE INDEX IF NOT EXISTS chunks_embedding_idx
+      ON chunks
+      USING hnsw (embedding halfvec_l2_ops)
+      WITH (m = 16, ef_construction = 64)
+      """,
+      []
+    )
+
+    EctoSQL.query!(
+      Repo,
+      """
+      CREATE INDEX IF NOT EXISTS chunks_document_id_index ON chunks (document_id)
+      """,
+      []
+    )
+
+    EctoSQL.query!(
+      Repo,
+      """
+      CREATE INDEX IF NOT EXISTS chunks_content_tsvector_idx
+      ON chunks
+      USING gin (to_tsvector('english', content))
+      """,
+      []
+    )
+
+    :ok
+  end
+
+  @doc "Drops the chunks table. No-op if it does not exist."
+  def drop_table do
+    EctoSQL.query!(Repo, "DROP TABLE IF EXISTS chunks", [])
+    EctoSQL.query!(Repo, "UPDATE documents SET content = NULL", [])
+    :ok
+  end
+
+  @doc """
+  Full reset: drops chunks table, clears document content, then recreates the
+  table with the new dimension.
+  """
+  def reset_table(new_dimension) when is_integer(new_dimension) do
+    drop_table()
+    create_table(new_dimension)
   end
 
   @doc """

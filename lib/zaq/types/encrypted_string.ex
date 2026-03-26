@@ -26,6 +26,32 @@ defmodule Zaq.Types.EncryptedString do
   @doc "Returns `true` when value uses the `enc:` payload format."
   defdelegate encrypted?(value), to: SecretConfig
 
+  @doc """
+  Encrypts a non-empty binary, returning the encrypted string directly.
+  Falls back to the original value when encryption fails (e.g. key not configured).
+  """
+  def encrypt!(value) when is_binary(value) and value != "" do
+    case encrypt(value) do
+      {:ok, encrypted} -> encrypted
+      {:error, _} -> value
+    end
+  end
+
+  @doc """
+  Decrypts a stored value, returning the plaintext string directly.
+  Returns `nil` for `nil`, `""`, or any decryption error.
+  """
+  def decrypt!(nil), do: nil
+  def decrypt!(""), do: nil
+  def decrypt!("••••••••"), do: nil
+
+  def decrypt!(value) when is_binary(value) do
+    case decrypt(value) do
+      {:ok, decrypted} -> decrypted
+      {:error, _} -> nil
+    end
+  end
+
   @impl Ecto.Type
   def type, do: :string
 

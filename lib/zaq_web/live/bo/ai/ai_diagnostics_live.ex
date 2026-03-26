@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document}
   alias Zaq.Ingestion.Python.{Runner, Steps.ImageToText}
+  alias Zaq.System
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -12,7 +13,6 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
        current_path: "/bo/ai-diagnostics",
        llm_config: load_llm_config(),
        embedding_config: load_embedding_config(),
-       ingestion_config: load_ingestion_config(),
        image_to_text_config: load_image_to_text_config(),
        llm_status: :idle,
        embedding_status: :idle,
@@ -21,7 +21,8 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
        token_test_result: nil,
        prompt_templates: load_prompt_templates(),
        document_count: document_count(),
-       chunk_count: chunk_count()
+       chunk_count: chunk_count(),
+       embedding_ready: System.embedding_ready?()
      )}
   end
 
@@ -74,7 +75,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
         if File.dir?(scripts_dir) do
           python = Runner.python_executable()
 
-          case System.cmd(python, ["--version"], stderr_to_stdout: true) do
+          case Elixir.System.cmd(python, ["--version"], stderr_to_stdout: true) do
             {_output, 0} -> :ok
             {output, _} -> {:error, "Python unavailable: #{String.trim(output)}"}
           end
@@ -97,7 +98,9 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
       temperature: cfg.temperature,
       top_p: cfg.top_p,
       supports_logprobs: cfg.supports_logprobs,
-      supports_json_mode: cfg.supports_json_mode
+      supports_json_mode: cfg.supports_json_mode,
+      max_context_window: cfg.max_context_window,
+      distance_threshold: cfg.distance_threshold
     }
   end
 
@@ -107,17 +110,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
     %{
       endpoint: cfg.endpoint || "not set",
       model: cfg.model || "not set",
-      dimension: cfg.dimension || "not set"
-    }
-  end
-
-  defp load_ingestion_config do
-    cfg = Zaq.System.get_ingestion_config()
-
-    %{
-      max_context_window: cfg.max_context_window,
-      distance_threshold: cfg.distance_threshold,
-      hybrid_search_limit: cfg.hybrid_search_limit,
+      dimension: cfg.dimension || "not set",
       chunk_min_tokens: cfg.chunk_min_tokens,
       chunk_max_tokens: cfg.chunk_max_tokens
     }
@@ -127,7 +120,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
     cfg = Zaq.System.get_image_to_text_config()
 
     %{
-      api_url: cfg.api_url || "not set",
+      endpoint: cfg.endpoint || "not set",
       model: cfg.model || "not set",
       api_key_set: cfg.api_key not in [nil, ""]
     }

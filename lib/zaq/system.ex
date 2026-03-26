@@ -8,12 +8,12 @@ defmodule Zaq.System do
   import Ecto.Query
 
   alias Zaq.Engine.Telemetry.Collector
+  alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
   alias Zaq.System.Config
   alias Zaq.System.EmailConfig
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
-  alias Zaq.System.IngestionConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.Types.EncryptedString
@@ -28,10 +28,9 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_fields ~w(provider endpoint api_key model temperature top_p supports_logprobs supports_json_mode)
-  @embedding_fields ~w(provider endpoint api_key model dimension)
-  @image_to_text_fields ~w(provider api_url api_key model)
-  @ingestion_fields ~w(max_context_window distance_threshold hybrid_search_limit chunk_min_tokens chunk_max_tokens base_path)
+  @llm_fields ~w(provider endpoint api_key model temperature top_p supports_logprobs supports_json_mode max_context_window distance_threshold)
+  @embedding_fields ~w(provider endpoint api_key model dimension chunk_min_tokens chunk_max_tokens)
+  @image_to_text_fields ~w(provider endpoint api_key model)
 
   # ── Generic key/value ─────────────────────────────────────────────────
 
@@ -174,25 +173,26 @@ defmodule Zaq.System do
 
   # ── LLM ───────────────────────────────────────────────────────────────
 
-  @doc "Loads LLM configuration from DB as `%LLMConfig{}`, falling back to Application env."
+  @doc "Loads LLM configuration from DB as `%LLMConfig{}`."
   def get_llm_config do
     keys = Enum.map(@llm_fields, &"llm.#{&1}")
     rows = Repo.all(from c in Config, where: c.key in ^keys)
     raw = Map.new(rows, fn row -> {String.replace_prefix(row.key, "llm.", ""), row.value} end)
-    app = Application.get_env(:zaq, Zaq.Agent.LLM, [])
-    build_llm_config(raw, app)
+    build_llm_config(raw)
   end
 
-  defp build_llm_config(raw, app) do
+  defp build_llm_config(raw) do
     %LLMConfig{
-      provider: raw_or(raw["provider"], app[:provider], "custom"),
-      endpoint: raw_or(raw["endpoint"], app[:endpoint], "http://localhost:11434/v1"),
-      api_key: raw_or(decrypt_api_key(raw["api_key"]), app[:api_key], ""),
-      model: raw_or(raw["model"], app[:model], "llama-3.3-70b-instruct"),
-      temperature: parse_float(raw["temperature"], app[:temperature] || 0.0),
-      top_p: parse_float(raw["top_p"], app[:top_p] || 0.9),
-      supports_logprobs: parse_bool(raw["supports_logprobs"], app[:supports_logprobs] || true),
-      supports_json_mode: parse_bool(raw["supports_json_mode"], app[:supports_json_mode] || true)
+      provider: raw["provider"] || "custom",
+      endpoint: raw["endpoint"] || "http://localhost:11434/v1",
+      api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+      model: raw["model"] || "llama-3.3-70b-instruct",
+      temperature: parse_float(raw["temperature"], 0.0),
+      top_p: parse_float(raw["top_p"], 0.9),
+      supports_logprobs: parse_bool(raw["supports_logprobs"], true),
+      supports_json_mode: parse_bool(raw["supports_json_mode"], true),
+      max_context_window: parse_int(raw["max_context_window"], 5_000),
+      distance_threshold: parse_float(raw["distance_threshold"], 1.2)
     }
   end
 
@@ -204,13 +204,12 @@ defmodule Zaq.System do
       value = Map.get(config, String.to_existing_atom(field))
 
       case field do
-        "api_key" when value in [nil, "", "••••••••"] -> :skip
-        "api_key" -> set_config("llm.api_key", encrypt_api_key(value))
+        "api_key" when value in [nil, ""] -> :skip
+        "api_key" -> set_config("llm.api_key", EncryptedString.encrypt!(value))
         _ -> set_config("llm.#{field}", value)
       end
     end)
 
-    apply_llm_to_app_env()
     {:ok, get_llm_config()}
   end
 
@@ -218,7 +217,7 @@ defmodule Zaq.System do
 
   # ── Embedding ─────────────────────────────────────────────────────────
 
-  @doc "Loads Embedding configuration from DB as `%EmbeddingConfig{}`, falling back to Application env."
+  @doc "Loads Embedding configuration from DB as `%EmbeddingConfig{}`."
   def get_embedding_config do
     keys = Enum.map(@embedding_fields, &"embedding.#{&1}")
     rows = Repo.all(from c in Config, where: c.key in ^keys)
@@ -226,43 +225,54 @@ defmodule Zaq.System do
     raw =
       Map.new(rows, fn row -> {String.replace_prefix(row.key, "embedding.", ""), row.value} end)
 
-    app = Application.get_env(:zaq, Zaq.Embedding.Client, [])
-    build_embedding_config(raw, app)
+    build_embedding_config(raw)
   end
 
-  defp build_embedding_config(raw, app) do
+  defp build_embedding_config(raw) do
     %EmbeddingConfig{
-      provider: raw_or(raw["provider"], app[:provider], "custom"),
-      endpoint: raw_or(raw["endpoint"], app[:endpoint], "http://localhost:11434/v1"),
-      api_key: raw_or(decrypt_api_key(raw["api_key"]), app[:api_key], ""),
-      model: raw_or(raw["model"], app[:model], "bge-multilingual-gemma2"),
-      dimension: parse_int(raw["dimension"], app[:dimension] || 3584)
+      provider: raw["provider"] || "custom",
+      endpoint: raw["endpoint"] || "http://localhost:11434/v1",
+      api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+      model: raw["model"] || "bge-multilingual-gemma2",
+      dimension: parse_int(raw["dimension"], 3584),
+      chunk_min_tokens: parse_int(raw["chunk_min_tokens"], 400),
+      chunk_max_tokens: parse_int(raw["chunk_max_tokens"], 900)
     }
   end
 
+  @doc "Returns true when the chunks table exists in the database."
+  def embedding_ready?, do: Chunk.table_exists?()
+
   @doc "Persists Embedding settings from a validated `%EmbeddingConfig{}` changeset."
   def save_embedding_config(%Ecto.Changeset{valid?: true} = changeset) do
-    config = Ecto.Changeset.apply_changes(changeset)
+    new_config = Ecto.Changeset.apply_changes(changeset)
+    saved_model = get_config("embedding.model")
 
-    Enum.each(@embedding_fields, fn field ->
-      value = Map.get(config, String.to_existing_atom(field))
+    multi =
+      @embedding_fields
+      |> Enum.reject(&(&1 == "api_key" and Map.get(new_config, :api_key) in [nil, ""]))
+      |> Enum.reduce(Ecto.Multi.new(), fn field, multi ->
+        value = Map.get(new_config, String.to_existing_atom(field))
 
-      case field do
-        "api_key" when value in [nil, "", "••••••••"] -> :skip
-        "api_key" -> set_config("embedding.api_key", encrypt_api_key(value))
-        _ -> set_config("embedding.#{field}", value)
-      end
-    end)
+        Ecto.Multi.run(multi, {:config, field}, fn _repo, _changes ->
+          persist_embedding_field(field, value)
+        end)
+      end)
+      |> Ecto.Multi.run(:table_op, fn _repo, _changes ->
+        embedding_table_op(new_config, saved_model)
+      end)
 
-    apply_embedding_to_app_env()
-    {:ok, get_embedding_config()}
+    case Repo.transaction(multi) do
+      {:ok, _} -> {:ok, get_embedding_config()}
+      {:error, _step, reason, _changes} -> {:error, reason}
+    end
   end
 
   def save_embedding_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
   # ── Image to Text ──────────────────────────────────────────────────────
 
-  @doc "Loads Image-to-Text configuration from DB as `%ImageToTextConfig{}`, falling back to Application env."
+  @doc "Loads Image-to-Text configuration from DB as `%ImageToTextConfig{}`."
   def get_image_to_text_config do
     keys = Enum.map(@image_to_text_fields, &"image_to_text.#{&1}")
     rows = Repo.all(from c in Config, where: c.key in ^keys)
@@ -272,12 +282,11 @@ defmodule Zaq.System do
         {String.replace_prefix(row.key, "image_to_text.", ""), row.value}
       end)
 
-    app = Application.get_env(:zaq, Zaq.Ingestion.Python.Steps.ImageToText, [])
-
     %ImageToTextConfig{
-      api_url: raw["api_url"] || app[:api_url] || "http://localhost:11434/v1",
-      api_key: decrypt_api_key(raw["api_key"]) || app[:api_key] || "",
-      model: raw["model"] || app[:model] || "pixtral-12b-2409"
+      provider: raw["provider"] || "custom",
+      endpoint: raw["endpoint"] || "http://localhost:11434/v1",
+      api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+      model: raw["model"] || "pixtral-12b-2409"
     }
   end
 
@@ -289,71 +298,35 @@ defmodule Zaq.System do
       value = Map.get(config, String.to_existing_atom(field))
 
       case field do
-        "api_key" when value in [nil, "", "••••••••"] -> :skip
-        "api_key" -> set_config("image_to_text.api_key", encrypt_api_key(value))
+        "api_key" when value in [nil, ""] -> :skip
+        "api_key" -> set_config("image_to_text.api_key", EncryptedString.encrypt!(value))
         _ -> set_config("image_to_text.#{field}", value)
       end
     end)
 
-    apply_image_to_text_to_app_env()
     {:ok, get_image_to_text_config()}
   end
 
   def save_image_to_text_config(%Ecto.Changeset{valid?: false} = changeset),
     do: {:error, changeset}
 
-  # ── Startup ───────────────────────────────────────────────────────────
+  defp persist_embedding_field("api_key", value),
+    do: set_config("embedding.api_key", EncryptedString.encrypt!(value))
 
-  @doc """
-  Reads AI configs from DB and applies them to Application env.
-  Called at startup to override runtime.exs env-var defaults with DB values.
-  Safe to call when DB has no records (leaves Application env unchanged).
-  """
-  def apply_ai_configs_from_db do
-    apply_llm_to_app_env()
-    apply_embedding_to_app_env()
-    apply_image_to_text_to_app_env()
-    apply_ingestion_to_app_env()
-  rescue
-    _ -> :ok
+  defp persist_embedding_field(field, value), do: set_config("embedding.#{field}", value)
+
+  defp embedding_table_op(new_config, saved_model) do
+    cond do
+      not Chunk.table_exists?() ->
+        {:ok, Chunk.create_table(new_config.dimension)}
+
+      saved_model != nil and saved_model != new_config.model ->
+        {:ok, Chunk.reset_table(new_config.dimension)}
+
+      true ->
+        {:ok, :noop}
+    end
   end
-
-  # ── Ingestion ─────────────────────────────────────────────────────────
-
-  @doc "Loads ingestion configuration from DB as `%IngestionConfig{}`, falling back to Application env."
-  def get_ingestion_config do
-    keys = Enum.map(@ingestion_fields, &"ingestion.#{&1}")
-    rows = Repo.all(from c in Config, where: c.key in ^keys)
-
-    raw =
-      Map.new(rows, fn row -> {String.replace_prefix(row.key, "ingestion.", ""), row.value} end)
-
-    app = Application.get_env(:zaq, Zaq.Ingestion, [])
-
-    %IngestionConfig{
-      max_context_window: parse_int(raw["max_context_window"], app[:max_context_window] || 5_000),
-      distance_threshold: parse_float(raw["distance_threshold"], app[:distance_threshold] || 1.2),
-      hybrid_search_limit: parse_int(raw["hybrid_search_limit"], app[:hybrid_search_limit] || 20),
-      chunk_min_tokens: parse_int(raw["chunk_min_tokens"], app[:chunk_min_tokens] || 400),
-      chunk_max_tokens: parse_int(raw["chunk_max_tokens"], app[:chunk_max_tokens] || 900),
-      base_path: raw["base_path"] || app[:base_path] || "/zaq/volumes/documents"
-    }
-  end
-
-  @doc "Persists ingestion settings from a validated `%IngestionConfig{}` changeset."
-  def save_ingestion_config(%Ecto.Changeset{valid?: true} = changeset) do
-    config = Ecto.Changeset.apply_changes(changeset)
-
-    Enum.each(@ingestion_fields, fn field ->
-      value = Map.get(config, String.to_existing_atom(field))
-      set_config("ingestion.#{field}", value)
-    end)
-
-    apply_ingestion_to_app_env()
-    {:ok, get_ingestion_config()}
-  end
-
-  def save_ingestion_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
   # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -517,93 +490,5 @@ defmodule Zaq.System do
     end
 
     :ok
-  end
-
-  defp apply_llm_to_app_env do
-    cfg = get_llm_config()
-    current = Application.get_env(:zaq, Zaq.Agent.LLM, [])
-
-    Application.put_env(
-      :zaq,
-      Zaq.Agent.LLM,
-      Keyword.merge(current,
-        endpoint: cfg.endpoint,
-        api_key: cfg.api_key,
-        model: cfg.model,
-        temperature: cfg.temperature,
-        top_p: cfg.top_p,
-        supports_logprobs: cfg.supports_logprobs,
-        supports_json_mode: cfg.supports_json_mode
-      )
-    )
-  end
-
-  defp apply_embedding_to_app_env do
-    cfg = get_embedding_config()
-    current = Application.get_env(:zaq, Zaq.Embedding.Client, [])
-
-    Application.put_env(
-      :zaq,
-      Zaq.Embedding.Client,
-      Keyword.merge(current,
-        endpoint: cfg.endpoint,
-        api_key: cfg.api_key,
-        model: cfg.model,
-        dimension: cfg.dimension
-      )
-    )
-  end
-
-  defp apply_image_to_text_to_app_env do
-    cfg = get_image_to_text_config()
-    current = Application.get_env(:zaq, Zaq.Ingestion.Python.Steps.ImageToText, [])
-
-    Application.put_env(
-      :zaq,
-      Zaq.Ingestion.Python.Steps.ImageToText,
-      Keyword.merge(current,
-        api_url: cfg.api_url,
-        api_key: cfg.api_key,
-        model: cfg.model
-      )
-    )
-  end
-
-  defp apply_ingestion_to_app_env do
-    cfg = get_ingestion_config()
-    current = Application.get_env(:zaq, Zaq.Ingestion, [])
-
-    Application.put_env(
-      :zaq,
-      Zaq.Ingestion,
-      Keyword.merge(current,
-        max_context_window: cfg.max_context_window,
-        distance_threshold: cfg.distance_threshold,
-        hybrid_search_limit: cfg.hybrid_search_limit,
-        chunk_min_tokens: cfg.chunk_min_tokens,
-        chunk_max_tokens: cfg.chunk_max_tokens,
-        base_path: cfg.base_path
-      )
-    )
-  end
-
-  defp raw_or(raw_val, app_val, default), do: raw_val || app_val || default
-
-  defp encrypt_api_key(value) when is_binary(value) and value != "" do
-    case EncryptedString.encrypt(value) do
-      {:ok, encrypted} -> encrypted
-      {:error, _} -> value
-    end
-  end
-
-  defp decrypt_api_key(nil), do: nil
-  defp decrypt_api_key(""), do: nil
-
-  defp decrypt_api_key(value) when is_binary(value) do
-    case EncryptedString.decrypt(value) do
-      {:ok, "••••••••"} -> nil
-      {:ok, decrypted} -> decrypted
-      {:error, _} -> nil
-    end
   end
 end

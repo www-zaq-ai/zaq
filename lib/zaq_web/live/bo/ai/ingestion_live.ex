@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Accounts
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
+  alias Zaq.System
 
   @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv .png .jpg)
   @ingestion_topic "ingestion:jobs"
@@ -32,6 +33,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Volume state
        volumes: volumes,
        current_volume: current_volume,
+       # Embedding readiness
+       embedding_ready: System.embedding_ready?(),
        # Role sharing
        all_roles: Accounts.list_roles(),
        share_modal_role_ids: [],

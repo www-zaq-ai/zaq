@@ -1,7 +1,7 @@
 defmodule Zaq.Agent.AnsweringTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Agent.{Answering, LLM}
+  alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.PromptTemplate
   alias Zaq.TestSupport.OpenAIStub
@@ -17,20 +17,6 @@ defmodule Zaq.Agent.AnsweringTest do
       })
 
     %{template: template}
-  end
-
-  setup do
-    original = Application.get_env(:zaq, LLM)
-
-    on_exit(fn ->
-      if original do
-        Application.put_env(:zaq, LLM, original)
-      else
-        Application.delete_env(:zaq, LLM)
-      end
-    end)
-
-    :ok
   end
 
   describe "no_answer?/1" do
@@ -113,7 +99,7 @@ defmodule Zaq.Agent.AnsweringTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
 
       assert {:ok, %Result{} = result} =
                Answering.ask("Context + question", include_confidence: false)
@@ -138,7 +124,7 @@ defmodule Zaq.Agent.AnsweringTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
 
       assert {:ok, %Result{} = result} =
                Answering.ask("Context + question", include_confidence: true)
@@ -164,7 +150,7 @@ defmodule Zaq.Agent.AnsweringTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
 
       assert {:ok, %Result{} = result} = Answering.ask("Prompt")
       assert result.answer == "Default confidence path."
@@ -201,7 +187,7 @@ defmodule Zaq.Agent.AnsweringTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: false))
+      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: false)
 
       assert {:ok, %Result{} = result} = Answering.ask("Prompt", history: history)
       assert result.answer == "ok"
@@ -215,7 +201,7 @@ defmodule Zaq.Agent.AnsweringTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_logprobs: true))
+      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
 
       assert {:error, message} = Answering.ask("Prompt", include_confidence: true)
       assert String.starts_with?(message, "Failed to formulate response:")

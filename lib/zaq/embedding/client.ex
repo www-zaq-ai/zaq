@@ -11,18 +11,14 @@ defmodule Zaq.Embedding.Client do
   ## Configuration
 
   Embedding settings are managed via the back-office UI at `/bo/system-config`
-  and persisted in the database. The application env is kept in sync
-  automatically via `Zaq.System.apply_embedding_to_app_env/0`.
+  and persisted in the database. All values are read directly from the
+  database via `Zaq.System.get_embedding_config/0`.
 
   ## Testing
 
-  In `config/test.exs`, add:
+  In `config/test.exs`, configure Req.Test stubbing:
 
       config :zaq, Zaq.Embedding.Client,
-        endpoint: "http://localhost",
-        api_key: "",
-        model: "test-model",
-        dimension: 1536,
         req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
   Then in tests, use `Req.Test.stub/2` to mock responses.
@@ -47,10 +43,16 @@ defmodule Zaq.Embedding.Client do
   """
   @spec embed(String.t(), keyword()) :: {:ok, [float()]} | {:error, term()}
   def embed(text, opts \\ []) when is_binary(text) do
-    model = Keyword.get(opts, :model, model())
-    url = endpoint() <> "/embeddings"
+    cfg = Zaq.System.get_embedding_config()
+    model = Keyword.get(opts, :model, cfg.model)
+    url = cfg.endpoint <> "/embeddings"
 
-    headers = build_headers()
+    headers =
+      if cfg.api_key != nil and cfg.api_key != "" do
+        [{"authorization", "Bearer #{cfg.api_key}"}]
+      else
+        []
+      end
 
     body = %{
       model: model,
@@ -83,36 +85,22 @@ defmodule Zaq.Embedding.Client do
   Used by Ecto migrations and vector operations.
   """
   @spec dimension() :: pos_integer()
-  def dimension, do: config(:dimension, 3584)
+  def dimension, do: Zaq.System.get_embedding_config().dimension
 
   @doc "Returns the configured embedding endpoint."
-  def endpoint, do: config(:endpoint)
+  def endpoint, do: Zaq.System.get_embedding_config().endpoint
 
   @doc "Returns the configured embedding API key."
-  def api_key, do: config(:api_key, "")
+  def api_key, do: Zaq.System.get_embedding_config().api_key || ""
 
   @doc "Returns the configured embedding model."
-  def model, do: config(:model, "bge-multilingual-gemma2")
+  def model, do: Zaq.System.get_embedding_config().model
 
   # -- Private --
 
-  defp build_headers do
-    key = api_key()
-
-    if key != nil and key != "" do
-      [{"authorization", "Bearer #{key}"}]
-    else
-      []
-    end
-  end
-
   defp req_options do
-    config(:req_options, [])
-  end
-
-  defp config(key, default \\ nil) do
     :zaq
     |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(key, default)
+    |> Keyword.get(:req_options, [])
   end
 end

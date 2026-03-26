@@ -202,6 +202,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   attr :selected, :any, required: true
   attr :ingest_mode, :string, required: true
+  attr :embedding_ready, :boolean, default: true
 
   def file_browser_header(assigns) do
     ~H"""
@@ -269,10 +270,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         <button
           id="ingest-selected-button"
           phx-click="ingest_selected"
-          disabled={MapSet.size(@selected) == 0}
+          disabled={MapSet.size(@selected) == 0 or not @embedding_ready}
           class={[
             "font-mono text-[0.78rem] font-bold px-4 py-1.5 rounded-lg transition-all",
-            if(MapSet.size(@selected) > 0,
+            if(MapSet.size(@selected) > 0 and @embedding_ready,
               do: "bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20",
               else: "bg-black/5 text-black/20 cursor-not-allowed"
             )
@@ -591,6 +592,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-black/5 text-black/40 w-fit">
                         pending
                       </span>
+                    <% status.job_status == "failed" -> %>
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-red-100 text-red-600 w-fit">
+                        failed
+                      </span>
                     <% status.stale? -> %>
                       <div class="flex flex-col gap-0.5">
                         <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit">
@@ -653,10 +658,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                           {format_datetime(status.ingested_at)}
                         </span>
                       </div>
-                    <% status.job_status == "failed" -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-red-100 text-red-600 w-fit">
-                        failed
-                      </span>
                     <% true -> %>
                       <div class="flex items-center gap-1 flex-wrap">
                         <span class="font-mono text-[0.65rem] text-black/20">—</span>
@@ -942,6 +943,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-black/5 text-black/40 mt-1">
                     pending
                   </span>
+                <% status.job_status == "failed" -> %>
+                  <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-red-100 text-red-600 mt-1">
+                    failed
+                  </span>
                 <% status.stale? -> %>
                   <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 mt-1">
                     stale
@@ -959,10 +964,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       shared
                     </span>
                   </div>
-                <% status.job_status == "failed" -> %>
-                  <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-red-100 text-red-600 mt-1">
-                    failed
-                  </span>
                 <% true -> %>
                   <span
                     :if={status.shared_role_ids != []}
@@ -996,6 +997,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   # ── Upload Section ────────────────────────────────────────────────────────
 
   attr :uploads, :any, required: true
+  attr :embedding_ready, :boolean, default: true
 
   def upload_section(assigns) do
     ~H"""
@@ -1048,7 +1050,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         <button
           :if={@uploads.files.entries != []}
           type="submit"
-          class="mt-4 font-mono text-[0.78rem] font-bold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+          disabled={not @embedding_ready}
+          class={[
+            "mt-4 font-mono text-[0.78rem] font-bold px-5 py-2 rounded-xl transition-all",
+            if(@embedding_ready,
+              do: "bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20",
+              else: "bg-black/5 text-black/20 cursor-not-allowed"
+            )
+          ]}
         >
           Upload {length(@uploads.files.entries)} file(s)
         </button>

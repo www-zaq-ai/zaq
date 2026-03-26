@@ -36,9 +36,6 @@ config :zaq, ZaqWeb.Endpoint,
   server: e2e?
 
 config :zaq, Zaq.Embedding.Client,
-  endpoint: "http://localhost",
-  api_key: "",
-  model: "test-model",
   dimension: 1536,
   req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
@@ -47,15 +44,6 @@ config :zaq,
   chunk_title_module: Zaq.Agent.ChunkTitleMock,
   document_processor: Zaq.DocumentProcessorMock,
   node_router: Zaq.NodeRouterMock
-
-config :zaq, Zaq.Agent.LLM,
-  endpoint: "http://localhost",
-  api_key: "",
-  model: "test-model",
-  temperature: 0.0,
-  top_p: 0.9,
-  supports_logprobs: false,
-  supports_json_mode: false
 
 config :zaq, Zaq.System.SecretConfig,
   encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
@@ -99,4 +87,5 @@ if e2e? do
     chat_live_node_router_module: Zaq.E2E.PlaygroundNodeRouterFake
 
   config :zaq, Zaq.Ingestion, base_path: "tmp/e2e_documents"
+  config :zaq, e2e_routes: true
 end

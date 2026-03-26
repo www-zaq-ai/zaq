@@ -167,7 +167,8 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this._outsideClick = (e) => { if (!root.contains(e.target)) closePanel() }
         document.addEventListener('click', this._outsideClick, true)
 
-        search().addEventListener('input', () => filter(search().value))
+        search().addEventListener('input', (e) => { e.stopPropagation(); filter(search().value) })
+        search().addEventListener('change', (e) => { e.stopPropagation() })
 
         list().addEventListener('click', (e) => {
           const opt = e.target.closest('[data-select-option]')

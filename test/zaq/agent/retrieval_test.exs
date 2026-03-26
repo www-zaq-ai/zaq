@@ -20,20 +20,6 @@ defmodule Zaq.Agent.RetrievalTest do
       :ok
     end
 
-    setup do
-      original = Application.get_env(:zaq, LLM)
-
-      on_exit(fn ->
-        if original do
-          Application.put_env(:zaq, LLM, original)
-        else
-          Application.delete_env(:zaq, LLM)
-        end
-      end)
-
-      :ok
-    end
-
     test "adds JSON mode when provider supports it" do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
@@ -45,11 +31,7 @@ defmodule Zaq.Agent.RetrievalTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(
-        :zaq,
-        LLM,
-        OpenAIStub.llm_config(endpoint, supports_json_mode: true)
-      )
+      OpenAIStub.seed_llm_config(endpoint, supports_json_mode: true)
 
       assert {:ok, %{"queries" => ["elixir beam"]}} =
                Retrieval.ask("What does Elixir run on?", system_prompt: "Return JSON")
@@ -67,7 +49,7 @@ defmodule Zaq.Agent.RetrievalTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint, supports_json_mode: false))
+      OpenAIStub.seed_llm_config(endpoint, supports_json_mode: false)
 
       assert {:ok, %{"queries" => ["docs"]}} =
                Retrieval.ask("Where are docs?", system_prompt: "Return JSON")
@@ -101,7 +83,7 @@ defmodule Zaq.Agent.RetrievalTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+      OpenAIStub.seed_llm_config(endpoint)
 
       history = %{
         "1" => %{"body" => %{"step" => "done"}, "type" => "bot"},
@@ -125,7 +107,7 @@ defmodule Zaq.Agent.RetrievalTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+      OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, %{"queries" => []}} = Retrieval.ask("", system_prompt: "Prompt")
     end
@@ -138,7 +120,7 @@ defmodule Zaq.Agent.RetrievalTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      Application.put_env(:zaq, LLM, OpenAIStub.llm_config(endpoint))
+      OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
       assert String.starts_with?(message, "Failed to process question:")

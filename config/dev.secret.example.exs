@@ -4,7 +4,6 @@ config :zaq, :super_admin,
   username: "admin",
   password: "admin"
 
-
 config :zaq,
   sme_channel_id: System.get_env("SME_CHANNEL_ID", ""),
   knowledge_gap_immediate_threshold:

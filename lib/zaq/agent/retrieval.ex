@@ -61,13 +61,22 @@ defmodule Zaq.Agent.Retrieval do
         end)
         |> LLMChain.run()
 
-      answer = ChainResult.to_string!(updated_chain) |> Jason.decode!()
+      answer = ChainResult.to_string!(updated_chain) |> extract_json() |> Jason.decode!()
 
       {:ok, answer}
     rescue
       e ->
         Logger.error("Retrieval failed: #{inspect(e)}")
         {:error, "Failed to process question: #{Exception.message(e)}"}
+    end
+  end
+
+  # Extracts raw JSON from a response that may be wrapped in markdown code fences
+  # or surrounded by prose (e.g. llama3.2 tends to wrap JSON in ```json ... ```).
+  defp extract_json(text) do
+    case Regex.run(~r/```(?:json)?\s*([\s\S]*?)```/s, text, capture: :all_but_first) do
+      [json] -> String.trim(json)
+      nil -> text
     end
   end
 

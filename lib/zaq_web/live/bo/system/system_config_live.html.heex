@@ -66,19 +66,6 @@
           >
             Image to Text
           </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="ingestion"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :ingestion,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Ingestion
-          </button>
         </nav>
       </div>
     </div>
@@ -100,6 +87,10 @@
         providers={@embedding_providers}
         model_options={@embedding_model_options}
         api_key_value={@embedding_api_key_value}
+        locked={@embedding_locked}
+        unlock_modal={@embedding_unlock_modal}
+        model_changed={@model_changed}
+        save_confirm_modal={@embedding_save_confirm_modal}
       />
       <.image_to_text_panel
         :if={@active_tab == :image_to_text}
@@ -108,7 +99,6 @@
         model_options={@image_to_text_model_options}
         api_key_value={@image_to_text_api_key_value}
       />
-      <.ingestion_panel :if={@active_tab == :ingestion} form={@ingestion_form} />
     </div>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>
