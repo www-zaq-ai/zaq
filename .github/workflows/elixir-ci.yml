@@ -6,8 +6,68 @@ on:
       - main
 
 jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.19.5"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+  credo:
+    name: Credo
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.19.5"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Run Credo
+        run: mix credo --strict
+
   test:
-    name: Format, Credo & Test
+    name: Test
     runs-on: ubuntu-latest
 
     services:
@@ -51,20 +111,16 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
-      - name: Check formatting
-        run: mix format --check-formatted
-
-      - name: Run Credo
-        run: mix credo --strict
-
-      - name: Run tests
-        run: mix test
-
-      - name: Send coverage to Coveralls
+      - name: Send coverage to Coveralls (internal PRs)
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         env:
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mix coveralls.github
+
+      - name: Run tests (fork PRs)
+        if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: mix test
 
   docs:
     name: Build docs
