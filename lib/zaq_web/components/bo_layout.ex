@@ -16,6 +16,16 @@ defmodule ZaqWeb.Components.BOLayout do
   slot :inner_block, required: true
 
   def bo_layout(assigns) do
+    app_version =
+      :zaq
+      |> Application.spec(:vsn)
+      |> case do
+        nil -> "dev"
+        version -> to_string(version)
+      end
+
+    assigns = assign(assigns, :app_version, app_version)
+
     ~H"""
     <div class="min-h-screen flex bg-[#f0f4f8]" id="bo-root">
       <style>
@@ -41,6 +51,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 #bo-sidebar.collapsed .section-label,
                 #bo-sidebar.collapsed .user-info,
                 #bo-sidebar.collapsed .logout-btn,
+                #bo-sidebar.collapsed .sidebar-version,
                 #bo-sidebar.collapsed .logo-text {
                   opacity: 0;
                   width: 0;
@@ -397,29 +408,34 @@ defmodule ZaqWeb.Components.BOLayout do
               <p class="font-mono text-[0.65rem] text-white/40 truncate">{@current_user.role.name}</p>
             </div>
           </a>
-          <form method="post" action={~p"/bo/session"} class="mt-2.5">
-            <input type="hidden" name="_method" value="delete" />
-            <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-            <button
-              type="submit"
-              class="logout-btn w-full font-mono text-[0.72rem] text-white/30 hover:text-red-400 tracking-wide text-left transition-colors flex items-center gap-2"
-            >
-              <svg
-                class="w-3.5 h-3.5 flex-shrink-0"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
+          <div class="mt-2.5 flex items-center gap-2">
+            <form method="post" action={~p"/bo/session"}>
+              <input type="hidden" name="_method" value="delete" />
+              <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+              <button
+                type="submit"
+                class="logout-btn font-mono text-[0.72rem] text-white/30 hover:text-red-400 tracking-wide text-left transition-colors flex items-center gap-2"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                />
-              </svg>
-              <span class="transition-all duration-200">Logout</span>
-            </button>
-          </form>
+                <svg
+                  class="w-3.5 h-3.5 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+                <span class="transition-all duration-200">Logout</span>
+              </button>
+            </form>
+            <span class="sidebar-version ml-auto font-mono text-[0.65rem] text-white/40">
+              v{@app_version}
+            </span>
+          </div>
         </div>
       </aside>
       

@@ -44,4 +44,40 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "API URL"
     assert html =~ "truncate"
   end
+
+  test "bo_layout/1 renders sidebar version with app version fallback" do
+    expected_version =
+      :zaq
+      |> Application.spec(:vsn)
+      |> case do
+        nil -> "dev"
+        version -> to_string(version)
+      end
+
+    html =
+      render_component(&BOLayout.bo_layout/1,
+        current_user: %{username: "alice", role: %{name: "admin"}},
+        page_title: "Ops",
+        current_path: "/bo/dashboard",
+        inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
+      )
+
+    assert html =~ "sidebar-version"
+    assert html =~ "v#{expected_version}"
+    assert html =~ "#bo-sidebar.collapsed .sidebar-version"
+  end
+
+  test "bo_layout/1 keeps logout and version in the same footer row" do
+    html =
+      render_component(&BOLayout.bo_layout/1,
+        current_user: %{username: "alice", role: %{name: "admin"}},
+        page_title: "Ops",
+        current_path: "/bo/dashboard",
+        inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
+      )
+
+    assert html =~ "mt-2.5 flex items-center gap-2"
+    assert html =~ "Logout"
+    assert html =~ "sidebar-version ml-auto"
+  end
 end
