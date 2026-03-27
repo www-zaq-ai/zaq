@@ -45,12 +45,18 @@ defmodule ZaqWeb.Components.BOLayout do
                   margin-left: 60px;
                 }
 
+                #header-user-menu > summary {
+                  list-style: none;
+                }
+                #header-user-menu > summary::-webkit-details-marker {
+                  display: none;
+                }
+
                 /* Hide labels/sections when collapsed */
                 #bo-sidebar.collapsed .nav-label,
                 #bo-sidebar.collapsed .section-header-text,
                 #bo-sidebar.collapsed .section-label,
-                #bo-sidebar.collapsed .user-info,
-                #bo-sidebar.collapsed .logout-btn,
+                #bo-sidebar.collapsed .sidebar-github-copy,
                 #bo-sidebar.collapsed .sidebar-version,
                 #bo-sidebar.collapsed .logo-text {
                   opacity: 0;
@@ -354,85 +360,33 @@ defmodule ZaqWeb.Components.BOLayout do
               active={String.starts_with?(@current_path, "/bo/roles")}
             />
           </.nav_section>
-          
-    <!-- System Section -->
-          <.nav_section
-            id="section-system"
-            label="System"
-            icon="system"
-            current_path={@current_path}
-            active={
-              @current_path == "/bo/license" or
-                @current_path == "/bo/system-config"
-            }
-            open={
-              @current_path == "/bo/license" or
-                @current_path == "/bo/system-config"
-            }
-          >
-            <:item
-              href={~p"/bo/license"}
-              icon="license"
-              label="License"
-              active={@current_path == "/bo/license"}
-            />
-            <:item
-              href={~p"/bo/system-config"}
-              icon="config"
-              label="Configuration"
-              active={@current_path == "/bo/system-config"}
-            />
-          </.nav_section>
         </nav>
-        
-    <!-- User / Logout -->
-        <div class="border-t border-white/10 p-3 flex-shrink-0">
+
+        <div class="border-t border-white/10 p-3 flex-shrink-0 space-y-3">
           <a
-            id="sidebar-profile-link"
-            href={~p"/bo/profile"}
-            class={[
-              "flex items-center gap-2.5 rounded-lg px-1.5 py-1.5 transition-colors",
-              if(@current_path == "/bo/profile",
-                do: "bg-[#03b6d4]/20",
-                else: "hover:bg-white/10"
-              )
-            ]}
+            id="sidebar-github-link"
+            href="https://github.com/www-zaq-ai/zaq"
+            target="_blank"
+            rel="noreferrer"
+            class="group flex items-start gap-2.5 rounded-lg px-2 py-2 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
           >
-            <div class="w-8 h-8 rounded-lg bg-[#03b6d4]/20 grid place-items-center text-xs font-bold font-mono text-[#03b6d4] flex-shrink-0 border border-[#03b6d4]/20">
-              {String.first(@current_user.username) |> String.upcase()}
-            </div>
-            <div class="user-info min-w-0 flex-1 transition-all duration-200">
-              <p class="font-mono text-sm text-white leading-tight truncate">
-                {@current_user.username}
+            <svg
+              class="w-5 h-5 flex-shrink-0 text-white/70 group-hover:text-white transition-colors"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.3 9.41 7.88 10.94.58.11.79-.25.79-.56 0-.28-.01-1.02-.01-2-3.2.7-3.87-1.54-3.87-1.54-.53-1.34-1.28-1.69-1.28-1.69-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.71 1.26 3.37.97.1-.75.4-1.26.72-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.29 1.19-3.1-.12-.3-.52-1.5.11-3.13 0 0 .97-.31 3.19 1.18A11.08 11.08 0 0 1 12 6.1c.98 0 1.97.13 2.9.39 2.22-1.49 3.19-1.18 3.19-1.18.64 1.63.24 2.83.12 3.13.74.81 1.19 1.84 1.19 3.1 0 4.41-2.68 5.39-5.24 5.68.41.35.77 1.03.77 2.08 0 1.51-.01 2.73-.01 3.1 0 .31.21.68.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
+            </svg>
+            <div class="sidebar-github-copy min-w-0 transition-all duration-200">
+              <p class="font-mono text-[0.72rem] tracking-wide leading-tight">Star Zaq on GitHub</p>
+              <p class="font-mono text-[0.62rem] text-white/45 mt-0.5 leading-tight">
+                Follow updates and support the project
               </p>
-              <p class="font-mono text-[0.65rem] text-white/40 truncate">{@current_user.role.name}</p>
             </div>
           </a>
-          <div class="mt-2.5 flex items-center gap-2">
-            <form method="post" action={~p"/bo/session"}>
-              <input type="hidden" name="_method" value="delete" />
-              <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-              <button
-                type="submit"
-                class="logout-btn font-mono text-[0.72rem] text-white/30 hover:text-red-400 tracking-wide text-left transition-colors flex items-center gap-2"
-              >
-                <svg
-                  class="w-3.5 h-3.5 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                  />
-                </svg>
-                <span class="transition-all duration-200">Logout</span>
-              </button>
-            </form>
-            <span class="sidebar-version ml-auto font-mono text-[0.65rem] text-white/40">
+          <div class="flex items-center justify-end">
+            <span class="sidebar-version font-mono text-[0.65rem] text-white/40">
               v{@app_version}
             </span>
           </div>
@@ -442,8 +396,60 @@ defmodule ZaqWeb.Components.BOLayout do
     <!-- Main -->
       <main id="bo-main" class="flex-1">
         <!-- Header -->
-        <header class="h-16 bg-white border-b border-black/10 flex items-center px-8 shadow-sm">
+        <header class="h-16 bg-white border-b border-black/10 flex items-center justify-between px-8 shadow-sm">
           <h1 class="font-mono text-lg font-bold text-[#2c3a50]">{@page_title}</h1>
+
+          <details id="header-user-menu" class="relative">
+            <summary
+              id="header-user-trigger"
+              class="list-none flex items-center gap-2 rounded-lg border border-black/10 px-2 py-1.5 cursor-pointer hover:bg-black/[0.03] transition-colors"
+            >
+              <span class="w-8 h-8 rounded-lg bg-[#03b6d4]/15 grid place-items-center text-xs font-bold font-mono text-[#03b6d4] border border-[#03b6d4]/20">
+                {String.first(@current_user.username) |> String.upcase()}
+              </span>
+              <span class="font-mono text-[0.72rem] text-[#2c3a50]/80">{@current_user.username}</span>
+            </summary>
+
+            <div
+              id="header-user-dropdown"
+              class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border border-black/10 bg-white shadow-xl p-1.5 z-50"
+            >
+              <a
+                id="header-profile-link"
+                href={~p"/bo/profile"}
+                class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+              >
+                Profile
+              </a>
+              <div class="my-1 h-px bg-black/10" />
+              <a
+                id="header-system-config-link"
+                href={~p"/bo/system-config"}
+                class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+              >
+                System config
+              </a>
+              <a
+                id="header-system-license-link"
+                href={~p"/bo/license"}
+                class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+              >
+                System License
+              </a>
+              <div class="my-1 h-px bg-black/10" />
+              <form id="header-logout-form" method="post" action={~p"/bo/session"}>
+                <input type="hidden" name="_method" value="delete" />
+                <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+                <button
+                  id="header-logout-button"
+                  type="submit"
+                  class="w-full text-left rounded-lg px-3 py-2 font-mono text-[0.72rem] text-red-600 hover:bg-red-50"
+                >
+                  Logout
+                </button>
+              </form>
+            </div>
+          </details>
         </header>
         <!-- Content -->
         <div class="p-8">

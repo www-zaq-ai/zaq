@@ -20,7 +20,7 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "Inner Content"
     assert html =~ "/bo/dashboard"
     assert html =~ "alice"
-    assert html =~ "admin"
+    assert html =~ "id=\"header-user-trigger\""
   end
 
   test "status_badge/1 renders expected states" do
@@ -67,7 +67,7 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "#bo-sidebar.collapsed .sidebar-version"
   end
 
-  test "bo_layout/1 keeps logout and version in the same footer row" do
+  test "bo_layout/1 moves user actions to header dropdown" do
     html =
       render_component(&BOLayout.bo_layout/1,
         current_user: %{username: "alice", role: %{name: "admin"}},
@@ -76,8 +76,19 @@ defmodule ZaqWeb.Components.BOLayoutTest do
         inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
       )
 
-    assert html =~ "mt-2.5 flex items-center gap-2"
+    assert html =~ "id=\"header-user-menu\""
+    assert html =~ "id=\"header-profile-link\""
+    assert html =~ "id=\"header-system-config-link\""
+    assert html =~ "id=\"header-system-license-link\""
+    assert html =~ "id=\"header-logout-button\""
+    assert html =~ "id=\"sidebar-github-link\""
+    assert html =~ "Star Zaq on GitHub"
+
+    refute html =~ "id=\"sidebar-profile-link\""
+    refute html =~ "id=\"section-system\""
+    refute html =~ "logout-btn"
+
     assert html =~ "Logout"
-    assert html =~ "sidebar-version ml-auto"
+    assert html =~ "sidebar-version"
   end
 end
