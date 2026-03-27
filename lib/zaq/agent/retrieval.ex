@@ -14,6 +14,7 @@ defmodule Zaq.Agent.Retrieval do
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
+  alias LangChain.Message.ContentPart
   alias LangChain.Utils.ChainResult
   alias Zaq.Agent.{History, LLM}
   alias Zaq.Agent.PromptTemplate
@@ -61,13 +62,21 @@ defmodule Zaq.Agent.Retrieval do
         end)
         |> LLMChain.run()
 
-      answer = ChainResult.to_string!(updated_chain) |> extract_json() |> Jason.decode!()
+      answer = chain_content(updated_chain) |> extract_json() |> Jason.decode!()
 
       {:ok, answer}
     rescue
       e ->
         Logger.error("Retrieval failed: #{inspect(e)}")
         {:error, "Failed to process question: #{Exception.message(e)}"}
+    end
+  end
+
+  # Returns the LLM response text, tolerating incomplete messages (stop_reason: length).
+  defp chain_content(chain) do
+    case ChainResult.to_string(chain) do
+      {:ok, text} -> text
+      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
     end
   end
 

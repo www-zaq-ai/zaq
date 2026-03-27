@@ -15,6 +15,7 @@ defmodule Zaq.Agent.Answering do
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
+  alias LangChain.Message.ContentPart
   alias LangChain.Utils.ChainResult
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.{History, LLM, LogprobsAnalyzer}
@@ -85,7 +86,7 @@ defmodule Zaq.Agent.Answering do
 
       latency_ms = System.monotonic_time(:millisecond) - started_at
 
-      answer = ChainResult.to_string!(updated_chain)
+      answer = chain_content(updated_chain)
       bot_response = List.last(updated_chain.messages)
       usage = Map.get(bot_response.metadata, :usage) || %{}
 
@@ -166,6 +167,13 @@ defmodule Zaq.Agent.Answering do
   def clean_answer(answer), do: answer
 
   # -- Private --
+
+  defp chain_content(chain) do
+    case ChainResult.to_string(chain) do
+      {:ok, text} -> text
+      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
+    end
+  end
 
   defp maybe_add_logprobs(config, true), do: Map.put(config, :logprobs, true)
   defp maybe_add_logprobs(config, false), do: config

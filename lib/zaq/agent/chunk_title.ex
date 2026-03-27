@@ -9,6 +9,7 @@ defmodule Zaq.Agent.ChunkTitle do
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
+  alias LangChain.Message.ContentPart
   alias LangChain.Utils.ChainResult
   alias Zaq.Agent.LLM
 
@@ -66,7 +67,7 @@ defmodule Zaq.Agent.ChunkTitle do
         |> LLMChain.run()
 
       title =
-        ChainResult.to_string!(updated_chain)
+        chain_content(updated_chain)
         |> String.trim()
         |> remove_quotes()
         |> remove_prefix()
@@ -85,6 +86,13 @@ defmodule Zaq.Agent.ChunkTitle do
   Returns the maximum number of words allowed in a chunk title.
   """
   def max_words, do: @max_words
+
+  defp chain_content(chain) do
+    case ChainResult.to_string(chain) do
+      {:ok, text} -> text
+      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
+    end
+  end
 
   # Remove surrounding quotes
   defp remove_quotes(text) do

@@ -14,6 +14,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
+  alias LangChain.Message.ContentPart
   alias LangChain.Utils.ChainResult
   alias Zaq.Agent.LLM
 
@@ -66,7 +67,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
         |> LLMChain.run()
 
       title =
-        ChainResult.to_string!(updated_chain)
+        chain_content(updated_chain)
         |> String.trim()
         |> remove_quotes()
         |> remove_prefix()
@@ -84,6 +85,13 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp chain_content(chain) do
+    case ChainResult.to_string(chain) do
+      {:ok, text} -> text
+      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
+    end
+  end
 
   defp remove_quotes(text) do
     text
