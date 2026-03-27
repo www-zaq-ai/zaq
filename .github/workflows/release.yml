@@ -44,6 +44,9 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.sha }}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -88,8 +91,23 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.image_tags.outputs.tags }}
+
+      - name: Verify multi-arch manifest
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ needs.release.outputs.version }}"
+          IMAGE_REPO="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/${IMAGE_REPO}:v${VERSION}"
+
+          INSPECT_OUTPUT="$(docker buildx imagetools inspect "${IMAGE}")"
+          echo "${INSPECT_OUTPUT}"
+
+          [[ "${INSPECT_OUTPUT}" == *"linux/amd64"* ]]
+          [[ "${INSPECT_OUTPUT}" == *"linux/arm64"* ]]
 
   docs_build:
     name: Build docs for release
