@@ -13,7 +13,7 @@ defmodule Zaq.MixProject do
       aliases: aliases(),
       deps: deps(),
       dialyzer: [
-        flags: [:unmatched_returns, :error_handling, :underspecs],
+        flags: [:error_handling, :underspecs],
         # This will use your ignore file
         ignore_warnings: ".dialyzer_ignore.exs"
       ],
