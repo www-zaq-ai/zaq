@@ -32,9 +32,10 @@ defmodule ZaqWeb.Live.BO.Accounts.ProfileLiveTest do
     assert has_element?(view, ~s{#edit-profile-button[href="/bo/users/#{user.id}/edit"]})
   end
 
-  test "sidebar user info links to profile page", %{conn: conn} do
+  test "header user menu links to profile page", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
-    assert has_element?(view, ~s{#sidebar-profile-link[href="/bo/profile"]})
+    assert has_element?(view, "#header-user-menu")
+    assert has_element?(view, ~s{#header-profile-link[href="/bo/profile"]})
   end
 end
