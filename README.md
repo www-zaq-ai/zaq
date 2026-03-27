@@ -96,20 +96,9 @@ mkdir -p ingestion-volumes/documents
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 ```
 
-3. Optionally override model endpoints, models, base URL, and ingestion paths from your host environment:
+3. Optionally override base URL and ingestion paths from your host environment:
 
 ```bash
-export LLM_ENDPOINT="http://host.docker.internal:11434/v1"
-export LLM_API_KEY=""
-export LLM_MODEL="gpt-oss-120b"
-
-export EMBEDDING_ENDPOINT="http://host.docker.internal:11434/v1"
-export EMBEDDING_API_KEY=""
-export EMBEDDING_MODEL="bge-multilingual-gemma2"
-
-export IMAGE_TO_TEXT_API_URL=""
-export IMAGE_TO_TEXT_API_KEY=""
-
 export BASE_URL_SCHEME="http"
 export BASE_URL="http://localhost:4000"
 
@@ -117,6 +106,9 @@ export INGESTION_VOLUMES="documents"
 export INGESTION_VOLUMES_BASE="/zaq/volumes"
 export INGESTION_BASE_PATH="/zaq/volumes/documents"
 ```
+
+LLM, embedding, and image-to-text provider/model settings are configured from Back Office at
+`/bo/system-config` and persisted in the database (`system_configs`).
 
 4. Configure SMTP secret encryption (required to save SMTP passwords from BO):
 
@@ -165,15 +157,9 @@ docker compose down -v
 | `INGESTION_VOLUMES` | `documents` | No | Optional override |
 | `INGESTION_VOLUMES_BASE` | `/zaq/volumes` | No | Optional override |
 | `INGESTION_BASE_PATH` | `/zaq/volumes/documents` | No | Fallback path used by file preview and file serving |
-| `LLM_ENDPOINT` | `http://host.docker.internal:11434/v1` | No | Optional override |
-| `LLM_API_KEY` | empty | No | Optional override |
-| `LLM_MODEL` | `gpt-oss-120b` | No | Optional override |
-| `EMBEDDING_ENDPOINT` | `http://host.docker.internal:11434/v1` | No | Optional override |
-| `EMBEDDING_API_KEY` | empty | No | Optional override |
-| `EMBEDDING_MODEL` | `bge-multilingual-gemma2` | No | Optional override |
-| `IMAGE_TO_TEXT_API_URL` | `http://host.docker.internal:11434/v1` | No | Optional override |
-| `IMAGE_TO_TEXT_API_KEY` | empty | No | Optional override |
-| `IMAGE_TO_TEXT_MODEL` | `pixtral-12b-2409` | No | Optional override |
+
+AI model settings (LLM, embedding, image-to-text) are managed in Back Office System Config
+at `/bo/system-config`, not via environment variables.
 
 ### Local (Mix)
 
@@ -247,12 +233,9 @@ source .venv/bin/activate
 pip install -r priv/python/crawler-ingest/requirements.txt
 ```
 
-PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding. Image descriptions are generated via Scaleway Pixtral when `IMAGE_TO_TEXT_API_KEY` is set; otherwise that step is skipped.
-
-```bash
-# Optional — enables image-to-text descriptions in PDFs
-export IMAGE_TO_TEXT_API_KEY=your-key-here
-```
+PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding.
+Image descriptions are generated when image-to-text settings are configured in Back Office
+System Config (`/bo/system-config`). If provider endpoint/model/API key are empty, that step is skipped.
 
 To re-fetch or pin the Python scripts to a specific commit:
 

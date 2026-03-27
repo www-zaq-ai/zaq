@@ -9,7 +9,7 @@ All agent modules are stateless — they are plain modules with no GenServers.
 The `Zaq.Agent.Supervisor` exists but currently starts no children.
 
 LLM configuration is centralized in `Zaq.Agent.LLM` — no other module reads
-env vars or hardcodes provider details directly.
+provider details directly.
 
 **Important**: Agent modules must never be called directly from BO LiveViews.
 All calls from BO go through `Zaq.NodeRouter.call(:agent, ...)` so they work
@@ -112,17 +112,22 @@ lib/zaq/agent/
 
 ## Configuration
 
-```elixir
-# config/runtime.exs
-config :zaq, Zaq.Agent.LLM,
-  endpoint:           System.get_env("LLM_ENDPOINT", "http://localhost:11434/v1"),
-  api_key:            System.get_env("LLM_API_KEY", ""),
-  model:              System.get_env("LLM_MODEL", "llama-3.3-70b-instruct"),
-  temperature:        0.0,
-  top_p:              0.9,
-  supports_logprobs:  true,
-  supports_json_mode: true
-```
+- Managed in Back Office at `/bo/system-config`
+- Persisted in `system_configs`
+- Loaded at runtime via `Zaq.System.get_llm_config/0`
+
+LLM keys stored in System Config:
+
+- `llm.provider`
+- `llm.endpoint`
+- `llm.api_key`
+- `llm.model`
+- `llm.temperature`
+- `llm.top_p`
+- `llm.supports_logprobs`
+- `llm.supports_json_mode`
+- `llm.max_context_window`
+- `llm.distance_threshold`
 
 ---
 
