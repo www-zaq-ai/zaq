@@ -182,7 +182,7 @@ function restoreLayout() {
     main.classList.remove('collapsed')
   }
 
-  ;['section-ai', 'section-communication', 'section-accounts', 'section-system'].forEach(function (id) {
+  ;['section-ai', 'section-communication', 'section-accounts'].forEach(function (id) {
     const state = localStorage.getItem('section-' + id)
     if (!state) return
     const items = document.getElementById(id + '-items')
