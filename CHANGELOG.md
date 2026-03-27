@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.2](https://github.com/www-zaq-ai/zaq/compare/v0.6.1...v0.6.2) (2026-03-27)
+
+
+### Bug Fixes
+
+* **agent:** tolerate incomplete LLM responses (stop_reason: length) ([117e286](https://github.com/www-zaq-ai/zaq/commit/117e2868e5948a922d2586ce96ec14042a27efdb))
+* **ci/cd:** stop double trigger of gitleaks action ([2411778](https://github.com/www-zaq-ai/zaq/commit/2411778e6f6c239cbb3f0f27369ab7468b6f5a89))
+* **CI:** split steps into jobs ([f27d8ae](https://github.com/www-zaq-ai/zaq/commit/f27d8aeb749342111d6065ed288e375b7934a82b))
+* **e2e:** seed telemetry rollups and add benchmark support to gauge and radar ([2be531e](https://github.com/www-zaq-ai/zaq/commit/2be531ee72841897db2041b7e24fd20751c47985))
+* **llm:** fix issue [#166](https://github.com/www-zaq-ai/zaq/issues/166) ([cd4dd23](https://github.com/www-zaq-ai/zaq/commit/cd4dd233c878fd9c5fee387a2d5a64310e0cf607))
+* **system:** create a ui llm, embedding, image to text and ingestion configuration ([a37e145](https://github.com/www-zaq-ai/zaq/commit/a37e145e02272bc02d0a9bac1b6da9ddf9deb631))
+* **ui:** adjust display when sidebard is collapsed ([9bc5798](https://github.com/www-zaq-ai/zaq/commit/9bc57980c8ab5f4323c478c575650f0c25e33e76))
+* **ui:** move user action under header profile and add Github card ([2a47683](https://github.com/www-zaq-ai/zaq/commit/2a47683f71df18b716a0bcca434911d0ad1909ae))
+* **unlock:** create unlock and lock feature on the embedding ([5c2f4ff](https://github.com/www-zaq-ai/zaq/commit/5c2f4ff16cf7624a0cfe80e938bf52c497022e2a))
+
 ## [0.6.1](https://github.com/www-zaq-ai/zaq/compare/v0.6.0...v0.6.1) (2026-03-25)
 
 
