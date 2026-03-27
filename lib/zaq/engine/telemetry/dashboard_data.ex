@@ -504,6 +504,15 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     feedback_total = sum_metric(local_rows, "feedback.rating")
     automation_score = strict_effectiveness_score(feedback_neg, feedback_total)
 
+    benchmark_score =
+      if filters.benchmark_opt_in and benchmark_rows != [] do
+        b_neg = sum_metric(benchmark_rows, "feedback.negative.count")
+        b_total = sum_metric(benchmark_rows, "feedback.rating")
+        strict_effectiveness_score(b_neg, b_total)
+      else
+        nil
+      end
+
     total_questions = sum_metric(local_rows, "qa.question.count")
     total_ingestions = sum_metric(local_rows, "ingestion.completed.count")
 
@@ -612,6 +621,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         series: [],
         summary: %{
           value: automation_score,
+          benchmark_value: benchmark_score,
           max: 100.0,
           label: "target 80%"
         },
@@ -658,7 +668,22 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
               label: "Citations",
               value: max(60 + round(sum_metric(local_rows, "qa.answer.count") / 5), 60)
             }
-          ]
+          ],
+          benchmark_axes:
+            if filters.benchmark_opt_in and benchmark_rows != [] do
+              b_latency = metric_points(benchmark_rows, "qa.answer.latency_ms", labels.labels)
+              b_neg = sum_metric(benchmark_rows, "feedback.negative.count")
+
+              [
+                %{label: "Trust", value: benchmark_score},
+                %{label: "Speed", value: percentile_from_latency(b_latency)},
+                %{label: "Coverage", value: 70.0},
+                %{label: "Tone", value: max(100 - b_neg * 5, 35)},
+                %{label: "Citations", value: 65.0}
+              ]
+            else
+              []
+            end
         },
         meta: %{}
       }
