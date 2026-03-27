@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/www-zaq-ai/zaq/compare/v0.6.2...v0.6.3) (2026-03-27)
+
+
+### Bug Fixes
+
+* **docker:** build docker image for arm64 platform too ([529a1e2](https://github.com/www-zaq-ai/zaq/commit/529a1e2bfaa800c10752cc0f52594d8b27db3417))
+
 ## [0.6.2](https://github.com/www-zaq-ai/zaq/compare/v0.6.1...v0.6.2) (2026-03-27)
 
 
