@@ -65,6 +65,19 @@ defmodule ZaqWeb.Components.BOLayout do
                   pointer-events: none;
                 }
 
+                #bo-sidebar.collapsed .sidebar-logo {
+                  display: none;
+                }
+
+                #bo-sidebar.collapsed #sidebar-github-link {
+                  width: fit-content;
+                  margin-left: auto;
+                  margin-right: auto;
+                  padding: 0.5rem;
+                  gap: 0;
+                  align-items: center;
+                }
+
                 /* Section dropdown */
                 .section-items {
         overflow: hidden;
@@ -186,7 +199,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <img
               src={~p"/images/zaq.png"}
               alt="ZAQ Logo"
-              class="h-8 w-8 flex-shrink-0 rounded-lg object-contain"
+              class="sidebar-logo h-8 w-8 flex-shrink-0 rounded-lg object-contain"
             />
             <span class="logo-text font-mono text-[0.65rem] text-white/40 tracking-widest uppercase whitespace-nowrap transition-all duration-200">
               Back Office

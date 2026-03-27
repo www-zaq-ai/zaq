@@ -65,6 +65,8 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "sidebar-version"
     assert html =~ "v#{expected_version}"
     assert html =~ "#bo-sidebar.collapsed .sidebar-version"
+    assert html =~ "#bo-sidebar.collapsed .sidebar-logo"
+    assert html =~ "#bo-sidebar.collapsed #sidebar-github-link"
   end
 
   test "bo_layout/1 moves user actions to header dropdown" do
