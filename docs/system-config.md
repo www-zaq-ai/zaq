@@ -1,6 +1,49 @@
 # System Configuration
 
-This document covers runtime requirements for Back Office system settings, with a focus on SMTP secret encryption.
+This document covers runtime requirements for Back Office system settings,
+including AI model configuration and SMTP secret encryption.
+
+## AI Model Configuration (LLM, Embedding, Image-to-Text)
+
+AI model settings are configured in Back Office at `/bo/system-config` and
+persisted in `system_configs`.
+
+- LLM config is read via `Zaq.System.get_llm_config/0`
+- Embedding config is read via `Zaq.System.get_embedding_config/0`
+- Image-to-text config is read via `Zaq.System.get_image_to_text_config/0`
+
+### LLM Keys
+
+- `llm.provider`
+- `llm.endpoint`
+- `llm.api_key`
+- `llm.model`
+- `llm.temperature`
+- `llm.top_p`
+- `llm.supports_logprobs`
+- `llm.supports_json_mode`
+- `llm.max_context_window`
+- `llm.distance_threshold`
+
+### Embedding Keys
+
+- `embedding.provider`
+- `embedding.endpoint`
+- `embedding.api_key`
+- `embedding.model`
+- `embedding.dimension`
+- `embedding.chunk_min_tokens`
+- `embedding.chunk_max_tokens`
+
+### Image-to-Text Keys
+
+- `image_to_text.provider`
+- `image_to_text.endpoint`
+- `image_to_text.api_key`
+- `image_to_text.model`
+
+These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
+`IMAGE_TO_TEXT_*` environment variables.
 
 ## SMTP Password Encryption
 

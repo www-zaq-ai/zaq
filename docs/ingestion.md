@@ -124,24 +124,21 @@ lib/zaq/document_processor/
 ## Configuration
 
 ```elixir
-# config/runtime.exs
+# chunk/retrieval runtime knobs still in app env
 config :zaq, Zaq.Ingestion,
-  chunk_min_tokens:    400,
-  chunk_max_tokens:    900,
-  max_context_window:  5_000,
-  distance_threshold:  0.75,
   hybrid_search_limit: 20
-
-config :zaq, Zaq.Embedding.Client,
-  endpoint:  System.get_env("EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
-  api_key:   System.get_env("EMBEDDING_API_KEY", ""),
-  model:     System.get_env("EMBEDDING_MODEL", "bge-multilingual-gemma2"),
-  dimension: String.to_integer(System.get_env("EMBEDDING_DIMENSION", "3584"))
 
 config :zaq, Oban,
   repo: Zaq.Repo,
   queues: [ingestion: 10]
 ```
+
+Back Office System Config (`/bo/system-config`) now owns model-related settings:
+
+- Embedding provider/model/api/dimension and chunk sizing are loaded via
+  `Zaq.System.get_embedding_config/0`
+- Retrieval thresholds (`max_context_window`, `distance_threshold`) are loaded via
+  `Zaq.System.get_llm_config/0`
 
 ### Docker storage defaults
 
