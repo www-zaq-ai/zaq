@@ -170,9 +170,12 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   defp benchmark_points(payload, labels, primary_series) do
     key = series_key(primary_series)
 
-    payload.benchmarks
-    |> Map.get(key, Map.get(payload.benchmarks, to_string(key), []))
-    |> then(&series_points_if_present(labels, &1))
+    values =
+      Map.get(payload.benchmarks, key) ||
+        Map.get(payload.benchmarks, to_string(key)) ||
+        payload.benchmarks |> Map.values() |> List.first()
+
+    series_points_if_present(labels, values || [])
   end
 
   defp baseline_points(%{values: values}, labels) when is_list(values),

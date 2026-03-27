@@ -1,5 +1,7 @@
 alias Zaq.Accounts
 alias Zaq.Agent.PromptTemplate
+alias Zaq.Engine.Telemetry
+alias Zaq.Engine.Telemetry.Rollup
 alias Zaq.Ingestion.{Chunk, Document, IngestJob}
 alias Zaq.Repo
 
@@ -141,5 +143,48 @@ Enum.each(templates, fn attrs ->
       {:ok, _template} = PromptTemplate.update(template, attrs)
   end
 end)
+
+IO.puts("[e2e-bootstrap] Seeding telemetry rollups")
+
+Repo.delete_all(Rollup)
+
+now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+insert_rollup = fn metric_key, sum, count, opts ->
+  source = Keyword.get(opts, :source, "local")
+  bucket_start = Keyword.get(opts, :bucket_start, now)
+  dimensions = Keyword.get(opts, :dimensions, %{})
+
+  Repo.insert!(%Rollup{
+    metric_key: metric_key,
+    bucket_start: bucket_start,
+    bucket_size: "10m",
+    source: source,
+    dimensions: dimensions,
+    dimension_key: Telemetry.dimension_key(dimensions),
+    value_sum: sum * 1.0,
+    value_count: count,
+    value_min: sum * 1.0,
+    value_max: sum * 1.0,
+    last_value: sum * 1.0,
+    last_at: bucket_start
+  })
+end
+
+# Core QA metrics — drive time series, gauge, radar, donut, bar
+insert_rollup.("qa.question.count", 50.0, 50, [])
+insert_rollup.("qa.answer.count", 45.0, 45, [])
+insert_rollup.("qa.no_answer.count", 5.0, 5, [])
+insert_rollup.("qa.answer.latency_ms", 3000.0, 10, [])
+insert_rollup.("qa.answer.confidence", 0.88, 1, [])
+
+# Feedback — drives gauge automation_score > 60 and donut segments
+insert_rollup.("feedback.rating", 20.0, 20, [])
+insert_rollup.("feedback.negative.count", 2.0, 2, [])
+
+# Benchmark — drives the benchmark toggle assertions
+insert_rollup.("qa.answer.latency_ms", 3500.0, 10, source: "benchmark")
+insert_rollup.("feedback.rating", 18.0, 18, source: "benchmark")
+insert_rollup.("feedback.negative.count", 4.0, 4, source: "benchmark")
 
 IO.puts("[e2e-bootstrap] Done")
