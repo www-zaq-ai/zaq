@@ -210,6 +210,39 @@ start_containers() {
   docker compose up -d
 }
 
+open_zaq_url() {
+  local os
+  os="$(uname -s)"
+  info "Opening ZAQ in your default browser..."
+
+  if [ "${os}" = "Darwin" ]; then
+    if command -v open >/dev/null 2>&1 && open "${ZAQ_URL}" >/dev/null 2>&1; then
+      info "Browser open command sent (open)."
+      return 0
+    fi
+
+    if command -v osascript >/dev/null 2>&1 && osascript -e "open location \"${ZAQ_URL}\"" >/dev/null 2>&1; then
+      info "Browser open command sent (osascript)."
+      return 0
+    fi
+
+    warn "Could not auto-open browser on macOS. Open ${ZAQ_URL} manually."
+    return 0
+  fi
+
+  if command -v xdg-open >/dev/null 2>&1 && xdg-open "${ZAQ_URL}" >/dev/null 2>&1; then
+    info "Browser open command sent (xdg-open)."
+    return 0
+  fi
+
+  if command -v sensible-browser >/dev/null 2>&1 && sensible-browser "${ZAQ_URL}" >/dev/null 2>&1; then
+    info "Browser open command sent (sensible-browser)."
+    return 0
+  fi
+
+  warn "Could not auto-open browser. Open ${ZAQ_URL} manually."
+}
+
 status_label() {
   if services_running; then
     printf '%sRUNNING%s' "${GREEN}" "${RESET}"
@@ -236,6 +269,7 @@ show_ui() {
   printf '%s\n' "${divider}"
 
   sleep 5
+  open_zaq_url
   docker compose logs --tail=100 -f
 }
 
