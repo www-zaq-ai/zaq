@@ -4,10 +4,14 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
 
 jobs:
   format:
     name: Format
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -38,6 +42,7 @@ jobs:
 
   credo:
     name: Credo
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
@@ -111,19 +116,20 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
-      - name: Send coverage to Coveralls (internal PRs)
-        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+      - name: Send coverage to Coveralls (internal PRs + main pushes)
+        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
         env:
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mix coveralls.github
 
       - name: Run tests (fork PRs)
-        if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: mix test
 
   docs:
     name: Build docs
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

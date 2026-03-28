@@ -56,7 +56,9 @@ ZAQ encrypts SMTP passwords before persisting them in `system_configs`.
 
 ## Required Configuration
 
-Configure this in runtime config (production) or local secret config (development):
+Configure this in runtime config (production) or local secret config (development).
+For local Docker runs started with `./zaq-local.sh`, ZAQ writes `SYSTEM_CONFIG_ENCRYPTION_KEY` to `.env` automatically.
+
 
 ```elixir
 config :zaq, Zaq.System.SecretConfig,
