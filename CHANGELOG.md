@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/www-zaq-ai/zaq/compare/v0.6.3...v0.6.4) (2026-03-28)
+
+
+### Bug Fixes
+
+* auto open url when app is running, add script in dockerignore ([cc34a1a](https://github.com/www-zaq-ai/zaq/commit/cc34a1a7828d58fd3baa5608e8b89cbb3aead8ae))
+
 ## [0.6.3](https://github.com/www-zaq-ai/zaq/compare/v0.6.2...v0.6.3) (2026-03-27)
 
 
