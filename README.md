@@ -2,6 +2,7 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/www-zaq-ai/zaq/badge.svg?branch=main)](https://coveralls.io/github/www-zaq-ai/zaq?branch=main)
 [![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://www-zaq-ai.github.io/zaq/)
+[![Run](https://img.shields.io/badge/quick%20run-local%20setup-orange)](https://github.com/www-zaq-ai/zaq/wiki/Local-Installation)
 
 AI-powered sovereign company brain. ZAQ OSS lets you access your organization's knowledge base and provides instant, cited answers to people and AI agents.
 
@@ -70,7 +71,28 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 
 ## Running ZAQ
 
-### Docker Compose (recommended first run)
+### Local Auto Installer (recommended first run)
+
+Use the local installer to bootstrap a complete Docker-based ZAQ setup in one command.
+
+```bash
+./zaq-local.sh
+```
+
+What it does automatically:
+
+- verifies Docker + Docker Compose are available
+- creates `ingestion-volumes/documents`
+- downloads the latest `docker-compose.yml`
+- generates `.env` with `SECRET_KEY_BASE` and `SYSTEM_CONFIG_ENCRYPTION_KEY`
+- starts ZAQ and pgvector containers in background
+- opens `http://localhost:4000` and tails logs
+
+Use this path when you want the fastest local startup.
+
+### Docker Compose (local Docker image testing)
+
+Use this path to explicitly test the local Docker image/runtime flow.
 
 This path uses `docker-compose.yml` with:
 
@@ -150,13 +172,13 @@ docker compose down -v
 
 ### Environment Variables (required vs optional)
 
-| Variable | Docker Compose default | Required | Notes |
-| --- | --- | --- | --- |
-| `DATABASE_URL` | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database |
-| `SECRET_KEY_BASE` | none | Yes (prod runtime) | Generate with `openssl rand -hex 64` |
-| `INGESTION_VOLUMES` | `documents` | No | Optional override |
-| `INGESTION_VOLUMES_BASE` | `/zaq/volumes` | No | Optional override |
-| `INGESTION_BASE_PATH` | `/zaq/volumes/documents` | No | Fallback path used by file preview and file serving |
+| Variable                 | Docker Compose default                            | Required           | Notes                                               |
+| ------------------------ | ------------------------------------------------- | ------------------ | --------------------------------------------------- |
+| `DATABASE_URL`           | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database   |
+| `SECRET_KEY_BASE`        | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                |
+| `INGESTION_VOLUMES`      | `documents`                                       | No                 | Optional override                                   |
+| `INGESTION_VOLUMES_BASE` | `/zaq/volumes`                                    | No                 | Optional override                                   |
+| `INGESTION_BASE_PATH`    | `/zaq/volumes/documents`                          | No                 | Fallback path used by file preview and file serving |
 
 AI model settings (LLM, embedding, image-to-text) are managed in Back Office System Config
 at `/bo/system-config`, not via environment variables.

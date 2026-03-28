@@ -148,7 +148,9 @@ For containerized runs, ZAQ defaults to:
 - `INGESTION_VOLUMES_BASE=/zaq/volumes`
 - `INGESTION_BASE_PATH=/zaq/volumes/documents`
 
-When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists before startup:
+When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists before startup.
+If you use `./zaq-local.sh`, this folder is created automatically.
+
 
 ```bash
 mkdir -p ingestion-volumes/documents
