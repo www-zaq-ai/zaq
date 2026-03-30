@@ -19,7 +19,8 @@ module.exports = defineConfig({
     headless: true,
   },
   webServer: {
-    command: "sh -c 'cd ../.. && PORT=4002 MIX_ENV=test E2E=1 mix phx.server'",
+    command:
+      "sh -c 'cd ../.. && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix phx.server'",
     url: "http://localhost:4002/bo/login",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
