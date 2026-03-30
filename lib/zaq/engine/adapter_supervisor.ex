@@ -1,5 +1,37 @@
 defmodule Zaq.Engine.AdapterSupervisor do
-  @moduledoc false
+  @moduledoc """
+  Shared helper for dynamic adapter supervisors.
+
+  This module centralizes the common flow used by both ingestion and retrieval
+  supervisors:
+
+  - load enabled channel configs for a kind,
+  - map config providers to adapter modules,
+  - build `Supervisor.child_spec/0` entries with the correct start function.
+
+  Expected adapter contract:
+
+  - retrieval adapters expose `connect/1`
+  - ingestion adapters expose `start_link/1`
+
+  ## Example
+
+      children =
+        Zaq.Engine.AdapterSupervisor.children_for(:retrieval, @adapters,
+          start_fun: :connect,
+          supervisor_name: "RetrievalSupervisor",
+          kind_label: "retrieval"
+        )
+
+  Required options:
+
+  - `:start_fun` (`:connect` or `:start_link`)
+  - `:supervisor_name` (used in logs)
+
+  Optional options:
+
+  - `:kind_label` (defaults to `to_string(kind)`)
+  """
 
   alias Zaq.Channels.ChannelConfig
 
@@ -7,6 +39,7 @@ defmodule Zaq.Engine.AdapterSupervisor do
 
   @type child_start :: :connect | :start_link
 
+  @doc "Builds child specs for enabled configs of the given kind."
   @spec children_for(atom(), map(), keyword()) :: [Supervisor.child_spec()]
   def children_for(kind, adapters, opts) when is_map(adapters) and is_list(opts) do
     start_fun = Keyword.fetch!(opts, :start_fun)
@@ -18,6 +51,7 @@ defmodule Zaq.Engine.AdapterSupervisor do
     |> Enum.flat_map(&build_child_spec(&1, adapters, start_fun, supervisor_name, kind_label))
   end
 
+  @doc "Loads enabled channel configs for a kind, logging when none are configured."
   @spec load_configs(atom(), String.t(), String.t()) :: [map()]
   def load_configs(kind, supervisor_name, kind_label) do
     case ChannelConfig.list_enabled_by_kind(kind) do
@@ -33,6 +67,7 @@ defmodule Zaq.Engine.AdapterSupervisor do
     end
   end
 
+  @doc "Builds a child spec for a config or returns an empty list for unknown providers."
   @spec build_child_spec(map(), map(), child_start(), String.t(), String.t()) ::
           [Supervisor.child_spec()]
   def build_child_spec(config, adapters, start_fun, supervisor_name, kind_label) do

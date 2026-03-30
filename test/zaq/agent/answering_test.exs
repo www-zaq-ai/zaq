@@ -86,6 +86,29 @@ defmodule Zaq.Agent.AnsweringTest do
     test "normalizes plain string result" do
       assert {:ok, %Result{answer: "ok"}} = Answering.normalize_result("ok")
     end
+
+    test "normalizes string-keyed numeric payload values" do
+      assert {:ok, %Result{} = result} =
+               Answering.normalize_result(%{
+                 "answer" => "ok",
+                 "confidence" => %{"score" => 0.6},
+                 "latency_ms" => 120.9,
+                 "prompt_tokens" => 10.0,
+                 "completion_tokens" => 5.0,
+                 "total_tokens" => 15.0
+               })
+
+      assert result.answer == "ok"
+      assert result.confidence_score == 0.6
+      assert result.latency_ms == 120
+      assert result.prompt_tokens == 10
+      assert result.completion_tokens == 5
+      assert result.total_tokens == 15
+    end
+
+    test "returns invalid result for unsupported payload" do
+      assert {:error, :invalid_result} = Answering.normalize_result(%{foo: "bar"})
+    end
   end
 
   describe "ask/2 deterministic lane" do
@@ -205,6 +228,37 @@ defmodule Zaq.Agent.AnsweringTest do
 
       assert {:ok, %Result{} = result} = Answering.ask("Prompt", include_confidence: true)
       assert result.answer == "No logprobs included"
+      assert is_nil(result.confidence_score)
+    end
+
+    test "returns error tuple when llm call fails" do
+      handler = fn _conn, _body ->
+        {503, %{"error" => "down"}}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: false)
+
+      assert {:error, message} = Answering.ask("Prompt", include_confidence: false)
+      assert String.starts_with?(message, "Failed to formulate response:")
+    end
+
+    test "does not request logprobs when provider does not support them by default" do
+      handler = fn _conn, body ->
+        payload = Jason.decode!(body)
+        refute Map.has_key?(payload, "logprobs")
+        {200, OpenAIStub.chat_completion("No confidence path")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: false)
+
+      assert {:ok, %Result{} = result} = Answering.ask("Prompt")
+      assert result.answer == "No confidence path"
       assert is_nil(result.confidence_score)
     end
   end
