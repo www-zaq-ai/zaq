@@ -234,9 +234,8 @@ defmodule ZaqWeb.CoreComponents do
 
   def input(%{type: "select"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
-      <label>
-        <span :if={@label} class="label mb-1">{@label}</span>
+    <.input_shell label={@label} errors={@errors}>
+      <:field>
         <select
           id={@id}
           name={@name}
@@ -247,17 +246,15 @@ defmodule ZaqWeb.CoreComponents do
           <option :if={@prompt} value="">{@prompt}</option>
           {Phoenix.HTML.Form.options_for_select(@options, @value)}
         </select>
-      </label>
-      <.error :for={msg <- @errors}>{msg}</.error>
-    </div>
+      </:field>
+    </.input_shell>
     """
   end
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
-      <label>
-        <span :if={@label} class="label mb-1">{@label}</span>
+    <.input_shell label={@label} errors={@errors}>
+      <:field>
         <textarea
           id={@id}
           name={@name}
@@ -267,18 +264,16 @@ defmodule ZaqWeb.CoreComponents do
           ]}
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
-      </label>
-      <.error :for={msg <- @errors}>{msg}</.error>
-    </div>
+      </:field>
+    </.input_shell>
     """
   end
 
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
     ~H"""
-    <div class="fieldset mb-2">
-      <label>
-        <span :if={@label} class="label mb-1">{@label}</span>
+    <.input_shell label={@label} errors={@errors}>
+      <:field>
         <input
           type={@type}
           name={@name}
@@ -290,6 +285,21 @@ defmodule ZaqWeb.CoreComponents do
           ]}
           {@rest}
         />
+      </:field>
+    </.input_shell>
+    """
+  end
+
+  attr :label, :string, default: nil
+  attr :errors, :list, default: []
+  slot :field, required: true
+
+  defp input_shell(assigns) do
+    ~H"""
+    <div class="fieldset mb-2">
+      <label>
+        <span :if={@label} class="label mb-1">{@label}</span>
+        {render_slot(@field)}
       </label>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>

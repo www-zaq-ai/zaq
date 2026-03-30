@@ -24,7 +24,13 @@ defmodule ZaqWeb.Components.BOLayout do
         version -> to_string(version)
       end
 
-    assigns = assign(assigns, :app_version, app_version)
+    nav_sections = nav_sections(assigns.current_path, assigns.features_version)
+
+    assigns =
+      assigns
+      |> assign(:app_version, app_version)
+      |> assign(:nav_sections, nav_sections)
+      |> assign(:nav_section_ids, Enum.map(nav_sections, & &1.id))
 
     ~H"""
     <div class="min-h-screen flex bg-[#f0f4f8]" id="bo-root">
@@ -190,6 +196,7 @@ defmodule ZaqWeb.Components.BOLayout do
     <!-- Sidebar -->
       <aside
         id="bo-sidebar"
+        data-section-ids={Enum.join(@nav_section_ids, ",")}
         class="fixed top-0 left-0 h-screen bg-[#2c3a50] flex flex-col z-40 shadow-xl"
       >
         
@@ -255,124 +262,26 @@ defmodule ZaqWeb.Components.BOLayout do
             <div class="nav-tooltip">Dashboard</div>
           </div>
           
-    <!-- AI Section -->
-          <.nav_section
-            id="section-ai"
-            label="AI"
-            icon="ai"
-            current_path={@current_path}
-            active={
-              String.starts_with?(@current_path, "/bo/ai") or
-                String.starts_with?(@current_path, "/bo/prompt") or
-                String.starts_with?(@current_path, "/bo/ingestion") or
-                String.starts_with?(@current_path, "/bo/ontology") or
-                @current_path == "/bo/knowledge-gap"
-            }
-            open={
-              String.starts_with?(@current_path, "/bo/ai") or
-                String.starts_with?(@current_path, "/bo/prompt") or
-                String.starts_with?(@current_path, "/bo/ingestion") or
-                String.starts_with?(@current_path, "/bo/ontology") or
-                @current_path == "/bo/knowledge-gap"
-            }
-          >
-            <:item
-              href={~p"/bo/ai-diagnostics"}
-              icon="ai"
-              label="Diagnostics"
-              active={@current_path == "/bo/ai-diagnostics"}
-            />
-            <:item
-              href={~p"/bo/prompt-templates"}
-              icon="prompt"
-              label="Prompt Templates"
-              active={@current_path == "/bo/prompt-templates"}
-            />
-            <:item
-              href={~p"/bo/ingestion"}
-              icon="ingestion"
-              label="Ingestion"
-              active={@current_path == "/bo/ingestion"}
-            />
-            <:item
-              href={~p"/bo/ontology"}
-              icon="ontology"
-              label="Ontology"
-              active={String.starts_with?(@current_path, "/bo/ontology")}
-              locked={feature_locked?("ontology", @features_version)}
-            />
-            <:item
-              href={~p"/bo/knowledge-gap"}
-              icon="knowledge_gap"
-              label="Knowledge Gap"
-              active={@current_path == "/bo/knowledge-gap"}
-              locked={feature_locked?("knowledge_gap", @features_version)}
-            />
-          </.nav_section>
-          
-    <!-- Communication Section -->
-          <.nav_section
-            id="section-communication"
-            icon="communication"
-            label="Communication"
-            current_path={@current_path}
-            active={
-              String.starts_with?(@current_path, "/bo/channels") or
-                @current_path in ["/bo/chat", "/bo/history"]
-            }
-            open={
-              String.starts_with?(@current_path, "/bo/channels") or
-                @current_path in ["/bo/chat", "/bo/history"]
-            }
-          >
-            <:item
-              href={~p"/bo/channels"}
-              icon="channels"
-              label="Channels"
-              active={@current_path == "/bo/channels"}
-            />
-            <:item
-              href={~p"/bo/chat"}
-              icon="conversations"
-              label="Chat"
-              active={@current_path == "/bo/chat"}
-            />
-            <:item
-              href={~p"/bo/history"}
-              icon="history"
-              label="History"
-              active={@current_path == "/bo/history"}
-            />
-          </.nav_section>
-          
-    <!-- Accounts Section -->
-          <.nav_section
-            id="section-accounts"
-            label="Accounts"
-            icon="accounts"
-            current_path={@current_path}
-            active={
-              String.starts_with?(@current_path, "/bo/users") or
-                String.starts_with?(@current_path, "/bo/roles")
-            }
-            open={
-              String.starts_with?(@current_path, "/bo/users") or
-                String.starts_with?(@current_path, "/bo/roles")
-            }
-          >
-            <:item
-              href={~p"/bo/users"}
-              icon="users"
-              label="Users"
-              active={String.starts_with?(@current_path, "/bo/users")}
-            />
-            <:item
-              href={~p"/bo/roles"}
-              icon="roles"
-              label="Roles"
-              active={String.starts_with?(@current_path, "/bo/roles")}
-            />
-          </.nav_section>
+    <!-- Sections -->
+          <%= for section <- @nav_sections do %>
+            <.nav_section
+              id={section.id}
+              label={section.label}
+              icon={section.icon}
+              current_path={@current_path}
+              active={section.active}
+              open={section.open}
+            >
+              <:item
+                :for={item <- section.items}
+                href={item.href}
+                icon={item.icon}
+                label={item.label}
+                active={item.active}
+                locked={Map.get(item, :locked, false)}
+              />
+            </.nav_section>
+          <% end %>
         </nav>
 
         <div class="border-t border-white/10 p-3 flex-shrink-0 space-y-3">
@@ -611,66 +520,7 @@ defmodule ZaqWeb.Components.BOLayout do
     assigns = assign(assigns, :icon_class, icon_class)
 
     ~H"""
-    <svg
-      :if={@icon == "ai"}
-      class={@icon_class}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-      />
-    </svg>
-
-    <svg
-      :if={@icon == "communication"}
-      class={@icon_class}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-      />
-    </svg>
-
-    <svg
-      :if={@icon == "accounts"}
-      class={@icon_class}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-      />
-    </svg>
-
-    <svg
-      :if={@icon == "system"}
-      class={@icon_class}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-      />
-      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
+    <ZaqWeb.Components.IconRegistry.icon namespace="section" name={@icon} class={@icon_class} />
     """
   end
 
@@ -680,173 +530,11 @@ defmodule ZaqWeb.Components.BOLayout do
 
   defp nav_icon(assigns) do
     ~H"""
-    <svg
-      :if={@icon == "dashboard"}
+    <ZaqWeb.Components.IconRegistry.icon
+      namespace="nav"
+      name={@icon}
       class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect
-        x="14"
-        y="3"
-        width="7"
-        height="7"
-        rx="1.5"
-      />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect
-        x="14"
-        y="14"
-        width="7"
-        height="7"
-        rx="1.5"
-      />
-    </svg>
-    <svg
-      :if={@icon == "ai"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 0 6h-1v1a4 4 0 0 1-8 0v-1H7a3 3 0 0 1 0-6h1V6a4 4 0 0 1 4-4z" />
-      <circle cx="9" cy="10" r="1" fill="currentColor" stroke="none" />
-      <circle cx="15" cy="10" r="1" fill="currentColor" stroke="none" />
-    </svg>
-    <svg
-      :if={@icon == "prompt"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-    <svg
-      :if={@icon == "ingestion"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-    <svg
-      :if={@icon == "ontology"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <circle cx="12" cy="12" r="3" /><path d="M12 2v4" /><path d="M12 18v4" />
-      <path d="M4.93 4.93l2.83 2.83" /><path d="M16.24 16.24l2.83 2.83" />
-      <path d="M2 12h4" /><path d="M18 12h4" />
-      <path d="M4.93 19.07l2.83-2.83" /><path d="M16.24 7.76l2.83-2.83" />
-    </svg>
-    <svg
-      :if={@icon == "knowledge_gap"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <line x1="12" y1="3" x2="12" y2="21" />
-      <path d="M12 3 L4 5 L4 21 L12 21" />
-      <path d="M12 3 L20 5 L20 21 L12 21" stroke-dasharray="3 2" />
-      <line x1="6" y1="9" x2="10" y2="9" />
-      <line x1="6" y1="12" x2="10" y2="12" />
-      <path d="M15 8 Q15 6 16.5 6 Q18 6 18 8 Q18 10 16.5 10.5" />
-      <circle cx="16.5" cy="13" r="0.6" fill="currentColor" stroke="none" />
-      <line x1="16.5" y1="1" x2="16.5" y2="4" />
-      <polyline points="15,3 16.5,4.5 18,3" />
-    </svg>
-    <svg
-      :if={@icon == "channels"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M3 6h18M3 12h18M3 18h18" />
-      <circle cx="8" cy="6" r="1.5" fill="currentColor" />
-      <circle cx="16" cy="12" r="1.5" fill="currentColor" />
-      <circle cx="12" cy="18" r="1.5" fill="currentColor" />
-    </svg>
-    <svg
-      :if={@icon == "history"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-    </svg>
-    <svg
-      :if={@icon == "users"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-    <svg
-      :if={@icon == "roles"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-    <svg
-      :if={@icon == "license"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-    <svg
-      :if={@icon == "conversations"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      <line x1="9" y1="10" x2="15" y2="10" />
-      <line x1="9" y1="14" x2="13" y2="14" />
-    </svg>
-    <svg
-      :if={@icon == "config"}
-      class="w-[18px] h-[18px] flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-    </svg>
+    />
     """
   end
 
@@ -1001,5 +689,117 @@ defmodule ZaqWeb.Components.BOLayout do
 
   defp feature_locked?(feature, _features_version) do
     not FeatureStore.feature_loaded?(feature)
+  end
+
+  defp nav_sections(current_path, features_version) do
+    [
+      %{
+        id: "section-ai",
+        label: "AI",
+        icon: "ai",
+        active: ai_section_active?(current_path),
+        open: ai_section_active?(current_path),
+        items: [
+          %{
+            href: ~p"/bo/ai-diagnostics",
+            icon: "ai",
+            label: "Diagnostics",
+            active: current_path == "/bo/ai-diagnostics"
+          },
+          %{
+            href: ~p"/bo/prompt-templates",
+            icon: "prompt",
+            label: "Prompt Templates",
+            active: current_path == "/bo/prompt-templates"
+          },
+          %{
+            href: ~p"/bo/ingestion",
+            icon: "ingestion",
+            label: "Ingestion",
+            active: current_path == "/bo/ingestion"
+          },
+          %{
+            href: ~p"/bo/ontology",
+            icon: "ontology",
+            label: "Ontology",
+            active: String.starts_with?(current_path, "/bo/ontology"),
+            locked: feature_locked?("ontology", features_version)
+          },
+          %{
+            href: ~p"/bo/knowledge-gap",
+            icon: "knowledge_gap",
+            label: "Knowledge Gap",
+            active: current_path == "/bo/knowledge-gap",
+            locked: feature_locked?("knowledge_gap", features_version)
+          }
+        ]
+      },
+      %{
+        id: "section-communication",
+        label: "Communication",
+        icon: "communication",
+        active: communication_section_active?(current_path),
+        open: communication_section_active?(current_path),
+        items: [
+          %{
+            href: ~p"/bo/channels",
+            icon: "channels",
+            label: "Channels",
+            active: current_path == "/bo/channels"
+          },
+          %{
+            href: ~p"/bo/chat",
+            icon: "conversations",
+            label: "Chat",
+            active: current_path == "/bo/chat"
+          },
+          %{
+            href: ~p"/bo/history",
+            icon: "history",
+            label: "History",
+            active: current_path == "/bo/history"
+          }
+        ]
+      },
+      %{
+        id: "section-accounts",
+        label: "Accounts",
+        icon: "accounts",
+        active: accounts_section_active?(current_path),
+        open: accounts_section_active?(current_path),
+        items: [
+          %{
+            href: ~p"/bo/users",
+            icon: "users",
+            label: "Users",
+            active: String.starts_with?(current_path, "/bo/users")
+          },
+          %{
+            href: ~p"/bo/roles",
+            icon: "roles",
+            label: "Roles",
+            active: String.starts_with?(current_path, "/bo/roles")
+          }
+        ]
+      }
+    ]
+  end
+
+  defp ai_section_active?(current_path) do
+    String.starts_with?(current_path, "/bo/ai") or
+      String.starts_with?(current_path, "/bo/prompt") or
+      String.starts_with?(current_path, "/bo/ingestion") or
+      String.starts_with?(current_path, "/bo/ontology") or
+      current_path == "/bo/knowledge-gap"
+  end
+
+  defp communication_section_active?(current_path) do
+    String.starts_with?(current_path, "/bo/channels") or
+      current_path in ["/bo/chat", "/bo/history"]
+  end
+
+  defp accounts_section_active?(current_path) do
+    String.starts_with?(current_path, "/bo/users") or
+      String.starts_with?(current_path, "/bo/roles")
   end
 end

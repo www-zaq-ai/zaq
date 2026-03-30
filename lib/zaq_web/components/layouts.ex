@@ -88,30 +88,38 @@ defmodule ZaqWeb.Layouts do
       <.flash kind={:info} flash={@flash} />
       <.flash kind={:error} flash={@flash} />
 
-      <.flash
+      <.reconnect_flash
         id="client-error"
-        kind={:error}
         title={gettext("We can't find the internet")}
-        phx-disconnected={show(".phx-client-error #client-error") |> JS.remove_attribute("hidden")}
-        phx-connected={hide("#client-error") |> JS.set_attribute({"hidden", ""})}
-        hidden
-      >
-        {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
-      </.flash>
+        disconnected_selector=".phx-client-error #client-error"
+      />
 
-      <.flash
+      <.reconnect_flash
         id="server-error"
-        kind={:error}
         title={gettext("Something went wrong!")}
-        phx-disconnected={show(".phx-server-error #server-error") |> JS.remove_attribute("hidden")}
-        phx-connected={hide("#server-error") |> JS.set_attribute({"hidden", ""})}
-        hidden
-      >
-        {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
-      </.flash>
+        disconnected_selector=".phx-server-error #server-error"
+      />
     </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :title, :string, required: true
+  attr :disconnected_selector, :string, required: true
+
+  defp reconnect_flash(assigns) do
+    ~H"""
+    <.flash
+      id={@id}
+      kind={:error}
+      title={@title}
+      phx-disconnected={show(@disconnected_selector) |> JS.remove_attribute("hidden")}
+      phx-connected={hide("##{@id}") |> JS.set_attribute({"hidden", ""})}
+      hidden
+    >
+      {gettext("Attempting to reconnect")}
+      <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+    </.flash>
     """
   end
 
