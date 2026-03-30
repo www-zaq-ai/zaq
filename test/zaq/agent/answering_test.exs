@@ -193,7 +193,7 @@ defmodule Zaq.Agent.AnsweringTest do
       assert result.answer == "ok"
     end
 
-    test "returns error tuple when confidence parsing fails" do
+    test "gracefully degrades when confidence parsing fails" do
       handler = fn _conn, _body ->
         {200, OpenAIStub.chat_completion("No logprobs included")}
       end
@@ -203,8 +203,9 @@ defmodule Zaq.Agent.AnsweringTest do
 
       OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
 
-      assert {:error, message} = Answering.ask("Prompt", include_confidence: true)
-      assert String.starts_with?(message, "Failed to formulate response:")
+      assert {:ok, %Result{} = result} = Answering.ask("Prompt", include_confidence: true)
+      assert result.answer == "No logprobs included"
+      assert is_nil(result.confidence_score)
     end
   end
 

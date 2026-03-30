@@ -181,10 +181,15 @@ defmodule Zaq.Agent.Answering do
   defp maybe_confidence_score(_bot_response, false), do: nil
 
   defp maybe_confidence_score(bot_response, true) do
-    logprobs_content = get_in(bot_response.metadata, [:logprobs, "content"])
-    score = LogprobsAnalyzer.calculate_confidence(logprobs_content, true)
-    Logger.info("Response confidence: #{score * 100}%")
-    score
+    case LogprobsAnalyzer.confidence_from_metadata(bot_response.metadata, true) do
+      {:ok, score} ->
+        Logger.info("Response confidence: #{score * 100}%")
+        score
+
+      {:error, reason} ->
+        Logger.warning("Response confidence unavailable: #{inspect(reason)}")
+        nil
+    end
   end
 
   defp log_token_usage(prompt_tokens, completion_tokens) do

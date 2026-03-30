@@ -30,7 +30,7 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
         %{"logprob" => -0.3}
       ]
 
-      confidence = LogprobsAnalyzer.calculate_confidence(logprobs_content)
+      assert {:ok, confidence} = LogprobsAnalyzer.calculate_confidence(logprobs_content)
       assert is_float(confidence)
       assert confidence > 0.0
       assert confidence < 1.0
@@ -42,7 +42,7 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
         %{"logprob" => -0.2}
       ]
 
-      confidence = LogprobsAnalyzer.calculate_confidence(logprobs_content, true)
+      assert {:ok, confidence} = LogprobsAnalyzer.calculate_confidence(logprobs_content, true)
       # Should be rounded to 2 decimal places
       assert confidence == Float.round(confidence, 2)
     end
@@ -53,8 +53,28 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
         %{"logprob" => 0}
       ]
 
-      confidence = LogprobsAnalyzer.calculate_confidence(logprobs_content)
+      assert {:ok, confidence} = LogprobsAnalyzer.calculate_confidence(logprobs_content)
       assert confidence == 1.0
+    end
+
+    test "returns error for nil input" do
+      assert {:error, :invalid_logprobs_content} = LogprobsAnalyzer.calculate_confidence(nil)
+    end
+
+    test "returns error for empty content" do
+      assert {:error, :empty_logprobs_content} = LogprobsAnalyzer.calculate_confidence([])
+    end
+
+    test "returns error when no usable logprob entries exist" do
+      assert {:error, :missing_logprobs_content} =
+               LogprobsAnalyzer.calculate_confidence([%{"token" => "x"}, %{}])
+    end
+  end
+
+  describe "confidence_from_metadata_or_nil/2" do
+    test "returns nil when metadata is missing logprobs" do
+      assert LogprobsAnalyzer.confidence_from_metadata_or_nil(%{}) == nil
+      assert LogprobsAnalyzer.confidence_from_metadata_or_nil(nil) == nil
     end
   end
 
@@ -81,6 +101,11 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
 
     test "returns empty list for empty input" do
       assert LogprobsAnalyzer.token_confidences([]) == []
+    end
+
+    test "returns empty list for invalid input" do
+      assert LogprobsAnalyzer.token_confidences(nil) == []
+      assert LogprobsAnalyzer.token_confidences(%{}) == []
     end
   end
 end
