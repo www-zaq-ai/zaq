@@ -9,12 +9,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   use ZaqWeb, :verified_routes
 
   import ZaqWeb.Helpers.DateFormat
+  alias ZaqWeb.Helpers.SizeFormat
 
   # ── Helpers ──────────────────────────────────────────────────────────────
 
-  def format_size(bytes) when bytes < 1024, do: "#{bytes} B"
-  def format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"
-  def format_size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+  defdelegate format_size(bytes), to: SizeFormat
 
   @doc "Renders a file-type icon based on the file extension."
   attr :name, :string, required: true

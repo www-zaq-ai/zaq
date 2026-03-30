@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   alias Zaq.Ingestion
   alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, XlsxToMd}
+  alias ZaqWeb.Helpers.SizeFormat
 
   @markdown_extension ".md"
   @text_extensions ~w(.txt)
@@ -139,8 +140,5 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLive do
   # Template helpers (public for HEEx)
   # ────────────────────────────────────────────────────────────────
 
-  def format_size(nil), do: "—"
-  def format_size(bytes) when bytes < 1024, do: "#{bytes} B"
-  def format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"
-  def format_size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+  defdelegate format_size(bytes), to: SizeFormat
 end

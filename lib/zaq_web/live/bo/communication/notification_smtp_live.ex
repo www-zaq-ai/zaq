@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   alias Zaq.Mailer
   alias Zaq.System
   alias Zaq.System.EmailConfig
+  alias ZaqWeb.ChangesetErrors
 
   @impl true
   def mount(_params, _session, socket) do
@@ -187,20 +188,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   end
 
   defp format_changeset_errors(changeset) do
-    changeset
-    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
-      Regex.replace(~r/%\{(\w+)\}/, msg, fn _, key ->
-        to_string(error_opt_value(opts, key))
-      end)
-    end)
-    |> Enum.flat_map(fn {field, errors} -> Enum.map(errors, &"#{field} #{&1}") end)
-    |> Enum.join(", ")
-  end
-
-  defp error_opt_value(opts, key) do
-    Enum.find_value(opts, key, fn {opt_key, opt_value} ->
-      if Atom.to_string(opt_key) == key, do: opt_value
-    end)
+    ChangesetErrors.format(changeset, field_separator: " ")
   end
 
   defp format_email_error(reason) when is_binary(reason), do: reason

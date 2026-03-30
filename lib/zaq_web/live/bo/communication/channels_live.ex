@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Channels.Retrieval.Mattermost.API, as: MattermostAPI
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
+  alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Components.ServiceUnavailable
 
   import Ecto.Query
@@ -571,14 +572,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp format_errors(%Ecto.Changeset{} = changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
-    |> Enum.flat_map(fn {field, errors} ->
-      Enum.map(errors, &"#{Phoenix.Naming.humanize(field)} #{&1}")
-    end)
+    ChangesetErrors.format(changeset,
+      join: false,
+      humanize_fields: true,
+      field_separator: " "
+    )
   end
 
   defp channel_config_module do
