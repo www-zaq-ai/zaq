@@ -7,7 +7,7 @@ defmodule Zaq.Engine.AdapterSupervisor do
 
   - load enabled channel configs for a kind,
   - map config providers to adapter modules,
-  - build `Supervisor.child_spec/0` entries with the correct start function.
+  - build Supervisor child spec entries with the correct start function.
 
   Expected adapter contract:
 
