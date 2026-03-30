@@ -6,12 +6,7 @@ defmodule Zaq.Agent.ChunkTitle do
 
   require Logger
 
-  alias LangChain.Chains.LLMChain
-  alias LangChain.ChatModels.ChatOpenAI
-  alias LangChain.Message
-  alias LangChain.Message.ContentPart
-  alias LangChain.Utils.ChainResult
-  alias Zaq.Agent.LLM
+  alias Zaq.Agent.{LLM, LLMRunner}
 
   @behaviour Zaq.Agent.ChunkTitleBehaviour
 
@@ -60,25 +55,25 @@ defmodule Zaq.Agent.ChunkTitle do
     #{content}
     """
 
-    try do
-      {:ok, updated_chain} =
-        LLMChain.new!(%{llm: ChatOpenAI.new!(llm_config)})
-        |> LLMChain.add_message(Message.new_user!(prompt))
-        |> LLMChain.run()
+    case
 
-      title =
-        chain_content(updated_chain)
-        |> String.trim()
-        |> remove_quotes()
-        |> remove_prefix()
-        |> enforce_word_limit(@max_words)
+    LLMRunner.run llm_config: llm_config,
+                  question: prompt,
+                  error_prefix: "Failed to generate title" do
+      {:ok, updated_chain} ->
+        title =
+          LLMRunner.content(updated_chain)
+          |> String.trim()
+          |> remove_quotes()
+          |> remove_prefix()
+          |> enforce_word_limit(@max_words)
 
-      Logger.info("ChunkTitle: Generated title: #{title}")
-      {:ok, title}
-    rescue
-      e ->
-        Logger.error("ChunkTitle failed: #{inspect(e)}")
-        {:error, "Failed to generate title: #{Exception.message(e)}"}
+        Logger.info("ChunkTitle: Generated title: #{title}")
+        {:ok, title}
+
+      {:error, reason} ->
+        Logger.error("ChunkTitle failed: #{reason}")
+        {:error, reason}
     end
   end
 
@@ -86,13 +81,6 @@ defmodule Zaq.Agent.ChunkTitle do
   Returns the maximum number of words allowed in a chunk title.
   """
   def max_words, do: @max_words
-
-  defp chain_content(chain) do
-    case ChainResult.to_string(chain) do
-      {:ok, text} -> text
-      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
-    end
-  end
 
   # Remove surrounding quotes
   defp remove_quotes(text) do
