@@ -2,6 +2,7 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Agent.PromptTemplate
+  alias ZaqWeb.ChangesetErrors
 
   def mount(_params, _session, socket) do
     templates = PromptTemplate.list()
@@ -107,11 +108,6 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
   end
 
   defp format_errors(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-    |> Enum.map_join("; ", fn {field, msgs} -> "#{field}: #{Enum.join(msgs, ", ")}" end)
+    ChangesetErrors.format(changeset, separator: "; ")
   end
 end

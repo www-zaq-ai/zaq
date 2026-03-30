@@ -3,6 +3,7 @@ defmodule ZaqWeb.Live.BO.System.ResetPasswordLive do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.PasswordPolicy
+  alias ZaqWeb.ChangesetErrors
 
   def mount(%{"token" => token}, _session, socket) do
     case Accounts.verify_password_reset_token(token) do
@@ -88,14 +89,6 @@ defmodule ZaqWeb.Live.BO.System.ResetPasswordLive do
   end
 
   defp format_changeset_errors(changeset) do
-    changeset
-    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-    |> Enum.map_join(", ", fn {field, errors} ->
-      "#{field}: #{Enum.join(errors, ", ")}"
-    end)
+    ChangesetErrors.format(changeset)
   end
 end

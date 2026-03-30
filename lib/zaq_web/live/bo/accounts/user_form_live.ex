@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   alias Zaq.Accounts
   alias Zaq.Accounts.PasswordPolicy
   alias Zaq.Engine.Notifications.WelcomeEmail
+  alias ZaqWeb.ChangesetErrors
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -171,15 +172,6 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   end
 
   defp format_changeset_errors(changeset) do
-    changeset
-    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-    |> Enum.flat_map(fn {field, messages} ->
-      Enum.map(messages, fn message -> "#{field}: #{message}" end)
-    end)
-    |> Enum.join(", ")
+    ChangesetErrors.format(changeset)
   end
 end
