@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Channels.Retrieval.Mattermost.API, as: MattermostAPI
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
+  alias Zaq.RuntimeDeps
   alias ZaqWeb.ChangesetErrors
 
   import Ecto.Query
@@ -573,14 +574,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp channel_config_module do
-    Application.get_env(:zaq, :channels_live_channel_config_module, ChannelConfig)
+    RuntimeDeps.channel_config()
   end
 
   defp mattermost_api do
-    Application.get_env(:zaq, :channels_live_mattermost_api_module, MattermostAPI)
+    RuntimeDeps.mattermost_api()
   end
 
   defp http_client do
-    Application.get_env(:zaq, :channels_live_http_client, HTTPoison)
+    RuntimeDeps.http_client()
   end
 end

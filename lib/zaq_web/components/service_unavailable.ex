@@ -22,9 +22,9 @@ defmodule ZaqWeb.Components.ServiceUnavailable do
 
   use Phoenix.Component
 
-  alias Zaq.NodeRouter
+  alias Zaq.RuntimeDeps
 
-  defp node_router, do: Application.get_env(:zaq, :node_router, NodeRouter)
+  defp node_router, do: RuntimeDeps.node_router()
 
   @supervisor_map %{
     agent: Zaq.Agent.Supervisor,

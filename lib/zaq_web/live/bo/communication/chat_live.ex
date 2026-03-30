@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{History, Pipeline}
   alias Zaq.NodeRouter
+  alias Zaq.RuntimeDeps
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
 
@@ -348,7 +349,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   defp node_router do
-    Application.get_env(:zaq, :chat_live_node_router_module, NodeRouter)
+    RuntimeDeps.chat_live_node_router()
   end
 
   defp persist_chat_conversation(user_msg, result, current_user, current_conversation_id) do

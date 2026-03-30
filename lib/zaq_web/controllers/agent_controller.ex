@@ -3,10 +3,11 @@ defmodule ZaqWeb.AgentController do
 
   require Logger
 
-  alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
+  alias Zaq.Agent.Answering
   alias Zaq.Engine.Telemetry
-  alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
+  alias Zaq.RuntimeDeps
+  alias ZaqWeb.APIResponse
 
   @doc """
   POST /api/ask
@@ -37,25 +38,25 @@ defmodule ZaqWeb.AgentController do
       if answering.no_answer?(safe_answer) do
         :ok = record_metric("qa.no_answer.count", 1, telemetry_dimensions)
 
-        json(conn, %{
+        APIResponse.ok(conn, %{
           answer: answering.clean_answer(safe_answer),
           confidence: 0,
           language: lang
         })
       else
-        json(conn, %{answer: safe_answer, confidence: score, language: lang})
+        APIResponse.ok(conn, %{answer: safe_answer, confidence: score, language: lang})
       end
     else
       false ->
         :ok = record_metric("qa.no_answer.count", 1, telemetry_dimensions)
-        json(conn, %{answer: "No relevant information found.", confidence: 0})
+        APIResponse.ok(conn, %{answer: "No relevant information found.", confidence: 0})
 
       {:error, {:leaked, _phrase}} ->
-        conn |> put_status(403) |> json(%{error: "blocked"})
+        APIResponse.error(conn, :forbidden, "blocked")
 
       {:error, reason} ->
         Logger.error("AgentController.ask failed: #{inspect(reason)}")
-        conn |> put_status(500) |> json(%{error: "internal_error"})
+        APIResponse.error(conn, :internal_server_error, "internal_error")
     end
   end
 
@@ -73,28 +74,28 @@ defmodule ZaqWeb.AgentController do
 
     case result do
       {:ok, data} ->
-        conn |> put_status(202) |> json(%{status: "accepted", result: data})
+        APIResponse.accepted(conn, %{status: "accepted", result: data})
 
       {:error, reason} ->
         Logger.error("AgentController.ingest failed: #{inspect(reason)}")
-        conn |> put_status(422) |> json(%{error: inspect(reason)})
+        APIResponse.error(conn, :unprocessable_entity, inspect(reason))
     end
   end
 
   defp prompt_guard_module do
-    Application.get_env(:zaq, :agent_prompt_guard_module, PromptGuard)
+    RuntimeDeps.prompt_guard()
   end
 
   defp retrieval_module do
-    Application.get_env(:zaq, :agent_retrieval_module, Retrieval)
+    RuntimeDeps.retrieval()
   end
 
   defp document_processor_module do
-    Application.get_env(:zaq, :agent_document_processor_module, DocumentProcessor)
+    RuntimeDeps.document_processor()
   end
 
   defp answering_module do
-    Application.get_env(:zaq, :agent_answering_module, Answering)
+    RuntimeDeps.answering()
   end
 
   defp normalize_answer_result(module, result) do
