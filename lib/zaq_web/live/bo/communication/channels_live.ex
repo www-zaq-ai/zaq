@@ -326,20 +326,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
           case http_client().get(
                  "#{cfg.url}/api/v4/channels/#{String.trim(channel_id)}/posts",
-                 headers
+                 headers: headers
                ) do
-            {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-              decoded = Jason.decode!(body)
+            {:ok, %Req.Response{status: 200, body: body}} ->
+              decoded = decode_posts_body(body)
 
               posts =
                 decoded["order"] |> Enum.map(&decoded["posts"][&1]) |> Enum.reject(&is_nil/1)
 
               {:ok, posts}
 
-            {:ok, %HTTPoison.Response{status_code: status}} ->
+            {:ok, %Req.Response{status: status}} ->
               {:error, "HTTP #{status}"}
 
-            {:error, %HTTPoison.Error{reason: reason}} ->
+            {:error, %Req.TransportError{reason: reason}} ->
+              {:error, inspect(reason)}
+
+            {:error, reason} ->
               {:error, inspect(reason)}
           end
       end
@@ -583,4 +586,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp http_client do
     RuntimeDeps.http_client()
   end
+
+  defp decode_posts_body(body) when is_map(body), do: body
+
+  defp decode_posts_body(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, decoded} -> decoded
+      {:error, _} -> %{"order" => [], "posts" => %{}}
+    end
+  end
+
+  defp decode_posts_body(_), do: %{"order" => [], "posts" => %{}}
 end

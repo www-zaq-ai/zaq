@@ -48,7 +48,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   end
 
   defmodule HTTPClientFake do
-    def get(_url, _headers), do: fetch!(:response)
+    def get(_url, _opts), do: fetch!(:response)
 
     def put_response(response), do: :persistent_term.put(__MODULE__, %{response: response})
 
@@ -317,8 +317,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     HTTPClientFake.put_response({
       :ok,
-      %HTTPoison.Response{
-        status_code: 200,
+      %Req.Response{
+        status: 200,
         body:
           Jason.encode!(%{
             "order" => ["p2", "p1"],
@@ -340,7 +340,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert html =~ "2 posts loaded"
     assert html =~ "world"
 
-    HTTPClientFake.put_response({:ok, %HTTPoison.Response{status_code: 500, body: "boom"}})
+    HTTPClientFake.put_response({:ok, %Req.Response{status: 500, body: "boom"}})
 
     view
     |> element("form[phx-submit=\"load_posts\"]")
@@ -350,7 +350,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert state.socket.assigns.posts_status == :error
     assert state.socket.assigns.posts == "HTTP 500"
 
-    HTTPClientFake.put_response({:error, %HTTPoison.Error{reason: :econnrefused}})
+    HTTPClientFake.put_response({:error, %Req.TransportError{reason: :econnrefused}})
 
     view
     |> element("form[phx-submit=\"load_posts\"]")
