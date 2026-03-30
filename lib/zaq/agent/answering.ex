@@ -65,41 +65,48 @@ defmodule Zaq.Agent.Answering do
 
     started_at = System.monotonic_time(:millisecond)
 
-    case
+    try do
+      case LLMRunner.run(
+             llm_config: llm_config,
+             system_prompt: system_prompt,
+             history: history,
+             question: question,
+             error_prefix: "Failed to formulate response"
+           ) do
+        {:ok, updated_chain} ->
+          latency_ms = System.monotonic_time(:millisecond) - started_at
 
-    LLMRunner.run llm_config: llm_config,
-                  system_prompt: system_prompt,
-                  history: history,
-                  question: question,
-                  error_prefix: "Failed to formulate response" do
-      {:ok, updated_chain} ->
-        latency_ms = System.monotonic_time(:millisecond) - started_at
+          answer = LLMRunner.content(updated_chain)
+          bot_response = List.last(updated_chain.messages)
+          usage = Map.get(bot_response.metadata, :usage) || %{}
 
-        answer = LLMRunner.content(updated_chain)
-        bot_response = List.last(updated_chain.messages)
-        usage = Map.get(bot_response.metadata, :usage) || %{}
+          prompt_tokens = usage_value(usage, :input)
+          completion_tokens = usage_value(usage, :output)
 
-        prompt_tokens = usage_value(usage, :input)
-        completion_tokens = usage_value(usage, :output)
+          total_tokens = maybe_total_tokens(prompt_tokens, completion_tokens)
+          confidence_score = maybe_confidence_score(bot_response, include_confidence)
+          log_token_usage(prompt_tokens, completion_tokens)
 
-        total_tokens = maybe_total_tokens(prompt_tokens, completion_tokens)
-        confidence_score = maybe_confidence_score(bot_response, include_confidence)
-        log_token_usage(prompt_tokens, completion_tokens)
+          result = %Result{
+            answer: answer,
+            confidence_score: confidence_score,
+            latency_ms: latency_ms,
+            prompt_tokens: prompt_tokens,
+            completion_tokens: completion_tokens,
+            total_tokens: total_tokens
+          }
 
-        result = %Result{
-          answer: answer,
-          confidence_score: confidence_score,
-          latency_ms: latency_ms,
-          prompt_tokens: prompt_tokens,
-          completion_tokens: completion_tokens,
-          total_tokens: total_tokens
-        }
+          emit_answer_telemetry(result, telemetry_dimensions)
 
-        emit_answer_telemetry(result, telemetry_dimensions)
+          {:ok, result}
 
-        {:ok, result}
-
-      {:error, reason} ->
+        {:error, reason} ->
+          Logger.error("Answering failed: #{reason}")
+          {:error, reason}
+      end
+    rescue
+      e ->
+        reason = "Failed to formulate response: #{Exception.message(e)}"
         Logger.error("Answering failed: #{reason}")
         {:error, reason}
     end

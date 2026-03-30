@@ -6,7 +6,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Retrieval.Mattermost
-  alias Zaq.Channels.Retrieval.Mattermost.API, as: MattermostAPI
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
   alias Zaq.RuntimeDeps

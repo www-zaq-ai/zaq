@@ -55,11 +55,11 @@ defmodule Zaq.Agent.ChunkTitle do
     #{content}
     """
 
-    case
-
-    LLMRunner.run llm_config: llm_config,
-                  question: prompt,
-                  error_prefix: "Failed to generate title" do
+    case LLMRunner.run(
+           llm_config: llm_config,
+           question: prompt,
+           error_prefix: "Failed to generate title"
+         ) do
       {:ok, updated_chain} ->
         title =
           LLMRunner.content(updated_chain)
