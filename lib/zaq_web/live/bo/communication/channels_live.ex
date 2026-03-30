@@ -2,6 +2,7 @@
 
 defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   use ZaqWeb, :live_view
+  on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Retrieval.Mattermost
@@ -9,7 +10,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
   alias ZaqWeb.ChangesetErrors
-  alias ZaqWeb.Components.ServiceUnavailable
 
   import Ecto.Query
 
@@ -27,14 +27,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     "sharepoint" => "SharePoint"
   }
 
-  # Required roles for this page — just :channels for now.
-  # When ingestion channels are separated: [:channels, :ingestion]
-  # When retrieval channels are separated: [:channels, :agent]
-  @required_roles [:channels]
-
   @impl true
   def mount(%{"provider" => provider}, _session, socket) do
-    available = ServiceUnavailable.available?(@required_roles)
+    available = socket.assigns.service_available
     kind = socket.assigns.live_action
 
     label =
@@ -70,8 +65,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:kind, kind)
      |> assign(:provider, provider)
      |> assign(:provider_label, label)
-     |> assign(:service_available, available)
-     |> assign(:required_roles, @required_roles)
      |> assign(:configs, configs)
      # config modal
      |> assign(:modal, nil)

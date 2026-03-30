@@ -2,18 +2,16 @@
 
 defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   use ZaqWeb, :live_view
+  on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Repo
   alias Zaq.System
-  alias ZaqWeb.Components.ServiceUnavailable
 
   import Ecto.Query
 
   @retrieval_providers ~w(slack teams mattermost discord telegram webhook)
   @ingestion_providers ~w(zaq_local google_drive sharepoint)
-
-  @required_roles [:channels]
 
   # ---------------------------------------------------------------------------
   # Provider card definitions — used by the template to render grids
@@ -100,12 +98,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    available = ServiceUnavailable.available?(@required_roles)
+    available = socket.assigns.service_available
 
     {:ok,
      socket
-     |> assign(:service_available, available)
-     |> assign(:required_roles, @required_roles)
      |> assign(:retrieval_preview, @retrieval_preview)
      |> assign(:ingestion_preview, @ingestion_preview)
      |> assign(:notification_preview, @notification_preview)

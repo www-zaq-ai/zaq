@@ -1,10 +1,8 @@
 defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
   use ZaqWeb, :live_view
+  on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.System
-  alias ZaqWeb.Components.ServiceUnavailable
-
-  @required_roles [:channels]
 
   @connection_types [
     %{
@@ -18,12 +16,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    available = ServiceUnavailable.available?(@required_roles)
+    available = socket.assigns.service_available
 
     {:ok,
      socket
-     |> assign(:service_available, available)
-     |> assign(:required_roles, @required_roles)
      |> assign(:page_title, "Email Notifications")
      |> assign(:current_path, "/bo/channels/notifications/email")
      |> assign(:cards, @connection_types)

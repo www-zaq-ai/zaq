@@ -7,26 +7,23 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLive do
   """
 
   use ZaqWeb, :live_view
+  on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   import Ecto.Query
 
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
-  alias ZaqWeb.Components.ServiceUnavailable
 
   @per_page 20
-  @required_roles [:channels]
 
   @impl true
   def mount(_params, _session, socket) do
-    available = ServiceUnavailable.available?(@required_roles)
+    available = socket.assigns.service_available
 
     socket =
       socket
       |> assign(:page_title, "Notification Logs")
       |> assign(:current_path, "/bo/channels/notifications/logs")
-      |> assign(:service_available, available)
-      |> assign(:required_roles, @required_roles)
       |> assign(:page, 1)
       |> assign(:per_page, @per_page)
       |> assign(:selected_log, nil)

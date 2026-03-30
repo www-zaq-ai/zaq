@@ -8,16 +8,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   """
 
   use ZaqWeb, :live_view
+  on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
   alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{History, Pipeline}
   alias Zaq.NodeRouter
-  alias ZaqWeb.Components.ServiceUnavailable
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
-
-  # Required roles for the chat
-  @required_roles [:agent, :ingestion]
 
   require Logger
 
@@ -25,7 +22,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    available = ServiceUnavailable.available?(@required_roles)
+    available = socket.assigns.service_available
     current_user = socket.assigns[:current_user]
     user_id = if current_user, do: current_user.id, else: nil
 
@@ -40,8 +37,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      socket
      |> assign(:page_title, "Chat")
      |> assign(:current_path, "/bo/chat")
-     |> assign(:service_available, available)
-     |> assign(:required_roles, @required_roles)
      |> assign(:messages, [welcome_message()])
      |> assign(:input_value, "")
      |> assign(:status, :idle)
