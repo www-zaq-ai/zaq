@@ -12,6 +12,7 @@ defmodule Zaq.Ingestion do
     FileExplorer,
     IngestJob,
     IngestWorker,
+    JobLifecycle,
     RenameService,
     SourcePath
   }
@@ -193,7 +194,8 @@ defmodule Zaq.Ingestion do
 
   def retry_job(id) do
     with %IngestJob{status: "failed"} = job <- Repo.get(IngestJob, id),
-         {:ok, job} <- update_job(job, %{status: "pending", error: nil, completed_at: nil}) do
+         {:ok, job} <-
+           JobLifecycle.transition(job, %{status: "pending", error: nil, completed_at: nil}) do
       %{"job_id" => job.id}
       |> IngestWorker.new()
       |> Oban.insert()
@@ -208,7 +210,7 @@ defmodule Zaq.Ingestion do
 
   def cancel_job(id) do
     with %IngestJob{status: "pending"} = job <- Repo.get(IngestJob, id),
-         {:ok, job} <- update_job(job, %{status: "failed", error: "cancelled"}) do
+         {:ok, job} <- JobLifecycle.mark_failed(job, "cancelled") do
       {:ok, job}
     else
       %IngestJob{} -> {:error, :not_pending}
@@ -238,20 +240,6 @@ defmodule Zaq.Ingestion do
     %IngestJob{}
     |> IngestJob.changeset(attrs)
     |> Repo.insert()
-  end
-
-  defp update_job(job, attrs) do
-    job
-    |> IngestJob.changeset(attrs)
-    |> Repo.update()
-    |> tap(fn
-      {:ok, updated} -> broadcast_update(updated)
-      _ -> :ok
-    end)
-  end
-
-  defp broadcast_update(job) do
-    Phoenix.PubSub.broadcast(@pubsub, @topic, {:job_updated, job})
   end
 
   defp maybe_filter_status(query, nil), do: query

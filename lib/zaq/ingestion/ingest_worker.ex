@@ -12,7 +12,7 @@ defmodule Zaq.Ingestion.IngestWorker do
   require Logger
 
   alias Zaq.Engine.Telemetry
-  alias Zaq.Ingestion.{FileExplorer, IngestJob}
+  alias Zaq.Ingestion.{FileExplorer, IngestJob, JobLifecycle}
   alias Zaq.Repo
 
   @impl Oban.Worker
@@ -21,11 +21,7 @@ defmodule Zaq.Ingestion.IngestWorker do
     shared_role_ids = Map.get(args, "shared_role_ids", [])
     job = Repo.get!(IngestJob, job_id)
 
-    updated_job =
-      job
-      |> IngestJob.changeset(%{status: "processing", started_at: DateTime.utc_now()})
-      |> Repo.update!()
-      |> broadcast_update()
+    updated_job = JobLifecycle.mark_processing!(job)
 
     file_path = resolve_file_path(updated_job.file_path, updated_job.volume_name)
     telemetry_dimensions = %{mode: updated_job.mode, volume: updated_job.volume_name || "default"}
@@ -37,15 +33,10 @@ defmodule Zaq.Ingestion.IngestWorker do
         Telemetry.record("ingestion.completed.count", 1, telemetry_dimensions)
         Telemetry.record("ingestion.chunks.created", chunks_count, telemetry_dimensions)
 
-        updated_job
-        |> IngestJob.changeset(%{
-          status: "completed",
-          completed_at: DateTime.utc_now(),
+        JobLifecycle.mark_completed!(updated_job, %{
           chunks_count: chunks_count,
           document_id: document.id
         })
-        |> Repo.update!()
-        |> broadcast_update()
 
         :ok
 
@@ -66,24 +57,11 @@ defmodule Zaq.Ingestion.IngestWorker do
           do: "Structural error (not retriable): #{error_msg}",
           else: "Failed after #{max} attempts: #{error_msg}"
 
-      job
-      |> IngestJob.changeset(%{
-        status: "failed",
-        completed_at: DateTime.utc_now(),
-        error: label
-      })
-      |> Repo.update!()
-      |> broadcast_update()
+      JobLifecycle.mark_failed!(job, label, completed: true)
 
       {:cancel, reason}
     else
-      job
-      |> IngestJob.changeset(%{
-        status: "pending",
-        error: "Attempt #{attempt} failed: #{error_msg}"
-      })
-      |> Repo.update!()
-      |> broadcast_update()
+      JobLifecycle.mark_pending_retry!(job, "Attempt #{attempt} failed: #{error_msg}")
 
       {:error, reason}
     end
@@ -146,10 +124,5 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp processor do
     Application.get_env(:zaq, :document_processor, Zaq.Ingestion.DocumentProcessor)
-  end
-
-  defp broadcast_update(job) do
-    Phoenix.PubSub.broadcast(Zaq.PubSub, "ingestion:jobs", {:job_updated, job})
-    job
   end
 end

@@ -5,7 +5,7 @@ defmodule Zaq.Ingestion.ObanTelemetry do
   """
 
   alias Zaq.Engine.Telemetry
-  alias Zaq.Ingestion.IngestJob
+  alias Zaq.Ingestion.{IngestJob, JobLifecycle}
   alias Zaq.Repo
 
   def attach do
@@ -22,21 +22,11 @@ defmodule Zaq.Ingestion.ObanTelemetry do
          true <- meta.state == :discard,
          job_id when not is_nil(job_id) <- meta.job.args["job_id"],
          %IngestJob{status: status} = job when status != "failed" <- Repo.get(IngestJob, job_id),
-         {:ok, updated} <- mark_failed(job) do
+         {:ok, _updated} <-
+           JobLifecycle.mark_failed(job, "Max retries exhausted", completed: true) do
       Telemetry.record("ingestion.discarded.count", 1, %{worker: meta.job.worker})
-      Phoenix.PubSub.broadcast(Zaq.PubSub, "ingestion:jobs", {:job_updated, updated})
     else
       _ -> :ok
     end
-  end
-
-  defp mark_failed(job) do
-    job
-    |> IngestJob.changeset(%{
-      status: "failed",
-      error: "Max retries exhausted",
-      completed_at: DateTime.utc_now()
-    })
-    |> Repo.update()
   end
 end
