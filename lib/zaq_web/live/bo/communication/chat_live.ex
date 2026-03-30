@@ -22,7 +22,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    available = socket.assigns.service_available
+    _available = socket.assigns.service_available
     current_user = socket.assigns[:current_user]
     user_id = if current_user, do: current_user.id, else: nil
 
