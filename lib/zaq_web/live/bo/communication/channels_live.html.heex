@@ -1097,47 +1097,15 @@
 <!-- ================================================================== -->
   <!-- MODAL: Remove Retrieval Channel Confirmation -->
   <!-- ================================================================== -->
-  <div
+  <ZaqWeb.Components.BOModal.confirm_dialog
     :if={@confirm_remove_channel}
-    class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    phx-window-keydown="cancel_remove_channel"
-    phx-key="Escape"
-  >
-    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="cancel_remove_channel">
-    </div>
-    <div class="relative w-full max-w-sm bg-white rounded-2xl border border-black/10 p-8 shadow-2xl text-center">
-      <div class="w-10 h-10 rounded-lg bg-red-100 grid place-items-center mx-auto mb-4">
-        <svg
-          class="w-5 h-5 text-red-500"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          viewBox="0 0 24 24"
-        >
-          <path d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
-        </svg>
-      </div>
-      <h3 class="font-mono text-base font-bold text-black mb-2">Remove Channel?</h3>
-      <p class="font-mono text-[0.75rem] text-black/40 mb-6">
-        ZAQ will stop monitoring this channel and will no longer respond to @zaq mentions in it.
-      </p>
-      <div class="flex items-center justify-center gap-3">
-        <button
-          phx-click="cancel_remove_channel"
-          class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
-        >
-          Cancel
-        </button>
-        <button
-          id="remove-retrieval-channel-button"
-          phx-click="remove_channel"
-          class="font-mono text-[0.75rem] px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all"
-        >
-          Remove
-        </button>
-      </div>
-    </div>
-  </div>
+    title="Remove Channel?"
+    message="ZAQ will stop monitoring this channel and will no longer respond to @zaq mentions in it."
+    cancel_event="cancel_remove_channel"
+    confirm_event="remove_channel"
+    confirm_label="Remove"
+    confirm_button_id="remove-retrieval-channel-button"
+  />
   
 <!-- ================================================================== -->
   <!-- MODAL: Test Connection -->

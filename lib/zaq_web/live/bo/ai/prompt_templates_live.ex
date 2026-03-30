@@ -14,13 +14,14 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
        templates: templates,
        active_tab: first_tab,
        new_form: new_changeset(),
-       delete_confirm: nil
+       delete_confirm: nil,
+       delete_confirm_name: nil
      )}
   end
 
   def handle_event("switch_tab", %{"id" => id}, socket) do
     tab = if id == "new", do: :new, else: String.to_integer(id)
-    {:noreply, assign(socket, active_tab: tab, delete_confirm: nil)}
+    {:noreply, assign(socket, active_tab: tab, delete_confirm: nil, delete_confirm_name: nil)}
   end
 
   def handle_event("save", %{"prompt_template" => params}, socket) do
@@ -56,11 +57,18 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
   end
 
   def handle_event("confirm_delete", %{"id" => id}, socket) do
-    {:noreply, assign(socket, delete_confirm: String.to_integer(id))}
+    delete_id = String.to_integer(id)
+    template = Enum.find(socket.assigns.templates, &(&1.id == delete_id))
+
+    {:noreply,
+     assign(socket,
+       delete_confirm: delete_id,
+       delete_confirm_name: if(template, do: template.name, else: nil)
+     )}
   end
 
   def handle_event("cancel_delete", _params, socket) do
-    {:noreply, assign(socket, delete_confirm: nil)}
+    {:noreply, assign(socket, delete_confirm: nil, delete_confirm_name: nil)}
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
@@ -74,7 +82,12 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
 
         {:noreply,
          socket
-         |> assign(templates: templates, active_tab: next_tab, delete_confirm: nil)
+         |> assign(
+           templates: templates,
+           active_tab: next_tab,
+           delete_confirm: nil,
+           delete_confirm_name: nil
+         )
          |> put_flash(:info, "\"#{template.name}\" deleted.")}
 
       {:error, _} ->
