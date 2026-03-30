@@ -11,12 +11,7 @@ defmodule Zaq.Agent.Retrieval do
 
   require Logger
 
-  alias LangChain.Chains.LLMChain
-  alias LangChain.ChatModels.ChatOpenAI
-  alias LangChain.Message
-  alias LangChain.Message.ContentPart
-  alias LangChain.Utils.ChainResult
-  alias Zaq.Agent.{History, LLM}
+  alias Zaq.Agent.{History, LLM, LLMRunner}
   alias Zaq.Agent.PromptTemplate
 
   @doc """
@@ -48,35 +43,26 @@ defmodule Zaq.Agent.Retrieval do
 
     Logger.info("Retrieval: Processing question with strict grounding")
 
-    try do
-      {:ok, updated_chain} =
-        LLMChain.new!(%{llm: ChatOpenAI.new!(llm_config)})
-        |> LLMChain.add_message(Message.new_system!(system_prompt))
-        |> then(fn chain ->
-          if history != [], do: LLMChain.add_messages(chain, history), else: chain
-        end)
-        |> then(fn chain ->
-          if question != "",
-            do: LLMChain.add_message(chain, Message.new_user!(question)),
-            else: chain
-        end)
-        |> LLMChain.run()
+    case LLMRunner.run(
+           llm_config: llm_config,
+           system_prompt: system_prompt,
+           history: history,
+           question: question,
+           error_prefix: "Failed to process question"
+         ) do
+      {:ok, updated_chain} ->
+        with {:ok, answer} <- LLMRunner.content(updated_chain) |> extract_json() |> Jason.decode() do
+          {:ok, answer}
+        else
+          {:error, decode_error} ->
+            reason = "Failed to process question: #{Exception.message(decode_error)}"
+            Logger.error("Retrieval failed: #{reason}")
+            {:error, reason}
+        end
 
-      answer = chain_content(updated_chain) |> extract_json() |> Jason.decode!()
-
-      {:ok, answer}
-    rescue
-      e ->
-        Logger.error("Retrieval failed: #{inspect(e)}")
-        {:error, "Failed to process question: #{Exception.message(e)}"}
-    end
-  end
-
-  # Returns the LLM response text, tolerating incomplete messages (stop_reason: length).
-  defp chain_content(chain) do
-    case ChainResult.to_string(chain) do
-      {:ok, text} -> text
-      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
+      {:error, reason} ->
+        Logger.error("Retrieval failed: #{reason}")
+        {:error, reason}
     end
   end
 

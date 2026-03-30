@@ -22,10 +22,8 @@ defmodule Zaq.Engine.RetrievalSupervisor do
   3. Create a channel config in BO with `kind: :retrieval` and the matching provider
   """
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.AdapterSupervisor
   use Supervisor
-
-  require Logger
 
   @adapters %{
     "mattermost" => Zaq.Channels.Retrieval.Mattermost,
@@ -47,9 +45,11 @@ defmodule Zaq.Engine.RetrievalSupervisor do
     register_dispatch_hooks()
 
     children =
-      :retrieval
-      |> load_configs()
-      |> Enum.flat_map(&build_child_spec/1)
+      AdapterSupervisor.children_for(:retrieval, @adapters,
+        start_fun: :connect,
+        supervisor_name: "RetrievalSupervisor",
+        kind_label: "retrieval"
+      )
 
     Supervisor.init(children, strategy: :one_for_one)
   end
@@ -64,39 +64,5 @@ defmodule Zaq.Engine.RetrievalSupervisor do
     Enum.each(@dispatch_hooks, fn {_provider, hook_module} ->
       hook_module.register()
     end)
-  end
-
-  defp load_configs(kind) do
-    case ChannelConfig.list_enabled_by_kind(kind) do
-      [] ->
-        Logger.info(
-          "[RetrievalSupervisor] No enabled retrieval channel configs found, starting empty."
-        )
-
-        []
-
-      configs ->
-        configs
-    end
-  end
-
-  defp build_child_spec(config) do
-    case Map.get(@adapters, config.provider) do
-      nil ->
-        Logger.warning(
-          "[RetrievalSupervisor] Unknown retrieval provider #{inspect(config.provider)}, skipping."
-        )
-
-        []
-
-      adapter_module ->
-        [
-          %{
-            id: {adapter_module, config.id},
-            start: {adapter_module, :connect, [config]},
-            restart: :permanent
-          }
-        ]
-    end
   end
 end

@@ -21,10 +21,8 @@ defmodule Zaq.Engine.IngestionSupervisor do
   3. Create a channel config in BO with `kind: :ingestion` and the matching provider
   """
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.AdapterSupervisor
   use Supervisor
-
-  require Logger
 
   @adapters %{
     "google_drive" => Zaq.Channels.Ingestion.GoogleDrive,
@@ -38,46 +36,14 @@ defmodule Zaq.Engine.IngestionSupervisor do
   @impl true
   def init(_opts) do
     children =
-      :ingestion
-      |> load_configs()
-      |> Enum.flat_map(&build_child_spec/1)
+      AdapterSupervisor.children_for(:ingestion, @adapters,
+        start_fun: :start_link,
+        supervisor_name: "IngestionSupervisor",
+        kind_label: "ingestion"
+      )
 
     Supervisor.init(children, strategy: :one_for_one)
   end
 
   # --- Private ---
-
-  defp load_configs(kind) do
-    case ChannelConfig.list_enabled_by_kind(kind) do
-      [] ->
-        Logger.info(
-          "[IngestionSupervisor] No enabled ingestion channel configs found, starting empty."
-        )
-
-        []
-
-      configs ->
-        configs
-    end
-  end
-
-  defp build_child_spec(config) do
-    case Map.get(@adapters, config.provider) do
-      nil ->
-        Logger.warning(
-          "[IngestionSupervisor] Unknown ingestion provider #{inspect(config.provider)}, skipping."
-        )
-
-        []
-
-      adapter_module ->
-        [
-          %{
-            id: {adapter_module, config.id},
-            start: {adapter_module, :start_link, [config]},
-            restart: :permanent
-          }
-        ]
-    end
-  end
 end

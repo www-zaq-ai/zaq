@@ -12,13 +12,8 @@ defmodule Zaq.Agent.Answering do
 
   require Logger
 
-  alias LangChain.Chains.LLMChain
-  alias LangChain.ChatModels.ChatOpenAI
-  alias LangChain.Message
-  alias LangChain.Message.ContentPart
-  alias LangChain.Utils.ChainResult
   alias Zaq.Agent.Answering.Result
-  alias Zaq.Agent.{History, LLM, LogprobsAnalyzer}
+  alias Zaq.Agent.{History, LLM, LLMRunner, LogprobsAnalyzer}
   alias Zaq.Engine.Telemetry
 
   @no_answer_signals [
@@ -68,51 +63,45 @@ defmodule Zaq.Agent.Answering do
 
     Logger.info("Answering: Formulating response based on retrieved data")
 
-    try do
-      started_at = System.monotonic_time(:millisecond)
+    started_at = System.monotonic_time(:millisecond)
 
-      {:ok, updated_chain} =
-        LLMChain.new!(%{llm: ChatOpenAI.new!(llm_config)})
-        |> LLMChain.add_message(Message.new_system!(system_prompt))
-        |> then(fn chain ->
-          if history != [], do: LLMChain.add_messages(chain, history), else: chain
-        end)
-        |> then(fn chain ->
-          if is_binary(question) && question != "",
-            do: LLMChain.add_message(chain, Message.new_user!(question)),
-            else: chain
-        end)
-        |> LLMChain.run()
+    case
 
-      latency_ms = System.monotonic_time(:millisecond) - started_at
+    LLMRunner.run llm_config: llm_config,
+                  system_prompt: system_prompt,
+                  history: history,
+                  question: question,
+                  error_prefix: "Failed to formulate response" do
+      {:ok, updated_chain} ->
+        latency_ms = System.monotonic_time(:millisecond) - started_at
 
-      answer = chain_content(updated_chain)
-      bot_response = List.last(updated_chain.messages)
-      usage = Map.get(bot_response.metadata, :usage) || %{}
+        answer = LLMRunner.content(updated_chain)
+        bot_response = List.last(updated_chain.messages)
+        usage = Map.get(bot_response.metadata, :usage) || %{}
 
-      prompt_tokens = usage_value(usage, :input)
-      completion_tokens = usage_value(usage, :output)
+        prompt_tokens = usage_value(usage, :input)
+        completion_tokens = usage_value(usage, :output)
 
-      total_tokens = maybe_total_tokens(prompt_tokens, completion_tokens)
-      confidence_score = maybe_confidence_score(bot_response, include_confidence)
-      log_token_usage(prompt_tokens, completion_tokens)
+        total_tokens = maybe_total_tokens(prompt_tokens, completion_tokens)
+        confidence_score = maybe_confidence_score(bot_response, include_confidence)
+        log_token_usage(prompt_tokens, completion_tokens)
 
-      result = %Result{
-        answer: answer,
-        confidence_score: confidence_score,
-        latency_ms: latency_ms,
-        prompt_tokens: prompt_tokens,
-        completion_tokens: completion_tokens,
-        total_tokens: total_tokens
-      }
+        result = %Result{
+          answer: answer,
+          confidence_score: confidence_score,
+          latency_ms: latency_ms,
+          prompt_tokens: prompt_tokens,
+          completion_tokens: completion_tokens,
+          total_tokens: total_tokens
+        }
 
-      emit_answer_telemetry(result, telemetry_dimensions)
+        emit_answer_telemetry(result, telemetry_dimensions)
 
-      {:ok, result}
-    rescue
-      e ->
-        Logger.error("Answering failed: #{inspect(e)}")
-        {:error, "Failed to formulate response: #{Exception.message(e)}"}
+        {:ok, result}
+
+      {:error, reason} ->
+        Logger.error("Answering failed: #{reason}")
+        {:error, reason}
     end
   end
 
@@ -167,13 +156,6 @@ defmodule Zaq.Agent.Answering do
   def clean_answer(answer), do: answer
 
   # -- Private --
-
-  defp chain_content(chain) do
-    case ChainResult.to_string(chain) do
-      {:ok, text} -> text
-      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
-    end
-  end
 
   defp maybe_add_logprobs(config, true), do: Map.put(config, :logprobs, true)
   defp maybe_add_logprobs(config, false), do: config
