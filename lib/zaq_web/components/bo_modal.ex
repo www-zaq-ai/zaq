@@ -42,6 +42,7 @@ defmodule ZaqWeb.Components.BOModal do
   attr :cancel_label, :string, default: "Cancel"
   attr :max_width_class, :string, default: "max-w-sm"
   attr :confirm_button_id, :string, default: nil
+  attr :confirm_value_id, :string, default: nil
 
   def confirm_dialog(assigns) do
     ~H"""
@@ -66,6 +67,7 @@ defmodule ZaqWeb.Components.BOModal do
         <button
           id={@confirm_button_id}
           phx-click={@confirm_event}
+          phx-value-id={@confirm_value_id}
           class="rounded-xl bg-red-500 px-5 py-2.5 font-mono text-[0.75rem] font-bold text-white transition-all hover:bg-red-600"
         >
           {@confirm_label}

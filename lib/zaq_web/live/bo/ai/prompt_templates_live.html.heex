@@ -122,7 +122,6 @@
         <!-- Delete -->
         <div>
           <button
-            :if={@delete_confirm != tpl.id}
             type="button"
             phx-click="confirm_delete"
             phx-value-id={tpl.id}
@@ -130,24 +129,6 @@
           >
             Delete template
           </button>
-          <div :if={@delete_confirm == tpl.id} class="flex items-center gap-3">
-            <span class="font-mono text-[0.75rem] text-black/60">Are you sure?</span>
-            <button
-              type="button"
-              phx-click="delete"
-              phx-value-id={tpl.id}
-              class="font-mono text-[0.75rem] font-bold text-red-500 hover:text-red-700 transition-colors"
-            >
-              Yes, delete
-            </button>
-            <button
-              type="button"
-              phx-click="cancel_delete"
-              class="font-mono text-[0.75rem] text-black/40 hover:text-black transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
         </div>
         
 <!-- Save -->
@@ -232,4 +213,16 @@
       </div>
     </form>
   </div>
+
+  <ZaqWeb.Components.BOModal.confirm_dialog
+    :if={@delete_confirm}
+    id="prompt-template-delete-confirm-modal"
+    title="Delete Template"
+    message={"Are you sure you want to delete \"#{@delete_confirm_name || "this template"}\"? This action cannot be undone."}
+    cancel_event="cancel_delete"
+    confirm_event="delete"
+    confirm_value_id={to_string(@delete_confirm)}
+    confirm_label="Yes, delete"
+    confirm_button_id="prompt-template-confirm-delete"
+  />
 </ZaqWeb.Components.BOLayout.bo_layout>
