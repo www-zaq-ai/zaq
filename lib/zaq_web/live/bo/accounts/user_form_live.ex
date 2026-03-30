@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   alias Zaq.Accounts.PasswordPolicy
   alias Zaq.Engine.Notifications.WelcomeEmail
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Live.BO.Accounts.FormFlow
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -20,25 +21,29 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   end
 
   defp apply_action(socket, :new, _params) do
-    user = %Accounts.User{}
-    changeset = Accounts.User.changeset(user, %{})
-
     socket
-    |> assign(:page_title, "New User")
-    |> assign(:user, user)
-    |> assign(:form, to_form(changeset))
+    |> FormFlow.assign_entity_form(:new, %{},
+      assign_key: :user,
+      new_title: "New User",
+      edit_title: "Edit User",
+      new_entity: fn -> %Accounts.User{} end,
+      load_entity: &Accounts.get_user!/1,
+      changeset: &Accounts.User.changeset/2
+    )
     |> assign(:password_requirements, nil)
     |> reset_password_change_state()
   end
 
   defp apply_action(socket, :edit, %{"id" => id}) do
-    user = Accounts.get_user!(id)
-    changeset = Accounts.User.changeset(user, %{})
-
     socket
-    |> assign(:page_title, "Edit User")
-    |> assign(:user, user)
-    |> assign(:form, to_form(changeset))
+    |> FormFlow.assign_entity_form(:edit, %{"id" => id},
+      assign_key: :user,
+      new_title: "New User",
+      edit_title: "Edit User",
+      new_entity: fn -> %Accounts.User{} end,
+      load_entity: &Accounts.get_user!/1,
+      changeset: &Accounts.User.changeset/2
+    )
     |> assign(:password_requirements, nil)
     |> reset_password_change_state()
   end
@@ -110,31 +115,24 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   end
 
   defp save_user(socket, :new, params) do
-    case Accounts.create_user_with_password(params) do
-      {:ok, user} ->
-        WelcomeEmail.deliver(user)
+    result = Accounts.create_user_with_password(params)
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "User created.")
-         |> push_navigate(to: ~p"/bo/users")}
-
-      {:error, changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}
+    case result do
+      {:ok, user} -> WelcomeEmail.deliver(user)
+      _ -> :ok
     end
+
+    FormFlow.handle_save_result(socket, result,
+      success_message: "User created.",
+      to: ~p"/bo/users"
+    )
   end
 
   defp save_user(socket, :edit, params) do
-    case Accounts.update_user(socket.assigns.user, params) do
-      {:ok, _user} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "User updated.")
-         |> push_navigate(to: ~p"/bo/users")}
-
-      {:error, changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}
-    end
+    FormFlow.handle_save_result(socket, Accounts.update_user(socket.assigns.user, params),
+      success_message: "User updated.",
+      to: ~p"/bo/users"
+    )
   end
 
   defp reset_password_change_state(socket) do
