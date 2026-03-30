@@ -22,7 +22,16 @@ defmodule Zaq.Agent.LLMRunner do
         |> maybe_add_history(history)
         |> maybe_add_user_message(question)
 
-      LLMChain.run(chain)
+      case LLMChain.run(chain) do
+        {:ok, _updated_chain} = ok ->
+          ok
+
+        {:error, _chain, error} ->
+          {:error, "#{error_prefix}: #{format_error(error)}"}
+
+        {:error, error} ->
+          {:error, "#{error_prefix}: #{format_error(error)}"}
+      end
     rescue
       e -> {:error, "#{error_prefix}: #{Exception.message(e)}"}
     end
@@ -50,4 +59,10 @@ defmodule Zaq.Agent.LLMRunner do
     do: LLMChain.add_message(chain, Message.new_user!(question))
 
   defp maybe_add_user_message(chain, _), do: chain
+
+  defp format_error(%{message: message}) when is_binary(message), do: message
+  defp format_error(%{reason: reason}) when is_binary(reason), do: reason
+  defp format_error(error) when is_binary(error), do: error
+  defp format_error(error) when is_atom(error), do: Atom.to_string(error)
+  defp format_error(error), do: inspect(error)
 end

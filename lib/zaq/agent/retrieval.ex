@@ -51,9 +51,10 @@ defmodule Zaq.Agent.Retrieval do
            error_prefix: "Failed to process question"
          ) do
       {:ok, updated_chain} ->
-        with {:ok, answer} <- LLMRunner.content(updated_chain) |> extract_json() |> Jason.decode() do
-          {:ok, answer}
-        else
+        case LLMRunner.content(updated_chain) |> extract_json() |> Jason.decode() do
+          {:ok, answer} ->
+            {:ok, answer}
+
           {:error, decode_error} ->
             reason = "Failed to process question: #{Exception.message(decode_error)}"
             Logger.error("Retrieval failed: #{reason}")
