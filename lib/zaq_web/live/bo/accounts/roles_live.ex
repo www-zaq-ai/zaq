@@ -2,9 +2,12 @@ defmodule ZaqWeb.Live.BO.Accounts.RolesLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
+  alias ZaqWeb.Live.BO.Accounts.ListFlow
+
+  defp list_roles_with_users, do: Accounts.list_roles() |> Zaq.Repo.preload(:users)
 
   def mount(_params, _session, socket) do
-    roles = Accounts.list_roles() |> Zaq.Repo.preload(:users)
+    roles = list_roles_with_users()
 
     {:ok,
      socket
@@ -13,19 +16,13 @@ defmodule ZaqWeb.Live.BO.Accounts.RolesLive do
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
-    role = Accounts.get_role!(id)
-
-    case Accounts.delete_role(role) do
-      {:ok, _} ->
-        roles = Accounts.list_roles() |> Zaq.Repo.preload(:users)
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Role deleted.")
-         |> assign(:roles, roles)}
-
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not delete role. It may still have users.")}
-    end
+    ListFlow.handle_delete(socket, id,
+      fetch: &Accounts.get_role!/1,
+      delete: &Accounts.delete_role/1,
+      reload: &list_roles_with_users/0,
+      assign_key: :roles,
+      success_message: "Role deleted.",
+      error_message: "Could not delete role. It may still have users."
+    )
   end
 end
