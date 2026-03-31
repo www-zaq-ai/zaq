@@ -487,8 +487,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # handle_info/2
   # ────────────────────────────────────────────────────────────────
 
-  def handle_info({:job_updated, _job}, socket) do
-    {:noreply, socket |> load_jobs() |> load_entries()}
+  def handle_info({:job_updated, job}, socket) do
+    socket =
+      socket
+      |> merge_job_update(job)
+      |> maybe_refresh_entries_after_job(job)
+
+    {:noreply, socket}
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -578,6 +583,47 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     assign(socket, jobs: jobs)
   end
+
+  defp merge_job_update(socket, %{id: id} = job) do
+    jobs = socket.assigns.jobs
+    existing_index = Enum.find_index(jobs, &(&1.id == id))
+
+    cond do
+      not status_match?(socket.assigns.status_filter, job.status) and is_integer(existing_index) ->
+        assign(socket, jobs: List.delete_at(jobs, existing_index))
+
+      not status_match?(socket.assigns.status_filter, job.status) ->
+        socket
+
+      is_integer(existing_index) ->
+        updated_jobs =
+          jobs
+          |> List.replace_at(existing_index, job)
+          |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
+
+        assign(socket, jobs: updated_jobs)
+
+      true ->
+        updated_jobs =
+          [job | jobs]
+          |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
+          |> Enum.take(20)
+
+        assign(socket, jobs: updated_jobs)
+    end
+  end
+
+  defp merge_job_update(socket, _), do: socket
+
+  defp status_match?("all", _job_status), do: true
+  defp status_match?(status_filter, job_status), do: status_filter == job_status
+
+  defp maybe_refresh_entries_after_job(socket, %{status: status})
+       when status in ["completed", "failed"] do
+    load_entries(socket)
+  end
+
+  defp maybe_refresh_entries_after_job(socket, _job), do: socket
 
   defp fetch_volumes do
     case ingestion_call(:list_volumes, []) do
