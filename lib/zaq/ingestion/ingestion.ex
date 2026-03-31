@@ -38,10 +38,15 @@ defmodule Zaq.Ingestion do
           {:ok, job}
 
         :inline ->
-          IngestWorker.perform(%Oban.Job{args: build_job_args(job.id, role_id, shared_role_ids)})
-          {:ok, Repo.get!(IngestJob, job.id)}
+          enqueue_inline_ingest(job, role_id, shared_role_ids)
       end
     end
+  end
+
+  defp enqueue_inline_ingest(job, role_id, shared_role_ids) do
+    IngestWorker.perform(%Oban.Job{args: build_job_args(job.id, role_id, shared_role_ids)})
+
+    {:ok, Repo.get!(IngestJob, job.id)}
   end
 
   defp build_job_args(job_id, role_id, shared_role_ids) do
