@@ -230,7 +230,6 @@ const OntologyTree = {
       const style = document.createElement("style");
       style.id = "ont-tree-styles";
       style.textContent = `
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
         @keyframes ontNodeReveal {
           from { opacity: 0; transform: translateY(16px) scale(0.95); }
           to { opacity: 1; transform: translateY(0) scale(1); }
@@ -282,6 +281,8 @@ const OntologyTree = {
       });
       svgEl.appendChild(defs);
 
+      const connectorsFragment = document.createDocumentFragment();
+
       // Traverse node groups and draw curved paths
       wrapper.querySelectorAll("[data-type]").forEach((group) => {
         const parentNode = group.children[0]; // first child is the node card
@@ -319,27 +320,57 @@ const OntologyTree = {
           path.style.animation = `ontConnectorFadeIn 0.8s ease forwards`;
           path.style.animationDelay = `${i * 0.05 + 0.3}s`;
 
-          svgEl.appendChild(path);
+          connectorsFragment.appendChild(path);
         });
       });
+
+      svgEl.appendChild(connectorsFragment);
 
       const treeRect = treeEl.getBoundingClientRect();
       svgEl.style.width = Math.max(wrapper.scrollWidth, treeRect.width) + "px";
       svgEl.style.height = Math.max(wrapper.scrollHeight, treeRect.height + 100) + "px";
     };
 
-    requestAnimationFrame(() => setTimeout(drawConnectors, 150));
-    setTimeout(drawConnectors, 800);
-    setTimeout(drawConnectors, 1500);
+    this._drawTimeouts = this._drawTimeouts || [];
+    this._drawRaf = requestAnimationFrame(drawConnectors);
+
+    const scheduleDraw = (delayMs) => {
+      const timeoutId = setTimeout(() => {
+        this._drawRaf = requestAnimationFrame(drawConnectors);
+      }, delayMs);
+
+      this._drawTimeouts.push(timeoutId);
+    };
+
+    scheduleDraw(150);
+    scheduleDraw(800);
+    scheduleDraw(1500);
 
     // Redraw on resize
-    this._resizeHandler = () => requestAnimationFrame(drawConnectors);
+    this._resizeHandler = () => {
+      if (this._drawRaf) {
+        cancelAnimationFrame(this._drawRaf);
+      }
+
+      this._drawRaf = requestAnimationFrame(drawConnectors);
+    };
     window.addEventListener("resize", this._resizeHandler);
   },
 
   destroyed() {
+    if (this._drawRaf) {
+      cancelAnimationFrame(this._drawRaf);
+      this._drawRaf = null;
+    }
+
+    if (Array.isArray(this._drawTimeouts)) {
+      this._drawTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
+      this._drawTimeouts = [];
+    }
+
     if (this._resizeHandler) {
       window.removeEventListener("resize", this._resizeHandler);
+      this._resizeHandler = null;
     }
   },
 };

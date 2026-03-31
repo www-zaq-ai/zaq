@@ -87,20 +87,23 @@ const liveSocket = new LiveSocket("/live", Socket, {
     Typewriter: {
       mounted() {
         const el = this.el
-        const full = el.innerHTML
+        const full = el.textContent
         if (!full || !full.trim()) return
 
-        el.innerHTML = ""
+        el.textContent = ""
         el.style.visibility = "visible"
 
         let i = 0
-        const speed = 8
+        const speed = 14
+        const step = 3
+
+        this._typewriterTimeout = null
 
         const type = () => {
           if (i <= full.length) {
-            el.innerHTML = full.slice(0, i)
-            i++
-            setTimeout(type, speed)
+            el.textContent = full.slice(0, i)
+            i += step
+            this._typewriterTimeout = setTimeout(type, speed)
           }
         }
 
@@ -108,6 +111,12 @@ const liveSocket = new LiveSocket("/live", Socket, {
       },
       updated() {
         // intentional no-op — never let LiveView re-trigger typing
+      },
+      destroyed() {
+        if (this._typewriterTimeout) {
+          clearTimeout(this._typewriterTimeout)
+          this._typewriterTimeout = null
+        }
       }
     },
 
