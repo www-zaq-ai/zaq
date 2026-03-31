@@ -11,21 +11,18 @@ defmodule Zaq.Engine.RetrievalSupervisor do
   Adapters are resolved from the `provider` field on `Zaq.Channels.ChannelConfig`.
   Each provider string maps to an adapter module:
 
-      "mattermost" => Zaq.Channels.Retrieval.Mattermost
       "slack"      => Zaq.Channels.Retrieval.Slack
 
   ## Adding a new retrieval adapter
 
-  1. Implement `Zaq.Engine.RetrievalChannel` behaviour
-  2. Add the provider → module mapping to `@adapters` below
-  3. Create a channel config in BO with `kind: :retrieval` and the matching provider
+  1. Add the provider → module mapping to `@adapters` below
+  2. Create a channel config in BO with `kind: :retrieval` and the matching provider
   """
 
   alias Zaq.Engine.AdapterSupervisor
   use Supervisor
 
   @adapters %{
-    "mattermost" => Zaq.Channels.Retrieval.Mattermost,
     "slack" => Zaq.Channels.Retrieval.Slack
   }
 
@@ -40,8 +37,6 @@ defmodule Zaq.Engine.RetrievalSupervisor do
 
   @impl true
   def init(_opts) do
-    register_dispatch_hooks()
-
     children =
       AdapterSupervisor.children_for(:retrieval, @adapters,
         start_fun: :connect,
@@ -50,17 +45,5 @@ defmodule Zaq.Engine.RetrievalSupervisor do
       )
 
     Supervisor.init(children, strategy: :one_for_one)
-  end
-
-  # --- Private ---
-
-  @dispatch_hooks %{
-    "mattermost" => Zaq.Channels.Retrieval.Mattermost.DispatchHook
-  }
-
-  defp register_dispatch_hooks do
-    Enum.each(@dispatch_hooks, fn {_provider, hook_module} ->
-      hook_module.register()
-    end)
   end
 end

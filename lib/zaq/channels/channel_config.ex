@@ -20,10 +20,6 @@ defmodule Zaq.Channels.ChannelConfig do
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
-  @provider_api_modules %{
-    "mattermost" => Zaq.Channels.Retrieval.Mattermost.API
-  }
-
   schema "channel_configs" do
     field :name, :string
     field :provider, :string
@@ -162,10 +158,16 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Zaq.Repo.one()
   end
 
-  def test_connection(%__MODULE__{} = config, channel_id) do
-    case Map.get(@provider_api_modules, config.provider) do
-      nil -> {:error, "Testing not supported for #{config.provider}"}
-      api_module -> api_module.send_message(config, channel_id, @test_message, nil)
-    end
+  def test_connection(%__MODULE__{provider: "mattermost"} = config, channel_id) do
+    Jido.Chat.Mattermost.Adapter.send_message(
+      channel_id,
+      @test_message,
+      url: config.url,
+      token: config.token
+    )
+  end
+
+  def test_connection(%__MODULE__{} = config, _channel_id) do
+    {:error, "Testing not supported for #{config.provider}"}
   end
 end

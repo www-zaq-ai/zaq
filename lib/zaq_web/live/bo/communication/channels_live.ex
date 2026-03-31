@@ -5,7 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.Retrieval.Mattermost
+  alias Zaq.Channels.ChatBridgeServer
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
   alias Zaq.RuntimeDeps
@@ -562,8 +562,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp notify_ws_reload do
-    if Process.whereis(Mattermost) do
-      Mattermost.reload_channels()
+    if Process.whereis(ChatBridgeServer) do
+      ChatBridgeServer.reconfigure()
     end
   end
 

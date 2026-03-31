@@ -4,11 +4,6 @@ defmodule Zaq.Engine.RetrievalSupervisorTest do
   alias Zaq.Engine.RetrievalSupervisor
 
   describe "adapter_for/1" do
-    test "returns the Mattermost adapter module for provider \"mattermost\"" do
-      assert RetrievalSupervisor.adapter_for("mattermost") ==
-               Zaq.Channels.Retrieval.Mattermost
-    end
-
     test "returns the Slack adapter module for provider \"slack\"" do
       assert RetrievalSupervisor.adapter_for("slack") ==
                Zaq.Channels.Retrieval.Slack
