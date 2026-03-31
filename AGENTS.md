@@ -45,6 +45,20 @@ lib/
 │   └── router.ex
 ```
 
+### Documentation Map
+
+Use these docs first when working in the corresponding area:
+
+- `docs/system-config.md` — system settings, secret encryption, key handling
+- `docs/channels.md` — channel architecture, retrieval/ingestion adapter model
+- `docs/agent.md` — agent pipeline and service boundaries
+- `docs/ingestion.md` — ingestion pipeline and chunking flow
+- `docs/telemetry.md` — telemetry runtime behavior and naming
+- `docs/bo-auth.md` — BO authentication and authorization flow
+- `docs/license.md` — license loading and feature gating
+
+When a task touches keys, tokens, passwords, or encrypted config fields, always consult `docs/system-config.md` before coding.
+
 ### Key Conventions
 - Contexts: `lib/zaq/` (e.g. `Zaq.Accounts`, `Zaq.Ingestion`)
 - LiveViews: `lib/zaq_web/live/bo/<section>/` with paired `.html.heex`

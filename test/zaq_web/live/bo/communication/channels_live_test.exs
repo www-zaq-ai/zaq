@@ -414,6 +414,42 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert render(view) =~ "Channel config saved."
   end
 
+  test "save shows token encryption error when encryption key is invalid", %{conn: conn} do
+    previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+    Application.put_env(:zaq, Zaq.System.SecretConfig,
+      encryption_key: "invalid",
+      key_id: "test-v1"
+    )
+
+    on_exit(fn ->
+      Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    initial_count = Repo.aggregate(ChannelConfig, :count)
+
+    view |> element("#new-config-button") |> render_click()
+
+    html =
+      view
+      |> element("#config-form")
+      |> render_submit(%{
+        "form" => %{
+          "provider" => "mattermost",
+          "kind" => "retrieval",
+          "name" => "Mattermost Strict",
+          "url" => "https://mm-strict.local",
+          "token" => "token-strict",
+          "enabled" => "true"
+        }
+      })
+
+    assert html =~ "could not be encrypted"
+    assert Repo.aggregate(ChannelConfig, :count) == initial_count
+    assert has_element?(view, "#config-form")
+  end
+
   test "service unavailable guard ignores events", %{conn: conn} do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> nil end)
     insert_channel_config(%{})

@@ -93,6 +93,31 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert reloaded.token == "new-token"
   end
 
+  test "insert returns changeset error when token encryption key is invalid" do
+    previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+    Application.put_env(:zaq, Zaq.System.SecretConfig,
+      encryption_key: "invalid",
+      key_id: "test-v1"
+    )
+
+    on_exit(fn ->
+      Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
+    end)
+
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Strict Failure",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: "https://example.com",
+        token: "token-that-must-fail"
+      })
+
+    assert {:error, %Ecto.Changeset{} = failed_changeset} = Repo.insert(changeset)
+    assert hd(errors_on(failed_changeset).token) =~ "could not be encrypted"
+  end
+
   # ── Validation ──────────────────────────────────────────────────────────
 
   test "changeset/2 validates required fields and inclusion" do

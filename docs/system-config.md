@@ -45,6 +45,33 @@ persisted in `system_configs`.
 These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
 `IMAGE_TO_TEXT_*` environment variables.
 
+## Secret Persistence Standard (Strict, Global)
+
+All sensitive values (API keys, tokens, passwords) must follow one strict write path:
+
+1. Validate form changeset
+2. Encrypt sensitive values with `Zaq.Types.EncryptedString.encrypt/1`
+3. Persist encrypted payload only
+4. If encryption fails, return `{:error, %Ecto.Changeset{}}` with a field-level error
+
+There is no fallback to plaintext persistence.
+
+### Current sensitive fields
+
+- `llm.api_key`
+- `embedding.api_key`
+- `image_to_text.api_key`
+- `email.password`
+- `channel_configs.token`
+
+### Error contract
+
+- Missing key: field error contains `missing SYSTEM_CONFIG_ENCRYPTION_KEY`
+- Invalid key: field error contains `invalid SYSTEM_CONFIG_ENCRYPTION_KEY`
+- Other encryption errors: field error contains `could not be encrypted`
+
+All BO forms must surface these errors to the user in the related input form.
+
 ## SMTP Password Encryption
 
 ZAQ encrypts SMTP passwords before persisting them in `system_configs`.
@@ -90,9 +117,19 @@ openssl rand -base64 32
 
 ## Failure Modes
 
-- Missing key on save: BO save fails for SMTP settings that include a non-empty password
-- Invalid key format: BO save fails with encryption-key error
+- Missing key on save: BO save fails for any sensitive field and shows a form-level encryption error
+- Invalid key format: BO save fails for any sensitive field and shows a form-level encryption error
 - Invalid ciphertext/decryption failure: SMTP test/delivery fails until password is re-saved with valid key config
+
+## New Secret Field Checklist
+
+When adding a new key/token/password field:
+
+1. Use strict encryption (`EncryptedString.encrypt/1`) in the write path.
+2. Return `{:error, %Ecto.Changeset{}}` on encryption failures (no `raise`, no plaintext fallback).
+3. Ensure the LiveView/form displays field errors.
+4. Add unit tests for success + missing key + invalid key.
+5. Add LiveView regression test proving clear UI error rendering.
 
 ## Operational Notes
 

@@ -92,7 +92,7 @@ defmodule Zaq.System do
   @doc """
   Persists email config from a validated `%EmailConfig{}` changeset.
 
-  SMTP password values are encrypted at rest via `Zaq.System.EncryptedString`.
+  SMTP password values are encrypted at rest via `Zaq.Types.EncryptedString`.
   In strict mode, saves fail when a non-empty password is provided but
   encryption key configuration is missing or invalid.
   """
@@ -199,18 +199,16 @@ defmodule Zaq.System do
   @doc "Persists LLM settings from a validated `%LLMConfig{}` changeset."
   def save_llm_config(%Ecto.Changeset{valid?: true} = changeset) do
     config = Ecto.Changeset.apply_changes(changeset)
+    api_key = Map.get(config, :api_key)
 
-    Enum.each(@llm_fields, fn field ->
-      value = Map.get(config, String.to_existing_atom(field))
+    case encrypt_secret_field(changeset, :api_key, api_key) do
+      {:ok, encrypted_api_key} ->
+        persist_config_values(@llm_fields, "llm", config, encrypted_api_key)
+        {:ok, get_llm_config()}
 
-      case field do
-        "api_key" when value in [nil, ""] -> :skip
-        "api_key" -> set_config("llm.api_key", EncryptedString.encrypt!(value))
-        _ -> set_config("llm.#{field}", value)
-      end
-    end)
-
-    {:ok, get_llm_config()}
+      {:error, %Ecto.Changeset{} = failed_changeset} ->
+        {:error, failed_changeset}
+    end
   end
 
   def save_llm_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
@@ -248,23 +246,17 @@ defmodule Zaq.System do
     new_config = Ecto.Changeset.apply_changes(changeset)
     saved_model = get_config("embedding.model")
 
-    multi =
-      @embedding_fields
-      |> Enum.reject(&(&1 == "api_key" and Map.get(new_config, :api_key) in [nil, ""]))
-      |> Enum.reduce(Ecto.Multi.new(), fn field, multi ->
-        value = Map.get(new_config, String.to_existing_atom(field))
+    case encrypt_secret_field(changeset, :api_key, Map.get(new_config, :api_key)) do
+      {:ok, encrypted_api_key} ->
+        multi = build_embedding_multi(new_config, encrypted_api_key, saved_model)
 
-        Ecto.Multi.run(multi, {:config, field}, fn _repo, _changes ->
-          persist_embedding_field(field, value)
-        end)
-      end)
-      |> Ecto.Multi.run(:table_op, fn _repo, _changes ->
-        embedding_table_op(new_config, saved_model)
-      end)
+        case Repo.transaction(multi) do
+          {:ok, _} -> {:ok, get_embedding_config()}
+          {:error, _step, reason, _changes} -> {:error, reason}
+        end
 
-    case Repo.transaction(multi) do
-      {:ok, _} -> {:ok, get_embedding_config()}
-      {:error, _step, reason, _changes} -> {:error, reason}
+      {:error, %Ecto.Changeset{} = failed_changeset} ->
+        {:error, failed_changeset}
     end
   end
 
@@ -293,27 +285,53 @@ defmodule Zaq.System do
   @doc "Persists Image-to-Text settings from a validated `%ImageToTextConfig{}` changeset."
   def save_image_to_text_config(%Ecto.Changeset{valid?: true} = changeset) do
     config = Ecto.Changeset.apply_changes(changeset)
+    api_key = Map.get(config, :api_key)
 
-    Enum.each(@image_to_text_fields, fn field ->
-      value = Map.get(config, String.to_existing_atom(field))
+    case encrypt_secret_field(changeset, :api_key, api_key) do
+      {:ok, encrypted_api_key} ->
+        persist_config_values(@image_to_text_fields, "image_to_text", config, encrypted_api_key)
+        {:ok, get_image_to_text_config()}
 
-      case field do
-        "api_key" when value in [nil, ""] -> :skip
-        "api_key" -> set_config("image_to_text.api_key", EncryptedString.encrypt!(value))
-        _ -> set_config("image_to_text.#{field}", value)
-      end
-    end)
-
-    {:ok, get_image_to_text_config()}
+      {:error, %Ecto.Changeset{} = failed_changeset} ->
+        {:error, failed_changeset}
+    end
   end
 
   def save_image_to_text_config(%Ecto.Changeset{valid?: false} = changeset),
     do: {:error, changeset}
 
-  defp persist_embedding_field("api_key", value),
-    do: set_config("embedding.api_key", EncryptedString.encrypt!(value))
+  defp persist_embedding_field("api_key", value), do: set_config("embedding.api_key", value)
 
   defp persist_embedding_field(field, value), do: set_config("embedding.#{field}", value)
+
+  defp persist_config_values(fields, namespace, config, encrypted_api_key) do
+    Enum.each(fields, fn field ->
+      case encrypted_field_value(field, config, encrypted_api_key) do
+        :skip -> :ok
+        value -> set_config("#{namespace}.#{field}", value)
+      end
+    end)
+  end
+
+  defp encrypted_field_value("api_key", _config, encrypted_api_key), do: encrypted_api_key
+
+  defp encrypted_field_value(field, config, _encrypted_api_key),
+    do: Map.get(config, String.to_existing_atom(field))
+
+  defp build_embedding_multi(new_config, encrypted_api_key, saved_model) do
+    @embedding_fields
+    |> Enum.reject(&(&1 == "api_key" and encrypted_api_key == :skip))
+    |> Enum.reduce(Ecto.Multi.new(), fn field, multi ->
+      value = encrypted_field_value(field, new_config, encrypted_api_key)
+
+      Ecto.Multi.run(multi, {:config, field}, fn _repo, _changes ->
+        persist_embedding_field(field, value)
+      end)
+    end)
+    |> Ecto.Multi.run(:table_op, fn _repo, _changes ->
+      embedding_table_op(new_config, saved_model)
+    end)
+  end
 
   defp embedding_table_op(new_config, saved_model) do
     cond do
@@ -326,6 +344,40 @@ defmodule Zaq.System do
       true ->
         {:ok, :noop}
     end
+  end
+
+  defp encrypt_secret_field(_changeset, _field, value) when value in [nil, ""],
+    do: {:ok, :skip}
+
+  defp encrypt_secret_field(changeset, field, value) when is_binary(value) do
+    if EncryptedString.encrypted?(value) do
+      {:ok, value}
+    else
+      case EncryptedString.encrypt(value) do
+        {:ok, encrypted} -> {:ok, encrypted}
+        {:error, reason} -> {:error, secret_encryption_error(changeset, field, reason)}
+      end
+    end
+  end
+
+  defp secret_encryption_error(changeset, field, :missing_encryption_key) do
+    Ecto.Changeset.add_error(
+      changeset,
+      field,
+      "could not be encrypted: missing SYSTEM_CONFIG_ENCRYPTION_KEY"
+    )
+  end
+
+  defp secret_encryption_error(changeset, field, :invalid_encryption_key) do
+    Ecto.Changeset.add_error(
+      changeset,
+      field,
+      "could not be encrypted: invalid SYSTEM_CONFIG_ENCRYPTION_KEY"
+    )
+  end
+
+  defp secret_encryption_error(changeset, field, _reason) do
+    Ecto.Changeset.add_error(changeset, field, "could not be encrypted")
   end
 
   # ── Helpers ───────────────────────────────────────────────────────────

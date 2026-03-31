@@ -12,6 +12,8 @@ defmodule Zaq.Channels.ChannelConfig do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Zaq.Types.EncryptedString
+
   @valid_kinds ~w(ingestion retrieval)
   @valid_providers ~w(mattermost slack teams google_drive sharepoint email)
 
@@ -39,12 +41,16 @@ defmodule Zaq.Channels.ChannelConfig do
     |> validate_inclusion(:provider, @valid_providers)
     |> validate_inclusion(:kind, @valid_kinds)
     |> unique_constraint(:provider)
-    |> force_token_encryption()
+    |> maybe_encrypt_token()
   end
 
-  # For existing records, force the token field into the changeset so Ecto
-  # always calls dump/1 — which encrypts any legacy plaintext tokens.
-  defp force_token_encryption(changeset) do
+  defp maybe_encrypt_token(changeset) do
+    changeset
+    |> force_loaded_token_change()
+    |> encrypt_token_change()
+  end
+
+  defp force_loaded_token_change(changeset) do
     if changeset.data.__meta__.state == :loaded do
       case get_field(changeset, :token) do
         nil -> changeset
@@ -53,6 +59,37 @@ defmodule Zaq.Channels.ChannelConfig do
     else
       changeset
     end
+  end
+
+  defp encrypt_token_change(changeset) do
+    case get_change(changeset, :token) do
+      token when token in [nil, ""] -> changeset
+      token when is_binary(token) -> encrypt_token_value(changeset, token)
+      _other -> changeset
+    end
+  end
+
+  defp encrypt_token_value(changeset, token) do
+    if EncryptedString.encrypted?(token) do
+      changeset
+    else
+      case EncryptedString.encrypt(token) do
+        {:ok, encrypted} -> put_change(changeset, :token, encrypted)
+        {:error, reason} -> token_encryption_error(changeset, reason)
+      end
+    end
+  end
+
+  defp token_encryption_error(changeset, :missing_encryption_key) do
+    add_error(changeset, :token, "could not be encrypted: missing SYSTEM_CONFIG_ENCRYPTION_KEY")
+  end
+
+  defp token_encryption_error(changeset, :invalid_encryption_key) do
+    add_error(changeset, :token, "could not be encrypted: invalid SYSTEM_CONFIG_ENCRYPTION_KEY")
+  end
+
+  defp token_encryption_error(changeset, _reason) do
+    add_error(changeset, :token, "could not be encrypted")
   end
 
   @doc """

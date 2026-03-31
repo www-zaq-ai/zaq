@@ -329,6 +329,24 @@ defmodule Zaq.SystemTest do
       assert System.get_llm_config().api_key == "sk-secret-llm-key"
     end
 
+    test "returns changeset error when api_key encryption key is invalid" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: "invalid",
+        key_id: "test-v1"
+      )
+
+      changeset =
+        LLMConfig.changeset(%LLMConfig{}, %{
+          model: "gpt-4o",
+          endpoint: "https://api.openai.com/v1",
+          api_key: "sk-llm-must-fail"
+        })
+
+      assert {:error, %Ecto.Changeset{} = failed_changeset} = System.save_llm_config(changeset)
+      assert hd(errors_on(failed_changeset).api_key) =~ "could not be encrypted"
+      assert System.get_config("llm.api_key") == nil
+    end
+
     test "does not overwrite api_key when value is blank" do
       System.set_config("llm.api_key", "enc:v1:some:existing:key")
 
@@ -430,6 +448,27 @@ defmodule Zaq.SystemTest do
       stored = System.get_config("embedding.api_key")
       assert String.starts_with?(stored, "enc:")
       assert System.get_embedding_config().api_key == "test-embedding-key"
+    end
+
+    test "returns changeset error when embedding api_key encryption key is invalid" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: "invalid",
+        key_id: "test-v1"
+      )
+
+      changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          model: "bge-multilingual-gemma2",
+          endpoint: "http://localhost:11434/v1",
+          dimension: "768",
+          api_key: "embedding-must-fail"
+        })
+
+      assert {:error, %Ecto.Changeset{} = failed_changeset} =
+               System.save_embedding_config(changeset)
+
+      assert hd(errors_on(failed_changeset).api_key) =~ "could not be encrypted"
+      assert System.get_config("embedding.api_key") == nil
     end
 
     test "returns error for invalid changeset" do
@@ -596,6 +635,26 @@ defmodule Zaq.SystemTest do
       stored = System.get_config("image_to_text.api_key")
       assert String.starts_with?(stored, "enc:")
       assert System.get_image_to_text_config().api_key == "sk-image-key"
+    end
+
+    test "returns changeset error when image-to-text api_key encryption key is invalid" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: "invalid",
+        key_id: "test-v1"
+      )
+
+      changeset =
+        ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
+          model: "gpt-4o",
+          endpoint: "https://api.openai.com/v1",
+          api_key: "image-must-fail"
+        })
+
+      assert {:error, %Ecto.Changeset{} = failed_changeset} =
+               System.save_image_to_text_config(changeset)
+
+      assert hd(errors_on(failed_changeset).api_key) =~ "could not be encrypted"
+      assert System.get_config("image_to_text.api_key") == nil
     end
 
     test "does not overwrite api_key when value is blank" do

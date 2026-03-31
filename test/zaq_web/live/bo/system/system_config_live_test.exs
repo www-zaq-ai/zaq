@@ -102,4 +102,124 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute html =~ "%{number}"
     end
   end
+
+  describe "strict encryption errors" do
+    test "shows LLM api_key encryption error in form", %{conn: conn} do
+      previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: "invalid",
+        key_id: "test-v1"
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("button[phx-value-tab='llm']")
+      |> render_click()
+
+      view
+      |> form("#llm-config-form", %{
+        "llm_config" => %{
+          "provider" => "custom",
+          "endpoint" => "https://api.openai.com/v1",
+          "api_key" => "sk-llm-must-fail",
+          "model" => "gpt-4o",
+          "temperature" => "0.2",
+          "top_p" => "0.9",
+          "supports_logprobs" => "true",
+          "supports_json_mode" => "true",
+          "max_context_window" => "8000",
+          "distance_threshold" => "1.0"
+        }
+      })
+      |> render_submit()
+
+      state = :sys.get_state(view.pid)
+      errors = state.socket.assigns.llm_form.source.errors
+      assert {:api_key, {message, _opts}} = List.keyfind(errors, :api_key, 0)
+      assert message =~ "could not be encrypted"
+    end
+
+    test "shows Embedding api_key encryption error in form", %{conn: conn} do
+      previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: "invalid",
+        key_id: "test-v1"
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      view
+      |> element("button[phx-click='unlock_embedding']")
+      |> render_click()
+
+      view
+      |> element("button[phx-click='confirm_unlock_embedding']")
+      |> render_click()
+
+      view
+      |> form("#embedding-config-form", %{
+        "embedding_config" => %{
+          "provider" => "custom",
+          "endpoint" => "http://localhost:11434/v1",
+          "api_key" => "embedding-must-fail",
+          "model" => "bge-multilingual-gemma2",
+          "dimension" => "3584",
+          "chunk_min_tokens" => "400",
+          "chunk_max_tokens" => "900"
+        }
+      })
+      |> render_submit()
+
+      state = :sys.get_state(view.pid)
+      errors = state.socket.assigns.embedding_form.source.errors
+      assert {:api_key, {message, _opts}} = List.keyfind(errors, :api_key, 0)
+      assert message =~ "could not be encrypted"
+    end
+
+    test "shows Image-to-Text api_key encryption error in form", %{conn: conn} do
+      previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: "invalid",
+        key_id: "test-v1"
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("button[phx-value-tab='image_to_text']")
+      |> render_click()
+
+      view
+      |> form("#image-to-text-config-form", %{
+        "image_to_text_config" => %{
+          "provider" => "custom",
+          "endpoint" => "https://api.openai.com/v1",
+          "api_key" => "image-must-fail",
+          "model" => "gpt-4o"
+        }
+      })
+      |> render_submit()
+
+      state = :sys.get_state(view.pid)
+      errors = state.socket.assigns.image_to_text_form.source.errors
+      assert {:api_key, {message, _opts}} = List.keyfind(errors, :api_key, 0)
+      assert message =~ "could not be encrypted"
+    end
+  end
 end

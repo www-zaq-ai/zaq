@@ -27,17 +27,6 @@ defmodule Zaq.Types.EncryptedString do
   defdelegate encrypted?(value), to: SecretConfig
 
   @doc """
-  Encrypts a non-empty binary, returning the encrypted string directly.
-  Falls back to the original value when encryption fails (e.g. key not configured).
-  """
-  def encrypt!(value) when is_binary(value) and value != "" do
-    case encrypt(value) do
-      {:ok, encrypted} -> encrypted
-      {:error, _} -> value
-    end
-  end
-
-  @doc """
   Decrypts a stored value, returning the plaintext string directly.
   Returns `nil` for `nil`, `""`, or any decryption error.
   """
