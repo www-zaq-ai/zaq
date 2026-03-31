@@ -117,6 +117,32 @@ defmodule Zaq.Engine.Conversations do
     Repo.delete(conversation)
   end
 
+  @doc """
+  Persists a user message and its pipeline result into a conversation.
+  Gets or creates a conversation scoped to the sender and provider (channel type).
+  """
+  def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result) do
+    with {:ok, conv} <-
+           get_or_create_conversation_for_channel(
+             msg.author_id,
+             to_string(msg.provider),
+             nil
+           ),
+         {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
+         {:ok, _} <-
+           add_message(conv, %{
+             role: "assistant",
+             content: result.answer,
+             confidence_score: result.confidence_score,
+             latency_ms: result.latency_ms,
+             prompt_tokens: result.prompt_tokens,
+             completion_tokens: result.completion_tokens,
+             total_tokens: result.total_tokens
+           }) do
+      :ok
+    end
+  end
+
   # ── Messages ───────────────────────────────────────────────────────
 
   @doc """
@@ -299,7 +325,7 @@ defmodule Zaq.Engine.Conversations do
 
     case msg.role do
       "user" ->
-        Telemetry.record("qa.question.count", 1, base)
+        Telemetry.record("qa.message.count", 1, base)
 
       "assistant" ->
         Telemetry.record("qa.answer.count", 1, base)
