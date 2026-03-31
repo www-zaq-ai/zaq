@@ -69,8 +69,12 @@ defmodule Zaq.Hooks.Handler do
         prompt_tokens:      non_neg_integer(),
         completion_tokens:  non_neg_integer(),
         total_tokens:       non_neg_integer(),
-        error:              false
+        error:              false,
+        chunks:             [%{"content" => String.t(), "source" => String.t(), "metadata" => map()}]
       }
+
+  `chunks` contains the retrieved chunks used to generate the answer.
+  It is `[]` when the pipeline produced no retrieval results.
 
   ---
 

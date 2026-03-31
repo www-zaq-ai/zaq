@@ -103,7 +103,13 @@ defmodule Zaq.Agent.Pipeline do
           result_from_answering(answer_result, safe_answer, confidence_score)
         end
 
-      :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
+      :ok =
+        hooks.dispatch_after(
+          :after_pipeline_complete,
+          Map.put(result, :chunks, extraction_result),
+          ctx
+        )
+
       result
     else
       {:halt, _payload} ->
@@ -132,7 +138,7 @@ defmodule Zaq.Agent.Pipeline do
             history: history
           })
 
-        :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
+        :ok = hooks.dispatch_after(:after_pipeline_complete, Map.put(result, :chunks, []), ctx)
         result
 
       {:error, :no_results} ->
@@ -148,7 +154,7 @@ defmodule Zaq.Agent.Pipeline do
             history: history
           })
 
-        :ok = hooks.dispatch_after(:after_pipeline_complete, result, ctx)
+        :ok = hooks.dispatch_after(:after_pipeline_complete, Map.put(result, :chunks, []), ctx)
         result
 
       {:error, reason} ->
