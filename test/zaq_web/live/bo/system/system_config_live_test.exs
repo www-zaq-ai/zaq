@@ -71,4 +71,35 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert Zaq.System.get_config("telemetry.conversation_response_sla_ms") == "1600"
     end
   end
+
+  describe "embedding validate" do
+    test "interpolates max dimension validation errors", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      view
+      |> element("button[phx-click=\"unlock_embedding\"]")
+      |> render_click()
+
+      view
+      |> element("button[phx-click=\"confirm_unlock_embedding\"]")
+      |> render_click()
+
+      html =
+        view
+        |> form("#embedding-config-form", %{
+          "embedding_config" => %{
+            "provider" => "custom",
+            "model" => "bge-multilingual-gemma2",
+            "endpoint" => "http://localhost:11434/v1",
+            "dimension" => "4001",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+        |> render_change()
+
+      assert html =~ "must be less than or equal to 4000"
+      refute html =~ "%{number}"
+    end
+  end
 end

@@ -93,6 +93,18 @@ Registered adapters:
 
 ## General guidelines
 
+### Development Workflows
+
+#### 1) Bugfix Workflow (MANDATORY — follow this first for any bug)
+
+1. Write or update an automated test that reproduces the bug.
+2. Fix the code and confirm the new/updated test passes.
+3. Iterate on the fix until the reproducing test passes reliably.
+4. Once fixed, check code standards with `mix credo --strict`.
+5. Confirm no regression by running the full test suite in this order:
+   - unit tests first
+   - e2e tests second
+
 ### Branch Hierarchy
 1. **feature/** branches → Code review + Unit tests → merge into `main`
 2. **hotfix/** branches → Urgent post-release fixes → merge into `main`

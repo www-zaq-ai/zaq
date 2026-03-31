@@ -541,10 +541,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:request_duration_threshold_ms].errors}
+                :for={{msg, opts} <- @form[:request_duration_threshold_ms].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
             <div>
@@ -561,10 +561,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:repo_query_duration_threshold_ms].errors}
+                :for={{msg, opts} <- @form[:repo_query_duration_threshold_ms].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
             <div>
@@ -582,10 +582,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:no_answer_alert_threshold_percent].errors}
+                :for={{msg, opts} <- @form[:no_answer_alert_threshold_percent].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
             <div>
@@ -602,10 +602,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:conversation_response_sla_ms].errors}
+                :for={{msg, opts} <- @form[:conversation_response_sla_ms].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
           </div>
@@ -692,10 +692,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:model].errors}
+                :for={{msg, opts} <- @form[:model].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
           </div>
@@ -713,10 +713,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
             />
             <p
-              :for={{msg, _opts} <- @form[:endpoint].errors}
+              :for={{msg, opts} <- @form[:endpoint].errors}
               class="font-mono text-[0.72rem] text-red-500 mt-1.5"
             >
-              {msg}
+              {translate_error({msg, opts})}
             </p>
           </div>
           <div>
@@ -810,10 +810,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:temperature].errors}
+                :for={{msg, opts} <- @form[:temperature].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
             <div>
@@ -832,10 +832,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:top_p].errors}
+                :for={{msg, opts} <- @form[:top_p].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
           </div>
@@ -917,10 +917,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:max_context_window].errors}
+                :for={{msg, opts} <- @form[:max_context_window].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
             <div>
@@ -938,10 +938,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:distance_threshold].errors}
+                :for={{msg, opts} <- @form[:distance_threshold].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
           </div>
@@ -1109,10 +1109,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 />
               </div>
               <p
-                :for={{msg, _opts} <- @form[:model].errors}
+                :for={{msg, opts} <- @form[:model].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
           </div>
@@ -1130,10 +1130,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
             />
             <p
-              :for={{msg, _opts} <- @form[:endpoint].errors}
+              :for={{msg, opts} <- @form[:endpoint].errors}
               class="font-mono text-[0.72rem] text-red-500 mt-1.5"
             >
-              {msg}
+              {translate_error({msg, opts})}
             </p>
           </div>
           <div>
@@ -1232,10 +1232,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               ]}
             />
             <p
-              :for={{msg, _opts} <- @form[:dimension].errors}
+              :for={{msg, opts} <- @form[:dimension].errors}
               class="font-mono text-[0.72rem] text-red-500 mt-1.5"
             >
-              {msg}
+              {translate_error({msg, opts})}
             </p>
             <p
               :if={not @locked and @form[:dimension].value not in [nil, ""]}
@@ -1259,10 +1259,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:chunk_min_tokens].errors}
+                :for={{msg, opts} <- @form[:chunk_min_tokens].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
             <div>
@@ -1279,10 +1279,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:chunk_max_tokens].errors}
+                :for={{msg, opts} <- @form[:chunk_max_tokens].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
           </div>
@@ -1367,10 +1367,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, _opts} <- @form[:model].errors}
+                :for={{msg, opts} <- @form[:model].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
-                {msg}
+                {translate_error({msg, opts})}
               </p>
             </div>
           </div>
@@ -1387,10 +1387,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
             />
             <p
-              :for={{msg, _opts} <- @form[:endpoint].errors}
+              :for={{msg, opts} <- @form[:endpoint].errors}
               class="font-mono text-[0.72rem] text-red-500 mt-1.5"
             >
-              {msg}
+              {translate_error({msg, opts})}
             </p>
           </div>
           <div>
