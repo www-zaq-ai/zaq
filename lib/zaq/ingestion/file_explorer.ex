@@ -277,11 +277,22 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   defp file_stats_concurrency do
+    default = default_file_stats_concurrency()
+
+    Application.get_env(:zaq, Zaq.Ingestion, [])
+    |> Keyword.get(:file_stats_concurrency, default)
+    |> normalize_concurrency(default)
+  end
+
+  defp default_file_stats_concurrency do
     System.schedulers_online()
     |> Kernel.*(2)
     |> min(32)
     |> max(1)
   end
+
+  defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_concurrency(_value, default), do: default
 
   defp build_entry(full_path, stat) do
     %{

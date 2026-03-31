@@ -95,6 +95,38 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     test "returns error for traversal" do
       assert {:error, :path_traversal} = FileExplorer.list("../..")
     end
+
+    test "uses configured file_stats_concurrency when provided" do
+      File.mkdir_p!(Path.join(@test_base, "nested"))
+      File.write!(Path.join(@test_base, "a.txt"), "a")
+
+      original = Application.get_env(:zaq, Zaq.Ingestion, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original)
+      end)
+
+      Application.put_env(:zaq, Zaq.Ingestion, Keyword.put(original, :file_stats_concurrency, 1))
+
+      assert {:ok, entries} = FileExplorer.list(".")
+      assert Enum.any?(entries, &(&1.name == "a.txt"))
+      assert Enum.any?(entries, &(&1.name == "nested"))
+    end
+
+    test "falls back to default file_stats_concurrency when configured value is invalid" do
+      File.write!(Path.join(@test_base, "b.txt"), "b")
+
+      original = Application.get_env(:zaq, Zaq.Ingestion, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original)
+      end)
+
+      Application.put_env(:zaq, Zaq.Ingestion, Keyword.put(original, :file_stats_concurrency, 0))
+
+      assert {:ok, entries} = FileExplorer.list(".")
+      assert Enum.any?(entries, &(&1.name == "b.txt"))
+    end
   end
 
   describe "file_info/1" do

@@ -53,16 +53,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp chunk_processing_concurrency do
+    default = System.schedulers_online()
+
     Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:chunk_processing_concurrency, System.schedulers_online())
-    |> max(1)
+    |> Keyword.get(:chunk_processing_concurrency, default)
+    |> normalize_concurrency(default)
   end
 
   defp hybrid_candidate_limit(limit) when is_integer(limit) and limit > 0 do
-    max(limit, hybrid_search_limit())
+    limit
   end
 
   defp hybrid_candidate_limit(_), do: hybrid_search_limit()
+
+  defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_concurrency(_value, default), do: default
 
   defp chunk_title_module do
     Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)

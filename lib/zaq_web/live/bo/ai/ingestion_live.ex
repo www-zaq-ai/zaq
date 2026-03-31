@@ -589,27 +589,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     existing_index = Enum.find_index(jobs, &(&1.id == id))
 
     cond do
-      not status_match?(socket.assigns.status_filter, job.status) and is_integer(existing_index) ->
-        assign(socket, jobs: List.delete_at(jobs, existing_index))
-
       not status_match?(socket.assigns.status_filter, job.status) ->
-        socket
+        handle_filtered_job(socket, jobs, existing_index)
 
       is_integer(existing_index) ->
-        updated_jobs =
-          jobs
-          |> List.replace_at(existing_index, job)
-          |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
-
-        assign(socket, jobs: updated_jobs)
+        update_existing_job(socket, jobs, existing_index, job)
 
       true ->
-        updated_jobs =
-          [job | jobs]
-          |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
-          |> Enum.take(20)
-
-        assign(socket, jobs: updated_jobs)
+        add_new_job(socket, jobs, job)
     end
   end
 
@@ -617,6 +604,32 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp status_match?("all", _job_status), do: true
   defp status_match?(status_filter, job_status), do: status_filter == job_status
+
+  defp handle_filtered_job(socket, jobs, existing_index) when is_integer(existing_index) do
+    assign(socket, jobs: List.delete_at(jobs, existing_index))
+  end
+
+  defp handle_filtered_job(socket, _jobs, _existing_index), do: socket
+
+  defp update_existing_job(socket, jobs, existing_index, job) do
+    updated_jobs =
+      jobs
+      |> List.replace_at(existing_index, job)
+      |> sort_jobs_desc()
+
+    assign(socket, jobs: updated_jobs)
+  end
+
+  defp add_new_job(socket, jobs, job) do
+    updated_jobs =
+      [job | jobs]
+      |> sort_jobs_desc()
+      |> Enum.take(20)
+
+    assign(socket, jobs: updated_jobs)
+  end
+
+  defp sort_jobs_desc(jobs), do: Enum.sort_by(jobs, & &1.inserted_at, {:desc, DateTime})
 
   defp maybe_refresh_entries_after_job(socket, %{status: status})
        when status in ["completed", "failed"] do

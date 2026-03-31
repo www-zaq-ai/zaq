@@ -105,6 +105,29 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     |> stub(:ask, fn _content, _opts -> {:error, "LLM unavailable"} end)
   end
 
+  defp stub_embedding_with_concurrency_tracker(counter, sleep_ms \\ 40, dimension \\ nil) do
+    dim = dimension || embedding_dimension()
+
+    Req.Test.stub(Zaq.Embedding.Client, fn conn ->
+      Agent.update(counter, fn %{inflight: inflight, max: max_seen} = state ->
+        next_inflight = inflight + 1
+        %{state | inflight: next_inflight, max: max(max_seen, next_inflight)}
+      end)
+
+      Process.sleep(sleep_ms)
+
+      Agent.update(counter, fn %{inflight: inflight} = state ->
+        %{state | inflight: max(inflight - 1, 0)}
+      end)
+
+      body = Jason.encode!(%{"data" => [%{"embedding" => List.duplicate(0.1, dim)}]})
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(200, body)
+    end)
+  end
+
   defp embedding_dimension do
     Application.get_env(:zaq, Zaq.Embedding.Client, [])
     |> Keyword.get(:dimension, 3584)
@@ -368,6 +391,55 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       assert {:ok, []} = DocumentProcessor.process_and_store_chunks("   \n\n", doc.id)
       assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc.id), :count) == 0
+    end
+
+    test "respects chunk_processing_concurrency override when set to 1" do
+      original_ingestion_config = Application.get_env(:zaq, Zaq.Ingestion, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_config)
+      end)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.put(original_ingestion_config, :chunk_processing_concurrency, 1)
+      )
+
+      counter = start_supervised!({Agent, fn -> %{inflight: 0, max: 0} end})
+      stub_embedding_with_concurrency_tracker(counter, 80)
+      stub_chunk_title_success()
+      doc = create_document()
+
+      content =
+        Enum.map_join(1..4, "\n\n", fn i ->
+          "# Section #{i}\n\n" <> String.duplicate("content ", 120)
+        end)
+
+      assert {:ok, _results} = DocumentProcessor.process_and_store_chunks(content, doc.id)
+      assert Agent.get(counter, & &1.max) == 1
+    end
+
+    test "falls back to default chunk concurrency when configured value is invalid" do
+      original_ingestion_config = Application.get_env(:zaq, Zaq.Ingestion, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_config)
+      end)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.put(original_ingestion_config, :chunk_processing_concurrency, 0)
+      )
+
+      stub_embedding_success()
+      stub_chunk_title_success()
+      doc = create_document()
+
+      content = "# Heading\n\n" <> String.duplicate("valid content ", 120)
+
+      assert {:ok, _results} = DocumentProcessor.process_and_store_chunks(content, doc.id)
     end
   end
 
