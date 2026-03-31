@@ -12,6 +12,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{CitationNormalizer, History, Pipeline}
+  alias Zaq.Channels.{Router, WebBridge}
+  alias Zaq.Engine.Messages.Incoming
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
   alias ZaqWeb.Live.BO.PreviewHelpers
@@ -28,6 +30,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     current_user = socket.assigns[:current_user]
     user_id = if current_user, do: current_user.id, else: nil
 
+    session_id = generate_id()
+    Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
+
     conversations =
       NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_conversations, [
         [user_id: user_id, limit: 50]
@@ -39,6 +44,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      socket
      |> assign(:page_title, "Chat")
      |> assign(:current_path, "/bo/chat")
+     |> assign(:session_id, session_id)
      |> assign(:messages, [welcome_message()])
      |> assign(:input_value, "")
      |> assign(:status, :idle)
@@ -89,12 +95,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         |> assign(:status_message, "ZAQ is analyzing your question…")
         |> assign(:current_request_id, user_msg.id)
 
-      pid = self()
+      session_id = socket.assigns.session_id
       request_id = user_msg.id
 
       Task.start(fn ->
         run_pipeline_async(
-          pid,
+          session_id,
           request_id,
           trimmed,
           socket.assigns.history,
@@ -295,22 +301,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       current_user = socket.assigns[:current_user]
 
       %{body: normalized_body, sources: normalized_sources} =
-        CitationNormalizer.normalize(trim_body(result.answer), Map.get(result, :sources, []))
+        CitationNormalizer.normalize(trim_body(result.body), Map.get(result, :sources, []))
 
       bot_msg = %{
         id: generate_id(),
         role: :bot,
         body: normalized_body,
-        confidence: Map.get(result, :confidence_score),
+        confidence: Map.get(result.metadata, :confidence_score),
         timestamp: DateTime.utc_now(),
-        error: result[:error] || false,
+        error: result.metadata[:error] || false,
         feedback: nil,
         sources: normalized_sources,
         live: true
       }
 
       {socket, bot_msg} =
-        if result[:error] do
+        if result.metadata[:error] do
           {socket, bot_msg}
         else
           maybe_persist_conversation(
@@ -325,7 +331,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         end
 
       updated_history =
-        if result[:error] || Map.get(result, :confidence_score, 0.0) == 0.0 do
+        if result.metadata[:error] || Map.get(result.metadata, :confidence_score, 0.0) == 0.0 do
           history
         else
           now = DateTime.utc_now()
@@ -349,24 +355,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   # ── Async pipeline runner (runs inside Task) ───────────────────────
 
-  defp run_pipeline_async(pid, request_id, user_msg, history, current_user) do
+  defp run_pipeline_async(session_id, request_id, user_msg, history, current_user) do
     role_ids = Permissions.list_accessible_role_ids(current_user)
 
-    result =
-      Pipeline.run(user_msg,
+    incoming = %Incoming{
+      content: user_msg,
+      channel_id: "bo",
+      provider: :web,
+      metadata: %{session_id: session_id, request_id: request_id, user_content: user_msg}
+    }
+
+    outgoing =
+      Pipeline.run(incoming,
         history: history,
         role_ids: role_ids,
         telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
-        on_status: fn stage, msg -> update_status(pid, request_id, stage, msg) end,
+        on_status: WebBridge.on_status_callback(session_id, request_id),
         node_router: node_router()
       )
 
-    send(pid, {:pipeline_result, request_id, result, user_msg})
-  end
-
-  defp update_status(pid, request_id, status, message) do
-    send(pid, {:status_update, request_id, status, message})
-    :ok
+    Router.deliver(outgoing)
   end
 
   defp node_router do
@@ -442,11 +450,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         %{
           role: "assistant",
           content: normalized_body,
-          confidence_score: extract_confidence(Map.get(result, :confidence_score)),
-          latency_ms: Map.get(result, :latency_ms),
-          prompt_tokens: Map.get(result, :prompt_tokens),
-          completion_tokens: Map.get(result, :completion_tokens),
-          total_tokens: Map.get(result, :total_tokens),
+          confidence_score: extract_confidence(Map.get(result.metadata, :confidence_score)),
+          latency_ms: Map.get(result.metadata, :latency_ms),
+          prompt_tokens: Map.get(result.metadata, :prompt_tokens),
+          completion_tokens: Map.get(result.metadata, :completion_tokens),
+          total_tokens: Map.get(result.metadata, :total_tokens),
           sources: normalized_sources
         }
       ])

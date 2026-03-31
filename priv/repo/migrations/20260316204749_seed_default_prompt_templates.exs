@@ -80,7 +80,7 @@ defmodule Zaq.Repo.Migrations.SeedDefaultPromptTemplates do
   pronouns referring to earlier topics, or requests to clarify a previous answer.
   <% end %>
 
-  USER QUESTION: <%= @question %>
+  USER QUESTION: <%= @content %>
 
   retrieved_data = <%= @retrieved_data %>
   """

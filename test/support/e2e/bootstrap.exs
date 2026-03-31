@@ -215,7 +215,7 @@ insert_rollup = fn metric_key, sum, count, opts ->
 end
 
 # Core QA metrics — drive time series, gauge, radar, donut, bar
-insert_rollup.("qa.question.count", 50.0, 50, [])
+insert_rollup.("qa.message.count", 50.0, 50, [])
 insert_rollup.("qa.answer.count", 45.0, 45, [])
 insert_rollup.("qa.no_answer.count", 5.0, 5, [])
 insert_rollup.("qa.answer.latency_ms", 3000.0, 10, [])

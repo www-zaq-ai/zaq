@@ -16,7 +16,7 @@ defmodule Zaq.Channels.ChannelConfig do
 
   @smtp_provider "email:smtp"
   @valid_kinds ~w(ingestion retrieval)
-  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp)
+  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp telegram discord)
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -26,6 +26,9 @@ defmodule Zaq.Channels.ChannelConfig do
     field :kind, :string
     field :url, :string
     field :token, Zaq.Types.EncryptedString
+    field :bot_name, :string
+    field :bot_user_id, :string
+    field :sme_channel_id, :string
     field :enabled, :boolean, default: true
     field :settings, :map, default: %{}
 
@@ -35,7 +38,7 @@ defmodule Zaq.Channels.ChannelConfig do
   def changeset(config, attrs) do
     config
     |> cast(attrs, [:name, :provider, :kind, :url, :token, :enabled, :settings])
-    |> validate_required([:name, :provider, :kind])
+    |> validate_required([:name, :provider, :kind, :url, :token])
     |> validate_inclusion(:provider, @valid_providers)
     |> validate_inclusion(:kind, @valid_kinds)
     |> maybe_require_connection_fields()
@@ -99,13 +102,14 @@ defmodule Zaq.Channels.ChannelConfig do
   end
 
   @doc """
-  Returns all enabled configs for a given kind (`:ingestion` or `:retrieval`).
+  Returns enabled configs for a given kind (`:ingestion` or `:retrieval`),
+  filtered to the given list of provider strings.
   """
-  def list_enabled_by_kind(kind) when kind in [:ingestion, :retrieval] do
+  def list_enabled_by_kind(kind, providers) when kind in [:ingestion, :retrieval] do
     kind_str = Atom.to_string(kind)
 
     __MODULE__
-    |> where([c], c.kind == ^kind_str and c.enabled == true)
+    |> where([c], c.kind == ^kind_str and c.enabled == true and c.provider in ^providers)
     |> Zaq.Repo.all()
   end
 
@@ -158,16 +162,27 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Zaq.Repo.one()
   end
 
-  def test_connection(%__MODULE__{provider: "mattermost"} = config, channel_id) do
-    Jido.Chat.Mattermost.Adapter.send_message(
-      channel_id,
-      @test_message,
-      url: config.url,
-      token: config.token
-    )
-  end
+  @doc "Returns the adapter module for a provider, or nil if not configured."
+  def resolve_adapter(provider) when is_binary(provider),
+    do: resolve_adapter(String.to_existing_atom(provider))
 
-  def test_connection(%__MODULE__{} = config, _channel_id) do
-    {:error, "Testing not supported for #{config.provider}"}
+  def resolve_adapter(provider) when is_atom(provider),
+    do: :zaq |> Application.get_env(:channels, %{}) |> get_in([provider, :adapter])
+
+  @doc "Returns the bridge module for a provider, or nil if not configured."
+  def resolve_bridge(provider) when is_binary(provider),
+    do: resolve_bridge(String.to_existing_atom(provider))
+
+  def resolve_bridge(provider) when is_atom(provider),
+    do: :zaq |> Application.get_env(:channels, %{}) |> get_in([provider, :bridge])
+
+  def test_connection(%__MODULE__{provider: provider} = config, channel_id) do
+    case resolve_adapter(provider) do
+      nil ->
+        {:error, "Testing not supported for #{provider}"}
+
+      adapter ->
+        adapter.send_message(channel_id, @test_message, url: config.url, token: config.token)
+    end
   end
 end

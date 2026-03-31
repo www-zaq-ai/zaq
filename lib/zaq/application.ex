@@ -25,6 +25,7 @@ defmodule Zaq.Application do
         Zaq.Repo,
         {DNSCluster, query: Application.get_env(:zaq, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Zaq.PubSub},
+        {Task.Supervisor, name: Zaq.TaskSupervisor},
         {Oban, Application.fetch_env!(:zaq, Oban)},
         Zaq.License.FeatureStore,
         Zaq.License.LicensePostLoader,

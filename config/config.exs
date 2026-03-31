@@ -7,6 +7,18 @@
 # General application configuration
 import Config
 
+config :zaq, :channels, %{
+  mattermost: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.Mattermost.Adapter,
+    ingress_mode: "websocket"
+  },
+  # slack: %{bridge: Zaq.Channels.JidoChatBridge, adapter: Jido.Chat.Slack.Adapter, ingress_mode: "websocket"},
+  # discord: %{bridge: Zaq.Channels.JidoChatBridge, adapter: Jido.Chat.Discord.Adapter, ingress_mode: "gateway"},
+  email: %{bridge: Zaq.Channels.EmailBridge},
+  web: %{bridge: Zaq.Channels.WebBridge}
+}
+
 config :zaq,
   ecto_repos: [Zaq.Repo],
   generators: [timestamp_type: :utc_datetime]
@@ -24,7 +36,8 @@ config :zaq, Oban,
     conversations: 5,
     telemetry: 5,
     telemetry_remote: 3,
-    notifications: 5
+    notifications: 5,
+    channels: 10
   ],
   crontab: [],
   plugins: [

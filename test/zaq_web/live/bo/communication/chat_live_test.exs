@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Agent.{Answering, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
 
@@ -224,10 +225,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     send(view.pid, {
       :pipeline_result,
       nil,
-      %{
-        answer: "Pipeline answer [[source:guide.md]]",
-        confidence_score: 0.9,
-        sources: ["guide.md"]
+      %Outgoing{
+        body: "Pipeline answer [[source:guide.md]]",
+        channel_id: "bo",
+        provider: :web,
+        metadata: %{
+          answer: "Pipeline answer [[source:guide.md]]",
+          confidence_score: 0.9,
+          error: false,
+          sources: ["guide.md"]
+        }
       },
       "What is ZAQ?"
     })
@@ -274,7 +281,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     send(view.pid, {
       :pipeline_result,
       nil,
-      %{answer: "Something failed", confidence_score: 0.0, error: true},
+      %Outgoing{
+        body: "Something failed",
+        channel_id: "bo",
+        provider: :web,
+        metadata: %{answer: "Something failed", confidence_score: 0.0, error: true}
+      },
       "Q"
     })
 
@@ -668,7 +680,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     send(
       view.pid,
-      {:pipeline_result, "stale-1", %{answer: "stale answer", confidence_score: 1.0}, "user"}
+      {:pipeline_result, "stale-1",
+       %Outgoing{
+         body: "stale answer",
+         channel_id: "bo",
+         provider: :web,
+         metadata: %{answer: "stale answer", confidence_score: 1.0, error: false}
+       }, "user"}
     )
 
     state = :sys.get_state(view.pid)

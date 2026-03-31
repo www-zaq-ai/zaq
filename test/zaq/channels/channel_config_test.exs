@@ -131,7 +131,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert "is invalid" in errors_on(changeset).kind
   end
 
-  test "list_enabled_by_kind/1 returns only enabled configs for kind" do
+  test "list_enabled_by_kind/2 returns only enabled configs for kind and known providers" do
     retrieval_enabled =
       insert_channel_config(%{provider: "mattermost", kind: "retrieval", enabled: true})
 
@@ -141,7 +141,10 @@ defmodule Zaq.Channels.ChannelConfigTest do
     _ingestion_enabled =
       insert_channel_config(%{provider: "google_drive", kind: "ingestion", enabled: true})
 
-    assert [result] = ChannelConfig.list_enabled_by_kind(:retrieval)
+    _unknown_provider =
+      insert_channel_config(%{provider: "email", kind: "retrieval", enabled: true})
+
+    assert [result] = ChannelConfig.list_enabled_by_kind(:retrieval, ["mattermost"])
     assert result.id == retrieval_enabled.id
   end
 

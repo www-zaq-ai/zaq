@@ -30,7 +30,8 @@ defmodule Zaq.MixProject do
   def application do
     [
       mod: {Zaq.Application, []},
-      extra_applications: [:logger, :runtime_tools, :crypto]
+      extra_applications: [:logger, :runtime_tools, :crypto],
+      included_applications: [:nostrum]
     ]
   end
 
@@ -100,7 +101,9 @@ defmodule Zaq.MixProject do
       {:nimble_csv, "~> 1.2"},
       {:llm_db, "~> 2026.4"},
       {:jido_chat, github: "agentjido/jido_chat", branch: "main"},
-      {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"}
+      {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
+      {:jido_chat_discord, github: "agentjido/jido_chat_discord", branch: "main"}
+      # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
     ]
   end
 

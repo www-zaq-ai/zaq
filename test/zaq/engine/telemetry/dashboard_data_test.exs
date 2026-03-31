@@ -42,7 +42,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
 
     insert_rollup("qa.answer.latency_ms", now, 420.0, 1)
     insert_rollup("qa.answer.confidence", now, 0.82, 1)
-    insert_rollup("qa.question.count", now, 15.0, 1)
+    insert_rollup("qa.message.count", now, 15.0, 1)
     insert_rollup("feedback.rating", now, 12.0, 3)
     insert_rollup("feedback.negative.count", now, 2.0, 1)
 
@@ -116,7 +116,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
 
     insert_rollup("qa.answer.latency_ms", now, 420.0, 1)
     insert_rollup("qa.answer.confidence", now, 0.82, 1)
-    insert_rollup("qa.question.count", now, 10.0, 10)
+    insert_rollup("qa.message.count", now, 10.0, 10)
     insert_rollup("qa.no_answer.count", now, 2.0, 2)
     insert_rollup("qa.answer.count", now, 8.0, 8)
     insert_rollup("qa.tokens.total", now, 1200.0, 12)
@@ -151,7 +151,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
   test "load_llm_performance/1 returns strict retrieval effectiveness" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    insert_rollup("qa.question.count", now, 20.0, 20)
+    insert_rollup("qa.message.count", now, 20.0, 20)
     insert_rollup("qa.no_answer.count", now, 4.0, 4)
     insert_rollup("qa.answer.count", now, 16.0, 16)
     insert_rollup("qa.tokens.total", now, 1200.0, 12)
@@ -187,7 +187,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
   test "load_llm_performance/1 returns zero effectiveness when there are no answers" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    insert_rollup("qa.question.count", now, 20.0, 20)
+    insert_rollup("qa.message.count", now, 20.0, 20)
     insert_rollup("qa.no_answer.count", now, 0.0, 0)
 
     payload = Telemetry.load_llm_performance(%{range: "7d"})
@@ -263,9 +263,9 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
     SystemConfig.set_config("telemetry.conversation_response_sla_ms", "1500")
 
-    insert_rollup("qa.question.count", now, 20.0, 20, dimensions: %{"channel_type" => "bo"})
+    insert_rollup("qa.message.count", now, 20.0, 20, dimensions: %{"channel_type" => "bo"})
 
-    insert_rollup("qa.question.count", now, 10.0, 10,
+    insert_rollup("qa.message.count", now, 10.0, 10,
       dimensions: %{"channel_type" => "mattermost"}
     )
 
@@ -277,16 +277,16 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
 
     payload = Telemetry.load_conversations_metrics(%{range: "7d"})
 
-    assert payload.questions_asked_chart.id == "questions_asked"
-    assert payload.questions_per_channel_chart.id == "questions_per_channel"
+    assert payload.messages_received_chart.id == "messages_received"
+    assert payload.messages_per_channel_chart.id == "messages_per_channel"
     assert payload.answer_confidence_distribution_chart.id == "answer_confidence_distribution"
     assert payload.no_answer_rate_chart.id == "no_answer_rate"
     assert payload.average_response_time_chart.id == "average_response_time"
 
-    assert get_in(payload.questions_asked_chart, [:summary, :values, "questions"]) |> List.last() ==
+    assert get_in(payload.messages_received_chart, [:summary, :values, "messages"]) |> List.last() ==
              30.0
 
-    assert get_in(payload.questions_per_channel_chart, [:summary, :segments]) == [
+    assert get_in(payload.messages_per_channel_chart, [:summary, :segments]) == [
              %{label: "bo", value: 20.0},
              %{label: "mattermost", value: 10.0}
            ]
@@ -323,13 +323,13 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     today_chunk_1 = now
     today_chunk_2 = DateTime.add(now, -2, :hour)
 
-    insert_rollup("qa.question.count", yesterday, 1.0, 1)
+    insert_rollup("qa.message.count", yesterday, 1.0, 1)
     insert_rollup("qa.no_answer.count", yesterday, 1.0, 1)
 
-    insert_rollup("qa.question.count", today_chunk_1, 6.0, 6)
+    insert_rollup("qa.message.count", today_chunk_1, 6.0, 6)
     insert_rollup("qa.no_answer.count", today_chunk_1, 3.0, 3)
 
-    insert_rollup("qa.question.count", today_chunk_2, 4.0, 4)
+    insert_rollup("qa.message.count", today_chunk_2, 4.0, 4)
     insert_rollup("qa.no_answer.count", today_chunk_2, 2.0, 2)
 
     payload = Telemetry.load_conversations_metrics(%{range: "7d"})

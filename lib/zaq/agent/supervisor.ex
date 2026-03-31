@@ -1,8 +1,10 @@
 defmodule Zaq.Agent.Supervisor do
   @moduledoc """
-  Supervisor for Agent-related processes.
-  Currently a placeholder — will host Agent-specific GenServers
-  or workers as they are added.
+  Role marker for the `:agent` node role.
+
+  This supervisor runs on whichever node carries the `:agent` role.
+  `Zaq.NodeRouter` uses `Process.whereis/1` against this module to
+  locate the agent node for cross-node RPC dispatch.
   """
 
   use Supervisor

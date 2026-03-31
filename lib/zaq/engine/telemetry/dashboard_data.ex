@@ -69,7 +69,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     input_tokens = sum_points(local_rows, "qa.tokens.prompt", labels.labels, :value_sum)
     output_tokens = sum_points(local_rows, "qa.tokens.completion", labels.labels, :value_sum)
 
-    question_count = sum_metric(local_rows, "qa.question.count")
+    message_count = sum_metric(local_rows, "qa.message.count")
     answer_count = sum_metric(local_rows, "qa.answer.count")
     no_answer_count = sum_metric(local_rows, "qa.no_answer.count")
 
@@ -77,7 +77,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       if answer_count <= 0 do
         0.0
       else
-        strict_effectiveness_score(no_answer_count, question_count)
+        strict_effectiveness_score(no_answer_count, message_count)
       end
 
     legacy_charts = [
@@ -119,7 +119,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         series: [],
         summary: %{value: retrieval_effectiveness, max: 100.0, label: "Retrieval effectiveness"},
         meta: %{
-          question_count: question_count,
+          message_count: message_count,
           answer_count: answer_count,
           no_answer_count: no_answer_count
         }
@@ -143,14 +143,14 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     labels = labels_for_range(normalized.range)
     local_rows = load_rollups(labels.from, "local")
 
-    question_points = sum_points(local_rows, "qa.question.count", labels.labels, :value_sum)
-    cumulative_questions = cumulative_points(question_points)
+    message_points = sum_points(local_rows, "qa.message.count", labels.labels, :value_sum)
+    cumulative_messages = cumulative_points(message_points)
 
     {no_answer_rate_weighted, no_answer_weights} =
       ratio_points(
         local_rows,
         "qa.no_answer.count",
-        "qa.question.count",
+        "qa.message.count",
         labels.labels,
         fn ratio -> Float.round(ratio * 100, 2) end,
         :weighted_per_label
@@ -167,8 +167,8 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         {"Below 50", "qa.answer.confidence.bucket.lt_50"}
       ])
 
-    questions_by_channel =
-      metric_distribution_by_dimension(local_rows, "qa.question.count", "channel_type")
+    messages_by_channel =
+      metric_distribution_by_dimension(local_rows, "qa.message.count", "channel_type")
 
     telemetry_config = Zaq.System.get_telemetry_config()
     no_answer_alert_threshold = telemetry_config.no_answer_alert_threshold_percent * 1.0
@@ -176,26 +176,26 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
 
     legacy_charts = [
       %{
-        id: "questions_asked",
+        id: "messages_received",
         kind: :time_series,
         title: "Questions asked",
         labels: labels.labels,
         series: [
-          %{key: "questions", name: "Questions (cumulative)", values: cumulative_questions}
+          %{key: "messages", name: "Messages (cumulative)", values: cumulative_messages}
         ],
         summary: %{
           labels: labels.labels,
-          values: %{"questions" => cumulative_questions}
+          values: %{"messages" => cumulative_messages}
         },
         meta: %{range: normalized.range}
       },
       %{
-        id: "questions_per_channel",
+        id: "messages_per_channel",
         kind: :donut,
         title: "Questions per channel",
         labels: [],
         series: [],
-        summary: %{segments: questions_by_channel},
+        summary: %{segments: messages_by_channel},
         meta: %{range: normalized.range}
       },
       %{
@@ -252,8 +252,8 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     %{
       filters: %{range: normalized.range},
       charts: charts,
-      questions_asked_chart: chart!(charts, "questions_asked"),
-      questions_per_channel_chart: chart!(charts, "questions_per_channel"),
+      messages_received_chart: chart!(charts, "messages_received"),
+      messages_per_channel_chart: chart!(charts, "messages_per_channel"),
       answer_confidence_distribution_chart: chart!(charts, "answer_confidence_distribution"),
       no_answer_rate_chart: chart!(charts, "no_answer_rate"),
       average_response_time_chart: chart!(charts, "average_response_time")
@@ -486,7 +486,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       ratio_points(
         local_rows,
         "qa.no_answer.count",
-        "qa.question.count",
+        "qa.message.count",
         labels.labels,
         fn ratio -> Float.round((1.0 - ratio) * 100, 2) end
       )
@@ -513,7 +513,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         nil
       end
 
-    total_questions = sum_metric(local_rows, "qa.question.count")
+    total_messages = sum_metric(local_rows, "qa.message.count")
     total_ingestions = sum_metric(local_rows, "ingestion.completed.count")
 
     [
@@ -528,7 +528,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
             %{
               id: "metric-total-events",
               label: "Total Events",
-              value: total_questions + total_ingestions,
+              value: total_messages + total_ingestions,
               unit: nil,
               trend: 0.0,
               hint: String.upcase(filters.segment) <> " segment"
@@ -590,7 +590,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         series: [],
         summary: %{
           bars: [
-            %{label: "Questions", value: total_questions},
+            %{label: "Questions", value: total_messages},
             %{label: "Completed ingestion", value: total_ingestions},
             %{label: "Negative feedback", value: feedback_neg},
             %{label: "No answer", value: sum_metric(local_rows, "qa.no_answer.count")}
@@ -608,7 +608,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           segments: [
             %{label: "Positive", value: max(feedback_total - feedback_neg, 0)},
             %{label: "Negative", value: feedback_neg},
-            %{label: "Unrated", value: max(total_questions - feedback_total, 0)}
+            %{label: "Unrated", value: max(total_messages - feedback_total, 0)}
           ]
         },
         meta: %{}
@@ -649,7 +649,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         title: "SLA countdown",
         labels: [],
         series: [],
-        summary: %{total: 240, remaining: max(240 - round(total_questions), 0)},
+        summary: %{total: 240, remaining: max(240 - round(total_messages), 0)},
         meta: %{}
       },
       %{

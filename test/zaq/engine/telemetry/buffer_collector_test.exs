@@ -41,7 +41,7 @@ defmodule Zaq.Engine.Telemetry.BufferCollectorTest do
 
     assert :ok =
              Buffer.enqueue(%{
-               metric_key: "qa.question.count",
+               metric_key: "qa.message.count",
                value: 2,
                dimensions: %{segment: "small"},
                occurred_at: now
@@ -49,7 +49,7 @@ defmodule Zaq.Engine.Telemetry.BufferCollectorTest do
 
     assert :ok = Buffer.flush()
 
-    point = Repo.one!(from p in Point, where: p.metric_key == "qa.question.count")
+    point = Repo.one!(from p in Point, where: p.metric_key == "qa.message.count")
 
     assert point.value == 2.0
     assert point.dimension_key == "segment=small"
@@ -66,7 +66,7 @@ defmodule Zaq.Engine.Telemetry.BufferCollectorTest do
 
     assert :ok =
              Buffer.enqueue(name, %{
-               metric_key: "qa.question.count",
+               metric_key: "qa.message.count",
                value: 7,
                dimensions: %{segment: "mid"}
              })
@@ -75,7 +75,7 @@ defmodule Zaq.Engine.Telemetry.BufferCollectorTest do
 
     assert Repo.exists?(
              from(p in Point,
-               where: p.metric_key == "qa.question.count",
+               where: p.metric_key == "qa.message.count",
                where: fragment("?->>?", p.dimensions, "segment") == "mid",
                where: p.value == 7.0
              )
@@ -104,14 +104,14 @@ defmodule Zaq.Engine.Telemetry.BufferCollectorTest do
   end
 
   test "record/4 keeps business metrics allowlisted" do
-    assert :ok = Telemetry.record("qa.question.count", 3, %{segment: "small"})
+    assert :ok = Telemetry.record("qa.message.count", 3, %{segment: "small"})
     assert :ok = Telemetry.record("feedback.rating", 4, %{channel: "mattermost"})
     assert :ok = Telemetry.record("ingestion.documents.count", 2, %{source: "manual"})
     assert :ok = Telemetry.record("custom.metric", 10, %{})
 
     assert :ok = Buffer.flush()
 
-    assert Repo.exists?(from p in Point, where: p.metric_key == "qa.question.count")
+    assert Repo.exists?(from p in Point, where: p.metric_key == "qa.message.count")
     assert Repo.exists?(from p in Point, where: p.metric_key == "feedback.rating")
     assert Repo.exists?(from p in Point, where: p.metric_key == "ingestion.documents.count")
     refute Repo.exists?(from p in Point, where: p.metric_key == "custom.metric")

@@ -21,7 +21,7 @@ defmodule Zaq.Engine.IngestionSupervisor do
   3. Create a channel config in BO with `kind: :ingestion` and the matching provider
   """
 
-  alias Zaq.Engine.AdapterSupervisor
+  alias Zaq.Engine.ChannelAdapterLoader
   use Supervisor
 
   @adapters %{
@@ -36,7 +36,7 @@ defmodule Zaq.Engine.IngestionSupervisor do
   @impl true
   def init(_opts) do
     children =
-      AdapterSupervisor.children_for(:ingestion, @adapters,
+      ChannelAdapterLoader.children_for(:ingestion, @adapters,
         start_fun: :start_link,
         supervisor_name: "IngestionSupervisor",
         kind_label: "ingestion"

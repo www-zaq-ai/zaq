@@ -19,7 +19,7 @@ defmodule Zaq.Engine.RetrievalSupervisor do
   2. Create a channel config in BO with `kind: :retrieval` and the matching provider
   """
 
-  alias Zaq.Engine.AdapterSupervisor
+  alias Zaq.Engine.ChannelAdapterLoader
   use Supervisor
 
   @adapters %{
@@ -38,7 +38,7 @@ defmodule Zaq.Engine.RetrievalSupervisor do
   @impl true
   def init(_opts) do
     children =
-      AdapterSupervisor.children_for(:retrieval, @adapters,
+      ChannelAdapterLoader.children_for(:retrieval, @adapters,
         start_fun: :connect,
         supervisor_name: "RetrievalSupervisor",
         kind_label: "retrieval"

@@ -38,11 +38,11 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
   defp assign_telemetry(socket) do
     telemetry = load_conversations_metrics_data(%{range: socket.assigns.range})
 
-    questions_asked_chart =
-      Map.get(telemetry, :questions_asked_chart, default_questions_asked_chart())
+    messages_received_chart =
+      Map.get(telemetry, :messages_received_chart, default_messages_received_chart())
 
-    questions_per_channel_chart =
-      Map.get(telemetry, :questions_per_channel_chart, default_questions_per_channel_chart())
+    messages_per_channel_chart =
+      Map.get(telemetry, :messages_per_channel_chart, default_messages_per_channel_chart())
 
     answer_confidence_distribution_chart =
       Map.get(
@@ -59,8 +59,8 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
 
     socket
     |> assign(:telemetry, telemetry)
-    |> assign(:questions_asked_chart, questions_asked_chart)
-    |> assign(:questions_per_channel_chart, questions_per_channel_chart)
+    |> assign(:messages_received_chart, messages_received_chart)
+    |> assign(:messages_per_channel_chart, messages_per_channel_chart)
     |> assign(:answer_confidence_distribution_chart, answer_confidence_distribution_chart)
     |> assign(:no_answer_rate_chart, no_answer_rate_chart)
     |> assign(:average_response_time_chart, average_response_time_chart)
@@ -81,37 +81,37 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
     %{
       filters: %{range: Map.get(filters, :range, "7d")},
       charts: [
-        default_questions_asked_chart(labels),
-        default_questions_per_channel_chart(),
+        default_messages_received_chart(labels),
+        default_messages_per_channel_chart(),
         default_answer_confidence_distribution_chart(),
         default_no_answer_rate_chart(labels),
         default_average_response_time_chart(labels)
       ],
-      questions_asked_chart: default_questions_asked_chart(labels),
-      questions_per_channel_chart: default_questions_per_channel_chart(),
+      messages_received_chart: default_messages_received_chart(labels),
+      messages_per_channel_chart: default_messages_per_channel_chart(),
       answer_confidence_distribution_chart: default_answer_confidence_distribution_chart(),
       no_answer_rate_chart: default_no_answer_rate_chart(labels),
       average_response_time_chart: default_average_response_time_chart(labels)
     }
   end
 
-  defp default_questions_asked_chart(labels \\ labels_for_range("7d")) do
+  defp default_messages_received_chart(labels \\ labels_for_range("7d")) do
     zeroes = Enum.map(labels, fn _ -> 0.0 end)
 
     DashboardChart.new(%{
-      id: "questions_asked",
+      id: "messages_received",
       kind: :time_series,
       title: "Questions asked",
       labels: labels,
-      series: [%{key: "questions", name: "Questions (cumulative)", values: zeroes}],
-      summary: %{labels: labels, values: %{"questions" => zeroes}},
+      series: [%{key: "messages", name: "Messages (cumulative)", values: zeroes}],
+      summary: %{labels: labels, values: %{"messages" => zeroes}},
       meta: %{}
     })
   end
 
-  defp default_questions_per_channel_chart do
+  defp default_messages_per_channel_chart do
     DashboardChart.new(%{
-      id: "questions_per_channel",
+      id: "messages_per_channel",
       kind: :donut,
       title: "Questions per channel",
       labels: [],

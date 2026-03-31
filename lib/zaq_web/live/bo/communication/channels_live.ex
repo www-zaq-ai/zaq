@@ -5,10 +5,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.ChatBridgeServer
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
   alias Zaq.RuntimeDeps
+  alias Zaq.Types.EncryptedString
   alias ZaqWeb.ChangesetErrors
 
   import Ecto.Query
@@ -84,6 +84,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:posts_channel_id, "")
      |> assign(:posts, [])
      |> assign(:posts_status, :idle)
+     |> assign(:posts_next_id, nil)
+     |> assign(:posts_prev_id, nil)
      # clear channel
      |> assign(:clear_channel_id, "")
      |> assign(:confirm_clear, false)
@@ -312,46 +314,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   # -------------------------------------------------------------------------
 
   def handle_event("load_posts", %{"channel_id" => channel_id}, socket) do
-    socket = assign(socket, :posts_status, :loading)
+    fetch_posts(socket, String.trim(channel_id), [])
+  end
 
-    config = ChannelConfig.get_by_provider("mattermost")
+  def handle_event("load_older_posts", _params, socket) do
+    fetch_posts(socket, socket.assigns.posts_channel_id, before: socket.assigns.posts_prev_id)
+  end
 
-    {status, posts} =
-      case config do
-        nil ->
-          {:error, []}
-
-        %ChannelConfig{} = cfg ->
-          headers = [{"authorization", "Bearer #{cfg.token}"}]
-
-          case http_client().get(
-                 "#{cfg.url}/api/v4/channels/#{String.trim(channel_id)}/posts",
-                 headers: headers
-               ) do
-            {:ok, %Req.Response{status: 200, body: body}} ->
-              decoded = decode_posts_body(body)
-
-              posts =
-                decoded["order"] |> Enum.map(&decoded["posts"][&1]) |> Enum.reject(&is_nil/1)
-
-              {:ok, posts}
-
-            {:ok, %Req.Response{status: status}} ->
-              {:error, "HTTP #{status}"}
-
-            {:error, %Req.TransportError{reason: reason}} ->
-              {:error, inspect(reason)}
-
-            {:error, reason} ->
-              {:error, inspect(reason)}
-          end
-      end
-
-    {:noreply,
-     socket
-     |> assign(:posts_status, status)
-     |> assign(:posts, posts)
-     |> assign(:posts_channel_id, channel_id)}
+  def handle_event("load_newer_posts", _params, socket) do
+    fetch_posts(socket, socket.assigns.posts_channel_id, after: socket.assigns.posts_next_id)
   end
 
   # -------------------------------------------------------------------------
@@ -469,7 +440,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     |> Repo.update!()
 
     config = first_enabled_config(socket)
-    notify_ws_reload()
 
     {:noreply,
      socket
@@ -491,7 +461,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     Repo.delete!(rc)
 
     config = first_enabled_config(socket)
-    notify_ws_reload()
 
     {:noreply,
      socket
@@ -501,8 +470,123 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   # -------------------------------------------------------------------------
+  # Fetch bot user ID
+  # -------------------------------------------------------------------------
+
+  def handle_event("fetch_bot_user_id", _params, socket) do
+    changeset = socket.assigns.changeset
+    url = Ecto.Changeset.get_field(changeset, :url)
+    token = Ecto.Changeset.get_field(changeset, :token) |> EncryptedString.decrypt!()
+
+    cond do
+      is_nil(url) or url == "" ->
+        {:noreply, put_flash(socket, :error, "URL is required to fetch the bot user ID.")}
+
+      is_nil(token) or token == "" ->
+        {:noreply, put_flash(socket, :error, "Token is required to fetch the bot user ID.")}
+
+      true ->
+        case mattermost_api().fetch_bot_user_id(url, token) do
+          {:ok, user_id} ->
+            new_cs = Ecto.Changeset.put_change(changeset, :bot_user_id, user_id)
+            {:noreply, assign(socket, changeset: new_cs, form: to_form(new_cs, as: :form))}
+
+          {:error, reason} ->
+            {:noreply,
+             put_flash(socket, :error, "Failed to fetch bot user ID: #{inspect(reason)}")}
+        end
+    end
+  end
+
+  # -------------------------------------------------------------------------
   # Private
   # -------------------------------------------------------------------------
+
+  defp fetch_posts(socket, channel_id, cursor_opts) do
+    socket = assign(socket, :posts_status, :loading)
+    {status, posts, next_id, prev_id} = do_fetch_posts(channel_id, cursor_opts)
+
+    {:noreply,
+     socket
+     |> assign(:posts_status, status)
+     |> assign(:posts, posts)
+     |> assign(:posts_channel_id, channel_id)
+     |> assign(:posts_next_id, next_id)
+     |> assign(:posts_prev_id, prev_id)}
+  end
+
+  defp do_fetch_posts(channel_id, cursor_opts) do
+    case ChannelConfig.get_by_provider("mattermost") do
+      nil -> {:error, [], nil, nil}
+      %ChannelConfig{} = cfg -> fetch_posts_from_config(cfg, channel_id, cursor_opts)
+    end
+  end
+
+  defp fetch_posts_from_config(cfg, channel_id, cursor_opts) do
+    headers = [{"authorization", "Bearer #{cfg.token}"}]
+    params = [{:per_page, 20} | Keyword.take(cursor_opts, [:before, :after])]
+
+    case http_client().get(
+           "#{cfg.url}/api/v4/channels/#{channel_id}/posts",
+           headers: headers,
+           params: params
+         ) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {posts, next_id, prev_id} = parse_posts_response(body)
+        {:ok, posts, next_id, prev_id}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, "HTTP #{status}", nil, nil}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        {:error, inspect(reason), nil, nil}
+
+      {:error, reason} ->
+        {:error, inspect(reason), nil, nil}
+    end
+  end
+
+  defp parse_posts_response(body) do
+    decoded = decode_posts_body(body)
+    posts_map = decoded["posts"] || %{}
+
+    all_posts =
+      (decoded["order"] || [])
+      |> Enum.map(&posts_map[&1])
+      |> Enum.reject(&is_nil/1)
+
+    replies_by_root = build_replies_by_root(all_posts)
+    nested_reply_ids = build_nested_reply_ids(all_posts)
+
+    posts =
+      all_posts
+      |> Enum.reject(fn p ->
+        blank = String.trim(p["message"] || "") == ""
+        is_nested_reply = MapSet.member?(nested_reply_ids, p["id"])
+        (blank and not Map.has_key?(replies_by_root, p["id"])) or is_nested_reply
+      end)
+      |> Enum.map(fn p -> {p, Map.get(replies_by_root, p["id"], [])} end)
+
+    {posts, decoded["next_post_id"], decoded["prev_post_id"]}
+  end
+
+  defp build_replies_by_root(all_posts) do
+    all_posts
+    |> Enum.filter(&((&1["root_id"] || "") != ""))
+    |> Enum.group_by(& &1["root_id"])
+    |> Map.new(fn {k, v} -> {k, Enum.reverse(v)} end)
+  end
+
+  defp build_nested_reply_ids(all_posts) do
+    batch_ids = MapSet.new(all_posts, & &1["id"])
+
+    all_posts
+    |> Enum.filter(fn p ->
+      root = p["root_id"] || ""
+      root != "" and MapSet.member?(batch_ids, root)
+    end)
+    |> MapSet.new(& &1["id"])
+  end
 
   defp list_configs(provider) do
     ChannelConfig
@@ -545,8 +629,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp insert_retrieval_channel(socket, cfg, attrs, ch_id, ch_name) do
     case %RetChannel{} |> RetChannel.changeset(attrs) |> Repo.insert() do
       {:ok, _rc} ->
-        notify_ws_reload()
-
         available =
           Enum.reject(socket.assigns.available_channels, fn ch -> ch.id == ch_id end)
 
@@ -558,12 +640,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       {:error, changeset} ->
         errors = format_errors(changeset) |> Enum.join(", ")
         put_flash(socket, :error, "Failed to add channel: #{errors}")
-    end
-  end
-
-  defp notify_ws_reload do
-    if Process.whereis(ChatBridgeServer) do
-      ChatBridgeServer.reconfigure()
     end
   end
 

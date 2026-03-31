@@ -17,8 +17,8 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/dashboard/conversations-metrics")
 
     assert has_element?(view, "#conversations-metrics-page")
-    assert has_element?(view, "#conversations-metrics-questions-asked-chart")
-    assert has_element?(view, "#conversations-metrics-questions-per-channel-chart")
+    assert has_element?(view, "#conversations-metrics-messages-received-chart")
+    assert has_element?(view, "#conversations-metrics-messages-per-channel-chart")
     assert has_element?(view, "#conversations-metrics-confidence-distribution-chart")
     assert has_element?(view, "#conversations-metrics-no-answer-rate-chart")
     assert has_element?(view, "#conversations-metrics-average-response-time-chart")

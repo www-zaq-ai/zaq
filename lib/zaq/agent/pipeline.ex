@@ -2,16 +2,10 @@ defmodule Zaq.Agent.Pipeline do
   @moduledoc """
   Shared answering pipeline for all retrieval channels.
 
-  Runs: validate → retrieve → extract → answer → safety check → knowledge gap capture.
+  Runs: validate → retrieve → extract → answer → safety check.
 
   Designed so every retrieval channel (Mattermost, Slack, Teams, chat widget, …) uses
   the same logic without duplication. Adding a new channel requires no changes here.
-
-  ## Knowledge Gap capture
-
-  When the bot cannot answer, `LicenseManager.Paid.KnowledgeGap.capture/1` is called
-  automatically. The call is guarded with `function_exported?/3` so it is a safe no-op
-  in open-source deployments where the licensed module is not loaded.
 
   ## Hook integration
 
@@ -54,6 +48,8 @@ defmodule Zaq.Agent.Pipeline do
   require Logger
   alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
+  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Telemetry
 
   @no_answer_signal "I don't have enough information to answer that question."
@@ -62,8 +58,14 @@ defmodule Zaq.Agent.Pipeline do
   # Public API
   # ---------------------------------------------------------------------------
 
-  @spec run(String.t(), keyword()) :: map()
-  def run(content, opts \\ []) do
+  @spec run(Incoming.t(), keyword()) :: Outgoing.t()
+  def run(%Incoming{} = incoming, opts \\ []) do
+    result = do_run(incoming.content, opts)
+    Outgoing.from_pipeline_result(incoming, result)
+  end
+
+  @spec do_run(String.t(), keyword()) :: map()
+  defp do_run(content, opts) do
     history = Keyword.get(opts, :history, %{})
     role_ids = Keyword.get(opts, :role_ids, [])
     on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
@@ -94,7 +96,6 @@ defmodule Zaq.Agent.Pipeline do
           answer_result
           |> result_from_answering(answering_mod(opts).clean_answer(safe_answer), 0.0)
           |> Map.merge(%{
-            knowledge_gap: true,
             content: content,
             generated_query: retrieval_result.query,
             history: history,
@@ -136,7 +137,6 @@ defmodule Zaq.Agent.Pipeline do
           negative_answer
           |> success_result(0.0)
           |> Map.merge(%{
-            knowledge_gap: true,
             content: content,
             generated_query: nil,
             history: history
@@ -152,7 +152,6 @@ defmodule Zaq.Agent.Pipeline do
           "I couldn't find relevant information to answer your question."
           |> success_result(0.0)
           |> Map.merge(%{
-            knowledge_gap: true,
             content: content,
             generated_query: nil,
             history: history

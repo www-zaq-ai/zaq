@@ -51,7 +51,7 @@ Zaq.Channels.Supervisor
 - Fields: `name`, `provider`, `kind`, `url`, `token`, `enabled`
 - `kind` — `:ingestion` or `:retrieval`, determines which supervisor manages the adapter
 - `get_by_provider/1` — fetches enabled config for a provider
-- `list_enabled_by_kind/1` — fetches all enabled configs for a given kind (used by Engine supervisors)
+- `list_enabled_by_kind/2` — fetches enabled configs for a given kind, filtered to known providers (used by Engine supervisors)
 - `test_connection/2` — sends a test message to verify connectivity
 - Config is loaded from DB at runtime (not from env vars)
 

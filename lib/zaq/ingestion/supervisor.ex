@@ -1,10 +1,10 @@
 defmodule Zaq.Ingestion.Supervisor do
   @moduledoc """
-  Supervisor for Ingestion-related processes.
-  Started when the :ingestion role is active.
+  Role marker for the `:ingestion` node role.
 
-  Oban is started in the root application supervisor so it is available
-  to all roles.
+  This supervisor runs on whichever node carries the `:ingestion` role.
+  `Zaq.NodeRouter` uses `Process.whereis/1` against this module to
+  locate the ingestion node for cross-node RPC dispatch.
   """
 
   use Supervisor

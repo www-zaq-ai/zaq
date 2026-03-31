@@ -6,7 +6,7 @@ defmodule Zaq.Engine.Notifications do
   person, across any channel. Other modules fire-and-forget. The notification
   center handles routing, filtering, retrying, and logging.
 
-  ## Usage (new API — Phase 1+)
+  ## Usage
 
       {:ok, notification} = Notification.build(%{
         recipient_channels: [%{platform: "email:smtp", identifier: "u@example.com"}],
@@ -16,10 +16,6 @@ defmodule Zaq.Engine.Notifications do
       })
       Notifications.notify(notification)
       # => {:ok, :dispatched} | {:ok, :skipped}
-
-  ## Legacy API (deprecated — removed in Phase 0)
-
-      Notifications.notify(user, %{subject: "...", body: "..."})
 
   ## SMTP Configuration (env vars)
 
@@ -44,25 +40,29 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
 
-  @adapter_registry %{
-    "email:smtp" => Zaq.Engine.Notifications.EmailNotification,
-    "mattermost" => Zaq.Channels.Retrieval.Mattermost.Notification
-  }
+  @doc """
+  Returns true if a bridge is configured for the given platform string.
+  """
+  @spec bridge_available?(String.t()) :: boolean()
+  def bridge_available?(platform) when is_binary(platform) do
+    channels = Application.get_env(:zaq, :channels, %{})
 
-  @doc "Returns the adapter module for a given platform, or nil if not registered."
-  @spec adapter_for(String.t()) :: module() | nil
-  def adapter_for(platform), do: Map.get(@adapter_registry, platform)
+    try do
+      Map.has_key?(channels, String.to_existing_atom(platform))
+    rescue
+      ArgumentError -> false
+    end
+  end
 
   # ---------------------------------------------------------------------------
-  # New API (Phase 1)
+  # Public API
   # ---------------------------------------------------------------------------
 
   @doc """
   Dispatches a validated `%Notification{}` struct.
 
   - Empty `recipient_channels` → logs `:skipped`, returns `{:ok, :skipped}`
-  - Non-empty channels → returns `{:ok, :dispatched}`
-    (full channel resolution + Oban dispatch added in Phases 2–4)
+  - Non-empty channels → enqueues an Oban `DispatchWorker` job, returns `{:ok, :dispatched}`
 
   Only accepts a `%Notification{}` struct — pass a plain map to
   `Notification.build/1` first.
@@ -83,15 +83,9 @@ defmodule Zaq.Engine.Notifications do
       Enum.reduce(notification.recipient_channels, {[], []}, fn ch, {configured, skipped} ->
         platform = Map.get(ch, :platform)
         identifier = Map.get(ch, :identifier)
-        adapter = Map.get(@adapter_registry, platform)
 
-        if platform in configured_platforms and adapter do
-          entry = %{
-            "platform" => platform,
-            "identifier" => identifier,
-            "adapter" => to_string(adapter)
-          }
-
+        if platform in configured_platforms and bridge_available?(platform) do
+          entry = %{"platform" => platform, "identifier" => identifier}
           {configured ++ [entry], skipped}
         else
           {configured, skipped ++ [platform]}

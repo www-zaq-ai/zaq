@@ -5,6 +5,9 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   Runs once (`max_attempts: 1`). Tries each channel sequentially and stops on
   the first success. All outcomes are recorded in `notification_logs`.
 
+  Delivery is performed by `Zaq.Channels.Router.deliver/1`, which resolves the
+  correct bridge from app config and calls `bridge.send_reply/2`.
+
   Job args carry only `log_id`, `channels`, and `metadata` — the full payload
   (subject/body) is read from `notification_logs` at execution time.
 
@@ -12,8 +15,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
 
       %{
         "platform"   => "email",
-        "identifier" => "u@example.com",
-        "adapter"    => "Elixir.Zaq.Engine.Notifications.EmailNotification"
+        "identifier" => "u@example.com"
       }
   """
 
@@ -21,6 +23,8 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
 
   require Logger
 
+  alias Zaq.Channels.Router
+  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
 
@@ -52,18 +56,26 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   defp do_dispatch(log, [ch | rest], metadata) do
     platform = ch["platform"]
     identifier = ch["identifier"]
-    adapter_str = ch["adapter"]
 
-    case resolve_adapter(adapter_str) do
+    case platform_to_atom(platform) do
       nil ->
-        Logger.warning(
-          "[DispatchWorker] adapter #{inspect(adapter_str)} not available for platform #{inspect(platform)}, skipping"
-        )
+        Logger.warning("[DispatchWorker] unknown platform #{inspect(platform)}, skipping")
 
         do_dispatch(log, rest, metadata)
 
-      adapter ->
-        result = adapter.send_notification(identifier, log.payload, metadata)
+      provider ->
+        outgoing = %Outgoing{
+          body: Map.get(log.payload, "body", ""),
+          channel_id: identifier,
+          provider: provider,
+          metadata:
+            Map.merge(metadata, %{
+              "subject" => Map.get(log.payload, "subject"),
+              "html_body" => Map.get(log.payload, "html_body")
+            })
+        }
+
+        result = router_mod().deliver(outgoing)
         NotificationLog.append_attempt(log.id, platform, result)
 
         case result do
@@ -87,14 +99,14 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
     end
   end
 
-  # Safely resolves an adapter module string. Returns nil if the module is not
-  # a known atom (String.to_existing_atom raises) or is not loaded.
-  defp resolve_adapter(adapter_str) when is_binary(adapter_str) do
-    module = String.to_existing_atom(adapter_str)
-    if Code.ensure_loaded?(module), do: module, else: nil
+  defp platform_to_atom(platform) when is_binary(platform) do
+    String.to_existing_atom(platform)
   rescue
     ArgumentError -> nil
   end
 
-  defp resolve_adapter(_), do: nil
+  defp platform_to_atom(_), do: nil
+
+  defp router_mod,
+    do: Application.get_env(:zaq, :dispatch_worker_router_module, Router)
 end

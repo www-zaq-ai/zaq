@@ -1,9 +1,9 @@
-defmodule Zaq.Engine.AdapterSupervisor do
+defmodule Zaq.Engine.ChannelAdapterLoader do
   @moduledoc """
-  Shared helper for dynamic adapter supervisors.
+  Shared helper for building supervised channel adapter children.
 
-  This module centralizes the common flow used by both ingestion and retrieval
-  supervisors:
+  Used by `IngestionSupervisor` and `RetrievalSupervisor` to centralise
+  the common boot sequence:
 
   - load enabled channel configs for a kind,
   - map config providers to adapter modules,
@@ -17,7 +17,7 @@ defmodule Zaq.Engine.AdapterSupervisor do
   ## Example
 
       children =
-        Zaq.Engine.AdapterSupervisor.children_for(:retrieval, @adapters,
+        Zaq.Engine.ChannelAdapterLoader.children_for(:retrieval, @adapters,
           start_fun: :connect,
           supervisor_name: "RetrievalSupervisor",
           kind_label: "retrieval"
@@ -45,16 +45,17 @@ defmodule Zaq.Engine.AdapterSupervisor do
     start_fun = Keyword.fetch!(opts, :start_fun)
     supervisor_name = Keyword.fetch!(opts, :supervisor_name)
     kind_label = Keyword.get(opts, :kind_label, to_string(kind))
+    providers = Map.keys(adapters)
 
     kind
-    |> load_configs(supervisor_name, kind_label)
+    |> load_configs(providers, supervisor_name, kind_label)
     |> Enum.flat_map(&build_child_spec(&1, adapters, start_fun, supervisor_name, kind_label))
   end
 
-  @doc "Loads enabled channel configs for a kind, logging when none are configured."
-  @spec load_configs(atom(), String.t(), String.t()) :: [map()]
-  def load_configs(kind, supervisor_name, kind_label) do
-    case ChannelConfig.list_enabled_by_kind(kind) do
+  @doc "Loads enabled channel configs for a kind and known providers, logging when none are configured."
+  @spec load_configs(atom(), [String.t()], String.t(), String.t()) :: [map()]
+  def load_configs(kind, providers, supervisor_name, kind_label) do
+    case ChannelConfig.list_enabled_by_kind(kind, providers) do
       [] ->
         Logger.info(
           "[#{supervisor_name}] No enabled #{kind_label} channel configs found, starting empty."

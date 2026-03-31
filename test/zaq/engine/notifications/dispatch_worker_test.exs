@@ -1,22 +1,36 @@
 defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
 
   @moduletag capture_log: true
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.{DispatchWorker, NotificationLog}
   alias Zaq.Repo
 
   # ---------------------------------------------------------------------------
-  # Test adapter stubs — defined inline so no external dependency is needed
+  # Stub router — injected via Application env
   # ---------------------------------------------------------------------------
 
-  defmodule OkAdapter do
-    def send_notification(_identifier, _payload, _metadata), do: :ok
+  defmodule OkRouter do
+    def deliver(%Outgoing{} = outgoing) do
+      send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
+      :ok
+    end
   end
 
-  defmodule ErrorAdapter do
-    def send_notification(_identifier, _payload, _metadata), do: {:error, :delivery_failed}
+  defmodule ErrorRouter do
+    def deliver(%Outgoing{}), do: {:error, :delivery_failed}
+  end
+
+  defmodule FirstFailRouter do
+    # Fails on email, succeeds on everything else
+    def deliver(%Outgoing{provider: :email}), do: {:error, :delivery_failed}
+
+    def deliver(%Outgoing{} = outgoing) do
+      send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
+      :ok
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -29,16 +43,22 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
     log
   end
 
-  defp channel(platform, adapter) do
-    %{
-      "platform" => platform,
-      "identifier" => "test@example.com",
-      "adapter" => to_string(adapter)
-    }
+  defp channel(platform) do
+    %{"platform" => platform, "identifier" => "test@example.com"}
   end
 
   defp perform(args) do
     DispatchWorker.perform(%Oban.Job{args: args, attempt: 1, max_attempts: 1})
+  end
+
+  setup do
+    Application.put_env(:zaq, :dispatch_worker_router_module, OkRouter)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :dispatch_worker_router_module)
+    end)
+
+    :ok
   end
 
   # ---------------------------------------------------------------------------
@@ -89,16 +109,16 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       log = create_log(%{payload: %{"subject" => "Hello", "body" => "World"}})
 
       # Job args contain no payload — only log_id and channels
-      args = %{"log_id" => log.id, "channels" => [channel("email:smtp", OkAdapter)]}
+      args = %{"log_id" => log.id, "channels" => [channel("email:smtp")]}
       assert :ok = perform(args)
 
       reloaded = Repo.get!(NotificationLog, log.id)
       assert reloaded.payload["subject"] == "Hello"
     end
 
-    test "successful adapter call → attempt appended, log marked :sent" do
+    test "successful delivery → attempt appended, log marked :sent" do
       log = create_log()
-      args = %{"log_id" => log.id, "channels" => [channel("email:smtp", OkAdapter)]}
+      args = %{"log_id" => log.id, "channels" => [channel("email:smtp")]}
 
       assert :ok = perform(args)
 
@@ -108,12 +128,12 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       assert hd(reloaded.channels_tried)["status"] == "ok"
     end
 
-    test "successful adapter call → stops after first success, does not try remaining channels" do
+    test "successful delivery → stops after first success, does not try remaining channels" do
       log = create_log()
 
       args = %{
         "log_id" => log.id,
-        "channels" => [channel("email:smtp", OkAdapter), channel("mattermost", ErrorAdapter)]
+        "channels" => [channel("email:smtp"), channel("mattermost")]
       }
 
       assert :ok = perform(args)
@@ -125,11 +145,13 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
     end
 
     test "all channels fail → all attempts logged, log marked :failed, returns :ok (no retry)" do
+      Application.put_env(:zaq, :dispatch_worker_router_module, ErrorRouter)
+
       log = create_log()
 
       args = %{
         "log_id" => log.id,
-        "channels" => [channel("email:smtp", ErrorAdapter), channel("mattermost", ErrorAdapter)]
+        "channels" => [channel("email:smtp"), channel("mattermost")]
       }
 
       assert :ok = perform(args)
@@ -152,11 +174,13 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
     end
 
     test "first channel fails, second succeeds → log marked :sent" do
+      Application.put_env(:zaq, :dispatch_worker_router_module, FirstFailRouter)
+
       log = create_log()
 
       args = %{
         "log_id" => log.id,
-        "channels" => [channel("email:smtp", ErrorAdapter), channel("mattermost", OkAdapter)]
+        "channels" => [channel("email:smtp"), channel("mattermost")]
       }
 
       assert :ok = perform(args)
@@ -167,6 +191,34 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       platforms = Enum.map(reloaded.channels_tried, & &1["platform"])
       assert "email:smtp" in platforms
       assert "mattermost" in platforms
+    end
+
+    test "unknown platform is skipped" do
+      log = create_log()
+
+      args = %{
+        "log_id" => log.id,
+        "channels" => [%{"platform" => "not_a_real_platform", "identifier" => "x"}]
+      }
+
+      assert :ok = perform(args)
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.status == "failed"
+    end
+
+    test "log not found → cancels job" do
+      args = %{"log_id" => 999_999_999, "channels" => []}
+      assert {:cancel, :log_not_found} = perform(args)
+    end
+
+    test "%Outgoing{} delivered to Router carries log payload body" do
+      log = create_log(%{payload: %{"subject" => "Sub", "body" => "Notification text"}})
+      args = %{"log_id" => log.id, "channels" => [channel("email")]}
+
+      perform(args)
+
+      assert_received {:delivered, :email, "test@example.com"}
     end
   end
 end

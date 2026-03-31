@@ -3,6 +3,8 @@ defmodule Zaq.Agent.PipelineTest do
 
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.Pipeline
+  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.Outgoing
 
   # ---------------------------------------------------------------------------
   # Stubs — injected via opts; no DB or LLM required
@@ -118,16 +120,18 @@ defmodule Zaq.Agent.PipelineTest do
   # Tests
   # ---------------------------------------------------------------------------
 
+  @incoming %Incoming{content: "What is the answer?", channel_id: "test", provider: :test}
+
   describe ":after_pipeline_complete chunks in hook payload" do
     test "includes retrieved chunks on a successful run" do
-      Pipeline.run("What is the answer?", @base_opts)
+      Pipeline.run(@incoming, @base_opts)
 
       assert_receive {:after_pipeline_complete, payload}, 1000
       assert payload.chunks == @stub_chunks
     end
 
     test "chunk entries carry content, source, and metadata" do
-      Pipeline.run("What is the answer?", @base_opts)
+      Pipeline.run(@incoming, @base_opts)
 
       assert_receive {:after_pipeline_complete, %{chunks: [chunk]}}, 1000
       assert chunk["content"] == "chunk content"
@@ -138,7 +142,7 @@ defmodule Zaq.Agent.PipelineTest do
     test "chunks is [] when document processor returns no results" do
       opts = Keyword.put(@base_opts, :document_processor, StubEmptyDocumentProcessor)
 
-      Pipeline.run("What is the answer?", opts)
+      Pipeline.run(@incoming, opts)
 
       assert_receive {:after_pipeline_complete, payload}, 1000
       assert payload.chunks == []
@@ -147,10 +151,29 @@ defmodule Zaq.Agent.PipelineTest do
     test "chunks is [] when retrieval finds no matching documents" do
       opts = Keyword.put(@base_opts, :retrieval, StubNoResultsRetrieval)
 
-      Pipeline.run("What is the answer?", opts)
+      Pipeline.run(@incoming, opts)
 
       assert_receive {:after_pipeline_complete, payload}, 1000
       assert payload.chunks == []
+    end
+  end
+
+  describe "run/2 return type" do
+    test "returns %Outgoing{} with body from pipeline answer" do
+      result = Pipeline.run(@incoming, @base_opts)
+
+      assert %Outgoing{} = result
+      assert result.body == "The answer is 42."
+      assert result.channel_id == "test"
+      assert result.provider == :test
+    end
+
+    test "outgoing metadata carries pipeline result fields" do
+      result = Pipeline.run(@incoming, @base_opts)
+
+      assert result.metadata.answer == "The answer is 42."
+      assert result.metadata.confidence_score == 0.9
+      assert result.metadata.error == false
     end
   end
 end

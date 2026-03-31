@@ -755,10 +755,7 @@
         
 <!-- Error -->
         <div
-          :if={
-            is_binary(@posts_status) or
-              (is_tuple(@posts_status) and elem(@posts_status, 0) == :error)
-          }
+          :if={@posts_status == :error}
           class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-center gap-2"
         >
           <svg
@@ -771,7 +768,7 @@
             <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
           </svg>
           <p class="font-mono text-[0.7rem] text-red-600">
-            {if is_binary(@posts_status), do: @posts_status, else: inspect(elem(@posts_status, 1))}
+            {if is_binary(@posts), do: @posts, else: "An error occurred"}
           </p>
         </div>
         
@@ -784,37 +781,164 @@
         </div>
         
 <!-- Posts list -->
-        <div :if={@posts_status == :ok and @posts != []} class="space-y-2">
-          <div class="flex items-center justify-between mb-3">
-            <p class="font-mono text-[0.65rem] text-black/30">
-              {length(@posts)} post{if length(@posts) != 1, do: "s"} loaded
-            </p>
-          </div>
-          <div
-            :for={post <- @posts}
-            class="rounded-xl border border-black/8 bg-[#fafafa] px-4 py-3"
-          >
-            <div class="flex items-center justify-between mb-1.5">
-              <span class="font-mono text-[0.65rem] font-bold text-black/50">
-                {post["user_id"] || "unknown"}
-              </span>
-              <span class="font-mono text-[0.6rem] text-black/25">
-                {post["create_at"]
-                |> then(fn ts ->
-                  if is_integer(ts) do
-                    ts
-                    |> div(1000)
-                    |> DateTime.from_unix!()
-                    |> Calendar.strftime("%b %d, %H:%M")
-                  else
-                    ""
-                  end
-                end)}
-              </span>
+        <div :if={@posts_status == :ok and @posts != []}>
+          <div class="divide-y divide-black/5 rounded-xl border border-black/8 overflow-hidden bg-white mb-3">
+            <div
+              :for={{post, replies} <- @posts}
+              class="px-4 py-3 hover:bg-black/[0.015] transition-colors"
+            >
+              <% is_bot =
+                Enum.any?(@configs, fn c ->
+                  c.bot_user_id && c.bot_user_id == post["user_id"]
+                end) %>
+              <% author =
+                Enum.find_value(@configs, post["user_id"] || "?", fn c ->
+                  if c.bot_user_id && c.bot_user_id == post["user_id"],
+                    do: c.bot_name || "Bot"
+                end) %>
+              <%!-- Root post --%>
+              <div class="flex gap-3 items-start">
+                <div class={[
+                  "w-7 h-7 rounded-lg grid place-items-center shrink-0 mt-0.5 font-mono text-[0.6rem] font-bold text-white",
+                  if(is_bot, do: "bg-[#03b6d4]", else: "bg-[#0058CC]/60")
+                ]}>
+                  {author |> String.first() |> String.upcase()}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-0.5">
+                    <span class="font-mono text-[0.7rem] font-bold text-black/70">{author}</span>
+                    <span
+                      :if={is_bot}
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] font-bold leading-none"
+                    >
+                      BOT
+                    </span>
+                    <span class="font-mono text-[0.58rem] text-black/25">
+                      {post["create_at"]
+                      |> then(fn ts ->
+                        if is_integer(ts),
+                          do:
+                            ts
+                            |> div(1000)
+                            |> DateTime.from_unix!()
+                            |> Calendar.strftime("%b %d, %H:%M"),
+                          else: ""
+                      end)}
+                    </span>
+                  </div>
+                  <% html =
+                    Earmark.as_html!(String.trim(post["message"] || ""),
+                      breaks: true,
+                      escape: false,
+                      smartypants: false
+                    ) %>
+                  <div class="text-[0.78rem] text-black/65 leading-relaxed break-words [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:mb-1.5 [&>ol]:list-decimal [&>ol]:pl-4 [&>ol]:mb-1.5 [&>blockquote]:border-l-2 [&>blockquote]:border-black/15 [&>blockquote]:pl-3 [&>blockquote]:text-black/40 [&>blockquote]:italic [&>blockquote]:my-1 [&>pre]:bg-black/5 [&>pre]:rounded-lg [&>pre]:px-3 [&>pre]:py-2 [&>pre]:my-1.5 [&>pre]:overflow-x-auto [&_code]:bg-black/5 [&_code]:px-1 [&_code]:rounded [&_code]:text-[0.72rem] [&>pre_code]:bg-transparent [&>pre_code]:p-0 [&_strong]:font-semibold [&_a]:text-[#0058CC] [&_a]:underline">
+                    {Phoenix.HTML.raw(html)}
+                  </div>
+                  <%!-- Thread replies sidecar --%>
+                  <div
+                    :if={replies != []}
+                    class="mt-3 border-l-2 border-black/10 pl-3 space-y-2.5"
+                  >
+                    <p class="font-mono text-[0.58rem] text-black/30 mb-1.5">
+                      {length(replies)} {if length(replies) == 1, do: "reply", else: "replies"} in thread
+                    </p>
+                    <div :for={reply <- replies} class="flex gap-2 items-start">
+                      <% reply_is_bot =
+                        Enum.any?(@configs, fn c ->
+                          c.bot_user_id && c.bot_user_id == reply["user_id"]
+                        end) %>
+                      <% reply_author =
+                        Enum.find_value(@configs, reply["user_id"] || "?", fn c ->
+                          if c.bot_user_id && c.bot_user_id == reply["user_id"],
+                            do: c.bot_name || "Bot"
+                        end) %>
+                      <div class={[
+                        "w-5 h-5 rounded grid place-items-center shrink-0 mt-0.5 font-mono text-[0.5rem] font-bold text-white",
+                        if(reply_is_bot, do: "bg-[#03b6d4]", else: "bg-[#0058CC]/60")
+                      ]}>
+                        {reply_author |> String.first() |> String.upcase()}
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5 mb-0.5">
+                          <span class="font-mono text-[0.62rem] font-bold text-black/60">
+                            {reply_author}
+                          </span>
+                          <span
+                            :if={reply_is_bot}
+                            class="font-mono text-[0.5rem] px-1 py-px rounded bg-[#03b6d4]/10 text-[#03b6d4] font-bold leading-none"
+                          >
+                            BOT
+                          </span>
+                          <span class="font-mono text-[0.55rem] text-black/20">
+                            {reply["create_at"]
+                            |> then(fn ts ->
+                              if is_integer(ts),
+                                do:
+                                  ts
+                                  |> div(1000)
+                                  |> DateTime.from_unix!()
+                                  |> Calendar.strftime("%b %d, %H:%M"),
+                                else: ""
+                            end)}
+                          </span>
+                        </div>
+                        <% reply_html =
+                          Earmark.as_html!(String.trim(reply["message"] || ""),
+                            breaks: true,
+                            escape: false,
+                            smartypants: false
+                          ) %>
+                        <div class="text-[0.75rem] text-black/60 leading-relaxed break-words [&>p]:mb-1 [&>p:last-child]:mb-0 [&_strong]:font-semibold [&_code]:bg-black/5 [&_code]:px-1 [&_code]:rounded [&_code]:text-[0.68rem]">
+                          {Phoenix.HTML.raw(reply_html)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <p class="font-mono text-[0.75rem] text-black/70 leading-relaxed whitespace-pre-wrap break-words">
-              {post["message"]}
-            </p>
+          </div>
+          <!-- Pagination -->
+          <div class="flex items-center justify-between">
+            <button
+              :if={@posts_next_id != nil and @posts_next_id != ""}
+              phx-click="load_newer_posts"
+              class="font-mono text-[0.7rem] text-[#0058CC] hover:underline flex items-center gap-1"
+            >
+              <svg
+                class="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Newer
+            </button>
+            <span class="font-mono text-[0.6rem] text-black/25">
+              {length(@posts)} post{if length(@posts) != 1, do: "s"} loaded
+              <span :if={Enum.any?(@posts, fn {_, r} -> r != [] end)}>
+                · {Enum.reduce(@posts, 0, fn {_, r}, acc -> acc + length(r) end)} replies
+              </span>
+            </span>
+            <button
+              :if={@posts_prev_id != nil and @posts_prev_id != ""}
+              phx-click="load_older_posts"
+              class="font-mono text-[0.7rem] text-[#0058CC] hover:underline flex items-center gap-1"
+            >
+              Older
+              <svg
+                class="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -978,6 +1102,48 @@
           />
           <p class="font-mono text-[0.6rem] text-black/30 mt-1">
             Bot or personal access token with post:write permissions
+          </p>
+        </div>
+
+        <div class="mb-4">
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+            Bot Username
+          </label>
+          <input
+            type="text"
+            name="form[bot_name]"
+            value={@form[:bot_name].value}
+            placeholder="zaq"
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          />
+          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+            Used for @mention detection (e.g. zaq)
+          </p>
+        </div>
+
+        <div class="mb-6">
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+            Bot User ID
+          </label>
+          <div class="flex items-center gap-2">
+            <input
+              type="text"
+              name="form[bot_user_id]"
+              value={@form[:bot_user_id].value}
+              placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
+              class="flex-1 h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            />
+            <button
+              :if={@provider == "mattermost"}
+              type="button"
+              phx-click="fetch_bot_user_id"
+              class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
+            >
+              Fetch
+            </button>
+          </div>
+          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+            Mattermost user ID of the bot account
           </p>
         </div>
 

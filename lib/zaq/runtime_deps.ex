@@ -28,7 +28,7 @@ defmodule Zaq.RuntimeDeps do
 
   @doc "Returns the Mattermost API adapter module used by ChannelsLive."
   @spec mattermost_api() :: module()
-  def mattermost_api, do: get(:channels_live_mattermost_api_module, Jido.Chat.Mattermost.Adapter)
+  def mattermost_api, do: get(:channels_live_mattermost_api_module, Zaq.Channels.MattermostAdmin)
 
   @doc "Returns the HTTP client module used by ChannelsLive post browsing."
   @spec http_client() :: module()

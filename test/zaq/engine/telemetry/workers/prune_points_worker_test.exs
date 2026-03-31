@@ -47,7 +47,7 @@ defmodule Zaq.Engine.Telemetry.Workers.PrunePointsWorkerTest do
 
   defp insert_point(occurred_at) do
     Repo.insert!(%Point{
-      metric_key: "qa.question.count",
+      metric_key: "qa.message.count",
       occurred_at: occurred_at,
       value: 1.0,
       dimensions: %{},
