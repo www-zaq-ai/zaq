@@ -145,8 +145,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> reload_sidebar_conversations()}
   end
 
-  def handle_event("use_suggestion", %{"question" => question}, socket) do
-    {:noreply, assign(socket, :input_value, question)}
+  def handle_event("use_suggestion", %{"prompt" => prompt}, socket) do
+    {:noreply, assign(socket, :input_value, prompt)}
   end
 
   def handle_event("copy_message", %{"text" => text}, socket) do

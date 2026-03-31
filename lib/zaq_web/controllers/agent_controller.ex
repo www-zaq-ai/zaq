@@ -11,9 +11,9 @@ defmodule ZaqWeb.AgentController do
 
   @doc """
   POST /api/ask
-  Body: {"question": "...", "history": %{}}
+  Body: {"content": "...", "history": %{}}
   """
-  def ask(conn, %{"question" => question} = params) do
+  def ask(conn, %{"content" => content} = params) do
     prompt_guard = prompt_guard_module()
     retrieval = retrieval_module()
     document_processor = document_processor_module()
@@ -22,8 +22,8 @@ defmodule ZaqWeb.AgentController do
     history = Map.get(params, "history", %{})
     telemetry_dimensions = %{channel_type: "api", channel_config_id: "unknown"}
 
-    with {:ok, clean_msg} <- prompt_guard.validate(question),
-         :ok <- record_metric("qa.question.count", 1, telemetry_dimensions),
+    with {:ok, clean_msg} <- prompt_guard.validate(content),
+         :ok <- record_metric("qa.message.count", 1, telemetry_dimensions),
          {:ok, %{"query" => query, "language" => lang}} <-
            retrieval.ask(clean_msg, history: history),
          {:ok, [%{"total_count" => count}]} <-

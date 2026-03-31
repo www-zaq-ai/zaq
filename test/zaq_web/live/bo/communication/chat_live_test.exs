@@ -90,7 +90,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert has_element?(view, "#chat-form")
     assert render(view) =~ "Welcome to ZAQ Chat!"
 
-    render_hook(view, "use_suggestion", %{"question" => "What is ZAQ and what does it do?"})
+    render_hook(view, "use_suggestion", %{"prompt" => "What is ZAQ and what does it do?"})
     assert render(view) =~ "What is ZAQ and what does it do?"
 
     render_hook(view, "update_input", %{"message" => "Typed manually"})

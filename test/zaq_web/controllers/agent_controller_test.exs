@@ -19,34 +19,34 @@ defmodule ZaqWeb.AgentControllerTest do
 
   describe "POST /api/ask" do
     test "returns answer when pipeline succeeds", %{conn: conn} do
-      conn = post(conn, ~p"/api/ask", %{"question" => "ok"})
+      conn = post(conn, ~p"/api/ask", %{"content" => "ok"})
 
       assert %{"answer" => "safe answer", "confidence" => 0.88, "language" => "en"} =
                json_response(conn, 200)
     end
 
     test "returns cleaned answer and zero confidence for no-answer output", %{conn: conn} do
-      conn = post(conn, ~p"/api/ask", %{"question" => "no_answer"})
+      conn = post(conn, ~p"/api/ask", %{"content" => "no_answer"})
 
       assert %{"answer" => "No answer available", "confidence" => 0, "language" => "en"} =
                json_response(conn, 200)
     end
 
     test "returns fallback message when there are no relevant chunks", %{conn: conn} do
-      conn = post(conn, ~p"/api/ask", %{"question" => "no_hits"})
+      conn = post(conn, ~p"/api/ask", %{"content" => "no_hits"})
 
       assert %{"answer" => "No relevant information found.", "confidence" => 0} =
                json_response(conn, 200)
     end
 
     test "returns blocked when prompt guard rejects input", %{conn: conn} do
-      conn = post(conn, ~p"/api/ask", %{"question" => "blocked"})
+      conn = post(conn, ~p"/api/ask", %{"content" => "blocked"})
 
       assert %{"error" => "blocked"} = json_response(conn, 403)
     end
 
     test "returns internal_error when pipeline fails", %{conn: conn} do
-      conn = post(conn, ~p"/api/ask", %{"question" => "retrieval_error"})
+      conn = post(conn, ~p"/api/ask", %{"content" => "retrieval_error"})
 
       assert %{"error" => "internal_error"} = json_response(conn, 500)
     end
