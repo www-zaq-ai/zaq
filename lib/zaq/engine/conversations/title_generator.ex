@@ -14,9 +14,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
-  alias LangChain.Message.ContentPart
-  alias LangChain.Utils.ChainResult
-  alias Zaq.Agent.LLM
+  alias Zaq.Agent.{LLM, LLMRunner}
 
   @max_words 6
 
@@ -66,15 +64,22 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
         |> LLMChain.add_message(Message.new_user!(prompt))
         |> LLMChain.run()
 
-      title =
-        chain_content(updated_chain)
-        |> String.trim()
-        |> remove_quotes()
-        |> remove_prefix()
-        |> enforce_word_limit(@max_words)
+      case LLMRunner.content_result(updated_chain) do
+        {:ok, content} ->
+          title =
+            content
+            |> String.trim()
+            |> remove_quotes()
+            |> remove_prefix()
+            |> enforce_word_limit(@max_words)
 
-      Logger.info("TitleGenerator: generated \"#{title}\"")
-      {:ok, title}
+          Logger.info("TitleGenerator: generated \"#{title}\"")
+          {:ok, title}
+
+        {:error, reason} ->
+          Logger.error("TitleGenerator failed: #{reason}")
+          {:error, reason}
+      end
     rescue
       e ->
         Logger.error("TitleGenerator failed: #{inspect(e)}")
@@ -85,13 +90,6 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
-
-  defp chain_content(chain) do
-    case ChainResult.to_string(chain) do
-      {:ok, text} -> text
-      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
-    end
-  end
 
   defp remove_quotes(text) do
     text

@@ -61,15 +61,23 @@ defmodule Zaq.Agent.ChunkTitle do
            error_prefix: "Failed to generate title"
          ) do
       {:ok, updated_chain} ->
-        title =
-          LLMRunner.content(updated_chain)
-          |> String.trim()
-          |> remove_quotes()
-          |> remove_prefix()
-          |> enforce_word_limit(@max_words)
+        case LLMRunner.content_result(updated_chain) do
+          {:ok, content} ->
+            title =
+              content
+              |> String.trim()
+              |> remove_quotes()
+              |> remove_prefix()
+              |> enforce_word_limit(@max_words)
 
-        Logger.info("ChunkTitle: Generated title: #{title}")
-        {:ok, title}
+            Logger.info("ChunkTitle: Generated title: #{title}")
+            {:ok, title}
+
+          {:error, reason} ->
+            error_reason = "Failed to generate title: #{reason}"
+            Logger.error("ChunkTitle failed: #{error_reason}")
+            {:error, error_reason}
+        end
 
       {:error, reason} ->
         Logger.error("ChunkTitle failed: #{reason}")

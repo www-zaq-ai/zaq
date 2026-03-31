@@ -51,12 +51,12 @@ defmodule Zaq.Agent.Retrieval do
            error_prefix: "Failed to process question"
          ) do
       {:ok, updated_chain} ->
-        case LLMRunner.content(updated_chain) |> extract_json() |> Jason.decode() do
-          {:ok, answer} ->
-            {:ok, answer}
+        case LLMRunner.content_result(updated_chain) do
+          {:ok, content} ->
+            decode_retrieval_content(content)
 
-          {:error, decode_error} ->
-            reason = "Failed to process question: #{Exception.message(decode_error)}"
+          {:error, reason} ->
+            reason = "Failed to process question: #{reason}"
             Logger.error("Retrieval failed: #{reason}")
             {:error, reason}
         end
@@ -73,6 +73,18 @@ defmodule Zaq.Agent.Retrieval do
     case Regex.run(~r/```(?:json)?\s*([\s\S]*?)```/s, text, capture: :all_but_first) do
       [json] -> String.trim(json)
       nil -> text
+    end
+  end
+
+  defp decode_retrieval_content(content) do
+    case content |> extract_json() |> Jason.decode() do
+      {:ok, answer} ->
+        {:ok, answer}
+
+      {:error, decode_error} ->
+        reason = "Failed to process question: #{Exception.message(decode_error)}"
+        Logger.error("Retrieval failed: #{reason}")
+        {:error, reason}
     end
   end
 

@@ -39,11 +39,56 @@ defmodule Zaq.Agent.LLMRunner do
 
   @spec content(map()) :: String.t()
   def content(chain) do
-    case ChainResult.to_string(chain) do
+    case content_result(chain) do
       {:ok, text} -> text
-      {:error, _chain, _err} -> ContentPart.parts_to_string(chain.last_message.content)
+      {:error, _reason} -> ""
     end
   end
+
+  @spec content_result(map()) :: {:ok, String.t()} | {:error, String.t()}
+  def content_result(chain) do
+    case safe_chain_to_string(chain) do
+      {:ok, text} ->
+        case normalized_text(text) do
+          {:ok, normalized} -> {:ok, normalized}
+          :error -> fallback_content_result(chain)
+        end
+
+      _ ->
+        fallback_content_result(chain)
+    end
+  end
+
+  defp safe_chain_to_string(chain) do
+    ChainResult.to_string(chain)
+  rescue
+    _ -> {:error, chain, :chain_to_string_failed}
+  end
+
+  defp fallback_content_to_string(%{last_message: %{content: content}}) do
+    ContentPart.content_to_string(content)
+  end
+
+  defp fallback_content_to_string(_), do: nil
+
+  defp fallback_content_result(chain) do
+    chain
+    |> fallback_content_to_string()
+    |> case do
+      text ->
+        case normalized_text(text) do
+          {:ok, normalized} -> {:ok, normalized}
+          :error -> {:error, "Empty assistant response content"}
+        end
+    end
+  end
+
+  defp normalized_text(text) when is_binary(text) do
+    trimmed = String.trim(text)
+    if trimmed == "", do: :error, else: {:ok, text}
+  end
+
+  defp normalized_text(_), do: :error
 
   defp maybe_add_system_message(chain, prompt) when is_binary(prompt) and prompt != "",
     do: LLMChain.add_message(chain, Message.new_system!(prompt))

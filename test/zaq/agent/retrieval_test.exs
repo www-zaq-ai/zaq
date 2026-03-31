@@ -126,6 +126,21 @@ defmodule Zaq.Agent.RetrievalTest do
       assert String.starts_with?(message, "Failed to process question:")
     end
 
+    test "returns error when model response content is nil" do
+      handler = fn _conn, _body ->
+        {200, OpenAIStub.chat_completion(nil)}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert String.contains?(message, "Failed to process question:")
+      assert String.contains?(message, "Empty assistant response content")
+    end
+
     @tag :integration
     test "returns {:ok, decoded_json} with a system prompt override" do
       # Uses a system prompt override so we don't depend on LLM for unit tests.
