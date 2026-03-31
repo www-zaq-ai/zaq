@@ -25,6 +25,21 @@ defmodule Zaq.Accounts do
 
   def list_roles, do: Repo.all(Role)
 
+  def list_roles_with_user_counts do
+    Role
+    |> join(:left, [r], u in assoc(r, :users))
+    |> group_by([r], [r.id, r.name, r.meta, r.inserted_at, r.updated_at])
+    |> select([r, u], %{
+      id: r.id,
+      name: r.name,
+      meta: r.meta,
+      users_count: count(u.id),
+      inserted_at: r.inserted_at,
+      updated_at: r.updated_at
+    })
+    |> Repo.all()
+  end
+
   def update_role(role, attrs) do
     attrs = parse_meta(attrs)
 
@@ -66,6 +81,10 @@ defmodule Zaq.Accounts do
     User
     |> preload(:role)
     |> Repo.all()
+  end
+
+  def count_users do
+    Repo.aggregate(User, :count, :id)
   end
 
   def update_user(user, attrs) do

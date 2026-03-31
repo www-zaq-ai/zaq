@@ -41,11 +41,11 @@
           class="border-b border-black/[0.04] last:border-0 hover:bg-black/[0.015] transition-colors"
         >
           <td class="font-mono text-[0.88rem] text-black px-6 py-4">{role.name}</td>
-          <td class="font-mono text-[0.88rem] text-black/50 px-6 py-4">{length(role.users)}</td>
+          <td class="font-mono text-[0.88rem] text-black/50 px-6 py-4">{role.users_count}</td>
           <td class="font-mono text-[0.75rem] text-black/40 px-6 py-4">
             <span :if={role.meta == %{}} class="text-black/20">—</span>
             <code :if={role.meta != %{}} class="bg-[#fafafa] px-2 py-1 rounded text-[0.7rem]">
-              {Jason.encode!(role.meta)}
+              {role.meta_json}
             </code>
           </td>
           <td class="px-6 py-4 text-right space-x-3">

@@ -4,7 +4,10 @@ defmodule ZaqWeb.Live.BO.Accounts.RolesLive do
   alias Zaq.Accounts
   alias ZaqWeb.Live.BO.Accounts.ListFlow
 
-  defp list_roles_with_users, do: Accounts.list_roles() |> Zaq.Repo.preload(:users)
+  defp list_roles_with_users do
+    Accounts.list_roles_with_user_counts()
+    |> Enum.map(fn role -> Map.put(role, :meta_json, Jason.encode!(role.meta || %{})) end)
+  end
 
   def mount(_params, _session, socket) do
     roles = list_roles_with_users()

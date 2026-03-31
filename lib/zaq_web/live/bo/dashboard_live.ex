@@ -26,7 +26,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     license_data = FeatureStore.license_data()
     telemetry_metrics = load_main_dashboard_metrics()
 
-    user_card = build_user_metric_card(length(Accounts.list_users()))
+    user_card = build_user_metric_card(Accounts.count_users())
 
     metric_cards = [user_card | telemetry_metrics]
 
