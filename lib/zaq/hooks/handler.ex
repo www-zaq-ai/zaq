@@ -74,6 +74,22 @@ defmodule Zaq.Hooks.Handler do
 
   ---
 
+  ### Ingestion — `Zaq.Ingestion.Chunk`
+
+  Context for ingestion system events: `%{}`
+
+  #### `:after_embedding_reset` — `dispatch_after` (async, observer)
+
+  Fired after `Chunk.reset_table/1` drops and recreates the chunks table with
+  a new embedding dimension. Paid features that maintain their own embedding
+  columns should listen to this event to reset and re-embed their data.
+
+      %{
+        new_dimension: integer()  # the new embedding vector dimension
+      }
+
+  ---
+
   ### Conversations — `Zaq.Engine.Conversations`
 
   Context for conversation events: `%{}`

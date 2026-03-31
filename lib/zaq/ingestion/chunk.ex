@@ -18,6 +18,7 @@ defmodule Zaq.Ingestion.Chunk do
 
   alias Ecto.Adapters.SQL, as: EctoSQL
   alias Zaq.Accounts.Role
+  alias Zaq.Hooks
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
 
@@ -195,6 +196,7 @@ defmodule Zaq.Ingestion.Chunk do
   def reset_table(new_dimension) when is_integer(new_dimension) do
     drop_table()
     create_table(new_dimension)
+    Hooks.dispatch_after(:after_embedding_reset, %{new_dimension: new_dimension}, %{})
   end
 
   @doc """
