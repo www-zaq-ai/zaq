@@ -19,10 +19,10 @@ defmodule Zaq.Hooks.Handler do
   #### `:before_retrieval` — `dispatch_before` (sync, mutatable)
 
   Fired before the knowledge-base retrieval step. Handlers may rewrite the
-  question before it reaches the retriever.
+  content before it reaches the retriever.
 
       %{
-        question: String.t()   # sanitised user question; mutate to override
+        content: String.t()   # sanitised user input; mutate to override
       }
 
   #### `:after_retrieval` — `dispatch_after` (async, observer)
