@@ -13,7 +13,7 @@ defmodule Zaq.Agent.PipelineTest do
   end
 
   defmodule StubPromptGuard do
-    def validate(question), do: {:ok, question}
+    def validate(content), do: {:ok, content}
     def output_safe?(answer), do: {:ok, answer}
   end
 
@@ -32,7 +32,7 @@ defmodule Zaq.Agent.PipelineTest do
   end
 
   defmodule StubRetrieval do
-    def ask(_question, _opts) do
+    def ask(_content, _opts) do
       {:ok,
        %{
          "query" => "test query",
@@ -46,7 +46,7 @@ defmodule Zaq.Agent.PipelineTest do
   # Simulates retrieval returning no query — triggers the no_results else branch
   # before do_query_extraction is ever called.
   defmodule StubNoResultsRetrieval do
-    def ask(_question, _opts), do: {:ok, %{"negative_answer" => "no info found"}}
+    def ask(_content, _opts), do: {:ok, %{"negative_answer" => "no info found"}}
   end
 
   @stub_chunks [

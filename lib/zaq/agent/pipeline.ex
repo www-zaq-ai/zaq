@@ -17,7 +17,7 @@ defmodule Zaq.Agent.Pipeline do
 
   The pipeline dispatches the following hook events:
 
-    * `:before_retrieval`        — sync; may mutate `%{question: string}` or halt
+    * `:before_retrieval`        — sync; may mutate `%{content: string}` or halt
     * `:after_retrieval`         — sync + async; payload is the retrieval result map
     * `:before_answering`        — sync; may mutate the retrieval/extraction payload
     * `:after_answer_generated`  — sync + async; payload is `%{answer: result}`
@@ -63,18 +63,18 @@ defmodule Zaq.Agent.Pipeline do
   # ---------------------------------------------------------------------------
 
   @spec run(String.t(), keyword()) :: map()
-  def run(question, opts \\ []) do
+  def run(content, opts \\ []) do
     history = Keyword.get(opts, :history, %{})
     role_ids = Keyword.get(opts, :role_ids, [])
     on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
     ctx = %{trace_id: generate_trace_id(), node: node()}
     hooks = hooks_mod(opts)
 
-    with {:ok, clean_msg} <- prompt_guard(opts).validate(question),
+    with {:ok, clean_msg} <- prompt_guard(opts).validate(content),
          {:ok, retrieval_payload} <-
-           hooks.dispatch_before(:before_retrieval, %{question: clean_msg}, ctx),
+           hooks.dispatch_before(:before_retrieval, %{content: clean_msg}, ctx),
          :ok <- on_status.(:retrieving, "ZAQ is searching your knowledge base…"),
-         {:ok, retrieval_result} <- do_retrieval(retrieval_payload.question, history, opts),
+         {:ok, retrieval_result} <- do_retrieval(retrieval_payload.content, history, opts),
          :ok <- hooks.dispatch_after(:after_retrieval, retrieval_result, ctx),
          :ok <- on_status.(:retrieving, retrieval_result.positive_answer),
          {:ok, answering_payload} <-
@@ -95,7 +95,7 @@ defmodule Zaq.Agent.Pipeline do
           |> result_from_answering(answering_mod(opts).clean_answer(safe_answer), 0.0)
           |> Map.merge(%{
             knowledge_gap: true,
-            question: question,
+            content: content,
             generated_query: retrieval_result.query,
             history: history,
             sources: sources
@@ -137,7 +137,7 @@ defmodule Zaq.Agent.Pipeline do
           |> success_result(0.0)
           |> Map.merge(%{
             knowledge_gap: true,
-            question: question,
+            content: content,
             generated_query: nil,
             history: history
           })
@@ -153,7 +153,7 @@ defmodule Zaq.Agent.Pipeline do
           |> success_result(0.0)
           |> Map.merge(%{
             knowledge_gap: true,
-            question: question,
+            content: content,
             generated_query: nil,
             history: history
           })
@@ -216,17 +216,17 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_answering(question, query_results, retrieval, history, opts) do
+  defp do_answering(content, query_results, retrieval, history, opts) do
     language = Map.get(retrieval, :language, "en")
 
     retrieved_data =
-      Enum.map(query_results, fn %{"content" => content, "source" => source} ->
-        %{"content" => content, "source" => source}
+      Enum.map(query_results, fn %{"content" => chunk_content, "source" => source} ->
+        %{"content" => chunk_content, "source" => source}
       end)
 
     system_prompt =
       prompt_template_mod(opts).render("answering", %{
-        question: question,
+        content: content,
         retrieved_data: Jason.encode!(retrieved_data),
         language: language,
         no_answer_signal: @no_answer_signal,
@@ -235,7 +235,7 @@ defmodule Zaq.Agent.Pipeline do
 
     answer_opts = [
       history: history,
-      question: question,
+      content: content,
       telemetry_dimensions: telemetry_dimensions(opts)
     ]
 
