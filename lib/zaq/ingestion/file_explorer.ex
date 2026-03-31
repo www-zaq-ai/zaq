@@ -254,17 +254,33 @@ defmodule Zaq.Ingestion.FileExplorer do
     full_path
     |> File.ls!()
     |> Enum.sort()
-    |> Enum.map(fn name ->
-      entry_path = Path.join(full_path, name)
-      stat = File.stat!(entry_path, time: :posix)
+    |> Task.async_stream(
+      fn name ->
+        entry_path = Path.join(full_path, name)
+        stat = File.stat!(entry_path, time: :posix)
 
-      %{
-        name: name,
-        type: if(stat.type == :directory, do: :directory, else: :file),
-        size: stat.size,
-        modified_at: stat.mtime |> DateTime.from_unix!()
-      }
+        %{
+          name: name,
+          type: if(stat.type == :directory, do: :directory, else: :file),
+          size: stat.size,
+          modified_at: stat.mtime |> DateTime.from_unix!()
+        }
+      end,
+      max_concurrency: file_stats_concurrency(),
+      ordered: true,
+      timeout: :infinity
+    )
+    |> Enum.flat_map(fn
+      {:ok, entry} -> [entry]
+      {:exit, _} -> []
     end)
+  end
+
+  defp file_stats_concurrency do
+    System.schedulers_online()
+    |> Kernel.*(2)
+    |> min(32)
+    |> max(1)
   end
 
   defp build_entry(full_path, stat) do

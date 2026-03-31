@@ -52,6 +52,18 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> Keyword.get(:hybrid_search_limit, 20)
   end
 
+  defp chunk_processing_concurrency do
+    Application.get_env(:zaq, Zaq.Ingestion, [])
+    |> Keyword.get(:chunk_processing_concurrency, System.schedulers_online())
+    |> max(1)
+  end
+
+  defp hybrid_candidate_limit(limit) when is_integer(limit) and limit > 0 do
+    max(limit, hybrid_search_limit())
+  end
+
+  defp hybrid_candidate_limit(_), do: hybrid_search_limit()
+
   defp chunk_title_module do
     Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)
   end
@@ -71,23 +83,27 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       {:ok, %{processed: 5, failed: 0}}
   """
   def process_folder(folder_path) do
-    files =
-      @supported_extensions
-      |> Enum.flat_map(&Path.wildcard(Path.join(folder_path, "*#{&1}")))
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    Logger.info("Found #{length(files)} files to process")
-
     results =
-      files
-      |> Enum.map(&process_single_file/1)
-      |> Enum.reduce(%{processed: 0, failed: 0}, fn
-        {:ok, _}, acc -> %{acc | processed: acc.processed + 1}
-        {:error, _}, acc -> %{acc | failed: acc.failed + 1}
+      folder_path
+      |> Path.join("*")
+      |> Path.wildcard()
+      |> Stream.filter(&supported_file?/1)
+      |> Enum.reduce(%{processed: 0, failed: 0, total: 0}, fn file_path, acc ->
+        case process_single_file(file_path) do
+          {:ok, _} -> %{acc | processed: acc.processed + 1, total: acc.total + 1}
+          {:error, _} -> %{acc | failed: acc.failed + 1, total: acc.total + 1}
+        end
       end)
 
-    {:ok, results}
+    Logger.info(
+      "Processed #{results.total} files from #{folder_path} (ok=#{results.processed}, failed=#{results.failed})"
+    )
+
+    {:ok, %{processed: results.processed, failed: results.failed}}
+  end
+
+  defp supported_file?(file_path) do
+    Path.extname(file_path) in @supported_extensions
   end
 
   @doc """
@@ -398,46 +414,37 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
     Logger.info("Created #{length(chunks)} layout-aware chunks for document_id: #{document_id}")
 
-    chunks
-    |> Enum.with_index(1)
-    |> store_chunks_fail_fast(document_id, role_id, shared_role_ids, [])
-  end
+    results =
+      chunks
+      |> Enum.with_index(1)
+      |> Task.async_stream(
+        fn {chunk, index} ->
+          store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)
+        end,
+        timeout: :infinity,
+        max_concurrency: chunk_processing_concurrency(),
+        ordered: false
+      )
+      |> Enum.map(fn
+        {:ok, result} -> result
+        {:exit, reason} -> {:error, reason}
+      end)
 
-  # Processes chunks sequentially; aborts on structural (non-retriable) errors
-  # like dimension mismatches or DB connection failures.
-  defp store_chunks_fail_fast([], _document_id, _role_id, _shared_role_ids, acc) do
-    results = Enum.reverse(acc)
     failed = Enum.count(results, &match?({:error, _}, &1))
 
-    if failed == 0 do
-      {:ok, results}
-    else
-      Logger.error("Failed to store #{failed} out of #{length(results)} chunks")
-      first_error = Enum.find(results, &match?({:error, _}, &1))
-      Logger.error("First error example: #{inspect(first_error)}")
-      {:error, "#{failed} chunks failed to store"}
-    end
-  end
+    cond do
+      failed == 0 ->
+        {:ok, results}
 
-  defp store_chunks_fail_fast(
-         [{chunk, index} | rest],
-         document_id,
-         role_id,
-         shared_role_ids,
-         acc
-       ) do
-    result = store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)
+      structural_error = Enum.find(results, &structural_error?/1) ->
+        Logger.error("Structural error while storing chunks: #{inspect(structural_error)}")
+        {:error, "Structural chunk processing error: #{inspect(structural_error)}"}
 
-    if structural_error?(result) do
-      total = length(rest) + length(acc) + 1
-
-      Logger.error(
-        "Structural error on chunk #{index}/#{total}, aborting remaining chunks: #{inspect(result)}"
-      )
-
-      {:error, "Structural error on chunk #{index}: #{inspect(result)}"}
-    else
-      store_chunks_fail_fast(rest, document_id, role_id, shared_role_ids, [result | acc])
+      true ->
+        Logger.error("Failed to store #{failed} out of #{length(results)} chunks")
+        first_error = Enum.find(results, &match?({:error, _}, &1))
+        Logger.error("First error example: #{inspect(first_error)}")
+        {:error, "#{failed} chunks failed to store"}
     end
   end
 
@@ -659,6 +666,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   """
   def hybrid_search(query_text, role_ids \\ nil, limit \\ nil) do
     limit = limit || hybrid_search_limit()
+    candidate_limit = hybrid_candidate_limit(limit)
 
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
@@ -680,15 +688,17 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                        ) AS rn
                 FROM chunks
                 WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ?)
-                LIMIT 20
+                LIMIT ?
               ) ts
               UNION
-              SELECT id FROM (SELECT id FROM chunks ORDER BY embedding <-> ? LIMIT 20) vs
+              SELECT id FROM (SELECT id FROM chunks ORDER BY embedding <-> ? LIMIT ?) vs
             )
             """,
             ^query_text,
             ^query_text,
-            ^embedding_vector
+            ^candidate_limit,
+            ^embedding_vector,
+            ^candidate_limit
           )
         )
         |> maybe_filter_roles(role_ids)
@@ -707,7 +717,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                          ) AS rn
                   FROM chunks
                   WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ?)
-                  LIMIT 20
+                  LIMIT ?
                 ) ts WHERE ts.id = c0.id
               )), 0)
               +
@@ -717,16 +727,18 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                          ROW_NUMBER() OVER (ORDER BY embedding <-> ?) AS rn
                   FROM chunks
                   ORDER BY embedding <-> ?
-                  LIMIT 20
+                  LIMIT ?
                 ) vs WHERE vs.id = c0.id
               )), 0)
               """,
               ^k,
               ^query_text,
               ^query_text,
+              ^candidate_limit,
               ^k,
               ^embedding_vector,
-              ^embedding_vector
+              ^embedding_vector,
+              ^candidate_limit
             ),
           text_rank:
             fragment(
@@ -750,7 +762,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                          ) AS rn
                   FROM chunks
                   WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ?)
-                  LIMIT 20
+                  LIMIT ?
                 ) ts WHERE ts.id = c0.id
               )), 0)
               +
@@ -760,16 +772,18 @@ defmodule Zaq.Ingestion.DocumentProcessor do
                          ROW_NUMBER() OVER (ORDER BY embedding <-> ?) AS rn
                   FROM chunks
                   ORDER BY embedding <-> ?
-                  LIMIT 20
+                  LIMIT ?
                 ) vs WHERE vs.id = c0.id
               )), 0)
               """,
               ^k,
               ^query_text,
               ^query_text,
+              ^candidate_limit,
               ^k,
               ^embedding_vector,
-              ^embedding_vector
+              ^embedding_vector,
+              ^candidate_limit
             )
         )
         |> limit(^limit)
