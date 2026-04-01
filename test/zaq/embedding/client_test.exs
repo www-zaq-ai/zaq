@@ -128,6 +128,21 @@ defmodule Zaq.Embedding.ClientTest do
       assert delay_seconds <= 90
     end
 
+    test "handles ratelimit-reset epoch timestamp" do
+      reset_at = DateTime.utc_now() |> DateTime.to_unix() |> Kernel.+(120)
+
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("ratelimit-reset", Integer.to_string(reset_at))
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, delay_seconds, %{status: 429}}} = Client.embed("test")
+      assert delay_seconds >= 105
+      assert delay_seconds <= 120
+    end
+
     test "defaults to 60 seconds when no rate limit headers are present" do
       Req.Test.stub(Client, fn conn ->
         conn
