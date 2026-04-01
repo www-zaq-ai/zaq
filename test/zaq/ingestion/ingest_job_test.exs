@@ -49,6 +49,10 @@ defmodule Zaq.Ingestion.IngestJobTest do
         started_at: now,
         completed_at: now,
         chunks_count: 42,
+        total_chunks: 50,
+        ingested_chunks: 42,
+        failed_chunks: 8,
+        failed_chunk_indices: [4, 11],
         document_id: 1
       }
 

@@ -632,7 +632,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp sort_jobs_desc(jobs), do: Enum.sort_by(jobs, & &1.inserted_at, {:desc, DateTime})
 
   defp maybe_refresh_entries_after_job(socket, %{status: status})
-       when status in ["completed", "failed"] do
+       when status in ["completed", "completed_with_errors", "failed"] do
     load_entries(socket)
   end
 

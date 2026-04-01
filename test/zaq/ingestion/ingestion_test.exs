@@ -4,7 +4,7 @@ defmodule Zaq.IngestionTest do
   import Mox
 
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, IngestJob}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer, IngestChunkJob, IngestJob}
   alias Zaq.Repo
   alias Zaq.System.EmbeddingConfig
 
@@ -57,17 +57,40 @@ defmodule Zaq.IngestionTest do
         metadata: metadata
       })
 
-    Enum.each(1..chunk_count, fn chunk_index ->
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: document.id,
-        content: "chunk #{chunk_index} for #{source}",
-        chunk_index: chunk_index
-      })
-      |> Repo.insert!()
-    end)
+    if chunk_count > 0 do
+      Enum.each(1..chunk_count, fn chunk_index ->
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: document.id,
+          content: "chunk #{chunk_index} for #{source}",
+          chunk_index: chunk_index
+        })
+        |> Repo.insert!()
+      end)
+    end
 
     document
+  end
+
+  defmodule RetryChunkProcessor do
+    alias Zaq.Ingestion.Chunk
+    alias Zaq.Ingestion.DocumentChunker
+
+    def store_chunk_with_metadata(
+          %DocumentChunker.Chunk{} = chunk,
+          document_id,
+          chunk_index,
+          role_id,
+          shared_role_ids
+        ) do
+      Chunk.create(%{
+        document_id: document_id,
+        content: chunk.content,
+        chunk_index: chunk_index,
+        role_id: role_id,
+        shared_role_ids: shared_role_ids
+      })
+    end
   end
 
   describe "ingest_file/2" do
@@ -198,6 +221,59 @@ defmodule Zaq.IngestionTest do
     test "returns error if job is not failed" do
       job = create_job(%{status: "completed"})
       assert {:error, :not_failed} = Ingestion.retry_job(job.id)
+    end
+
+    test "retries a completed_with_errors job by enqueueing failed chunks only" do
+      doc = create_document_with_chunks("retry-source.md", 0)
+
+      job =
+        create_job(%{
+          status: "completed_with_errors",
+          error: "2 chunks failed after retries",
+          document_id: doc.id,
+          failed_chunks: 2,
+          failed_chunk_indices: [2, 5]
+        })
+
+      %IngestChunkJob{}
+      |> IngestChunkJob.changeset(%{
+        ingest_job_id: job.id,
+        document_id: doc.id,
+        chunk_index: 2,
+        chunk_payload: %{"content" => "chunk two", "metadata" => %{}},
+        status: "failed_final"
+      })
+      |> Repo.insert!()
+
+      %IngestChunkJob{}
+      |> IngestChunkJob.changeset(%{
+        ingest_job_id: job.id,
+        document_id: doc.id,
+        chunk_index: 5,
+        chunk_payload: %{"content" => "chunk five", "metadata" => %{}},
+        status: "failed_final"
+      })
+      |> Repo.insert!()
+
+      original_processor = Application.get_env(:zaq, :document_processor)
+
+      on_exit(fn ->
+        if is_nil(original_processor) do
+          Application.delete_env(:zaq, :document_processor)
+        else
+          Application.put_env(:zaq, :document_processor, original_processor)
+        end
+      end)
+
+      Application.put_env(:zaq, :document_processor, RetryChunkProcessor)
+
+      assert {:ok, retried} = Ingestion.retry_job(job.id)
+      assert retried.status == "pending"
+      assert retried.error == nil
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status in ["processing", "completed"]
+      assert updated.failed_chunk_indices == []
     end
 
     test "returns error if job not found" do

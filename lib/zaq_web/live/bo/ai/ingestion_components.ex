@@ -163,6 +163,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   def status_color("pending"), do: "bg-black/5 text-black/40"
   def status_color("processing"), do: "bg-amber-100 text-amber-600"
   def status_color("completed"), do: "bg-emerald-100 text-emerald-700"
+  def status_color("completed_with_errors"), do: "bg-orange-100 text-orange-700"
   def status_color("failed"), do: "bg-red-100 text-red-600"
   def status_color(_), do: "bg-black/5 text-black/30"
 
@@ -1080,7 +1081,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
       <div class="flex gap-1 mb-3">
         <button
-          :for={status <- ~w(all pending processing completed failed)}
+          :for={status <- ~w(all pending processing completed completed_with_errors failed)}
           phx-click="filter_status"
           phx-value-status={status}
           class={[
@@ -1123,7 +1124,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             <p>Mode: {job.mode}</p>
             <p>Started: {format_datetime(job.started_at)}</p>
             <p :if={job.completed_at}>Completed: {format_datetime(job.completed_at)}</p>
-            <p :if={job.chunks_count > 0}>Chunks: {job.chunks_count}</p>
+            <p :if={job.total_chunks > 0}>Chunks: {job.ingested_chunks}/{job.total_chunks}</p>
+            <progress
+              :if={job.total_chunks > 0}
+              class="h-1.5 w-full overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-zinc-200 [&::-webkit-progress-value]:bg-emerald-500"
+              value={job.ingested_chunks}
+              max={job.total_chunks}
+            >
+              {job.ingested_chunks}/{job.total_chunks}
+            </progress>
+            <p :if={job.failed_chunks > 0}>Failed chunks: {job.failed_chunks}</p>
+            <p :if={job.total_chunks == 0 and job.chunks_count > 0}>Chunks: {job.chunks_count}</p>
             <details :if={job.error} class="mt-1">
               <summary class="font-mono text-[0.7rem] text-red-500 cursor-pointer hover:text-red-600">
                 Error details
@@ -1134,7 +1145,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
           <div class="flex gap-1.5 pt-1">
             <button
-              :if={job.status in ~w(failed)}
+              :if={job.status in ~w(failed completed_with_errors)}
               phx-click="retry_job"
               phx-value-id={job.id}
               class="font-mono text-[0.65rem] px-2 py-1 rounded-lg bg-black/5 text-black/50 hover:bg-black/10 transition-colors"

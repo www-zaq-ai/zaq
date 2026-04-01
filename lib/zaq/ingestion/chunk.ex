@@ -96,6 +96,12 @@ defmodule Zaq.Ingestion.Chunk do
     |> Repo.delete_all()
   end
 
+  @doc "Deletes a single chunk by document and chunk index."
+  def delete_by_document_and_index(document_id, chunk_index) do
+    from(c in __MODULE__, where: c.document_id == ^document_id and c.chunk_index == ^chunk_index)
+    |> Repo.delete_all()
+  end
+
   @doc """
   Returns the count of chunks for a given document.
   """

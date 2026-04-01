@@ -19,6 +19,7 @@ config :zaq, Oban,
   repo: Zaq.Repo,
   queues: [
     ingestion: 3,
+    ingestion_chunks: 6,
     default: 10,
     conversations: 5,
     telemetry: 5,

@@ -105,8 +105,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     |> stub(:ask, fn _content, _opts -> {:error, "LLM unavailable"} end)
   end
 
-  defp stub_embedding_with_concurrency_tracker(counter, sleep_ms \\ 40, dimension \\ nil) do
-    dim = dimension || embedding_dimension()
+  defp stub_embedding_with_concurrency_tracker(counter, sleep_ms) do
+    dim = embedding_dimension()
 
     Req.Test.stub(Zaq.Embedding.Client, fn conn ->
       Agent.update(counter, fn %{inflight: inflight, max: max_seen} = state ->
@@ -440,6 +440,29 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       content = "# Heading\n\n" <> String.duplicate("valid content ", 120)
 
       assert {:ok, _results} = DocumentProcessor.process_and_store_chunks(content, doc.id)
+    end
+
+    test "returns chunk progress report with failed chunk indices" do
+      stub_embedding_fail_on_call(2)
+      stub_chunk_title_failure()
+      doc = create_document()
+
+      content =
+        [
+          "# Chunk One\n\n" <> String.duplicate("first ", 120),
+          "# Chunk Two\n\n" <> String.duplicate("second ", 120)
+        ]
+        |> Enum.join("\n\n")
+
+      assert {:ok, report} =
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id, nil, [],
+                 reset_chunks: true
+               )
+
+      assert report.total_chunks == 2
+      assert report.failed_chunks == 1
+      assert report.failed_chunk_indices in [[1], [2]]
+      assert report.ingested_chunks == 1
     end
   end
 

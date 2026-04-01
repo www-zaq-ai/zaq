@@ -98,7 +98,7 @@ defmodule Zaq.MixProject do
       {:earmark, "~> 1.4.48"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:nimble_csv, "~> 1.2"},
-      {:llm_db, "~> 2026.3"}
+      {:llm_db, "~> 2026.4"}
     ]
   end
 

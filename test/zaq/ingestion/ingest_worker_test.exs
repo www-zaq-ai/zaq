@@ -5,9 +5,50 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
   import Mox
 
-  alias Zaq.Ingestion.{Chunk, Document, IngestJob, IngestWorker}
+  alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob, IngestWorker}
   alias Zaq.Repo
   alias Zaq.System.EmbeddingConfig
+
+  defmodule ChunkPipelineProcessor do
+    alias Zaq.Ingestion.{Chunk, DocumentChunker}
+
+    def prepare_file_chunks(_path, _role_id, _shared_role_ids) do
+      document_id = :persistent_term.get({__MODULE__, :document_id})
+
+      {:ok, %{id: document_id},
+       [
+         {payload("a", 1), 1},
+         {payload("b", 2), 2}
+       ]}
+    end
+
+    def store_chunk_with_metadata(
+          %DocumentChunker.Chunk{} = chunk,
+          document_id,
+          chunk_index,
+          role_id,
+          shared_role_ids
+        ) do
+      Chunk.create(%{
+        document_id: document_id,
+        content: chunk.content,
+        chunk_index: chunk_index,
+        role_id: role_id,
+        shared_role_ids: shared_role_ids
+      })
+    end
+
+    defp payload(content, idx) do
+      %{
+        "id" => "chunk-#{idx}",
+        "section_id" => "sec-#{idx}",
+        "content" => content,
+        "section_path" => ["Sec #{idx}"],
+        "tokens" => 10,
+        "metadata" => %{"section_type" => "heading", "section_level" => 1, "position" => idx}
+      }
+    end
+  end
 
   setup do
     changeset =
@@ -107,6 +148,42 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
       assert_receive {:job_updated, %{id: ^job_id, status: "processing"}}
       assert_receive {:job_updated, %{id: ^job_id, status: "failed"}}
+    end
+
+    test "uses chunk child-job pipeline when processor supports prepare_file_chunks/3" do
+      original_processor = Application.get_env(:zaq, :document_processor)
+
+      on_exit(fn ->
+        _ = :persistent_term.erase({ChunkPipelineProcessor, :document_id})
+
+        if is_nil(original_processor) do
+          Application.delete_env(:zaq, :document_processor)
+        else
+          Application.put_env(:zaq, :document_processor, original_processor)
+        end
+      end)
+
+      Application.put_env(:zaq, :document_processor, ChunkPipelineProcessor)
+      document = create_document()
+      :persistent_term.put({ChunkPipelineProcessor, :document_id}, document.id)
+
+      job = create_job()
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.total_chunks == 2
+      assert updated.ingested_chunks == 2
+      assert updated.status == "completed"
+
+      chunk_jobs = Repo.all(from(c in IngestChunkJob, where: c.ingest_job_id == ^job.id))
+      assert length(chunk_jobs) == 2
+      assert Enum.all?(chunk_jobs, &(&1.status == "completed"))
     end
 
     test "keeps job pending when attempt is below max" do

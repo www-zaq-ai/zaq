@@ -9,7 +9,7 @@ defmodule Zaq.Ingestion.IngestJob do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(pending processing completed failed)
+  @statuses ~w(pending processing completed completed_with_errors failed)
   @modes ~w(inline async)
 
   schema "ingest_jobs" do
@@ -20,6 +20,10 @@ defmodule Zaq.Ingestion.IngestJob do
     field :started_at, :utc_datetime_usec
     field :completed_at, :utc_datetime_usec
     field :chunks_count, :integer, default: 0
+    field :total_chunks, :integer, default: 0
+    field :ingested_chunks, :integer, default: 0
+    field :failed_chunks, :integer, default: 0
+    field :failed_chunk_indices, {:array, :integer}, default: []
     field :document_id, :integer
     field :volume_name, :string
     field :role_id, :integer
@@ -41,6 +45,10 @@ defmodule Zaq.Ingestion.IngestJob do
       :started_at,
       :completed_at,
       :chunks_count,
+      :total_chunks,
+      :ingested_chunks,
+      :failed_chunks,
+      :failed_chunk_indices,
       :document_id,
       :volume_name,
       :role_id,

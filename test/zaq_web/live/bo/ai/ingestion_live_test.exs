@@ -2,6 +2,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   use ZaqWeb.ConnCase, async: false
 
   import Ecto.Query
+  import Mox
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
 
@@ -21,6 +22,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     {:ok, _} = Zaq.System.save_embedding_config(changeset)
     :ok
   end
+
+  setup :verify_on_exit!
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "ingestion_live_admin"})
@@ -583,6 +586,34 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     fresh = create_job(%{file_path: "fresh.txt", status: "pending"})
     send(view.pid, {:job_updated, fresh})
     assert has_element?(view, "p", "fresh.txt")
+  end
+
+  test "shows chunk progress and retry button for completed_with_errors jobs", %{conn: conn} do
+    partial =
+      create_job(%{
+        file_path: "partial.txt",
+        status: "completed_with_errors",
+        total_chunks: 10,
+        ingested_chunks: 7,
+        failed_chunks: 3,
+        failed_chunk_indices: [2, 4, 9],
+        error: "3 chunks failed after retries"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "p", "partial.txt")
+    assert has_element?(view, "p", "Chunks: 7/10")
+    assert has_element?(view, "p", "Failed chunks: 3")
+
+    render_hook(view, "retry_job", %{"id" => partial.id})
+
+    assert Repo.get!(IngestJob, partial.id).status in [
+             "pending",
+             "processing",
+             "completed",
+             "completed_with_errors"
+           ]
   end
 
   test "uploads accepted files", %{conn: conn, tmp_dir: tmp_dir} do

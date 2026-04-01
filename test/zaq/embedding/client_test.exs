@@ -84,6 +84,60 @@ defmodule Zaq.Embedding.ClientTest do
       assert {:error, "API error (401):" <> _} = Client.embed("test")
     end
 
+    test "returns rate_limited error with retry-after delay" do
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", "120")
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, 120, %{status: 429}}} = Client.embed("test")
+    end
+
+    test "returns rate_limited error with retry-after HTTP-date delay" do
+      retry_after =
+        DateTime.utc_now()
+        |> DateTime.add(75, :second)
+        |> Calendar.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", retry_after)
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, delay_seconds, %{status: 429}}} = Client.embed("test")
+      assert delay_seconds >= 60
+      assert delay_seconds <= 75
+    end
+
+    test "falls back to rate limit reset header when retry-after is missing" do
+      reset_at = DateTime.utc_now() |> DateTime.to_unix() |> Kernel.+(90)
+
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("x-ratelimit-reset", Integer.to_string(reset_at))
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, delay_seconds, %{status: 429}}} = Client.embed("test")
+      assert delay_seconds >= 75
+      assert delay_seconds <= 90
+    end
+
+    test "defaults to 60 seconds when no rate limit headers are present" do
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, 60, %{status: 429}}} = Client.embed("test")
+    end
+
     test "skips authorization header when api_key is empty" do
       Req.Test.stub(Client, fn conn ->
         auth_header = Plug.Conn.get_req_header(conn, "authorization")

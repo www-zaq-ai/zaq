@@ -118,6 +118,59 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`, `.png`, `.jpg`
   """
   def process_single_file(file_path, role_id \\ nil, shared_role_ids \\ []) do
+    case process_single_file_with_report(file_path, role_id, shared_role_ids) do
+      {:ok, document, %{failed_chunks: 0}} ->
+        {:ok, document}
+
+      {:ok, _document, %{failed_chunks: failed_chunks}} ->
+        {:error, "#{failed_chunks} chunks failed to store"}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Prepares a file for chunk ingestion without generating embeddings.
+
+  Returns `{ :ok, document, indexed_chunk_payloads }` where payloads are
+  `{chunk_payload_map, chunk_index}` tuples.
+  """
+  def prepare_file_chunks(file_path, role_id \\ nil, shared_role_ids \\ []) do
+    Logger.info("Preparing file chunks: #{file_path}")
+
+    with {:ok, content} <- read_as_markdown(file_path),
+         {:ok, source} <- extract_source(content, file_path),
+         {:ok, sidecar_source} <- extract_sidecar_source(file_path),
+         {:ok, document} <-
+           store_document(content, source, role_id, Sidecar.source_metadata(sidecar_source)),
+         :ok <-
+           maybe_store_sidecar_document(content, source, sidecar_source, role_id, shared_role_ids) do
+      sections = DocumentChunker.parse_layout(content, format: :markdown)
+      chunks = DocumentChunker.chunk_sections(sections)
+
+      indexed_payloads =
+        chunks
+        |> Enum.with_index(1)
+        |> Enum.map(fn {chunk, index} -> {chunk_to_payload(chunk), index} end)
+
+      {:ok, document, indexed_payloads}
+    else
+      {:error, reason} = error ->
+        Logger.error("Failed to prepare chunks for #{file_path}: #{inspect(reason)}")
+        error
+    end
+  end
+
+  @doc """
+  Processes a single file and returns an ingestion report with chunk-level progress.
+  """
+  def process_single_file_with_report(
+        file_path,
+        role_id \\ nil,
+        shared_role_ids \\ [],
+        opts \\ []
+      ) do
     Logger.info("Processing file: #{file_path}")
 
     with {:ok, content} <- read_as_markdown(file_path),
@@ -127,10 +180,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
            store_document(content, source, role_id, Sidecar.source_metadata(sidecar_source)),
          :ok <-
            maybe_store_sidecar_document(content, source, sidecar_source, role_id, shared_role_ids),
-         {:ok, _chunks} <-
-           process_and_store_chunks(content, document.id, role_id, shared_role_ids) do
+         {:ok, report} <-
+           process_and_store_chunks_report(content, document.id, role_id, shared_role_ids, opts) do
       Logger.info("Successfully processed: #{source}")
-      {:ok, document}
+      {:ok, document, report}
     else
       {:error, reason} = error ->
         Logger.error("Failed to process #{file_path}: #{inspect(reason)}")
@@ -413,18 +466,51 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   and stores each chunk via the `Chunk` Ecto schema.
   """
   def process_and_store_chunks(content, document_id, role_id \\ nil, shared_role_ids \\ []) do
-    Chunk.delete_by_document(document_id)
+    case process_and_store_chunks_report(content, document_id, role_id, shared_role_ids,
+           reset_chunks: true
+         ) do
+      {:ok, %{results: results, failed_chunks: 0}} ->
+        {:ok, results}
+
+      {:ok, %{results: results, failed_chunks: failed}} ->
+        Logger.error("Failed to store #{failed} out of #{length(results)} chunks")
+        first_error = Enum.find(results, &match?({:error, _}, &1))
+        Logger.error("First error example: #{inspect(first_error)}")
+        {:error, "#{failed} chunks failed to store"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  def process_and_store_chunks_report(
+        content,
+        document_id,
+        role_id \\ nil,
+        shared_role_ids \\ [],
+        opts \\ []
+      ) do
+    reset_chunks = Keyword.get(opts, :reset_chunks, true)
+    retry_chunk_indices = Keyword.get(opts, :retry_chunk_indices)
+
+    if reset_chunks do
+      Chunk.delete_by_document(document_id)
+    end
+
     sections = DocumentChunker.parse_layout(content, format: :markdown)
     chunks = DocumentChunker.chunk_sections(sections)
 
     Logger.info("Created #{length(chunks)} layout-aware chunks for document_id: #{document_id}")
 
+    selected_chunks = select_chunks(chunks, retry_chunk_indices)
+
     results =
-      chunks
-      |> Enum.with_index(1)
+      selected_chunks
       |> Task.async_stream(
         fn {chunk, index} ->
-          store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)
+          maybe_delete_chunk_before_store(reset_chunks, document_id, index)
+          {index, store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)}
         end,
         timeout: :infinity,
         max_concurrency: chunk_processing_concurrency(),
@@ -435,22 +521,65 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         {:exit, reason} -> {:error, reason}
       end)
 
-    failed = Enum.count(results, &match?({:error, _}, &1))
+    failed_chunk_indices =
+      results
+      |> Enum.flat_map(fn
+        {index, {:error, _}} -> [index]
+        _ -> []
+      end)
 
-    cond do
-      failed == 0 ->
-        {:ok, results}
+    normalized_results =
+      results
+      |> Enum.map(fn
+        {index, result} when is_integer(index) -> result
+        {:error, reason} -> {:error, reason}
+      end)
 
-      structural_error = Enum.find(results, &structural_error?/1) ->
+    case Enum.find(normalized_results, &structural_error?/1) do
+      nil ->
+        ingested_chunks = Chunk.count_by_document(document_id)
+
+        {:ok,
+         %{
+           results: normalized_results,
+           total_chunks: length(chunks),
+           ingested_chunks: ingested_chunks,
+           failed_chunks: length(failed_chunk_indices),
+           failed_chunk_indices: failed_chunk_indices
+         }}
+
+      structural_error ->
         Logger.error("Structural error while storing chunks: #{inspect(structural_error)}")
         {:error, "Structural chunk processing error: #{inspect(structural_error)}"}
-
-      true ->
-        Logger.error("Failed to store #{failed} out of #{length(results)} chunks")
-        first_error = Enum.find(results, &match?({:error, _}, &1))
-        Logger.error("First error example: #{inspect(first_error)}")
-        {:error, "#{failed} chunks failed to store"}
     end
+  end
+
+  defp select_chunks(chunks, retry_chunk_indices) when is_list(retry_chunk_indices) do
+    retry_set = MapSet.new(retry_chunk_indices)
+
+    chunks
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {_chunk, index} -> MapSet.member?(retry_set, index) end)
+  end
+
+  defp select_chunks(chunks, _retry_chunk_indices), do: Enum.with_index(chunks, 1)
+
+  defp maybe_delete_chunk_before_store(true, _document_id, _index), do: :ok
+
+  defp maybe_delete_chunk_before_store(false, document_id, index) do
+    Chunk.delete_by_document_and_index(document_id, index)
+    :ok
+  end
+
+  defp chunk_to_payload(%DocumentChunker.Chunk{} = chunk) do
+    %{
+      "id" => chunk.id,
+      "section_id" => chunk.section_id,
+      "content" => chunk.content,
+      "section_path" => chunk.section_path,
+      "tokens" => chunk.tokens,
+      "metadata" => chunk.metadata
+    }
   end
 
   defp structural_error?({:error, :dimension_mismatch}), do: true
