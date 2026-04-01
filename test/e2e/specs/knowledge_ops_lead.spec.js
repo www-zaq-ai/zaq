@@ -54,6 +54,18 @@ async function askQuestion(page, question) {
   await page.locator("#chat-form button[type='submit']").click();
 }
 
+async function openFirstSourcePreviewModal(page) {
+  const sourceChip = page.locator('[data-testid="source-chip"]').first();
+  await expect(sourceChip).toBeVisible();
+  await expect(sourceChip).toBeEnabled();
+  await sourceChip.click();
+
+  const modal = page.locator("#file-preview-modal");
+  await expect(modal).toBeVisible();
+  await expect(page).toHaveURL(/\/bo\/chat/);
+  return modal;
+}
+
 async function resetAnsweringPromptTemplate(page) {
   await gotoBackOfficeLive(page, "/bo/prompt-templates");
   await page.locator("#prompt-tab-answering").click();
@@ -107,12 +119,8 @@ test.describe("Knowledge Ops Lead journeys", () => {
       "Baseline response generated from the default prompt template."
     );
 
-    const sourceChip = page.locator('[data-testid="source-chip"]').first();
-    await expect(sourceChip).toBeVisible();
-    await sourceChip.click();
-
-    await expect(page).toHaveURL(new RegExp(`/bo/preview/${fileBase}`));
-    await expect(page.locator("body")).toContainText(queryToken);
+    const modal = await openFirstSourcePreviewModal(page);
+    await expect(modal).toContainText(queryToken);
   });
 
   // test("Journey 2: maintain hierarchy and stale-document hygiene", async ({ page }) => {
@@ -185,11 +193,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
       "Tuned response generated from the updated prompt template."
     );
 
-    const sourceChip = page.locator('[data-testid="source-chip"]').first();
-    await expect(sourceChip).toBeVisible();
-    await sourceChip.click();
-
-    await expect(page).toHaveURL(/\/bo\/preview\//);
-    await expect(page.locator("body")).toContainText("Employee Benefits Handbook");
+    const modal = await openFirstSourcePreviewModal(page);
+    await expect(modal).toContainText("Employee Benefits Handbook");
   });
 });
