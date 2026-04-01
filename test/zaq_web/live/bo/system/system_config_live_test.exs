@@ -72,6 +72,74 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
+  describe "tab navigation" do
+    test "falls back to telemetry tab for unknown tab params", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/system-config?tab=unknown")
+
+      assert html =~ "Telemetry Collection"
+      refute html =~ "llm-config-form"
+    end
+
+    test "switch_tab patches URL and renders target tab panel", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("button[phx-value-tab='llm']")
+      |> render_click()
+
+      assert_patch(view, ~p"/bo/system-config?tab=llm")
+      assert has_element?(view, "#llm-config-form")
+    end
+  end
+
+  describe "llm handlers" do
+    test "validate_llm resets endpoint for unknown provider changes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "provider" => "unknown_provider",
+            "endpoint" => "https://will-be-overwritten",
+            "api_key" => "typed-llm-key",
+            "model" => "",
+            "temperature" => "0.2",
+            "top_p" => "0.9",
+            "supports_logprobs" => "true",
+            "supports_json_mode" => "true",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0"
+          }
+        })
+
+      assert html =~ "name=\"llm_config[endpoint]\""
+      assert html =~ "name=\"llm_config[endpoint]\" value=\"\""
+      assert html =~ "value=\"typed-llm-key\""
+      refute html =~ "https://will-be-overwritten"
+    end
+
+    test "save_llm renders validation errors on invalid params", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+      before = Zaq.System.get_llm_config()
+
+      html =
+        render_submit(view, "save_llm", %{
+          "llm_config" => %{
+            "provider" => "custom",
+            "endpoint" => "",
+            "model" => ""
+          }
+        })
+
+      after_save = Zaq.System.get_llm_config()
+
+      assert after_save.endpoint == before.endpoint
+      assert after_save.model == before.model
+      assert has_element?(view, "#llm-config-form")
+      assert html =~ "llm-config-form"
+    end
+  end
+
   describe "embedding validate" do
     test "interpolates max dimension validation errors", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
@@ -100,6 +168,102 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "must be less than or equal to 4000"
       refute html =~ "%{number}"
+    end
+  end
+
+  describe "embedding save confirmation" do
+    test "save_embedding opens and cancel closes destructive confirmation modal", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      view
+      |> element("button[phx-click=\"unlock_embedding\"]")
+      |> render_click()
+
+      view
+      |> element("button[phx-click=\"confirm_unlock_embedding\"]")
+      |> render_click()
+
+      params = %{
+        "embedding_config" => %{
+          "provider" => "custom",
+          "model" => "different-model",
+          "endpoint" => "http://localhost:11434/v1",
+          "dimension" => "3584",
+          "chunk_min_tokens" => "400",
+          "chunk_max_tokens" => "900"
+        }
+      }
+
+      _ =
+        view
+        |> form("#embedding-config-form", params)
+        |> render_change()
+
+      html =
+        view
+        |> form("#embedding-config-form", params)
+        |> render_submit()
+
+      assert html =~ "Delete All Embeddings?"
+
+      html =
+        view
+        |> element("button[phx-click='cancel_save_embedding']")
+        |> render_click()
+
+      refute html =~ "Delete All Embeddings?"
+    end
+
+    test "confirm_save_embedding rescue path shows flash when pending params are missing", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      html = render_click(view, "confirm_save_embedding", %{})
+
+      assert html =~ "Failed to apply embedding settings:"
+    end
+  end
+
+  describe "image-to-text handlers" do
+    test "validate_image_to_text resets endpoint for unknown provider changes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+
+      html =
+        render_change(view, "validate_image_to_text", %{
+          "image_to_text_config" => %{
+            "provider" => "unknown_provider",
+            "endpoint" => "https://will-be-overwritten",
+            "api_key" => "typed-image-key",
+            "model" => "gpt-4o"
+          }
+        })
+
+      assert html =~ "name=\"image_to_text_config[endpoint]\""
+      assert html =~ "name=\"image_to_text_config[endpoint]\" value=\"\""
+      assert html =~ "value=\"typed-image-key\""
+      refute html =~ "https://will-be-overwritten"
+    end
+
+    test "save_image_to_text renders validation errors on invalid params", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+      before = Zaq.System.get_image_to_text_config()
+
+      html =
+        render_submit(view, "save_image_to_text", %{
+          "image_to_text_config" => %{
+            "provider" => "custom",
+            "endpoint" => "",
+            "model" => ""
+          }
+        })
+
+      after_save = Zaq.System.get_image_to_text_config()
+
+      assert after_save.endpoint == before.endpoint
+      assert after_save.model == before.model
+      assert has_element?(view, "#image-to-text-config-form")
+      assert html =~ "image-to-text-config-form"
     end
   end
 

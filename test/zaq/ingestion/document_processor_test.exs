@@ -1170,4 +1170,209 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert length(results) >= 2
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # prepare_file_chunks/3
+  # ---------------------------------------------------------------------------
+
+  describe "prepare_file_chunks/3" do
+    setup do
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "zaq_prepare_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "returns document and indexed payloads without inserting chunks", %{tmp_dir: tmp_dir} do
+      path =
+        create_test_md_file(
+          tmp_dir,
+          "prepare.md",
+          "# Prep\n\n" <> String.duplicate("prepared content ", 120)
+        )
+
+      assert {:ok, %Document{} = doc, indexed_payloads} =
+               DocumentProcessor.prepare_file_chunks(path)
+
+      assert doc.source == "prepare.md"
+      assert indexed_payloads != []
+
+      assert Enum.all?(indexed_payloads, fn {payload, index} ->
+               is_map(payload) and is_integer(index) and Map.has_key?(payload, "content")
+             end)
+
+      assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc.id), :count) == 0
+    end
+
+    test "returns file read errors" do
+      assert {:error, _reason} = DocumentProcessor.prepare_file_chunks("/missing/path/prepare.md")
+    end
+
+    test "returns image-to-text configuration errors for png files", %{tmp_dir: tmp_dir} do
+      with_image_to_text_stub("", fn ->
+        path = create_test_md_file(tmp_dir, "prepare-missing-key.png", "not-a-real-png")
+
+        assert {:error, reason} = DocumentProcessor.prepare_file_chunks(path)
+        assert is_binary(reason)
+        assert String.contains?(reason, "not configured")
+      end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Additional format and report branches
+  # ---------------------------------------------------------------------------
+
+  describe "additional format and report branches" do
+    setup do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "zaq_more_paths_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "reads existing markdown sidecars for pdf/docx/xlsx without conversion", %{
+      tmp_dir: tmp_dir
+    } do
+      for ext <- [".pdf", ".docx", ".xlsx"] do
+        source_name = "sidecar#{ext}"
+        source_path = create_test_md_file(tmp_dir, source_name, "raw-bytes")
+        sidecar_path = Path.rootname(source_path) <> ".md"
+        File.write!(sidecar_path, "# Sidecar\n\nLoaded from #{ext} sidecar.")
+
+        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(source_path)
+        assert doc.source == source_name
+        assert doc.content =~ "Loaded from #{ext} sidecar."
+
+        assert (doc.metadata["sidecar_source"] || doc.metadata[:sidecar_source]) ==
+                 Path.basename(sidecar_path)
+
+        assert %Document{} = sidecar_doc = Document.get_by_source(Path.basename(sidecar_path))
+
+        assert (sidecar_doc.metadata["source_document_source"] ||
+                  sidecar_doc.metadata[:source_document_source]) == source_name
+      end
+    end
+
+    test "converts csv content to markdown table", %{tmp_dir: tmp_dir} do
+      csv_path =
+        create_test_md_file(
+          tmp_dir,
+          "table.csv",
+          "name,score\nalice,10\nbob,20\n"
+        )
+
+      assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(csv_path)
+
+      assert doc.source == "table.csv"
+      assert doc.content =~ "| name | score |"
+      assert doc.content =~ "| alice | 10 |"
+      assert doc.content =~ "| bob | 20 |"
+    end
+
+    test "process_single_file/3 returns failed chunk count when only one chunk fails", %{
+      tmp_dir: tmp_dir
+    } do
+      stub_embedding_fail_on_call(2)
+      stub_chunk_title_failure()
+
+      path =
+        create_test_md_file(
+          tmp_dir,
+          "partial-failure.md",
+          [
+            "# Chunk One\n\n" <> String.duplicate("one ", 120),
+            "# Chunk Two\n\n" <> String.duplicate("two ", 120)
+          ]
+          |> Enum.join("\n\n")
+        )
+
+      assert {:error, "1 chunks failed to store"} = DocumentProcessor.process_single_file(path)
+    end
+
+    test "process_and_store_chunks_report/5 retries only selected chunk indices when reset is disabled" do
+      stub_embedding_fail_on_call(1)
+      stub_chunk_title_failure()
+
+      doc = create_document(%{source: "retry-selected.md"})
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "existing index 1",
+        chunk_index: 1,
+        section_path: ["Existing", "1"],
+        metadata: %{},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "existing index 2",
+        chunk_index: 2,
+        section_path: ["Existing", "2"],
+        metadata: %{},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      content =
+        [
+          "# First\n\n" <> String.duplicate("first ", 120),
+          "# Second\n\n" <> String.duplicate("second ", 120)
+        ]
+        |> Enum.join("\n\n")
+
+      assert {:ok, report} =
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id, nil, [],
+                 reset_chunks: false,
+                 retry_chunk_indices: [2]
+               )
+
+      assert report.total_chunks == 2
+      assert report.failed_chunks == 1
+      assert report.failed_chunk_indices == [2]
+
+      remaining_indices =
+        from(c in Chunk, where: c.document_id == ^doc.id, select: c.chunk_index)
+        |> Repo.all()
+        |> Enum.sort()
+
+      assert remaining_indices == [1]
+    end
+
+    test "process_and_store_chunks_report/5 returns structural errors for dimension mismatch" do
+      stub_embedding_wrong_dimension()
+      stub_chunk_title_success()
+      doc = create_document(%{source: "dimension-mismatch.md"})
+
+      content = "# Heading\n\n" <> String.duplicate("mismatch ", 120)
+
+      assert {:error, reason} =
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id, nil, [],
+                 reset_chunks: true
+               )
+
+      assert reason =~ "Structural chunk processing error"
+      assert reason =~ "dimension_mismatch"
+    end
+
+    test "query_extraction/2 returns empty list when no matching sections exist" do
+      stub_embedding_success()
+      assert {:ok, []} = DocumentProcessor.query_extraction("no indexed content here")
+    end
+  end
 end
