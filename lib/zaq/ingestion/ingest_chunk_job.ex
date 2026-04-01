@@ -1,5 +1,16 @@
 defmodule Zaq.Ingestion.IngestChunkJob do
-  @moduledoc false
+  @moduledoc """
+  Persisted child-job record for chunk-level ingestion.
+
+  Each row tracks one chunk within a parent `IngestJob`, including:
+
+  - chunk payload (`chunk_payload`) and index,
+  - retry/attempt metadata,
+  - lifecycle status (`pending`, `processing`, `completed`, `failed_final`).
+
+  These rows make chunk ingestion resumable across restarts and enable targeted
+  retry of only failed chunks.
+  """
 
   use Ecto.Schema
   import Ecto.Changeset

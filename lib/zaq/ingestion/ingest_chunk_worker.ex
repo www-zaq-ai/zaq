@@ -1,5 +1,17 @@
 defmodule Zaq.Ingestion.IngestChunkWorker do
-  @moduledoc false
+  @moduledoc """
+  Oban worker that processes a single persisted chunk ingestion job.
+
+  This worker is the chunk-level execution unit for the async ingestion pipeline:
+
+  - reads one `IngestChunkJob` payload,
+  - generates chunk title + embedding + chunk insert via the configured document processor,
+  - updates chunk-job status/retry state,
+  - recomputes and updates parent `IngestJob` progress counters.
+
+  Retries are handled by Oban. For rate-limit (`429`) errors, the worker returns
+  `{:snooze, delay_seconds}` so retry delay follows provider headers when available.
+  """
 
   use Oban.Worker,
     queue: :ingestion_chunks,
