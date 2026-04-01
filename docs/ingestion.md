@@ -78,6 +78,7 @@ File path
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
 - `query_extraction/1` — token-limited context builder for the answering agent (max 5,000 tokens)
+- Current limitation: `prepare_file_chunks/3` materializes all chunk payloads in memory before persistence/scheduling.
 
 ### Schemas
 
@@ -212,6 +213,7 @@ All variables above are optional overrides; only change them if your deployment 
 - [ ] Support non-markdown file types (PDF, DOCX) via `DocumentProcessor.Behaviour`
 - [ ] Add chunk deduplication (same content, different source)
 - [ ] Expose ingestion progress as percentage in `IngestJob`
+- [ ] Batch/stream `prepare_file_chunks/3` payload persistence for very large documents
 
 ### Nice to Have
 - [ ] Implement HTML parsing in `DocumentChunker`

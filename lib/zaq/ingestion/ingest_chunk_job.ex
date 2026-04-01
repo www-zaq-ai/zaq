@@ -88,6 +88,33 @@ defmodule Zaq.Ingestion.IngestChunkJob do
     |> Repo.all()
   end
 
+  def finalization_snapshot(ingest_job_id) do
+    from(c in __MODULE__,
+      where: c.ingest_job_id == ^ingest_job_id,
+      select: %{
+        total: count(c.id),
+        terminal:
+          fragment(
+            "COALESCE(SUM(CASE WHEN ? IN ('completed', 'failed_final') THEN 1 ELSE 0 END), 0)",
+            c.status
+          ),
+        completed:
+          fragment("COALESCE(SUM(CASE WHEN ? = 'completed' THEN 1 ELSE 0 END), 0)", c.status),
+        failed_final:
+          fragment("COALESCE(SUM(CASE WHEN ? = 'failed_final' THEN 1 ELSE 0 END), 0)", c.status),
+        failed_chunk_indices:
+          fragment(
+            "COALESCE(ARRAY_AGG(? ORDER BY ?) FILTER (WHERE ? = 'failed_final'), '{}')",
+            c.chunk_index,
+            c.chunk_index,
+            c.status
+          )
+      }
+    )
+    |> Repo.one()
+    |> normalize_snapshot()
+  end
+
   def count_completed(ingest_job_id) do
     from(c in __MODULE__,
       where: c.ingest_job_id == ^ingest_job_id and c.status == "completed",
@@ -123,4 +150,11 @@ defmodule Zaq.Ingestion.IngestChunkJob do
       set: [status: "pending", attempts: 0, error: nil, updated_at: DateTime.utc_now()]
     )
   end
+
+  defp normalize_snapshot(%{failed_chunk_indices: failed_chunk_indices} = snapshot)
+       when is_list(failed_chunk_indices) do
+    %{snapshot | failed_chunk_indices: Enum.sort(failed_chunk_indices)}
+  end
+
+  defp normalize_snapshot(snapshot), do: Map.put(snapshot, :failed_chunk_indices, [])
 end

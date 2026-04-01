@@ -18,11 +18,15 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
     max_attempts: 5,
     unique: [period: 120, fields: [:args]]
 
+  import Ecto.Query
+
   alias Zaq.Engine.Telemetry
   alias Zaq.Ingestion.{DocumentChunker, IngestChunkJob, IngestJob, JobLifecycle}
   alias Zaq.Repo
 
   require Logger
+
+  @terminal_job_statuses ["completed", "completed_with_errors", "failed"]
 
   @impl Oban.Worker
   def perform(%Oban.Job{
@@ -112,53 +116,76 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
   end
 
   defp maybe_finalize_job(ingest_job) do
-    total = IngestChunkJob.count_all(ingest_job.id)
-    terminal = IngestChunkJob.count_terminal(ingest_job.id)
-    completed = IngestChunkJob.count_completed(ingest_job.id)
-    failed = IngestChunkJob.count_failed_final(ingest_job.id)
-    failed_indices = IngestChunkJob.list_failed_final(ingest_job.id) |> Enum.map(& &1.chunk_index)
+    Repo.transaction(fn ->
+      locked_job =
+        IngestJob
+        |> where([j], j.id == ^ingest_job.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
 
-    attrs = %{
-      total_chunks: total,
-      ingested_chunks: completed,
-      chunks_count: completed,
-      failed_chunks: failed,
-      failed_chunk_indices: failed_indices
-    }
-
-    if terminal == total and total > 0 do
-      if failed == 0 do
-        Telemetry.record("ingestion.completed.count", 1, %{
-          mode: ingest_job.mode,
-          volume: ingest_job.volume_name || "default"
-        })
-
-        Telemetry.record("ingestion.chunks.created", completed, %{
-          mode: ingest_job.mode,
-          volume: ingest_job.volume_name || "default"
-        })
-
-        JobLifecycle.mark_completed!(ingest_job, attrs)
+      if locked_job.status in @terminal_job_statuses do
+        :ok
       else
-        Telemetry.record("ingestion.document.failed.final.count", 1, %{
-          mode: ingest_job.mode,
-          volume: ingest_job.volume_name || "default"
-        })
+        snapshot = IngestChunkJob.finalization_snapshot(locked_job.id)
 
-        JobLifecycle.transition!(
-          ingest_job,
-          Map.merge(attrs, %{
-            status: "completed_with_errors",
-            completed_at: DateTime.utc_now(),
-            error: "#{failed} chunks failed after retries"
-          })
-        )
+        attrs = %{
+          total_chunks: snapshot.total,
+          ingested_chunks: snapshot.completed,
+          chunks_count: snapshot.completed,
+          failed_chunks: snapshot.failed_final,
+          failed_chunk_indices: snapshot.failed_chunk_indices
+        }
+
+        locked_job
+        |> finalization_decision(snapshot)
+        |> apply_finalization(locked_job, snapshot, attrs)
       end
-    else
-      JobLifecycle.transition!(ingest_job, Map.merge(attrs, %{status: "processing"}))
-    end
+    end)
 
     :ok
+  end
+
+  defp finalization_decision(_job, snapshot) do
+    cond do
+      snapshot.total == 0 -> :processing
+      snapshot.terminal < snapshot.total -> :processing
+      snapshot.failed_final == 0 -> :completed
+      true -> :completed_with_errors
+    end
+  end
+
+  defp apply_finalization(:processing, job, _snapshot, attrs) do
+    JobLifecycle.transition!(job, Map.merge(attrs, %{status: "processing"}))
+  end
+
+  defp apply_finalization(:completed, job, snapshot, attrs) do
+    Telemetry.record("ingestion.completed.count", 1, %{
+      mode: job.mode,
+      volume: job.volume_name || "default"
+    })
+
+    Telemetry.record("ingestion.chunks.created", snapshot.completed, %{
+      mode: job.mode,
+      volume: job.volume_name || "default"
+    })
+
+    JobLifecycle.mark_completed!(job, attrs)
+  end
+
+  defp apply_finalization(:completed_with_errors, job, snapshot, attrs) do
+    Telemetry.record("ingestion.document.failed.final.count", 1, %{
+      mode: job.mode,
+      volume: job.volume_name || "default"
+    })
+
+    JobLifecycle.transition!(
+      job,
+      Map.merge(attrs, %{
+        status: "completed_with_errors",
+        completed_at: DateTime.utc_now(),
+        error: "#{snapshot.failed_final} chunks failed after retries"
+      })
+    )
   end
 
   defp format_reason(reason) when is_binary(reason), do: reason
