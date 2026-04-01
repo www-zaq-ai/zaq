@@ -172,16 +172,24 @@ docker compose down -v
 
 ### Environment Variables (required vs optional)
 
-| Variable                 | Docker Compose default                            | Required           | Notes                                               |
-| ------------------------ | ------------------------------------------------- | ------------------ | --------------------------------------------------- |
-| `DATABASE_URL`           | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database   |
-| `SECRET_KEY_BASE`        | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                |
-| `INGESTION_VOLUMES`      | `documents`                                       | No                 | Optional override                                   |
-| `INGESTION_VOLUMES_BASE` | `/zaq/volumes`                                    | No                 | Optional override                                   |
-| `INGESTION_BASE_PATH`    | `/zaq/volumes/documents`                          | No                 | Fallback path used by file preview and file serving |
+| Variable                            | Docker Compose default                            | Required           | Notes                                                                        |
+| ----------------------------------- | ------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------- |
+| `DATABASE_URL`                      | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database                            |
+| `SECRET_KEY_BASE`                   | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                                         |
+| `INGESTION_VOLUMES`                 | `documents`                                       | No                 | Optional override                                                            |
+| `INGESTION_VOLUMES_BASE`            | `/zaq/volumes`                                    | No                 | Optional override                                                            |
+| `INGESTION_BASE_PATH`               | `/zaq/volumes/documents`                          | No                 | Fallback path used by file preview and file serving                          |
+| `OBAN_INGESTION_CONCURRENCY`        | `3`                                               | No                 | Number of document-level ingestion jobs processed in parallel                |
+| `OBAN_INGESTION_CHUNKS_CONCURRENCY` | `6`                                               | No                 | Number of chunk child-jobs processed in parallel by `Zaq.Ingestion.IngestChunkWorker` |
 
 AI model settings (LLM, embedding, image-to-text) are managed in Back Office System Config
 at `/bo/system-config`, not via environment variables.
+
+`OBAN_INGESTION_CHUNKS_CONCURRENCY` directly impacts chunk ingestion behavior:
+
+- lower value: less concurrent title/embedding load, lower rate-limit pressure
+- higher value: higher throughput, but higher load on LLM endpoints and DB
+- value `1`: serial chunk worker execution per node
 
 ### Local (Mix)
 

@@ -28,6 +28,7 @@ config :zaq, Oban,
   ],
   crontab: [],
   plugins: [
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
     {Zaq.Oban.DynamicCron,
      crontab: [
        {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
@@ -35,7 +36,8 @@ config :zaq, Oban,
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
        {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker}
      ]}
-  ]
+  ],
+  shutdown_grace_period: :timer.seconds(10)
 
 # Configure the endpoint
 config :zaq, ZaqWeb.Endpoint,

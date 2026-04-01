@@ -298,6 +298,44 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert meta.section_type == :figure
     end
 
+    test "supports string-key metadata from persisted chunk payloads" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_1_1",
+        section_id: "sec4",
+        content: "Heading content",
+        section_path: ["Chapter 2"],
+        tokens: 7,
+        metadata: %{
+          "section_type" => "heading",
+          "section_level" => 2,
+          "position" => 12
+        }
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk, 101, 4)
+
+      assert meta.section_type == "heading"
+      assert meta.section_level == 2
+      assert meta.position == 12
+      refute Map.has_key?(meta, :figure_title)
+    end
+
+    test "adds figure_title when section_type is string figure" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_2_1",
+        section_id: "sec5",
+        content: "Figure content",
+        section_path: ["Chapter", "diagram.png"],
+        tokens: 4,
+        metadata: %{"section_type" => "figure", "section_level" => nil, "position" => 5}
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk, 88, 8)
+
+      assert meta.figure_title == "diagram.png"
+      assert meta.section_type == "figure"
+    end
+
     test "uses empty figure_title when section_path is empty" do
       chunk = %DocumentChunker.Chunk{
         id: "chunk_2_0",

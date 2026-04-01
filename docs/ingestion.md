@@ -12,18 +12,21 @@ hybrid search (full-text + vector with RRF fusion), and real-time job status via
 
 ```
 File path
-  → Zaq.Ingestion.ingest_file/2         ← creates IngestJob, queues Oban worker
-  → IngestWorker.perform/1              ← picks up job, calls DocumentProcessor
-  → DocumentProcessor.process_single_file/1
-      → File.read/1                     ← read file content
-      → Document.upsert/1               ← upsert document record
-      → Chunk.delete_by_document/1      ← clear old chunks
-      → DocumentChunker.parse_layout/2  ← detect sections (headings, tables, figures)
-      → DocumentChunker.chunk_sections/1 ← split into token-bounded chunks (400-900 tokens)
-      → store_chunk_with_metadata/3     ← for each chunk:
-          → ChunkTitle.ask/1            ← LLM generates descriptive title
-          → EmbeddingClient.embed/1     ← generate vector embedding
-          → Chunk.changeset + Repo.insert ← store to DB with PGVector halfvec
+  → Zaq.Ingestion.ingest_file/2             ← creates IngestJob, queues Oban worker
+  → IngestWorker.perform/1                  ← document-level orchestrator
+      → DocumentProcessor.prepare_file_chunks/3
+          → File.read/1                     ← read file content
+          → Document.upsert/1               ← upsert document record
+          → DocumentChunker.parse_layout/2  ← detect sections (headings, tables, figures)
+          → DocumentChunker.chunk_sections/1 ← split into token-bounded chunks
+          → persist ingest_chunk_jobs rows  ← one persisted child job per chunk
+      → enqueue IngestChunkWorker jobs      ← queue: :ingestion_chunks
+  → IngestChunkWorker.perform/1             ← chunk-level processor
+      → store_chunk_with_metadata/5         ← for each chunk:
+          → ChunkTitle.ask/1                ← LLM generates descriptive title
+          → EmbeddingClient.embed/1         ← generate vector embedding
+          → Chunk.changeset + Repo.insert   ← store to DB with PGVector halfvec
+      → updates parent IngestJob counters   ← ingested_chunks/total_chunks/failed_chunks
 ```
 
 ---
@@ -42,9 +45,19 @@ File path
 ### Oban Worker (`Zaq.Ingestion.IngestWorker`)
 - Queue: `:ingestion`, max 3 attempts, 5s × attempt backoff
 - Unique jobs per args within 120s window (prevents duplicate ingestion)
-- Job lifecycle: `pending → processing → completed | failed`
+- Job lifecycle: `pending → processing → completed | completed_with_errors | failed`
 - Broadcasts `{:job_updated, job}` on every state transition via PubSub
 - `DocumentProcessor` is injectable: `Application.get_env(:zaq, :document_processor)`
+
+### Oban Worker (`Zaq.Ingestion.IngestChunkWorker`)
+- Queue: `:ingestion_chunks`, max 5 attempts, unique per `{job_id, chunk_job_id}` args window
+- Processes one persisted chunk payload per job (`ingest_chunk_jobs`)
+- On success: marks chunk `completed` and recomputes parent `IngestJob` counters
+- On failure: marks chunk `pending` for retry; on final attempt marks `failed_final`
+- On rate limit (`429`): snoozes retry delay using headers (`retry-after`, `ratelimit-reset`, `x-ratelimit-reset`), defaults to 60s
+- Parent job is terminal only when all chunk jobs are terminal:
+  - `completed` when all chunks succeeded
+  - `completed_with_errors` when at least one chunk is `failed_final`
 
 ### Document Chunking (`Zaq.Ingestion.DocumentChunker`)
 - Layout-aware, hierarchical section detection for Markdown
@@ -58,8 +71,9 @@ File path
 
 ### Document Processor (`Zaq.Ingestion.DocumentProcessor`)
 - `process_single_file/1` — full pipeline: read → upsert doc → chunk → embed → store
+- `prepare_file_chunks/3` — parses document and returns persisted chunk payloads for child jobs
 - `process_folder/1` — processes all `*.md` files in a directory
-- `store_chunk_with_metadata/3` — generates LLM title, embeds, validates dimension, inserts
+- `store_chunk_with_metadata/5` — generates LLM title, embeds, validates dimension, inserts
 - `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60)
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
@@ -79,10 +93,15 @@ File path
 - `put_embedding/2` — separate changeset step for async embedding writes
 
 **`Zaq.Ingestion.IngestJob`**
-- Fields: `file_path`, `status`, `mode`, `error`, `started_at`, `completed_at`, `chunks_count`, `document_id`
-- Statuses: `pending | processing | completed | failed`
+- Fields: `file_path`, `status`, `mode`, `error`, `started_at`, `completed_at`, `chunks_count`, `total_chunks`, `ingested_chunks`, `failed_chunks`, `failed_chunk_indices`, `document_id`
+- Statuses: `pending | processing | completed | completed_with_errors | failed`
 - Modes: `async | inline`
 - Primary key: UUID (`:binary_id`)
+
+**`Zaq.Ingestion.IngestChunkJob`**
+- Fields: `ingest_job_id`, `document_id`, `chunk_index`, `chunk_payload`, `status`, `attempts`, `error`
+- Statuses: `pending | processing | completed | failed_final`
+- Purpose: persisted chunk-level retries and resumable ingestion after restarts
 
 ### Embedding Client (`Zaq.Embedding.Client`)
 - Standalone module (not under `agent/`) — used by both ingestion and search
@@ -107,6 +126,8 @@ lib/zaq/ingestion/
 ├── document_processor.ex # Full pipeline: read, chunk, embed, store, search
 ├── file_explorer.ex      # File system utilities (list, resolve paths)
 ├── ingest_job.ex         # Ecto schema for ingestion job tracking
+├── ingest_chunk_job.ex   # Ecto schema for persisted child chunk jobs
+├── ingest_chunk_worker.ex # Oban worker for chunk-level processing/retries
 ├── ingest_worker.ex      # Oban worker for async job processing
 ├── ingestion.ex          # Public API: trigger, query, retry, cancel jobs
 ├── oban_telemetry.ex     # Oban telemetry setup
@@ -130,8 +151,19 @@ config :zaq, Zaq.Ingestion,
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  queues: [ingestion: 10]
+  queues: [ingestion: 3, ingestion_chunks: 6]
 ```
+
+Runtime env vars used in `config/runtime.exs`:
+
+- `OBAN_INGESTION_CONCURRENCY` (default `3`) — number of document-level ingestion jobs processed in parallel.
+- `OBAN_INGESTION_CHUNKS_CONCURRENCY` (default `6`) — number of chunk child-jobs processed in parallel.
+
+Impact:
+
+- Lower `OBAN_INGESTION_CHUNKS_CONCURRENCY` reduces concurrent embedding/title generation pressure on LLM endpoints and DB writes.
+- Higher values improve throughput, but can increase rate-limits and downstream load.
+- Setting it to `1` serializes chunk worker execution per node.
 
 Back Office System Config (`/bo/system-config`) now owns model-related settings:
 

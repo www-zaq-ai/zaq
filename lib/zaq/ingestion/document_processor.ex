@@ -660,19 +660,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Builds metadata map from chunk information.
   """
   def build_metadata(%DocumentChunker.Chunk{} = chunk, document_id, index) do
+    section_type = metadata_field(chunk.metadata, :section_type)
+
     base = %{
       document_id: document_id,
       chunk_index: index,
       section_id: chunk.section_id,
       section_path: chunk.section_path,
-      section_type: chunk.metadata.section_type,
-      section_level: chunk.metadata.section_level,
-      position: chunk.metadata.position,
+      section_type: section_type,
+      section_level: metadata_field(chunk.metadata, :section_level),
+      position: metadata_field(chunk.metadata, :position),
       tokens: chunk.tokens
     }
 
-    case chunk.metadata.section_type do
-      :figure ->
+    case section_type do
+      value when value in [:figure, "figure"] ->
         figure_title = List.last(chunk.section_path) || ""
         Map.put(base, :figure_title, figure_title)
 
@@ -680,6 +682,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         base
     end
   end
+
+  defp metadata_field(metadata, key) when is_map(metadata) do
+    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
+  end
+
+  defp metadata_field(_metadata, _key), do: nil
 
   # ---------------------------------------------------------------------------
   # Query extraction (token-limited context for answering agent)
