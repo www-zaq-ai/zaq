@@ -139,10 +139,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       })
       |> render_submit()
 
-      state = :sys.get_state(view.pid)
-      errors = state.socket.assigns.llm_form.source.errors
-      assert {:api_key, {message, _opts}} = List.keyfind(errors, :api_key, 0)
-      assert message =~ "could not be encrypted"
+      html = render(view)
+      assert html =~ "could not be encrypted"
     end
 
     test "shows Embedding api_key encryption error in form", %{conn: conn} do
@@ -181,10 +179,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       })
       |> render_submit()
 
-      state = :sys.get_state(view.pid)
-      errors = state.socket.assigns.embedding_form.source.errors
-      assert {:api_key, {message, _opts}} = List.keyfind(errors, :api_key, 0)
-      assert message =~ "could not be encrypted"
+      html = render(view)
+      assert html =~ "could not be encrypted"
     end
 
     test "shows Image-to-Text api_key encryption error in form", %{conn: conn} do
@@ -216,10 +212,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       })
       |> render_submit()
 
-      state = :sys.get_state(view.pid)
-      errors = state.socket.assigns.image_to_text_form.source.errors
-      assert {:api_key, {message, _opts}} = List.keyfind(errors, :api_key, 0)
-      assert message =~ "could not be encrypted"
+      html = render(view)
+      assert html =~ "could not be encrypted"
     end
   end
 end
