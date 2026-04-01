@@ -126,7 +126,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
       {:error, %Ecto.Changeset{} = cs} ->
         {:noreply,
-         assign(socket, :llm_form, to_form(Map.put(cs, :action, :validate), as: :llm_config))}
+         socket
+         |> assign(:llm_api_key_value, params["api_key"] || socket.assigns.llm_api_key_value)
+         |> assign(:llm_form, to_form(Map.put(cs, :action, :validate), as: :llm_config))}
     end
   end
 
@@ -246,10 +248,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
       {:error, %Ecto.Changeset{} = cs} ->
         {:noreply,
-         assign(
-           socket,
+         socket
+         |> assign(
            :image_to_text_form,
            to_form(Map.put(cs, :action, :validate), as: :image_to_text_config)
+         )
+         |> assign(
+           :image_to_text_api_key_value,
+           params["api_key"] || socket.assigns.image_to_text_api_key_value
          )}
     end
   end
@@ -269,10 +275,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
       {:error, %Ecto.Changeset{} = cs} ->
         {:noreply,
-         assign(
-           socket,
+         socket
+         |> assign(
            :embedding_form,
            to_form(Map.put(cs, :action, :validate), as: :embedding_config)
+         )
+         |> assign(
+           :embedding_api_key_value,
+           params["api_key"] || socket.assigns.embedding_api_key_value
          )}
     end
   end
@@ -792,6 +802,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 </svg>
               </button>
             </div>
+            <p
+              :for={{msg, opts} <- @form[:api_key].errors}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {translate_error({msg, opts})}
+            </p>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
@@ -1209,6 +1225,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 </svg>
               </button>
             </div>
+            <p
+              :for={{msg, opts} <- @form[:api_key].errors}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {translate_error({msg, opts})}
+            </p>
           </div>
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
@@ -1466,6 +1488,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 </svg>
               </button>
             </div>
+            <p
+              :for={{msg, opts} <- @form[:api_key].errors}
+              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+            >
+              {translate_error({msg, opts})}
+            </p>
           </div>
           <div class="pt-2">
             <button
