@@ -177,6 +177,7 @@
                   confidence={msg.confidence}
                   sources={Map.get(msg, :sources, [])}
                   is_error={Map.get(msg, :error, false)}
+                  source_click_event="open_preview_modal"
                 >
                   <:actions>
                     <button
@@ -417,6 +418,12 @@
     </div>
 
     <%!-- Feedback modal --%>
+    <ZaqWeb.Components.FilePreviewModal.modal
+      :if={@preview}
+      preview={@preview}
+      cancel_event="close_preview_modal"
+    />
+
     <%= if @show_feedback_modal do %>
       <div
         id="feedback-modal"

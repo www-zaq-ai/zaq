@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   use ZaqWeb, :live_view
 
   alias Zaq.NodeRouter
+  alias ZaqWeb.Live.BO.AI.FilePreviewData
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -29,7 +30,8 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
      |> assign(:conversation, conversation)
      |> assign(:messages, messages)
      |> assign(:shares, shares)
-     |> assign(:show_share_dialog, false)}
+     |> assign(:show_share_dialog, false)
+     |> assign(:preview, nil)}
   rescue
     Ecto.NoResultsError ->
       {:ok,
@@ -62,6 +64,14 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
 
   def handle_event("close_share_dialog", _params, socket) do
     {:noreply, assign(socket, :show_share_dialog, false)}
+  end
+
+  def handle_event("open_preview_modal", %{"path" => path}, socket) do
+    {:noreply, maybe_open_preview(socket, path)}
+  end
+
+  def handle_event("close_preview_modal", _params, socket) do
+    {:noreply, assign(socket, :preview, nil)}
   end
 
   def handle_event("share", %{"permission" => permission}, socket) do
@@ -102,4 +112,14 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   end
 
   defp find_message(messages, id), do: Enum.find(messages, &(&1.id == id))
+
+  defp maybe_open_preview(socket, path) do
+    case FilePreviewData.load(path, socket.assigns.current_user) do
+      {:ok, preview} ->
+        assign(socket, :preview, preview)
+
+      {:error, :unauthorized} ->
+        put_flash(socket, :error, "You do not have access to this file.")
+    end
+  end
 end

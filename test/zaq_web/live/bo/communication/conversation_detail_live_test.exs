@@ -30,7 +30,8 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
         role: "assistant",
         content: "ZAQ is an AI company brain.",
         model: "gpt-4",
-        confidence_score: 0.9
+        confidence_score: 0.9,
+        sources: [%{"path" => "guide.md"}]
       })
 
     {conv, assistant_msg}
@@ -112,6 +113,20 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       |> render_click()
 
       assert Conversations.list_shares(conv) == []
+    end
+  end
+
+  describe "source preview" do
+    test "opens preview modal from shared source chip", %{conn: conn, user: user} do
+      {conv, _assistant_msg} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      view
+      |> element(~s(button[data-testid="source-chip"]))
+      |> render_click()
+
+      assert has_element?(view, "#file-preview-modal")
+      assert has_element?(view, "#file-preview-modal p", "File not found")
     end
   end
 end

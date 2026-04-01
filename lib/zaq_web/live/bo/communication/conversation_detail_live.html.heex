@@ -80,6 +80,7 @@
               html_content={true}
               confidence={msg.confidence_score}
               sources={msg.sources || []}
+              source_click_event="open_preview_modal"
             >
               <:actions>
                 <button
@@ -170,6 +171,12 @@
   </div>
 
   <%!-- Share dialog --%>
+  <ZaqWeb.Components.FilePreviewModal.modal
+    :if={@preview}
+    preview={@preview}
+    cancel_event="close_preview_modal"
+  />
+
   <div
     :if={@show_share_dialog}
     class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"

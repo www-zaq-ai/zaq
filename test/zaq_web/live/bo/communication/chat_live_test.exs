@@ -8,12 +8,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Accounts
   alias Zaq.Agent.{Answering, Retrieval}
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.Engine.Conversations
   alias Zaq.Ingestion.DocumentProcessor
 
   defmodule NodeRouterFake do
     def call(role, mod, fun, args) do
       state = :persistent_term.get(__MODULE__, %{})
       handler = Map.get(state, {role, mod, fun})
+
+      log = :persistent_term.get({__MODULE__, :calls}, [])
+      :persistent_term.put({__MODULE__, :calls}, [{role, mod, fun, args} | log])
 
       cond do
         is_function(handler, 1) -> handler.(args)
@@ -30,6 +34,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
       :persistent_term.put(__MODULE__, Map.put(state, {role, mod, fun}, handler))
     end
+
+    def calls do
+      :persistent_term.get({__MODULE__, :calls}, []) |> Enum.reverse()
+    end
+
+    def reset_calls do
+      :persistent_term.put({__MODULE__, :calls}, [])
+    end
   end
 
   setup :verify_on_exit!
@@ -44,6 +56,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     Application.put_env(:zaq, :chat_live_node_router_module, NodeRouterFake)
     :persistent_term.put(NodeRouterFake, %{})
+    NodeRouterFake.reset_calls()
 
     template_attrs = %{
       slug: "answering",
@@ -64,6 +77,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     on_exit(fn ->
       Application.delete_env(:zaq, :chat_live_node_router_module)
       :persistent_term.erase(NodeRouterFake)
+      :persistent_term.erase({NodeRouterFake, :calls})
     end)
 
     %{conn: conn, user: user}
@@ -103,6 +117,285 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     render_hook(view, "copy_message", %{"text" => "copy me"})
     assert_push_event(view, "clipboard", %{text: "copy me"})
+  end
+
+  test "load_conversation maps DB messages to UI and history", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _user_msg} = Conversations.add_message(conv, %{role: "user", content: "First question"})
+
+    {:ok, _assistant_msg} =
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "First answer [source: guide.md]",
+        confidence_score: 0.91,
+        sources: [%{"path" => "guide.md"}]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.current_conversation_id == conv.id and
+        length(assigns.messages) == 3 and
+        map_size(assigns.history) == 2 and
+        Enum.any?(assigns.messages, fn m ->
+          m.role == :bot and m.body == "First answer" and m.sources == [%{"path" => "guide.md"}]
+        end)
+    end)
+  end
+
+  test "status_update handle_info updates only for matching request id", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {:status_update, nil, :retrieving, "fetching docs"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+
+      state.socket.assigns.status == :retrieving and
+        state.socket.assigns.status_message == "fetching docs"
+    end)
+
+    send(view.pid, {:status_update, "stale", :answering, "ignored"})
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.status == :retrieving
+    assert state.socket.assigns.status_message == "fetching docs"
+  end
+
+  test "title_updated updates matching sidebar conversation", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo",
+        title: "Old title"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {:title_updated, conv.id, "New title"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+
+      Enum.any?(
+        state.socket.assigns.conversations,
+        &(&1.id == conv.id and &1.title == "New title")
+      )
+    end)
+  end
+
+  test "pipeline_result matching nil request id persists via NodeRouter and updates history", %{
+    conn: conn,
+    user: user
+  } do
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :create_conversation, fn [_attrs] ->
+      {:ok, %{id: "conv-1", user_id: nil}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :update_conversation, fn [_conv, attrs] ->
+      {:ok, %{id: "conv-1", user_id: attrs.user_id}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :add_message, fn [_conv, attrs] ->
+      case attrs.role do
+        "assistant" -> {:ok, %{id: "bot-db-1"}}
+        "user" -> {:ok, %{id: "user-db-1"}}
+      end
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :list_conversations, [])
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {
+      :pipeline_result,
+      nil,
+      %{answer: "Pipeline answer [source: guide.md]", confidence_score: 0.9},
+      "What is ZAQ?"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      bot = List.last(assigns.messages)
+
+      assigns.current_conversation_id == "conv-1" and
+        map_size(assigns.history) == 2 and
+        bot.role == :bot and bot.db_id == "bot-db-1" and bot.body == "Pipeline answer"
+    end)
+
+    calls = NodeRouterFake.calls()
+
+    assert Enum.any?(calls, fn {r, m, f, _a} ->
+             r == :engine and m == Zaq.Engine.Conversations and f == :create_conversation
+           end)
+
+    assert Enum.any?(calls, fn {r, m, f, _a} ->
+             r == :engine and m == Zaq.Engine.Conversations and f == :update_conversation
+           end)
+
+    assert Enum.count(calls, fn {r, m, f, _a} ->
+             r == :engine and m == Zaq.Engine.Conversations and f == :add_message
+           end) == 2
+
+    assert Enum.any?(calls, fn {r, m, f, args} ->
+             r == :engine and m == Zaq.Engine.Conversations and f == :update_conversation and
+               case args do
+                 [_conv, %{user_id: uid}] -> uid == user.id
+                 _ -> false
+               end
+           end)
+  end
+
+  test "pipeline_result with error appends error message and keeps history unchanged", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {
+      :pipeline_result,
+      nil,
+      %{answer: "Something failed", confidence_score: 0.0, error: true},
+      "Q"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      bot = List.last(assigns.messages)
+
+      length(assigns.messages) == 2 and map_size(assigns.history) == 0 and bot.error == true and
+        assigns.current_request_id == nil
+    end)
+  end
+
+  test "feedback positive persists rating for loaded DB message", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _user_msg} = Conversations.add_message(conv, %{role: "user", content: "Question"})
+
+    {:ok, assistant_msg} =
+      Conversations.add_message(conv, %{role: "assistant", content: "Answer"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    bot_ui_id =
+      eventually_value(fn ->
+        state = :sys.get_state(view.pid)
+        Enum.find(state.socket.assigns.messages, &(Map.get(&1, :db_id) == assistant_msg.id))
+      end)
+
+    render_hook(view, "feedback", %{"id" => bot_ui_id.id, "type" => "positive"})
+
+    assert_eventually(fn ->
+      msgs = Conversations.list_messages(Conversations.get_conversation!(conv.id))
+      assistant = Enum.find(msgs, &(&1.id == assistant_msg.id))
+      Enum.any?(assistant.ratings, &(&1.user_id == user.id and &1.rating == 5))
+    end)
+  end
+
+  test "submit_feedback persists negative rating comment for loaded DB message", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _user_msg} = Conversations.add_message(conv, %{role: "user", content: "Question"})
+
+    {:ok, assistant_msg} =
+      Conversations.add_message(conv, %{role: "assistant", content: "Answer"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    bot_ui_id =
+      eventually_value(fn ->
+        state = :sys.get_state(view.pid)
+        Enum.find(state.socket.assigns.messages, &(Map.get(&1, :db_id) == assistant_msg.id))
+      end)
+
+    render_hook(view, "feedback", %{"id" => bot_ui_id.id, "type" => "negative"})
+    render_hook(view, "toggle_feedback_reason", %{"reason" => "Too slow"})
+    render_hook(view, "update_feedback_comment", %{"comment" => "Needs more detail"})
+    render_hook(view, "submit_feedback", %{})
+
+    assert_eventually(fn ->
+      msgs = Conversations.list_messages(Conversations.get_conversation!(conv.id))
+      assistant = Enum.find(msgs, &(&1.id == assistant_msg.id))
+
+      Enum.any?(assistant.ratings, fn r ->
+        r.user_id == user.id and r.rating == 1 and String.contains?(r.comment || "", "Too slow") and
+          String.contains?(r.comment || "", "Needs more detail")
+      end)
+    end)
+  end
+
+  test "source chip opens preview modal", %{conn: conn} do
+    NodeRouterFake.put(
+      :agent,
+      Retrieval,
+      :ask,
+      {:ok,
+       %{
+         "query" => "zaq",
+         "language" => "en",
+         "positive_answer" => "Searching...",
+         "negative_answer" => "No answer"
+       }}
+    )
+
+    NodeRouterFake.put(
+      :ingestion,
+      DocumentProcessor,
+      :query_extraction,
+      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
+    )
+
+    NodeRouterFake.put(
+      :agent,
+      Answering,
+      :ask,
+      {:ok, %{answer: "All good [source: guide.md]", confidence: %{score: 0.92}}}
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "What is ZAQ?"})
+
+    assert_eventually(fn -> has_element?(view, ~s(button[data-testid="source-chip"])) end)
+
+    view
+    |> element(~s(button[data-testid="source-chip"]))
+    |> render_click()
+
+    assert has_element?(view, "#file-preview-modal")
+    assert has_element?(view, "#file-preview-modal p", "File not found")
+
+    render_hook(view, "close_preview_modal", %{})
+    refute has_element?(view, "#file-preview-modal")
   end
 
   test "feedback positive/negative, reason toggles, comment and submit", %{conn: conn} do
@@ -421,5 +714,29 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
   defp assert_eventually(fun, 0) do
     assert fun.()
+  end
+
+  defp eventually_value(fun, retries \\ 80)
+
+  defp eventually_value(fun, retries) when retries > 0 do
+    case fun.() do
+      nil ->
+        receive do
+          _ -> :ok
+        after
+          10 -> :ok
+        end
+
+        eventually_value(fun, retries - 1)
+
+      value ->
+        value
+    end
+  end
+
+  defp eventually_value(fun, 0) do
+    value = fun.()
+    assert value != nil
+    value
   end
 end

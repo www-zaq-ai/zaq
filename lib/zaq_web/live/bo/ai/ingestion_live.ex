@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
   alias Zaq.System
+  alias ZaqWeb.Live.BO.AI.FilePreviewData
 
   @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv .png .jpg)
   @ingestion_topic "ingestion:jobs"
@@ -53,7 +54,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        ingestion_map: %{},
        # Raw MD modal state
        raw_content: "",
-       raw_filename: ""
+       raw_filename: "",
+       preview: nil
      )
      |> load_entries()
      |> load_jobs()
@@ -346,7 +348,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Close
 
   def handle_event("close_modal", _params, socket) do
-    {:noreply, assign(socket, modal: nil, modal_error: nil)}
+    {:noreply, assign(socket, modal: nil, modal_error: nil, preview: nil)}
+  end
+
+  def handle_event("open_preview", %{"path" => path}, socket) do
+    {:noreply, maybe_open_preview(socket, path)}
   end
 
   # Modal: Add Raw MD
@@ -697,6 +703,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       end)
 
     assign(socket, move_breadcrumbs: crumbs)
+  end
+
+  defp maybe_open_preview(socket, path) do
+    case FilePreviewData.load(path, socket.assigns.current_user) do
+      {:ok, preview} ->
+        socket
+        |> assign(:preview, preview)
+        |> assign(:modal, :preview)
+        |> assign(:modal_error, nil)
+
+      {:error, :unauthorized} ->
+        put_flash(socket, :error, "You do not have access to this file.")
+    end
   end
 
   # Kept public for backward-compat with tests that call these directly.

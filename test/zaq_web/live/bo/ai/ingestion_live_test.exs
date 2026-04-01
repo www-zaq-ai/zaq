@@ -140,6 +140,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "span", "Select all")
   end
 
+  test "opens file preview inside modal", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    view
+    |> element(~s(button[phx-click="open_preview"][phx-value-path$="alpha.md"]))
+    |> render_click()
+
+    assert has_element?(view, "#file-preview-modal")
+    assert has_element?(view, "#file-preview-modal", "alpha.md")
+
+    render_hook(view, "close_modal", %{})
+    refute has_element?(view, "#file-preview-modal")
+  end
+
   test "creates folders with validation and error handling", %{conn: conn, tmp_dir: tmp_dir} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 

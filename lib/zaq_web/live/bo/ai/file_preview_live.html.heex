@@ -2,7 +2,7 @@
 <ZaqWeb.Components.BOLayout.bo_layout
   current_user={@current_user}
   flash={@flash}
-  page_title={@filename}
+  page_title={@preview.filename}
   current_path={@current_path}
   features_version={@features_version}
 >
@@ -26,23 +26,22 @@
       </a>
 
       <div>
-        <h1 class="font-mono text-[0.95rem] font-semibold text-black">{@filename}</h1>
+        <h1 class="font-mono text-[0.95rem] font-semibold text-black">{@preview.filename}</h1>
         <p class="font-mono text-[0.68rem] text-black/35 mt-0.5">
-          {if @relative_path != @filename, do: @relative_path, else: "root/#{@filename}"}
+          {if @preview.relative_path != @preview.filename,
+            do: @preview.relative_path,
+            else: "root/#{@preview.filename}"}
         </p>
       </div>
     </div>
-    
-<!-- Meta + actions -->
+
+    <!-- Meta + actions -->
     <div class="flex items-center gap-4">
-      <div class="text-right">
-        <p class="font-mono text-[0.68rem] text-black/30">{format_size(@file_size)}</p>
-        <p class="font-mono text-[0.65rem] text-black/25">{format_datetime(@modified_at)}</p>
-      </div>
+      <ZaqWeb.Components.FilePreview.meta preview={@preview} />
 
       <a
-        :if={@raw_url}
-        href={@raw_url}
+        :if={@preview.raw_url}
+        href={@preview.raw_url}
         target="_blank"
         rel="noopener noreferrer"
         class="font-mono text-[0.72rem] px-3 py-1.5 rounded-xl bg-black/5 text-black/50 hover:bg-black/10 transition-colors flex items-center gap-1.5"
@@ -65,129 +64,6 @@
       </a>
     </div>
   </div>
-  
-<!-- ── Not found ── -->
-  <div
-    :if={@kind == :not_found}
-    class="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-16 text-center"
-  >
-    <svg
-      class="w-10 h-10 mx-auto mb-3 text-black/15"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      viewBox="0 0 24 24"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-      />
-    </svg>
-    <p class="font-mono text-[0.85rem] text-black/40">File not found</p>
-    <p class="font-mono text-[0.72rem] text-black/25 mt-1">{@relative_path}</p>
-  </div>
-  
-<!-- ── Markdown / converted document rendered ── -->
-  <div
-    :if={@kind == :markdown}
-    class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
-  >
-    <!-- Toolbar -->
-    <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
-      <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-[#03b6d4]/10 text-[#03b6d4]">
-        {String.trim_leading(@ext, ".")}
-      </span>
-      <span class="font-mono text-[0.65rem] text-black/25">rendered</span>
-    </div>
-    <!-- Rendered HTML -->
-    <div class="px-10 py-8 md-content max-w-none">
-      {Phoenix.HTML.raw(@rendered_html)}
-    </div>
-  </div>
-  
-<!-- ── Plain text ── -->
-  <div
-    :if={@kind == :text}
-    class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
-  >
-    <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
-      <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-black/5 text-black/40">
-        {String.trim_leading(@ext, ".")}
-      </span>
-      <span class="font-mono text-[0.65rem] text-black/25">plain text</span>
-    </div>
-    <pre class="px-8 py-6 font-mono text-[0.82rem] text-black/70 whitespace-pre-wrap break-words overflow-x-auto leading-relaxed">{@content}</pre>
-  </div>
-  
-<!-- ── Image ── -->
-  <div
-    :if={@kind == :image}
-    class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
-  >
-    <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
-      <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-black/5 text-black/40">
-        {String.trim_leading(@ext, ".")}
-      </span>
-      <span class="font-mono text-[0.65rem] text-black/25">image</span>
-    </div>
-    <div class="p-8 flex items-center justify-center bg-[#fafafa] rounded-b-2xl">
-      <img
-        src={@raw_url}
-        alt={@filename}
-        class="max-w-full max-h-[70vh] rounded-xl shadow-sm object-contain"
-      />
-    </div>
-  </div>
-  
-<!-- ── PDF ── -->
-  <div
-    :if={@kind == :pdf}
-    class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden"
-  >
-    <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa]">
-      <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-red-100 text-red-500">
-        pdf
-      </span>
-      <span class="font-mono text-[0.65rem] text-black/25">document</span>
-    </div>
-    <iframe
-      src={@raw_url}
-      class="w-full"
-      style="height: 80vh;"
-      title={@filename}
-    />
-  </div>
-  
-<!-- ── Binary / unsupported ── -->
-  <div
-    :if={@kind == :binary}
-    class="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-16 text-center"
-  >
-    <svg
-      class="w-10 h-10 mx-auto mb-3 text-black/15"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      viewBox="0 0 24 24"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"
-      />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
-    <p class="font-mono text-[0.85rem] text-black/40">Preview not available</p>
-    <p class="font-mono text-[0.72rem] text-black/25 mt-1 mb-5">
-      {String.trim_leading(@ext, ".")} files cannot be previewed in the browser
-    </p>
-    <a
-      href={@raw_url}
-      download={@filename}
-      class="font-mono text-[0.78rem] font-semibold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
-    >
-      Download file
-    </a>
-  </div>
+
+  <ZaqWeb.Components.FilePreview.panel preview={@preview} />
 </ZaqWeb.Components.BOLayout.bo_layout>

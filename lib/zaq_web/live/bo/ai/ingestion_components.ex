@@ -464,13 +464,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     </span>
                   <% end %>
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
-                    <a
+                    <button
                       :if={entry.type == :file}
-                      href={"/bo/preview/#{Path.join([@current_volume, @current_dir, entry.name])}"}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      type="button"
+                      phx-click="open_preview"
+                      phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
                       class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
-                      title="Preview in new tab"
+                      title="Preview"
                     >
                       <svg
                         class="w-3.5 h-3.5"
@@ -485,7 +485,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                           d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                         />
                       </svg>
-                    </a>
+                    </button>
                     <button
                       phx-click="move_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
@@ -717,10 +717,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   <span class="font-mono text-[0.65rem] text-black/25">
                     {format_size(Map.get(entry, :related_md, %{}).size)}
                   </span>
-                  <a
-                    href={"/bo/preview/#{Path.join([@current_volume, @current_dir, Map.get(entry, :related_md, %{name: ""}).name])}"}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    phx-click="open_preview"
+                    phx-value-path={
+                      Path.join([
+                        @current_volume,
+                        @current_dir,
+                        Map.get(entry, :related_md, %{name: ""}).name
+                      ])
+                    }
                     class="ml-auto font-mono text-[0.65rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors flex items-center gap-1 pr-2"
                     title="Preview converted markdown"
                   >
@@ -738,7 +744,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       />
                     </svg>
                     preview md
-                  </a>
+                  </button>
                 </div>
               </td>
             </tr>
@@ -802,13 +808,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             />
           </div>
           <div class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-            <a
+            <button
               :if={entry.type == :file}
-              href={"/bo/preview/#{Path.join([@current_volume, @current_dir, entry.name])}"}
-              target="_blank"
-              rel="noopener noreferrer"
+              type="button"
+              phx-click="open_preview"
+              phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
               class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
-              title="Preview in new tab"
+              title="Preview"
             >
               <svg
                 class="w-3 h-3"
@@ -823,7 +829,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                 />
               </svg>
-            </a>
+            </button>
             <button
               phx-click="move_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
@@ -973,11 +979,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     shared
                   </span>
               <% end %>
-              <a
+              <button
                 :if={Map.get(entry, :related_md)}
-                href={"/bo/preview/#{Path.join([@current_volume, @current_dir, Map.get(entry, :related_md, %{name: ""}).name])}"}
-                target="_blank"
-                rel="noopener noreferrer"
+                type="button"
+                phx-click="open_preview"
+                phx-value-path={
+                  Path.join([
+                    @current_volume,
+                    @current_dir,
+                    Map.get(entry, :related_md, %{name: ""}).name
+                  ])
+                }
                 class="mt-2 flex items-center gap-1 font-mono text-[0.6rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors border-t border-dashed border-black/[0.06] pt-2 w-full justify-center"
                 title="Preview converted markdown"
               >
@@ -985,7 +997,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   name={Map.get(entry, :related_md, %{name: ""}).name}
                   class="w-3 h-3"
                 /> md preview
-              </a>
+              </button>
             </div>
           <% end %>
         </div>

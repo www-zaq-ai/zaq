@@ -14,6 +14,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias Zaq.Agent.{History, Pipeline}
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
+  alias ZaqWeb.Live.BO.AI.FilePreviewData
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
 
@@ -48,6 +49,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:feedback_message_id, nil)
      |> assign(:feedback_reasons, [])
      |> assign(:feedback_comment, "")
+     |> assign(:preview, nil)
      |> assign(:conversations, conversations)
      |> assign(:current_conversation_id, nil)
      |> assign(:suggested_questions, [
@@ -149,6 +151,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("copy_message", %{"text" => text}, socket) do
     {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
+
+  def handle_event("open_preview_modal", %{"path" => path}, socket) do
+    {:noreply, maybe_open_preview(socket, path)}
+  end
+
+  def handle_event("close_preview_modal", _params, socket) do
+    {:noreply, assign(socket, :preview, nil)}
   end
 
   def handle_event("feedback", %{"id" => id, "type" => "positive"}, socket) do
@@ -551,6 +561,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp infer_feedback_from_ratings([%{rating: r} | _]) when r >= 4, do: :positive
   defp infer_feedback_from_ratings([%{rating: r} | _]) when r <= 2, do: :negative
   defp infer_feedback_from_ratings(_), do: nil
+
+  defp maybe_open_preview(socket, path) do
+    case FilePreviewData.load(path, socket.assigns.current_user) do
+      {:ok, preview} ->
+        assign(socket, :preview, preview)
+
+      {:error, :unauthorized} ->
+        put_flash(socket, :error, "You do not have access to this file.")
+    end
+  end
 
   defp extract_sources(body) do
     Regex.scan(~r/\[source:\s*([^\]]+)\]/, body)

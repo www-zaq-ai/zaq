@@ -69,6 +69,8 @@ defmodule ZaqWeb.Components.ChatMessage do
   # List of sources — strings (file paths) or maps with "title" key
   attr :sources, :list, default: []
   attr :is_error, :boolean, default: false
+  attr :source_click_event, :string, default: nil
+  attr :source_click_target, :string, default: nil
 
   slot :actions
 
@@ -106,7 +108,12 @@ defmodule ZaqWeb.Components.ChatMessage do
               class="grid grid-cols-2 gap-1.5 mt-3 pt-2.5"
               style="border-top: 1px solid #f0ede8;"
             >
-              <.source_card :for={source <- @sources} source={source} />
+              <.source_card
+                :for={source <- @sources}
+                source={source}
+                click_event={@source_click_event}
+                click_target={@source_click_target}
+              />
             </div>
           </div>
 
@@ -147,10 +154,45 @@ defmodule ZaqWeb.Components.ChatMessage do
   # ---------------------------------------------------------------------------
 
   attr :source, :any, required: true
+  attr :click_event, :string, default: nil
+  attr :click_target, :string, default: nil
 
   defp source_card(assigns) do
+    assigns =
+      assigns
+      |> assign(:preview_path, source_preview_path_for_modal(assigns.source))
+      |> assign(:click_target_attrs, click_target_attrs(assigns.click_target))
+
     ~H"""
+    <button
+      :if={@click_event && @preview_path}
+      type="button"
+      phx-click={@click_event}
+      phx-value-path={@preview_path}
+      {@click_target_attrs}
+      data-testid="source-chip"
+      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors hover:border-[#b2e4ef] hover:bg-[#f0f9fb] min-w-0"
+      style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
+    >
+      <svg
+        class="w-3 h-3 flex-shrink-0"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        style="color:#03b6d4;"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
+      <span class="font-mono text-[0.68rem] truncate">{source_label(@source)}</span>
+    </button>
+
     <.link
+      :if={is_nil(@click_event) or is_nil(@preview_path)}
       navigate={source_preview_path(@source)}
       data-testid="source-chip"
       class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors hover:border-[#b2e4ef] hover:bg-[#f0f9fb] min-w-0"
@@ -184,12 +226,27 @@ defmodule ZaqWeb.Components.ChatMessage do
   defp source_label(%{"title" => title}), do: title
   defp source_label(_), do: "source"
 
+  defp source_preview_path_for_modal(source) when is_binary(source) and source != "", do: source
+  defp source_preview_path_for_modal(%{"path" => path}) when is_binary(path), do: path
+  defp source_preview_path_for_modal(%{path: path}) when is_binary(path), do: path
+  defp source_preview_path_for_modal(_), do: nil
+
   defp source_preview_path(source) when is_binary(source) and source != "",
     do: "/bo/preview/#{source}"
 
-  defp source_preview_path(%{"path" => path}), do: "/bo/preview/#{path}"
-  defp source_preview_path(%{"id" => id}), do: "/bo/files/#{id}"
+  defp source_preview_path(%{"path" => path}) when is_binary(path) and path != "",
+    do: "/bo/preview/#{path}"
+
+  defp source_preview_path(%{path: path}) when is_binary(path) and path != "",
+    do: "/bo/preview/#{path}"
+
+  defp source_preview_path(%{"id" => id}) when is_binary(id) and id != "",
+    do: "/bo/files/#{id}"
+
   defp source_preview_path(_), do: "#"
+
+  defp click_target_attrs(nil), do: %{}
+  defp click_target_attrs(target), do: %{"phx-target" => target}
 
   defp confidence_color(c) when c >= 0.8, do: "#22c55e"
   defp confidence_color(c) when c >= 0.5, do: "#f59e0b"

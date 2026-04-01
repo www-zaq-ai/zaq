@@ -108,4 +108,9 @@
     all_roles={@all_roles}
     share_modal_role_ids={@share_modal_role_ids}
   />
+  <ZaqWeb.Components.FilePreviewModal.modal
+    :if={@modal == :preview and @preview}
+    preview={@preview}
+    cancel_event="close_modal"
+  />
 </ZaqWeb.Components.BOLayout.bo_layout>
