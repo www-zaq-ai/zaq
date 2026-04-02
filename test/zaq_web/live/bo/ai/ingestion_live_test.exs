@@ -150,7 +150,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "#file-preview-modal")
     assert has_element?(view, "#file-preview-modal", "alpha.md")
 
-    render_hook(view, "close_modal", %{})
+    render_hook(view, "close_preview_modal", %{})
     refute has_element?(view, "#file-preview-modal")
   end
 

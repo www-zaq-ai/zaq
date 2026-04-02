@@ -14,7 +14,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias Zaq.Agent.{History, Pipeline}
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
-  alias ZaqWeb.Live.BO.AI.FilePreviewData
+  alias ZaqWeb.Live.BO.PreviewHelpers
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
 
@@ -154,11 +154,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   def handle_event("open_preview_modal", %{"path" => path}, socket) do
-    {:noreply, maybe_open_preview(socket, path)}
+    {:noreply, PreviewHelpers.open_preview(socket, path)}
   end
 
   def handle_event("close_preview_modal", _params, socket) do
-    {:noreply, assign(socket, :preview, nil)}
+    {:noreply, PreviewHelpers.close_preview(socket)}
   end
 
   def handle_event("feedback", %{"id" => id, "type" => "positive"}, socket) do
@@ -561,16 +561,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp infer_feedback_from_ratings([%{rating: r} | _]) when r >= 4, do: :positive
   defp infer_feedback_from_ratings([%{rating: r} | _]) when r <= 2, do: :negative
   defp infer_feedback_from_ratings(_), do: nil
-
-  defp maybe_open_preview(socket, path) do
-    case FilePreviewData.load(path, socket.assigns.current_user) do
-      {:ok, preview} ->
-        assign(socket, :preview, preview)
-
-      {:error, :unauthorized} ->
-        put_flash(socket, :error, "You do not have access to this file.")
-    end
-  end
 
   defp extract_sources(body) do
     Regex.scan(~r/\[source:\s*([^\]]+)\]/, body)

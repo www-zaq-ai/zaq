@@ -1,5 +1,6 @@
 alias Zaq.Accounts
 alias Zaq.Agent.PromptTemplate
+alias Zaq.Engine.Conversations
 alias Zaq.Engine.Telemetry
 alias Zaq.Engine.Telemetry.Rollup
 alias Zaq.Ingestion.{Chunk, Document, IngestJob}
@@ -91,13 +92,15 @@ end
 
 case Accounts.get_user_by_username(username) do
   nil ->
-    {:ok, _user} =
+    {:ok, admin_user} =
       Accounts.create_user_with_password(%{
         username: username,
         email: email,
         role_id: admin_role.id,
         password: password
       })
+
+    admin_user
 
   user ->
     {:ok, user} =
@@ -109,7 +112,34 @@ case Accounts.get_user_by_username(username) do
       })
 
     {:ok, _user} = Accounts.change_password(user, %{password: password})
+
+    user
 end
+|> then(fn admin_user ->
+  # Seed one deterministic conversation containing an unsupported source extension.
+  # E2E verifies source chips are rendered but disabled for non-previewable types.
+  {:ok, conv} =
+    Conversations.create_conversation(%{
+      title: "E2E Unsupported Source Conversation",
+      user_id: admin_user.id,
+      channel_user_id: "e2e_admin",
+      channel_type: "bo"
+    })
+
+  {:ok, _} =
+    Conversations.add_message(conv, %{
+      role: "user",
+      content: "Show me unsupported source behavior"
+    })
+
+  {:ok, _} =
+    Conversations.add_message(conv, %{
+      role: "assistant",
+      content: "This answer references a binary source.",
+      confidence_score: 0.9,
+      sources: [%{"path" => "archive/evidence.bin"}]
+    })
+end)
 
 templates = [
   %{

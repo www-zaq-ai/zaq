@@ -48,6 +48,15 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       assert has_element?(view, ".md-content h1", "Rendered heading")
     end
 
+    test "escapes unsafe HTML in markdown content", %{conn: conn, tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "unsafe.md"), "# Safe\n\n<script>alert(1)</script>")
+
+      {:ok, view, _html} = live(conn, "/bo/preview/unsafe.md")
+
+      assert has_element?(view, ".md-content h1", "Safe")
+      refute has_element?(view, ".md-content script")
+    end
+
     test "renders plain text files in pre block", %{conn: conn, tmp_dir: tmp_dir} do
       File.write!(Path.join(tmp_dir, "notes.txt"), "hello plain text")
 
@@ -89,24 +98,38 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       tmp_dir: tmp_dir
     } do
       # DOCX magic bytes — Python script won't run in test env → :binary fallback
-      File.write!(Path.join(tmp_dir, "doc.docx"), <<80, 75, 3, 4, 0, 0>>)
+      unique = "doc-#{System.unique_integer([:positive])}"
+      docx_path = Path.join(tmp_dir, "#{unique}.docx")
+      File.write!(docx_path, <<80, 75, 3, 4, 0, 0>>)
 
-      {:ok, view, _html} = live(conn, "/bo/preview/doc.docx")
+      {:ok, view, _html} = live(conn, "/bo/preview/#{unique}.docx")
 
       assert has_element?(view, "p", "Preview not available")
-      assert has_element?(view, "a[download='doc.docx']")
+      assert has_element?(view, "a[download='#{unique}.docx']")
+
+      leftovers =
+        Path.wildcard(Path.join(System.tmp_dir!(), "#{unique}-*.md"))
+
+      assert leftovers == []
     end
 
     test "renders binary fallback for xlsx when Python is unavailable", %{
       conn: conn,
       tmp_dir: tmp_dir
     } do
-      File.write!(Path.join(tmp_dir, "data.xlsx"), <<80, 75, 3, 4, 0, 0>>)
+      unique = "data-#{System.unique_integer([:positive])}"
+      xlsx_path = Path.join(tmp_dir, "#{unique}.xlsx")
+      File.write!(xlsx_path, <<80, 75, 3, 4, 0, 0>>)
 
-      {:ok, view, _html} = live(conn, "/bo/preview/data.xlsx")
+      {:ok, view, _html} = live(conn, "/bo/preview/#{unique}.xlsx")
 
       assert has_element?(view, "p", "Preview not available")
-      assert has_element?(view, "a[download='data.xlsx']")
+      assert has_element?(view, "a[download='#{unique}.xlsx']")
+
+      leftovers =
+        Path.wildcard(Path.join(System.tmp_dir!(), "#{unique}-*.md"))
+
+      assert leftovers == []
     end
 
     test "renders binary fallback for xls when Python is unavailable", %{
