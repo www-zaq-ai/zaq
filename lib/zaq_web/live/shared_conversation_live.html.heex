@@ -20,9 +20,8 @@
           :if={msg.role != "user"}
           content={msg.content}
           timestamp={msg.inserted_at}
-          html_content={true}
           confidence={msg.confidence_score}
-          sources={[]}
+          sources={msg.sources || []}
         />
       </div>
 

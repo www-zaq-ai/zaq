@@ -11,7 +11,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
   alias Zaq.Accounts.Permissions
-  alias Zaq.Agent.{History, Pipeline}
+  alias Zaq.Agent.{CitationNormalizer, History, Pipeline}
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
   alias ZaqWeb.Live.BO.PreviewHelpers
@@ -294,15 +294,18 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       history = socket.assigns.history
       current_user = socket.assigns[:current_user]
 
+      %{body: normalized_body, sources: normalized_sources} =
+        CitationNormalizer.normalize(clean_body(result.answer), Map.get(result, :sources, []))
+
       bot_msg = %{
         id: generate_id(),
         role: :bot,
-        body: clean_body(result.answer),
+        body: normalized_body,
         confidence: Map.get(result, :confidence_score),
         timestamp: DateTime.utc_now(),
         error: result[:error] || false,
         feedback: nil,
-        sources: extract_sources(result.answer),
+        sources: normalized_sources,
         live: true
       }
 
@@ -310,7 +313,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         if result[:error] do
           {socket, bot_msg}
         else
-          maybe_persist_conversation(socket, bot_msg, user_msg, result, current_user)
+          maybe_persist_conversation(
+            socket,
+            bot_msg,
+            user_msg,
+            result,
+            current_user,
+            normalized_body,
+            normalized_sources
+          )
         end
 
       updated_history =
@@ -321,7 +332,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
           history
           |> Map.put(History.entry_key(now, :user), %{"body" => user_msg, "type" => "user"})
-          |> Map.put(History.entry_key(now, :bot), %{"body" => result.answer, "type" => "bot"})
+          |> Map.put(History.entry_key(now, :bot), %{"body" => normalized_body, "type" => "bot"})
         end
 
       socket =
@@ -362,12 +373,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     RuntimeDeps.chat_live_node_router()
   end
 
-  defp persist_chat_conversation(user_msg, result, current_user, current_conversation_id) do
+  defp persist_chat_conversation(
+         user_msg,
+         result,
+         current_user,
+         current_conversation_id,
+         normalized_body,
+         normalized_sources
+       ) do
     user_id = if current_user, do: current_user.id, else: nil
 
     case resolve_conversation(current_user, current_conversation_id) do
       {:ok, conv} ->
-        add_messages_to_conversation(conv, user_id, user_msg, result)
+        add_messages_to_conversation(
+          conv,
+          user_id,
+          user_msg,
+          result,
+          normalized_body,
+          normalized_sources
+        )
 
       err ->
         Logger.warning("ChatLive: failed to persist conversation: #{inspect(err)}")
@@ -389,7 +414,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     end
   end
 
-  defp add_messages_to_conversation(conv, user_id, user_msg, result) do
+  defp add_messages_to_conversation(
+         conv,
+         user_id,
+         user_msg,
+         result,
+         normalized_body,
+         normalized_sources
+       ) do
     if user_id && is_nil(conv.user_id) do
       node_router().call(
         :engine,
@@ -409,13 +441,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         conv,
         %{
           role: "assistant",
-          content: clean_body(result.answer),
+          content: normalized_body,
           confidence_score: extract_confidence(Map.get(result, :confidence_score)),
           latency_ms: Map.get(result, :latency_ms),
           prompt_tokens: Map.get(result, :prompt_tokens),
           completion_tokens: Map.get(result, :completion_tokens),
           total_tokens: Map.get(result, :total_tokens),
-          sources: result.answer |> extract_sources() |> Enum.map(&%{"path" => &1})
+          sources: normalized_sources
         }
       ])
 
@@ -425,12 +457,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     end
   end
 
-  defp maybe_persist_conversation(socket, bot_msg, user_msg, result, current_user) do
+  defp maybe_persist_conversation(
+         socket,
+         bot_msg,
+         user_msg,
+         result,
+         current_user,
+         normalized_body,
+         normalized_sources
+       ) do
     case persist_chat_conversation(
            user_msg,
            result,
            current_user,
-           socket.assigns.current_conversation_id
+           socket.assigns.current_conversation_id,
+           normalized_body,
+           normalized_sources
          ) do
       {:ok, conv_id, bot_db_id} ->
         subscribe_to_conversation(conv_id)
@@ -514,7 +556,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       timestamp: msg.inserted_at,
       error: false,
       feedback: infer_feedback_from_ratings(ratings),
-      sources: if(msg.sources in [nil, []], do: extract_sources(content), else: msg.sources)
+      sources: normalize_sources(msg.sources || [])
     }
   end
 
@@ -562,15 +604,51 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp infer_feedback_from_ratings([%{rating: r} | _]) when r <= 2, do: :negative
   defp infer_feedback_from_ratings(_), do: nil
 
-  defp extract_sources(body) do
-    Regex.scan(~r/\[source:\s*([^\]]+)\]/, body)
-    |> Enum.map(fn [_, source] -> String.trim(source) end)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+  defp clean_body(body) when is_binary(body) do
+    String.trim(body)
   end
 
-  defp clean_body(body) do
-    Regex.replace(~r/\s*\[source[^\]]*\]/u, body, "")
-    |> String.trim()
+  defp clean_body(_), do: ""
+
+  defp normalize_sources(sources) when is_list(sources) do
+    sources
+    |> Enum.with_index(1)
+    |> Enum.map(fn {source, index} -> normalize_source_entry(source, index) end)
+    |> Enum.reject(&is_nil/1)
   end
+
+  defp normalize_sources(_), do: []
+
+  defp normalize_source_entry(
+         %{"type" => "document", "path" => path, "index" => src_index},
+         _index
+       )
+       when is_binary(path) and path != "" and is_integer(src_index),
+       do: %{"index" => src_index, "type" => "document", "path" => path}
+
+  defp normalize_source_entry(
+         %{"type" => "memory", "label" => label, "index" => src_index},
+         _index
+       )
+       when is_binary(label) and label != "" and is_integer(src_index),
+       do: %{"index" => src_index, "type" => "memory", "label" => label}
+
+  defp normalize_source_entry(%{"type" => "document", "path" => path}, index)
+       when is_binary(path) and path != "",
+       do: %{"index" => index, "type" => "document", "path" => path}
+
+  defp normalize_source_entry(%{"type" => "memory", "label" => label}, index)
+       when is_binary(label) and label != "",
+       do: %{"index" => index, "type" => "memory", "label" => label}
+
+  defp normalize_source_entry(%{path: path}, index) when is_binary(path) and path != "",
+    do: %{"index" => index, "type" => "document", "path" => path}
+
+  defp normalize_source_entry(%{"path" => path}, index) when is_binary(path) and path != "",
+    do: %{"index" => index, "type" => "document", "path" => path}
+
+  defp normalize_source_entry(path, index) when is_binary(path) and path != "",
+    do: %{"index" => index, "type" => "document", "path" => path}
+
+  defp normalize_source_entry(_, _), do: nil
 end

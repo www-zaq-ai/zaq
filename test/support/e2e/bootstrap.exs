@@ -159,7 +159,8 @@ templates = [
     active: true,
     body: """
     Answer the user question using retrieved data only.
-    Keep it concise and include [source: file] when data is present.
+    Keep it concise and append [[source:<exact retrieved_data.source value>]] when data is present.
+    For model prior knowledge (not in retrieved_data), append [[memory:llm-general-knowledge]].
 
     USER QUESTION: <%= @question %>
     retrieved_data = <%= @retrieved_data %>

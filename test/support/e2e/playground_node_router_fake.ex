@@ -49,9 +49,9 @@ defmodule Zaq.E2E.PlaygroundNodeRouterFake do
 
     answer =
       if is_binary(source) do
-        "#{body} [source: #{source}]"
+        "#{body} [[source:#{source}]]"
       else
-        body
+        "#{body} [[memory:llm-general-knowledge]]"
       end
 
     {:ok, %{answer: answer, confidence: %{score: confidence}}}

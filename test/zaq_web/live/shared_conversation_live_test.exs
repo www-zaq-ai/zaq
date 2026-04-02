@@ -18,9 +18,10 @@ defmodule ZaqWeb.Live.SharedConversationLiveTest do
     {:ok, _} =
       Conversations.add_message(conv, %{
         role: "assistant",
-        content: "Hello from assistant.",
+        content: "Hello from **assistant**. [1]",
         model: "gpt-4",
-        confidence_score: 0.85
+        confidence_score: 0.85,
+        sources: [%{"index" => 1, "path" => "guide.md"}]
       })
 
     {:ok, share} = Conversations.share_conversation(conv, %{permission: "read"})
@@ -37,7 +38,8 @@ defmodule ZaqWeb.Live.SharedConversationLiveTest do
       assert html =~ "Shared Conversation"
       assert html =~ "Shared Test Conv"
       assert html =~ "Hello from user"
-      assert html =~ "Hello from assistant."
+      assert html =~ "Hello from"
+      assert html =~ "[1] guide.md"
     end
 
     test "redirects for invalid token", %{conn: conn} do
