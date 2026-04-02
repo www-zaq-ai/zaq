@@ -196,4 +196,23 @@ test.describe("Knowledge Ops Lead journeys", () => {
     const modal = await openFirstSourcePreviewModal(page);
     await expect(modal).toContainText("Employee Benefits Handbook");
   });
+
+  test("Journey 4: unsupported source chips are visible but disabled", async ({ page }) => {
+    await gotoBackOfficeLive(page, "/bo/history");
+
+    const row = page.locator("tr", { hasText: "E2E Unsupported Source Conversation" }).first();
+    await expect(row).toBeVisible();
+    await row.getByRole("link", { name: "View →" }).click();
+
+    await expect(page).toHaveURL(/\/bo\/conversations\//);
+
+    const sourceChip = page.locator('[data-testid="source-chip"]').first();
+    await expect(sourceChip).toBeVisible();
+    await expect(sourceChip).toBeDisabled();
+    await expect(sourceChip).toHaveAttribute("title", "Preview unavailable");
+
+    await sourceChip.click({ force: true });
+    await expect(page.locator("#file-preview-modal")).toBeHidden();
+    await expect(page).toHaveURL(/\/bo\/conversations\//);
+  });
 });

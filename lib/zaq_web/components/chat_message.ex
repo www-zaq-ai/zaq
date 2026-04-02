@@ -27,6 +27,8 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
 
+  alias ZaqWeb.Live.BO.PreviewHelpers
+
   # ---------------------------------------------------------------------------
   # User bubble (right-aligned, dark)
   # ---------------------------------------------------------------------------
@@ -191,8 +193,34 @@ defmodule ZaqWeb.Components.ChatMessage do
       <span class="font-mono text-[0.68rem] truncate">{source_label(@source)}</span>
     </button>
 
+    <button
+      :if={@click_event && is_nil(@preview_path)}
+      type="button"
+      data-testid="source-chip"
+      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border min-w-0 opacity-60 cursor-not-allowed"
+      style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
+      title="Preview unavailable"
+      disabled
+    >
+      <svg
+        class="w-3 h-3 flex-shrink-0"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        style="color:#9e9b94;"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
+      <span class="font-mono text-[0.68rem] truncate">{source_label(@source)}</span>
+    </button>
+
     <.link
-      :if={is_nil(@click_event) or is_nil(@preview_path)}
+      :if={is_nil(@click_event)}
       navigate={source_preview_path(@source)}
       data-testid="source-chip"
       class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors hover:border-[#b2e4ef] hover:bg-[#f0f9fb] min-w-0"
@@ -226,9 +254,18 @@ defmodule ZaqWeb.Components.ChatMessage do
   defp source_label(%{"title" => title}), do: title
   defp source_label(_), do: "source"
 
-  defp source_preview_path_for_modal(source) when is_binary(source) and source != "", do: source
-  defp source_preview_path_for_modal(%{"path" => path}) when is_binary(path), do: path
-  defp source_preview_path_for_modal(%{path: path}) when is_binary(path), do: path
+  defp source_preview_path_for_modal(source) when is_binary(source) and source != "" do
+    if PreviewHelpers.previewable_path?(source), do: source, else: nil
+  end
+
+  defp source_preview_path_for_modal(%{"path" => path}) when is_binary(path) do
+    if PreviewHelpers.previewable_path?(path), do: path, else: nil
+  end
+
+  defp source_preview_path_for_modal(%{path: path}) when is_binary(path) do
+    if PreviewHelpers.previewable_path?(path), do: path, else: nil
+  end
+
   defp source_preview_path_for_modal(_), do: nil
 
   defp source_preview_path(source) when is_binary(source) and source != "",

@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Agent.{Answering, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Engine.Conversations
+  alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
 
   defmodule NodeRouterFake do
@@ -396,6 +397,35 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     render_hook(view, "close_preview_modal", %{})
     refute has_element?(view, "#file-preview-modal")
+  end
+
+  test "open_preview_modal shows flash and keeps modal closed when unauthorized", %{conn: conn} do
+    private_role = role_fixture()
+
+    {:ok, _doc} =
+      Document.create(%{
+        source: "restricted-preview.md",
+        role_id: private_role.id,
+        content: "top secret"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "open_preview_modal", %{"path" => "restricted-preview.md"})
+
+    refute has_element?(view, "#file-preview-modal")
+    assert render(view) =~ "You do not have access to this file."
+  end
+
+  test "open_preview_modal shows flash and keeps modal closed when extension is unsupported", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "open_preview_modal", %{"path" => "archive.bin"})
+
+    refute has_element?(view, "#file-preview-modal")
+    assert render(view) =~ "Preview is not available for this file type."
   end
 
   test "feedback positive/negative, reason toggles, comment and submit", %{conn: conn} do
