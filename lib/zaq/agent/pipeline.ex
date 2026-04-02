@@ -85,6 +85,7 @@ defmodule Zaq.Agent.Pipeline do
            do_answering(clean_msg, extraction_result, answering_payload, history, opts),
          {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.answer) do
       :ok = hooks.dispatch_after(:after_answer_generated, %{answer: answer_result}, ctx)
+      sources = build_sources(extraction_result)
 
       result =
         if answering_mod(opts).no_answer?(safe_answer) do
@@ -96,11 +97,14 @@ defmodule Zaq.Agent.Pipeline do
             knowledge_gap: true,
             question: question,
             generated_query: retrieval_result.query,
-            history: history
+            history: history,
+            sources: sources
           })
         else
           confidence_score = answer_result.confidence_score || 1.0
+
           result_from_answering(answer_result, safe_answer, confidence_score)
+          |> Map.put(:sources, sources)
         end
 
       :ok =
@@ -282,6 +286,16 @@ defmodule Zaq.Agent.Pipeline do
       error: false
     }
   end
+
+  @spec build_sources(list()) :: [String.t()]
+  defp build_sources(chunks) when is_list(chunks) do
+    chunks
+    |> Enum.map(&Map.get(&1, "source"))
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
+  defp build_sources(_), do: []
 
   defp success_result(answer, confidence_score) do
     %{

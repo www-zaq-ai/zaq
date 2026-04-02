@@ -133,9 +133,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     {:ok, _assistant_msg} =
       Conversations.add_message(conv, %{
         role: "assistant",
-        content: "First answer [source: guide.md]",
+        content: "First answer [1]",
         confidence_score: 0.91,
-        sources: [%{"path" => "guide.md"}]
+        sources: [%{"index" => 1, "type" => "document", "path" => "guide.md"}]
       })
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
@@ -150,7 +150,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         length(assigns.messages) == 3 and
         map_size(assigns.history) == 2 and
         Enum.any?(assigns.messages, fn m ->
-          m.role == :bot and m.body == "First answer" and m.sources == [%{"path" => "guide.md"}]
+          m.role == :bot and m.body == "First answer [1]" and
+            m.sources == [%{"index" => 1, "type" => "document", "path" => "guide.md"}]
         end)
     end)
   end
@@ -223,7 +224,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     send(view.pid, {
       :pipeline_result,
       nil,
-      %{answer: "Pipeline answer [source: guide.md]", confidence_score: 0.9},
+      %{
+        answer: "Pipeline answer [[source:guide.md]]",
+        confidence_score: 0.9,
+        sources: ["guide.md"]
+      },
       "What is ZAQ?"
     })
 
@@ -234,7 +239,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
       assigns.current_conversation_id == "conv-1" and
         map_size(assigns.history) == 2 and
-        bot.role == :bot and bot.db_id == "bot-db-1" and bot.body == "Pipeline answer"
+        bot.role == :bot and bot.db_id == "bot-db-1" and bot.body == "Pipeline answer [1]" and
+        bot.sources == [%{"index" => 1, "type" => "document", "path" => "guide.md"}]
     end)
 
     calls = NodeRouterFake.calls()
@@ -379,7 +385,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :agent,
       Answering,
       :ask,
-      {:ok, %{answer: "All good [source: guide.md]", confidence: %{score: 0.92}}}
+      {:ok, %{answer: "All good [[source:guide.md]]", confidence: %{score: 0.92}}}
     )
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
@@ -638,7 +644,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :ask,
       {:ok,
        %{
-         answer: "I don't have enough information to answer that question. [source: guide.md]",
+         answer: "I don't have enough information to answer that question. [[source:guide.md]]",
          confidence: %{score: 0.88}
        }}
     )
@@ -711,7 +717,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :agent,
       Answering,
       :ask,
-      {:ok, %{answer: "All good [source: guide.md]", confidence: %{score: 0.92}}}
+      {:ok, %{answer: "All good [[source:guide.md]]", confidence: %{score: 0.92}}}
     )
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
@@ -724,6 +730,51 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
 
     refute render(view) =~ "[source:"
+  end
+
+  test "assistant markdown is rendered with numbered references", %{conn: conn} do
+    NodeRouterFake.put(
+      :agent,
+      Retrieval,
+      :ask,
+      {:ok,
+       %{
+         "query" => "zaq",
+         "language" => "en",
+         "positive_answer" => "Searching...",
+         "negative_answer" => "No answer"
+       }}
+    )
+
+    NodeRouterFake.put(
+      :ingestion,
+      DocumentProcessor,
+      :query_extraction,
+      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
+    )
+
+    NodeRouterFake.put(
+      :agent,
+      Answering,
+      :ask,
+      {:ok,
+       %{
+         answer:
+           "**All good** [[source:guide.md]]\n\n- Item [[source:guide.md]]\n- Model note [[memory:llm-general-knowledge]]",
+         confidence: %{score: 0.92}
+       }}
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "What is ZAQ?"})
+
+    assert_eventually(fn ->
+      html = render(view)
+
+      html =~ "<strong>All good</strong>" and html =~ "Item [1]" and html =~ "[1] guide.md" and
+        html =~ "[2] Internal memory - llm general knowledge"
+    end)
   end
 
   defp assert_eventually(fun, retries \\ 80)

@@ -61,14 +61,16 @@ defmodule Zaq.Repo.Migrations.SeedDefaultPromptTemplates do
   - Be EXTREMELY concise - answer in 1-2 sentences maximum
   - Only include the specific information requested
   - Do NOT include quotes from the source
-  - Cite the source using EXACTLY this format: [source: <value of the "source" field from retrieved_data>]
-  - NEVER write [source] or [source:] without the actual filename — if you don't have a source, omit the citation entirely
+  - For retrieved_data-backed claims, append marker [[source:<exact retrieved_data.source value>]]
+  - For claims based on model prior knowledge (not retrieved_data), append [[memory:llm-general-knowledge]]
+  - Use the exact retrieved_data.source value; do not rewrite or shorten it
 
   STRICT RULES:
-  - ALWAYS cite the exact source document using its "source" value from retrieved_data
+  - NEVER output numeric citations like [1] or [2] (numbering is handled by the system)
+  - NEVER output raw links in the answer body
   - Never output the advanced reasoning
   - Write your answer in <%= @language %> ISO 639-3 language
-  - Format your response in HTML
+  - Format your response in Markdown
   - When you cannot answer, ALWAYS start with <%= @no_answer_signal %>
 
   <%= if @has_history do %>

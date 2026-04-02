@@ -26,6 +26,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   use ZaqWeb, :verified_routes
 
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
+  alias ZaqWeb.Helpers.Markdown
 
   alias ZaqWeb.Live.BO.PreviewHelpers
 
@@ -65,10 +66,8 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :timestamp, :any, required: true
   # When set, the body div receives id + phx-hook="Typewriter" + phx-update="ignore"
   attr :msg_id, :string, default: nil
-  # Use Phoenix.HTML.raw/1 to render content (for markdown-to-HTML answers)
-  attr :html_content, :boolean, default: false
   attr :confidence, :float, default: nil
-  # List of sources — strings (file paths) or maps with "title" key
+  # List of sources — strings (file paths) or maps with "path" and optional "index"
   attr :sources, :list, default: []
   attr :is_error, :boolean, default: false
   attr :source_click_event, :string, default: nil
@@ -77,6 +76,8 @@ defmodule ZaqWeb.Components.ChatMessage do
   slot :actions
 
   def assistant_bubble(assigns) do
+    assigns = assign(assigns, :rendered_content, Markdown.render(assigns.content))
+
     ~H"""
     <div class="flex justify-start animate-slide-in-left group">
       <div class="flex gap-3 max-w-[82%]">
@@ -101,7 +102,7 @@ defmodule ZaqWeb.Components.ChatMessage do
                 if(@is_error, do: "text-red-600", else: "text-[#2c2b28]")
               ]}
             >
-              {if @html_content, do: Phoenix.HTML.raw(@content), else: @content}
+              {Phoenix.HTML.raw(@rendered_content)}
             </div>
 
             <%!-- Source cards --%>
@@ -220,7 +221,7 @@ defmodule ZaqWeb.Components.ChatMessage do
     </button>
 
     <.link
-      :if={is_nil(@click_event)}
+      :if={is_nil(@click_event) && source_preview_path(@source) != "#"}
       navigate={source_preview_path(@source)}
       data-testid="source-chip"
       class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors hover:border-[#b2e4ef] hover:bg-[#f0f9fb] min-w-0"
@@ -242,12 +243,50 @@ defmodule ZaqWeb.Components.ChatMessage do
       </svg>
       <span class="font-mono text-[0.68rem] truncate">{source_label(@source)}</span>
     </.link>
+
+    <button
+      :if={is_nil(@click_event) && source_preview_path(@source) == "#"}
+      type="button"
+      data-testid="source-chip"
+      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border min-w-0 opacity-60 cursor-not-allowed"
+      style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
+      disabled
+    >
+      <svg
+        class="w-3 h-3 flex-shrink-0"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        style="color:#9e9b94;"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
+      <span class="font-mono text-[0.68rem] truncate">{source_label(@source)}</span>
+    </button>
     """
   end
 
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  defp source_label(%{"index" => index, "path" => path}) when is_integer(index),
+    do: "[#{index}] #{Path.basename(path)}"
+
+  defp source_label(%{"index" => index, "type" => "memory", "label" => label})
+       when is_integer(index),
+       do: "[#{index}] Internal memory - #{humanize_memory_label(label)}"
+
+  defp source_label(%{index: index, path: path}) when is_integer(index),
+    do: "[#{index}] #{Path.basename(path)}"
+
+  defp source_label(%{index: index, type: "memory", label: label}) when is_integer(index),
+    do: "[#{index}] Internal memory - #{humanize_memory_label(label)}"
 
   defp source_label(source) when is_binary(source), do: Path.basename(source)
   defp source_label(%{"path" => path}), do: Path.basename(path)
@@ -262,6 +301,8 @@ defmodule ZaqWeb.Components.ChatMessage do
     if PreviewHelpers.previewable_path?(path), do: path, else: nil
   end
 
+  defp source_preview_path_for_modal(%{"type" => "memory"}), do: nil
+
   defp source_preview_path_for_modal(%{path: path}) when is_binary(path) do
     if PreviewHelpers.previewable_path?(path), do: path, else: nil
   end
@@ -273,6 +314,8 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   defp source_preview_path(%{"path" => path}) when is_binary(path) and path != "",
     do: "/bo/preview/#{path}"
+
+  defp source_preview_path(%{"type" => "memory"}), do: "#"
 
   defp source_preview_path(%{path: path}) when is_binary(path) and path != "",
     do: "/bo/preview/#{path}"
@@ -288,4 +331,12 @@ defmodule ZaqWeb.Components.ChatMessage do
   defp confidence_color(c) when c >= 0.8, do: "#22c55e"
   defp confidence_color(c) when c >= 0.5, do: "#f59e0b"
   defp confidence_color(_), do: "#ef4444"
+
+  defp humanize_memory_label(label) when is_binary(label) do
+    label
+    |> String.replace("_", " ")
+    |> String.replace("-", " ")
+  end
+
+  defp humanize_memory_label(_), do: "LLM general knowledge"
 end

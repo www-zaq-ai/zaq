@@ -357,8 +357,10 @@ defmodule Zaq.Channels.Retrieval.Mattermost do
 
   defp clean_body(body) do
     body
-    # Strip [source: ...] markers
-    |> then(&Regex.replace(~r/\s*\[source:\s*[^\]]+\]/u, &1, ""))
+    # Strip inline citation markers like [1], [2]
+    |> then(&Regex.replace(~r/\s*\[\d+\]/u, &1, ""))
+    # Strip structured citation markers used internally
+    |> then(&Regex.replace(~r/\s*\[\[(source|memory):[^\]]+\]\]/u, &1, ""))
     # Strip anchor tags but keep their text content
     |> then(&Regex.replace(~r/<a[^>]*>([^<]*)<\/a>/u, &1, "\\1"))
     # Strip all remaining HTML tags

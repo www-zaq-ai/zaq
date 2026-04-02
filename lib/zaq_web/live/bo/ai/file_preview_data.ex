@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
   alias Zaq.Ingestion
   alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, XlsxToMd}
+  alias ZaqWeb.Helpers.Markdown
 
   @markdown_extension ".md"
   @text_extensions ~w(.txt)
@@ -143,25 +144,10 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
   defp load_content(_full_path, _ext), do: {:binary, nil, nil}
 
   defp render_html(content, ".md") do
-    case Earmark.as_html(content, escape: true, breaks: true) do
-      {:ok, html, _} ->
-        sanitize_html(html)
-
-      {:error, _, _} ->
-        escaped = content |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-        "<pre>#{escaped}</pre>"
-    end
+    Markdown.render(content)
   end
 
   defp render_html(_content, _ext), do: nil
-
-  defp sanitize_html(html) do
-    html
-    |> then(&Regex.replace(~r/<script\b[^>]*>[\s\S]*?<\/script>/iu, &1, ""))
-    |> then(&Regex.replace(~r/\s+on\w+=("[^"]*"|'[^']*'|[^\s>]+)/iu, &1, ""))
-    |> then(&Regex.replace(~r/\s+href=("|')\s*javascript:[^"']*("|')/iu, &1, ~s( href="#")))
-    |> then(&Regex.replace(~r/\s+src=("|')\s*javascript:[^"']*("|')/iu, &1, ""))
-  end
 
   defp tmp_md_path(full_path, ext) do
     basename = Path.basename(full_path, ext)

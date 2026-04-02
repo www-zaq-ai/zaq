@@ -173,7 +173,6 @@
                   content={msg.body}
                   timestamp={msg.timestamp}
                   msg_id={if Map.get(msg, :live, false), do: msg.id, else: nil}
-                  html_content={true}
                   confidence={msg.confidence}
                   sources={Map.get(msg, :sources, [])}
                   is_error={Map.get(msg, :error, false)}

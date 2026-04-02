@@ -87,8 +87,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
     Typewriter: {
       mounted() {
         const el = this.el
-        const full = el.textContent
-        if (!full || !full.trim()) return
+        const fullText = el.textContent
+        const finalHtml = el.innerHTML
+        if (!fullText || !fullText.trim()) return
 
         el.textContent = ""
         el.style.visibility = "visible"
@@ -100,10 +101,12 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this._typewriterTimeout = null
 
         const type = () => {
-          if (i <= full.length) {
-            el.textContent = full.slice(0, i)
+          if (i <= fullText.length) {
+            el.textContent = fullText.slice(0, i)
             i += step
             this._typewriterTimeout = setTimeout(type, speed)
+          } else {
+            el.innerHTML = finalHtml
           }
         }
 

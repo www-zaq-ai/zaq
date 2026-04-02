@@ -541,7 +541,10 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
     def call(:agent, answering_mod, :ask, ["prompt:clean:ok_html"])
         when answering_mod == Zaq.Channels.Retrieval.MattermostTest.AnsweringStub do
       {:ok,
-       %{answer: "<b>ok</b> <a href='x'>&lt;tag&gt;</a> [source: kb]", confidence: %{score: 0.91}}}
+       %{
+         answer: "<b>ok</b> <a href='x'>&lt;tag&gt;</a> [[source:kb]]",
+         confidence: %{score: 0.91}
+       }}
     end
 
     def call(:agent, answering_mod, :ask, ["prompt:clean:no_answer"])
@@ -554,7 +557,7 @@ defmodule Zaq.Channels.Retrieval.MattermostTest do
       {:ok,
        %{
          answer:
-           "<b>A &amp; B</b> <a href='x'>&lt;C&gt;</a> &quot;D&quot; &#39;E&#39;\n\n\n<a href='y'>Click</a>\nNext line [source: kb]",
+           "<b>A &amp; B</b> <a href='x'>&lt;C&gt;</a> &quot;D&quot; &#39;E&#39;\n\n\n<a href='y'>Click</a>\nNext line [[memory:llm-general-knowledge]]",
          confidence: %{score: 0.95}
        }}
     end

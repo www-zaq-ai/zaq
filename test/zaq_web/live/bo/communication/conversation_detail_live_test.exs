@@ -28,10 +28,10 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
     {:ok, assistant_msg} =
       Conversations.add_message(conv, %{
         role: "assistant",
-        content: "ZAQ is an AI company brain.",
+        content: "**ZAQ** is an AI company brain. [1]",
         model: "gpt-4",
         confidence_score: 0.9,
-        sources: [%{"path" => "guide.md"}]
+        sources: [%{"index" => 1, "path" => "guide.md"}]
       })
 
     {conv, assistant_msg}
@@ -42,7 +42,8 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       {conv, _} = create_conv_with_messages(user.id)
       {:ok, _view, html} = live(conn, ~p"/bo/conversations/#{conv.id}")
       assert html =~ "What is ZAQ?"
-      assert html =~ "ZAQ is an AI company brain."
+      assert html =~ "ZAQ"
+      assert html =~ "[1] guide.md"
     end
 
     test "shows back link", %{conn: conn, user: user} do
