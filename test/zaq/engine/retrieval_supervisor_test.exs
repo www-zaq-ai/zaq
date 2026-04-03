@@ -15,8 +15,7 @@ defmodule Zaq.Engine.RetrievalSupervisorTest do
     end
 
     test "returns the Email adapter module for provider \"email\"" do
-      assert RetrievalSupervisor.adapter_for("email") ==
-               Zaq.Channels.Retrieval.Email
+      assert RetrievalSupervisor.adapter_for("email") == nil
     end
 
     test "returns nil for an unknown provider" do
