@@ -3,6 +3,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
   @moduletag capture_log: true
 
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Notifications.{DispatchWorker, NotificationLog}
   alias Zaq.Repo
 
@@ -45,6 +46,45 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
   # ---------------------------------------------------------------------------
 
   describe "perform/1" do
+    test "real EmailNotification adapter path marks sent and emits email" do
+      assert {:ok, _} =
+               ChannelConfig.upsert_by_provider("email:smtp", %{
+                 name: "Email SMTP",
+                 kind: "retrieval",
+                 enabled: true,
+                 settings: %{
+                   "relay" => "",
+                   "port" => "587",
+                   "transport_mode" => "starttls",
+                   "tls" => "enabled",
+                   "tls_verify" => "verify_peer",
+                   "username" => nil,
+                   "password" => nil,
+                   "from_email" => "noreply@example.com",
+                   "from_name" => "ZAQ"
+                 }
+               })
+
+      log = create_log(%{payload: %{"subject" => "Dispatch Subject", "body" => "Dispatch Body"}})
+
+      args = %{
+        "log_id" => log.id,
+        "channels" => [channel("email:smtp", Zaq.Engine.Notifications.EmailNotification)]
+      }
+
+      assert :ok = perform(args)
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.status == "sent"
+      assert length(reloaded.channels_tried) == 1
+      assert hd(reloaded.channels_tried)["platform"] == "email:smtp"
+      assert hd(reloaded.channels_tried)["status"] == "ok"
+
+      assert_receive {:email, email}
+      assert email.subject == "Dispatch Subject"
+      assert email.from == {"ZAQ", "noreply@example.com"}
+    end
+
     test "reads payload from notification_logs, not job args" do
       log = create_log(%{payload: %{"subject" => "Hello", "body" => "World"}})
 
