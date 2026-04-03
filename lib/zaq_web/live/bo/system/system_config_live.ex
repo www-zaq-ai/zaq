@@ -682,25 +682,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
                 Model
               </label>
-              <.searchable_select
-                :if={@model_options != []}
-                id="llm-model-select"
-                name="llm_config[model]"
-                value={@form[:model].value}
-                options={@model_options}
-                placeholder="Search models..."
-                empty_label="Select a model..."
-              />
               <input
-                :if={@model_options == []}
                 type="text"
                 name="llm_config[model]"
                 value={@form[:model].value}
                 required
                 phx-debounce="400"
                 placeholder="llama-3.3-70b-instruct"
+                list="llm-model-datalist"
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
+              <datalist id="llm-model-datalist">
+                <option :for={{label, value} <- @model_options} value={value}>{label}</option>
+              </datalist>
               <p
                 :for={{msg, opts} <- @form[:model].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
@@ -832,7 +826,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 {translate_error({msg, opts})}
               </p>
             </div>
-            <div>
+            <div :if={@form[:provider].value != "anthropic"}>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
                 Top-P
               </label>
