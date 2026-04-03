@@ -7,31 +7,16 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
   alias Zaq.System.Config
-  alias Zaq.System.EmailConfig
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.Types.EncryptedString
 
-  @smtp_provider "email:smtp"
-  @smtp_setting_atom_keys %{
-    "relay" => :relay,
-    "port" => :port,
-    "transport_mode" => :transport_mode,
-    "tls" => :tls,
-    "tls_verify" => :tls_verify,
-    "ca_cert_path" => :ca_cert_path,
-    "username" => :username,
-    "password" => :password,
-    "from_email" => :from_email,
-    "from_name" => :from_name
-  }
   @telemetry_fields ~w(
     capture_infra_metrics
     request_duration_threshold_ms
@@ -66,48 +51,6 @@ defmodule Zaq.System do
       conflict_target: :key
     )
   end
-
-  # ── Email / SMTP ───────────────────────────────────────────────────────
-
-  @doc """
-  Loads SMTP configuration from `channel_configs.settings` and returns an
-  `%EmailConfig{}` struct.
-
-  Sensitive values are decrypted when possible for BO display.
-  """
-  def get_email_config do
-    config = Repo.get_by(ChannelConfig, provider: @smtp_provider)
-    settings = if config, do: config.settings || %{}, else: %{}
-
-    %EmailConfig{
-      enabled: if(config, do: config.enabled, else: false),
-      relay: map_get(settings, "relay"),
-      port: parse_int(map_get(settings, "port"), 587),
-      transport_mode: map_get(settings, "transport_mode") || "starttls",
-      tls: map_get(settings, "tls") || "enabled",
-      tls_verify: map_get(settings, "tls_verify") || "verify_peer",
-      ca_cert_path: blank_to_nil(map_get(settings, "ca_cert_path")),
-      username: map_get(settings, "username"),
-      password: decrypt_password_value(map_get(settings, "password")),
-      from_email: map_get(settings, "from_email") || "noreply@zaq.local",
-      from_name: map_get(settings, "from_name") || "ZAQ"
-    }
-  end
-
-  @doc """
-  Persists SMTP config from a validated `%EmailConfig{}` changeset into
-  `channel_configs.settings` under provider `email:smtp`.
-  """
-  def save_email_config(%Ecto.Changeset{valid?: true} = changeset) do
-    config = Ecto.Changeset.apply_changes(changeset)
-
-    case persist_email_channel(config) do
-      :ok -> {:ok, config}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  def save_email_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
   # ── Telemetry ─────────────────────────────────────────────────────────
 
@@ -146,32 +89,6 @@ defmodule Zaq.System do
   end
 
   def save_telemetry_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
-
-  @doc """
-  Returns `{:ok, keyword_list}` with Swoosh SMTP delivery options built from
-  the DB config, or `{:error, :not_configured}` when email is disabled or the
-  relay is not set.
-
-  Returns decryption errors (for example `:invalid_ciphertext`) when an SMTP
-  password is configured but cannot be decrypted.
-  """
-  def email_delivery_opts do
-    cfg = get_email_config()
-
-    with true <- cfg.enabled and not blank?(cfg.relay),
-         {:ok, password} <- password_for_delivery(cfg) do
-      {:ok, build_delivery_opts(cfg, password)}
-    else
-      false -> {:error, :not_configured}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc "Returns the `{from_name, from_email}` tuple from DB config."
-  def email_sender do
-    cfg = get_email_config()
-    {cfg.from_name || "ZAQ", cfg.from_email || "noreply@zaq.local"}
-  end
 
   # ── LLM ───────────────────────────────────────────────────────────────
 
@@ -410,190 +327,6 @@ defmodule Zaq.System do
   defp parse_bool(nil, default), do: default
   defp parse_bool(value, _default) when value in [true, "true", "1", 1], do: true
   defp parse_bool(_value, _default), do: false
-
-  defp blank?(nil), do: true
-  defp blank?(""), do: true
-  defp blank?(_), do: false
-
-  defp blank_to_nil(value) do
-    if blank?(value), do: nil, else: value
-  end
-
-  defp normalize_tls_mode("enabled"), do: :if_available
-  defp normalize_tls_mode("if_available"), do: :if_available
-  defp normalize_tls_mode("always"), do: :always
-  defp normalize_tls_mode("never"), do: :never
-  defp normalize_tls_mode(_), do: :if_available
-
-  defp normalize_tls_verify_mode("verify_none"), do: :verify_none
-  defp normalize_tls_verify_mode(_), do: :verify_peer
-
-  defp transport_settings(%EmailConfig{transport_mode: "ssl"}), do: {true, :never}
-  defp transport_settings(%EmailConfig{} = cfg), do: {false, normalize_tls_mode(cfg.tls)}
-
-  defp smtp_tls_options(%EmailConfig{} = cfg) do
-    verify = normalize_tls_verify_mode(cfg.tls_verify)
-    relay = String.trim(cfg.relay)
-
-    options =
-      [
-        versions: [:"tlsv1.2", :"tlsv1.3"],
-        verify: verify,
-        depth: 4,
-        server_name_indication: to_charlist(relay)
-      ]
-
-    cond do
-      verify == :verify_none ->
-        options
-
-      not blank?(cfg.ca_cert_path) ->
-        options ++ [cacertfile: to_charlist(cfg.ca_cert_path)]
-
-      true ->
-        options ++ [cacerts: default_cacerts()]
-    end
-  end
-
-  defp default_cacerts do
-    :public_key.cacerts_get()
-    |> Enum.map(fn
-      {:cert, der, _} -> der
-      der when is_binary(der) -> der
-    end)
-  rescue
-    _ -> []
-  end
-
-  defp decrypt_password_value(value) do
-    case EncryptedString.decrypt(value) do
-      {:ok, decrypted} -> decrypted
-      {:error, _reason} -> nil
-    end
-  end
-
-  defp password_for_delivery(%EmailConfig{username: username}) when username in [nil, ""] do
-    {:ok, ""}
-  end
-
-  defp password_for_delivery(%EmailConfig{}) do
-    case EncryptedString.decrypt(raw_email_password()) do
-      {:ok, nil} -> {:ok, ""}
-      {:ok, password} -> {:ok, password}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp build_delivery_opts(%EmailConfig{} = cfg, password) do
-    auth = if blank?(cfg.username), do: :never, else: :always
-    {ssl, tls} = transport_settings(cfg)
-
-    tls_options =
-      if ssl or tls != :never do
-        smtp_tls_options(cfg)
-      else
-        []
-      end
-
-    opts =
-      [
-        adapter: Swoosh.Adapters.SMTP,
-        relay: String.trim(cfg.relay),
-        port: cfg.port,
-        ssl: ssl,
-        tls: tls,
-        tls_options: tls_options,
-        auth: auth
-      ]
-
-    if blank?(cfg.username),
-      do: opts,
-      else: opts ++ [username: cfg.username, password: password]
-  end
-
-  defp persist_email_channel(config) do
-    with {:ok, encrypted_password} <- encrypt_password_value(config.password) do
-      settings = %{
-        "relay" => config.relay,
-        "port" => to_string(config.port || 587),
-        "transport_mode" => config.transport_mode,
-        "tls" => config.tls,
-        "tls_verify" => config.tls_verify,
-        "ca_cert_path" => blank_to_nil(config.ca_cert_path),
-        "username" => blank_to_nil(config.username),
-        "password" => encrypted_password,
-        "from_email" => config.from_email,
-        "from_name" => config.from_name
-      }
-
-      upsert_email_channel(config.enabled, settings)
-    end
-  end
-
-  defp encrypt_password_value(value) when value in [nil, ""], do: {:ok, value}
-
-  defp encrypt_password_value(value) when is_binary(value) do
-    if EncryptedString.encrypted?(value) do
-      {:ok, value}
-    else
-      EncryptedString.encrypt(value)
-    end
-  end
-
-  defp upsert_email_channel(enabled, settings) do
-    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-
-    case Repo.get_by(ChannelConfig, provider: @smtp_provider) do
-      nil ->
-        {1, _} =
-          Repo.insert_all(ChannelConfig, [
-            %{
-              name: "Email SMTP",
-              provider: @smtp_provider,
-              kind: "retrieval",
-              url: "smtp://configured-in-settings",
-              token: "__smtp_unused__",
-              enabled: enabled,
-              settings: settings,
-              inserted_at: now,
-              updated_at: now
-            }
-          ])
-
-        :ok
-
-      %ChannelConfig{id: id} ->
-        {1, _} =
-          from(c in ChannelConfig, where: c.id == ^id)
-          |> Repo.update_all(
-            set: [
-              name: "Email SMTP",
-              provider: @smtp_provider,
-              kind: "retrieval",
-              enabled: enabled,
-              settings: settings,
-              updated_at: now
-            ]
-          )
-
-        :ok
-    end
-  end
-
-  defp raw_email_password do
-    settings =
-      case Repo.get_by(ChannelConfig, provider: @smtp_provider) do
-        %ChannelConfig{settings: map} when is_map(map) -> map
-        _ -> %{}
-      end
-
-    map_get(settings, "password")
-  end
-
-  defp map_get(map, key) when is_map(map) do
-    atom_key = Map.get(@smtp_setting_atom_keys, key)
-    if atom_key, do: Map.get(map, key) || Map.get(map, atom_key), else: Map.get(map, key)
-  end
 
   defp maybe_reload_telemetry_collector do
     if Process.whereis(Collector) do
