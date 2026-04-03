@@ -2,6 +2,8 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
   use Zaq.DataCase, async: true
   use Oban.Testing, repo: Zaq.Repo
 
+  import Ecto.Query
+
   @moduletag capture_log: true
 
   alias Zaq.Channels.ChannelConfig
@@ -10,7 +12,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
   alias Zaq.Repo
 
   @valid_attrs %{
-    recipient_channels: [%{platform: "email", identifier: "test@example.com"}],
+    recipient_channels: [%{platform: "email:smtp", identifier: "test@example.com"}],
     sender: "system",
     subject: "Hello",
     body: "World"
@@ -68,7 +70,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
       attrs = %{
         @valid_attrs
         | recipient_channels: [
-            %{platform: "email", identifier: "a@b.com"},
+            %{platform: "email:smtp", identifier: "a@b.com"},
             %{platform: "slack", identifier: "U01"}
           ]
       }
@@ -109,7 +111,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
     end
 
     test "channel missing identifier returns {:error, _}" do
-      attrs = %{@valid_attrs | recipient_channels: [%{platform: "email"}]}
+      attrs = %{@valid_attrs | recipient_channels: [%{platform: "email:smtp"}]}
       assert {:error, reason} = Notification.build(attrs)
       assert reason =~ "identifier"
     end
@@ -121,10 +123,13 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   describe "notify/1" do
     setup do
+      from(c in ChannelConfig, where: c.provider == "email:smtp")
+      |> Repo.delete_all()
+
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
         name: "Email",
-        provider: "email",
+        provider: "email:smtp",
         kind: "retrieval",
         url: "smtp://localhost",
         token: "test-token",
@@ -164,8 +169,8 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
         Notification.build(%{
           @valid_attrs
           | recipient_channels: [
-              %{platform: "email", identifier: "first@example.com"},
-              %{platform: "email", identifier: "second@example.com"}
+              %{platform: "email:smtp", identifier: "first@example.com"},
+              %{platform: "email:smtp", identifier: "second@example.com"}
             ]
         })
 

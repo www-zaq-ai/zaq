@@ -21,7 +21,7 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
 
     {:ok, notification} =
       Notification.build(%{
-        recipient_channels: [%{platform: "email", identifier: user.email}],
+        recipient_channels: [%{platform: "email:smtp", identifier: user.email}],
         sender: "reset_password",
         subject: "Reset your ZAQ password",
         body: build_text_body(user.username, reset_url),
