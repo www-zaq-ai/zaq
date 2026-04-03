@@ -7,7 +7,7 @@ defmodule Zaq.Accounts.UserNotificationChannelTest do
   alias Zaq.Repo
 
   defp insert_channel(user, attrs) do
-    defaults = %{platform: "email", identifier: "u@example.com", is_preferred: false}
+    defaults = %{platform: "email:smtp", identifier: "u@example.com", is_preferred: false}
 
     %UserNotificationChannel{user_id: user.id}
     |> UserNotificationChannel.changeset(Map.merge(defaults, attrs))
@@ -17,15 +17,15 @@ defmodule Zaq.Accounts.UserNotificationChannelTest do
   describe "unique constraint on [user_id, platform]" do
     test "allows one entry per platform per user" do
       user = user_fixture()
-      assert {:ok, _} = insert_channel(user, %{platform: "email", identifier: "a@b.com"})
+      assert {:ok, _} = insert_channel(user, %{platform: "email:smtp", identifier: "a@b.com"})
     end
 
     test "rejects duplicate [user_id, platform]" do
       user = user_fixture()
-      assert {:ok, _} = insert_channel(user, %{platform: "email", identifier: "a@b.com"})
+      assert {:ok, _} = insert_channel(user, %{platform: "email:smtp", identifier: "a@b.com"})
 
       assert {:error, changeset} =
-               insert_channel(user, %{platform: "email", identifier: "c@d.com"})
+               insert_channel(user, %{platform: "email:smtp", identifier: "c@d.com"})
 
       assert "has already been taken" in errors_on(changeset).user_id
     end
@@ -34,13 +34,13 @@ defmodule Zaq.Accounts.UserNotificationChannelTest do
       user1 = user_fixture(%{username: "user1", email: "u1@test.com"})
       user2 = user_fixture(%{username: "user2", email: "u2@test.com"})
 
-      assert {:ok, _} = insert_channel(user1, %{platform: "email"})
-      assert {:ok, _} = insert_channel(user2, %{platform: "email"})
+      assert {:ok, _} = insert_channel(user1, %{platform: "email:smtp"})
+      assert {:ok, _} = insert_channel(user2, %{platform: "email:smtp"})
     end
 
     test "allows different platforms for the same user" do
       user = user_fixture()
-      assert {:ok, _} = insert_channel(user, %{platform: "email"})
+      assert {:ok, _} = insert_channel(user, %{platform: "email:smtp"})
       assert {:ok, _} = insert_channel(user, %{platform: "mattermost", identifier: "U123"})
     end
   end

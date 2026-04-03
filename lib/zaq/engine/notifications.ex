@@ -9,7 +9,7 @@ defmodule Zaq.Engine.Notifications do
   ## Usage (new API — Phase 1+)
 
       {:ok, notification} = Notification.build(%{
-        recipient_channels: [%{platform: "email", identifier: "u@example.com"}],
+        recipient_channels: [%{platform: "email:smtp", identifier: "u@example.com"}],
         sender: "system",
         subject: "Hello",
         body: "World"
@@ -43,10 +43,9 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
-  alias Zaq.System
 
   @adapter_registry %{
-    "email" => Zaq.Engine.Notifications.EmailNotification,
+    "email:smtp" => Zaq.Engine.Notifications.EmailNotification,
     "mattermost" => Zaq.Channels.Retrieval.Mattermost.Notification
   }
 
@@ -140,18 +139,11 @@ defmodule Zaq.Engine.Notifications do
   end
 
   defp configured_platforms do
-    channel_platforms =
-      from(c in ChannelConfig,
-        where: c.kind == "retrieval" and c.enabled == true,
-        select: c.provider
-      )
-      |> Repo.all()
-      |> MapSet.new()
-
-    if System.get_email_config().enabled do
-      MapSet.put(channel_platforms, "email")
-    else
-      channel_platforms
-    end
+    from(c in ChannelConfig,
+      where: c.kind == "retrieval" and c.enabled == true,
+      select: c.provider
+    )
+    |> Repo.all()
+    |> MapSet.new()
   end
 end

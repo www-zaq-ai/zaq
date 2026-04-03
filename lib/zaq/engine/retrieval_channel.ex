@@ -8,7 +8,6 @@ defmodule Zaq.Engine.RetrievalChannel do
   ## Examples of adapters
   - `Zaq.Channels.Retrieval.Mattermost`
   - `Zaq.Channels.Retrieval.Slack`
-  - `Zaq.Channels.Retrieval.Email`
 
   ## Message flow
 

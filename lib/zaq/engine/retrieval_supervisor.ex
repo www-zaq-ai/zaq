@@ -13,7 +13,6 @@ defmodule Zaq.Engine.RetrievalSupervisor do
 
       "mattermost" => Zaq.Channels.Retrieval.Mattermost
       "slack"      => Zaq.Channels.Retrieval.Slack
-      "email"      => Zaq.Channels.Retrieval.Email
 
   ## Adding a new retrieval adapter
 
@@ -27,8 +26,7 @@ defmodule Zaq.Engine.RetrievalSupervisor do
 
   @adapters %{
     "mattermost" => Zaq.Channels.Retrieval.Mattermost,
-    "slack" => Zaq.Channels.Retrieval.Slack,
-    "email" => Zaq.Channels.Retrieval.Email
+    "slack" => Zaq.Channels.Retrieval.Slack
   }
 
   def start_link(opts \\ []) do

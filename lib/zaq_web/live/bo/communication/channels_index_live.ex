@@ -6,12 +6,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Repo
-  alias Zaq.System
 
   import Ecto.Query
 
   @retrieval_providers ~w(slack teams mattermost discord telegram webhook)
   @ingestion_providers ~w(zaq_local google_drive sharepoint)
+  @notification_providers ~w(email:smtp)
 
   # ---------------------------------------------------------------------------
   # Provider card definitions — used by the template to render grids
@@ -153,7 +153,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     end)
   end
 
-  def notification_total(stats), do: Map.get(stats, :email, 0)
+  def notification_total(stats) do
+    Enum.reduce(@notification_providers, 0, fn p, acc ->
+      acc + Map.get(stats, String.to_existing_atom(p), 0)
+    end)
+  end
 
   def provider_path(_kind, "zaq_local"), do: "/bo/ingestion"
   def provider_path(:retrieval, id), do: "/bo/channels/retrieval/#{id}"
@@ -163,7 +167,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   # --- Private ---
 
   defp compute_stats do
-    all_providers = @retrieval_providers ++ @ingestion_providers
+    all_providers = @retrieval_providers ++ @ingestion_providers ++ @notification_providers
 
     counts =
       ChannelConfig
@@ -173,12 +177,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
       |> Repo.all()
       |> Map.new()
 
-    base =
-      Enum.reduce(all_providers, %{}, fn provider, acc ->
-        Map.put(acc, String.to_atom(provider), Map.get(counts, provider, 0))
-      end)
-
-    email_active = if System.get_email_config().enabled, do: 1, else: 0
-    Map.put(base, :email, email_active)
+    Enum.reduce(all_providers, %{}, fn provider, acc ->
+      Map.put(acc, String.to_atom(provider), Map.get(counts, provider, 0))
+    end)
   end
 end

@@ -2,7 +2,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
-  alias Zaq.System
+  alias Zaq.Channels.ChannelConfig
 
   @connection_types [
     %{
@@ -23,7 +23,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
      |> assign(:page_title, "Email Notifications")
      |> assign(:current_path, "/bo/channels/notifications/email")
      |> assign(:cards, @connection_types)
-     |> assign(:smtp_active, available && System.get_email_config().enabled)}
+     |> assign(:smtp_active, available && ChannelConfig.get_by_provider("email:smtp") != nil)}
   end
 
   @impl true

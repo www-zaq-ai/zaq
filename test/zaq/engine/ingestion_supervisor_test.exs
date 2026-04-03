@@ -43,7 +43,7 @@ defmodule Zaq.Engine.IngestionSupervisorTest do
   end
 
   test "init/1 skips enabled ingestion providers with no adapter mapping" do
-    insert_config(provider: "email", name: "Email")
+    insert_config(provider: "slack", name: "Slack")
 
     assert {:ok, {_spec, []}} = IngestionSupervisor.init([])
   end

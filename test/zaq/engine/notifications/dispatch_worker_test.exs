@@ -49,7 +49,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       log = create_log(%{payload: %{"subject" => "Hello", "body" => "World"}})
 
       # Job args contain no payload — only log_id and channels
-      args = %{"log_id" => log.id, "channels" => [channel("email", OkAdapter)]}
+      args = %{"log_id" => log.id, "channels" => [channel("email:smtp", OkAdapter)]}
       assert :ok = perform(args)
 
       reloaded = Repo.get!(NotificationLog, log.id)
@@ -58,7 +58,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
     test "successful adapter call → attempt appended, log marked :sent" do
       log = create_log()
-      args = %{"log_id" => log.id, "channels" => [channel("email", OkAdapter)]}
+      args = %{"log_id" => log.id, "channels" => [channel("email:smtp", OkAdapter)]}
 
       assert :ok = perform(args)
 
@@ -73,7 +73,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
       args = %{
         "log_id" => log.id,
-        "channels" => [channel("email", OkAdapter), channel("mattermost", ErrorAdapter)]
+        "channels" => [channel("email:smtp", OkAdapter), channel("mattermost", ErrorAdapter)]
       }
 
       assert :ok = perform(args)
@@ -81,7 +81,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       reloaded = Repo.get!(NotificationLog, log.id)
       assert reloaded.status == "sent"
       assert length(reloaded.channels_tried) == 1
-      assert hd(reloaded.channels_tried)["platform"] == "email"
+      assert hd(reloaded.channels_tried)["platform"] == "email:smtp"
     end
 
     test "all channels fail → all attempts logged, log marked :failed, returns :ok (no retry)" do
@@ -89,7 +89,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
       args = %{
         "log_id" => log.id,
-        "channels" => [channel("email", ErrorAdapter), channel("mattermost", ErrorAdapter)]
+        "channels" => [channel("email:smtp", ErrorAdapter), channel("mattermost", ErrorAdapter)]
       }
 
       assert :ok = perform(args)
@@ -116,7 +116,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
       args = %{
         "log_id" => log.id,
-        "channels" => [channel("email", ErrorAdapter), channel("mattermost", OkAdapter)]
+        "channels" => [channel("email:smtp", ErrorAdapter), channel("mattermost", OkAdapter)]
       }
 
       assert :ok = perform(args)
@@ -125,7 +125,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       assert reloaded.status == "sent"
       assert length(reloaded.channels_tried) == 2
       platforms = Enum.map(reloaded.channels_tried, & &1["platform"])
-      assert "email" in platforms
+      assert "email:smtp" in platforms
       assert "mattermost" in platforms
     end
   end
