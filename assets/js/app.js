@@ -279,7 +279,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault()
             const form = el.closest("form")
-            if (form) form.dispatchEvent(new Event("submit", { bubbles: true }))
+            if (form) form.requestSubmit()
           } else if (e.key === "Enter" && e.shiftKey) {
             // newline inserted by browser — resize after DOM updates
             setTimeout(this.resize, 0)
