@@ -1,100 +1,174 @@
 defmodule Zaq.Channels.Supervisor do
   @moduledoc """
-  Role marker for the `:channels` node role.
+  Dynamic supervisor for channel bridge listener processes.
+
+  On startup, loads all enabled retrieval channel configs from the database
+  and starts the corresponding adapter listener processes. Supports runtime
+  start/stop of listeners when channel configs are enabled or disabled.
+
+  Each listener delivers incoming payloads to `JidoChatBridge.from_listener/3`
+  via `sink_mfa`.
+
   `Zaq.NodeRouter` uses `Process.whereis/1` against this module to
   locate the channels node for cross-node RPC dispatch.
-
-  Also starts WebSocket listeners for each enabled Mattermost config,
-  so that thread replies from SMEs are delivered to the ChatBridge +
-  PendingQuestions chain.
   """
 
-  use Supervisor
+  use DynamicSupervisor
 
   require Logger
 
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
-  alias Zaq.Channels.Workers.IncomingChatWorker
+  alias Zaq.Channels.{ChannelConfig, JidoChatBridge, RetrievalChannel}
 
-  def start_link(_opts), do: Supervisor.start_link(__MODULE__, [], name: __MODULE__)
+  # ETS table: bridge_id => [pid]
+  @table :zaq_channels_listeners
 
-  defp channel_adapters do
-    :zaq
-    |> Application.get_env(:channels, %{})
-    |> Enum.flat_map(fn {provider, cfg} ->
-      case Map.fetch(cfg, :adapter) do
-        {:ok, adapter} -> [{Atom.to_string(provider), adapter}]
-        :error -> []
-      end
-    end)
-    |> Map.new()
-  end
+  def start_link(_opts) do
+    if :ets.whereis(@table) == :undefined do
+      :ets.new(@table, [:named_table, :public, :set])
+    end
 
+    case DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__) do
+      {:ok, pid} = result ->
+        load_initial_listeners()
+        result
 
-  defp listener_children_for_config(%{provider: provider} = config, adapters) do
-    case Map.fetch(adapters, provider) do
-      {:ok, adapter} ->
-        build_adapter_children(adapter, config)
-
-      :error ->
-        Logger.warning(
-          "[Channels.Supervisor] No adapter registered for provider=#{provider}, skipping config_id=#{config.id}"
-        )
-
-        []
+      error ->
+        error
     end
   end
 
-  defp build_adapter_children(adapter, config) do
-    bridge_id = "#{config.provider}_#{config.id}"
-    channel_ids = load_active_channel_ids(config)
-    ingress_mode = get_ingress_mode(config.provider)
+  @impl DynamicSupervisor
+  def init([]) do
+    DynamicSupervisor.init(strategy: :one_for_one)
+  end
 
-    opts = [
-      url: config.url,
-      token: config.token,
-      bot_user_id: config.bot_user_id,
-      bot_name: config.bot_name,
-      channel_ids: channel_ids,
-      bridge_id: bridge_id,
-      ingress: %{mode: ingress_mode},
-      sink_mfa: {IncomingChatWorker, :enqueue, [config]}
-    ]
+  @doc """
+  Starts listener processes for a channel config. No-ops if already running.
+  Called via `NodeRouter.call(:channels, __MODULE__, :start_listener, [config])`.
+  """
+  def start_listener(config) do
+    bridge_id = bridge_id(config)
 
-    case adapter.listener_child_specs(bridge_id, opts) do
-      {:ok, specs} ->
-        specs
+    if running?(bridge_id) do
+      Logger.info("[Channels.Supervisor] Listener already running for bridge_id=#{bridge_id}")
+      {:error, :already_running}
+    else
+      do_start_listener(config, bridge_id)
+    end
+  end
 
-      {:error, reason} ->
-        Logger.warning(
-          "[Channels.Supervisor] Could not build listener for config_id=#{config.id}: #{inspect(reason)}"
-        )
+  @doc """
+  Stops listener processes for a channel config. No-ops if not running.
+  Called via `NodeRouter.call(:channels, __MODULE__, :stop_listener, [config])`.
+  """
+  def stop_listener(config) do
+    bridge_id = bridge_id(config)
 
-        []
+    case :ets.lookup(@table, bridge_id) do
+      [{^bridge_id, pids}] ->
+        Enum.each(pids, &DynamicSupervisor.terminate_child(__MODULE__, &1))
+        :ets.delete(@table, bridge_id)
+        Logger.info("[Channels.Supervisor] Stopped listener for bridge_id=#{bridge_id}")
+        :ok
+
+      [] ->
+        Logger.info("[Channels.Supervisor] No listener running for bridge_id=#{bridge_id}")
+        {:error, :not_running}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private
+  # ---------------------------------------------------------------------------
+
+  defp load_initial_listeners do
+    providers = configured_providers()
+
+    case ChannelConfig.list_enabled_by_kind(:retrieval, providers) do
+      [] ->
+        Logger.info("[Channels.Supervisor] No enabled channel configs found, starting empty.")
+
+      configs ->
+        Enum.each(configs, fn config ->
+          do_start_listener(config, bridge_id(config))
+        end)
+    end
+  end
+
+  defp do_start_listener(config, bridge_id) do
+    adapter = ChannelConfig.resolve_adapter(config.provider)
+
+    if is_nil(adapter) do
+      Logger.warning("[Channels.Supervisor] No adapter for provider=#{config.provider}, skipping config_id=#{config.id}")
+      {:error, :no_adapter}
+    else
+      channel_ids = load_active_channel_ids(config)
+
+      opts = [
+        url: config.url,
+        token: config.token,
+        bot_user_id: config.bot_user_id,
+        bot_name: config.bot_name,
+        channel_ids: channel_ids,
+        bridge_id: bridge_id,
+        sink_mfa: {JidoChatBridge, :from_listener, [config]},
+        sink_opts: [transport: ingress_mode(config.provider)]
+      ]
+
+      case adapter.listener_child_specs(bridge_id, opts) do
+        {:ok, specs} ->
+          pids =
+            Enum.flat_map(specs, fn spec ->
+              case DynamicSupervisor.start_child(__MODULE__, spec) do
+                {:ok, pid} ->
+                  [pid]
+
+                {:error, reason} ->
+                  Logger.warning("[Channels.Supervisor] Failed to start child for config_id=#{config.id}: #{inspect(reason)}")
+                  []
+              end
+            end)
+
+          :ets.insert(@table, {bridge_id, pids})
+          {:ok, pids}
+
+        {:error, reason} ->
+          Logger.warning("[Channels.Supervisor] Could not build listener for config_id=#{config.id}: #{inspect(reason)}")
+          {:error, reason}
+      end
     end
   rescue
     e ->
-      Logger.warning(
-        "[Channels.Supervisor] Exception building listener for config_id=#{config.id}: #{Exception.message(e)}"
-      )
-
-      []
+      Logger.warning("[Channels.Supervisor] Exception starting listener for config_id=#{config.id}: #{Exception.message(e)}")
+      {:error, Exception.message(e)}
   end
 
-  defp get_ingress_mode(provider) do
+  defp running?(bridge_id) do
+    case :ets.lookup(@table, bridge_id) do
+      [{^bridge_id, pids}] -> Enum.any?(pids, &Process.alive?/1)
+      [] -> false
+    end
+  end
+
+  defp bridge_id(config), do: "#{config.provider}_#{config.id}"
+
+  defp configured_providers do
+    :zaq
+    |> Application.get_env(:channels, %{})
+    |> Enum.flat_map(fn {provider, cfg} ->
+      if Map.has_key?(cfg, :adapter), do: [Atom.to_string(provider)], else: []
+    end)
+  end
+
+  defp ingress_mode(provider) do
     :zaq
     |> Application.get_env(:channels, %{})
     |> get_in([String.to_existing_atom(provider), :ingress_mode])
-    |> Kernel.||("websocket")
+    |> Kernel.||(:websocket)
   end
 
   defp load_active_channel_ids(config) do
-    channel_ids =
-      config.id
-      |> RetrievalChannel.list_active_by_config()
-      |> Enum.map(& &1.channel_id)
-
-    case channel_ids do
+    case RetrievalChannel.list_active_by_config(config.id) |> Enum.map(& &1.channel_id) do
       [] -> :all
       ids -> ids
     end

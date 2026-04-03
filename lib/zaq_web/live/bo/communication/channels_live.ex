@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.NodeRouter
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Repo
   alias Zaq.RuntimeDeps
@@ -240,6 +241,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     config
     |> Ecto.Changeset.change(enabled: !config.enabled)
     |> Repo.update!()
+
+    if config.enabled do
+      NodeRouter.call(:channels, Zaq.Channels.Supervisor, :stop_listener, [config])
+    else
+      NodeRouter.call(:channels, Zaq.Channels.Supervisor, :start_listener, [config])
+    end
 
     {:noreply,
      socket
