@@ -14,8 +14,9 @@ defmodule Zaq.Channels.ChannelConfig do
 
   alias Zaq.Types.EncryptedString
 
+  @smtp_provider "email:smtp"
   @valid_kinds ~w(ingestion retrieval)
-  @valid_providers ~w(mattermost slack teams google_drive sharepoint email)
+  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp)
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -30,18 +31,27 @@ defmodule Zaq.Channels.ChannelConfig do
     field :url, :string
     field :token, Zaq.Types.EncryptedString
     field :enabled, :boolean, default: true
+    field :settings, :map, default: %{}
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(config, attrs) do
     config
-    |> cast(attrs, [:name, :provider, :kind, :url, :token, :enabled])
-    |> validate_required([:name, :provider, :kind, :url, :token])
+    |> cast(attrs, [:name, :provider, :kind, :url, :token, :enabled, :settings])
+    |> validate_required([:name, :provider, :kind])
     |> validate_inclusion(:provider, @valid_providers)
     |> validate_inclusion(:kind, @valid_kinds)
+    |> maybe_require_connection_fields()
     |> unique_constraint(:provider)
     |> maybe_encrypt_token()
+  end
+
+  defp maybe_require_connection_fields(changeset) do
+    case get_field(changeset, :provider) do
+      @smtp_provider -> validate_required(changeset, [:settings])
+      _provider -> validate_required(changeset, [:url, :token])
+    end
   end
 
   defp maybe_encrypt_token(changeset) do
