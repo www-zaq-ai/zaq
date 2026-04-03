@@ -1,7 +1,9 @@
 defmodule Zaq.SystemTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Ingestion.Chunk
+  alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.EmailConfig
   alias Zaq.System.EmbeddingConfig
@@ -46,12 +48,17 @@ defmodule Zaq.SystemTest do
     end
 
     test "returns stored values from DB" do
-      System.set_config("email.relay", "smtp.example.com")
-      System.set_config("email.enabled", "true")
-      System.set_config("email.port", "465")
-      System.set_config("email.transport_mode", "ssl")
-      System.set_config("email.tls_verify", "verify_none")
-      System.set_config("email.ca_cert_path", "/etc/ssl/certs/custom-ca.pem")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings:
+          smtp_settings(%{
+            "relay" => "smtp.example.com",
+            "port" => "465",
+            "transport_mode" => "ssl",
+            "tls_verify" => "verify_none",
+            "ca_cert_path" => "/etc/ssl/certs/custom-ca.pem"
+          })
+      })
 
       config = System.get_email_config()
       assert config.relay == "smtp.example.com"
@@ -77,7 +84,10 @@ defmodule Zaq.SystemTest do
       assert {:ok, saved} = System.save_email_config(changeset)
       assert saved.relay == "smtp.example.com"
 
-      assert System.get_config("email.relay") == "smtp.example.com"
+      channel = Repo.get_by!(ChannelConfig, provider: "email:smtp")
+      assert channel.enabled == true
+      assert channel.settings["relay"] == "smtp.example.com"
+      assert channel.settings["from_email"] == "noreply@example.com"
     end
 
     test "returns error for invalid changeset" do
@@ -90,22 +100,20 @@ defmodule Zaq.SystemTest do
 
   describe "email_delivery_opts/0" do
     test "returns :not_configured when email disabled" do
-      System.set_config("email.enabled", "false")
+      insert_smtp_channel(%{enabled: false})
       assert {:error, :not_configured} = System.email_delivery_opts()
     end
 
     test "returns :not_configured when relay is blank" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "")
+      insert_smtp_channel(%{enabled: true, settings: smtp_settings(%{"relay" => ""})})
       assert {:error, :not_configured} = System.email_delivery_opts()
     end
 
     test "returns keyword list when enabled with relay set" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "smtp.example.com")
-      System.set_config("email.port", "587")
-      System.set_config("email.transport_mode", "starttls")
-      System.set_config("email.tls", "enabled")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings: smtp_settings(%{"relay" => "smtp.example.com"})
+      })
 
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:relay] == "smtp.example.com"
@@ -116,27 +124,33 @@ defmodule Zaq.SystemTest do
     end
 
     test "maps supported tls values and defaults unknown values" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "smtp.example.com")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings: smtp_settings(%{"relay" => "smtp.example.com", "tls" => "always"})
+      })
 
-      System.set_config("email.tls", "always")
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:tls] == :always
 
-      System.set_config("email.tls", "never")
+      update_smtp_settings(%{"tls" => "never"})
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:tls] == :never
 
-      System.set_config("email.tls", "legacy-or-invalid")
+      update_smtp_settings(%{"tls" => "legacy-or-invalid"})
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:tls] == :if_available
     end
 
     test "uses ssl transport mode when configured" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "smtp.example.com")
-      System.set_config("email.transport_mode", "ssl")
-      System.set_config("email.port", "465")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings:
+          smtp_settings(%{
+            "relay" => "smtp.example.com",
+            "transport_mode" => "ssl",
+            "port" => "465"
+          })
+      })
 
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:ssl] == true
@@ -144,36 +158,50 @@ defmodule Zaq.SystemTest do
     end
 
     test "maps tls_verify and ca_cert_path into tls_options" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "smtp.example.com")
-      System.set_config("email.transport_mode", "starttls")
-      System.set_config("email.tls", "always")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings:
+          smtp_settings(%{
+            "relay" => "smtp.example.com",
+            "transport_mode" => "starttls",
+            "tls" => "always",
+            "tls_verify" => "verify_none"
+          })
+      })
 
-      System.set_config("email.tls_verify", "verify_none")
       assert {:ok, opts} = System.email_delivery_opts()
       assert Keyword.get(opts[:tls_options], :verify) == :verify_none
 
-      System.set_config("email.tls_verify", "verify_peer")
-      System.set_config("email.ca_cert_path", "/etc/ssl/certs/custom.pem")
+      update_smtp_settings(%{
+        "tls_verify" => "verify_peer",
+        "ca_cert_path" => "/etc/ssl/certs/custom.pem"
+      })
+
       assert {:ok, opts} = System.email_delivery_opts()
       assert Keyword.get(opts[:tls_options], :verify) == :verify_peer
       assert Keyword.get(opts[:tls_options], :cacertfile) == ~c"/etc/ssl/certs/custom.pem"
     end
 
     test "sets auth :never when username is blank" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "smtp.example.com")
-      System.set_config("email.username", "")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings: smtp_settings(%{"relay" => "smtp.example.com", "username" => ""})
+      })
 
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:auth] == :never
     end
 
     test "sets auth :always and includes credentials when username is set" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "smtp.example.com")
-      System.set_config("email.username", "user@example.com")
-      System.set_config("email.password", "secret")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings:
+          smtp_settings(%{
+            "relay" => "smtp.example.com",
+            "username" => "user@example.com",
+            "password" => "secret"
+          })
+      })
 
       assert {:ok, opts} = System.email_delivery_opts()
       assert opts[:auth] == :always
@@ -182,10 +210,15 @@ defmodule Zaq.SystemTest do
     end
 
     test "returns error when encrypted password cannot be decrypted" do
-      System.set_config("email.enabled", "true")
-      System.set_config("email.relay", "smtp.example.com")
-      System.set_config("email.username", "user@example.com")
-      System.set_config("email.password", "enc:v1:broken:payload")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings:
+          smtp_settings(%{
+            "relay" => "smtp.example.com",
+            "username" => "user@example.com",
+            "password" => "enc:v1:broken:payload"
+          })
+      })
 
       assert {:error, :invalid_ciphertext} = System.email_delivery_opts()
     end
@@ -219,7 +252,7 @@ defmodule Zaq.SystemTest do
         })
 
       assert {:ok, _} = Zaq.System.save_email_config(changeset)
-      encrypted = Zaq.System.get_config("email.password")
+      encrypted = Repo.get_by!(ChannelConfig, provider: "email:smtp").settings["password"]
       assert String.starts_with?(encrypted, "enc:test-v1:")
       assert Zaq.System.get_email_config().password == "very-secret"
     end
@@ -245,11 +278,61 @@ defmodule Zaq.SystemTest do
     end
 
     test "returns stored from_name and from_email" do
-      System.set_config("email.from_name", "My App")
-      System.set_config("email.from_email", "hello@myapp.com")
+      insert_smtp_channel(%{
+        enabled: true,
+        settings: smtp_settings(%{"from_name" => "My App", "from_email" => "hello@myapp.com"})
+      })
 
       assert {"My App", "hello@myapp.com"} = System.email_sender()
     end
+  end
+
+  defp smtp_settings(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "relay" => "smtp.example.com",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "ca_cert_path" => nil,
+        "username" => nil,
+        "password" => nil,
+        "from_email" => "noreply@zaq.local",
+        "from_name" => "ZAQ"
+      },
+      overrides
+    )
+  end
+
+  defp insert_smtp_channel(attrs) do
+    defaults = %{
+      name: "Email SMTP",
+      provider: "email:smtp",
+      kind: "retrieval",
+      url: "smtp://configured-in-settings",
+      token: "smtp-unused",
+      enabled: true,
+      settings: smtp_settings()
+    }
+
+    from(c in ChannelConfig, where: c.provider == "email:smtp")
+    |> Repo.delete_all()
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(Map.merge(defaults, attrs))
+    |> Repo.insert!()
+  end
+
+  defp update_smtp_settings(changes) do
+    channel = Repo.get_by!(ChannelConfig, provider: "email:smtp")
+    merged = Map.merge(channel.settings || %{}, changes)
+
+    {1, _} =
+      from(c in ChannelConfig, where: c.id == ^channel.id)
+      |> Repo.update_all(set: [settings: merged])
+
+    :ok
   end
 
   # ── LLM ───────────────────────────────────────────────────────────────

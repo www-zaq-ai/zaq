@@ -1,11 +1,14 @@
 defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
   use ZaqWeb.ConnCase, async: true
 
+  import Ecto.Query
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   import Swoosh.TestAssertions
 
   alias Zaq.Accounts
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Repo
 
   describe "GET /bo/forgot-password" do
     test "renders the forgot password form", %{conn: conn} do
@@ -18,7 +21,7 @@ defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
 
   describe "submitting the form with a known email" do
     test "sends reset email and shows success page", %{conn: conn} do
-      Zaq.System.set_config("email.enabled", "true")
+      insert_smtp_channel(enabled: true)
 
       user = user_fixture()
       {:ok, _user} = Accounts.update_user(user, %{email: "valid@example.com"})
@@ -59,5 +62,38 @@ defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
       html = lv |> element("form") |> render_change(%{email: "new@example.com"})
       refute html =~ "No account found"
     end
+  end
+
+  defp insert_smtp_channel(attrs) do
+    settings = %{
+      "relay" => "",
+      "port" => "587",
+      "transport_mode" => "starttls",
+      "tls" => "enabled",
+      "tls_verify" => "verify_peer",
+      "from_email" => "noreply@example.com",
+      "from_name" => "ZAQ"
+    }
+
+    attrs_map = Enum.into(attrs, %{})
+
+    from(c in ChannelConfig, where: c.provider == "email:smtp")
+    |> Repo.delete_all()
+
+    params =
+      %{
+        name: "Email SMTP",
+        provider: "email:smtp",
+        kind: "retrieval",
+        url: "smtp://configured-in-settings",
+        token: "smtp-unused",
+        enabled: true,
+        settings: settings
+      }
+      |> Map.merge(attrs_map)
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(params)
+    |> Repo.insert!()
   end
 end
