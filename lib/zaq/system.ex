@@ -7,6 +7,7 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
@@ -18,9 +19,19 @@ defmodule Zaq.System do
   alias Zaq.System.TelemetryConfig
   alias Zaq.Types.EncryptedString
 
-  @email_fields ~w(
-    enabled relay port transport_mode tls tls_verify ca_cert_path username password from_email from_name
-  )
+  @smtp_provider "email:smtp"
+  @smtp_setting_atom_keys %{
+    "relay" => :relay,
+    "port" => :port,
+    "transport_mode" => :transport_mode,
+    "tls" => :tls,
+    "tls_verify" => :tls_verify,
+    "ca_cert_path" => :ca_cert_path,
+    "username" => :username,
+    "password" => :password,
+    "from_email" => :from_email,
+    "from_name" => :from_name
+  }
   @telemetry_fields ~w(
     capture_infra_metrics
     request_duration_threshold_ms
@@ -59,47 +70,38 @@ defmodule Zaq.System do
   # ── Email / SMTP ───────────────────────────────────────────────────────
 
   @doc """
-  Loads email configuration from DB and returns an `%EmailConfig{}` struct.
+  Loads SMTP configuration from `channel_configs.settings` and returns an
+  `%EmailConfig{}` struct.
 
-  Sensitive values are decrypted when possible. For backward compatibility,
-  legacy plaintext passwords are still readable.
+  Sensitive values are decrypted when possible for BO display.
   """
   def get_email_config do
-    keys = Enum.map(@email_fields, &"email.#{&1}")
-    rows = Repo.all(from c in Config, where: c.key in ^keys)
-
-    raw =
-      Enum.reduce(rows, %{}, fn row, acc ->
-        short = String.replace_prefix(row.key, "email.", "")
-        Map.put(acc, short, row.value)
-      end)
+    config = Repo.get_by(ChannelConfig, provider: @smtp_provider)
+    settings = if config, do: config.settings || %{}, else: %{}
 
     %EmailConfig{
-      enabled: raw["enabled"] == "true",
-      relay: raw["relay"],
-      port: parse_int(raw["port"], 587),
-      transport_mode: raw["transport_mode"] || "starttls",
-      tls: raw["tls"] || "enabled",
-      tls_verify: raw["tls_verify"] || "verify_peer",
-      ca_cert_path: blank_to_nil(raw["ca_cert_path"]),
-      username: raw["username"],
-      password: decrypt_password_value(raw["password"]),
-      from_email: raw["from_email"] || "noreply@zaq.local",
-      from_name: raw["from_name"] || "ZAQ"
+      enabled: if(config, do: config.enabled, else: false),
+      relay: map_get(settings, "relay"),
+      port: parse_int(map_get(settings, "port"), 587),
+      transport_mode: map_get(settings, "transport_mode") || "starttls",
+      tls: map_get(settings, "tls") || "enabled",
+      tls_verify: map_get(settings, "tls_verify") || "verify_peer",
+      ca_cert_path: blank_to_nil(map_get(settings, "ca_cert_path")),
+      username: map_get(settings, "username"),
+      password: decrypt_password_value(map_get(settings, "password")),
+      from_email: map_get(settings, "from_email") || "noreply@zaq.local",
+      from_name: map_get(settings, "from_name") || "ZAQ"
     }
   end
 
   @doc """
-  Persists email config from a validated `%EmailConfig{}` changeset.
-
-  SMTP password values are encrypted at rest via `Zaq.Types.EncryptedString`.
-  In strict mode, saves fail when a non-empty password is provided but
-  encryption key configuration is missing or invalid.
+  Persists SMTP config from a validated `%EmailConfig{}` changeset into
+  `channel_configs.settings` under provider `email:smtp`.
   """
   def save_email_config(%Ecto.Changeset{valid?: true} = changeset) do
     config = Ecto.Changeset.apply_changes(changeset)
 
-    case persist_email_fields(config) do
+    case persist_email_channel(config) do
       :ok -> {:ok, config}
       {:error, reason} -> {:error, reason}
     end
@@ -475,7 +477,7 @@ defmodule Zaq.System do
   end
 
   defp password_for_delivery(%EmailConfig{}) do
-    case EncryptedString.decrypt(get_config("email.password")) do
+    case EncryptedString.decrypt(raw_email_password()) do
       {:ok, nil} -> {:ok, ""}
       {:ok, password} -> {:ok, password}
       {:error, reason} -> {:error, reason}
@@ -509,31 +511,88 @@ defmodule Zaq.System do
       else: opts ++ [username: cfg.username, password: password]
   end
 
-  defp persist_email_fields(config) do
-    Enum.reduce_while(@email_fields, :ok, fn field, :ok ->
-      value = Map.get(config, String.to_existing_atom(field))
+  defp persist_email_channel(config) do
+    with {:ok, encrypted_password} <- encrypt_password_value(config.password) do
+      settings = %{
+        "relay" => config.relay,
+        "port" => to_string(config.port || 587),
+        "transport_mode" => config.transport_mode,
+        "tls" => config.tls,
+        "tls_verify" => config.tls_verify,
+        "ca_cert_path" => blank_to_nil(config.ca_cert_path),
+        "username" => blank_to_nil(config.username),
+        "password" => encrypted_password,
+        "from_email" => config.from_email,
+        "from_name" => config.from_name
+      }
 
-      result =
-        case field do
-          "password" -> persist_encrypted_password(value)
-          _ -> set_config("email.#{field}", value)
-        end
-
-      case result do
-        {:ok, _row} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp persist_encrypted_password(value) when value in [nil, ""] do
-    set_config("email.password", value)
-  end
-
-  defp persist_encrypted_password(value) when is_binary(value) do
-    with {:ok, encrypted} <- EncryptedString.encrypt(value) do
-      set_config("email.password", encrypted)
+      upsert_email_channel(config.enabled, settings)
     end
+  end
+
+  defp encrypt_password_value(value) when value in [nil, ""], do: {:ok, value}
+
+  defp encrypt_password_value(value) when is_binary(value) do
+    if EncryptedString.encrypted?(value) do
+      {:ok, value}
+    else
+      EncryptedString.encrypt(value)
+    end
+  end
+
+  defp upsert_email_channel(enabled, settings) do
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    case Repo.get_by(ChannelConfig, provider: @smtp_provider) do
+      nil ->
+        {1, _} =
+          Repo.insert_all(ChannelConfig, [
+            %{
+              name: "Email SMTP",
+              provider: @smtp_provider,
+              kind: "retrieval",
+              url: "smtp://configured-in-settings",
+              token: "__smtp_unused__",
+              enabled: enabled,
+              settings: settings,
+              inserted_at: now,
+              updated_at: now
+            }
+          ])
+
+        :ok
+
+      %ChannelConfig{id: id} ->
+        {1, _} =
+          from(c in ChannelConfig, where: c.id == ^id)
+          |> Repo.update_all(
+            set: [
+              name: "Email SMTP",
+              provider: @smtp_provider,
+              kind: "retrieval",
+              enabled: enabled,
+              settings: settings,
+              updated_at: now
+            ]
+          )
+
+        :ok
+    end
+  end
+
+  defp raw_email_password do
+    settings =
+      case Repo.get_by(ChannelConfig, provider: @smtp_provider) do
+        %ChannelConfig{settings: map} when is_map(map) -> map
+        _ -> %{}
+      end
+
+    map_get(settings, "password")
+  end
+
+  defp map_get(map, key) when is_map(map) do
+    atom_key = Map.get(@smtp_setting_atom_keys, key)
+    if atom_key, do: Map.get(map, key) || Map.get(map, atom_key), else: Map.get(map, key)
   end
 
   defp maybe_reload_telemetry_collector do
