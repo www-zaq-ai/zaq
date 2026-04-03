@@ -13,65 +13,10 @@ defmodule Zaq.Channels.Supervisor do
 
   require Logger
 
-  alias Zaq.Channels.{ChannelConfig, DiscordSupervisor, RetrievalChannel}
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.Workers.IncomingChatWorker
 
   def start_link(_opts), do: Supervisor.start_link(__MODULE__, [], name: __MODULE__)
-
-  @impl true
-  def init(_args) do
-    {discord_children, other_children} = build_listener_children()
-    nostrum_children = maybe_start_nostrum(discord_children)
-    Supervisor.init(nostrum_children ++ other_children, strategy: :one_for_one)
-  end
-
-  defp maybe_start_nostrum([]) do
-    Logger.debug("[Channels.Supervisor] No Discord listeners, skipping Nostrum")
-    []
-  end
-
-  defp maybe_start_nostrum(discord_listener_children) do
-    with {:config, %{token: token}} <- {:config, ChannelConfig.get_by_provider("discord")},
-         {:token, true} <- {:token, is_binary(token) and token != ""} do
-      Application.put_env(:nostrum, :token, token)
-
-      Application.put_env(:nostrum, :gateway_intents, [
-        :guild_messages,
-        :message_content,
-        :direct_messages
-      ])
-
-      {:ok, _} = Application.ensure_all_started(:gun)
-      {:ok, _} = Application.ensure_all_started(:castle)
-
-      Logger.info(
-        "[Channels.Supervisor] Discord config found, starting Nostrum via DiscordSupervisor"
-      )
-
-      [DiscordSupervisor.child_spec(discord_listener_children)]
-    else
-      {:config, nil} ->
-        Logger.warning(
-          "[Channels.Supervisor] Discord listeners exist but no enabled config found, skipping Nostrum"
-        )
-
-        []
-
-      {:token, false} ->
-        Logger.warning(
-          "[Channels.Supervisor] Discord config found but token is missing, skipping Nostrum"
-        )
-
-        []
-    end
-  rescue
-    e ->
-      Logger.warning(
-        "[Channels.Supervisor] Failed to check Discord config: #{Exception.message(e)}"
-      )
-
-      []
-  end
 
   defp channel_adapters do
     :zaq
@@ -85,28 +30,6 @@ defmodule Zaq.Channels.Supervisor do
     |> Map.new()
   end
 
-  # Returns {discord_listener_children, other_listener_children}.
-  # Discord children are handled separately so DiscordSupervisor can sequence
-  # Nostrum startup around them.
-  defp build_listener_children do
-    adapters = channel_adapters()
-    providers = Map.keys(adapters)
-    configs = ChannelConfig.list_enabled_by_kind(:retrieval, providers)
-
-    {discord_configs, other_configs} = Enum.split_with(configs, &(&1.provider == "discord"))
-
-    discord_children = Enum.flat_map(discord_configs, &listener_children_for_config(&1, adapters))
-    other_children = Enum.flat_map(other_configs, &listener_children_for_config(&1, adapters))
-
-    {discord_children, other_children}
-  rescue
-    e ->
-      Logger.warning(
-        "[Channels.Supervisor] Failed to load channel configs, starting with no listeners: #{Exception.message(e)}"
-      )
-
-      {[], []}
-  end
 
   defp listener_children_for_config(%{provider: provider} = config, adapters) do
     case Map.fetch(adapters, provider) do
