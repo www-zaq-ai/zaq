@@ -8,7 +8,14 @@ defmodule Zaq.Agent.CitationNormalizer do
                            "llm-linguistic-normalization"
                          ])
 
-  @type normalized_reference :: map()
+  @typedoc """
+  Normalized reference map returned by `normalize/3`.
+
+  Runtime shape:
+  - `%{"index" => integer(), "type" => "document", "path" => String.t()}`
+  - `%{"index" => integer(), "type" => "memory", "label" => String.t()}`
+  """
+  @type normalized_reference :: %{required(binary()) => String.t() | pos_integer()}
   @type normalized_result :: %{body: String.t(), sources: [normalized_reference()]}
 
   @spec normalize(String.t(), [String.t()], keyword()) :: normalized_result()

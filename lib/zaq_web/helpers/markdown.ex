@@ -1,5 +1,16 @@
 defmodule ZaqWeb.Helpers.Markdown do
-  @moduledoc false
+  @moduledoc """
+  Markdown rendering helper for chat and preview surfaces.
+
+  Strategy:
+  - Convert markdown to HTML with `Earmark`.
+  - Apply a lightweight regex-based sanitization pass to remove common XSS vectors
+    (`<script>` blocks, `on*` attributes, `javascript:` URLs).
+
+  Security note:
+  This is a pragmatic hardening layer, not a full HTML parser/sanitizer. If the
+  threat model expands, migrate this to a dedicated HTML sanitization library.
+  """
 
   @spec render(String.t()) :: String.t()
   def render(content) when is_binary(content) do

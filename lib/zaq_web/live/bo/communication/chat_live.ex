@@ -295,7 +295,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       current_user = socket.assigns[:current_user]
 
       %{body: normalized_body, sources: normalized_sources} =
-        CitationNormalizer.normalize(clean_body(result.answer), Map.get(result, :sources, []))
+        CitationNormalizer.normalize(trim_body(result.answer), Map.get(result, :sources, []))
 
       bot_msg = %{
         id: generate_id(),
@@ -551,7 +551,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       id: generate_id(),
       db_id: msg.id,
       role: :bot,
-      body: clean_body(content),
+      body: trim_body(content),
       confidence: msg.confidence_score || 0.0,
       timestamp: msg.inserted_at,
       error: false,
@@ -586,7 +586,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
             history
             |> Map.put(History.entry_key(now, :user), %{"body" => last_user, "type" => "user"})
             |> Map.put(History.entry_key(now, :bot), %{
-              "body" => clean_body(msg.content || ""),
+              "body" => trim_body(msg.content || ""),
               "type" => "bot"
             })
 
@@ -604,11 +604,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp infer_feedback_from_ratings([%{rating: r} | _]) when r <= 2, do: :negative
   defp infer_feedback_from_ratings(_), do: nil
 
-  defp clean_body(body) when is_binary(body) do
+  defp trim_body(body) when is_binary(body) do
     String.trim(body)
   end
 
-  defp clean_body(_), do: ""
+  defp trim_body(_), do: ""
 
   defp normalize_sources(sources) when is_list(sources) do
     sources
