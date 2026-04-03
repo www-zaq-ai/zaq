@@ -1,12 +1,11 @@
 defmodule Zaq.Channels.JidoChatBridge do
   @moduledoc """
-  Bridge for the jido_chat family of adapters (Mattermost, Slack, Discord).
+  Bridge for the jido_chat family of adapters (Mattermost, Telegram, etc.).
 
-  Ingress arrives via `handle_from_listener/3`, called by
-  `IncomingChatWorker` after dequeuing the Oban job. Maps
-  `Jido.Chat.Incoming` to `%Zaq.Engine.Messages.Incoming{}`, runs the
-  pipeline, and delivers the reply via `Zaq.Channels.Router`. Conversation
-  persistence is handled inline after routing.
+  `from_listener/3` is the `sink_mfa` target for adapter listeners. It routes
+  based on transport: `:webhook` payloads are enqueued via `IncomingChatWorker`
+  for async Oban processing; all other transports (e.g. WebSocket) are
+  transformed and handled inline.
 
   `send_reply/2` is called by the Router for outbound delivery to any
   jido_chat-backed platform.
@@ -18,12 +17,46 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Jido.Chat
   alias Jido.Chat.Thread
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.{ChannelConfig, Router}
+  alias Zaq.Channels.Workers.IncomingChatWorker
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.NodeRouter
 
   @doc """
-  Entry point for WebSocket-driven ingress.
-  Called by `IncomingChatWorker` after dequeuing the Oban job.
+  Sink target for `sink_mfa`. Routes based on transport:
+  - `:webhook` — enqueues an Oban job via `IncomingChatWorker`
+  - anything else — transforms and handles inline
+  """
+  def from_listener(config, payload, sink_opts) when is_map(payload) do
+    if sink_opts[:transport] == :webhook do
+      IncomingChatWorker.enqueue(config, payload, sink_opts)
+    else
+      adapter = ChannelConfig.resolve_adapter(config.provider)
+      transport = sink_opts[:transport] || :websocket
+      transform_and_handle(config, adapter, payload, transport)
+    end
+  end
+
+  @doc """
+  Transforms a raw adapter payload and dispatches it through the bridge.
+  Called inline by `from_listener/3` and by `IncomingChatWorker` for the webhook path.
+  """
+  def transform_and_handle(config, adapter, payload, transport) do
+    adapter_opts = [url: config.url, token: config.token]
+
+    case adapter.transform_incoming(payload, adapter_opts) do
+      {:ok, incoming} ->
+        incoming = %{incoming | metadata: Map.put(incoming.metadata, :transport, transport)}
+        handle_from_listener(config, incoming, [])
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Entry point for transformed ingress. Called directly for non-webhook
+  transports, or by `IncomingChatWorker` after dequeuing a webhook job.
   """
   def handle_from_listener(config, %Chat.Incoming{} = incoming, _sink_opts) do
     thread = build_thread(incoming, config)
@@ -49,19 +82,19 @@ defmodule Zaq.Channels.JidoChatBridge do
       }
 
       Logger.debug("[JidoChatBridge] Dispatching :reply_received post=#{inspect(post)}")
-      hooks_mod().dispatch_before(:reply_received, post, %{})
+      Zaq.Hooks.dispatch_before(:reply_received, post, %{})
       :ok
     else
       msg = to_internal(incoming, thread.adapter_name)
 
       with {:ok, role_ids} <- resolve_roles(msg),
-           outgoing <- pipeline_mod().run(msg, role_ids: role_ids),
-           :ok <- router_mod().deliver(outgoing) do
+           outgoing <- NodeRouter.call(:agent, Zaq.Agent.Pipeline, :run, [msg, [role_ids: role_ids]]),
+           :ok <- NodeRouter.call(:channels, Router, :deliver, [outgoing]) do
         :telemetry.execute([:zaq, :chat_bridge, :message, :processed], %{count: 1}, %{
           provider: msg.provider
         })
 
-        conversations_mod().persist_from_incoming(msg, outgoing.metadata)
+        NodeRouter.call(:engine, Zaq.Engine.Conversations, :persist_from_incoming, [msg, outgoing.metadata])
       else
         {:error, reason} ->
           :telemetry.execute([:zaq, :chat_bridge, :message, :failed], %{count: 1}, %{
@@ -144,9 +177,9 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   def resolve_roles(%{author_name: author_name}) do
     role_ids =
-      case accounts_mod().get_user_by_username(author_name) do
+      case Zaq.Accounts.get_user_by_username(author_name) do
         nil -> nil
-        user -> permissions_mod().list_accessible_role_ids(user)
+        user -> Zaq.Accounts.Permissions.list_accessible_role_ids(user)
       end
 
     {:ok, role_ids}
@@ -202,21 +235,4 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp dispatch_on_reply(_metadata, _post_id), do: :ok
 
-  defp hooks_mod,
-    do: Application.get_env(:zaq, :pipeline_hooks_module, Zaq.Hooks)
-
-  defp pipeline_mod,
-    do: Application.get_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-
-  defp router_mod,
-    do: Application.get_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
-
-  defp conversations_mod,
-    do: Application.get_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
-
-  defp accounts_mod,
-    do: Application.get_env(:zaq, :chat_bridge_accounts_module, Zaq.Accounts)
-
-  defp permissions_mod,
-    do: Application.get_env(:zaq, :chat_bridge_permissions_module, Zaq.Accounts.Permissions)
 end
