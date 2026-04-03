@@ -102,6 +102,8 @@ defmodule ZaqWeb.Router do
       live "/history", Live.BO.Communication.HistoryLive
 
       live "/conversations/:id", Live.BO.Communication.ConversationDetailLive, :show
+
+      live "/people", Live.BO.System.PeopleLive
     end
   end
 

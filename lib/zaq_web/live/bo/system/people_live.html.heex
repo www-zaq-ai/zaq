@@ -1,0 +1,504 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  page_title="People"
+  current_path={@current_path}
+  flash={@flash}
+  features_version={@features_version}
+>
+  <%!-- Delete confirmation bar --%>
+  <div
+    :if={@confirm_delete}
+    class="mb-4 rounded-xl bg-red-50 border border-red-200 px-5 py-3 flex items-center justify-between gap-4"
+  >
+    <p class="font-mono text-sm text-red-700">
+      Are you sure you want to delete this {@confirm_delete.entity}? This cannot be undone.
+    </p>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <button
+        phx-click="delete"
+        class="font-mono text-[0.75rem] font-bold px-4 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+      >
+        Confirm
+      </button>
+      <button
+        phx-click="cancel_delete"
+        class="font-mono text-[0.75rem] px-4 py-1.5 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  <%!-- Main split panel --%>
+  <div class="flex gap-6 min-h-[70vh]">
+    <%!-- Left: People list --%>
+    <div class={if @selected_person, do: "w-1/3 flex-shrink-0", else: "w-full"}>
+      <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
+        <%!-- Header --%>
+        <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
+          <h2 class="font-mono text-sm font-bold text-[#2c3a50]">People</h2>
+          <button
+            phx-click="open_modal"
+            phx-value-action="new"
+            phx-value-entity="person"
+            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+          >
+            + New Person
+          </button>
+        </div>
+
+        <%!-- Empty state --%>
+        <div :if={@people == []} class="py-16 text-center">
+          <p class="font-mono text-sm text-black/30">No people yet.</p>
+          <p class="font-mono text-[0.7rem] text-black/20 mt-1">Click "New Person" to add one.</p>
+        </div>
+
+        <%!-- People list --%>
+        <div :if={@people != []} class="divide-y divide-black/6">
+          <div
+            :for={person <- @people}
+            class={[
+              "flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-black/[0.02] transition-colors",
+              if(@selected_person && @selected_person.id == person.id,
+                do: "bg-[#03b6d4]/8 border-l-2 border-[#03b6d4]",
+                else: ""
+              )
+            ]}
+            phx-click="select_person"
+            phx-value-id={person.id}
+          >
+            <%!-- Avatar --%>
+            <div class="w-9 h-9 rounded-lg bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-sm font-bold text-[#2c3a50]/60">
+              {String.first(person.full_name) |> String.upcase()}
+            </div>
+            <%!-- Info --%>
+            <div class="min-w-0 flex-1">
+              <p class="font-mono text-[0.82rem] font-semibold text-[#2c3a50] truncate">
+                {person.full_name}
+              </p>
+              <p :if={person.role} class="font-mono text-[0.68rem] text-black/40 truncate">
+                {person.role}
+              </p>
+            </div>
+            <%!-- Status + channel badge --%>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <% preferred = List.first(person.channels) %>
+              <span
+                :if={preferred}
+                class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] border border-[#03b6d4]/20"
+              >
+                {preferred.platform}
+              </span>
+              <span class={[
+                "w-2 h-2 rounded-full flex-shrink-0",
+                if(person.status == "active", do: "bg-emerald-400", else: "bg-black/20")
+              ]} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Right: Detail panel --%>
+    <div :if={@selected_person} class="flex-1 min-w-0">
+      <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
+        <%!-- Detail header --%>
+        <div class="flex items-start justify-between px-6 py-5 border-b border-black/8">
+          <div class="flex items-center gap-4 min-w-0">
+            <div class="w-12 h-12 rounded-xl bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-lg font-bold text-[#2c3a50]/60">
+              {String.first(@selected_person.full_name) |> String.upcase()}
+            </div>
+            <div class="min-w-0">
+              <h3 class="font-mono text-base font-bold text-[#2c3a50] truncate">
+                {@selected_person.full_name}
+              </h3>
+              <p
+                :if={@selected_person.email}
+                class="font-mono text-[0.72rem] text-black/45 mt-0.5"
+              >
+                {@selected_person.email}
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-4">
+            <button
+              phx-click="open_modal"
+              phx-value-action="edit"
+              phx-value-entity="person"
+              phx-value-id={@selected_person.id}
+              class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+            >
+              Edit
+            </button>
+            <button
+              phx-click="confirm_delete"
+              phx-value-entity="person"
+              phx-value-id={@selected_person.id}
+              class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+            >
+              Delete
+            </button>
+            <button
+              phx-click="deselect_person"
+              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <%!-- Info grid --%>
+        <div class="px-6 py-4 grid grid-cols-3 gap-4 border-b border-black/6">
+          <div>
+            <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider mb-1">
+              Role
+            </p>
+            <p class="font-mono text-[0.78rem] text-black/70">
+              {@selected_person.role || "—"}
+            </p>
+          </div>
+          <div>
+            <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider mb-1">
+              Status
+            </p>
+            <span class={[
+              "font-mono text-[0.72rem] px-2 py-0.5 rounded",
+              if(@selected_person.status == "active",
+                do: "bg-emerald-100 text-emerald-700",
+                else: "bg-black/6 text-black/40"
+              )
+            ]}>
+              {@selected_person.status}
+            </span>
+          </div>
+          <div>
+            <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider mb-1">
+              Email
+            </p>
+            <p class="font-mono text-[0.78rem] text-black/70 truncate">
+              {@selected_person.email || "—"}
+            </p>
+          </div>
+        </div>
+
+        <%!-- Channels section --%>
+        <div class="px-6 py-4">
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="font-mono text-[0.72rem] uppercase tracking-wider text-black/35">
+              Channels
+            </h4>
+            <button
+              phx-click="open_modal"
+              phx-value-action="new"
+              phx-value-entity="channel"
+              phx-value-parent_id={@selected_person.id}
+              class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[#03b6d4]/40 text-[#03b6d4] hover:bg-[#03b6d4]/8 transition-colors"
+            >
+              + Add Channel
+            </button>
+          </div>
+
+          <div :if={@person_channels == []} class="py-6 text-center">
+            <p class="font-mono text-[0.72rem] text-black/25">No channels yet.</p>
+          </div>
+
+          <div :if={@person_channels != []} class="space-y-2">
+            <div
+              :for={{channel, idx} <- Enum.with_index(@person_channels)}
+              class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-black/[0.02] border border-black/6"
+            >
+              <%!-- Platform badge --%>
+              <span class="font-mono text-[0.65rem] font-semibold px-2 py-0.5 rounded bg-[#2c3a50]/8 text-[#2c3a50]/60 flex-shrink-0">
+                {channel.platform}
+              </span>
+              <%!-- Identifier --%>
+              <span class="font-mono text-[0.78rem] text-black/70 flex-1 min-w-0 truncate">
+                {channel.channel_identifier}
+              </span>
+              <%!-- Primary badge --%>
+              <span
+                :if={idx == 0}
+                class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 border border-amber-200 flex-shrink-0"
+              >
+                primary
+              </span>
+              <%!-- Actions --%>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <button
+                  :if={idx > 0}
+                  phx-click="move_channel_up"
+                  phx-value-channel_id={channel.id}
+                  class="w-6 h-6 rounded flex items-center justify-center text-black/30 hover:text-black/60 hover:bg-black/8 transition-colors"
+                  title="Move up"
+                >
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                  </svg>
+                </button>
+                <button
+                  :if={idx < length(@person_channels) - 1}
+                  phx-click="move_channel_down"
+                  phx-value-channel_id={channel.id}
+                  class="w-6 h-6 rounded flex items-center justify-center text-black/30 hover:text-black/60 hover:bg-black/8 transition-colors"
+                  title="Move down"
+                >
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <button
+                  phx-click="open_modal"
+                  phx-value-action="edit"
+                  phx-value-entity="channel"
+                  phx-value-id={channel.id}
+                  class="w-6 h-6 rounded flex items-center justify-center text-black/30 hover:text-black/60 hover:bg-black/8 transition-colors"
+                  title="Edit"
+                >
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button
+                  phx-click="confirm_delete"
+                  phx-value-entity="channel"
+                  phx-value-id={channel.id}
+                  class="w-6 h-6 rounded flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                  title="Delete"
+                >
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6m4-6v6" /><path d="M9 6V4h6v2" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Inline modal overlay --%>
+  <div
+    :if={@modal}
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+  >
+    <div class="bg-white rounded-2xl shadow-2xl border border-black/10 w-full max-w-md mx-4">
+      <%!-- Modal header --%>
+      <div class="flex items-center justify-between px-6 py-4 border-b border-black/8">
+        <h3 class="font-mono text-sm font-bold text-[#2c3a50]">
+          {case {@modal, @modal_entity} do
+            {:new, :person} -> "New Person"
+            {:edit, :person} -> "Edit Person"
+            {:new, :channel} -> "Add Channel"
+            {:edit, :channel} -> "Edit Channel"
+            _ -> ""
+          end}
+        </h3>
+        <button
+          phx-click="close_modal"
+          class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+        >
+          <svg
+            class="w-3.5 h-3.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <%!-- Person form --%>
+      <div :if={@modal_entity == :person} class="px-6 py-5">
+        <.form
+          for={@modal_changeset}
+          phx-change="validate"
+          phx-submit="save"
+          class="space-y-4"
+        >
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Full Name *</label>
+            <input
+              type="text"
+              name="person[full_name]"
+              value={Ecto.Changeset.get_field(@modal_changeset, :full_name)}
+              phx-debounce="300"
+              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              placeholder="Jane Smith"
+            />
+            <p
+              :if={@modal_changeset.errors[:full_name]}
+              class="font-mono text-[0.68rem] text-red-500 mt-1"
+            >
+              {translate_error(hd(@modal_changeset.errors[:full_name]))}
+            </p>
+          </div>
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Email</label>
+            <input
+              type="email"
+              name="person[email]"
+              value={Ecto.Changeset.get_field(@modal_changeset, :email)}
+              phx-debounce="300"
+              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              placeholder="jane@example.com"
+            />
+            <p
+              :if={@modal_changeset.errors[:email]}
+              class="font-mono text-[0.68rem] text-red-500 mt-1"
+            >
+              {translate_error(hd(@modal_changeset.errors[:email]))}
+            </p>
+          </div>
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Role</label>
+            <input
+              type="text"
+              name="person[role]"
+              value={Ecto.Changeset.get_field(@modal_changeset, :role)}
+              phx-debounce="300"
+              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              placeholder="Senior Engineer"
+            />
+          </div>
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Status</label>
+            <select
+              name="person[status]"
+              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            >
+              <option
+                value="active"
+                selected={Ecto.Changeset.get_field(@modal_changeset, :status) == "active"}
+              >
+                active
+              </option>
+              <option
+                value="inactive"
+                selected={Ecto.Changeset.get_field(@modal_changeset, :status) == "inactive"}
+              >
+                inactive
+              </option>
+            </select>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              phx-click="close_modal"
+              class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        </.form>
+      </div>
+
+      <%!-- Channel form --%>
+      <div :if={@modal_entity == :channel} class="px-6 py-5">
+        <.form
+          for={@modal_changeset}
+          phx-change="validate"
+          phx-submit="save"
+          class="space-y-4"
+        >
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Platform *</label>
+            <select
+              name="channel[platform]"
+              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            >
+              <option value="">Select platform…</option>
+              <option
+                :for={platform <- ~w(mattermost slack microsoft_teams whatsapp email)}
+                value={platform}
+                selected={Ecto.Changeset.get_field(@modal_changeset, :platform) == platform}
+              >
+                {platform}
+              </option>
+            </select>
+            <p
+              :if={@modal_changeset.errors[:platform]}
+              class="font-mono text-[0.68rem] text-red-500 mt-1"
+            >
+              {translate_error(hd(@modal_changeset.errors[:platform]))}
+            </p>
+          </div>
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">
+              Channel Identifier *
+            </label>
+            <input
+              type="text"
+              name="channel[channel_identifier]"
+              value={Ecto.Changeset.get_field(@modal_changeset, :channel_identifier)}
+              phx-debounce="300"
+              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              placeholder="@jane or jane@example.com"
+            />
+            <p
+              :if={@modal_changeset.errors[:channel_identifier]}
+              class="font-mono text-[0.68rem] text-red-500 mt-1"
+            >
+              {translate_error(hd(@modal_changeset.errors[:channel_identifier]))}
+            </p>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              phx-click="close_modal"
+              class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        </.form>
+      </div>
+    </div>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

@@ -781,6 +781,21 @@ defmodule ZaqWeb.Components.BOLayout do
             active: String.starts_with?(current_path, "/bo/roles")
           }
         ]
+      },
+      %{
+        id: "section-system",
+        label: "System",
+        icon: "system",
+        active: system_section_active?(current_path),
+        open: system_section_active?(current_path),
+        items: [
+          %{
+            href: ~p"/bo/people",
+            icon: "people",
+            label: "People",
+            active: String.starts_with?(current_path, "/bo/people")
+          }
+        ]
       }
     ]
   end
@@ -801,5 +816,9 @@ defmodule ZaqWeb.Components.BOLayout do
   defp accounts_section_active?(current_path) do
     String.starts_with?(current_path, "/bo/users") or
       String.starts_with?(current_path, "/bo/roles")
+  end
+
+  defp system_section_active?(current_path) do
+    String.starts_with?(current_path, "/bo/people")
   end
 end

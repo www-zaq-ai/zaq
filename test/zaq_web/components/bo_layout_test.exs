@@ -87,7 +87,7 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "Star Zaq on GitHub"
 
     refute html =~ "id=\"sidebar-profile-link\""
-    refute html =~ "id=\"section-system\""
+    assert html =~ "id=\"section-system\""
     refute html =~ "logout-btn"
 
     assert html =~ "Logout"
