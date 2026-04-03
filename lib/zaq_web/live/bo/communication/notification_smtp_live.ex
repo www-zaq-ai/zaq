@@ -1,14 +1,29 @@
 defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   use ZaqWeb, :live_view
 
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Mailer
-  alias Zaq.System
   alias Zaq.System.EmailConfig
+  alias Zaq.Types.EncryptedString
   alias ZaqWeb.ChangesetErrors
+
+  @smtp_provider "email:smtp"
+  @setting_atom_keys %{
+    "relay" => :relay,
+    "port" => :port,
+    "transport_mode" => :transport_mode,
+    "tls" => :tls,
+    "tls_verify" => :tls_verify,
+    "ca_cert_path" => :ca_cert_path,
+    "username" => :username,
+    "password" => :password,
+    "from_email" => :from_email,
+    "from_name" => :from_name
+  }
 
   @impl true
   def mount(_params, _session, socket) do
-    config = System.get_email_config()
+    config = current_email_config()
     changeset = EmailConfig.changeset(config, %{})
 
     {:ok,
@@ -30,7 +45,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def handle_event("validate", %{"email_config" => params}, socket) do
-    config = System.get_email_config()
+    config = current_email_config()
 
     changeset =
       config
@@ -46,14 +61,14 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def handle_event("save", %{"email_config" => params}, socket) do
-    config = System.get_email_config()
+    config = current_email_config()
     # Preserve the current enabled state — it's controlled by activate/deactivate
     params_with_enabled = Map.put(params, "enabled", to_string(config.enabled))
     changeset = EmailConfig.changeset(config, params_with_enabled)
 
-    case System.save_email_config(changeset) do
+    case persist_email_config(changeset) do
       {:ok, _} ->
-        fresh_config = System.get_email_config()
+        fresh_config = current_email_config()
         fresh_changeset = EmailConfig.changeset(fresh_config, %{})
 
         {:noreply,
@@ -95,13 +110,13 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def handle_event("activate", _params, socket) do
-    config = System.get_email_config()
+    config = current_email_config()
     new_enabled = !config.enabled
     changeset = EmailConfig.changeset(config, %{"enabled" => to_string(new_enabled)})
 
-    case System.save_email_config(changeset) do
+    case persist_email_config(changeset) do
       {:ok, _} ->
-        fresh_config = System.get_email_config()
+        fresh_config = current_email_config()
         fresh_changeset = EmailConfig.changeset(fresh_config, %{})
 
         {:noreply,
@@ -153,12 +168,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   def handle_info({:send_test, recipient}, socket) do
     result =
       try do
-        case System.email_delivery_opts() do
+        case email_delivery_opts() do
           {:error, :not_configured} ->
             {:error, "Email is not configured or disabled."}
 
           {:ok, delivery_opts} ->
-            {from_name, from_email} = System.email_sender()
+            {from_name, from_email} = email_sender()
 
             email =
               Swoosh.Email.new()
@@ -281,4 +296,193 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   defp maybe_add_warning(warnings, true, id, message),
     do: warnings ++ [%{id: id, message: message}]
+
+  defp current_email_config do
+    channel = ChannelConfig.get_any_by_provider(@smtp_provider)
+    settings = if channel, do: channel.settings || %{}, else: %{}
+
+    %EmailConfig{
+      enabled: if(channel, do: channel.enabled, else: false),
+      relay: map_get(settings, "relay"),
+      port: parse_int(map_get(settings, "port"), 587),
+      transport_mode: map_get(settings, "transport_mode") || "starttls",
+      tls: map_get(settings, "tls") || "enabled",
+      tls_verify: map_get(settings, "tls_verify") || "verify_peer",
+      ca_cert_path: blank_to_nil(map_get(settings, "ca_cert_path")),
+      username: map_get(settings, "username"),
+      password: decrypt_password_value(map_get(settings, "password")),
+      from_email: map_get(settings, "from_email") || "noreply@zaq.local",
+      from_name: map_get(settings, "from_name") || "ZAQ"
+    }
+  end
+
+  defp persist_email_config(%Ecto.Changeset{valid?: true} = changeset) do
+    config = Ecto.Changeset.apply_changes(changeset)
+
+    with {:ok, encrypted_password} <- encrypt_password_value(config.password) do
+      attrs = %{
+        name: "Email SMTP",
+        kind: "retrieval",
+        url: "smtp://configured-in-settings",
+        token: "__smtp_unused__",
+        enabled: config.enabled,
+        settings: %{
+          "relay" => config.relay,
+          "port" => to_string(config.port || 587),
+          "transport_mode" => config.transport_mode,
+          "tls" => config.tls,
+          "tls_verify" => config.tls_verify,
+          "ca_cert_path" => blank_to_nil(config.ca_cert_path),
+          "username" => blank_to_nil(config.username),
+          "password" => encrypted_password,
+          "from_email" => config.from_email,
+          "from_name" => config.from_name
+        }
+      }
+
+      ChannelConfig.upsert_by_provider(@smtp_provider, attrs)
+    end
+  end
+
+  defp persist_email_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
+
+  defp email_delivery_opts do
+    cfg = current_email_config()
+
+    with true <- cfg.enabled and not blank?(cfg.relay),
+         {:ok, password} <- password_for_delivery(cfg) do
+      {:ok, build_delivery_opts(cfg, password)}
+    else
+      false -> {:error, :not_configured}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp email_sender do
+    cfg = current_email_config()
+    {cfg.from_name || "ZAQ", cfg.from_email || "noreply@zaq.local"}
+  end
+
+  defp decrypt_password_value(value) do
+    case EncryptedString.decrypt(value) do
+      {:ok, decrypted} -> decrypted
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp encrypt_password_value(value) when value in [nil, ""], do: {:ok, value}
+
+  defp encrypt_password_value(value) when is_binary(value) do
+    if EncryptedString.encrypted?(value), do: {:ok, value}, else: EncryptedString.encrypt(value)
+  end
+
+  defp password_for_delivery(%EmailConfig{username: username}) when username in [nil, ""] do
+    {:ok, ""}
+  end
+
+  defp password_for_delivery(%EmailConfig{}) do
+    settings =
+      case ChannelConfig.get_any_by_provider(@smtp_provider) do
+        %ChannelConfig{settings: map} when is_map(map) -> map
+        _ -> %{}
+      end
+
+    case EncryptedString.decrypt(map_get(settings, "password")) do
+      {:ok, nil} -> {:ok, ""}
+      {:ok, password} -> {:ok, password}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_delivery_opts(%EmailConfig{} = cfg, password) do
+    auth = if blank?(cfg.username), do: :never, else: :always
+    {ssl, tls} = transport_settings(cfg)
+
+    tls_options =
+      if ssl or tls != :never do
+        smtp_tls_options(cfg)
+      else
+        []
+      end
+
+    opts = [
+      adapter: Swoosh.Adapters.SMTP,
+      relay: String.trim(cfg.relay),
+      port: cfg.port,
+      ssl: ssl,
+      tls: tls,
+      tls_options: tls_options,
+      auth: auth
+    ]
+
+    if blank?(cfg.username), do: opts, else: opts ++ [username: cfg.username, password: password]
+  end
+
+  defp transport_settings(%EmailConfig{transport_mode: "ssl"}), do: {true, :never}
+  defp transport_settings(%EmailConfig{} = cfg), do: {false, normalize_tls_mode(cfg.tls)}
+
+  defp normalize_tls_mode("enabled"), do: :if_available
+  defp normalize_tls_mode("if_available"), do: :if_available
+  defp normalize_tls_mode("always"), do: :always
+  defp normalize_tls_mode("never"), do: :never
+  defp normalize_tls_mode(_), do: :if_available
+
+  defp smtp_tls_options(%EmailConfig{} = cfg) do
+    verify = normalize_tls_verify_mode(cfg.tls_verify)
+    relay = String.trim(cfg.relay)
+
+    options = [
+      versions: [:"tlsv1.2", :"tlsv1.3"],
+      verify: verify,
+      depth: 4,
+      server_name_indication: to_charlist(relay)
+    ]
+
+    cond do
+      verify == :verify_none ->
+        options
+
+      not blank?(cfg.ca_cert_path) ->
+        options ++ [cacertfile: to_charlist(cfg.ca_cert_path)]
+
+      true ->
+        options ++ [cacerts: default_cacerts()]
+    end
+  end
+
+  defp normalize_tls_verify_mode("verify_none"), do: :verify_none
+  defp normalize_tls_verify_mode(_), do: :verify_peer
+
+  defp default_cacerts do
+    :public_key.cacerts_get()
+    |> Enum.map(fn
+      {:cert, der, _} -> der
+      der when is_binary(der) -> der
+    end)
+  rescue
+    _ -> []
+  end
+
+  defp parse_int(nil, default), do: default
+  defp parse_int("", default), do: default
+
+  defp parse_int(str, default) do
+    case Integer.parse(str) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+
+  defp blank?(nil), do: true
+  defp blank?(""), do: true
+  defp blank?(_), do: false
+
+  defp blank_to_nil(value) do
+    if blank?(value), do: nil, else: value
+  end
+
+  defp map_get(map, key) when is_map(map) do
+    atom_key = Map.get(@setting_atom_keys, key)
+    if atom_key, do: Map.get(map, key) || Map.get(map, atom_key), else: Map.get(map, key)
+  end
 end

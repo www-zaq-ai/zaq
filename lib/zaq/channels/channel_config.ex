@@ -117,6 +117,33 @@ defmodule Zaq.Channels.ChannelConfig do
     Zaq.Repo.get_by(__MODULE__, provider: provider, enabled: true)
   end
 
+  @doc "Returns a config for `provider`, including disabled entries."
+  def get_any_by_provider(provider) do
+    Zaq.Repo.get_by(__MODULE__, provider: provider)
+  end
+
+  @doc """
+  Upserts a provider config.
+
+  `attrs` can include any ChannelConfig fields; provider is always forced to the
+  function argument.
+  """
+  def upsert_by_provider(provider, attrs) when is_binary(provider) and is_map(attrs) do
+    attrs = Map.put(attrs, :provider, provider)
+
+    case get_any_by_provider(provider) do
+      nil ->
+        %__MODULE__{}
+        |> changeset(attrs)
+        |> Zaq.Repo.insert()
+
+      %__MODULE__{} = config ->
+        config
+        |> changeset(attrs)
+        |> Zaq.Repo.update()
+    end
+  end
+
   @doc """
   Returns the enabled ChannelConfig for a given provider and platform-specific
   channel ID, by joining through retrieval_channels. Returns nil if not found.

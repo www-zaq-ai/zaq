@@ -154,6 +154,42 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert nil == ChannelConfig.get_by_provider("mattermost")
   end
 
+  test "get_any_by_provider/1 returns disabled config" do
+    disabled = insert_channel_config(%{provider: "mattermost", enabled: false})
+    disabled_id = disabled.id
+
+    assert %ChannelConfig{id: ^disabled_id} = ChannelConfig.get_any_by_provider("mattermost")
+  end
+
+  test "upsert_by_provider/2 inserts and updates provider config" do
+    attrs = %{
+      name: "Email SMTP",
+      kind: "retrieval",
+      url: "smtp://configured-in-settings",
+      token: "smtp-unused",
+      enabled: true,
+      settings: %{"relay" => "smtp.example.com", "port" => "587"}
+    }
+
+    assert {:ok, inserted} = ChannelConfig.upsert_by_provider("email:smtp", attrs)
+    assert inserted.provider == "email:smtp"
+    assert inserted.settings["relay"] == "smtp.example.com"
+
+    assert {:ok, updated} =
+             ChannelConfig.upsert_by_provider("email:smtp", %{
+               name: "Email SMTP",
+               kind: "retrieval",
+               url: "smtp://configured-in-settings",
+               token: "smtp-unused",
+               enabled: false,
+               settings: %{"relay" => "smtp.internal.local", "port" => "465"}
+             })
+
+    assert updated.id == inserted.id
+    assert updated.enabled == false
+    assert updated.settings["relay"] == "smtp.internal.local"
+  end
+
   test "test_connection/2 returns unsupported provider error" do
     config = %ChannelConfig{provider: "slack"}
 
