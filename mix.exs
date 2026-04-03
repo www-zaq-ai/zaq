@@ -129,14 +129,14 @@ defmodule Zaq.MixProject do
         "credo --strict",
         "test",
         "e2e"
-      ],
-      coveralls: ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls"],
-      "coveralls.html": ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls.html"],
-      "coveralls.github": [
-        "ecto.create --quiet",
-        "ecto.migrate --quiet",
-        "coveralls.github"
       ]
+      # coveralls: ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls"],
+      # "coveralls.html": ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls.html"],
+      # "coveralls.github": [
+      #   "ecto.create --quiet",
+      #   "ecto.migrate --quiet",
+      #   "coveralls.github"
+      # ]
     ]
   end
 
