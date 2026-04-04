@@ -1,3 +1,5 @@
+:logger.add_handler(:e2e_collector, Zaq.E2E.LogHandler, %{})
+
 alias Zaq.Accounts
 alias Zaq.Agent.PromptTemplate
 alias Zaq.Engine.Conversations

@@ -45,6 +45,13 @@ defmodule Zaq.Application do
         children
       end
 
+    children =
+      if Application.get_env(:zaq, :e2e, false) do
+        children ++ [Zaq.E2E.LogCollector]
+      else
+        children
+      end
+
     opts = [strategy: :one_for_one, name: Zaq.Supervisor]
     result = Supervisor.start_link(children, opts)
     LLMDB.load()
