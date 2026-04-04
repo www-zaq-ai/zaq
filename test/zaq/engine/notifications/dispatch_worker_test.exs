@@ -89,7 +89,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
       args = %{
         "log_id" => log.id,
-        "channels" => [channel("email:smtp", Zaq.Engine.Notifications.EmailNotification)]
+        "channels" => [channel("email:smtp")]
       }
 
       assert :ok = perform(args)
