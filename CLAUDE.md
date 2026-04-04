@@ -1,3 +1,5 @@
 # Claude Agent Entry Point
 
-Follow [AGENTS.md](./AGENTS.md) as canonical team standards.
+@AGENTS.md
+
+The above file contains ALL team standards. Follow it exactly.
