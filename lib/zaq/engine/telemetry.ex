@@ -79,7 +79,7 @@ defmodule Zaq.Engine.Telemetry do
 
   import Ecto.Query
 
-  alias Zaq.Engine.Telemetry.{Buffer, DashboardData, Rollup}
+  alias Zaq.Engine.Telemetry.{Buffer, DashboardData, Point, Rollup}
   alias Zaq.Repo
   alias Zaq.System
 
@@ -171,6 +171,43 @@ defmodule Zaq.Engine.Telemetry do
       llm_api_calls_30d: round(metric_value(metrics, "dashboard-metric-llm-api-calls", 0.0))
     }
   end
+
+  @doc "Returns recent telemetry points for E2E inspection. Accepts metric (supports * wildcard), limit, and last_minutes."
+  @spec list_recent_points(map()) :: [Point.t()]
+  def list_recent_points(params \\ %{}) do
+    metric = Map.get(params, "metric", "")
+    limit = params |> Map.get("limit", "50") |> parse_int(50)
+    last_minutes = params |> Map.get("last_minutes", "5") |> parse_int(5)
+
+    since = DateTime.add(DateTime.utc_now(), -last_minutes * 60, :second)
+    like_pattern = String.replace(metric, "*", "%")
+
+    base_query =
+      from(p in Point,
+        where: p.occurred_at >= ^since,
+        order_by: [desc: p.occurred_at],
+        limit: ^limit
+      )
+
+    base_query
+    |> maybe_filter_metric(like_pattern)
+    |> Repo.all()
+  end
+
+  defp maybe_filter_metric(query, ""), do: query
+
+  defp maybe_filter_metric(query, pattern),
+    do: from(p in query, where: like(p.metric_key, ^pattern))
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, _} when n > 0 -> n
+      _ -> default
+    end
+  end
+
+  defp parse_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp parse_int(_, default), do: default
 
   @doc "Returns local rollups updated after the given cursor."
   @spec list_local_rollups_since(DateTime.t() | nil, non_neg_integer()) :: [map()]

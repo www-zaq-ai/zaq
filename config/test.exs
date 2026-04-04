@@ -76,6 +76,9 @@ config :phoenix_live_view,
 config :phoenix,
   sort_verified_routes_query_params: true
 
+# E2E observability routes and log collector are always available in test env
+config :zaq, e2e: true
+
 if e2e? do
   config :zaq, Zaq.Repo,
     pool: DBConnection.ConnectionPool,

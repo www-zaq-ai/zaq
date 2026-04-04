@@ -114,6 +114,16 @@ defmodule ZaqWeb.Router do
     end
   end
 
+  if Application.compile_env(:zaq, :e2e, false) do
+    scope "/e2e", ZaqWeb do
+      pipe_through :api
+
+      get "/health", E2EController, :health
+      get "/telemetry/points", E2EController, :telemetry_points
+      get "/logs/recent", E2EController, :logs_recent
+    end
+  end
+
   if Application.compile_env(:zaq, :dev_routes) do
     import Phoenix.LiveDashboard.Router
 
