@@ -77,6 +77,24 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule StubAdapterNoOutboundFns do
+    def listener_child_specs(_bridge_id, _opts), do: {:ok, []}
+  end
+
+  defmodule StubAdapterListenerOpts do
+    def listener_child_specs(_bridge_id, opts) do
+      send(self(), {:listener_child_specs_opts, opts})
+      {:ok, []}
+    end
+  end
+
+  defmodule StubAdapterTestConnection do
+    def send_message(channel_id, message, opts) do
+      send(self(), {:adapter_send_message, channel_id, message, opts})
+      {:ok, :sent}
+    end
+  end
+
   defmodule StubListenerAdapter do
     def transform_incoming(%{"type" => "message", "text" => text}, _opts) do
       {:ok,
@@ -375,6 +393,37 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                })
     end
 
+    test "send_typing/3 returns missing_connection_details without url/token" do
+      assert {:error, :missing_connection_details} =
+               JidoChatBridge.send_typing("mattermost", "chan-1", %{})
+    end
+
+    test "add_reaction/5 returns missing_connection_details without url/token" do
+      assert {:error, :missing_connection_details} =
+               JidoChatBridge.add_reaction("mattermost", "chan-1", "msg-1", "+1", %{})
+    end
+
+    test "remove_reaction/5 returns missing_connection_details without url/token" do
+      assert {:error, :missing_connection_details} =
+               JidoChatBridge.remove_reaction("mattermost", "chan-1", "msg-1", "+1", %{})
+    end
+
+    test "send_typing/3 returns unsupported when adapter has no callback" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterNoOutboundFns}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:error, :unsupported} =
+               JidoChatBridge.send_typing("mattermost", "chan-1", %{
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+    end
+
     test "start_runtime/1 and stop_runtime/1 manage config runtime" do
       previous = Application.get_env(:zaq, :channels, %{})
 
@@ -400,6 +449,65 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert :ok = JidoChatBridge.start_runtime(config)
       assert :ok = JidoChatBridge.stop_runtime(config)
+    end
+
+    test "runtime_specs/3 includes ingress defaults and custom ingress settings" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{
+          "jido_chat" => %{
+            "bot_name" => "zaq",
+            "bot_user_id" => "bot-1",
+            "ingress" => %{"source" => "nostrum"}
+          }
+        }
+      }
+
+      {_state_spec, listener_specs} =
+        JidoChatBridge.runtime_specs(config, "bridge_ingress_test", channel_ids: ["chan-1"])
+
+      assert listener_specs == []
+      assert_received {:listener_child_specs_opts, listener_opts}
+      assert listener_opts[:ingress] == %{"mode" => "gateway", "source" => "nostrum"}
+      assert listener_opts[:sink_opts][:transport] == :gateway
+    end
+  end
+
+  describe "adapter and connectivity" do
+    test "adapter_for/1 returns unsupported_provider for unknown provider" do
+      assert {:error, :unsupported_provider} = JidoChatBridge.adapter_for("does-not-exist")
+    end
+
+    test "test_connection/2 delegates to adapter send_message" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterTestConnection}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{provider: "mattermost", url: "https://mm.example.com", token: "tok"}
+
+      assert {:ok, :sent} = JidoChatBridge.test_connection(config, "chan-1")
+      assert_received {:adapter_send_message, "chan-1", _message, opts}
+      assert opts[:url] == "https://mm.example.com"
+      assert opts[:token] == "tok"
     end
   end
 
