@@ -202,22 +202,18 @@ defmodule Zaq.Agent.LLMRunner do
 
   defp normalized_text(_), do: :error
 
-  defp build_llm_model(config) when is_map(config) do
-    if anthropic?(config) do
-      ChatAnthropic.new!(%{
-        model: config.model,
-        temperature: config.temperature,
-        api_key: config.api_key,
-        endpoint: config.endpoint
-      })
-    else
-      ChatOpenAI.new!(config)
-    end
+  defp build_llm_model(%{provider: "anthropic"} = config) do
+    ChatAnthropic.new!(%{
+      model: config.model,
+      temperature: config.temperature,
+      api_key: config.api_key,
+      endpoint: config.endpoint
+    })
   end
 
-  defp anthropic?(%{provider: "anthropic"}), do: true
-  defp anthropic?(%{endpoint: ep}) when is_binary(ep), do: String.contains?(ep, "anthropic.com")
-  defp anthropic?(_), do: false
+  defp build_llm_model(config) do
+    ChatOpenAI.new!(config)
+  end
 
   defp maybe_add_system_message(chain, prompt) when is_binary(prompt) and prompt != "",
     do: LLMChain.add_message(chain, Message.new_system!(prompt))
