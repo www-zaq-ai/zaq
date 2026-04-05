@@ -52,6 +52,15 @@ defmodule Zaq.Channels.RouterTest do
     def send_reply(_outgoing, _connection_details), do: {:error, :delivery_failed}
   end
 
+  defmodule TestConnectionBridge do
+    def send_reply(_outgoing, _connection_details), do: :ok
+
+    def test_connection(config, channel_id) do
+      send(self(), {:test_connection, config.provider, channel_id})
+      {:ok, :connected}
+    end
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -206,6 +215,53 @@ defmodule Zaq.Channels.RouterTest do
       assert :ok = Router.sync_config_runtime(config, config)
       refute_received {:start_runtime, _, _}
       refute_received {:stop_runtime, _, _}
+    end
+
+    test "returns :ok when bridge has no runtime callbacks" do
+      config = %{id: 99, provider: "web", enabled: true}
+      assert :ok = Router.sync_config_runtime(nil, config)
+    end
+
+    test "returns no_bridge error when provider is not configured" do
+      config = %{id: 99, provider: "missing-provider", enabled: true}
+      assert {:error, {:no_bridge, "missing-provider"}} = Router.sync_config_runtime(nil, config)
+    end
+  end
+
+  describe "test_connection/2" do
+    test "returns unsupported when bridge does not implement test_connection" do
+      config = %{provider: "mattermost", url: "https://mm.example.com", token: "tok"}
+
+      assert {:error, :unsupported} = Router.test_connection(config, "chan-1")
+    end
+
+    test "delegates to bridge when test_connection exists" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: TestConnectionBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{provider: "mattermost", url: "https://mm.example.com", token: "tok"}
+
+      assert {:ok, :connected} = Router.test_connection(config, "chan-1")
+      assert_received {:test_connection, "mattermost", "chan-1"}
+    end
+  end
+
+  describe "bridge_for/1" do
+    test "maps smtp provider key to email bridge" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        email: %{bridge: StubBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert Router.bridge_for("email:smtp") == StubBridge
     end
   end
 end

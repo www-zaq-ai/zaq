@@ -404,7 +404,9 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp listener_opts(config, bridge_id, runtime_opts) do
-    channel_ids = Keyword.get(runtime_opts, :channel_ids, load_active_channel_ids(config))
+    channel_ids =
+      Keyword.get_lazy(runtime_opts, :channel_ids, fn -> load_active_channel_ids(config) end)
+
     ingress_mode = ingress_mode_for(config.provider)
 
     default_ingress = %{"mode" => Atom.to_string(ingress_mode)}

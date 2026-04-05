@@ -15,6 +15,38 @@ defmodule Zaq.Channels.SupervisorTest do
     def init(:ok), do: {:ok, %{}}
   end
 
+  defmodule NamedListenerProc do
+    use GenServer
+
+    def start_link(name), do: GenServer.start_link(__MODULE__, :ok, name: {:global, name})
+
+    @impl GenServer
+    def init(:ok), do: {:ok, %{}}
+  end
+
+  defmodule StateProc do
+    use GenServer
+
+    def start_link(name), do: GenServer.start_link(__MODULE__, :ok, name: {:global, name})
+
+    @impl GenServer
+    def init(:ok), do: {:ok, %{}}
+  end
+
+  defmodule FailingStartProc do
+    def start_link(_arg), do: {:error, :boom}
+  end
+
+  defmodule BridgeFailStart do
+    def start_runtime(_config), do: {:error, :bridge_start_failed}
+    def stop_runtime(_config), do: :ok
+  end
+
+  defmodule BridgeFailStop do
+    def start_runtime(_config), do: :ok
+    def stop_runtime(_config), do: {:error, :bridge_stop_failed}
+  end
+
   defmodule StubAdapter do
     def listener_child_specs(bridge_id, _opts) do
       {:ok,
@@ -155,5 +187,101 @@ defmodule Zaq.Channels.SupervisorTest do
 
     assert :ok = Supervisor.stop_listener(config)
     assert [] == :ets.lookup(:zaq_channels_listeners, bridge_id)
+  end
+
+  test "start_runtime/3 returns already_running when bridge id is active", %{config: config} do
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    bridge_id = "mattermost_test_already_running"
+    {state_spec, listener_specs} = JidoChatBridge.runtime_specs(config, bridge_id, [])
+
+    assert {:ok, _runtime} = Supervisor.start_runtime(bridge_id, state_spec, listener_specs)
+
+    assert {:error, :already_running} =
+             Supervisor.start_runtime(bridge_id, state_spec, listener_specs)
+
+    assert :ok = Supervisor.stop_bridge_runtime(config, bridge_id)
+  end
+
+  test "stop_bridge_runtime/2 returns not_running when missing", %{config: config} do
+    assert {:error, :not_running} =
+             Supervisor.stop_bridge_runtime(config, "missing_bridge_runtime")
+  end
+
+  test "lookup_runtime/1 and lookup_state_pid/1 return not_running for unknown bridge id" do
+    assert {:error, :not_running} = Supervisor.lookup_runtime("unknown_bridge")
+    assert {:error, :not_running} = Supervisor.lookup_state_pid("unknown_bridge")
+  end
+
+  test "lookup_state_pid/1 returns not_running when state pid is nil" do
+    bridge_id = "bridge_with_nil_state"
+    :ets.insert(:zaq_channels_listeners, {bridge_id, %{listener_pids: [], state_pid: nil}})
+
+    assert {:error, :not_running} = Supervisor.lookup_state_pid(bridge_id)
+
+    :ets.delete(:zaq_channels_listeners, bridge_id)
+  end
+
+  test "start_runtime/3 rolls back when listener child start fails" do
+    bridge_id = "bridge_listener_failure"
+    state_name = {:state_proc, bridge_id}
+    listener_name = {:listener_proc, bridge_id}
+
+    state_spec = %{
+      id: {:state_proc, bridge_id},
+      start: {StateProc, :start_link, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    good_listener_spec = %{
+      id: {:listener_ok, bridge_id},
+      start: {NamedListenerProc, :start_link, [listener_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    failing_listener_spec = %{
+      id: {:listener_fail, bridge_id},
+      start: {FailingStartProc, :start_link, [:ignored]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:error, _reason} =
+             Supervisor.start_runtime(bridge_id, state_spec, [
+               good_listener_spec,
+               failing_listener_spec
+             ])
+
+    assert :global.whereis_name(listener_name) in [:undefined, :error]
+    assert :global.whereis_name(state_name) in [:undefined, :error]
+    assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+  end
+
+  test "start_listener/1 propagates router start errors", %{config: config} do
+    previous = Application.get_env(:zaq, :channels, %{})
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: BridgeFailStart, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+    assert {:error, :bridge_start_failed} = Supervisor.start_listener(config)
+  end
+
+  test "stop_listener/1 propagates router stop errors", %{config: config} do
+    previous = Application.get_env(:zaq, :channels, %{})
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: BridgeFailStop, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+    assert {:error, :bridge_stop_failed} = Supervisor.stop_listener(config)
   end
 end

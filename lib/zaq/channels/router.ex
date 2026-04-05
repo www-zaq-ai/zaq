@@ -175,6 +175,7 @@ defmodule Zaq.Channels.Router do
       apply(bridge, fun, [config])
     else
       :unsupported -> :ok
+      {:error, _} = error -> error
     end
   end
 
