@@ -1,5 +1,27 @@
 defmodule Zaq.Channels.JidoChatBridge.State do
-  @moduledoc false
+  @moduledoc """
+  Runtime state holder for one `JidoChatBridge` instance (`bridge_id`).
+
+  This process owns the authoritative `%Jido.Chat{}` struct for the bridge and
+  applies all incoming mutations sequentially via `GenServer.call/3`.
+
+  Why this process exists:
+
+  - `Jido.Chat` is stateful (subscriptions, dedupe, thread/channel state).
+  - Multiple ingress sources can hit the same bridge concurrently.
+  - A read/modify/write flow outside a single owner process risks races and
+    divergent chat state.
+
+  By funneling operations through this process, ZAQ keeps exactly one evolving
+  `Jido.Chat` version per `bridge_id`, with deterministic ordering.
+
+  Responsibilities:
+
+  - Transform listener payloads and process them through `Jido.Chat`.
+  - Keep subscriptions and runtime chat state in sync.
+  - Refresh config while preserving runtime state that must survive reloads.
+  - Delegate outbound bridge actions while keeping runtime ownership local.
+  """
 
   use GenServer
 
