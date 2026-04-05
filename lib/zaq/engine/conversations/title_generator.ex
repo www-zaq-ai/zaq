@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
 
   alias LangChain.Chains.LLMChain
   alias LangChain.ChatModels.ChatOpenAI
+  alias LangChain.ChatModels.ChatAnthropic
   alias LangChain.Message
   alias Zaq.Agent.{LLM, LLMRunner}
   alias Zaq.Utils.TextUtils
@@ -61,7 +62,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
 
     try do
       {:ok, updated_chain} =
-        LLMChain.new!(%{llm: ChatOpenAI.new!(llm_config)})
+        LLMChain.new!(%{llm: build_llm_model(llm_config)})
         |> LLMChain.add_message(Message.new_user!(prompt))
         |> LLMChain.run()
 
@@ -90,6 +91,19 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp build_llm_model(%{provider: "anthropic"} = config) do
+    ChatAnthropic.new!(%{
+      model: config.model,
+      temperature: config.temperature,
+      api_key: config.api_key,
+      endpoint: config.endpoint
+    })
+  end
+
+  defp build_llm_model(config) do
+    ChatOpenAI.new!(config)
+  end
 
   defp remove_quotes(text) do
     text
