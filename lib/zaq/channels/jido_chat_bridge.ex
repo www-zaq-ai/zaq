@@ -529,8 +529,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp maybe_put_user_id(opts, _), do: opts
 
   @doc false
-  def thread_key(provider, channel_id, thread_id)
-      when is_binary(channel_id) and is_binary(thread_id) do
+  def thread_key(provider, channel_id, thread_id) do
     provider_name = if is_atom(provider), do: Atom.to_string(provider), else: provider
     "#{provider_name}:#{channel_id}:#{thread_id}"
   end
