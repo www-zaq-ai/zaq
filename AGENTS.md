@@ -23,7 +23,10 @@ This file is your **map**. Read the relevant doc before starting any task.
 ### Planning & Quality
 | What you need | Where to look |
 |---|---|
+| Agent workflow (plan → implement → PR) | `docs/WORKFLOW_AGENT.md` |
+| Execution plan template | `docs/exec-plans/PLAN_TEMPLATE.md` |
 | Quality grades per domain | `docs/QUALITY_SCORE.md` |
+| Harness improvement roadmap | `docs/harness-roadmap.md` |
 | Active execution plans | `docs/exec-plans/active/` |
 | Completed plans & decision logs | `docs/exec-plans/completed/` |
 | Known technical debt | `docs/exec-plans/tech-debt-tracker.md` |
@@ -43,6 +46,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 
 ## ⚡ Core Rules (Always Apply)
 
+- **Follow `docs/WORKFLOW_AGENT.md`** on every task — orient, plan, implement, validate, PR, close out.
 - **Read the relevant doc first** before starting any task.
 - **Never push directly to `main`** — all changes go through a PR.
 - **Run `mix precommit`** before every commit. Never replace it with ad-hoc checks.
@@ -65,4 +69,24 @@ This file is your **map**. Read the relevant doc before starting any task.
 
 Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
-`project-planner` · `api-developer` · `tdd-specialist` · `code-reviewer` · `debugger` · `refactor` · `doc-writer` · `security-scanner` · `devops-engineer` · `product-manager` · `test-runner`
+### Use the right agent for the task
+
+| Task | Use agent |
+|---|---|
+| Break down a complex task, write an exec plan | `project-planner` or `planner` |
+| Build a new context API or domain module | `api-developer` |
+| Write tests before implementing | `tdd-specialist` or `tdd` |
+| Review a PR for quality and conventions | `code-reviewer` or `reviewer` |
+| Reproduce and fix a bug | `debugger` |
+| Clean up or restructure existing code | `refactor` |
+| **Audit existing docs for drift against real code** | `doc-gardening` ← not `doc-writer` |
+| Write new documentation from scratch | `doc-writer` |
+| Audit for security vulnerabilities | `security-scanner` |
+| CI, deployment, infrastructure changes | `devops-engineer` |
+| Translate requirements into specs | `product-manager` |
+| Run test suites and report results | `test-runner` |
+| Detect direct module calls bypassing NodeRouter | `node-router-enforcer` |
+| Detect unencrypted secret fields in schemas | `secret-field-auditor` |
+
+### All agents
+`project-planner` · `planner` · `api-developer` · `tdd-specialist` · `tdd` · `code-reviewer` · `reviewer` · `debugger` · `refactor` · `doc-gardening` · `doc-writer` · `security-scanner` · `devops-engineer` · `product-manager` · `test-runner` · `node-router-enforcer` · `secret-field-auditor`

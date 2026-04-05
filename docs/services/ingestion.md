@@ -4,7 +4,8 @@
 
 The Ingestion service processes documents into searchable, embeddable chunks stored
 in PostgreSQL with PGVector. It supports async (Oban) and inline processing modes,
-hybrid search (full-text + vector with RRF fusion), and real-time job status via PubSub.
+hybrid search (full-text + vector with RRF fusion), real-time job status via PubSub,
+and a Python-based pre-processing pipeline for PDF, DOCX, XLSX, and image files.
 
 ---
 
@@ -12,8 +13,9 @@ hybrid search (full-text + vector with RRF fusion), and real-time job status via
 
 ```
 File path
-  → Zaq.Ingestion.ingest_file/2             ← creates IngestJob, queues Oban worker
+  → Zaq.Ingestion.ingest_file/5             ← creates IngestJob, queues Oban worker
   → IngestWorker.perform/1                  ← document-level orchestrator
+      → [Python.Pipeline.run/1]             ← optional: PDF/DOCX/XLSX → clean Markdown
       → DocumentProcessor.prepare_file_chunks/3
           → File.read/1                     ← read file content
           → Document.upsert/1               ← upsert document record
@@ -31,16 +33,17 @@ File path
 
 ---
 
-## What's Done
+## Modules
 
 ### Public API (`Zaq.Ingestion`)
-- `ingest_file/2` — trigger ingestion for a single file (`:async` or `:inline` mode)
-- `ingest_folder/2` — trigger ingestion for all files in a directory
+- `ingest_file/5` — trigger ingestion for a single file (`:async` or `:inline` mode); accepts `volume_name`, `role_id`, `shared_role_ids`
+- `ingest_folder/5` — trigger ingestion for all files in a directory
 - `list_jobs/1` — paginated job list with optional status filter
 - `get_job/1` — fetch a single job by ID
 - `retry_job/1` — re-queue a failed job
 - `cancel_job/1` — cancel a pending job
 - `subscribe/0` — subscribe to `"ingestion:jobs"` PubSub topic for real-time updates
+- Also exposes: `delete_path/4`, `delete_paths/3`, `rename_entry/4`, `build_directory_snapshot/4`
 
 ### Oban Worker (`Zaq.Ingestion.IngestWorker`)
 - Queue: `:ingestion`, max 3 attempts, 5s × attempt backoff
@@ -58,6 +61,12 @@ File path
 - Parent job is terminal only when all chunk jobs are terminal:
   - `completed` when all chunks succeeded
   - `completed_with_errors` when at least one chunk is `failed_final`
+
+### Job Lifecycle (`Zaq.Ingestion.JobLifecycle`)
+- Internal helper for all `IngestJob` state transitions + PubSub broadcast
+- `transition/2`, `transition!/2` — generic changeset-based update + broadcast
+- `mark_processing!/1`, `mark_completed!/2`, `mark_failed/3`, `mark_failed!/3`, `mark_pending_retry!/2`
+- Broadcasts `{:job_updated, job}` to `"ingestion:jobs"` on every transition
 
 ### Document Chunking (`Zaq.Ingestion.DocumentChunker`)
 - Layout-aware, hierarchical section detection for Markdown
@@ -78,13 +87,74 @@ File path
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
 - `query_extraction/1` — token-limited context builder for the answering agent (max 5,000 tokens)
-- Current limitation: `prepare_file_chunks/3` materializes all chunk payloads in memory before persistence/scheduling.
+- Current limitation: `prepare_file_chunks/3` materializes all chunk payloads in memory before persistence/scheduling
+
+### Python Pipeline (`Zaq.Ingestion.Python.Pipeline`)
+- Orchestrates PDF → clean Markdown conversion via individual Python step scripts
+- Steps: `PdfToMd → ImageDedup → CleanMd → [ImageToText] → [InjectDescriptions]`
+- Steps 4–5 (image-to-text + inject descriptions) are skipped when no Scaleway API key is configured
+- PDFs with spaces in their filename are processed via a temporary symlink/copy alias
+- On failure, debug images are moved to `<volume_base>/debugging/<pdf_name>/`
+- `run/2` returns `{:ok, md_path} | {:error, reason}`
+
+### Python Runner (`Zaq.Ingestion.Python.Runner`)
+- Base wrapper for Python scripts in `priv/python/crawler-ingest/`
+- `run/2` — resolves script path, selects `.venv/bin/python3` over system `python3`, calls `System.cmd/3`
+- `scripts_dir/0` — returns absolute path to the scripts directory
+- `python_executable/0` — returns venv python if available, else `"python3"`
+
+### Python Step Modules (`Zaq.Ingestion.Python.Steps.*`)
+- `PdfToMd` — converts PDF to Markdown with image extraction
+- `DocxToMd` — converts DOCX to Markdown
+- `XlsxToMd` — converts XLSX to Markdown
+- `ImageDedup` — removes duplicate extracted images
+- `CleanMd` — post-processes raw Markdown output
+- `ImageToText` — generates image descriptions via Scaleway Vision API
+- `InjectDescriptions` — injects image descriptions into Markdown
+
+### File Explorer (`Zaq.Ingestion.FileExplorer`)
+- Multi-volume filesystem navigator
+- `list_volumes/0` — returns configured volumes map
+- `list/2`, `list/3` — list directory entries for a volume + path
+- `file_info/2` — stat a file in a volume
+- `delete/2`, `delete_directory/2` — remove files/directories from a volume
+- `rename/3` — move/rename a file within a volume
+
+### Source Path (`Zaq.Ingestion.SourcePath`)
+- Shared helpers for converting between filesystem paths and document sources
+- `build_source/2` — builds volume-prefixed source from volume name + relative path
+- `split_source/3` — splits a source back into `{volume_name, relative_path}`
+- `absolute_to_source/1` — converts absolute path to canonical document source
+- `volume_root_for_absolute/1` — resolves the volume root containing an absolute path
+- `remap_source/3` — remaps source preserving volume-prefix style
+- `source_candidates/2` — returns both legacy and canonical source lookup candidates
+
+### Sidecar (`Zaq.Ingestion.Sidecar`)
+- Helpers for sidecar companion Markdown metadata (PDF → `.md` pairs)
+- `sidecar_path_for/1` — returns expected `.md` path for a source file (`.pdf`, `.docx`, `.xlsx`, `.png`, `.jpg`)
+- `sidecar_source/1`, `sidecar_metadata/1` — read/build sidecar source links
+- `put_sidecar_source/2`, `put_source_document_source/2` — mutate metadata maps
+- `retarget_relative_path/3` — follows sidecar path on source move/rename
+
+### Delete Service (`Zaq.Ingestion.DeleteService`)
+- `delete_path/4` — deletes a file or directory from a volume, also deletes associated `Document` records and sidecar files
+- `delete_paths/3` — batch delete; auto-detects file vs. directory per entry
+
+### Rename Service (`Zaq.Ingestion.RenameService`)
+- `rename_entry/4` — renames a file within a volume; updates `Document.source` and sidecar metadata in a single Ecto.Multi transaction; rolls back filesystem renames on DB failure
+
+### Directory Snapshot (`Zaq.Ingestion.DirectorySnapshot`)
+- `build/4` — combines filesystem entries with DB document/job state for the file explorer LiveView
+- Returns `%{entries: [...], ingestion_map: %{name => %{ingested_at, stale?, shared_role_ids, can_share?, job_status}}}`
+- Applies role-based visibility: super_admin sees all; others see public or own-role documents
 
 ### Schemas
 
 **`Zaq.Ingestion.Document`**
-- Fields: `source` (unique), `content`, `title`, `content_type`, `metadata`
+- Fields: `source` (unique), `content`, `title`, `content_type`, `metadata`, `role_id`, `shared_role_ids`
 - `upsert/1` — conflict on `source`, replaces content/title/metadata
+- `get_by_source/1` — lookup by source string
+- `delete/1` — deletes document and cascades to chunks
 - Title auto-derived from filename if not provided
 
 **`Zaq.Ingestion.Chunk`**
@@ -94,7 +164,7 @@ File path
 - `put_embedding/2` — separate changeset step for async embedding writes
 
 **`Zaq.Ingestion.IngestJob`**
-- Fields: `file_path`, `status`, `mode`, `error`, `started_at`, `completed_at`, `chunks_count`, `total_chunks`, `ingested_chunks`, `failed_chunks`, `failed_chunk_indices`, `document_id`
+- Fields: `file_path`, `status`, `mode`, `error`, `started_at`, `completed_at`, `chunks_count`, `total_chunks`, `ingested_chunks`, `failed_chunks`, `failed_chunk_indices`, `document_id`, `volume_name`, `role_id`, `shared_role_ids`
 - Statuses: `pending | processing | completed | completed_with_errors | failed`
 - Modes: `async | inline`
 - Primary key: UUID (`:binary_id`)
@@ -121,24 +191,41 @@ File path
 
 ```
 lib/zaq/ingestion/
-├── chunk.ex              # Ecto schema for chunks with PGVector halfvec embedding
-├── document.ex           # Ecto schema for ingested documents
-├── document_chunker.ex   # Layout-aware Markdown → sections → chunks
-├── document_processor.ex # Full pipeline: read, chunk, embed, store, search
-├── file_explorer.ex      # File system utilities (list, resolve paths)
-├── ingest_job.ex         # Ecto schema for ingestion job tracking
-├── ingest_chunk_job.ex   # Ecto schema for persisted child chunk jobs
-├── ingest_chunk_worker.ex # Oban worker for chunk-level processing/retries
-├── ingest_worker.ex      # Oban worker for async job processing
-├── ingestion.ex          # Public API: trigger, query, retry, cancel jobs
-├── oban_telemetry.ex     # Oban telemetry setup
-└── supervisor.ex         # Starts Oban under the :ingestion role
+├── python/
+│   ├── pipeline.ex               # PDF → clean Markdown orchestrator
+│   ├── runner.ex                 # Base wrapper for Python script execution
+│   └── steps/
+│       ├── clean_md.ex           # Markdown post-processing step
+│       ├── docx_to_md.ex         # DOCX → Markdown conversion
+│       ├── image_dedup.ex        # Duplicate image removal
+│       ├── image_to_text.ex      # Vision API image description
+│       ├── inject_descriptions.ex # Inject image descriptions into Markdown
+│       ├── pdf_to_md.ex          # PDF → Markdown with image extraction
+│       └── xlsx_to_md.ex         # XLSX → Markdown conversion
+├── chunk.ex                      # Ecto schema for chunks with PGVector halfvec embedding
+├── delete_service.ex             # File + document deletion with sidecar handling
+├── directory_snapshot.ex         # Combines FS entries with DB state for LiveView
+├── document.ex                   # Ecto schema for ingested documents
+├── document_chunker.ex           # Layout-aware Markdown → sections → chunks
+├── document_processor.ex         # Full pipeline: read, chunk, embed, store, search
+├── file_explorer.ex              # Multi-volume filesystem utilities
+├── ingest_chunk_job.ex           # Ecto schema for persisted child chunk jobs
+├── ingest_chunk_worker.ex        # Oban worker for chunk-level processing/retries
+├── ingest_job.ex                 # Ecto schema for ingestion job tracking
+├── ingest_worker.ex              # Oban worker for async job processing
+├── ingestion.ex                  # Public API: trigger, query, retry, cancel, delete, rename
+├── job_lifecycle.ex              # IngestJob state transitions + PubSub broadcast
+├── oban_telemetry.ex             # Oban telemetry setup
+├── rename_service.ex             # File rename with DB source update + rollback
+├── sidecar.ex                    # Sidecar companion Markdown metadata helpers
+├── source_path.ex                # Path ↔ document source normalization helpers
+└── supervisor.ex                 # Starts Oban under the :ingestion role
 
 lib/zaq/embedding/
-└── client.ex             # Generic OpenAI-compatible embedding HTTP client
+└── client.ex                     # Generic OpenAI-compatible embedding HTTP client
 
 lib/zaq/document_processor/
-└── behaviour.ex          # Behaviour contract for document processor implementations
+└── behaviour.ex                  # Behaviour contract for document processor implementations
 ```
 
 ---
@@ -170,6 +257,7 @@ Back Office System Config (`/bo/system-config`) now owns model-related settings:
 
 - Embedding provider/model/api/dimension and chunk sizing are loaded via
   `Zaq.System.get_embedding_config/0`
+- Image-to-text config (Scaleway API key) loaded via `Zaq.System.get_image_to_text_config/0`
 - Retrieval thresholds (`max_context_window`, `distance_threshold`) are loaded via
   `Zaq.System.get_llm_config/0`
 
@@ -183,7 +271,6 @@ For containerized runs, ZAQ defaults to:
 
 When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists before startup.
 If you use `./zaq-local.sh`, this folder is created automatically.
-
 
 ```bash
 mkdir -p ingestion-volumes/documents
@@ -200,17 +287,18 @@ All variables above are optional overrides; only change them if your deployment 
 - **Upsert on source** — re-ingesting the same file replaces content, old chunks are deleted first
 - **ChunkTitle via LLM** — every chunk gets an LLM-generated title prepended to improve retrieval quality
 - **Dimension validation** — embedding dimension is checked against `EmbeddingClient.dimension()` before insert
+- **Python pre-processing pipeline** — non-Markdown files (PDF, DOCX, XLSX) are converted to Markdown by Python scripts before the Elixir chunking pipeline; image descriptions are injected via Scaleway Vision API when a key is configured
+- **Sidecar Markdown pattern** — binary files (`.pdf`, `.docx`, etc.) store their converted `.md` as a linked sidecar document; renames/deletes cascade to the sidecar
+- **Volume-prefixed sources** — document sources are prefixed with volume name (`"documents/path/to/file.md"`) in multi-volume mode for namespace isolation
+- **JobLifecycle extracted** — all IngestJob state transitions go through `JobLifecycle` to ensure PubSub broadcast is never missed
 - **HTML parsing not implemented** — `DocumentChunker.parse_layout/2` raises on `:html` format
 
 ---
 
 ## What's Left
 
-### Must Do
-- [ ] Implement `FileExplorer` properly (currently referenced but not fully reviewed)
-
 ### Should Do
-- [ ] Support non-markdown file types (PDF, DOCX) via `DocumentProcessor.Behaviour`
+- [ ] Support non-markdown file types (PDF, DOCX) natively via `DocumentProcessor.Behaviour` (Python pipeline is a bridge)
 - [ ] Add chunk deduplication (same content, different source)
 - [ ] Expose ingestion progress as percentage in `IngestJob`
 - [ ] Batch/stream `prepare_file_chunks/3` payload persistence for very large documents

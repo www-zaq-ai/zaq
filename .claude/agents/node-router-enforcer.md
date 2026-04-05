@@ -1,3 +1,9 @@
+---
+name: node-router-enforcer
+description: Scans ZAQ codebase for direct module calls from BO that bypass NodeRouter.call/4. Use this agent to detect and fix architectural violations where Zaq.Agent.*, Zaq.Engine.*, Zaq.Ingestion.*, or Zaq.Channels.* are called directly from lib/zaq_web/. Do not use for general security audits — use security-scanner for that.
+tools: Read, Write, Edit, Glob, Bash
+---
+
 # NodeRouter Enforcer Agent
 
 ## Purpose

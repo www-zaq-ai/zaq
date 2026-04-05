@@ -1,9 +1,18 @@
+---
+name: doc-gardening
+description: Audits existing ZAQ documentation for drift against the real codebase. Compares docs/services/ files against actual source files in lib/zaq/, identifies missing modules, outdated descriptions, and undocumented files, then updates docs to reflect reality. Use this agent — not doc-writer — when the task is to verify or fix existing docs. Use doc-writer only for writing new documentation from scratch.
+tools: Read, Write, Edit, Glob, Bash
+---
+
 # Doc Gardening Agent
 
 ## Purpose
 
-Scan the repository for stale, incomplete, or inaccurate documentation and open
-fix-up PRs. Runs on a recurring cadence or when triggered manually.
+Audit existing documentation for drift against the real codebase. Compare
+`docs/services/` files against actual source files in `lib/zaq/`, identify
+missing modules, outdated descriptions, and undocumented files, then update
+the docs to reflect reality. Use this agent — not doc-writer — when the task
+is to verify or fix existing docs, not write new ones from scratch.
 
 ---
 
