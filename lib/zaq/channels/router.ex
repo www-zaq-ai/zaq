@@ -171,7 +171,8 @@ defmodule Zaq.Channels.Router do
   defp with_bridge_runtime(%{provider: provider} = config, fun)
        when fun in [:start_runtime, :stop_runtime] do
     with {:ok, bridge} <- resolve_bridge(provider),
-         true <- function_exported?(bridge, fun, 1) || :unsupported do
+         true <-
+           (Code.ensure_loaded?(bridge) && function_exported?(bridge, fun, 1)) || :unsupported do
       apply(bridge, fun, [config])
     else
       :unsupported -> :ok
