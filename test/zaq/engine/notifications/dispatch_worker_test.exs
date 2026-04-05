@@ -67,6 +67,8 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
   describe "perform/1" do
     test "real EmailNotification adapter path marks sent and emits email" do
+      Application.put_env(:zaq, :dispatch_worker_router_module, Zaq.Channels.Router)
+
       assert {:ok, _} =
                ChannelConfig.upsert_by_provider("email:smtp", %{
                  name: "Email SMTP",
@@ -214,7 +216,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
     test "%Outgoing{} delivered to Router carries log payload body" do
       log = create_log(%{payload: %{"subject" => "Sub", "body" => "Notification text"}})
-      args = %{"log_id" => log.id, "channels" => [channel("email")]}
+      args = %{"log_id" => log.id, "channels" => [channel("email:smtp")]}
 
       perform(args)
 

@@ -6,7 +6,6 @@ defmodule Zaq.Engine.RetrievalChannel do
   questions and receive answers from ZAQ's agent pipeline.
 
   ## Examples of adapters
-  - `Zaq.Channels.Retrieval.Mattermost`
   - `Zaq.Channels.Retrieval.Slack`
 
   ## Message flow

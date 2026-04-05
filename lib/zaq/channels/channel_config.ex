@@ -18,17 +18,12 @@ defmodule Zaq.Channels.ChannelConfig do
   @valid_kinds ~w(ingestion retrieval)
   @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp telegram discord)
 
-  @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
-
   schema "channel_configs" do
     field :name, :string
     field :provider, :string
     field :kind, :string
     field :url, :string
     field :token, Zaq.Types.EncryptedString
-    field :bot_name, :string
-    field :bot_user_id, :string
-    field :sme_channel_id, :string
     field :enabled, :boolean, default: true
     field :settings, :map, default: %{}
 
@@ -162,27 +157,39 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Zaq.Repo.one()
   end
 
-  @doc "Returns the adapter module for a provider, or nil if not configured."
-  def resolve_adapter(provider) when is_binary(provider),
-    do: resolve_adapter(String.to_existing_atom(provider))
-
-  def resolve_adapter(provider) when is_atom(provider),
-    do: :zaq |> Application.get_env(:channels, %{}) |> get_in([provider, :adapter])
-
-  @doc "Returns the bridge module for a provider, or nil if not configured."
-  def resolve_bridge(provider) when is_binary(provider),
-    do: resolve_bridge(String.to_existing_atom(provider))
-
-  def resolve_bridge(provider) when is_atom(provider),
-    do: :zaq |> Application.get_env(:channels, %{}) |> get_in([provider, :bridge])
-
-  def test_connection(%__MODULE__{provider: provider} = config, channel_id) do
-    case resolve_adapter(provider) do
-      nil ->
-        {:error, "Testing not supported for #{provider}"}
-
-      adapter ->
-        adapter.send_message(channel_id, @test_message, url: config.url, token: config.token)
+  @doc "Returns jido_chat settings map for a channel config."
+  def jido_chat_settings(%__MODULE__{settings: settings}) when is_map(settings) do
+    settings
+    |> Map.get("jido_chat", %{})
+    |> case do
+      map when is_map(map) -> map
+      _ -> %{}
     end
+  end
+
+  def jido_chat_settings(%{settings: settings}) when is_map(settings) do
+    settings
+    |> Map.get("jido_chat", %{})
+    |> case do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  def jido_chat_settings(_), do: %{}
+
+  @doc "Returns a single jido_chat setting by key."
+  def jido_chat_setting(config, key, default \\ nil) when is_binary(key) do
+    Map.get(jido_chat_settings(config), key, default)
+  end
+
+  @doc "Returns bot name from jido_chat settings."
+  def jido_chat_bot_name(config) do
+    jido_chat_setting(config, "bot_name")
+  end
+
+  @doc "Returns bot user id from jido_chat settings."
+  def jido_chat_bot_user_id(config) do
+    jido_chat_setting(config, "bot_user_id")
   end
 end

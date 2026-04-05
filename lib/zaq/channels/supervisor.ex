@@ -6,8 +6,8 @@ defmodule Zaq.Channels.Supervisor do
   and starts the corresponding adapter listener processes. Supports runtime
   start/stop of listeners when channel configs are enabled or disabled.
 
-  Each listener delivers incoming payloads to `JidoChatBridge.from_listener/3`
-  via `sink_mfa`.
+  Listener processes deliver incoming payloads to the bridge sink callback
+  configured by the active bridge runtime.
 
   `Zaq.NodeRouter` uses `Process.whereis/1` against this module to
   locate the channels node for cross-node RPC dispatch.
@@ -17,9 +17,9 @@ defmodule Zaq.Channels.Supervisor do
 
   require Logger
 
-  alias Zaq.Channels.{ChannelConfig, JidoChatBridge, RetrievalChannel}
+  alias Zaq.Channels.{ChannelConfig, Router}
 
-  # ETS table: bridge_id => [pid]
+  # ETS table: bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
   @table :zaq_channels_listeners
 
   def start_link(_opts) do
@@ -28,7 +28,7 @@ defmodule Zaq.Channels.Supervisor do
     end
 
     case DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__) do
-      {:ok, pid} = result ->
+      {:ok, _pid} = result ->
         load_initial_listeners()
         result
 
@@ -42,38 +42,63 @@ defmodule Zaq.Channels.Supervisor do
     DynamicSupervisor.init(strategy: :one_for_one)
   end
 
-  @doc """
-  Starts listener processes for a channel config. No-ops if already running.
-  Called via `NodeRouter.call(:channels, __MODULE__, :start_listener, [config])`.
-  """
+  @doc "Starts runtime for a config via router bridge delegation."
   def start_listener(config) do
-    bridge_id = bridge_id(config)
-
-    if running?(bridge_id) do
-      Logger.info("[Channels.Supervisor] Listener already running for bridge_id=#{bridge_id}")
-      {:error, :already_running}
-    else
-      do_start_listener(config, bridge_id)
+    case Router.sync_config_runtime(%{enabled: false}, Map.put(config, :enabled, true)) do
+      :ok -> lookup_runtime(bridge_id(config))
+      error -> error
     end
   end
 
-  @doc """
-  Stops listener processes for a channel config. No-ops if not running.
-  Called via `NodeRouter.call(:channels, __MODULE__, :stop_listener, [config])`.
-  """
+  @doc "Stops runtime for a config via router bridge delegation."
   def stop_listener(config) do
-    bridge_id = bridge_id(config)
+    Router.sync_config_runtime(Map.put(config, :enabled, true), Map.put(config, :enabled, false))
+  end
 
+  @doc "Starts runtime processes for a bridge id."
+  def start_runtime(bridge_id, state_spec, listener_specs \\ [])
+
+  def start_runtime(bridge_id, state_spec, listener_specs)
+      when is_binary(bridge_id) and is_map(state_spec) and is_list(listener_specs) do
+    if running?(bridge_id) do
+      {:error, :already_running}
+    else
+      do_start_runtime(bridge_id, state_spec, listener_specs)
+    end
+  end
+
+  @doc "Stops a bridge runtime by bridge id."
+  def stop_bridge_runtime(_config, bridge_id) do
     case :ets.lookup(@table, bridge_id) do
-      [{^bridge_id, pids}] ->
-        Enum.each(pids, &DynamicSupervisor.terminate_child(__MODULE__, &1))
+      [{^bridge_id, runtime}] ->
+        Enum.each(runtime.listener_pids, &DynamicSupervisor.terminate_child(__MODULE__, &1))
+        maybe_stop_state(runtime.state_pid)
         :ets.delete(@table, bridge_id)
-        Logger.info("[Channels.Supervisor] Stopped listener for bridge_id=#{bridge_id}")
         :ok
 
       [] ->
-        Logger.info("[Channels.Supervisor] No listener running for bridge_id=#{bridge_id}")
         {:error, :not_running}
+    end
+  end
+
+  @doc "Returns runtime pids for a bridge id."
+  @spec lookup_runtime(String.t()) ::
+          {:ok, %{listener_pids: [pid()], state_pid: pid() | nil}} | {:error, :not_running}
+  def lookup_runtime(bridge_id) when is_binary(bridge_id) do
+    case :ets.lookup(@table, bridge_id) do
+      [{^bridge_id, runtime}] -> {:ok, runtime}
+      [] -> {:error, :not_running}
+    end
+  end
+
+  @doc "Returns the state pid for a bridge id."
+  @spec lookup_state_pid(String.t()) :: {:ok, pid()} | {:error, :not_running}
+  def lookup_state_pid(bridge_id) when is_binary(bridge_id) do
+    with {:ok, runtime} <- lookup_runtime(bridge_id),
+         true <- is_pid(runtime.state_pid) do
+      {:ok, runtime.state_pid}
+    else
+      _ -> {:error, :not_running}
     end
   end
 
@@ -90,63 +115,93 @@ defmodule Zaq.Channels.Supervisor do
 
       configs ->
         Enum.each(configs, fn config ->
-          do_start_listener(config, bridge_id(config))
+          _ = Router.sync_config_runtime(nil, config)
         end)
     end
   end
 
-  defp do_start_listener(config, bridge_id) do
-    adapter = ChannelConfig.resolve_adapter(config.provider)
+  defp do_start_runtime(bridge_id, state_spec, listener_specs) do
+    case start_state_process(state_spec) do
+      {:ok, state_pid} ->
+        case start_listener_children(listener_specs, bridge_id) do
+          {:ok, listener_pids} ->
+            runtime = %{listener_pids: listener_pids, state_pid: state_pid}
+            :ets.insert(@table, {bridge_id, runtime})
+            {:ok, runtime}
 
-    if is_nil(adapter) do
-      Logger.warning("[Channels.Supervisor] No adapter for provider=#{config.provider}, skipping config_id=#{config.id}")
-      {:error, :no_adapter}
-    else
-      channel_ids = load_active_channel_ids(config)
+          {:error, reason} = error ->
+            maybe_stop_state(state_pid)
 
-      opts = [
-        url: config.url,
-        token: config.token,
-        bot_user_id: config.bot_user_id,
-        bot_name: config.bot_name,
-        channel_ids: channel_ids,
-        bridge_id: bridge_id,
-        sink_mfa: {JidoChatBridge, :from_listener, [config]},
-        sink_opts: [transport: ingress_mode(config.provider)]
-      ]
+            Logger.warning(
+              "[Channels.Supervisor] Could not start runtime for bridge_id=#{bridge_id}: #{inspect(reason)}"
+            )
 
-      case adapter.listener_child_specs(bridge_id, opts) do
-        {:ok, specs} ->
-          pids =
-            Enum.flat_map(specs, fn spec ->
-              case DynamicSupervisor.start_child(__MODULE__, spec) do
-                {:ok, pid} ->
-                  [pid]
+            error
+        end
 
-                {:error, reason} ->
-                  Logger.warning("[Channels.Supervisor] Failed to start child for config_id=#{config.id}: #{inspect(reason)}")
-                  []
-              end
-            end)
+      {:error, reason} = error ->
+        Logger.warning(
+          "[Channels.Supervisor] Could not start state process for bridge_id=#{bridge_id}: #{inspect(reason)}"
+        )
 
-          :ets.insert(@table, {bridge_id, pids})
-          {:ok, pids}
-
-        {:error, reason} ->
-          Logger.warning("[Channels.Supervisor] Could not build listener for config_id=#{config.id}: #{inspect(reason)}")
-          {:error, reason}
-      end
+        error
     end
   rescue
     e ->
-      Logger.warning("[Channels.Supervisor] Exception starting listener for config_id=#{config.id}: #{Exception.message(e)}")
+      Logger.warning(
+        "[Channels.Supervisor] Exception starting runtime bridge_id=#{bridge_id}: #{Exception.message(e)}"
+      )
+
       {:error, Exception.message(e)}
   end
 
+  defp start_listener_children(specs, bridge_id) do
+    Enum.reduce_while(specs, {:ok, []}, fn spec, {:ok, pids} ->
+      case DynamicSupervisor.start_child(__MODULE__, spec) do
+        {:ok, pid} ->
+          {:cont, {:ok, [pid | pids]}}
+
+        {:error, {:already_started, pid}} ->
+          {:cont, {:ok, [pid | pids]}}
+
+        {:error, reason} ->
+          Enum.each(pids, &DynamicSupervisor.terminate_child(__MODULE__, &1))
+          listener_child_start_error(bridge_id, reason)
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, pids} -> {:ok, Enum.reverse(pids)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp listener_child_start_error(bridge_id, reason) do
+    Logger.warning(
+      "[Channels.Supervisor] Failed to start child for bridge_id=#{bridge_id}: #{inspect(reason)}"
+    )
+  end
+
+  defp start_state_process(spec) do
+    case DynamicSupervisor.start_child(__MODULE__, spec) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_stop_state(pid) when is_pid(pid),
+    do: DynamicSupervisor.terminate_child(__MODULE__, pid)
+
+  defp maybe_stop_state(_), do: :ok
+
   defp running?(bridge_id) do
     case :ets.lookup(@table, bridge_id) do
-      [{^bridge_id, pids}] -> Enum.any?(pids, &Process.alive?/1)
-      [] -> false
+      [{^bridge_id, %{listener_pids: pids, state_pid: state_pid}}] ->
+        (is_pid(state_pid) and Process.alive?(state_pid)) or Enum.any?(pids, &Process.alive?/1)
+
+      [] ->
+        false
     end
   end
 
@@ -158,19 +213,5 @@ defmodule Zaq.Channels.Supervisor do
     |> Enum.flat_map(fn {provider, cfg} ->
       if Map.has_key?(cfg, :adapter), do: [Atom.to_string(provider)], else: []
     end)
-  end
-
-  defp ingress_mode(provider) do
-    :zaq
-    |> Application.get_env(:channels, %{})
-    |> get_in([String.to_existing_atom(provider), :ingress_mode])
-    |> Kernel.||(:websocket)
-  end
-
-  defp load_active_channel_ids(config) do
-    case RetrievalChannel.list_active_by_config(config.id) |> Enum.map(& &1.channel_id) do
-      [] -> :all
-      ids -> ids
-    end
   end
 end

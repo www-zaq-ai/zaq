@@ -10,10 +10,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Repo
 
-  defmodule ChannelConfigFake do
+  defmodule BridgeFake do
     def test_connection(_config, _channel_id) do
       fetch_state(:test_connection, {:ok, %{id: "ok"}})
     end
+
+    def start_runtime(_config), do: fetch_state(:start_runtime, :ok)
+    def stop_runtime(_config), do: fetch_state(:stop_runtime, :ok)
 
     def put(key, value), do: put_state(key, value)
 
@@ -68,20 +71,27 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :channels@localhost end)
 
-    Application.put_env(:zaq, :channels_live_channel_config_module, ChannelConfigFake)
+    previous_channels = Application.get_env(:zaq, :channels, %{})
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: BridgeFake, ingress_mode: :websocket},
+      web: %{bridge: Zaq.Channels.WebBridge},
+      email: %{bridge: Zaq.Channels.EmailBridge}
+    })
+
     Application.put_env(:zaq, :channels_live_mattermost_api_module, MattermostAPIFake)
     Application.put_env(:zaq, :channels_live_http_client, HTTPClientFake)
 
-    :persistent_term.put(ChannelConfigFake, %{})
+    :persistent_term.put(BridgeFake, %{})
     :persistent_term.put(MattermostAPIFake, %{})
     :persistent_term.put(HTTPClientFake, %{})
 
     on_exit(fn ->
-      Application.delete_env(:zaq, :channels_live_channel_config_module)
       Application.delete_env(:zaq, :channels_live_mattermost_api_module)
       Application.delete_env(:zaq, :channels_live_http_client)
+      Application.put_env(:zaq, :channels, previous_channels)
 
-      :persistent_term.erase(ChannelConfigFake)
+      :persistent_term.erase(BridgeFake)
       :persistent_term.erase(MattermostAPIFake)
       :persistent_term.erase(HTTPClientFake)
     end)
@@ -254,7 +264,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
   test "handles run_test success and close_test", %{conn: conn} do
     config = insert_channel_config(%{})
-    ChannelConfigFake.put(:test_connection, {:ok, %{id: "post-1"}})
+    BridgeFake.put(:test_connection, {:ok, %{id: "post-1"}})
 
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
@@ -273,7 +283,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
   test "handles run_test error branch", %{conn: conn} do
     config = insert_channel_config(%{})
-    ChannelConfigFake.put(:test_connection, {:error, :unauthorized})
+    BridgeFake.put(:test_connection, {:error, :unauthorized})
 
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 

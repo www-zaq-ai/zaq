@@ -2,13 +2,11 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   @moduledoc """
   Email notification delivery.
 
-  Implements `Zaq.Engine.NotificationAdapter` — delivers notifications via SMTP
-  using Swoosh/Mailer. The recipient address comes from the `identifier`
-  argument. SMTP settings are read from `channel_configs.settings` under
-  provider `email:smtp` (same source as the SMTP configuration UI).
+  Delivers notifications via SMTP using Swoosh/Mailer. The recipient address
+  comes from the `identifier` argument. SMTP settings are read from
+  `channel_configs.settings` under provider `email:smtp` (same source as the
+  SMTP configuration UI).
   """
-
-  @behaviour Zaq.Engine.NotificationAdapter
 
   import Swoosh.Email
 
@@ -30,7 +28,6 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
     "from_name" => :from_name
   }
 
-  @impl true
   def send_notification(identifier, payload, metadata) do
     {from_name, from_email} = email_sender()
     delivery_opts = email_delivery_opts()

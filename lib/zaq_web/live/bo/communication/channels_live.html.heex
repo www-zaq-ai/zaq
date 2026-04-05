@@ -789,12 +789,12 @@
             >
               <% is_bot =
                 Enum.any?(@configs, fn c ->
-                  c.bot_user_id && c.bot_user_id == post["user_id"]
+                  jido_chat_bot_user_id(c) && jido_chat_bot_user_id(c) == post["user_id"]
                 end) %>
               <% author =
                 Enum.find_value(@configs, post["user_id"] || "?", fn c ->
-                  if c.bot_user_id && c.bot_user_id == post["user_id"],
-                    do: c.bot_name || "Bot"
+                  if jido_chat_bot_user_id(c) && jido_chat_bot_user_id(c) == post["user_id"],
+                    do: jido_chat_bot_name(c) || "Bot"
                 end) %>
               <%!-- Root post --%>
               <div class="flex gap-3 items-start">
@@ -846,12 +846,13 @@
                     <div :for={reply <- replies} class="flex gap-2 items-start">
                       <% reply_is_bot =
                         Enum.any?(@configs, fn c ->
-                          c.bot_user_id && c.bot_user_id == reply["user_id"]
+                          jido_chat_bot_user_id(c) && jido_chat_bot_user_id(c) == reply["user_id"]
                         end) %>
                       <% reply_author =
                         Enum.find_value(@configs, reply["user_id"] || "?", fn c ->
-                          if c.bot_user_id && c.bot_user_id == reply["user_id"],
-                            do: c.bot_name || "Bot"
+                          if jido_chat_bot_user_id(c) &&
+                               jido_chat_bot_user_id(c) == reply["user_id"],
+                             do: jido_chat_bot_name(c) || "Bot"
                         end) %>
                       <div class={[
                         "w-5 h-5 rounded grid place-items-center shrink-0 mt-0.5 font-mono text-[0.5rem] font-bold text-white",
@@ -1111,8 +1112,8 @@
           </label>
           <input
             type="text"
-            name="form[bot_name]"
-            value={@form[:bot_name].value}
+            name="form[settings][jido_chat][bot_name]"
+            value={jido_chat_bot_name_from_changeset(@changeset)}
             placeholder="zaq"
             class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           />
@@ -1128,8 +1129,8 @@
           <div class="flex items-center gap-2">
             <input
               type="text"
-              name="form[bot_user_id]"
-              value={@form[:bot_user_id].value}
+              name="form[settings][jido_chat][bot_user_id]"
+              value={jido_chat_bot_user_id_from_changeset(@changeset)}
               placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
               class="flex-1 h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
             />

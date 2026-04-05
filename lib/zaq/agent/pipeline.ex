@@ -90,7 +90,7 @@ defmodule Zaq.Agent.Pipeline do
       sources = build_sources(extraction_result)
 
       result =
-        if answering_mod(opts).no_answer?(safe_answer) |> dbg do
+        if answering_mod(opts).no_answer?(safe_answer) do
           :ok = record_no_answer_telemetry(opts)
 
           answer_result

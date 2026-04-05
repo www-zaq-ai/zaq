@@ -14,7 +14,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   ## Channel format in args
 
       %{
-        "platform"   => "email",
+        "platform"   => "email:smtp",
         "identifier" => "u@example.com"
       }
   """
@@ -100,7 +100,10 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   end
 
   defp platform_to_atom(platform) when is_binary(platform) do
-    String.to_existing_atom(platform)
+    case platform do
+      "email:smtp" -> :email
+      _other -> String.to_existing_atom(platform)
+    end
   rescue
     ArgumentError -> nil
   end

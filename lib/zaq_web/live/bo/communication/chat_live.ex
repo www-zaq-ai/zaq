@@ -300,8 +300,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       history = socket.assigns.history
       current_user = socket.assigns[:current_user]
 
+      raw_sources =
+        Map.get(result, :sources) ||
+          Map.get(result.metadata, :sources) ||
+          Map.get(result.metadata, "sources") ||
+          []
+
       %{body: normalized_body, sources: normalized_sources} =
-        CitationNormalizer.normalize(trim_body(result.body), Map.get(result, :sources, []))
+        CitationNormalizer.normalize(trim_body(result.body), raw_sources)
 
       bot_msg = %{
         id: generate_id(),

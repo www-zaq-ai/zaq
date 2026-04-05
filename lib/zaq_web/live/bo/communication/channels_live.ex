@@ -5,8 +5,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.NodeRouter
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.RuntimeDeps
   alias Zaq.Types.EncryptedString
@@ -167,6 +167,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("save", %{"form" => params}, socket) do
+    previous_config =
+      if socket.assigns.modal == :edit, do: socket.assigns.changeset.data, else: nil
+
     params =
       case socket.assigns.modal do
         :edit -> if params["token"] == "", do: Map.delete(params, "token"), else: params
@@ -180,7 +183,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       end
 
     case result do
-      {:ok, _config} ->
+      {:ok, config} ->
+        sync_result =
+          NodeRouter.call(:channels, Zaq.Channels.Router, :sync_config_runtime, [
+            previous_config,
+            config
+          ])
+
         configs = list_configs(socket.assigns.provider)
         first_config = List.first(configs)
 
@@ -192,7 +201,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:modal_errors, [])
          |> assign(:configs, configs)
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
-         |> put_flash(:info, "Channel config saved.")}
+         |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
 
       {:error, changeset} ->
         {:noreply,
@@ -236,22 +245,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
-    config = Repo.get!(ChannelConfig, id)
+    previous_config = Repo.get!(ChannelConfig, id)
 
-    config
-    |> Ecto.Changeset.change(enabled: !config.enabled)
-    |> Repo.update!()
+    config =
+      previous_config
+      |> Ecto.Changeset.change(enabled: !previous_config.enabled)
+      |> Repo.update!()
 
-    if config.enabled do
-      NodeRouter.call(:channels, Zaq.Channels.Supervisor, :stop_listener, [config])
-    else
-      NodeRouter.call(:channels, Zaq.Channels.Supervisor, :start_listener, [config])
-    end
+    sync_result =
+      NodeRouter.call(:channels, Zaq.Channels.Router, :sync_config_runtime, [
+        previous_config,
+        config
+      ])
 
     {:noreply,
      socket
      |> assign(:configs, list_configs(socket.assigns.provider))
-     |> put_flash(:info, "#{config.name} #{if config.enabled, do: "disabled", else: "enabled"}.")}
+     |> maybe_put_runtime_sync_flash(
+       sync_result,
+       "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
+     )}
   end
 
   # -------------------------------------------------------------------------
@@ -281,7 +294,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket = assign(socket, :test_status, :testing)
 
     status =
-      case channel_config_module().test_connection(config, String.trim(channel_id)) do
+      case NodeRouter.call(:channels, Zaq.Channels.Router, :test_connection, [
+             config,
+             String.trim(channel_id)
+           ]) do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -495,7 +511,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       true ->
         case mattermost_api().fetch_bot_user_id(url, token) do
           {:ok, user_id} ->
-            new_cs = Ecto.Changeset.put_change(changeset, :bot_user_id, user_id)
+            settings = Ecto.Changeset.get_field(changeset, :settings) || %{}
+
+            new_settings =
+              settings
+              |> Map.put_new("jido_chat", %{})
+              |> put_in(["jido_chat", "bot_user_id"], user_id)
+
+            new_cs = Ecto.Changeset.put_change(changeset, :settings, new_settings)
             {:noreply, assign(socket, changeset: new_cs, form: to_form(new_cs, as: :form))}
 
           {:error, reason} ->
@@ -658,10 +681,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     )
   end
 
-  defp channel_config_module do
-    RuntimeDeps.channel_config()
-  end
-
   defp mattermost_api do
     RuntimeDeps.mattermost_api()
   end
@@ -680,4 +699,46 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp decode_posts_body(_), do: %{"order" => [], "posts" => %{}}
+
+  defp maybe_put_runtime_sync_flash(socket, :ok, success_message) do
+    put_flash(socket, :info, success_message)
+  end
+
+  defp maybe_put_runtime_sync_flash(socket, {:error, reason}, success_message) do
+    socket
+    |> put_flash(:info, success_message)
+    |> put_flash(:error, "Runtime sync failed: #{inspect(reason)}")
+  end
+
+  defp maybe_put_runtime_sync_flash(socket, other, success_message) do
+    socket
+    |> put_flash(:info, success_message)
+    |> put_flash(:error, "Runtime sync returned unexpected result: #{inspect(other)}")
+  end
+
+  def jido_chat_bot_name(%ChannelConfig{} = config) do
+    config.settings
+    |> Map.get("jido_chat", %{})
+    |> Map.get("bot_name")
+  end
+
+  def jido_chat_bot_user_id(%ChannelConfig{} = config) do
+    config.settings
+    |> Map.get("jido_chat", %{})
+    |> Map.get("bot_user_id")
+  end
+
+  def jido_chat_bot_name_from_changeset(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.get_field(:settings, %{})
+    |> Map.get("jido_chat", %{})
+    |> Map.get("bot_name", "")
+  end
+
+  def jido_chat_bot_user_id_from_changeset(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.get_field(:settings, %{})
+    |> Map.get("jido_chat", %{})
+    |> Map.get("bot_user_id", "")
+  end
 end

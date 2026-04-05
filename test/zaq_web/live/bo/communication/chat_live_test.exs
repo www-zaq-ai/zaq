@@ -63,7 +63,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     template_attrs = %{
       slug: "answering",
       name: "Answering Prompt",
-      body: "Answer in <%= @language %>: <%= @question %> using <%= @retrieved_data %>",
+      body: "Answer in <%= @language %>: <%= @content %> using <%= @retrieved_data %>",
       description: "test template",
       active: true
     }
@@ -225,15 +225,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     send(view.pid, {
       :pipeline_result,
       nil,
-      %Outgoing{
+      %{
         body: "Pipeline answer [[source:guide.md]]",
         channel_id: "bo",
         provider: :web,
+        sources: ["guide.md"],
         metadata: %{
           answer: "Pipeline answer [[source:guide.md]]",
           confidence_score: 0.9,
-          error: false,
-          sources: ["guide.md"]
+          error: false
         }
       },
       "What is ZAQ?"

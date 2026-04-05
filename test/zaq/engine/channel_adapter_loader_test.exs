@@ -124,7 +124,7 @@ defmodule Zaq.Engine.ChannelAdapterLoaderTest do
 
     test "skips configs whose provider is not in the adapters map" do
       # Insert a valid provider that is NOT in @adapters (which only has "mattermost")
-      insert_channel_config(%{provider: "email", kind: "retrieval", enabled: true})
+      insert_channel_config(%{provider: "slack", kind: "retrieval", enabled: true})
 
       children =
         ChannelAdapterLoader.children_for(:retrieval, @adapters,

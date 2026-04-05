@@ -15,7 +15,12 @@ config :zaq, :channels, %{
     sink_mfa: {Zaq.Channels.JidoChatBridge, :from_listener, []}
   },
   # slack: %{bridge: Zaq.Channels.JidoChatBridge, adapter: Jido.Chat.Slack.Adapter, ingress_mode: :websocket},
-  # discord: %{bridge: Zaq.Channels.JidoChatBridge, adapter: Jido.Chat.Discord.Adapter, ingress_mode: :gateway},
+  discord: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.Discord.Adapter,
+    ingress_mode: :gateway,
+    sink_mfa: {Zaq.Channels.JidoChatBridge, :from_listener, []}
+  },
   email: %{bridge: Zaq.Channels.EmailBridge},
   web: %{bridge: Zaq.Channels.WebBridge}
 }

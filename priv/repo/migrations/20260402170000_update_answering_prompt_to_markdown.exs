@@ -87,7 +87,7 @@ defmodule Zaq.Repo.Migrations.UpdateAnsweringPromptToMarkdown do
 
   Inputs
 
-  USER QUESTION: <%= @question %>
+  USER QUESTION: <%= @content %>
   retrieved_data = <%= @retrieved_data %>
   """
 

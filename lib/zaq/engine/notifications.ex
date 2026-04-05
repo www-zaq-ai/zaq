@@ -35,6 +35,7 @@ defmodule Zaq.Engine.Notifications do
   import Ecto.Query
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.Router
   alias Zaq.Engine.Notifications.DispatchWorker
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
@@ -45,13 +46,7 @@ defmodule Zaq.Engine.Notifications do
   """
   @spec bridge_available?(String.t()) :: boolean()
   def bridge_available?(platform) when is_binary(platform) do
-    channels = Application.get_env(:zaq, :channels, %{})
-
-    try do
-      Map.has_key?(channels, String.to_existing_atom(platform))
-    rescue
-      ArgumentError -> false
-    end
+    not is_nil(Router.bridge_for(platform))
   end
 
   # ---------------------------------------------------------------------------

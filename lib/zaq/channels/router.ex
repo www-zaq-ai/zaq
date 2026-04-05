@@ -13,6 +13,8 @@ defmodule Zaq.Channels.Router do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
 
+  @smtp_provider "email:smtp"
+
   @doc """
   Delivers `%Outgoing{}` to the correct bridge.
 
@@ -21,13 +23,121 @@ defmodule Zaq.Channels.Router do
   """
   @spec deliver(Outgoing.t()) :: :ok | {:error, term()}
   def deliver(%Outgoing{} = outgoing) do
-    case ChannelConfig.resolve_bridge(outgoing.provider) do
+    case bridge_for(outgoing.provider) do
       nil ->
         {:error, {:no_bridge, outgoing.provider}}
 
       bridge ->
         connection_details = fetch_connection_details(outgoing.provider)
         bridge.send_reply(outgoing, connection_details)
+    end
+  end
+
+  @doc "Returns the configured bridge module for provider."
+  @spec bridge_for(atom() | String.t()) :: module() | nil
+  def bridge_for(provider) when is_binary(provider) do
+    provider
+    |> provider_to_bridge_key()
+    |> case do
+      nil -> nil
+      key -> bridge_for(key)
+    end
+  end
+
+  def bridge_for(provider) when is_atom(provider) do
+    :zaq
+    |> Application.get_env(:channels, %{})
+    |> get_in([provider, :bridge])
+  end
+
+  @doc "Sends typing indicator through the provider bridge."
+  @spec send_typing(atom() | String.t(), String.t()) :: :ok | {:error, term()}
+  def send_typing(provider, channel_id) when is_binary(channel_id) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         {:ok, config} <- fetch_channel_config(provider) do
+      bridge.send_typing(config, channel_id, fetch_connection_details(provider))
+    end
+  end
+
+  @doc "Adds a reaction through the provider bridge."
+  @spec add_reaction(atom() | String.t(), String.t(), String.t(), String.t()) ::
+          :ok | {:error, term()}
+  def add_reaction(provider, channel_id, message_id, emoji)
+      when is_binary(channel_id) and is_binary(message_id) and is_binary(emoji) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         {:ok, config} <- fetch_channel_config(provider) do
+      bridge.add_reaction(
+        config,
+        channel_id,
+        message_id,
+        emoji,
+        fetch_connection_details(provider)
+      )
+    end
+  end
+
+  @doc "Removes a reaction through the provider bridge."
+  @spec remove_reaction(atom() | String.t(), String.t(), String.t(), String.t(), map()) ::
+          :ok | {:error, term()}
+  def remove_reaction(provider, channel_id, message_id, emoji, opts \\ %{})
+
+  def remove_reaction(provider, channel_id, message_id, emoji, opts)
+      when is_binary(channel_id) and is_binary(message_id) and is_binary(emoji) and is_map(opts) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         {:ok, config} <- fetch_channel_config(provider) do
+      bridge.remove_reaction(
+        config,
+        channel_id,
+        message_id,
+        emoji,
+        Map.merge(fetch_connection_details(provider), opts)
+      )
+    end
+  end
+
+  @doc "Subscribes to thread replies via provider bridge."
+  @spec subscribe_thread_reply(atom() | String.t(), String.t(), String.t()) ::
+          :ok | {:error, term()}
+  def subscribe_thread_reply(provider, channel_id, thread_id)
+      when is_binary(channel_id) and is_binary(thread_id) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         {:ok, config} <- fetch_channel_config(provider) do
+      bridge.subscribe_thread_reply(config, channel_id, thread_id)
+    end
+  end
+
+  @doc "Unsubscribes from thread replies via provider bridge."
+  @spec unsubscribe_thread_reply(atom() | String.t(), String.t(), String.t()) ::
+          :ok | {:error, term()}
+  def unsubscribe_thread_reply(provider, channel_id, thread_id)
+      when is_binary(channel_id) and is_binary(thread_id) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         {:ok, config} <- fetch_channel_config(provider) do
+      bridge.unsubscribe_thread_reply(config, channel_id, thread_id)
+    end
+  end
+
+  @doc "Synchronizes runtime processes when a channel config changes."
+  @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}
+  def sync_config_runtime(nil, %{enabled: true} = config),
+    do: with_bridge_runtime(config, :start_runtime)
+
+  def sync_config_runtime(nil, %{enabled: false}), do: :ok
+
+  def sync_config_runtime(%{enabled: true}, %{enabled: false} = config),
+    do: with_bridge_runtime(config, :stop_runtime)
+
+  def sync_config_runtime(%{enabled: false}, %{enabled: true} = config),
+    do: with_bridge_runtime(config, :start_runtime)
+
+  def sync_config_runtime(_before, _after), do: :ok
+
+  @doc "Runs bridge-specific connection test for a channel config."
+  @spec test_connection(map(), String.t()) :: {:ok, term()} | {:error, term()}
+  def test_connection(%{provider: provider} = config, channel_id) when is_binary(channel_id) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         true <- function_exported?(bridge, :test_connection, 2) || {:error, :unsupported} do
+      bridge.test_connection(config, channel_id)
     end
   end
 
@@ -42,5 +152,37 @@ defmodule Zaq.Channels.Router do
       nil -> %{}
       config -> %{url: config.url, token: config.token}
     end
+  end
+
+  defp resolve_bridge(provider) do
+    case bridge_for(provider) do
+      nil -> {:error, {:no_bridge, provider}}
+      bridge -> {:ok, bridge}
+    end
+  end
+
+  defp fetch_channel_config(provider) do
+    case ChannelConfig.get_by_provider(to_string(provider)) do
+      nil -> {:error, {:channel_not_configured, provider}}
+      config -> {:ok, config}
+    end
+  end
+
+  defp with_bridge_runtime(%{provider: provider} = config, fun)
+       when fun in [:start_runtime, :stop_runtime] do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         true <- function_exported?(bridge, fun, 1) || :unsupported do
+      apply(bridge, fun, [config])
+    else
+      :unsupported -> :ok
+    end
+  end
+
+  defp provider_to_bridge_key(@smtp_provider), do: :email
+
+  defp provider_to_bridge_key(provider) do
+    String.to_existing_atom(provider)
+  rescue
+    ArgumentError -> nil
   end
 end
