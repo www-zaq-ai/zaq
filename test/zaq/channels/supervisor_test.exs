@@ -37,6 +37,14 @@ defmodule Zaq.Channels.SupervisorTest do
     def start_link(_arg), do: {:error, :boom}
   end
 
+  defmodule RaisingStartProc do
+    def start_link(_arg), do: raise("kaboom")
+  end
+
+  defmodule AlreadyStartedProc do
+    def start_link(pid), do: {:error, {:already_started, pid}}
+  end
+
   defmodule BridgeFailStart do
     def start_runtime(_config), do: {:error, :bridge_start_failed}
     def stop_runtime(_config), do: :ok
@@ -297,5 +305,147 @@ defmodule Zaq.Channels.SupervisorTest do
     on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
 
     assert {:error, :bridge_stop_failed} = Supervisor.stop_listener(config)
+  end
+
+  test "start_runtime/3 supports default empty listeners argument" do
+    bridge_id = "bridge_default_arg_runtime"
+    state_name = {:state_default_arg_proc, bridge_id}
+
+    state_spec = %{
+      id: {:state_default_arg_proc, bridge_id},
+      start: {StateProc, :start_link, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec)
+    assert runtime.listener_pids == []
+    assert is_pid(runtime.state_pid)
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+  end
+
+  test "start_runtime/3 accepts already started state process" do
+    bridge_id = "bridge_state_already_started"
+    state_name = {:state_already_started_proc, bridge_id}
+
+    {:ok, prestarted} = StateProc.start_link(state_name)
+
+    state_spec = %{
+      id: {:state_already_started_proc, bridge_id},
+      start: {StateProc, :start_link, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [])
+    assert runtime.state_pid == prestarted
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+
+    assert Process.alive?(prestarted)
+    Process.exit(prestarted, :kill)
+  end
+
+  test "start_runtime/3 handles explicit already_started state response" do
+    bridge_id = "bridge_state_already_started_explicit"
+    {:ok, prestarted} = StateProc.start_link({:state_proc_explicit, bridge_id})
+
+    state_spec = %{
+      id: {:state_proc_explicit, bridge_id},
+      start: {AlreadyStartedProc, :start_link, [prestarted]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [])
+    assert runtime.state_pid == prestarted
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+    if Process.alive?(prestarted), do: Process.exit(prestarted, :kill)
+  end
+
+  test "start_runtime/3 accepts already started listener child" do
+    bridge_id = "bridge_listener_already_started"
+    state_name = {:state_listener_already_started_proc, bridge_id}
+    listener_name = {:listener_already_started_proc, bridge_id}
+
+    state_spec = %{
+      id: {:state_listener_already_started_proc, bridge_id},
+      start: {StateProc, :start_link, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    {:ok, listener_pid} = NamedListenerProc.start_link(listener_name)
+
+    listener_spec = %{
+      id: {:listener_already_started_spec, bridge_id},
+      start: {NamedListenerProc, :start_link, [listener_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [listener_spec])
+    assert runtime.listener_pids == [listener_pid]
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+
+    assert Process.alive?(listener_pid)
+    Process.exit(listener_pid, :kill)
+  end
+
+  test "start_runtime/3 handles explicit already_started listener response" do
+    bridge_id = "bridge_listener_already_started_explicit"
+
+    {:ok, prestarted_listener} =
+      NamedListenerProc.start_link({:listener_proc_explicit, bridge_id})
+
+    state_spec = %{
+      id: {:state_listener_explicit, bridge_id},
+      start: {ListenerProc, :start_link, [[]]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    listener_spec = %{
+      id: {:listener_explicit, bridge_id},
+      start: {AlreadyStartedProc, :start_link, [prestarted_listener]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [listener_spec])
+    assert runtime.listener_pids == [prestarted_listener]
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+    if Process.alive?(prestarted_listener), do: Process.exit(prestarted_listener, :kill)
+  end
+
+  test "start_runtime/3 rescue path returns exception message" do
+    bridge_id = "bridge_runtime_rescue"
+
+    raising_state_spec = %{
+      id: {:state_runtime_rescue_proc, bridge_id},
+      start: {RaisingStartProc, :start_link, [:ignored]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:error, {%RuntimeError{message: "kaboom"}, _stack}} =
+             Supervisor.start_runtime(bridge_id, raising_state_spec, [])
+  end
+
+  test "stop_bridge_runtime/2 handles nil state pid" do
+    bridge_id = "bridge_nil_state_stop"
+
+    :ets.insert(:zaq_channels_listeners, {bridge_id, %{listener_pids: [], state_pid: nil}})
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+    assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+  end
+
+  test "start_link/1 returns error when supervisor is already started" do
+    assert {:error, {:already_started, pid}} = Supervisor.start_link([])
+    assert is_pid(pid)
   end
 end
