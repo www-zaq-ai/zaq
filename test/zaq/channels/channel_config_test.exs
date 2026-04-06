@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.ChannelConfigTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
 
@@ -171,8 +171,8 @@ defmodule Zaq.Channels.ChannelConfigTest do
   test "get_by_channel_id/2 returns config for matching channel and provider" do
     config = insert_channel_config(%{provider: "mattermost", enabled: true})
 
-    %Zaq.Channels.RetrievalChannel{}
-    |> Zaq.Channels.RetrievalChannel.changeset(%{
+    %RetrievalChannel{}
+    |> RetrievalChannel.changeset(%{
       channel_config_id: config.id,
       channel_id: "chan-abc",
       channel_name: "general",
@@ -192,8 +192,8 @@ defmodule Zaq.Channels.ChannelConfigTest do
   test "get_by_channel_id/2 returns nil for disabled config" do
     config = insert_channel_config(%{provider: "slack", enabled: false})
 
-    %Zaq.Channels.RetrievalChannel{}
-    |> Zaq.Channels.RetrievalChannel.changeset(%{
+    %RetrievalChannel{}
+    |> RetrievalChannel.changeset(%{
       channel_config_id: config.id,
       channel_id: "chan-disabled",
       channel_name: "general",
