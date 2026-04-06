@@ -38,6 +38,7 @@
         <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
           <h2 class="font-mono text-sm font-bold text-[#2c3a50]">People</h2>
           <button
+            id="new-person-button"
             phx-click="open_modal"
             phx-value-action="new"
             phx-value-entity="person"
@@ -196,6 +197,7 @@
               Channels
             </h4>
             <button
+              id="add-channel-button"
               phx-click="open_modal"
               phx-value-action="new"
               phx-value-entity="channel"
@@ -312,6 +314,7 @@
   <%!-- Inline modal overlay --%>
   <div
     :if={@modal}
+    id="people-modal-overlay"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
   >
     <div class="bg-white rounded-2xl shadow-2xl border border-black/10 w-full max-w-md mx-4">
@@ -345,6 +348,7 @@
       <%!-- Person form --%>
       <div :if={@modal_entity == :person} class="px-6 py-5">
         <.form
+          id="person-modal-form"
           for={@modal_changeset}
           phx-change="validate"
           phx-submit="save"
@@ -364,7 +368,7 @@
               :if={@modal_changeset.errors[:full_name]}
               class="font-mono text-[0.68rem] text-red-500 mt-1"
             >
-              {translate_error(hd(@modal_changeset.errors[:full_name]))}
+              {translate_error(@modal_changeset.errors[:full_name])}
             </p>
           </div>
           <div>
@@ -381,7 +385,7 @@
               :if={@modal_changeset.errors[:email]}
               class="font-mono text-[0.68rem] text-red-500 mt-1"
             >
-              {translate_error(hd(@modal_changeset.errors[:email]))}
+              {translate_error(@modal_changeset.errors[:email])}
             </p>
           </div>
           <div>
@@ -424,6 +428,7 @@
               Cancel
             </button>
             <button
+              id="save-person-button"
               type="submit"
               class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
             >
@@ -436,6 +441,7 @@
       <%!-- Channel form --%>
       <div :if={@modal_entity == :channel} class="px-6 py-5">
         <.form
+          id="channel-modal-form"
           for={@modal_changeset}
           phx-change="validate"
           phx-submit="save"
@@ -460,7 +466,7 @@
               :if={@modal_changeset.errors[:platform]}
               class="font-mono text-[0.68rem] text-red-500 mt-1"
             >
-              {translate_error(hd(@modal_changeset.errors[:platform]))}
+              {translate_error(@modal_changeset.errors[:platform])}
             </p>
           </div>
           <div>
@@ -479,7 +485,7 @@
               :if={@modal_changeset.errors[:channel_identifier]}
               class="font-mono text-[0.68rem] text-red-500 mt-1"
             >
-              {translate_error(hd(@modal_changeset.errors[:channel_identifier]))}
+              {translate_error(@modal_changeset.errors[:channel_identifier])}
             </p>
           </div>
           <div class="flex justify-end gap-2 pt-2">
@@ -491,6 +497,7 @@
               Cancel
             </button>
             <button
+              id="save-channel-button"
               type="submit"
               class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
             >
