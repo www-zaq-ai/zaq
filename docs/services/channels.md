@@ -2,62 +2,350 @@
 
 ## Overview
 
-The Channels service provides transport/runtime infrastructure for communication adapters.
+The Channels service provides transport and runtime infrastructure for communication adapters.
 
-- **Ingestion channels** ingest external documents.
-- **Retrieval channels** receive user messages and deliver ZAQ responses.
+- **Ingestion channels** ingest external documents (Google Drive, SharePoint, etc.).
+- **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
 
-For chat-style providers, ZAQ uses `Zaq.Channels.JidoChatBridge` with `jido_chat` adapters.
+All channel delivery flows through canonical message structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types.
 
 ---
 
-## Current Runtime Model
+## Module Map
 
-### Public outbound API
+| Module | File | Role |
+|---|---|---|
+| `Zaq.Channels.Router` | `lib/zaq/channels/router.ex` | Stateless outbound router — public entrypoint |
+| `Zaq.Channels.JidoChatBridge` | `lib/zaq/channels/jido_chat_bridge.ex` | Provider bridge for jido_chat adapters |
+| `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder |
+| `Zaq.Channels.EmailBridge` | `lib/zaq/channels/email_bridge.ex` | Bridge for email (SMTP) delivery |
+| `Zaq.Channels.WebBridge` | `lib/zaq/channels/web_bridge.ex` | Bridge for web/ChatLive sessions via PubSub |
+| `Zaq.Channels.Supervisor` | `lib/zaq/channels/supervisor.ex` | DynamicSupervisor — process lifecycle |
+| `Zaq.Channels.ChannelConfig` | `lib/zaq/channels/channel_config.ex` | Ecto schema — connector configs |
+| `Zaq.Channels.RetrievalChannel` | `lib/zaq/channels/retrieval_channel.ex` | Ecto schema — per-channel subscriptions |
+| `Zaq.Channels.MattermostAdmin` | `lib/zaq/channels/mattermost_admin.ex` | Admin helpers for Mattermost UI |
+| `Zaq.Engine.Messages.Incoming` | `lib/zaq/engine/messages/incoming.ex` | Canonical inbound message struct |
+| `Zaq.Engine.Messages.Outgoing` | `lib/zaq/engine/messages/outgoing.ex` | Canonical outbound message struct |
 
-`Zaq.Channels.Router` is the public entrypoint used by internal modules.
+---
 
-- `deliver/1`
-- `send_typing/2`
-- `add_reaction/4`
-- `remove_reaction/5`
-- `subscribe_thread_reply/3`
-- `unsubscribe_thread_reply/3`
+## Message Structs
 
-The router resolves the bridge by provider and delegates provider-specific behavior to the bridge.
+### `Zaq.Engine.Messages.Incoming`
 
-### Jido chat bridge runtime
+Canonical struct for all inbound messages crossing the adapter boundary. Every adapter must map its transport-specific payload to this struct before passing a message to any ZAQ component.
 
-`Zaq.Channels.JidoChatBridge` is the provider-facing implementation for jido_chat adapters.
+```elixir
+@enforce_keys [:content, :channel_id, :provider]
 
-- Ingress entrypoint: `from_listener/3` (adapter `sink_mfa` target)
-- Outbound/event delegation: reply, typing, reactions
-- Thread watch management: subscribe/unsubscribe reply threads
+defstruct [
+  :content,       # String — message text
+  :channel_id,    # String — platform channel ID
+  :author_id,     # String | nil
+  :author_name,   # String | nil
+  :thread_id,     # String | nil
+  :message_id,    # String | nil
+  :provider,      # atom | String — e.g. :mattermost, :web
+  metadata: %{}
+]
+```
 
-Runtime state is kept per `bridge_id` in `Zaq.Channels.JidoChatBridge.State`.
+### `Zaq.Engine.Messages.Outgoing`
 
-### Channels supervisor
+Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered via `Zaq.Channels.Router.deliver/1`.
 
-`Zaq.Channels.Supervisor` manages process lifecycle only:
+```elixir
+@enforce_keys [:body, :channel_id, :provider]
 
-- starts/stops runtime units (state + optional listener)
-- bootstraps enabled channel configs on startup
-- provides runtime pid lookup by `bridge_id`
+defstruct [
+  :body,          # String — response text
+  :channel_id,    # String
+  :thread_id,     # String | nil
+  :author_id,     # String | nil
+  :author_name,   # String | nil
+  :provider,      # atom | String
+  :in_reply_to,   # String | nil — message_id being replied to
+  metadata: %{}
+]
+```
 
-Business operations are handled in the bridge, not in the supervisor.
+`Outgoing.from_pipeline_result/2` builds an `%Outgoing{}` from an `%Incoming{}` and a pipeline result map, copying routing fields and merging metadata.
+
+---
+
+## Router
+
+`Zaq.Channels.Router` is the stateless public entrypoint for all outbound operations. It resolves the correct bridge module from app config (by provider atom key), fetches connection details from the DB, and delegates to `bridge.send_reply/2`.
+
+### Public API
+
+| Function | Description |
+|---|---|
+| `deliver/1` | Delivers `%Outgoing{}` to the correct bridge |
+| `send_typing/2` | Sends typing indicator through the provider bridge |
+| `add_reaction/4` | Adds a reaction through the provider bridge |
+| `remove_reaction/5` | Removes a reaction through the provider bridge |
+| `subscribe_thread_reply/3` | Subscribes to thread replies via provider bridge |
+| `unsubscribe_thread_reply/3` | Unsubscribes from thread replies via provider bridge |
+| `sync_config_runtime/2` | Synchronizes runtime processes when a channel config changes |
+| `test_connection/2` | Runs bridge-specific connection test |
+| `bridge_for/1` | Returns the configured bridge module for a provider |
+
+### Bridge resolution
+
+Bridges are resolved from `Application.get_env(:zaq, :channels)` by provider atom key:
+
+```elixir
+# Example config shape
+config :zaq, :channels, %{
+  mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: ..., ingress_mode: :websocket},
+  email:      %{bridge: Zaq.Channels.EmailBridge},
+  web:        %{bridge: Zaq.Channels.WebBridge}
+}
+```
+
+The string `"email:smtp"` is mapped to the `:email` key before lookup. For `:web`, connection details are always `%{}` — delivery is via PubSub only.
+
+`sync_config_runtime/2` calls `bridge.start_runtime/1` or `bridge.stop_runtime/1` on the bridge if the function is exported. This is how the Supervisor delegates lifecycle to the bridge.
+
+---
+
+## Jido Chat Bridge
+
+`Zaq.Channels.JidoChatBridge` is the provider-facing bridge for the `jido_chat` adapter family (Mattermost, Telegram, Discord, etc.).
+
+### Ingress flow
+
+1. The adapter listener calls `from_listener/3` (configured as `sink_mfa` target).
+2. `from_listener/3` ensures the runtime is started and looks up the `State` pid.
+3. `State.process_listener_payload/4` transforms the raw payload via `Jido.Chat.Adapter.transform_incoming/2`, annotates it with transport mode, and processes it through `Chat.process_message/5`.
+4. The `Chat` handlers fire: `on_new_mention`, `on_new_message`, `on_subscribed_message`.
+5. For qualifying messages, `handle_message_event/3` converts the `Chat.Incoming` to an `%Incoming{}` via `to_internal/2`, resolves the author's role IDs, runs the pipeline, and delivers the `%Outgoing{}` result.
+
+### Outbound flow
+
+Called by `Router.deliver/1`:
+
+1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token}`.
+2. Resolves the adapter module for the provider.
+3. Builds a `Jido.Chat.Thread` and calls `Chat.Thread.post/3`.
+4. If `outgoing.metadata` contains an `"on_reply"` key, dispatches an Oban job for reply tracking (used by the Notification center).
+
+### Thread watch management
+
+- `subscribe_thread_reply/3` — starts a dedicated bridge runtime for `{channel_id, thread_id}` and calls `State.subscribe_thread/4`.
+- `unsubscribe_thread_reply/3` — unsubscribes and stops the dedicated runtime.
+- Thread bridge IDs are keyed `"#{channel_id}_#{thread_id}"`.
+
+### Runtime lifecycle
+
+- `start_runtime/1` — starts State + listener processes for a channel config.
+- `stop_runtime/1` — stops them via the Supervisor.
+- `runtime_specs/3` — returns `{state_child_spec, listener_specs}` for the Supervisor.
+
+### Ingress modes
+
+Configured per provider via `:ingress_mode` in app config. Supported values:
+
+| Mode | Behavior |
+|---|---|
+| `:websocket` | Adapter starts a persistent WebSocket listener |
+| `:gateway` | Adapter starts a gateway listener |
+| `:polling` | Adapter starts a polling listener |
+| Any other / `nil` | No listener started; ingress is push-only |
+
+### Configurable modules (testability)
+
+All cross-service calls are overridable via Application env:
+
+| Key | Default |
+|---|---|
+| `:chat_bridge_pipeline_module` | `Zaq.Agent.Pipeline` |
+| `:chat_bridge_router_module` | `Zaq.Channels.Router` |
+| `:chat_bridge_conversations_module` | `Zaq.Engine.Conversations` |
+| `:chat_bridge_accounts_module` | `Zaq.Accounts` |
+| `:chat_bridge_permissions_module` | `Zaq.Accounts.Permissions` |
+| `:pipeline_hooks_module` | `Zaq.Hooks` |
+
+When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
+
+---
+
+## Jido Chat Bridge State
+
+`Zaq.Channels.JidoChatBridge.State` is a GenServer that owns one `%Jido.Chat{}` struct per `bridge_id`. All mutations are serialized through this process to prevent race conditions across concurrent ingress sources.
+
+### State shape
+
+```elixir
+@type state :: %{
+  bridge_id: String.t(),
+  config:    map(),
+  chat:      Chat.t()
+}
+```
+
+### Public calls
+
+| Function | Description |
+|---|---|
+| `process_listener_payload/4` | Transforms + processes an adapter payload (serialized, `:infinity` timeout) |
+| `subscribe_thread/4` | Adds a thread key to `chat.subscriptions` |
+| `unsubscribe_thread/4` | Removes a thread key from `chat.subscriptions` |
+| `send_reply/3` | Delegates to `JidoChatBridge.do_send_reply/2` |
+| `send_typing/4` | Delegates to `JidoChatBridge.send_typing/3` |
+| `add_reaction/6` | Delegates to `JidoChatBridge.add_reaction/5` |
+| `remove_reaction/6` | Delegates to `JidoChatBridge.remove_reaction/5` |
+| `refresh_config/2` | Replaces config and rebuilds handlers, preserving runtime state |
+
+### Config refresh
+
+`refresh_config/2` rebuilds the `Chat` struct (handlers, adapter) from the new config while preserving `subscriptions`, `dedupe`, `dedupe_order`, `thread_state`, and `channel_state` from the running instance.
+
+---
+
+## Email Bridge
+
+`Zaq.Channels.EmailBridge` delivers `%Outgoing{}` via SMTP using `Zaq.Engine.Notifications.EmailNotification`. Connection details are not required — SMTP settings are read from `channel_configs.settings` for provider `"email:smtp"`.
+
+- `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
+- `to_internal/2` — stub for future inbound email parsing; currently returns `{:error, :not_implemented}`.
+
+---
+
+## Web Bridge
+
+`Zaq.Channels.WebBridge` serves the ChatLive web channel.
+
+- `to_internal/2` — converts ChatLive form params to `%Incoming{provider: :web}`. Expects params keys `:content`, `:channel_id`, `:session_id`, `:request_id`.
+- `send_reply/2` — broadcasts `{:pipeline_result, request_id, outgoing, user_content}` to the `"chat:<session_id>"` PubSub topic.
+- `on_status_callback/2` — returns a callback that broadcasts `{:status_update, request_id, stage, message}` to the session topic for pipeline progress updates.
+
+---
+
+## Supervisor
+
+`Zaq.Channels.Supervisor` is a `DynamicSupervisor` that manages bridge runtime processes.
+
+### Process tracking
+
+Runtime state is tracked per `bridge_id` in an ETS table (`:zaq_channels_listeners`):
+
+```elixir
+bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
+```
+
+### Public API
+
+| Function | Description |
+|---|---|
+| `start_runtime/3` | Starts State + listener children for a bridge ID |
+| `stop_bridge_runtime/2` | Stops all children and removes ETS entry for a bridge ID |
+| `lookup_runtime/1` | Returns `{:ok, %{listener_pids, state_pid}}` or `{:error, :not_running}` |
+| `lookup_state_pid/1` | Returns `{:ok, pid}` or `{:error, :not_running}` |
+| `start_listener/1` | Convenience — delegates to `Router.sync_config_runtime/2` |
+| `stop_listener/1` | Convenience — delegates to `Router.sync_config_runtime/2` |
+
+### Bootstrap
+
+On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_kind(:retrieval, providers)` for all providers that have a configured `:adapter` in app config, and calls `Router.sync_config_runtime/2` for each.
+
+`Zaq.NodeRouter` locates the channels node by calling `Process.whereis(Zaq.Channels.Supervisor)`.
 
 ---
 
 ## Channel Config
 
-`Zaq.Channels.ChannelConfig` stores connector configs in `channel_configs`.
+`Zaq.Channels.ChannelConfig` (schema: `channel_configs`) stores connector configurations. One record per provider (unique constraint on `provider`).
 
-- Core fields: `name`, `provider`, `kind`, `url`, `token`, `enabled`, `settings`
-- jido_chat adapter fields are stored in `settings["jido_chat"]` (for example `bot_name`, `bot_user_id`)
+### Fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `name` | string | Human label |
+| `provider` | string | One of: `mattermost`, `slack`, `teams`, `google_drive`, `sharepoint`, `email:smtp`, `telegram`, `discord` |
+| `kind` | string | `"ingestion"` or `"retrieval"` |
+| `url` | string | Base URL for the platform API |
+| `token` | EncryptedString | Bot token — stored encrypted via `Zaq.Types.EncryptedString` |
+| `enabled` | boolean | Default `true` |
+| `settings` | map | Provider-specific settings |
+
+### jido_chat settings
+
+jido_chat adapter fields live in `settings["jido_chat"]`:
+
+| Key | Helper | Description |
+|---|---|---|
+| `"bot_name"` | `jido_chat_bot_name/1` | Bot display name |
+| `"bot_user_id"` | `jido_chat_bot_user_id/1` | Bot user ID on the platform |
+| `"message_patterns"` | via `jido_chat_setting/3` | List of regex pattern strings for channel message matching |
+| `"ingress"` | via `jido_chat_setting/3` | Ingress mode overrides map |
+
+### Query functions
+
+| Function | Description |
+|---|---|
+| `get_by_provider/1` | Returns enabled config for a provider |
+| `get_any_by_provider/1` | Returns config regardless of `enabled` state |
+| `upsert_by_provider/2` | Insert or update config for a provider |
+| `list_enabled_by_kind/2` | Enabled configs for a kind, filtered by provider list |
+| `get_by_channel_id/2` | Joins through `retrieval_channels` to find config for a platform channel ID |
 
 ---
 
-## Notes
+## Retrieval Channel
 
-- Legacy Mattermost retrieval adapter modules were removed in favor of the jido_chat bridge flow.
-- Retrieval/ingestion adapter behaviours remain defined under `lib/zaq/engine/`.
+`Zaq.Channels.RetrievalChannel` (schema: `retrieval_channels`) represents a specific platform channel that ZAQ monitors. Each record links a platform channel ID to a `ChannelConfig`.
+
+### Fields
+
+`channel_config_id`, `channel_id`, `channel_name`, `team_id`, `team_name`, `active` (default `true`).
+
+Unique constraint: `[channel_config_id, channel_id]`.
+
+### Query functions
+
+| Function | Description |
+|---|---|
+| `list_active_by_config/1` | All active channels for a config ID |
+| `list_by_config/1` | All channels (active and inactive) for a config ID, ordered by name |
+| `get_by_config_and_channel/2` | Single channel by config ID and platform channel ID |
+| `active_channel_ids/1` | All active channel IDs for a provider string |
+
+When `list_active_by_config/1` returns non-empty results, the listener is started with those specific channel IDs. When empty, the listener receives `:all` — it subscribes to all channels.
+
+---
+
+## Mattermost Admin
+
+`Zaq.Channels.MattermostAdmin` provides admin operations for the Mattermost channel configuration UI. Backed by `Jido.Chat.Mattermost.Transport.ReqClient`. Not intended for bot ingress/egress.
+
+| Function | Description |
+|---|---|
+| `send_message/2` | Sends a message to a channel (loads config from DB) |
+| `fetch_bot_user_id/2` | Fetches bot user ID via `/api/v4/users/me` |
+| `list_teams/1` | Lists teams the bot belongs to |
+| `list_public_channels/2` | Lists public channels for a team |
+| `clear_channel/1` | Deletes all posts in a channel (destructive) |
+
+---
+
+## What's Done
+
+- Router with full outbound API: `deliver`, `send_typing`, `add_reaction`, `remove_reaction`, `subscribe_thread_reply`, `unsubscribe_thread_reply`, `sync_config_runtime`, `test_connection`
+- `JidoChatBridge` with ingress via `from_listener` / `sink_mfa`, outbound via `send_reply`, thread watch management, configurable ingress modes, and Oban-based on_reply dispatch
+- `JidoChatBridge.State` GenServer with serialized message processing, config refresh preserving runtime state, and full reaction/typing delegation
+- `EmailBridge` for SMTP delivery
+- `WebBridge` for LiveView sessions via PubSub (with status callback support)
+- `Supervisor` with ETS-backed runtime tracking and bootstrap on startup
+- `ChannelConfig` with encrypted token storage, jido_chat settings helpers, and full query API
+- `RetrievalChannel` with active/all channel queries
+- `MattermostAdmin` for UI-facing admin operations
+- Canonical `Incoming` / `Outgoing` structs as the adapter boundary contract
+- All cross-node calls routed through `Zaq.NodeRouter`
+
+## What's Left
+
+- Inbound email parsing (`EmailBridge.to_internal/2` is a stub)
+- Slack, Teams, Telegram, Discord adapters (providers are registered in `@valid_providers` but adapter implementations are external dependencies)
+- Ingestion channel pipeline (ingestion `ChannelConfig` kinds exist in schema but no ingestion bridge is implemented in this service)

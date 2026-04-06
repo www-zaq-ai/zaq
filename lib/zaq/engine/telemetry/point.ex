@@ -9,6 +9,8 @@ defmodule Zaq.Engine.Telemetry.Point do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "telemetry_points" do
     field :metric_key, :string
     field :occurred_at, :utc_datetime_usec

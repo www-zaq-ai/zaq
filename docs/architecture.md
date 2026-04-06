@@ -131,9 +131,9 @@ User question
 
 Key agent modules:
 - `Zaq.Agent.Pipeline` — orchestrates the full RAG flow
-- `Zaq.Agent.LLM` / `Zaq.Agent.LLMRunner` — centralized LLM config and execution
+- `Zaq.Agent.LLM` / <code>Zaq.Agent.LLMRunner</code> — centralized LLM config and execution
 - `Zaq.Agent.History` — conversation history management
-- `Zaq.Agent.CitationNormalizer` — normalizes citations in answers
+- <code>Zaq.Agent.CitationNormalizer</code> — normalizes citations in answers
 
 ---
 

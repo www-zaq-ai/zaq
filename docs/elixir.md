@@ -75,7 +75,7 @@
 - **Always** preload Ecto associations in queries when they'll be accessed in templates.
 - Remember `import Ecto.Query` and other supporting modules when writing `seeds.exs`.
 - `Ecto.Schema` fields always use `:string` type even for `:text` columns: `field :name, :string`.
-- `Ecto.Changeset.validate_number/2` **does not support the `:allow_nil` option** — it's never needed.
+- <code>Ecto.Changeset.validate_number/2</code> **does not support the `:allow_nil` option** — it's never needed.
 - **Always** use `Ecto.Changeset.get_field(changeset, :field)` to access changeset fields.
 - Fields set programmatically (e.g. `user_id`) must not be listed in `cast` calls — set them explicitly.
 - **Always** invoke `mix ecto.gen.migration migration_name_using_underscores` when generating migration files.
