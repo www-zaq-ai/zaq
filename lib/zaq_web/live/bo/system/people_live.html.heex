@@ -31,69 +31,187 @@
 
   <%!-- Main split panel --%>
   <div class="flex gap-6 min-h-[70vh]">
-    <%!-- Left: People list --%>
+    <%!-- Left panel --%>
     <div class={if @selected_person, do: "w-1/3 flex-shrink-0", else: "w-full"}>
       <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
-        <%!-- Header --%>
-        <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
-          <h2 class="font-mono text-sm font-bold text-[#2c3a50]">People</h2>
+        <%!-- Tab bar --%>
+        <div class="flex border-b border-black/8">
           <button
-            id="new-person-button"
-            phx-click="open_modal"
-            phx-value-action="new"
-            phx-value-entity="person"
-            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            phx-click="switch_tab"
+            phx-value-tab="people"
+            class={[
+              "flex-1 font-mono text-[0.72rem] font-semibold py-3 transition-colors",
+              if(@active_tab == :people,
+                do: "text-[#03b6d4] border-b-2 border-[#03b6d4]",
+                else: "text-black/40 hover:text-black/60"
+              )
+            ]}
           >
-            + New Person
+            People
+          </button>
+          <button
+            phx-click="switch_tab"
+            phx-value-tab="teams"
+            class={[
+              "flex-1 font-mono text-[0.72rem] font-semibold py-3 transition-colors",
+              if(@active_tab == :teams,
+                do: "text-[#03b6d4] border-b-2 border-[#03b6d4]",
+                else: "text-black/40 hover:text-black/60"
+              )
+            ]}
+          >
+            Teams
           </button>
         </div>
 
-        <%!-- Empty state --%>
-        <div :if={@people == []} class="py-16 text-center">
-          <p class="font-mono text-sm text-black/30">No people yet.</p>
-          <p class="font-mono text-[0.7rem] text-black/20 mt-1">Click "New Person" to add one.</p>
+        <%!-- People tab --%>
+        <div :if={@active_tab == :people}>
+          <%!-- Header --%>
+          <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
+            <h2 class="font-mono text-sm font-bold text-[#2c3a50]">People</h2>
+            <button
+              id="new-person-button"
+              phx-click="open_modal"
+              phx-value-action="new"
+              phx-value-entity="person"
+              class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            >
+              + New Person
+            </button>
+          </div>
+
+          <%!-- Empty state --%>
+          <div :if={@people == []} class="py-16 text-center">
+            <p class="font-mono text-sm text-black/30">No people yet.</p>
+            <p class="font-mono text-[0.7rem] text-black/20 mt-1">
+              Click "New Person" to add one.
+            </p>
+          </div>
+
+          <%!-- People list --%>
+          <div :if={@people != []} class="divide-y divide-black/6">
+            <div
+              :for={person <- @people}
+              class={[
+                "flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-black/[0.02] transition-colors",
+                if(@selected_person && @selected_person.id == person.id,
+                  do: "bg-[#03b6d4]/8 border-l-2 border-[#03b6d4]",
+                  else: ""
+                )
+              ]}
+              phx-click="select_person"
+              phx-value-id={person.id}
+            >
+              <%!-- Avatar --%>
+              <div class="w-9 h-9 rounded-lg bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-sm font-bold text-[#2c3a50]/60">
+                {String.first(person.full_name) |> String.upcase()}
+              </div>
+              <%!-- Info --%>
+              <div class="min-w-0 flex-1">
+                <p class="font-mono text-[0.82rem] font-semibold text-[#2c3a50] truncate">
+                  {person.full_name}
+                </p>
+                <p :if={person.role} class="font-mono text-[0.68rem] text-black/40 truncate">
+                  {person.role}
+                </p>
+              </div>
+              <%!-- Status + channel badge --%>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <% preferred = List.first(person.channels) %>
+                <span
+                  :if={preferred}
+                  class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] border border-[#03b6d4]/20"
+                >
+                  {preferred.platform}
+                </span>
+                <span class={[
+                  "w-2 h-2 rounded-full flex-shrink-0",
+                  if(person.status == "active", do: "bg-emerald-400", else: "bg-black/20")
+                ]} />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <%!-- People list --%>
-        <div :if={@people != []} class="divide-y divide-black/6">
-          <div
-            :for={person <- @people}
-            class={[
-              "flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-black/[0.02] transition-colors",
-              if(@selected_person && @selected_person.id == person.id,
-                do: "bg-[#03b6d4]/8 border-l-2 border-[#03b6d4]",
-                else: ""
-              )
-            ]}
-            phx-click="select_person"
-            phx-value-id={person.id}
-          >
-            <%!-- Avatar --%>
-            <div class="w-9 h-9 rounded-lg bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-sm font-bold text-[#2c3a50]/60">
-              {String.first(person.full_name) |> String.upcase()}
-            </div>
-            <%!-- Info --%>
-            <div class="min-w-0 flex-1">
-              <p class="font-mono text-[0.82rem] font-semibold text-[#2c3a50] truncate">
-                {person.full_name}
-              </p>
-              <p :if={person.role} class="font-mono text-[0.68rem] text-black/40 truncate">
-                {person.role}
-              </p>
-            </div>
-            <%!-- Status + channel badge --%>
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <% preferred = List.first(person.channels) %>
-              <span
-                :if={preferred}
-                class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] border border-[#03b6d4]/20"
-              >
-                {preferred.platform}
-              </span>
-              <span class={[
-                "w-2 h-2 rounded-full flex-shrink-0",
-                if(person.status == "active", do: "bg-emerald-400", else: "bg-black/20")
-              ]} />
+        <%!-- Teams tab --%>
+        <div :if={@active_tab == :teams}>
+          <%!-- Header --%>
+          <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
+            <h2 class="font-mono text-sm font-bold text-[#2c3a50]">Teams</h2>
+            <button
+              id="new-team-button"
+              phx-click="open_modal"
+              phx-value-action="new"
+              phx-value-entity="team"
+              class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            >
+              + New Team
+            </button>
+          </div>
+
+          <%!-- Empty state --%>
+          <div :if={@teams == []} class="py-16 text-center">
+            <p class="font-mono text-sm text-black/30">No teams yet.</p>
+            <p class="font-mono text-[0.7rem] text-black/20 mt-1">Click "New Team" to add one.</p>
+          </div>
+
+          <%!-- Teams list --%>
+          <div :if={@teams != []} class="divide-y divide-black/6">
+            <div
+              :for={team <- @teams}
+              class="flex items-center gap-3 px-5 py-3.5 hover:bg-black/[0.02] transition-colors"
+            >
+              <%!-- Icon --%>
+              <div class="w-9 h-9 rounded-lg bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-sm font-bold text-[#2c3a50]/60">
+                {String.first(team.name) |> String.upcase()}
+              </div>
+              <%!-- Info --%>
+              <div class="min-w-0 flex-1">
+                <p class="font-mono text-[0.82rem] font-semibold text-[#2c3a50] truncate">
+                  {team.name}
+                </p>
+                <p :if={team.description} class="font-mono text-[0.68rem] text-black/40 truncate">
+                  {team.description}
+                </p>
+              </div>
+              <%!-- Actions --%>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <button
+                  phx-click="open_modal"
+                  phx-value-action="edit"
+                  phx-value-entity="team"
+                  phx-value-id={team.id}
+                  class="w-7 h-7 rounded flex items-center justify-center text-black/30 hover:text-black/60 hover:bg-black/8 transition-colors"
+                  title="Edit"
+                >
+                  <svg
+                    class="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button
+                  phx-click="confirm_delete"
+                  phx-value-entity="team"
+                  phx-value-id={team.id}
+                  class="w-7 h-7 rounded flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                  title="Delete"
+                >
+                  <svg
+                    class="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6m4-6v6" /><path d="M9 6V4h6v2" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -188,6 +306,59 @@
               {@selected_person.email || "—"}
             </p>
           </div>
+        </div>
+
+        <%!-- Teams section --%>
+        <div class="px-6 py-4 border-b border-black/6">
+          <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider mb-3">
+            Teams
+          </p>
+          <% teams_map = Map.new(@teams, &{&1.id, &1}) %>
+          <%!-- Assigned team badges with × to remove --%>
+          <div class="flex flex-wrap gap-1.5 mb-3">
+            <span
+              :if={@selected_person.team_ids == []}
+              class="font-mono text-[0.72rem] text-black/30"
+            >
+              No teams assigned.
+            </span>
+            <span
+              :for={tid <- @selected_person.team_ids}
+              :if={Map.has_key?(teams_map, tid)}
+              class="inline-flex items-center gap-1 font-mono text-[0.68rem] pl-2 pr-1 py-0.5 rounded-full bg-[#2c3a50]/8 text-[#2c3a50]/70 border border-[#2c3a50]/12"
+            >
+              {teams_map[tid].name}
+              <button
+                phx-click="toggle_team"
+                phx-value-team_id={tid}
+                class="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[#2c3a50]/40 hover:text-[#2c3a50]/80 hover:bg-[#2c3a50]/10 transition-colors"
+                title="Remove"
+              >
+                <svg
+                  class="w-2.5 h-2.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          </div>
+          <%!-- Searchable team picker --%>
+          <% unassigned_teams =
+            Enum.reject(@teams, &(&1.id in @selected_person.team_ids)) %>
+          <form :if={unassigned_teams != []} phx-change="assign_team_select">
+            <.searchable_select
+              id={"team-select-#{length(@selected_person.team_ids)}"}
+              name="team_id"
+              value=""
+              options={Enum.map(unassigned_teams, &{&1.name, &1.id})}
+              placeholder="Search teams…"
+              empty_label="Assign a team…"
+            />
+          </form>
         </div>
 
         <%!-- Channels section --%>
@@ -326,6 +497,8 @@
             {:edit, :person} -> "Edit Person"
             {:new, :channel} -> "Add Channel"
             {:edit, :channel} -> "Edit Channel"
+            {:new, :team} -> "New Team"
+            {:edit, :team} -> "Edit Team"
             _ -> ""
           end}
         </h3>
@@ -361,7 +534,7 @@
               name="person[full_name]"
               value={Ecto.Changeset.get_field(@modal_changeset, :full_name)}
               phx-debounce="300"
-              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
               placeholder="Jane Smith"
             />
             <p
@@ -378,7 +551,7 @@
               name="person[email]"
               value={Ecto.Changeset.get_field(@modal_changeset, :email)}
               phx-debounce="300"
-              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
               placeholder="jane@example.com"
             />
             <p
@@ -395,7 +568,7 @@
               name="person[role]"
               value={Ecto.Changeset.get_field(@modal_changeset, :role)}
               phx-debounce="300"
-              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
               placeholder="Senior Engineer"
             />
           </div>
@@ -403,7 +576,7 @@
             <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Status</label>
             <select
               name="person[status]"
-              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
             >
               <option
                 value="active"
@@ -451,7 +624,7 @@
             <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Platform *</label>
             <select
               name="channel[platform]"
-              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
             >
               <option value="">Select platform…</option>
               <option
@@ -478,7 +651,7 @@
               name="channel[channel_identifier]"
               value={Ecto.Changeset.get_field(@modal_changeset, :channel_identifier)}
               phx-debounce="300"
-              class="w-full font-mono text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
               placeholder="@jane or jane@example.com"
             />
             <p
@@ -498,6 +671,61 @@
             </button>
             <button
               id="save-channel-button"
+              type="submit"
+              class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        </.form>
+      </div>
+
+      <%!-- Team form --%>
+      <div :if={@modal_entity == :team} class="px-6 py-5">
+        <.form
+          id="team-modal-form"
+          for={@modal_changeset}
+          phx-change="validate"
+          phx-submit="save"
+          class="space-y-4"
+        >
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Name *</label>
+            <input
+              type="text"
+              name="team[name]"
+              value={Ecto.Changeset.get_field(@modal_changeset, :name)}
+              phx-debounce="300"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              placeholder="Engineering"
+            />
+            <p
+              :if={@modal_changeset.errors[:name]}
+              class="font-mono text-[0.68rem] text-red-500 mt-1"
+            >
+              {translate_error(@modal_changeset.errors[:name])}
+            </p>
+          </div>
+          <div>
+            <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Description</label>
+            <textarea
+              name="team[description]"
+              phx-debounce="300"
+              rows="3"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40 resize-none"
+              placeholder="Optional description…"
+            >{Ecto.Changeset.get_field(@modal_changeset, :description)}</textarea>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              phx-click="close_modal"
+              class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              id="save-team-button"
               type="submit"
               class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
             >

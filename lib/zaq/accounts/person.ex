@@ -10,6 +10,7 @@ defmodule Zaq.Accounts.Person do
     field :role, :string
     field :status, :string, default: "active"
     field :metadata, :map, default: %{}
+    field :team_ids, {:array, :integer}, default: []
 
     has_many :channels, Zaq.Accounts.PersonChannel
 
@@ -18,7 +19,7 @@ defmodule Zaq.Accounts.Person do
 
   def changeset(person, attrs) do
     person
-    |> cast(attrs, [:full_name, :email, :role, :status, :metadata])
+    |> cast(attrs, [:full_name, :email, :role, :status, :metadata, :team_ids])
     |> validate_required([:full_name])
     |> validate_inclusion(:status, @valid_statuses)
     |> unique_constraint(:email)
@@ -26,7 +27,7 @@ defmodule Zaq.Accounts.Person do
 
   def update_changeset(person, attrs) do
     person
-    |> cast(attrs, [:full_name, :email, :role, :status, :metadata])
+    |> cast(attrs, [:full_name, :email, :role, :status, :metadata, :team_ids])
     |> validate_inclusion(:status, @valid_statuses)
     |> unique_constraint(:email)
   end

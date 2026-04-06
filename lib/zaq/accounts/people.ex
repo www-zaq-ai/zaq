@@ -1,12 +1,13 @@
 defmodule Zaq.Accounts.People do
   @moduledoc """
-  Context for managing people and their communication channels.
+  Context for managing people, their communication channels, and teams.
   """
 
   import Ecto.Query
 
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
+  alias Zaq.Accounts.Team
   alias Zaq.Repo
 
   # ── People ──────────────────────────────────────────────────────────────
@@ -31,6 +32,48 @@ defmodule Zaq.Accounts.People do
   end
 
   def delete_person(%Person{} = person), do: Repo.delete(person)
+
+  # ── Teams ────────────────────────────────────────────────────────────────
+
+  def list_teams do
+    Repo.all(from t in Team, order_by: t.name)
+  end
+
+  def get_team!(id), do: Repo.get!(Team, id)
+
+  def create_team(attrs) do
+    %Team{} |> Team.changeset(attrs) |> Repo.insert()
+  end
+
+  def update_team(%Team{} = team, attrs) do
+    team |> Team.update_changeset(attrs) |> Repo.update()
+  end
+
+  def delete_team(%Team{} = team) do
+    team_id = team.id
+
+    Repo.transaction(fn ->
+      from(p in Person,
+        where: ^team_id in p.team_ids,
+        update: [set: [team_ids: fragment("array_remove(team_ids, ?)", ^team_id)]]
+      )
+      |> Repo.update_all([])
+
+      Repo.delete!(team)
+    end)
+  end
+
+  def assign_team(%Person{} = person, team_id) when is_integer(team_id) do
+    if team_id in person.team_ids do
+      {:ok, person}
+    else
+      update_person(person, %{team_ids: person.team_ids ++ [team_id]})
+    end
+  end
+
+  def unassign_team(%Person{} = person, team_id) when is_integer(team_id) do
+    update_person(person, %{team_ids: List.delete(person.team_ids, team_id)})
+  end
 
   # ── PersonChannels ───────────────────────────────────────────────────────
 
