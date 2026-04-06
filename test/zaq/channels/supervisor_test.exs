@@ -60,7 +60,7 @@ defmodule Zaq.Channels.SupervisorTest do
        ]}
     end
 
-    def transform_incoming(_payload, _opts) do
+    def transform_incoming(_payload) do
       {:ok,
        %ChatIncoming{
          text: "hello",
@@ -69,7 +69,7 @@ defmodule Zaq.Channels.SupervisorTest do
          external_message_id: "msg-1",
          metadata: %{},
          was_mentioned: false,
-         channel_meta: %{adapter_name: :mattermost}
+         channel_meta: %{adapter_name: :mattermost, is_dm: false}
        }}
     end
 
@@ -258,6 +258,20 @@ defmodule Zaq.Channels.SupervisorTest do
 
     assert :global.whereis_name(listener_name) in [:undefined, :error]
     assert :global.whereis_name(state_name) in [:undefined, :error]
+    assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+  end
+
+  test "start_runtime/3 fails cleanly when state process fails to start" do
+    bridge_id = "bridge_state_proc_failure"
+
+    failing_state_spec = %{
+      id: {:state_proc_fail, bridge_id},
+      start: {FailingStartProc, :start_link, [:ignored]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:error, :boom} = Supervisor.start_runtime(bridge_id, failing_state_spec, [])
     assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
   end
 

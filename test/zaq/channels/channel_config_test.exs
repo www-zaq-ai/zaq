@@ -168,6 +168,47 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert updated.settings["relay"] == "smtp.internal.local"
   end
 
+  test "get_by_channel_id/2 returns config for matching channel and provider" do
+    config = insert_channel_config(%{provider: "mattermost", enabled: true})
+
+    %Zaq.Channels.RetrievalChannel{}
+    |> Zaq.Channels.RetrievalChannel.changeset(%{
+      channel_config_id: config.id,
+      channel_id: "chan-abc",
+      channel_name: "general",
+      team_id: "team-1",
+      team_name: "My Team"
+    })
+    |> Repo.insert!()
+
+    result = ChannelConfig.get_by_channel_id("mattermost", "chan-abc")
+    assert result.id == config.id
+  end
+
+  test "get_by_channel_id/2 returns nil for unknown channel_id" do
+    assert nil == ChannelConfig.get_by_channel_id("mattermost", "no-such-chan")
+  end
+
+  test "get_by_channel_id/2 returns nil for disabled config" do
+    config = insert_channel_config(%{provider: "slack", enabled: false})
+
+    %Zaq.Channels.RetrievalChannel{}
+    |> Zaq.Channels.RetrievalChannel.changeset(%{
+      channel_config_id: config.id,
+      channel_id: "chan-disabled",
+      channel_name: "general",
+      team_id: "team-1",
+      team_name: "My Team"
+    })
+    |> Repo.insert!()
+
+    assert nil == ChannelConfig.get_by_channel_id("slack", "chan-disabled")
+  end
+
+  test "jido_chat_settings/1 returns empty map for non-struct config without settings key" do
+    assert %{} == ChannelConfig.jido_chat_settings(%{})
+  end
+
   defp insert_channel_config(attrs) do
     defaults = %{
       name: "Config",

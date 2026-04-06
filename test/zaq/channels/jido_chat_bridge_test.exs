@@ -96,7 +96,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   defmodule StubListenerAdapter do
-    def transform_incoming(%{"type" => "message", "text" => text}, _opts) do
+    def transform_incoming(%{"type" => "message", "text" => text}) do
       {:ok,
        %ChatIncoming{
          text: text,
@@ -111,8 +111,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     def transform_incoming(
-          %{"type" => "thread_reply", "text" => text, "root_id" => root_id},
-          _opts
+          %{"type" => "thread_reply", "text" => text, "root_id" => root_id}
         ) do
       {:ok,
        %ChatIncoming{
@@ -127,7 +126,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
        }}
     end
 
-    def transform_incoming(%{"type" => "reaction"}, _opts), do: {:error, :unsupported_event}
+    def transform_incoming(%{"type" => "reaction"}), do: {:error, :unsupported_event}
   end
 
   defmodule StubAccounts do
@@ -485,6 +484,100 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:listener_child_specs_opts, listener_opts}
       assert listener_opts[:ingress] == %{"mode" => "gateway", "source" => "nostrum"}
       assert listener_opts[:sink_opts][:transport] == :gateway
+    end
+  end
+
+  describe "subscribe_thread_reply/3 and unsubscribe_thread_reply/3" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubListenerAdapter,
+          ingress_mode: :webhook
+        }
+      })
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+      end)
+
+      {:ok, config: config}
+    end
+
+    test "subscribe_thread_reply/3 starts dedicated thread runtime and subscribes", %{
+      config: config
+    } do
+      assert :ok = JidoChatBridge.subscribe_thread_reply(config, "chan-1", "thread-1")
+
+      bridge_id = "chan-1_thread-1"
+      assert {:ok, state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      state = :sys.get_state(state_pid)
+      key = JidoChatBridge.thread_key(:mattermost, "chan-1", "thread-1")
+      assert MapSet.member?(state.chat.subscriptions, key)
+
+      assert :ok = Supervisor.stop_bridge_runtime(config, bridge_id)
+    end
+
+    test "unsubscribe_thread_reply/3 stops thread runtime", %{config: config} do
+      assert :ok = JidoChatBridge.subscribe_thread_reply(config, "chan-1", "thread-2")
+
+      bridge_id = "chan-1_thread-2"
+      assert {:ok, _} = Supervisor.lookup_state_pid(bridge_id)
+
+      assert :ok = JidoChatBridge.unsubscribe_thread_reply(config, "chan-1", "thread-2")
+      assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+    end
+
+    test "unsubscribe_thread_reply/3 returns not_running when not subscribed", %{config: config} do
+      assert {:error, :not_running} =
+               JidoChatBridge.unsubscribe_thread_reply(config, "chan-1", "no-such-thread")
+    end
+  end
+
+  describe "send_reply/2 and do_send_reply/2" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+      :ok
+    end
+
+    test "send_reply/2 returns error when connection details are missing" do
+      outgoing = %Outgoing{
+        body: "hello",
+        channel_id: "chan-1",
+        thread_id: nil,
+        provider: :mattermost,
+        metadata: %{}
+      }
+
+      assert {:error, :missing_connection_details} = JidoChatBridge.send_reply(outgoing, %{})
+    end
+
+    test "do_send_reply/2 returns unsupported_provider for unknown provider" do
+      outgoing = %Outgoing{
+        body: "hello",
+        channel_id: "chan-1",
+        thread_id: nil,
+        provider: :no_such_provider,
+        metadata: %{}
+      }
+
+      assert {:error, {:unsupported_provider, :no_such_provider}} =
+               JidoChatBridge.do_send_reply(outgoing, %{
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
     end
   end
 

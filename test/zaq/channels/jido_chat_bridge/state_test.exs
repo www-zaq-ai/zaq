@@ -4,9 +4,10 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
+  alias Zaq.Engine.Messages.Outgoing
 
   defmodule StubAdapter do
-    def transform_incoming(_payload, _opts) do
+    def transform_incoming(_payload) do
       {:ok,
        %ChatIncoming{
          text: "hello",
@@ -15,13 +16,29 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
          external_message_id: "msg-1",
          metadata: %{},
          was_mentioned: false,
-         channel_meta: %{adapter_name: :mattermost}
+         channel_meta: %{adapter_name: :mattermost, is_dm: false}
        }}
     end
 
     def start_typing(channel_id, opts) do
       if pid = Process.whereis(:state_test_observer) do
         send(pid, {:state_start_typing, channel_id, opts})
+      end
+
+      :ok
+    end
+
+    def add_reaction(channel_id, message_id, emoji, opts) do
+      if pid = Process.whereis(:state_test_observer) do
+        send(pid, {:state_add_reaction, channel_id, message_id, emoji, opts})
+      end
+
+      :ok
+    end
+
+    def remove_reaction(channel_id, message_id, emoji, opts) do
+      if pid = Process.whereis(:state_test_observer) do
+        send(pid, {:state_remove_reaction, channel_id, message_id, emoji, opts})
       end
 
       :ok
@@ -115,5 +132,50 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
     assert opts[:token] == "tok"
 
     Process.unregister(:state_test_observer)
+  end
+
+  test "add_reaction/6 delegates through bridge outbound API", %{pid: pid} do
+    Process.register(self(), :state_test_observer)
+
+    assert :ok =
+             State.add_reaction(pid, "mattermost", "chan-1", "msg-1", "+1", %{
+               url: "https://mm.example.com",
+               token: "tok"
+             })
+
+    assert_received {:state_add_reaction, "chan-1", "msg-1", "+1", opts}
+    assert opts[:url] == "https://mm.example.com"
+    assert opts[:token] == "tok"
+
+    Process.unregister(:state_test_observer)
+  end
+
+  test "remove_reaction/6 delegates through bridge outbound API", %{pid: pid} do
+    Process.register(self(), :state_test_observer)
+
+    assert :ok =
+             State.remove_reaction(pid, "mattermost", "chan-1", "msg-1", "+1", %{
+               url: "https://mm.example.com",
+               token: "tok"
+             })
+
+    assert_received {:state_remove_reaction, "chan-1", "msg-1", "+1", opts}
+    assert opts[:url] == "https://mm.example.com"
+    assert opts[:token] == "tok"
+
+    Process.unregister(:state_test_observer)
+  end
+
+  test "send_reply/3 returns error for unsupported provider", %{pid: pid} do
+    outgoing = %Outgoing{
+      body: "hello",
+      channel_id: "chan-1",
+      thread_id: nil,
+      provider: :no_such_provider,
+      metadata: %{}
+    }
+
+    assert {:error, {:unsupported_provider, :no_such_provider}} =
+             State.send_reply(pid, outgoing, %{url: "https://mm.example.com", token: "tok"})
   end
 end
