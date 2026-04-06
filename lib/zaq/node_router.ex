@@ -41,7 +41,7 @@ defmodule Zaq.NodeRouter do
     call(role, mod, fun, args, %{})
   end
 
-  defp call(role, mod, fun, args, runtime) when is_map(runtime) do
+  def call(role, mod, fun, args, runtime) when is_map(runtime) do
     supervisor = Map.fetch!(@supervisor_map, role)
     current = current_node(runtime)
     target = find_node(supervisor, runtime) || current
