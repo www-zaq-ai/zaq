@@ -51,10 +51,12 @@ defmodule ZaqWeb.Components.BOLayout do
                   margin-left: 60px;
                 }
 
-                #header-user-menu > summary {
+                #header-user-menu > summary,
+                #header-settings-menu > summary {
                   list-style: none;
                 }
-                #header-user-menu > summary::-webkit-details-marker {
+                #header-user-menu > summary::-webkit-details-marker,
+                #header-settings-menu > summary::-webkit-details-marker {
                   display: none;
                 }
 
@@ -321,57 +323,151 @@ defmodule ZaqWeb.Components.BOLayout do
         <header class="h-16 bg-white border-b border-black/10 flex items-center justify-between px-8 shadow-sm">
           <h1 class="font-mono text-lg font-bold text-[#2c3a50]">{@page_title}</h1>
 
-          <details id="header-user-menu" class="relative">
-            <summary
-              id="header-user-trigger"
-              class="list-none flex items-center gap-2 rounded-lg border border-black/10 px-2 py-1.5 cursor-pointer hover:bg-black/[0.03] transition-colors"
+          <div class="flex items-center gap-2">
+            <a
+              id="header-notifications-link"
+              href={~p"/bo/channels/notifications/logs"}
+              class="w-10 h-10 rounded-lg border border-black/10 text-[#2c3a50]/75 grid place-items-center hover:bg-black/[0.03] hover:text-[#2c3a50] transition-colors"
+              title="Notifications"
             >
-              <span class="w-8 h-8 rounded-lg bg-[#03b6d4]/15 grid place-items-center text-xs font-bold font-mono text-[#03b6d4] border border-[#03b6d4]/20">
-                {String.first(@current_user.username) |> String.upcase()}
-              </span>
-              <span class="font-mono text-[0.72rem] text-[#2c3a50]/80">{@current_user.username}</span>
-            </summary>
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                />
+              </svg>
+            </a>
 
-            <div
-              id="header-user-dropdown"
-              class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border border-black/10 bg-white shadow-xl p-1.5 z-50"
-            >
-              <a
-                id="header-profile-link"
-                href={~p"/bo/profile"}
-                class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+            <details id="header-settings-menu" class="relative">
+              <summary
+                id="header-settings-trigger"
+                class="list-none w-10 h-10 rounded-lg border border-black/10 text-[#2c3a50]/75 grid place-items-center cursor-pointer hover:bg-black/[0.03] hover:text-[#2c3a50] transition-colors"
               >
-                Profile
-              </a>
-              <div class="my-1 h-px bg-black/10" />
-              <a
-                id="header-system-config-link"
-                href={~p"/bo/system-config"}
-                class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
-              >
-                System config
-              </a>
-              <a
-                id="header-system-license-link"
-                href={~p"/bo/license"}
-                class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
-              >
-                System License
-              </a>
-              <div class="my-1 h-px bg-black/10" />
-              <form id="header-logout-form" method="post" action={~p"/bo/session"}>
-                <input type="hidden" name="_method" value="delete" />
-                <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-                <button
-                  id="header-logout-button"
-                  type="submit"
-                  class="w-full text-left rounded-lg px-3 py-2 font-mono text-[0.72rem] text-red-600 hover:bg-red-50"
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  viewBox="0 0 24 24"
                 >
-                  Logout
-                </button>
-              </form>
-            </div>
-          </details>
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </summary>
+
+              <div
+                id="header-settings-dropdown"
+                class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border border-black/10 bg-white shadow-xl p-1.5 z-50"
+              >
+                <a
+                  id="header-settings-diagnostics-link"
+                  href={~p"/bo/ai-diagnostics"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  Diagnostics
+                </a>
+                <a
+                  id="header-settings-prompt-templates-link"
+                  href={~p"/bo/prompt-templates"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  Prompt templates
+                </a>
+                <a
+                  id="header-settings-system-config-link"
+                  href={~p"/bo/system-config"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  System config
+                </a>
+                <div class="my-1 h-px bg-black/10" />
+                <a
+                  id="header-settings-channels-link"
+                  href={~p"/bo/channels"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  Channels
+                </a>
+                <div class="my-1 h-px bg-black/10" />
+                <a
+                  id="header-settings-users-link"
+                  href={~p"/bo/users"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  Users
+                </a>
+                <a
+                  id="header-settings-roles-link"
+                  href={~p"/bo/roles"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  Roles
+                </a>
+                <div class="my-1 h-px bg-black/10" />
+                <a
+                  id="header-settings-license-link"
+                  href={~p"/bo/license"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  License manager
+                </a>
+              </div>
+            </details>
+
+            <details id="header-user-menu" class="relative">
+              <summary
+                id="header-user-trigger"
+                class="list-none flex items-center gap-2 rounded-lg border border-black/10 px-2 py-1.5 cursor-pointer hover:bg-black/[0.03] transition-colors"
+              >
+                <span class="w-8 h-8 rounded-lg bg-[#03b6d4]/15 grid place-items-center text-xs font-bold font-mono text-[#03b6d4] border border-[#03b6d4]/20">
+                  {String.first(@current_user.username) |> String.upcase()}
+                </span>
+                <span class="font-mono text-[0.72rem] text-[#2c3a50]/80">
+                  {@current_user.username}
+                </span>
+              </summary>
+
+              <div
+                id="header-user-dropdown"
+                class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border border-black/10 bg-white shadow-xl p-1.5 z-50"
+              >
+                <a
+                  id="header-profile-link"
+                  href={~p"/bo/profile"}
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                >
+                  Profile
+                </a>
+                <div class="my-1 h-px bg-black/10" />
+                <form id="header-logout-form" method="post" action={~p"/bo/session"}>
+                  <input type="hidden" name="_method" value="delete" />
+                  <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+                  <button
+                    id="header-logout-button"
+                    type="submit"
+                    class="w-full text-left rounded-lg px-3 py-2 font-mono text-[0.72rem] text-red-600 hover:bg-red-50"
+                  >
+                    Logout
+                  </button>
+                </form>
+              </div>
+            </details>
+          </div>
         </header>
         <!-- Content -->
         <div class="p-8">
@@ -694,29 +790,23 @@ defmodule ZaqWeb.Components.BOLayout do
   defp nav_sections(current_path, features_version) do
     [
       %{
-        id: "section-ai",
-        label: "AI",
+        id: "section-data",
+        label: "Data",
         icon: "ai",
-        active: ai_section_active?(current_path),
-        open: ai_section_active?(current_path),
+        active: data_section_active?(current_path),
+        open: data_section_active?(current_path),
         items: [
-          %{
-            href: ~p"/bo/ai-diagnostics",
-            icon: "ai",
-            label: "Diagnostics",
-            active: current_path == "/bo/ai-diagnostics"
-          },
-          %{
-            href: ~p"/bo/prompt-templates",
-            icon: "prompt",
-            label: "Prompt Templates",
-            active: current_path == "/bo/prompt-templates"
-          },
           %{
             href: ~p"/bo/ingestion",
             icon: "ingestion",
             label: "Ingestion",
             active: current_path == "/bo/ingestion"
+          },
+          %{
+            href: ~p"/bo/people",
+            icon: "people",
+            label: "People Directory",
+            active: String.starts_with?(current_path, "/bo/people")
           },
           %{
             href: ~p"/bo/ontology",
@@ -742,12 +832,6 @@ defmodule ZaqWeb.Components.BOLayout do
         open: communication_section_active?(current_path),
         items: [
           %{
-            href: ~p"/bo/channels",
-            icon: "channels",
-            label: "Channels",
-            active: current_path == "/bo/channels"
-          },
-          %{
             href: ~p"/bo/chat",
             icon: "conversations",
             label: "Chat",
@@ -760,50 +844,15 @@ defmodule ZaqWeb.Components.BOLayout do
             active: current_path == "/bo/history"
           }
         ]
-      },
-      %{
-        id: "section-accounts",
-        label: "Accounts",
-        icon: "accounts",
-        active: accounts_section_active?(current_path),
-        open: accounts_section_active?(current_path),
-        items: [
-          %{
-            href: ~p"/bo/users",
-            icon: "users",
-            label: "Users",
-            active: String.starts_with?(current_path, "/bo/users")
-          },
-          %{
-            href: ~p"/bo/roles",
-            icon: "roles",
-            label: "Roles",
-            active: String.starts_with?(current_path, "/bo/roles")
-          }
-        ]
-      },
-      %{
-        id: "section-system",
-        label: "System",
-        icon: "system",
-        active: system_section_active?(current_path),
-        open: system_section_active?(current_path),
-        items: [
-          %{
-            href: ~p"/bo/people",
-            icon: "people",
-            label: "People",
-            active: String.starts_with?(current_path, "/bo/people")
-          }
-        ]
       }
     ]
   end
 
-  defp ai_section_active?(current_path) do
+  defp data_section_active?(current_path) do
     String.starts_with?(current_path, "/bo/ai") or
       String.starts_with?(current_path, "/bo/prompt") or
       String.starts_with?(current_path, "/bo/ingestion") or
+      String.starts_with?(current_path, "/bo/people") or
       String.starts_with?(current_path, "/bo/ontology") or
       current_path == "/bo/knowledge-gap"
   end
@@ -811,14 +860,5 @@ defmodule ZaqWeb.Components.BOLayout do
   defp communication_section_active?(current_path) do
     String.starts_with?(current_path, "/bo/channels") or
       current_path in ["/bo/chat", "/bo/history"]
-  end
-
-  defp accounts_section_active?(current_path) do
-    String.starts_with?(current_path, "/bo/users") or
-      String.starts_with?(current_path, "/bo/roles")
-  end
-
-  defp system_section_active?(current_path) do
-    String.starts_with?(current_path, "/bo/people")
   end
 end
