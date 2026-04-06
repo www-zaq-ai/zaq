@@ -110,9 +110,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
        }}
     end
 
-    def transform_incoming(
-          %{"type" => "thread_reply", "text" => text, "root_id" => root_id}
-        ) do
+    def transform_incoming(%{"type" => "thread_reply", "text" => text, "root_id" => root_id}) do
       {:ok,
        %ChatIncoming{
          text: text,
