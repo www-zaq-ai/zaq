@@ -25,9 +25,6 @@ config :zaq, :channels, %{
   web: %{bridge: Zaq.Channels.WebBridge}
 }
 
-config :nostrum,
-  token: System.get_env("DISCORD_BOT_TOKEN")
-
 config :zaq,
   ecto_repos: [Zaq.Repo],
   generators: [timestamp_type: :utc_datetime]

@@ -116,12 +116,23 @@ defmodule Zaq.Channels.JidoChatBridge do
       |> Chat.on_subscribed_message(fn _thread, incoming ->
         handle_subscribed_message(incoming)
       end)
+      |> Chat.on_new_message(~r/[\s\S]*/, fn thread, incoming ->
+        if incoming.channel_meta.is_dm and not incoming.author.is_me do
+          handle_message_event(config, thread, incoming)
+        end
+      end)
 
     Enum.reduce(message_patterns, chat, fn pattern, acc ->
       Chat.on_new_message(acc, pattern, fn thread, incoming ->
-        handle_message_event(config, thread, incoming)
+        handle_guild_message_event(config, thread, incoming)
       end)
     end)
+  end
+
+  defp handle_guild_message_event(config, thread, incoming) do
+    unless incoming.channel_meta.is_dm do
+      handle_message_event(config, thread, incoming)
+    end
   end
 
   @doc false

@@ -26,6 +26,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   use GenServer
 
   alias Jido.Chat
+  alias Jido.Chat.Adapter
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
 
@@ -94,10 +95,9 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   def handle_call({:process_listener_payload, config, payload, sink_opts}, _from, state) do
     {:ok, adapter} = JidoChatBridge.adapter_for(config.provider)
     transport = sink_opts[:transport] || :websocket
-    adapter_opts = [url: config.url, token: config.token] ++ adapter_runtime_opts(config)
 
     reply =
-      with {:ok, incoming} <- safe_transform_incoming(adapter, payload, adapter_opts),
+      with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
            incoming <- with_transport(incoming, transport),
            thread_id <-
              JidoChatBridge.thread_key(
@@ -180,33 +180,6 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     {:reply, :ok, %{state | config: config, chat: chat}}
   end
 
-  defp safe_transform_incoming(adapter, payload, opts) do
-    result =
-      if function_exported?(adapter, :transform_incoming, 2) do
-        adapter.transform_incoming(payload, opts)
-      else
-        adapter.transform_incoming(payload)
-      end
-
-    case result do
-      {:ok, incoming} -> {:ok, maybe_set_was_mentioned(incoming, payload, opts)}
-      other -> other
-    end
-  end
-
-  defp maybe_set_was_mentioned(incoming, payload, opts) do
-    bot_user_id = opts[:bot_user_id]
-
-    mentioned? =
-      is_binary(bot_user_id) and bot_user_id != "" and
-        Enum.any?(
-          List.wrap(payload[:mentions] || payload["mentions"] || []),
-          fn m -> to_string(m[:id] || m["id"]) == bot_user_id end
-        )
-
-    if mentioned?, do: %{incoming | was_mentioned: true}, else: incoming
-  end
-
   defp with_transport(incoming, transport) do
     metadata = Map.put(incoming.metadata || %{}, :transport, transport)
     %{incoming | metadata: metadata}
@@ -222,13 +195,5 @@ defmodule Zaq.Channels.JidoChatBridge.State do
       adapters: %{provider => adapter}
     )
     |> JidoChatBridge.register_handlers(config, handler_opts)
-  end
-
-  defp adapter_runtime_opts(config) do
-    [
-      bot_name: ChannelConfig.jido_chat_bot_name(config),
-      bot_user_id: ChannelConfig.jido_chat_bot_user_id(config)
-    ]
-    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
   end
 end

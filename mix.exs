@@ -101,8 +101,8 @@ defmodule Zaq.MixProject do
       {:llm_db, "~> 2026.4"},
       {:jido_chat, github: "agentjido/jido_chat", branch: "main"},
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
-      {:jido_chat_discord, github: "agentjido/jido_chat_discord", branch: "main"},
-      {:nostrum, "~> 0.10", runtime: Mix.env() != :test}
+      {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
+      {:nostrum, "~> 0.10", only: [:dev, :prod]}
       # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
     ]
   end

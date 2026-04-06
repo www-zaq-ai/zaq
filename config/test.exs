@@ -28,8 +28,6 @@ config :zaq, Oban,
   repo: Zaq.Repo,
   testing: :inline
 
-config :nostrum, token: nil, gateway_intents: :none
-
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :zaq, ZaqWeb.Endpoint,

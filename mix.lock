@@ -40,7 +40,7 @@
   "idna": {:hex, :idna, "6.1.1", "8a63070e9f7d0c62eb9d9fcb360a7de382448200fbbd1b106cc96d3d8099df8d", [:rebar3], [{:unicode_util_compat, "~> 0.7.0", [hex: :unicode_util_compat, repo: "hexpm", optional: false]}], "hexpm", "92376eb7894412ed19ac475e4a86f7b413c1b9fbb5bd16dccd57934157944cea"},
   "jason": {:hex, :jason, "1.4.4", "b9226785a9aa77b6857ca22832cffa5d5011a667207eb2a0ad56adb5db443b8a", [:mix], [{:decimal, "~> 1.0 or ~> 2.0", [hex: :decimal, repo: "hexpm", optional: true]}], "hexpm", "c5eb0cab91f094599f94d55bc63409236a8ec69a21a67814529e8d5f6cc90b3b"},
   "jido_chat": {:git, "https://github.com/agentjido/jido_chat.git", "5b6bbe24b339d72e29c2324f0b3c6d0cd476eb74", [branch: "main"]},
-  "jido_chat_discord": {:git, "https://github.com/agentjido/jido_chat_discord.git", "d94b2877b99325a318013fef96353a2a3a3fdb5a", [branch: "main"]},
+  "jido_chat_discord": {:git, "https://github.com/www-zaq-ai/jido_chat_discord.git", "99c00cee309714be2d0232ba73aa47259bd75393", [branch: "main"]},
   "jido_chat_mattermost": {:git, "https://github.com/www-zaq-ai/jido_chat_mattermost.git", "d51cc6a6872ffea844a3fe50aad28f742aa32f1e", [branch: "main"]},
   "langchain": {:git, "https://github.com/Geeks-Solutions/langchain.git", "d2f8f34b60fee57bef6d29e6e59e22a020bb8bfe", [branch: "main"]},
   "lazy_html": {:hex, :lazy_html, "0.1.11", "136c8e9cd616b4f4e9c1562daa683880891120b759606dc4c3b6b18058ba5d79", [:make, :mix], [{:cc_precompiler, "~> 0.1", [hex: :cc_precompiler, repo: "hexpm", optional: false]}, {:elixir_make, "~> 0.9.0", [hex: :elixir_make, repo: "hexpm", optional: false]}, {:fine, "~> 0.1.0", [hex: :fine, repo: "hexpm", optional: false]}], "hexpm", "3b1be592929c31eca1a21673d25696e5c14cddfe922d9d1a3e3b48be4163883b"},
