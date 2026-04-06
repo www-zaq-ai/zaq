@@ -1,6 +1,9 @@
 defmodule ZaqWeb.Live.BO.AuthHook do
   @moduledoc """
-  This module defines an on_mount hook for Phoenix LiveView that handles authentication and authorization for the back office (BO) section of the application. It checks if a user is logged in by looking for a user ID in the session, retrieves the corresponding user from the database, and assigns it to the socket. If no user ID is found, it redirects to the login page. Additionally, if the user has the `must_change_password` flag set to true, it redirects them to the change password page before allowing access to any other routes.
+  `on_mount` hook that authenticates LiveView connections for the BO section.
+
+  Halts and redirects to the login page when no session is present, and to
+  the password-change page when `must_change_password` is set on the user.
   """
   use ZaqWeb, :verified_routes
 

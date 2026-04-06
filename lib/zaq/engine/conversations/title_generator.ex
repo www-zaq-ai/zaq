@@ -82,7 +82,6 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
       end
     rescue
       e ->
-        Logger.error("TitleGenerator failed: #{inspect(e)}")
         {:error, Exception.message(e)}
     end
   end

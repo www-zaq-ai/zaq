@@ -516,12 +516,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp parent_dir("."), do: "."
 
-  defp parent_dir(path) do
-    case Path.dirname(path) do
-      "." -> "."
-      parent -> parent
-    end
-  end
+  defp parent_dir(path), do: Path.dirname(path)
 
   defp do_rename(socket, old_path, new_path, new_name) do
     volume = socket.assigns.current_volume

@@ -1,7 +1,6 @@
 defmodule Zaq.AccountsFixtures do
   @moduledoc """
-  This module defines test helpers for creating
-  entities via the `Zaq.Accounts` context.
+  Factories for `Zaq.Accounts` entities used in tests.
   """
   alias Zaq.Accounts
   alias Zaq.Accounts.Role

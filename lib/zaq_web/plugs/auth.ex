@@ -1,7 +1,9 @@
 defmodule ZaqWeb.Plugs.Auth do
   @moduledoc """
-  This plug is responsible for authenticating users based on the session.
-  It checks if a user ID is present in the session, retrieves the corresponding user from the database, and assigns it to the connection. If no user ID is found, it redirects to the login page. Additionally, if the user has the `must_change_password` flag set to true, it redirects them to the change password page before allowing access to any other routes.
+  Authenticates requests by loading the current user from the session.
+
+  Redirects to the login page when no session is present, and to the
+  password-change page when `must_change_password` is set on the user.
   """
   import Plug.Conn
   import Phoenix.Controller

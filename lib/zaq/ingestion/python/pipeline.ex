@@ -108,7 +108,6 @@ defmodule Zaq.Ingestion.Python.Pipeline do
       Logger.info("[Pipeline] Cleaned up images folder: #{images_folder}")
     end
 
-    # Remove the parent images/ dir if now empty
     if File.dir?(images_dir) and File.ls!(images_dir) == [] do
       File.rmdir(images_dir)
     end
@@ -172,10 +171,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
         :ok
 
       {:error, _} ->
-        case File.cp(source, alias_path) do
-          :ok -> :ok
-          {:error, reason} -> {:error, reason}
-        end
+        File.cp(source, alias_path)
     end
   end
 

@@ -125,8 +125,6 @@ defmodule Zaq.Ingestion.FileExplorer do
     with {:ok, full_path} <- resolve_path(relative_path),
          {:ok, stat} <- File.stat(full_path, time: :posix) do
       {:ok, build_entry(full_path, stat)}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -137,8 +135,6 @@ defmodule Zaq.Ingestion.FileExplorer do
     with {:ok, full_path} <- resolve_path(volume_name, relative_path),
          {:ok, stat} <- File.stat(full_path, time: :posix) do
       {:ok, build_entry(full_path, stat)}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 

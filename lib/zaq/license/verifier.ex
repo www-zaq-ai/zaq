@@ -10,9 +10,10 @@ defmodule Zaq.License.Verifier do
   """
   def verify(payload, signature, public_key)
       when is_binary(payload) and is_binary(signature) and is_binary(public_key) do
-    case :crypto.verify(:eddsa, :none, payload, signature, [public_key, :ed25519]) do
-      true -> :ok
-      false -> {:error, :invalid_signature}
+    if :crypto.verify(:eddsa, :none, payload, signature, [public_key, :ed25519]) do
+      :ok
+    else
+      {:error, :invalid_signature}
     end
   end
 end

@@ -1,8 +1,8 @@
 defmodule ZaqWeb.PageHTML do
   @moduledoc """
-  This module contains pages rendered by PageController.
+  HTML templates rendered by `PageController`.
 
-  See the `page_html` directory for all templates available.
+  See the `page_html` directory for all available templates.
   """
   use ZaqWeb, :html
 

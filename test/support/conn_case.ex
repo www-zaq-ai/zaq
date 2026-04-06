@@ -1,18 +1,9 @@
 defmodule ZaqWeb.ConnCase do
   @moduledoc """
-  This module defines the test case to be used by
-  tests that require setting up a connection.
+  Base case for controller/plug tests that need a `Phoenix.ConnTest` connection.
 
-  Such tests rely on `Phoenix.ConnTest` and also
-  import other functionality to make it easier
-  to build common data structures and query the data layer.
-
-  Finally, if the test case interacts with the database,
-  we enable the SQL sandbox, so changes done to the database
-  are reverted at the end of every test. If you are using
-  PostgreSQL, you can even run database tests asynchronously
-  by setting `use ZaqWeb.ConnCase, async: true`, although
-  this option is not recommended for other databases.
+  Imports `ConnTest` helpers and wraps each test in an Ecto SQL sandbox.
+  Use `async: true` with PostgreSQL for parallel test runs.
   """
 
   use ExUnit.CaseTemplate

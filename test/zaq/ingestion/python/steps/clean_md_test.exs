@@ -21,7 +21,6 @@ defmodule Zaq.Ingestion.Python.Steps.CleanMdTest do
       mapping = Path.join(tmp_dir, "duplicate_mapping.txt")
       File.write!(mapping, "old.png new.png")
 
-      # Create the markdown file that the runner expects
       doc_md = Path.join(tmp_dir, "doc.md")
       File.write!(doc_md, "# Test content\n![old.png](old.png)")
 

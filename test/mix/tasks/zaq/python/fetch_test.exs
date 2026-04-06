@@ -45,15 +45,13 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
         raise "unexpected branch resolution call: #{url}"
       end
 
-      case String.starts_with?(url, "https://raw.githubusercontent.com/#{repo}/#{sha}/") do
-        true ->
-          filename =
-            String.replace_prefix(url, "https://raw.githubusercontent.com/#{repo}/#{sha}/", "")
+      if String.starts_with?(url, "https://raw.githubusercontent.com/#{repo}/#{sha}/") do
+        filename =
+          String.replace_prefix(url, "https://raw.githubusercontent.com/#{repo}/#{sha}/", "")
 
-          {:ok, %{status: 200, body: "# file: #{filename}\n"}}
-
-        false ->
-          raise "unexpected url: #{url}"
+        {:ok, %{status: 200, body: "# file: #{filename}\n"}}
+      else
+        raise "unexpected url: #{url}"
       end
     end)
 
@@ -172,18 +170,16 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
     Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
       expected_prefix = "https://raw.githubusercontent.com/#{repo}/#{sha}/"
 
-      case String.starts_with?(url, expected_prefix) do
-        true ->
-          filename = String.replace_prefix(url, expected_prefix, "")
+      if String.starts_with?(url, expected_prefix) do
+        filename = String.replace_prefix(url, expected_prefix, "")
 
-          if filename == "pipeline.py" do
-            {:ok, %{status: 404, body: "not found"}}
-          else
-            {:ok, %{status: 200, body: "ok\n"}}
-          end
-
-        false ->
-          raise "unexpected url: #{url}"
+        if filename == "pipeline.py" do
+          {:ok, %{status: 404, body: "not found"}}
+        else
+          {:ok, %{status: 200, body: "ok\n"}}
+        end
+      else
+        raise "unexpected url: #{url}"
       end
     end)
 
@@ -200,18 +196,16 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
     Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
       expected_prefix = "https://raw.githubusercontent.com/#{repo}/#{sha}/"
 
-      case String.starts_with?(url, expected_prefix) do
-        true ->
-          filename = String.replace_prefix(url, expected_prefix, "")
+      if String.starts_with?(url, expected_prefix) do
+        filename = String.replace_prefix(url, expected_prefix, "")
 
-          if filename == "pdf_to_md.py" do
-            {:error, :timeout}
-          else
-            {:ok, %{status: 200, body: "ok\n"}}
-          end
-
-        false ->
-          raise "unexpected url: #{url}"
+        if filename == "pdf_to_md.py" do
+          {:error, :timeout}
+        else
+          {:ok, %{status: 200, body: "ok\n"}}
+        end
+      else
+        raise "unexpected url: #{url}"
       end
     end)
 
@@ -228,18 +222,16 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
     Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
       expected_prefix = "https://raw.githubusercontent.com/#{repo}/#{sha}/"
 
-      case String.starts_with?(url, expected_prefix) do
-        true ->
-          filename = String.replace_prefix(url, expected_prefix, "")
+      if String.starts_with?(url, expected_prefix) do
+        filename = String.replace_prefix(url, expected_prefix, "")
 
-          if filename == "clean_md.py" do
-            {:ok, %{status: 500, body: "server error"}}
-          else
-            {:ok, %{status: 200, body: "ok\n"}}
-          end
-
-        false ->
-          raise "unexpected url: #{url}"
+        if filename == "clean_md.py" do
+          {:ok, %{status: 500, body: "server error"}}
+        else
+          {:ok, %{status: 200, body: "ok\n"}}
+        end
+      else
+        raise "unexpected url: #{url}"
       end
     end)
 

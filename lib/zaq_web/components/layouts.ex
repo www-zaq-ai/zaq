@@ -1,7 +1,6 @@
 defmodule ZaqWeb.Layouts do
   @moduledoc """
-  This module holds layouts and related functionality
-  used by your application.
+  Root and app layout templates for the ZAQ web interface.
   """
   use ZaqWeb, :html
 

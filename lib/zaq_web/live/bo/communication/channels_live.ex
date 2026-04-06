@@ -370,11 +370,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     channel_id = socket.assigns.clear_channel_id
     socket = assign(socket, :clear_status, :clearing)
 
-    status =
-      case mattermost_api().clear_channel(channel_id) do
-        :ok -> :ok
-        {:error, reason} -> {:error, reason}
-      end
+    status = mattermost_api().clear_channel(channel_id)
 
     {:noreply,
      socket

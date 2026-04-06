@@ -6,7 +6,6 @@ defmodule Zaq.Ingestion.FileExplorerTest do
   @test_base "test/tmp/file_explorer"
 
   setup do
-    # Create a fresh temp directory for each test
     File.rm_rf!(@test_base)
     File.mkdir_p!(@test_base)
 

@@ -78,10 +78,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   def start_runtime(config) do
     bridge_id = default_bridge_id(config)
 
-    case ensure_runtime_started(config, bridge_id, []) do
-      :ok -> :ok
-      other -> other
-    end
+    ensure_runtime_started(config, bridge_id, [])
   end
 
   @doc "Stops runtime processes for a channel config."
@@ -135,7 +132,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  @doc false
+  @doc "Processes a normalized incoming message from the listener pipeline."
   def handle_from_listener(config, %Chat.Incoming{} = incoming, _sink_opts) do
     if thread_reply?(incoming) do
       handle_subscribed_message(incoming)
@@ -226,7 +223,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   def remove_reaction(_provider, _channel_id, _message_id, _emoji, _connection_details),
     do: {:error, :missing_connection_details}
 
-  @doc false
+  @doc "Converts a `Jido.Chat.Incoming` struct to the internal `Incoming` message format."
   def to_internal(%Chat.Incoming{} = incoming, provider) do
     %Incoming{
       content: incoming.text,
@@ -240,7 +237,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     }
   end
 
-  @doc false
+  @doc "Resolves ZAQ roles for a message author by username. Returns `{:ok, roles | nil}`."
   def resolve_roles(%{author_name: nil}), do: {:ok, nil}
 
   def resolve_roles(%{author_name: author_name}) do
@@ -333,7 +330,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     })
   end
 
-  @doc false
+  @doc "Returns `{:ok, adapter_module}` for a provider atom/string, or `{:error, :unsupported_provider}`."
   def adapter_for(provider) do
     provider_key = if is_atom(provider), do: provider, else: provider_to_atom(provider)
 
@@ -349,10 +346,9 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  @doc false
-  def handler_opts(_config), do: %{}
+  defp handler_opts(_config), do: %{}
 
-  @doc false
+  @doc "Builds the `{state_spec, listener_specs}` tuple for starting a bridge runtime."
   def runtime_specs(config, bridge_id, runtime_opts \\ []) do
     listeners =
       case listener_specs(config, bridge_id, runtime_opts) do
@@ -539,13 +535,13 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp maybe_put_user_id(opts, _), do: opts
 
-  @doc false
+  @doc "Returns the string key used to index a thread in the bridge state."
   def thread_key(provider, channel_id, thread_id) do
     provider_name = if is_atom(provider), do: Atom.to_string(provider), else: provider
     "#{provider_name}:#{channel_id}:#{thread_id}"
   end
 
-  @doc false
+  @doc "Sends a reply outbound via the provider adapter. Called by the bridge state process."
   def do_send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->

@@ -41,8 +41,7 @@ defmodule Zaq.NodeRouter do
     call(role, mod, fun, args, %{})
   end
 
-  @doc false
-  def call(role, mod, fun, args, runtime) when is_map(runtime) do
+  defp call(role, mod, fun, args, runtime) when is_map(runtime) do
     supervisor = Map.fetch!(@supervisor_map, role)
     current = current_node(runtime)
     target = find_node(supervisor, runtime) || current
@@ -66,7 +65,10 @@ defmodule Zaq.NodeRouter do
     find_node(supervisor, %{})
   end
 
-  @doc false
+  @doc """
+  Returns the node where the given supervisor is running, consulting the
+  provided runtime map for node/peer overrides. Used in tests and internally.
+  """
   def find_node(supervisor, runtime) when is_map(runtime) do
     current = current_node(runtime)
     all_nodes = [current | node_list(runtime)]

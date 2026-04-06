@@ -193,11 +193,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
         exception -> {:error, Exception.message(exception)}
       end
 
-    test_status =
-      case result do
-        :ok -> :ok
-        {:error, msg} -> {:error, msg}
-      end
+    test_status = result
 
     {:noreply, assign(socket, :test_status, test_status)}
   end

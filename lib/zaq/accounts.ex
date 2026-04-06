@@ -1,9 +1,9 @@
 defmodule Zaq.Accounts do
   @moduledoc """
-  The Accounts context is responsible for managing users, roles, and authentication.
-  It provides functions for creating, updating, and deleting users and roles, as well as authenticating users and handling password changes.
-  The context also includes logic for seeding a super admin user on application startup, ensuring that the necessary roles are present in the database,
-  and enforcing password change requirements for new users. It serves as the central point for all account-related operations in the application.
+  Context for users, roles, and authentication.
+
+  Handles CRUD for `User` and `Role`, password authentication and change flows,
+  super-admin seeding on startup, and role-based permission lookups.
   """
   import Ecto.Query
   alias Zaq.Accounts.{Role, User}
@@ -225,10 +225,7 @@ defmodule Zaq.Accounts do
         message: "does not match confirmation"
       )
 
-    case Ecto.Changeset.apply_action(changeset, :validate) do
-      {:ok, valid_attrs} -> {:ok, valid_attrs}
-      {:error, changeset} -> {:error, changeset}
-    end
+    Ecto.Changeset.apply_action(changeset, :validate)
   end
 
   defp verify_current_password(%User{password_hash: hash}, current_password)

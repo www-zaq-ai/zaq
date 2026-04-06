@@ -39,7 +39,6 @@ defmodule Zaq.Agent.LLMRunner do
       end
     rescue
       e ->
-        Logger.error("LLMRunner unexpected error: #{Exception.format(:error, e, __STACKTRACE__)}")
         {:error, "#{error_prefix}: #{Exception.message(e)}"}
     end
   end
