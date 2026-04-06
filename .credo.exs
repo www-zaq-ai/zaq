@@ -161,7 +161,7 @@
           {Credo.Check.Warning.UnusedRegexOperation, []},
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []},
-          {Credo.Check.Warning.WrongTestFilename, []},
+          {Credo.Check.Warning.WrongTestFilename, []}
 
           # # ExSlop - Warnings
           # {ExSlop.Check.Warning.BlanketRescue, []},
