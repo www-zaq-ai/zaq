@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.LLMPerformanceLive do
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.NodeRouter
+  alias ZaqWeb.Helpers.MetricsHelpers
 
   @ranges ["24h", "7d", "30d", "90d"]
   @refresh_interval_ms 15_000
@@ -22,12 +23,7 @@ defmodule ZaqWeb.Live.BO.LLMPerformanceLive do
 
   @impl true
   def handle_event("set_range", %{"range" => range}, socket) do
-    next_range = if range in @ranges, do: range, else: socket.assigns.range
-
-    {:noreply,
-     socket
-     |> assign(:range, next_range)
-     |> assign_telemetry()}
+    MetricsHelpers.handle_set_range(@ranges, range, socket, &assign_telemetry/1)
   end
 
   @impl true
@@ -118,9 +114,5 @@ defmodule ZaqWeb.Live.BO.LLMPerformanceLive do
     })
   end
 
-  defp labels_for_range("24h"), do: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"]
-  defp labels_for_range("7d"), do: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-  defp labels_for_range("30d"), do: Enum.map(0..9, fn idx -> "D#{idx * 3 + 1}" end)
-  defp labels_for_range("90d"), do: Enum.map(1..12, fn idx -> "W#{idx}" end)
-  defp labels_for_range(_), do: labels_for_range("7d")
+  defp labels_for_range(range), do: MetricsHelpers.labels_for_range(range)
 end

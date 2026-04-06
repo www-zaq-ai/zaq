@@ -2,8 +2,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
-  alias Zaq.Accounts.PasswordPolicy
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Helpers.PasswordHelpers
 
   def mount(_params, session, socket) do
     user = Accounts.get_user!(session["user_id"])
@@ -65,15 +65,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     }
   end
 
-  defp assign_password_feedback(socket, %{
-         "password" => password,
-         "password_confirmation" => confirmation
-       }) do
-    socket
-    |> assign(:password_requirements, PasswordPolicy.requirements_with_status(password))
-    |> assign(:password_requirements_met?, PasswordPolicy.valid_password?(password))
-    |> assign(:password_confirmation_touched?, confirmation != "")
-    |> assign(:passwords_match?, confirmation != "" and password == confirmation)
+  defp assign_password_feedback(socket, params) do
+    PasswordHelpers.assign_password_feedback(socket, params)
   end
 
   defp format_changeset_errors(changeset) do

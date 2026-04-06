@@ -15,6 +15,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
   alias Zaq.Agent.{LLM, LLMRunner}
+  alias Zaq.Utils.TextUtils
 
   @max_words 6
 
@@ -103,8 +104,5 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
     |> String.trim()
   end
 
-  defp enforce_word_limit(text, max) do
-    words = String.split(text, ~r/\s+/, trim: true)
-    if length(words) > max, do: words |> Enum.take(max) |> Enum.join(" "), else: text
-  end
+  defp enforce_word_limit(text, max), do: TextUtils.enforce_word_limit(text, max)
 end

@@ -8,18 +8,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   alias ZaqWeb.ChangesetErrors
 
   @smtp_provider "email:smtp"
-  @setting_atom_keys %{
-    "relay" => :relay,
-    "port" => :port,
-    "transport_mode" => :transport_mode,
-    "tls" => :tls,
-    "tls_verify" => :tls_verify,
-    "ca_cert_path" => :ca_cert_path,
-    "username" => :username,
-    "password" => :password,
-    "from_email" => :from_email,
-    "from_name" => :from_name
-  }
+  alias Zaq.Channels.SmtpHelpers
+  alias Zaq.Utils.ParseUtils
 
   @impl true
   def mount(_params, _session, socket) do
@@ -459,15 +449,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     _ -> []
   end
 
-  defp parse_int(nil, default), do: default
-  defp parse_int("", default), do: default
-
-  defp parse_int(str, default) do
-    case Integer.parse(str) do
-      {n, _} -> n
-      :error -> default
-    end
-  end
+  defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
 
   defp blank?(nil), do: true
   defp blank?(""), do: true
@@ -477,8 +459,5 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     if blank?(value), do: nil, else: value
   end
 
-  defp map_get(map, key) when is_map(map) do
-    atom_key = Map.get(@setting_atom_keys, key)
-    if atom_key, do: Map.get(map, key) || Map.get(map, atom_key), else: Map.get(map, key)
-  end
+  defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
 end

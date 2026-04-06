@@ -7,6 +7,7 @@ defmodule Zaq.Agent.ChunkTitle do
   require Logger
 
   alias Zaq.Agent.{LLM, LLMRunner}
+  alias Zaq.Utils.TextUtils
 
   @behaviour Zaq.Agent.ChunkTitleBehaviour
 
@@ -105,16 +106,5 @@ defmodule Zaq.Agent.ChunkTitle do
     |> String.trim()
   end
 
-  # Enforce word limit by truncating if necessary
-  defp enforce_word_limit(text, max_words) do
-    words = String.split(text, ~r/\s+/, trim: true)
-
-    if length(words) > max_words do
-      words
-      |> Enum.take(max_words)
-      |> Enum.join(" ")
-    else
-      text
-    end
-  end
+  defp enforce_word_limit(text, max_words), do: TextUtils.enforce_word_limit(text, max_words)
 end

@@ -4,6 +4,8 @@ defmodule Zaq.System.EmbeddingConfig do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Zaq.System.ChangesetHelpers
+
   embedded_schema do
     field :provider, :string, default: "custom"
     field :endpoint, :string, default: "http://localhost:11434/v1"
@@ -29,17 +31,6 @@ defmodule Zaq.System.EmbeddingConfig do
     |> validate_number(:dimension, greater_than: 0, less_than_or_equal_to: 4000)
     |> validate_number(:chunk_min_tokens, greater_than: 0)
     |> validate_number(:chunk_max_tokens, greater_than: 0)
-    |> validate_chunk_order()
-  end
-
-  defp validate_chunk_order(changeset) do
-    min = get_field(changeset, :chunk_min_tokens)
-    max = get_field(changeset, :chunk_max_tokens)
-
-    if min && max && min >= max do
-      add_error(changeset, :chunk_max_tokens, "must be greater than min tokens")
-    else
-      changeset
-    end
+    |> ChangesetHelpers.validate_chunk_order()
   end
 end

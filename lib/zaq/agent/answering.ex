@@ -117,35 +117,26 @@ defmodule Zaq.Agent.Answering do
   def normalize_result(%Result{} = result), do: {:ok, result}
 
   def normalize_result(%{answer: answer} = payload) when is_binary(answer) do
-    confidence = payload_confidence(payload)
-
-    {:ok,
-     %Result{
-       answer: answer,
-       confidence_score: confidence,
-       latency_ms: payload_int(payload, :latency_ms),
-       prompt_tokens: payload_int(payload, :prompt_tokens),
-       completion_tokens: payload_int(payload, :completion_tokens),
-       total_tokens: payload_int(payload, :total_tokens)
-     }}
+    {:ok, build_result(answer, payload)}
   end
 
   def normalize_result(%{"answer" => answer} = payload) when is_binary(answer) do
-    confidence = payload_confidence(payload)
-
-    {:ok,
-     %Result{
-       answer: answer,
-       confidence_score: confidence,
-       latency_ms: payload_int(payload, :latency_ms),
-       prompt_tokens: payload_int(payload, :prompt_tokens),
-       completion_tokens: payload_int(payload, :completion_tokens),
-       total_tokens: payload_int(payload, :total_tokens)
-     }}
+    {:ok, build_result(answer, payload)}
   end
 
   def normalize_result(answer) when is_binary(answer), do: {:ok, %Result{answer: answer}}
   def normalize_result(_), do: {:error, :invalid_result}
+
+  defp build_result(answer, payload) do
+    %Result{
+      answer: answer,
+      confidence_score: payload_confidence(payload),
+      latency_ms: payload_int(payload, :latency_ms),
+      prompt_tokens: payload_int(payload, :prompt_tokens),
+      completion_tokens: payload_int(payload, :completion_tokens),
+      total_tokens: payload_int(payload, :total_tokens)
+    }
+  end
 
   @doc """
   Checks whether the answer indicates the agent could not find relevant info.

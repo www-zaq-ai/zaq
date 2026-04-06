@@ -16,6 +16,7 @@ defmodule Zaq.System do
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.ParseUtils
 
   @telemetry_fields ~w(
     capture_infra_metrics
@@ -301,15 +302,7 @@ defmodule Zaq.System do
 
   # ── Helpers ───────────────────────────────────────────────────────────
 
-  defp parse_int(nil, default), do: default
-  defp parse_int("", default), do: default
-
-  defp parse_int(str, default) do
-    case Integer.parse(str) do
-      {n, _} -> n
-      :error -> default
-    end
-  end
+  defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
 
   defp parse_float(nil, default), do: default
   defp parse_float("", default), do: default
