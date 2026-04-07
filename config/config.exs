@@ -8,6 +8,10 @@
 import Config
 
 config :zaq, :channels, %{
+  :"email:imap" => %{
+    bridge: Zaq.Channels.EmailBridge,
+    adapter: Zaq.Channels.EmailBridge.ImapAdapter
+  },
   mattermost: %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Mattermost.Adapter,

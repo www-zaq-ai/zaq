@@ -14,6 +14,7 @@ defmodule Zaq.Channels.Router do
   alias Zaq.Engine.Messages.Outgoing
 
   @smtp_provider "email:smtp"
+  @imap_provider "email:imap"
 
   @doc """
   Delivers `%Outgoing{}` to the correct bridge.
@@ -195,6 +196,7 @@ defmodule Zaq.Channels.Router do
   end
 
   defp provider_to_bridge_key(@smtp_provider), do: :email
+  defp provider_to_bridge_key(@imap_provider), do: :email
 
   defp provider_to_bridge_key(provider) do
     String.to_existing_atom(provider)

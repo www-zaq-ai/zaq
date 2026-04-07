@@ -338,5 +338,17 @@ defmodule Zaq.Channels.RouterTest do
 
       assert Router.bridge_for("email:smtp") == StubBridge
     end
+
+    test "maps imap provider key to email bridge" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        email: %{bridge: StubBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert Router.bridge_for("email:imap") == StubBridge
+    end
   end
 end

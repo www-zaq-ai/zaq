@@ -15,8 +15,9 @@ defmodule Zaq.Channels.ChannelConfig do
   alias Zaq.Types.EncryptedString
 
   @smtp_provider "email:smtp"
+  @imap_provider "email:imap"
   @valid_kinds ~w(ingestion retrieval)
-  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp telegram discord)
+  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord)
 
   schema "channel_configs" do
     field :name, :string
@@ -33,10 +34,12 @@ defmodule Zaq.Channels.ChannelConfig do
   def changeset(config, attrs) do
     config
     |> cast(attrs, [:name, :provider, :kind, :url, :token, :enabled, :settings])
-    |> validate_required([:name, :provider, :kind, :url, :token])
+    |> validate_required([:name, :provider, :kind])
     |> validate_inclusion(:provider, @valid_providers)
     |> validate_inclusion(:kind, @valid_kinds)
     |> maybe_require_connection_fields()
+    |> maybe_validate_imap_settings()
+    |> maybe_validate_imap_smtp_dependency()
     |> unique_constraint(:provider)
     |> maybe_encrypt_token()
   end
@@ -44,7 +47,71 @@ defmodule Zaq.Channels.ChannelConfig do
   defp maybe_require_connection_fields(changeset) do
     case get_field(changeset, :provider) do
       @smtp_provider -> validate_required(changeset, [:settings])
+      @imap_provider -> validate_required(changeset, [:settings, :token])
       _provider -> validate_required(changeset, [:url, :token])
+    end
+  end
+
+  defp maybe_validate_imap_settings(changeset) do
+    case get_field(changeset, :provider) do
+      @imap_provider ->
+        case extract_imap_mailboxes(get_field(changeset, :settings)) do
+          {:ok, mailboxes} -> validate_imap_mailboxes(changeset, mailboxes)
+          :error -> add_error(changeset, :settings, "imap.selected_mailboxes is required")
+        end
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp extract_imap_mailboxes(settings) when is_map(settings) do
+    case Map.get(settings, "imap") do
+      %{} = imap ->
+        case Map.get(imap, "selected_mailboxes") do
+          mailboxes when is_list(mailboxes) -> {:ok, mailboxes}
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp extract_imap_mailboxes(_), do: :error
+
+  defp validate_imap_mailboxes(changeset, mailboxes) do
+    normalized =
+      mailboxes
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if normalized == [] do
+      add_error(changeset, :settings, "imap.selected_mailboxes must contain at least one mailbox")
+    else
+      changeset
+    end
+  end
+
+  defp maybe_validate_imap_smtp_dependency(changeset) do
+    provider = get_field(changeset, :provider)
+    enabled = get_field(changeset, :enabled)
+
+    if provider == @imap_provider and enabled do
+      case get_any_by_provider(@smtp_provider) do
+        %{enabled: true} ->
+          changeset
+
+        _ ->
+          add_error(
+            changeset,
+            :enabled,
+            "email:imap requires an enabled email:smtp configuration"
+          )
+      end
+    else
+      changeset
     end
   end
 
@@ -191,5 +258,36 @@ defmodule Zaq.Channels.ChannelConfig do
   @doc "Returns bot user id from jido_chat settings."
   def jido_chat_bot_user_id(config) do
     jido_chat_setting(config, "bot_user_id")
+  end
+
+  @doc "Returns imap settings map for an email:imap config."
+  def imap_settings(%__MODULE__{settings: settings}) when is_map(settings) do
+    settings
+    |> Map.get("imap", %{})
+    |> case do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  def imap_settings(%{settings: settings}) when is_map(settings) do
+    settings
+    |> Map.get("imap", %{})
+    |> case do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  def imap_settings(_), do: %{}
+
+  @doc "Returns selected mailboxes for email:imap config."
+  def imap_selected_mailboxes(config) do
+    config
+    |> imap_settings()
+    |> Map.get("selected_mailboxes", [])
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
   end
 end

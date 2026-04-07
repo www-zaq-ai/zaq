@@ -23,6 +23,8 @@
 - Document non-obvious invariants with `@doc`.
 - Keep functions small and composable; move branching-heavy logic into focused private functions.
 - Never nest multiple modules in the same file — causes cyclic dependencies and compilation errors.
+- For channel bridges, keep ingress callback names generic (`from_listener/3`) and transport-agnostic.
+- Channel adapters own transport runtime specs and listener construction; bridges must not build adapter-specific listener specs.
 
 ---
 

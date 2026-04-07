@@ -115,6 +115,14 @@ The string `"email:smtp"` is mapped to the `:email` key before lookup. For `:web
 
 `Zaq.Channels.JidoChatBridge` is the provider-facing bridge for the `jido_chat` adapter family (Mattermost, Telegram, Discord, etc.).
 
+### Bridge-Adapter Contract (mandatory)
+
+- Bridge ingress callback name is standardized as `from_listener/3`.
+- Bridges orchestrate only: convert to `%Incoming{}`, run pipeline, deliver `%Outgoing{}`, persist conversation.
+- Adapters own transport runtime details: connection lifecycle, listener child specs, and transport parsing.
+- Bridges must request runtime specs from adapters (for example `adapter.runtime_specs/3`) instead of building listener specs directly.
+- Adapter-specific callback names (for example `from_imap_listener/3`) are not allowed in bridge public APIs.
+
 ### Ingress flow
 
 1. The adapter listener calls `from_listener/3` (configured as `sink_mfa` target).
@@ -210,7 +218,17 @@ When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
 `Zaq.Channels.EmailBridge` delivers `%Outgoing{}` via SMTP using `Zaq.Engine.Notifications.EmailNotification`. Connection details are not required — SMTP settings are read from `channel_configs.settings` for provider `"email:smtp"`.
 
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
-- `to_internal/2` — stub for future inbound email parsing; currently returns `{:error, :not_implemented}`.
+- `from_listener/3` — generic sink callback for inbound email listeners; orchestration is bridge-owned.
+- `to_internal/2` — resolves the provider adapter and delegates payload normalization to the adapter.
+- `start_runtime/1` and `stop_runtime/1` — resolve adapter runtime specs and delegate runtime lifecycle to `Channels.Supervisor`.
+
+### Email IMAP Adapter
+
+`Zaq.Channels.EmailBridge.ImapAdapter` owns IMAP-specific behavior:
+
+- Builds runtime specs (`runtime_specs/3`) including state + per-mailbox listeners.
+- Runs connection/select/fetch/IDLE operations through Mailroom.
+- Converts IMAP payloads to `%Incoming{}` through adapter-owned parser/threading modules.
 
 ### SMTP Helpers (`Zaq.Channels.SmtpHelpers`)
 

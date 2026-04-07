@@ -105,7 +105,8 @@ defmodule Zaq.MixProject do
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
       # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
       {:ex_dna, "~> 1.2.2", only: [:dev, :test], runtime: false},
-      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false}
+      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
+      {:mailroom, "~> 0.7.1"}
     ]
   end
 

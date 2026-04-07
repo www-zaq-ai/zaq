@@ -2,7 +2,7 @@
 
 ## Overview
 
-This plan implements inbound email reception via IMAP for the Channels service, complementing the existing SMTP outbound capability. The implementation follows the established channel architecture patterns and uses the `mailroom` library for IMAP operations.
+This plan implements inbound email reception via IMAP for the Channels service (Issue 47), complementing the existing SMTP outbound capability. The implementation follows the established channel architecture patterns and uses the `mailroom` library for IMAP operations.
 
 ## Requirements Summary
 
@@ -16,17 +16,22 @@ This plan implements inbound email reception via IMAP for the Channels service, 
 ## Architecture Decisions
 
 ### Provider Separation
+
 - `email:smtp` - Existing provider for outbound email delivery (remains unchanged)
 - `email:imap` - New provider for inbound email reception
 
 ### Bridge Pattern
+
 Following the existing `EmailBridge` pattern, we extend it to support **both** SMTP (outbound) and IMAP (inbound) operations:
+
 - `EmailBridge` becomes a unified bridge handling email as a transport
 - Implements `start_runtime/1` and `stop_runtime/1` for IMAP listener lifecycle
 - Maintains `send_reply/2` for SMTP outbound (existing functionality)
 
 ### Runtime Model
+
 Unlike `JidoChatBridge` which uses a stateful GenServer per bridge, `EmailBridge` for IMAP:
+
 - Spawns **one listener process per selected mailbox** via `Supervisor.start_runtime/3`
 - Each mailbox listener is an independent GenServer that:
   - Connects to IMAP server
@@ -37,15 +42,15 @@ Unlike `JidoChatBridge` which uses a stateful GenServer per bridge, `EmailBridge
 
 ## Module Responsibilities
 
-| Module | Responsibility |
-|--------|----------------|
-| `Zaq.Channels.EmailBridge` | Bridge interface for email channel. Implements `start_runtime/1`, `stop_runtime/1`, `send_reply/2`, `to_internal/2`. Coordinates SMTP and IMAP operations. |
+| Module                                  | Responsibility                                                                                                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Zaq.Channels.EmailBridge`              | Bridge interface for email channel. Implements `start_runtime/1`, `stop_runtime/1`, `send_reply/2`, `to_internal/2`. Coordinates SMTP and IMAP operations.        |
 | `Zaq.Channels.EmailBridge.ImapListener` | GenServer that manages one IMAP IDLE connection per mailbox. Handles connect, IDLE, reconnection, fetch, and mark-as-read. Emits `Incoming` messages to pipeline. |
-| `Zaq.Channels.EmailBridge.ImapConfig` | Settings schema and validation for IMAP configuration (server, port, ssl, username, password, selected_mailboxes). |
-| `Zaq.Channels.ChannelConfig` | Extended to support `email:imap` provider validation (requires selected_mailboxes, requires smtp config). |
-| `Zaq.Channels.Supervisor` | Starts/stops IMAP listener child processes via `start_runtime/3`. No changes needed - generic enough. |
-| `Zaq.Channels.Router` | Extended to route `email:imap` provider to `EmailBridge`. No changes needed - already generic. |
-| `Zaq.Engine.Messages.Incoming` | Used as-is for email messages (content, channel_id=mailbox, author_id=sender, thread_id=message_id for threading). |
+| `Zaq.Channels.EmailBridge.ImapConfig`   | Settings schema and validation for IMAP configuration (server, port, ssl, username, password, selected_mailboxes).                                                |
+| `Zaq.Channels.ChannelConfig`            | Extended to support `email:imap` provider validation (requires selected_mailboxes, requires smtp config).                                                         |
+| `Zaq.Channels.Supervisor`               | Starts/stops IMAP listener child processes via `start_runtime/3`. No changes needed - generic enough.                                                             |
+| `Zaq.Channels.Router`                   | Extended to route `email:imap` provider to `EmailBridge`. No changes needed - already generic.                                                                    |
+| `Zaq.Engine.Messages.Incoming`          | Used as-is for email messages (content, channel_id=mailbox, author_id=sender, thread_id=message_id for threading).                                                |
 
 ## Data Model Changes
 
@@ -81,6 +86,7 @@ Zaq.Channels.Supervisor (DynamicSupervisor)
 ```
 
 Each listener:
+
 - `bridge_id`: `"email:imap_#{config.id}_#{mailbox_name}"`
 - `state_pid`: nil (stateless - IMAP client is internal to listener)
 - `listener_pids`: [self]
@@ -118,11 +124,13 @@ ImapListener (per mailbox)
 ## Implementation Steps
 
 ### Phase 1: Foundation
+
 1. Add `mailroom` dependency to `mix.exs`
 2. Create `Zaq.Channels.EmailBridge.ImapConfig` module
 3. Extend `ChannelConfig` validation for `email:imap` provider
 
 ### Phase 2: IMAP Listener
+
 4. Create `Zaq.Channels.EmailBridge.ImapListener` GenServer
    - `start_link/1` with config and mailbox_name
    - `init/1` connects to IMAP server
@@ -131,18 +139,21 @@ ImapListener (per mailbox)
    - `terminate/2` for cleanup
 
 ### Phase 3: Bridge Integration
+
 5. Extend `EmailBridge`:
    - Add `start_runtime/1` - spawns listeners for each selected mailbox
    - Add `stop_runtime/1` - stops all listeners for config
    - Implement `to_internal/2` - parses Mailroom email to `%Incoming{}`
 
 ### Phase 4: Validation & Testing
+
 6. Add validation: IMAP requires SMTP
 7. Add tests for IMAP listener
 8. Add tests for bridge integration
 9. Add integration tests (mock IMAP server)
 
 ### Phase 5: Configuration UI (Future)
+
 10. LiveView for IMAP configuration
 11. Mailbox listing UI (test connection + list folders)
 
@@ -160,14 +171,14 @@ config :zaq, :channels, %{
 
 ## Error Handling
 
-| Scenario | Behavior |
-|----------|----------|
-| IMAP connection fails | Listener crashes, Supervisor restarts with backoff |
-| IDLE timeout | Automatic reconnection with `idle/1` |
-| Authentication failure | Log error, stop listener, mark config as error state |
-| SMTP not configured | Validation error on enable attempt |
-| No mailboxes selected | Validation error on save |
-| Mailbox no longer exists | Log warning, skip that mailbox, continue others |
+| Scenario                 | Behavior                                             |
+| ------------------------ | ---------------------------------------------------- |
+| IMAP connection fails    | Listener crashes, Supervisor restarts with backoff   |
+| IDLE timeout             | Automatic reconnection with `idle/1`                 |
+| Authentication failure   | Log error, stop listener, mark config as error state |
+| SMTP not configured      | Validation error on enable attempt                   |
+| No mailboxes selected    | Validation error on save                             |
+| Mailbox no longer exists | Log warning, skip that mailbox, continue others      |
 
 ## Security Considerations
 
@@ -198,10 +209,25 @@ end
 ## Open Questions
 
 1. Should we support OAuth2 for Gmail/Outlook IMAP?
+
+not in v1, but make auth extensible
+
 2. How to handle email threading (In-Reply-To vs References headers)?
+
+Use a layered threading strategy, not a single header.
+Use In-Reply-To first, then References from the last message-id, then Message-ID, and persist all related headers in metadata.
+
 3. Should we support multiple IMAP accounts (multi-tenant)?
+
+Yes at the data model level, no at the UX/feature level for v1
+
 4. Attachment handling - download or pass URL?
+
+Do not put attachments directly into Incoming.content. Store them as structured metadata, and prefer managed download references over inline payloads.
+
 5. HTML vs plain text preference for `Incoming.content`?
+
+Use plain text as the default Incoming.content, and preserve HTML separately in metadata.
 
 ## Success Criteria
 

@@ -106,6 +106,60 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert "is invalid" in errors_on(changeset).kind
   end
 
+  test "email:imap requires selected_mailboxes in settings" do
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP",
+        provider: "email:imap",
+        kind: "retrieval",
+        token: "imap-secret",
+        enabled: false,
+        settings: %{"imap" => %{"server" => "imap.example.com", "selected_mailboxes" => []}}
+      })
+
+    refute changeset.valid?
+
+    assert "imap.selected_mailboxes must contain at least one mailbox" in errors_on(changeset).settings
+  end
+
+  test "email:imap enabled requires enabled email:smtp" do
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP",
+        provider: "email:imap",
+        kind: "retrieval",
+        token: "imap-secret",
+        enabled: true,
+        settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+      })
+
+    refute changeset.valid?
+
+    assert "email:imap requires an enabled email:smtp configuration" in errors_on(changeset).enabled
+  end
+
+  test "email:imap changeset is valid when smtp dependency is enabled" do
+    assert {:ok, _smtp} =
+             ChannelConfig.upsert_by_provider("email:smtp", %{
+               name: "Email SMTP",
+               kind: "retrieval",
+               enabled: true,
+               settings: %{"relay" => "smtp.example.com", "port" => "587"}
+             })
+
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP",
+        provider: "email:imap",
+        kind: "retrieval",
+        token: "imap-secret",
+        enabled: true,
+        settings: %{"imap" => %{"selected_mailboxes" => ["INBOX", "Support"]}}
+      })
+
+    assert changeset.valid?
+  end
+
   test "list_enabled_by_kind/2 returns only enabled configs for kind and known providers" do
     retrieval_enabled =
       insert_channel_config(%{provider: "mattermost", kind: "retrieval", enabled: true})

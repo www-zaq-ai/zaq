@@ -102,6 +102,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   defp platform_to_atom(platform) when is_binary(platform) do
     case platform do
       "email:smtp" -> :email
+      "email:imap" -> :email
       _other -> String.to_existing_atom(platform)
     end
   rescue
