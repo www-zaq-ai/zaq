@@ -135,31 +135,3 @@ defmodule Zaq.People.IdentityPlugTest do
     end
   end
 end
-
-# ── Stub router modules ───────────────────────────────────────────────────
-# Defined outside the test module but namespaced under it so ExUnit compiles
-# and loads them reliably regardless of test run order.
-
-defmodule Zaq.People.IdentityPlugTest.StubRouterOk do
-  @moduledoc false
-  def fetch_profile(_platform, _author_id) do
-    {:ok, %{display_name: "Enriched Name", email: "enriched@example.com"}}
-  end
-end
-
-defmodule Zaq.People.IdentityPlugTest.StubRouterError do
-  @moduledoc false
-  def fetch_profile(_platform, _author_id), do: {:error, :not_found}
-end
-
-defmodule Zaq.People.IdentityPlugTest.StubRouterTimeout do
-  @moduledoc false
-  def fetch_profile(_platform, _author_id), do: {:error, :timeout}
-end
-
-defmodule Zaq.People.IdentityPlugTest.StubRouterRaise do
-  @moduledoc false
-  def fetch_profile(_platform, _author_id) do
-    raise "channels router should not have been called on the fast path"
-  end
-end
