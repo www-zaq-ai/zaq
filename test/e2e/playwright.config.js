@@ -16,7 +16,10 @@ module.exports = defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
-    headless: true,
+    headless: !process.env.SLOW,
+    launchOptions: {
+      slowMo: process.env.SLOW ? (parseInt(process.env.SLOW, 10) >= 100 ? parseInt(process.env.SLOW, 10) : 1000) : 0,
+    },
   },
   webServer: {
     command:

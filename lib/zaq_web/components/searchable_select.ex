@@ -8,6 +8,9 @@ defmodule ZaqWeb.Components.SearchableSelect do
   attr :options, :list, default: []
   attr :placeholder, :string, default: "Search..."
   attr :empty_label, :string, default: "Select..."
+  attr :allow_create, :boolean, default: false
+  attr :on_create_event, :string, default: "create_and_assign_team"
+  attr :compact, :boolean, default: false
 
   def searchable_select(assigns) do
     ~H"""
@@ -16,7 +19,10 @@ defmodule ZaqWeb.Components.SearchableSelect do
       <button
         type="button"
         data-select-trigger
-        class="w-full flex items-center justify-between font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+        class={[
+          "w-full flex items-center justify-between font-mono text-black border border-black/10 rounded-xl px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all",
+          if(@compact, do: "h-8 text-[0.72rem] rounded-lg", else: "h-11 text-[0.88rem]")
+        ]}
       >
         <span data-select-label>
           {Enum.find_value(@options, @empty_label, fn {label, val} ->
@@ -54,6 +60,15 @@ defmodule ZaqWeb.Components.SearchableSelect do
             {label}
           </li>
         </ul>
+        <button
+          :if={@allow_create}
+          type="button"
+          data-select-create
+          data-create-event={@on_create_event}
+          class="hidden w-full text-left font-mono text-[0.82rem] px-4 py-2.5 text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors border-t border-black/[0.06]"
+        >
+          <span data-create-label></span>
+        </button>
       </div>
     </div>
     """

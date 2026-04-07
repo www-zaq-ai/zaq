@@ -162,6 +162,27 @@ defmodule Zaq.Channels.JidoChatBridge do
     {:error, :missing_connection_details}
   end
 
+  @doc "Fetches a user's canonical profile from the platform API."
+  @spec fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def fetch_profile(author_id, %{url: url, token: token, provider: provider})
+      when is_binary(author_id) do
+    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+         true <- function_exported?(adapter, :get_user, 2) || {:error, :unsupported},
+         {:ok, user} <- adapter.get_user(author_id, url: url, token: token) do
+      {:ok,
+       %{
+         "email" => Map.get(user, :email) || Map.get(user, "email"),
+         "display_name" =>
+           Map.get(user, :display_name) || Map.get(user, "display_name") ||
+             Map.get(user, :full_name) || Map.get(user, "full_name"),
+         "username" => Map.get(user, :username) || Map.get(user, "username"),
+         "phone" => Map.get(user, :phone) || Map.get(user, "phone")
+       }}
+    end
+  end
+
+  def fetch_profile(_author_id, _connection_details), do: {:error, :missing_connection_details}
+
   @spec send_typing(map() | String.t() | atom(), String.t(), map()) :: :ok | {:error, term()}
   def send_typing(%{provider: provider}, channel_id, details),
     do: send_typing(provider, channel_id, details)
@@ -275,6 +296,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     hooks_module().dispatch_before(:reply_received, post, %{})
     :ok
   end
+
+  defp handle_message_event(_config, _thread, %Chat.Incoming{author: %{is_me: true}}), do: :ok
 
   defp handle_message_event(_config, thread, %Chat.Incoming{} = incoming) do
     msg = to_internal(incoming, thread.adapter_name)

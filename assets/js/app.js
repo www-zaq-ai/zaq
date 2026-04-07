@@ -144,11 +144,26 @@ const liveSocket = new LiveSocket("/live", Socket, {
         const list = () => root.querySelector('[data-select-list]')
         const labelEl = () => root.querySelector('[data-select-label]')
 
+        const createBtn = () => root.querySelector('[data-select-create]')
+
         const filter = (q) => {
           this._search = q
+          let visibleCount = 0
           list().querySelectorAll('[data-select-option]').forEach(opt => {
-            opt.style.display = opt.dataset.selectOption.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'
+            const visible = opt.dataset.selectOption.toLowerCase().includes(q.toLowerCase())
+            opt.style.display = visible ? '' : 'none'
+            if (visible) visibleCount++
           })
+          const btn = createBtn()
+          if (btn) {
+            if (q.length > 0 && visibleCount === 0) {
+              btn.classList.remove('hidden')
+              const lbl = btn.querySelector('[data-create-label]')
+              if (lbl) lbl.textContent = `+ Add "${q}"`
+            } else {
+              btn.classList.add('hidden')
+            }
+          }
         }
 
         const openPanel = () => {
@@ -192,9 +207,29 @@ const liveSocket = new LiveSocket("/live", Socket, {
           if (e.key === 'Enter') {
             e.preventDefault()
             const visible = [...list().querySelectorAll('[data-select-option]')].find(o => o.style.display !== 'none')
-            if (visible) selectOption(visible.dataset.selectValue, visible.dataset.selectOption)
+            if (visible) {
+              selectOption(visible.dataset.selectValue, visible.dataset.selectOption)
+            } else {
+              const btn = createBtn()
+              if (btn && !btn.classList.contains('hidden') && this._search.length > 0) {
+                const eventName = btn.dataset.createEvent || 'create_and_assign_team'
+                this.pushEvent(eventName, { name: this._search })
+                closePanel()
+              }
+            }
           }
         })
+
+        const btn = createBtn()
+        if (btn) {
+          btn.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const eventName = btn.dataset.createEvent || 'create_and_assign_team'
+            this.pushEvent(eventName, { name: this._search })
+            closePanel()
+          })
+        }
 
         this._hidden = hidden
         this._labelEl = labelEl

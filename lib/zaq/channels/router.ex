@@ -132,6 +132,18 @@ defmodule Zaq.Channels.Router do
 
   def sync_config_runtime(_before, _after), do: :ok
 
+  @doc "Fetches a user's canonical profile from the platform bridge."
+  @spec fetch_profile(atom() | String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def fetch_profile(platform, author_id) when is_binary(author_id) do
+    with {:ok, bridge} <- resolve_bridge(platform),
+         true <- function_exported?(bridge, :fetch_profile, 2) || {:error, :unsupported} do
+      bridge.fetch_profile(
+        author_id,
+        Map.put(fetch_connection_details(platform), :provider, platform)
+      )
+    end
+  end
+
   @doc "Runs bridge-specific connection test for a channel config."
   @spec test_connection(map(), String.t()) :: {:ok, term()} | {:error, term()}
   def test_connection(%{provider: provider} = config, channel_id) when is_binary(channel_id) do

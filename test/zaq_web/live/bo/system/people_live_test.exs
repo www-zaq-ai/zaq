@@ -15,15 +15,42 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     %{conn: conn, user: user}
   end
 
+  defp person_fixture(attrs \\ %{}) do
+    {:ok, person} =
+      Map.merge(
+        %{
+          "full_name" => "Person #{System.unique_integer([:positive])}",
+          "email" => "p#{System.unique_integer([:positive])}@example.com"
+        },
+        attrs
+      )
+      |> People.create_person()
+
+    People.get_person_with_channels!(person.id)
+  end
+
+  defp team_fixture(attrs \\ %{}) do
+    {:ok, team} =
+      People.create_team(Map.merge(%{name: "Team #{System.unique_integer([:positive])}"}, attrs))
+
+    team
+  end
+
+  # ── Mount ─────────────────────────────────────────────────────────────────
+
+  test "mounts and renders the people tab by default", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/bo/people")
+    assert html =~ "People"
+  end
+
+  # ── Person CRUD ───────────────────────────────────────────────────────────
+
   test "new person button opens modal and creates person", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/people")
 
-    view
-    |> element("#new-person-button")
-    |> render_click()
+    view |> element("#new-person-button") |> render_click()
 
     assert has_element?(view, "#people-modal-overlay")
-    assert has_element?(view, "#person-modal-form")
     assert has_element?(view, "h3", "New Person")
 
     view
@@ -40,14 +67,293 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert has_element?(view, "[phx-click='select_person']", "Jane Smith")
   end
 
-  test "add new channel button opens modal and creates channel", %{conn: conn} do
-    {:ok, person} =
+  test "edit person modal pre-fills existing data", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Edit Target"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    # Select the person first to open the detail panel which contains the edit button
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_modal'][phx-value-action='edit'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#people-modal-overlay")
+    assert has_element?(view, "h3", "Edit Person")
+    html = render(view)
+    assert html =~ "Edit Target"
+  end
+
+  test "save with invalid data keeps modal open with errors", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("#new-person-button") |> render_click()
+
+    view
+    |> form("#person-modal-form", %{"person" => %{"full_name" => ""}})
+    |> render_submit()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  # ── Select / deselect ─────────────────────────────────────────────────────
+
+  test "selecting a person opens the detail panel", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Detail Person"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert has_element?(view, "[phx-click='deselect_person']")
+    assert render(view) =~ "Detail Person"
+  end
+
+  test "deselecting hides the detail panel", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("[phx-click='deselect_person']") |> render_click()
+
+    refute has_element?(view, "[phx-click='deselect_person']")
+  end
+
+  # ── Delete ────────────────────────────────────────────────────────────────
+
+  test "confirm_delete shows the confirm bar", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    # The confirm_delete button is in the detail panel — select the person first
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element(
+      "[phx-click='confirm_delete'][phx-value-entity='person'][phx-value-id='#{person.id}']"
+    )
+    |> render_click()
+
+    assert has_element?(view, "[phx-click='delete']")
+  end
+
+  test "delete removes person from list", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "To Be Deleted"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    # The confirm_delete button is in the detail panel — select the person first
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element(
+      "[phx-click='confirm_delete'][phx-value-entity='person'][phx-value-id='#{person.id}']"
+    )
+    |> render_click()
+
+    view |> element("[phx-click='delete']") |> render_click()
+
+    refute has_element?(view, "[phx-click='select_person'][phx-value-id='#{person.id}']")
+  end
+
+  test "cancel_delete hides confirm bar", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    # The confirm_delete button is in the detail panel — select the person first
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element(
+      "[phx-click='confirm_delete'][phx-value-entity='person'][phx-value-id='#{person.id}']"
+    )
+    |> render_click()
+
+    view |> element("[phx-click='cancel_delete']") |> render_click()
+
+    refute has_element?(view, "[phx-click='delete']")
+  end
+
+  # ── Filtering ─────────────────────────────────────────────────────────────
+
+  test "filter by name shows only matching people", %{conn: conn} do
+    unique = "FilterTarget#{System.unique_integer([:positive])}"
+    person_fixture(%{"full_name" => unique})
+    other = person_fixture(%{"full_name" => "OtherPerson#{System.unique_integer([:positive])}"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> form("[phx-change='filter_people']", %{
+      "filter_name" => unique,
+      "filter_email" => "",
+      "filter_phone" => "",
+      "filter_complete" => "all",
+      "filter_team_id" => ""
+    })
+    |> render_change()
+
+    assert render(view) =~ unique
+    refute render(view) =~ other.full_name
+  end
+
+  test "filter by complete shows only complete people", %{conn: conn} do
+    ts = System.unique_integer([:positive])
+
+    {:ok, complete} =
       People.create_person(%{
-        "full_name" => "Modal Channel Owner",
-        "email" => "channel.owner.#{System.unique_integer([:positive])}@example.com",
-        "role" => "Ops",
-        "status" => "active"
+        "full_name" => "CompleteFilter#{ts}",
+        "email" => "cf#{ts}@example.com",
+        "phone" => "+10000#{ts}"
       })
+
+    incomplete = person_fixture(%{"full_name" => "IncompleteFilter#{ts}"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> form("[phx-change='filter_people']", %{
+      "filter_name" => "#{ts}",
+      "filter_email" => "",
+      "filter_phone" => "",
+      "filter_complete" => "complete",
+      "filter_team_id" => ""
+    })
+    |> render_change()
+
+    html = render(view)
+    assert html =~ complete.full_name
+    refute html =~ incomplete.full_name
+  end
+
+  # ── Pagination ────────────────────────────────────────────────────────────
+
+  test "change_page event updates displayed page", %{conn: conn} do
+    # Create 25 people (per_page is 20) with a shared name prefix for isolation
+    ts = System.unique_integer([:positive])
+
+    for i <- 1..25 do
+      People.create_person(%{
+        "full_name" => "Pag#{ts} Person #{String.pad_leading(to_string(i), 2, "0")}",
+        "email" => "pag#{ts}p#{i}@example.com"
+      })
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    # Filter to only our 25 people
+    view
+    |> form("[phx-change='filter_people']", %{
+      "filter_name" => "Pag#{ts}",
+      "filter_email" => "",
+      "filter_phone" => "",
+      "filter_complete" => "all",
+      "filter_team_id" => ""
+    })
+    |> render_change()
+
+    # Page 1 has 20, so next button should appear
+    assert has_element?(view, "button", "Next →")
+
+    view |> element("button", "Next →") |> render_click()
+
+    # Prev should now appear
+    assert has_element?(view, "button", "← Prev")
+  end
+
+  # ── Channels ─────────────────────────────────────────────────────────────
+
+  test "add new channel button opens modal and creates channel", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Modal Channel Owner"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("#add-channel-button") |> render_click()
+
+    assert has_element?(view, "#people-modal-overlay")
+    assert has_element?(view, "h3", "Add Channel")
+
+    channel_identifier = "@modal-#{System.unique_integer([:positive])}"
+
+    view
+    |> form("#channel-modal-form", %{
+      "channel" => %{"platform" => "slack", "channel_identifier" => channel_identifier}
+    })
+    |> render_submit()
+
+    assert render(view) =~ channel_identifier
+  end
+
+  # ── Teams tab ─────────────────────────────────────────────────────────────
+
+  test "switching to Teams tab shows team list", %{conn: conn} do
+    team = team_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+
+    assert has_element?(view, "#new-team-button")
+    assert render(view) =~ team.name
+  end
+
+  test "new team button opens modal and creates team", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+    view |> element("#new-team-button") |> render_click()
+
+    assert has_element?(view, "#people-modal-overlay")
+    assert has_element?(view, "h3", "New Team")
+
+    team_name = "LiveView Team #{System.unique_integer([:positive])}"
+
+    view
+    |> form("#team-modal-form", %{"team" => %{"name" => team_name}})
+    |> render_submit()
+
+    assert render(view) =~ team_name
+  end
+
+  test "delete team removes it and cleans up assigned persons", %{conn: conn} do
+    team = team_fixture()
+    person = person_fixture()
+    People.assign_team(person, team.id)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+
+    view
+    |> element("[phx-click='confirm_delete'][phx-value-entity='team'][phx-value-id='#{team.id}']")
+    |> render_click()
+
+    view |> element("[phx-click='delete']") |> render_click()
+
+    refute render(view) =~ team.name
+
+    updated = People.get_person!(person.id)
+    refute team.id in updated.team_ids
+  end
+
+  # ── Team assignment ───────────────────────────────────────────────────────
+
+  test "assign_team_select assigns team to selected person", %{conn: conn} do
+    team = team_fixture(%{name: "Assignable#{System.unique_integer([:positive])}"})
+    person = person_fixture()
 
     {:ok, view, _html} = live(conn, ~p"/bo/people")
 
@@ -55,26 +361,72 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
     |> render_click()
 
+    # The SearchableSelect component uses a JS hook to update the hidden input and submit.
+    # In tests we fire the event directly to avoid hidden-input value validation.
+    render_hook(view, "assign_team_select", %{"team_id" => to_string(team.id)})
+
+    updated = People.get_person!(person.id)
+    assert team.id in updated.team_ids
+  end
+
+  # ── Merge ─────────────────────────────────────────────────────────────────
+
+  test "merge flow: open modal, search, select loser, confirm", %{conn: conn} do
+    survivor = person_fixture(%{"full_name" => "Survivor#{System.unique_integer([:positive])}"})
+    loser = person_fixture(%{"full_name" => "Loser#{System.unique_integer([:positive])}"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    # Select survivor and open merge modal
     view
-    |> element("#add-channel-button")
+    |> element("[phx-click='select_person'][phx-value-id='#{survivor.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_merge_modal'][phx-value-id='#{survivor.id}']")
     |> render_click()
 
     assert has_element?(view, "#people-modal-overlay")
-    assert has_element?(view, "#channel-modal-form")
-    assert has_element?(view, "h3", "Add Channel")
+    assert render(view) =~ "Merge Persons"
 
-    channel_identifier = "@modal-owner-#{System.unique_integer([:positive])}"
-
+    # Search for loser
     view
-    |> form("#channel-modal-form", %{
-      "channel" => %{
-        "platform" => "slack",
-        "channel_identifier" => channel_identifier
-      }
-    })
-    |> render_submit()
+    |> form("[phx-change='merge_search']", %{"merge_search" => loser.full_name})
+    |> render_change()
 
-    assert render(view) =~ "slack"
-    assert render(view) =~ channel_identifier
+    assert has_element?(view, "[phx-click='select_merge_loser'][phx-value-id='#{loser.id}']")
+
+    # Select loser
+    view
+    |> element("[phx-click='select_merge_loser'][phx-value-id='#{loser.id}']")
+    |> render_click()
+
+    assert has_element?(view, "[phx-click='confirm_merge']")
+
+    # Confirm merge
+    view |> element("[phx-click='confirm_merge']") |> render_click()
+
+    refute has_element?(view, "#people-modal-overlay")
+    assert render(view) =~ "Persons merged successfully"
+
+    assert_raise Ecto.NoResultsError, fn -> People.get_person!(loser.id) end
+  end
+
+  test "merge carries team_ids from loser to survivor", %{conn: conn} do
+    {:ok, team_a} = People.create_team(%{name: "MergeTeamA#{System.unique_integer([:positive])}"})
+    {:ok, team_b} = People.create_team(%{name: "MergeTeamB#{System.unique_integer([:positive])}"})
+
+    survivor = person_fixture()
+    loser = person_fixture()
+
+    {:ok, survivor} = People.assign_team(survivor, team_a.id)
+    {:ok, loser} = People.assign_team(loser, team_b.id)
+
+    survivor = People.get_person_with_channels!(survivor.id)
+    loser = People.get_person_with_channels!(loser.id)
+
+    {:ok, updated} = People.merge_persons(survivor, loser)
+    assert team_a.id in updated.team_ids
+    assert team_b.id in updated.team_ids
   end
 end

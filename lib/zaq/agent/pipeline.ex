@@ -60,6 +60,7 @@ defmodule Zaq.Agent.Pipeline do
 
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
+    incoming = identity_plug_mod(opts).call(incoming, opts)
     result = do_run(incoming.content, opts)
     Outgoing.from_pipeline_result(incoming, result)
   end
@@ -326,6 +327,14 @@ defmodule Zaq.Agent.Pipeline do
 
   defp generate_trace_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+  end
+
+  defp identity_plug_mod(opts) do
+    Keyword.get(
+      opts,
+      :identity_plug,
+      Application.get_env(:zaq, :pipeline_identity_plug_module, Zaq.People.IdentityPlug)
+    )
   end
 
   defp hooks_mod(opts) do

@@ -17,6 +17,7 @@ defmodule Zaq.Engine.Messages.Incoming do
     :thread_id,
     :message_id,
     :provider,
+    :person_id,
     metadata: %{}
   ]
 
@@ -28,6 +29,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           thread_id: String.t() | nil,
           message_id: String.t() | nil,
           provider: atom() | String.t(),
+          person_id: integer() | nil,
           metadata: map()
         }
 end
