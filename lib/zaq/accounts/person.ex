@@ -4,6 +4,8 @@ defmodule Zaq.Accounts.Person do
 
   @valid_statuses ~w(active inactive)
 
+  @type t :: %__MODULE__{}
+
   schema "people" do
     field :full_name, :string
     field :email, :string

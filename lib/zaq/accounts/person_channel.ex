@@ -4,6 +4,8 @@ defmodule Zaq.Accounts.PersonChannel do
 
   @valid_platforms ~w(mattermost slack microsoft_teams whatsapp email telegram discord)
 
+  @type t :: %__MODULE__{}
+
   schema "channels" do
     field :platform, :string
     field :channel_identifier, :string
