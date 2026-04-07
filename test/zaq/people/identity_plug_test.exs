@@ -5,6 +5,11 @@ defmodule Zaq.People.IdentityPlugTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.People.IdentityPlug
 
+  alias Zaq.People.IdentityPlugTest.StubRouterError
+  alias Zaq.People.IdentityPlugTest.StubRouterOk
+  alias Zaq.People.IdentityPlugTest.StubRouterRaise
+  alias Zaq.People.IdentityPlugTest.StubRouterTimeout
+
   # ── Helpers ─────────────────────────────────────────────────────────────
 
   defp incoming(overrides \\ %{}) do
@@ -119,11 +124,12 @@ defmodule Zaq.People.IdentityPlugTest do
       assert result.person_id == nil
     end
 
-    test "returns message unchanged when channel_id is empty after normalization" do
-      # Empty author_id normalizes to empty channel_id, which match_by_channel rejects.
-      msg = incoming(%{author_id: "", provider: :unknown})
+    test "returns message unchanged when all resolution fails" do
+      # Simulate a bad platform where the channel insertion fails (empty channel_id
+      # after normalization causes add_channel to reject). person_id stays nil.
+      msg = incoming(%{author_id: nil, provider: :unknown})
 
-      result = IdentityPlug.call(msg, channels_router: StubRouterError)
+      result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
       assert result.person_id == nil
     end
@@ -131,26 +137,27 @@ defmodule Zaq.People.IdentityPlugTest do
 end
 
 # ── Stub router modules ───────────────────────────────────────────────────
-# Static modules are required — closures cannot be used with Module.create/Macro.escape.
+# Defined outside the test module but namespaced under it so ExUnit compiles
+# and loads them reliably regardless of test run order.
 
-defmodule StubRouterOk do
+defmodule Zaq.People.IdentityPlugTest.StubRouterOk do
   @moduledoc false
   def fetch_profile(_platform, _author_id) do
     {:ok, %{display_name: "Enriched Name", email: "enriched@example.com"}}
   end
 end
 
-defmodule StubRouterError do
+defmodule Zaq.People.IdentityPlugTest.StubRouterError do
   @moduledoc false
   def fetch_profile(_platform, _author_id), do: {:error, :not_found}
 end
 
-defmodule StubRouterTimeout do
+defmodule Zaq.People.IdentityPlugTest.StubRouterTimeout do
   @moduledoc false
   def fetch_profile(_platform, _author_id), do: {:error, :timeout}
 end
 
-defmodule StubRouterRaise do
+defmodule Zaq.People.IdentityPlugTest.StubRouterRaise do
   @moduledoc false
   def fetch_profile(_platform, _author_id) do
     raise "channels router should not have been called on the fast path"
