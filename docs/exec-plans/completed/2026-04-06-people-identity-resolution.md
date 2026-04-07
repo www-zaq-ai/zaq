@@ -2,7 +2,7 @@
 
 **Branch:** `feat/people`
 **Date:** 2026-04-06
-**Status:** Planning
+**Status:** `completed`
 
 ---
 

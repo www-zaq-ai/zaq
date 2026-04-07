@@ -2,7 +2,7 @@
 
 **Branch:** `feat/people`
 **Date:** 2026-04-07
-**Status:** Implemented
+**Status:** `completed`
 **Supersedes:** `2026-04-06-people-identity-resolution.md` (partially — architectural changes only)
 
 ---
