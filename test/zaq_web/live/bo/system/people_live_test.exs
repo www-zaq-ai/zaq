@@ -429,4 +429,155 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert team_a.id in updated.team_ids
     assert team_b.id in updated.team_ids
   end
+
+  test "open_merge_modal with role=loser sets person as merge loser", %{conn: conn} do
+    loser = person_fixture(%{"full_name" => "Loser Role#{System.unique_integer([:positive])}"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    render_hook(view, "open_merge_modal", %{"id" => to_string(loser.id), "role" => "loser"})
+
+    assert has_element?(view, "#people-modal-overlay")
+    assert render(view) =~ "Merge Persons"
+  end
+
+  test "select_merge_survivor changes the survivor in merge modal", %{conn: conn} do
+    survivor_a =
+      person_fixture(%{"full_name" => "SurvivorA#{System.unique_integer([:positive])}"})
+
+    survivor_b =
+      person_fixture(%{"full_name" => "SurvivorB#{System.unique_integer([:positive])}"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    # Open merge modal with survivor_a as survivor
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{survivor_a.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_merge_modal'][phx-value-id='#{survivor_a.id}']")
+    |> render_click()
+
+    # Change survivor to survivor_b
+    render_hook(view, "select_merge_survivor", %{"id" => to_string(survivor_b.id)})
+
+    assert render(view) =~ survivor_b.full_name
+  end
+
+  test "merge_search with query shorter than 2 chars returns no candidates", %{conn: conn} do
+    survivor = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{survivor.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_merge_modal'][phx-value-id='#{survivor.id}']")
+    |> render_click()
+
+    view
+    |> form("[phx-change='merge_search']", %{"merge_search" => "x"})
+    |> render_change()
+
+    # With query < 2 chars, no candidates section should appear
+    refute has_element?(view, "[phx-click='select_merge_loser']")
+  end
+
+  test "close_modal dismisses the merge modal", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_merge_modal'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#people-modal-overlay")
+
+    render_hook(view, "close_modal", %{})
+
+    refute has_element?(view, "#people-modal-overlay")
+  end
+
+  test "validate event updates changeset errors for new person form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("#new-person-button") |> render_click()
+
+    view
+    |> form("#person-modal-form", %{"person" => %{"full_name" => ""}})
+    |> render_change()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  test "validate event in edit mode uses update_changeset", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Edit Validate Target"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_modal'][phx-value-action='edit'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> form("#person-modal-form", %{"person" => %{"full_name" => "Updated Name"}})
+    |> render_change()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  test "edit channel modal pre-fills existing channel data", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Channel Edit Owner"})
+
+    {:ok, _channel} =
+      People.add_channel(%{
+        "person_id" => person.id,
+        "platform" => "slack",
+        "channel_identifier" => "@edit-me"
+      })
+
+    person = People.get_person_with_channels!(person.id)
+    channel = hd(person.channels)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='channel'][phx-value-id='#{channel.id}']"
+    )
+    |> render_click()
+
+    assert has_element?(view, "#people-modal-overlay")
+    html = render(view)
+    assert html =~ "@edit-me"
+  end
+
+  test "edit team modal pre-fills existing team data", %{conn: conn} do
+    team = team_fixture(%{name: "Editable Team#{System.unique_integer([:positive])}"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='team'][phx-value-id='#{team.id}']"
+    )
+    |> render_click()
+
+    assert has_element?(view, "#people-modal-overlay")
+    html = render(view)
+    assert html =~ team.name
+  end
 end

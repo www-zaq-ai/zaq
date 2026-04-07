@@ -21,3 +21,10 @@ defmodule Zaq.People.IdentityPlugTest.StubRouterRaise do
     raise "channels router should not have been called on the fast path"
   end
 end
+
+defmodule Zaq.People.IdentityPlugTest.StubRouterStringKeys do
+  @moduledoc false
+  def fetch_profile(_platform, _author_id) do
+    {:ok, %{"display_name" => "String Key Name", "email" => "string@example.com"}}
+  end
+end

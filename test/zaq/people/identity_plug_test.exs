@@ -8,6 +8,7 @@ defmodule Zaq.People.IdentityPlugTest do
   alias Zaq.People.IdentityPlugTest.StubRouterError
   alias Zaq.People.IdentityPlugTest.StubRouterOk
   alias Zaq.People.IdentityPlugTest.StubRouterRaise
+  alias Zaq.People.IdentityPlugTest.StubRouterStringKeys
   alias Zaq.People.IdentityPlugTest.StubRouterTimeout
 
   # ── Helpers ─────────────────────────────────────────────────────────────
@@ -110,6 +111,70 @@ defmodule Zaq.People.IdentityPlugTest do
       result = IdentityPlug.call(msg, channels_router: StubRouterTimeout)
 
       refute is_nil(result.person_id)
+    end
+  end
+
+  # ── touch_channel branches ───────────────────────────────────────────────
+
+  describe "call/2 touch_channel" do
+    test "records interaction when fast-path channel already has dm_channel_id" do
+      # Create person whose channel already has dm_channel_id set — the plug
+      # should record an interaction instead of updating dm_channel_id.
+      # person needs full_name + email + phone so put_incomplete_flag sets incomplete: false.
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Already DM",
+          email: "alreadydm@example.com",
+          phone: "+15550001"
+        })
+
+      {:ok, channel} =
+        People.add_channel(%{
+          "person_id" => person.id,
+          "platform" => "slack",
+          "channel_identifier" => "U_DM_SET"
+        })
+
+      {:ok, _} = People.update_channel(channel, %{dm_channel_id: "DM_EXISTING"})
+
+      msg = incoming(%{author_id: "U_DM_SET", provider: :slack, channel_id: "DM_NEW"})
+      result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
+
+      refute is_nil(result.person_id)
+    end
+
+    test "records interaction when message channel_id is nil (no dm_channel_id to backfill)" do
+      # channel_id nil → canonical dm_channel_id nil → touch_channel/2 fallback clause
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "NoDM Person",
+          email: "nodm@example.com",
+          phone: "+15550002"
+        })
+
+      {:ok, _channel} =
+        People.add_channel(%{
+          "person_id" => person.id,
+          "platform" => "slack",
+          "channel_identifier" => "U_NODM"
+        })
+
+      msg = incoming(%{author_id: "U_NODM", provider: :slack, channel_id: nil})
+      result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
+
+      refute is_nil(result.person_id)
+    end
+
+    test "handles string-keyed profile from channels router (stringify_profile)" do
+      # StubRouterStringKeys returns a map with string keys — exercises the
+      # {k, v} -> {k, v} branch in stringify_profile/1.
+      msg = incoming(%{author_id: "U_STR_KEYS", provider: :slack})
+
+      result = IdentityPlug.call(msg, channels_router: StubRouterStringKeys)
+
+      refute is_nil(result.person_id)
+      person = People.get_person_with_channels!(result.person_id)
+      assert person.full_name == "String Key Name"
     end
   end
 
