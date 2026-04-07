@@ -36,6 +36,22 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     team
   end
 
+  defp channel_fixture(person, attrs) do
+    {:ok, channel} =
+      People.add_channel(
+        Map.merge(
+          %{
+            "person_id" => person.id,
+            "platform" => "slack",
+            "channel_identifier" => "@chan-#{System.unique_integer([:positive])}"
+          },
+          attrs
+        )
+      )
+
+    channel
+  end
+
   # ── Mount ─────────────────────────────────────────────────────────────────
 
   test "mounts and renders the people tab by default", %{conn: conn} do
@@ -579,5 +595,183 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert has_element?(view, "#people-modal-overlay")
     html = render(view)
     assert html =~ team.name
+  end
+
+  test "validate channel form updates changeset in modal", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("#add-channel-button") |> render_click()
+
+    view
+    |> form("#channel-modal-form", %{"channel" => %{"platform" => "", "channel_identifier" => ""}})
+    |> render_change()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  test "validate team form updates changeset in modal", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+    view |> element("#new-team-button") |> render_click()
+
+    view
+    |> form("#team-modal-form", %{"team" => %{"name" => ""}})
+    |> render_change()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  test "save channel with invalid attrs keeps modal open", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("#add-channel-button") |> render_click()
+
+    view
+    |> form("#channel-modal-form", %{"channel" => %{"platform" => "", "channel_identifier" => ""}})
+    |> render_submit()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  test "save team edit updates existing team", %{conn: conn} do
+    team = team_fixture(%{name: "Before Team Name#{System.unique_integer([:positive])}"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='team'][phx-value-id='#{team.id}']"
+    )
+    |> render_click()
+
+    new_name = "After Team Name#{System.unique_integer([:positive])}"
+
+    view
+    |> form("#team-modal-form", %{"team" => %{"name" => new_name}})
+    |> render_submit()
+
+    assert render(view) =~ new_name
+  end
+
+  test "delete channel removes it from person detail", %{conn: conn} do
+    person = person_fixture()
+    channel = channel_fixture(person, %{"channel_identifier" => "@delete-me"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert render(view) =~ "@delete-me"
+
+    view
+    |> element(
+      "[phx-click='confirm_delete'][phx-value-entity='channel'][phx-value-id='#{channel.id}']"
+    )
+    |> render_click()
+
+    view |> element("[phx-click='delete']") |> render_click()
+
+    refute render(view) =~ "@delete-me"
+  end
+
+  test "move_channel_up and move_channel_down reorder channels", %{conn: conn} do
+    person = person_fixture()
+    c1 = channel_fixture(person, %{"channel_identifier" => "@ch-first"})
+    c2 = channel_fixture(person, %{"channel_identifier" => "@ch-second"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    render_hook(view, "move_channel_up", %{"channel_id" => to_string(c2.id)})
+    person_after_up = People.get_person_with_channels!(person.id)
+    assert hd(person_after_up.channels).id == c2.id
+
+    render_hook(view, "move_channel_down", %{"channel_id" => to_string(c2.id)})
+    person_after_down = People.get_person_with_channels!(person.id)
+    assert hd(person_after_down.channels).id == c1.id
+  end
+
+  test "move_channel_up/down no-op branches keep order", %{conn: conn} do
+    person = person_fixture()
+    c1 = channel_fixture(person, %{"channel_identifier" => "@noop-first"})
+    c2 = channel_fixture(person, %{"channel_identifier" => "@noop-second"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    render_hook(view, "move_channel_up", %{"channel_id" => to_string(c1.id)})
+    render_hook(view, "move_channel_down", %{"channel_id" => to_string(c2.id)})
+
+    person_after = People.get_person_with_channels!(person.id)
+    assert Enum.map(person_after.channels, & &1.id) == [c1.id, c2.id]
+  end
+
+  test "assign_team_select with empty team id is a no-op", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    before = People.get_person!(person.id)
+    render_hook(view, "assign_team_select", %{"team_id" => ""})
+    after_person = People.get_person!(person.id)
+
+    assert after_person.team_ids == before.team_ids
+  end
+
+  test "toggle_team adds and removes team assignment", %{conn: conn} do
+    person = person_fixture()
+    team = team_fixture(%{name: "ToggleTeam#{System.unique_integer([:positive])}"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    render_hook(view, "toggle_team", %{"team_id" => to_string(team.id)})
+    assert team.id in People.get_person!(person.id).team_ids
+
+    render_hook(view, "toggle_team", %{"team_id" => to_string(team.id)})
+    refute team.id in People.get_person!(person.id).team_ids
+  end
+
+  test "create_and_assign_team creates a team and assigns it", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    team_name = "HookCreateTeam#{System.unique_integer([:positive])}"
+    render_hook(view, "create_and_assign_team", %{"name" => team_name})
+
+    assert render(view) =~ "created and assigned"
+
+    [created_team] = Enum.filter(People.list_teams(), &(&1.name == team_name))
+    assert created_team.id in People.get_person!(person.id).team_ids
   end
 end

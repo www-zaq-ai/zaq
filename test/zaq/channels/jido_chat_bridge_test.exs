@@ -108,6 +108,20 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule StubAdapterGetUser do
+    def get_user(author_id, opts) do
+      send(self(), {:adapter_get_user, author_id, opts})
+
+      {:ok,
+       %{
+         email: "user@example.com",
+         display_name: "Display Name",
+         username: "profile_user",
+         phone: "+15550001"
+       }}
+    end
+  end
+
   defmodule StubAdapterThreadPost do
     def send_message(_channel_id, _text, _opts) do
       {:ok, %{external_message_id: "post-123"}}
@@ -377,6 +391,22 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
       assert_received {:pipeline_run, "question", _opts}
+    end
+
+    test "ignores self-authored messages" do
+      incoming = %ChatIncoming{
+        text: "bot echo",
+        external_room_id: "room1",
+        external_thread_id: nil,
+        external_message_id: "msg1",
+        author: %Author{user_id: "bot-1", user_name: "zaq", is_me: true},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+      refute_received {:pipeline_run, _, _}
+      refute_received {:router_deliver, _}
     end
   end
 
@@ -716,6 +746,33 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         JidoChatBridge.runtime_specs(config, "bridge_listener_error_test", [])
 
       assert listener_specs == []
+    end
+
+    test "runtime_specs/3 uses default channel_ids (:all) when none are active" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      {_state_spec, _listener_specs} = JidoChatBridge.runtime_specs(config, "bridge_default_channels")
+
+      assert_received {:listener_child_specs_opts, listener_opts}
+      assert listener_opts[:channel_ids] == :all
     end
   end
 
@@ -1128,6 +1185,101 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                )
 
       assert_received {:pipeline_run, "deploy now", _opts}
+    end
+
+    test "mention events trigger processing for non-DM messages" do
+      config = %{
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{}}
+      }
+
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubListenerAdapter})
+        |> JidoChatBridge.register_handlers(config)
+
+      mention_incoming = %ChatIncoming{
+        text: "@zaq please answer",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "chan-msg-2",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: true,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:chan-1:chan-1",
+                 mention_incoming,
+                 []
+               )
+
+      assert_received {:pipeline_run, "@zaq please answer", _opts}
+    end
+  end
+
+  describe "fetch_profile/2" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+      end)
+
+      :ok
+    end
+
+    test "returns mapped canonical profile when adapter supports get_user/2" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterGetUser}
+      })
+
+      assert {:ok, profile} =
+               JidoChatBridge.fetch_profile("author-1", %{
+                 provider: "mattermost",
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+
+      assert profile["email"] == "user@example.com"
+      assert profile["display_name"] == "Display Name"
+      assert profile["username"] == "profile_user"
+      assert profile["phone"] == "+15550001"
+
+      assert_received {:adapter_get_user, "author-1", opts}
+      assert opts[:url] == "https://mm.example.com"
+      assert opts[:token] == "tok"
+    end
+
+    test "returns unsupported when adapter does not implement get_user/2" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterNoOutboundFns}
+      })
+
+      assert {:error, :unsupported} =
+               JidoChatBridge.fetch_profile("author-1", %{
+                 provider: "mattermost",
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+    end
+
+    test "returns unsupported_provider tuple for unknown provider" do
+      assert {:error, {:unsupported_provider, "does-not-exist"}} =
+               JidoChatBridge.fetch_profile("author-1", %{
+                 provider: "does-not-exist",
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+    end
+
+    test "returns missing_connection_details when required connection fields are absent" do
+      assert {:error, :missing_connection_details} = JidoChatBridge.fetch_profile("author-1", %{})
     end
   end
 

@@ -61,6 +61,15 @@ defmodule Zaq.Channels.RouterTest do
     end
   end
 
+  defmodule ProfileBridge do
+    def send_reply(_outgoing, _connection_details), do: :ok
+
+    def fetch_profile(author_id, details) do
+      send(self(), {:fetch_profile, author_id, details})
+      {:ok, %{"display_name" => "Profile User"}}
+    end
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -248,6 +257,72 @@ defmodule Zaq.Channels.RouterTest do
 
       assert {:ok, :connected} = Router.test_connection(config, "chan-1")
       assert_received {:test_connection, "mattermost", "chan-1"}
+    end
+  end
+
+  describe "fetch_profile/2" do
+    setup do
+      insert_config(:mattermost)
+      :ok
+    end
+
+    test "returns unsupported when bridge does not implement fetch_profile" do
+      assert {:error, :unsupported} = Router.fetch_profile(:mattermost, "author-1")
+    end
+
+    test "delegates to bridge when fetch_profile exists" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: ProfileBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{"display_name" => "Profile User"}} =
+               Router.fetch_profile(:mattermost, "author-1")
+
+      assert_received {:fetch_profile, "author-1", details}
+      assert details.provider == :mattermost
+      assert is_binary(details.url)
+      assert is_binary(details.token)
+    end
+
+    test "returns no_bridge for unknown provider" do
+      assert {:error, {:no_bridge, "missing-provider"}} =
+               Router.fetch_profile("missing-provider", "author-1")
+    end
+  end
+
+  describe "additional negative routing paths" do
+    test "subscribe/unsubscribe return no_bridge when provider is unknown" do
+      assert {:error, {:no_bridge, "missing-provider"}} =
+               Router.subscribe_thread_reply("missing-provider", "chan-1", "thread-1")
+
+      assert {:error, {:no_bridge, "missing-provider"}} =
+               Router.unsubscribe_thread_reply("missing-provider", "chan-1", "thread-1")
+    end
+
+    test "subscribe/unsubscribe return channel_not_configured when bridge exists but config is missing" do
+      assert {:error, {:channel_not_configured, :failing_platform}} =
+               Router.subscribe_thread_reply(:failing_platform, "chan-1", "thread-1")
+
+      assert {:error, {:channel_not_configured, :failing_platform}} =
+               Router.unsubscribe_thread_reply(:failing_platform, "chan-1", "thread-1")
+    end
+
+    test "test_connection returns no_bridge when provider is unknown" do
+      config = %{provider: "missing-provider", url: "https://mm.example.com", token: "tok"}
+      assert {:error, {:no_bridge, "missing-provider"}} = Router.test_connection(config, "chan-1")
+    end
+
+    test "remove_reaction/5 default opts path delegates successfully" do
+      insert_config(:mattermost)
+
+      assert :ok = Router.remove_reaction(:mattermost, "chan-1", "msg-1", "+1")
+      assert_received {:remove_reaction, "mattermost", "chan-1", "msg-1", "+1", details}
+      assert is_binary(details.url)
+      assert is_binary(details.token)
     end
   end
 
