@@ -1,29 +1,14 @@
 defmodule Zaq.People.Resolver do
   @moduledoc """
-  Resolves a channel sender's identity to a Person record.
+  Normalizes raw channel adapter payloads into canonical person attrs maps.
 
-  Called at the bridge level for every incoming message. Platform-specific
-  normalizers map raw adapter payloads to a canonical attrs map before
-  the shared match/create logic runs.
+  Each platform normalizer maps the platform-specific field names to the
+  shared keys expected by `Zaq.Accounts.People`: `channel_id`, `username`,
+  `display_name`, `email`, `phone`, and `dm_channel_id`.
+
+  Resolution (match/create logic) is handled by `Zaq.People.IdentityPlug`,
+  which calls `normalize/2` and then delegates to `Zaq.Accounts.People`.
   """
-
-  alias Zaq.Accounts.People
-
-  @spec resolve(atom() | String.t(), map()) :: {:ok, People.Person.t()} | {:error, term()}
-  def resolve(platform, attrs) do
-    platform_str = to_string(platform)
-    canonical = normalize(platform_str, attrs)
-
-    with {:ok, person} <- People.find_or_create_from_channel(platform_str, canonical) do
-      channel = find_channel(person, platform_str, canonical["channel_id"])
-
-      if channel do
-        People.record_interaction(channel)
-      end
-
-      {:ok, person}
-    end
-  end
 
   # ---------------------------------------------------------------------------
   # Platform normalizers
@@ -115,13 +100,4 @@ defmodule Zaq.People.Resolver do
   defp get(attrs, key) when is_atom(key) do
     Map.get(attrs, key) || Map.get(attrs, to_string(key))
   end
-
-  defp find_channel(person, platform, channel_id) when is_binary(channel_id) do
-    Enum.find(
-      Map.get(person, :channels, []),
-      &(&1.platform == platform and &1.channel_identifier == channel_id)
-    )
-  end
-
-  defp find_channel(_person, _platform, _channel_id), do: nil
 end

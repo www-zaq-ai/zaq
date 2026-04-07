@@ -1,4 +1,13 @@
 defmodule Zaq.Accounts.Team do
+  @moduledoc """
+  Represents a team or group label for organizing people.
+
+  Teams have a many-to-many relationship with `Person` via the `team_ids`
+  integer array column on the `people` table. This design avoids a join
+  table at the cost of no database-level foreign key constraints on team
+  membership.
+  """
+
   use Ecto.Schema
   import Ecto.Changeset
 

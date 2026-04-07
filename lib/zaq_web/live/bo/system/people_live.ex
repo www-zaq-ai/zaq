@@ -95,13 +95,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           ]
           |> Enum.reject(&is_nil/1)
 
-        People.list_people()
-        |> Enum.reject(&(&1.id in exclude_ids))
-        |> Enum.filter(fn p ->
-          String.contains?(String.downcase(p.full_name || ""), String.downcase(query)) or
-            String.contains?(String.downcase(p.email || ""), String.downcase(query))
-        end)
-        |> Enum.take(10)
+        People.search_people(query, exclude_ids)
       else
         []
       end

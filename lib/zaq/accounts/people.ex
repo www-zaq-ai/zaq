@@ -52,13 +52,19 @@ defmodule Zaq.Accounts.People do
     query = from(p in Person, order_by: p.full_name)
 
     query =
-      if name != "", do: from(p in query, where: ilike(p.full_name, ^"%#{name}%")), else: query
+      if name != "",
+        do: from(p in query, where: ilike(p.full_name, ^"%#{escape_like(name)}%")),
+        else: query
 
     query =
-      if email != "", do: from(p in query, where: ilike(p.email, ^"%#{email}%")), else: query
+      if email != "",
+        do: from(p in query, where: ilike(p.email, ^"%#{escape_like(email)}%")),
+        else: query
 
     query =
-      if phone != "", do: from(p in query, where: ilike(p.phone, ^"%#{phone}%")), else: query
+      if phone != "",
+        do: from(p in query, where: ilike(p.phone, ^"%#{escape_like(phone)}%")),
+        else: query
 
     query =
       case complete do
@@ -146,10 +152,21 @@ defmodule Zaq.Accounts.People do
   @doc """
   Re-assigns all channels from `loser` to `survivor` in a transaction,
   then deletes the loser. Re-evaluates survivor's incomplete flag.
+
+  Accepts either Person structs or integer IDs. Records are re-fetched
+  inside the transaction to guard against stale data.
   """
-  @spec merge_persons(Person.t(), Person.t()) :: {:ok, Person.t()} | {:error, term()}
-  def merge_persons(%Person{} = survivor, %Person{} = loser) do
+  @spec merge_persons(Person.t() | integer(), Person.t() | integer()) ::
+          {:ok, Person.t()} | {:error, term()}
+  def merge_persons(survivor_or_id, loser_or_id) do
+    survivor_id = if is_struct(survivor_or_id), do: survivor_or_id.id, else: survivor_or_id
+    loser_id = if is_struct(loser_or_id), do: loser_or_id.id, else: loser_or_id
+
     Repo.transaction(fn ->
+      # Re-fetch inside the transaction so we work with current data, not stale assigns.
+      survivor = Repo.get!(Person, survivor_id)
+      loser = Repo.get!(Person, loser_id)
+
       from(c in PersonChannel, where: c.person_id == ^loser.id)
       |> Repo.update_all(set: [person_id: survivor.id])
 
@@ -212,6 +229,25 @@ defmodule Zaq.Accounts.People do
   end
 
   def delete_person(%Person{} = person), do: Repo.delete(person)
+
+  @doc """
+  Searches people by full_name or email using database-side filtering.
+  Excludes the given IDs. Returns at most `limit` results.
+  """
+  @spec search_people(String.t(), [integer()], pos_integer()) :: [Person.t()]
+  def search_people(query, exclude_ids \\ [], limit \\ 10) do
+    pattern = "%#{escape_like(query)}%"
+
+    from(p in Person,
+      where:
+        (ilike(p.full_name, ^pattern) or ilike(p.email, ^pattern)) and
+          p.id not in ^exclude_ids,
+      order_by: p.full_name,
+      limit: ^limit
+    )
+    |> Repo.all()
+    |> Repo.preload(channels: channels_ordered())
+  end
 
   # ── Teams ────────────────────────────────────────────────────────────────
 
@@ -376,24 +412,24 @@ defmodule Zaq.Accounts.People do
     channel_attrs = extract_channel_attrs(attrs)
 
     Repo.transaction(fn ->
-      {:ok, person} = insert_partial_person(channel_attrs)
+      case insert_partial_person(channel_attrs) do
+        {:ok, person} ->
+          add_channel(%{
+            person_id: person.id,
+            platform: platform,
+            channel_identifier: channel_attrs.channel_id,
+            username: channel_attrs.username,
+            display_name: channel_attrs.display_name,
+            phone: channel_attrs.phone,
+            dm_channel_id: channel_attrs.dm_channel_id
+          })
 
-      add_channel(%{
-        person_id: person.id,
-        platform: platform,
-        channel_identifier: channel_attrs.channel_id,
-        username: channel_attrs.username,
-        display_name: channel_attrs.display_name,
-        phone: channel_attrs.phone,
-        dm_channel_id: channel_attrs.dm_channel_id
-      })
+          Repo.preload(person, channels: channels_ordered())
 
-      Repo.preload(person, channels: channels_ordered())
+        {:error, changeset} ->
+          Repo.rollback(changeset)
+      end
     end)
-    |> case do
-      {:ok, person} -> {:ok, person}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp extract_channel_attrs(attrs) do
@@ -429,6 +465,9 @@ defmodule Zaq.Accounts.People do
       {k, v} -> {k, v}
     end)
   end
+
+  # Escapes PostgreSQL LIKE/ILIKE special characters so user input is treated literally.
+  defp escape_like(str), do: String.replace(str, ["\\", "%", "_"], &"\\#{&1}")
 
   defp channels_ordered do
     from(c in PersonChannel, order_by: c.weight)
