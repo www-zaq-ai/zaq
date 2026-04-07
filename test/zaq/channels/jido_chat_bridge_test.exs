@@ -769,7 +769,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
       }
 
-      {_state_spec, _listener_specs} = JidoChatBridge.runtime_specs(config, "bridge_default_channels")
+      {_state_spec, _listener_specs} =
+        JidoChatBridge.runtime_specs(config, "bridge_default_channels")
 
       assert_received {:listener_child_specs_opts, listener_opts}
       assert listener_opts[:channel_ids] == :all
