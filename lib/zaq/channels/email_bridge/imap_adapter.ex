@@ -1,5 +1,15 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapter do
-  @moduledoc false
+  @moduledoc """
+  IMAP adapter for the EmailBridge. Handles IMAP connections, IDLE listening,
+  and email fetching for configured mailboxes.
+
+  ## Responsibilities
+  - Establishes IMAP connections with SSL/TLS support
+  - Lists available mailboxes from the IMAP server
+  - Manages IDLE connections for real-time email notifications
+  - Fetches unseen emails and marks them as read
+  - Converts raw IMAP responses to internal email payloads
+  """
 
   require Logger
 
