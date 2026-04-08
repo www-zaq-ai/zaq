@@ -12,7 +12,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   defmodule ChunkPipelineProcessor do
     alias Zaq.Ingestion.{Chunk, DocumentChunker}
 
-    def prepare_file_chunks(_path, _role_id, _shared_role_ids) do
+    def prepare_file_chunks(_path) do
       document_id = :persistent_term.get({__MODULE__, :document_id})
 
       {:ok, %{id: document_id},
@@ -25,16 +25,12 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     def store_chunk_with_metadata(
           %DocumentChunker.Chunk{} = chunk,
           document_id,
-          chunk_index,
-          role_id,
-          shared_role_ids
+          chunk_index
         ) do
       Chunk.create(%{
         document_id: document_id,
         content: chunk.content,
-        chunk_index: chunk_index,
-        role_id: role_id,
-        shared_role_ids: shared_role_ids
+        chunk_index: chunk_index
       })
     end
 
@@ -96,9 +92,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       |> Chunk.changeset(%{document_id: doc.id, content: "second", chunk_index: 2})
       |> Repo.insert!()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, doc}
       end)
 
@@ -126,9 +120,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job()
       Zaq.Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:error, :parse_error}
       end)
 
@@ -190,9 +182,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job()
       Zaq.Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:error, "temporary failure"}
       end)
 
@@ -213,51 +203,10 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       assert_receive {:job_updated, %{id: ^job_id, status: "pending"}}
     end
 
-    test "passes role_id from job args to processor" do
-      {:ok, role} =
-        Zaq.Accounts.create_role(%{name: "worker_role_#{System.unique_integer([:positive])}"})
-
-      job = create_job(%{role_id: role.id})
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 role_id,
-                                                                 _shared_role_ids ->
-        assert role_id == role.id
-        {:ok, create_document()}
-      end)
-
-      assert :ok =
-               IngestWorker.perform(%Oban.Job{
-                 args: %{"job_id" => job.id, "role_id" => role.id},
-                 attempt: 1,
-                 max_attempts: 3
-               })
-    end
-
-    test "passes nil role_id when not present in args" do
-      job = create_job()
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 role_id,
-                                                                 _shared_role_ids ->
-        assert is_nil(role_id)
-        {:ok, create_document()}
-      end)
-
-      assert :ok =
-               IngestWorker.perform(%Oban.Job{
-                 args: %{"job_id" => job.id},
-                 attempt: 1,
-                 max_attempts: 3
-               })
-    end
-
     test "uses unresolved path when resolve_path fails" do
       job = create_job(%{file_path: "../../bad.md"})
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
         assert path == "../../bad.md"
         {:error, :missing}
       end)
@@ -291,9 +240,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job(%{file_path: "report.md", volume_name: "myvol"})
       expected_path = Path.join(vol_dir, "report.md")
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
         assert path == expected_path
         {:ok, create_document()}
       end)
@@ -309,9 +256,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     test "converts crashes to retries" do
       job = create_job()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         raise "boom"
       end)
 

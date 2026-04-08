@@ -5,7 +5,6 @@ defmodule Zaq.Ingestion do
   """
 
   alias Zaq.Ingestion.{
-    Chunk,
     DeleteService,
     DirectorySnapshot,
     Document,
@@ -13,6 +12,7 @@ defmodule Zaq.Ingestion do
     IngestJob,
     IngestWorker,
     JobLifecycle,
+    Permission,
     RenameService,
     SourcePath
   }
@@ -26,49 +26,31 @@ defmodule Zaq.Ingestion do
 
   # --- Ingestion triggers ---
 
-  def ingest_file(path, mode \\ :async, volume_name \\ nil, role_id \\ nil, shared_role_ids \\ []) do
-    with {:ok, job} <- create_job(path, mode, volume_name, role_id, shared_role_ids) do
+  def ingest_file(path, mode \\ :async, volume_name \\ nil) do
+    with {:ok, job} <- create_job(path, mode, volume_name) do
       case mode do
         :async ->
-          job.id
-          |> build_job_args(role_id, shared_role_ids)
+          %{"job_id" => job.id}
           |> IngestWorker.new()
           |> Oban.insert()
 
           {:ok, job}
 
         :inline ->
-          enqueue_inline_ingest(job, role_id, shared_role_ids)
+          IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
+          {:ok, Repo.get!(IngestJob, job.id)}
       end
     end
   end
 
-  defp enqueue_inline_ingest(job, role_id, shared_role_ids) do
-    IngestWorker.perform(%Oban.Job{args: build_job_args(job.id, role_id, shared_role_ids)})
-
-    {:ok, Repo.get!(IngestJob, job.id)}
-  end
-
-  defp build_job_args(job_id, role_id, shared_role_ids) do
-    args = %{"job_id" => job_id}
-    args = if role_id, do: Map.put(args, "role_id", role_id), else: args
-    if shared_role_ids != [], do: Map.put(args, "shared_role_ids", shared_role_ids), else: args
-  end
-
-  def ingest_folder(
-        path,
-        mode \\ :async,
-        volume_name \\ nil,
-        role_id \\ nil,
-        shared_role_ids \\ []
-      ) do
+  def ingest_folder(path, mode \\ :async, volume_name \\ nil) do
     with {:ok, entries} <- list_in_volume(volume_name, path) do
       jobs =
         entries
         |> Enum.filter(&(&1.type == :file))
         |> Enum.map(fn entry ->
           file_path = Path.join(path, entry.name)
-          {:ok, job} = ingest_file(file_path, mode, volume_name, role_id, shared_role_ids)
+          {:ok, job} = ingest_file(file_path, mode, volume_name)
           job
         end)
 
@@ -79,11 +61,11 @@ defmodule Zaq.Ingestion do
   # --- Access control ---
 
   @doc """
-  Returns true if the given user can access a file at `relative_path`.
+  Returns true if the given person can access a file at `relative_path`.
   - Super admins bypass all checks.
   - Files with no Document record are accessible to all (backward compat).
-  - Files shared with the "public" role are accessible to all.
-  - Otherwise: only the owning role (doc.role_id) or explicitly shared roles.
+  - Files with no permissions set are accessible to all (public by default).
+  - Otherwise: person must have a direct permission or a team permission.
   """
   def can_access_file?(relative_path, current_user) do
     source = SourcePath.normalize_relative(relative_path)
@@ -94,21 +76,15 @@ defmodule Zaq.Ingestion do
 
       doc ->
         super_admin? = current_user.role.name == "super_admin"
-        shared = doc.shared_role_ids
-        public? = public_role_id() in shared
+        permissions = list_document_permissions(doc.id)
+        person_id = Map.get(current_user, :person_id)
+        team_ids = Map.get(current_user, :team_ids) || []
 
-        super_admin? or
-          public? or
-          is_nil(doc.role_id) or
-          doc.role_id == current_user.role_id or
-          current_user.role_id in shared
-    end
-  end
-
-  defp public_role_id do
-    case Zaq.Accounts.get_role_by_name("public") do
-      nil -> nil
-      role -> role.id
+        super_admin? or permissions == [] or
+          Enum.any?(permissions, fn p ->
+            (not is_nil(p.person_id) and p.person_id == person_id) or
+              (not is_nil(p.team_id) and p.team_id in team_ids)
+          end)
     end
   end
 
@@ -148,13 +124,12 @@ defmodule Zaq.Ingestion do
   end
 
   @doc """
-  Records a newly uploaded file in the documents table with the uploader's role_id.
-  This is called immediately at upload time — before any ingestion happens — so that
-  the file browser can enforce role-based visibility right away.
+  Records a newly uploaded file in the documents table.
+  Called immediately at upload time so the file browser sees it right away.
   """
-  def track_upload(volume_name, path, role_id) do
+  def track_upload(volume_name, path) do
     source = SourcePath.build_source(volume_name, path)
-    Document.upsert(%{source: source, role_id: role_id})
+    Document.upsert(%{source: source})
   end
 
   def delete_path(volume_name, path, type, volumes \\ nil) do
@@ -165,17 +140,75 @@ defmodule Zaq.Ingestion do
     DeleteService.delete_paths(volume_name, paths, volumes)
   end
 
-  # --- Sharing ---
+  # --- Permissions ---
 
-  def share_file(source, shared_role_ids) do
-    doc =
-      case Document.get_by_source(source) do
-        nil -> elem(Document.create(%{source: source, shared_role_ids: shared_role_ids}), 1)
-        doc -> elem(Document.set_shared_role_ids(doc, shared_role_ids), 1)
+  def list_document_permissions(document_id) do
+    Permission
+    |> where([p], p.document_id == ^document_id)
+    |> preload([:person, :team])
+    |> Repo.all()
+  end
+
+  def set_document_permission(document_id, type, target_id, access_rights)
+      when type in [:person, :team] do
+    {filter, attrs} =
+      case type do
+        :person ->
+          {[document_id: document_id, person_id: target_id],
+           %{document_id: document_id, person_id: target_id, access_rights: access_rights}}
+
+        :team ->
+          {[document_id: document_id, team_id: target_id],
+           %{document_id: document_id, team_id: target_id, access_rights: access_rights}}
       end
 
-    Chunk.update_shared_role_ids_for_document(doc.id, shared_role_ids)
-    {:ok, shared_role_ids}
+    existing = Repo.get_by(Permission, filter)
+
+    case existing do
+      nil -> Repo.insert(Permission.changeset(%Permission{}, attrs))
+      perm -> Repo.update(Permission.changeset(perm, %{access_rights: access_rights}))
+    end
+  end
+
+  def delete_document_permission(permission_id) do
+    case Repo.get(Permission, permission_id) do
+      nil -> {:error, :not_found}
+      perm -> Repo.delete(perm)
+    end
+  end
+
+  @doc """
+  Returns all documents whose source lives under the given folder.
+
+  Accepts a list of source prefixes (legacy + volume-prefixed) and returns
+  documents matching any of them.
+  """
+  def list_documents_under_folder(volume_name, folder_path) do
+    prefixes = SourcePath.source_candidates(volume_name, folder_path)
+
+    conditions =
+      prefixes
+      |> Enum.map(fn prefix -> dynamic([d], like(d.source, ^"#{prefix}/%")) end)
+      |> Enum.reduce(fn cond, acc -> dynamic([d], ^acc or ^cond) end)
+
+    from(d in Document, where: ^conditions)
+    |> Repo.all()
+  end
+
+  def list_permitted_document_ids(person_id, team_ids, doc_ids) do
+    from(p in Permission,
+      where:
+        p.document_id in ^doc_ids and
+          (p.person_id == ^person_id or p.team_id in ^team_ids),
+      select: p.document_id,
+      distinct: true
+    )
+    |> Repo.all()
+  end
+
+  def get_document_by_source!(source) do
+    Document.get_by_source(source) ||
+      raise "Document not found for source: #{source}"
   end
 
   # --- Job queries ---
@@ -250,14 +283,10 @@ defmodule Zaq.Ingestion do
   defp list_in_volume(nil, path), do: FileExplorer.list(path)
   defp list_in_volume(volume_name, path), do: FileExplorer.list(volume_name, path)
 
-  defp create_job(path, mode, volume_name, role_id, shared_role_ids) do
+  defp create_job(path, mode, volume_name) do
     attrs =
       %{file_path: path, status: "pending", mode: to_string(mode)}
       |> then(fn a -> if volume_name, do: Map.put(a, :volume_name, volume_name), else: a end)
-      |> then(fn a -> if role_id, do: Map.put(a, :role_id, role_id), else: a end)
-      |> then(fn a ->
-        if shared_role_ids != [], do: Map.put(a, :shared_role_ids, shared_role_ids), else: a
-      end)
 
     %IngestJob{}
     |> IngestJob.changeset(attrs)

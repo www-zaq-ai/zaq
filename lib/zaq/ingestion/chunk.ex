@@ -17,33 +17,29 @@ defmodule Zaq.Ingestion.Chunk do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL, as: EctoSQL
-  alias Zaq.Accounts.Role
   alias Zaq.Hooks
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
 
   schema "chunks" do
     belongs_to :document, Document
-    belongs_to :role, Role
     field :content, :string
     field :chunk_index, :integer
     field :section_path, {:array, :string}, default: []
     field :metadata, :map, default: %{}
     field :embedding, Pgvector.Ecto.HalfVector
-    field :shared_role_ids, {:array, :integer}, default: []
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields ~w(document_id content chunk_index)a
-  @optional_fields ~w(section_path metadata embedding role_id shared_role_ids)a
+  @optional_fields ~w(section_path metadata embedding)a
 
   def changeset(chunk, attrs) do
     chunk
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> foreign_key_constraint(:document_id)
-    |> foreign_key_constraint(:role_id)
   end
 
   @doc """
@@ -137,12 +133,10 @@ defmodule Zaq.Ingestion.Chunk do
       CREATE TABLE IF NOT EXISTS chunks (
         id bigserial PRIMARY KEY,
         document_id bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-        role_id bigint REFERENCES roles(id) ON DELETE SET NULL,
         content text NOT NULL,
         chunk_index integer NOT NULL,
         section_path text[] DEFAULT '{}',
         metadata jsonb DEFAULT '{}',
-        shared_role_ids integer[] DEFAULT '{}',
         inserted_at timestamp(0) NOT NULL,
         updated_at timestamp(0) NOT NULL
       )
@@ -203,30 +197,5 @@ defmodule Zaq.Ingestion.Chunk do
     drop_table()
     create_table(new_dimension)
     Hooks.dispatch_after(:after_embedding_reset, %{new_dimension: new_dimension}, %{})
-  end
-
-  @doc """
-  Updates shared_role_ids for all chunks of a document in one query.
-  """
-  def update_shared_role_ids_for_document(document_id, shared_role_ids) do
-    from(c in __MODULE__, where: c.document_id == ^document_id)
-    |> Repo.update_all(set: [shared_role_ids: shared_role_ids])
-  end
-
-  @doc """
-  Returns a map of document_id => shared_role_ids by sampling the first chunk
-  of each given document. Used to display sharing status in the file browser.
-  """
-  def shared_role_ids_by_documents(document_ids) when document_ids == [], do: %{}
-
-  def shared_role_ids_by_documents(document_ids) do
-    from(c in __MODULE__,
-      where: c.document_id in ^document_ids,
-      distinct: c.document_id,
-      order_by: [asc: c.document_id, asc: c.chunk_index],
-      select: {c.document_id, c.shared_role_ids}
-    )
-    |> Repo.all()
-    |> Map.new()
   end
 end

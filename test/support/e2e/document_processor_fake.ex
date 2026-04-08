@@ -10,17 +10,17 @@ defmodule Zaq.E2E.DocumentProcessorFake do
   alias Zaq.Repo
 
   @impl true
-  def process_single_file(file_path, role_id \\ nil, shared_role_ids \\ []) do
+  def process_single_file(file_path) do
     case ProcessorState.check_and_consume() do
       :fail ->
         {:error, "Structural error: simulated e2e failure"}
 
       :ok ->
-        do_process(file_path, role_id, shared_role_ids)
+        do_process(file_path)
     end
   end
 
-  defp do_process(file_path, role_id, shared_role_ids) do
+  defp do_process(file_path) do
     sidecar_path = Sidecar.sidecar_path_for(file_path)
 
     with {:ok, content} <- File.read(file_path),
@@ -31,11 +31,10 @@ defmodule Zaq.E2E.DocumentProcessorFake do
            Document.upsert(%{
              source: source,
              content: content,
-             role_id: role_id,
              metadata: source_metadata
            }),
-         :ok <- upsert_chunk(document.id, content, role_id, shared_role_ids),
-         :ok <- maybe_upsert_sidecar_document(sidecar_path, sidecar_source, source, role_id) do
+         :ok <- upsert_chunk(document.id, content),
+         :ok <- maybe_upsert_sidecar_document(sidecar_path, sidecar_source, source) do
       {:ok, document}
     end
   end
@@ -55,18 +54,15 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     end
   end
 
-  defp maybe_upsert_sidecar_document(nil, _sidecar_source, _source, _role_id), do: :ok
+  defp maybe_upsert_sidecar_document(nil, _sidecar_source, _source), do: :ok
 
-  defp maybe_upsert_sidecar_document(sidecar_path, sidecar_source, source, role_id) do
+  defp maybe_upsert_sidecar_document(sidecar_path, sidecar_source, source) do
     with {:ok, sidecar_content} <- File.read(sidecar_path) do
-      # sidecar_source is already the sidecar's relative path (from maybe_write_sidecar)
-      # source is the PDF's relative path — sidecar points back to it
       metadata = Sidecar.sidecar_metadata(source)
 
       case Document.upsert(%{
              source: sidecar_source,
              content: sidecar_content,
-             role_id: role_id,
              metadata: metadata
            }) do
         {:ok, _} -> :ok
@@ -75,13 +71,27 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     end
   end
 
-  def query_extraction(query, role_ids \\ nil) do
+  def query_extraction(query, access_opts \\ []) do
+    person_id = Keyword.get(access_opts, :person_id)
+    team_ids = Keyword.get(access_opts, :team_ids, [])
     terms = tokenize(query)
 
     docs =
-      role_ids
-      |> list_documents_for_roles()
+      Repo.all(from(d in Document))
       |> Enum.map(fn doc -> {score_document(doc, terms), doc} end)
+
+    docs =
+      if person_id do
+        doc_ids = Enum.map(docs, fn {_, d} -> d.id end)
+        permitted = Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, doc_ids)
+        permitted_set = MapSet.new(permitted)
+
+        Enum.map(docs, fn {score, doc} ->
+          if MapSet.member?(permitted_set, doc.id), do: {score, doc}, else: {0, doc}
+        end)
+      else
+        docs
+      end
 
     matches =
       docs
@@ -99,14 +109,6 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     {:ok, if(matches == [], do: fallback, else: matches)}
   end
 
-  defp list_documents_for_roles(nil) do
-    Repo.all(from(d in Document))
-  end
-
-  defp list_documents_for_roles(role_ids) when is_list(role_ids) do
-    Repo.all(from(d in Document, where: is_nil(d.role_id) or d.role_id in ^role_ids))
-  end
-
   defp extract_source(file_path) do
     base = FileExplorer.base_path() |> Path.expand()
     expanded = Path.expand(file_path)
@@ -120,7 +122,7 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     {:ok, source}
   end
 
-  defp upsert_chunk(document_id, content, role_id, shared_role_ids) do
+  defp upsert_chunk(document_id, content) do
     Chunk.delete_by_document(document_id)
 
     attrs = %{
@@ -128,9 +130,7 @@ defmodule Zaq.E2E.DocumentProcessorFake do
       content: String.slice(String.trim(content), 0, 4000),
       chunk_index: 1,
       section_path: [],
-      metadata: %{"synthetic" => true},
-      role_id: role_id,
-      shared_role_ids: shared_role_ids
+      metadata: %{"synthetic" => true}
     }
 
     case Chunk.create(attrs) do

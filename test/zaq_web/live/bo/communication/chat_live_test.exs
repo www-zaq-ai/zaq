@@ -418,14 +418,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   end
 
   test "open_preview_modal shows flash and keeps modal closed when unauthorized", %{conn: conn} do
-    private_role = role_fixture()
+    alias Zaq.Accounts.People
+    alias Zaq.Ingestion
 
-    {:ok, _doc} =
-      Document.create(%{
-        source: "restricted-preview.md",
-        role_id: private_role.id,
-        content: "top secret"
-      })
+    {:ok, _doc} = Document.create(%{source: "restricted-preview.md", content: "top secret"})
+    doc = Ingestion.get_document_by_source!("restricted-preview.md")
+
+    # Restrict to some other person — not the current session user
+    unique = System.unique_integer([:positive])
+
+    {:ok, other_person} =
+      People.create_person(%{full_name: "Other #{unique}", email: "other#{unique}@test.com"})
+
+    {:ok, _} = Ingestion.set_document_permission(doc.id, :person, other_person.id, ["read"])
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 

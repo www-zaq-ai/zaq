@@ -1,6 +1,7 @@
 defmodule Zaq.Ingestion.AccessControlTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Accounts.{People, Team}
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
   alias Zaq.System.EmbeddingConfig
@@ -17,33 +18,45 @@ defmodule Zaq.Ingestion.AccessControlTest do
     :ok
   end
 
-  # Builds a user-like struct with role preloaded, matching what
-  # Accounts.get_user!/1 returns (used by AuthHook and Plugs.Auth).
-  defp user_with_role(role) do
-    user = user_fixture(%{role: role})
-    Repo.preload(user, :role)
+  # Builds a minimal current_user-like map satisfying can_access_file?/2:
+  # requires role.name, person_id (integer pointing to a people row), team_ids.
+  defp make_current_user(role_name, person_id, team_ids \\ []) do
+    %{role: %{name: role_name}, person_id: person_id, team_ids: team_ids}
+  end
+
+  defp create_person do
+    unique = System.unique_integer([:positive])
+
+    {:ok, person} =
+      People.create_person(%{full_name: "Person #{unique}", email: "p#{unique}@example.com"})
+
+    person
+  end
+
+  defp create_team do
+    {:ok, team} =
+      Repo.insert(Team.changeset(%Team{}, %{name: "team_#{System.unique_integer([:positive])}"}))
+
+    team
   end
 
   defp unique_source, do: "file_#{System.unique_integer([:positive])}.md"
 
   setup do
-    super_admin_role = role_fixture(%{name: "super_admin"})
-    admin_role = role_fixture(%{name: "admin"})
-    staff_role = role_fixture(%{name: "staff"})
-    public_role = role_fixture(%{name: "public"})
+    admin_person = create_person()
+    staff_person = create_person()
+    super_admin_person = create_person()
 
-    super_admin = user_with_role(super_admin_role)
-    admin = user_with_role(admin_role)
-    staff = user_with_role(staff_role)
+    admin = make_current_user("admin", admin_person.id)
+    staff = make_current_user("staff", staff_person.id)
+    super_admin = make_current_user("super_admin", super_admin_person.id)
 
     %{
-      super_admin: super_admin,
       admin: admin,
       staff: staff,
-      super_admin_role: super_admin_role,
-      admin_role: admin_role,
-      staff_role: staff_role,
-      public_role: public_role
+      super_admin: super_admin,
+      admin_person: admin_person,
+      staff_person: staff_person
     }
   end
 
@@ -57,36 +70,31 @@ defmodule Zaq.Ingestion.AccessControlTest do
     end
   end
 
-  describe "can_access_file?/2 — owner access" do
-    test "owner role can access their own file", %{admin: admin, admin_role: admin_role} do
+  describe "can_access_file?/2 — public (no permissions set)" do
+    test "document with no permissions is accessible to all", %{admin: admin, staff: staff} do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
+      {:ok, _} = Document.upsert(%{source: source})
 
       assert Ingestion.can_access_file?(source, admin)
-    end
-
-    test "different role cannot access without sharing", %{admin: admin, staff_role: staff_role} do
-      source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
-
-      refute Ingestion.can_access_file?(source, admin)
+      assert Ingestion.can_access_file?(source, staff)
     end
   end
 
   describe "can_access_file?/2 — super admin bypass" do
-    test "super admin can access files owned by any role",
-         %{super_admin: super_admin, admin_role: admin_role, staff_role: staff_role} do
-      admin_file = unique_source()
-      staff_file = unique_source()
+    test "super admin can access files with permissions set for other person", %{
+      super_admin: super_admin,
+      admin_person: admin_person
+    } do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
 
-      {:ok, _} = Document.upsert(%{source: admin_file, role_id: admin_role.id})
-      {:ok, _} = Document.upsert(%{source: staff_file, role_id: staff_role.id})
+      {:ok, _} =
+        Ingestion.set_document_permission(doc.id, :person, admin_person.id, ["read"])
 
-      assert Ingestion.can_access_file?(admin_file, super_admin)
-      assert Ingestion.can_access_file?(staff_file, super_admin)
+      assert Ingestion.can_access_file?(source, super_admin)
     end
 
-    test "super admin can access files with no role_id", %{super_admin: super_admin} do
+    test "super admin can access files with no permissions", %{super_admin: super_admin} do
       source = unique_source()
       {:ok, _} = Document.upsert(%{source: source})
 
@@ -94,105 +102,146 @@ defmodule Zaq.Ingestion.AccessControlTest do
     end
   end
 
-  describe "can_access_file?/2 — explicit role sharing" do
-    test "file shared with user's role is accessible", %{
+  describe "can_access_file?/2 — person permission" do
+    test "person with direct permission can access file", %{
       admin: admin,
-      staff_role: staff_role,
-      admin_role: admin_role
+      admin_person: admin_person
     } do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
-      {:ok, _} = Ingestion.share_file(source, [admin_role.id])
+      {:ok, doc} = Document.upsert(%{source: source})
+
+      {:ok, _} =
+        Ingestion.set_document_permission(doc.id, :person, admin_person.id, ["read"])
 
       assert Ingestion.can_access_file?(source, admin)
     end
 
-    test "file not shared with user's role is inaccessible", %{
-      admin: admin,
-      staff: staff,
-      staff_role: staff_role,
-      admin_role: admin_role
+    test "person without permission cannot access restricted file", %{
+      admin_person: admin_person,
+      staff: staff
     } do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
-      {:ok, _} = Ingestion.share_file(source, [admin_role.id])
+      {:ok, doc} = Document.upsert(%{source: source})
 
-      # staff uploaded it but it's shared with admin, not staff
-      # staff is the owner so they can access it; admin can access via sharing
-      assert Ingestion.can_access_file?(source, admin)
-      assert Ingestion.can_access_file?(source, staff)
+      {:ok, _} =
+        Ingestion.set_document_permission(doc.id, :person, admin_person.id, ["read"])
+
+      refute Ingestion.can_access_file?(source, staff)
     end
 
-    test "access is revoked when sharing is cleared", %{
-      admin: admin,
-      staff_role: staff_role,
-      admin_role: admin_role
-    } do
+    test "access is revoked when permission is deleted (doc remains restricted via other permission)",
+         %{
+           admin: admin,
+           admin_person: admin_person
+         } do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: staff_role.id})
-      {:ok, _} = Ingestion.share_file(source, [admin_role.id])
+      {:ok, doc} = Document.upsert(%{source: source})
+      other_person = create_person()
+
+      {:ok, perm} =
+        Ingestion.set_document_permission(doc.id, :person, admin_person.id, ["read"])
+
+      # Add a second permission so the document stays restricted after admin's permission is removed
+      {:ok, _} =
+        Ingestion.set_document_permission(doc.id, :person, other_person.id, ["read"])
 
       assert Ingestion.can_access_file?(source, admin)
 
-      {:ok, _} = Ingestion.share_file(source, [])
+      {:ok, _} = Ingestion.delete_document_permission(perm.id)
 
+      # With a remaining permission the doc is still restricted — admin no longer has access
       refute Ingestion.can_access_file?(source, admin)
     end
   end
 
-  describe "can_access_file?/2 — public role" do
-    test "file shared with public is accessible to all roles", %{
-      admin: admin,
-      staff: staff,
-      super_admin: super_admin,
-      admin_role: admin_role,
-      public_role: public_role
-    } do
+  describe "can_access_file?/2 — team permission" do
+    test "person in permitted team can access file", %{staff_person: staff_person} do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
-      {:ok, _} = Ingestion.share_file(source, [public_role.id])
+      {:ok, doc} = Document.upsert(%{source: source})
+      team = create_team()
 
-      assert Ingestion.can_access_file?(source, admin)
-      assert Ingestion.can_access_file?(source, staff)
-      assert Ingestion.can_access_file?(source, super_admin)
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+
+      staff_with_team = make_current_user("staff", staff_person.id, [team.id])
+
+      assert Ingestion.can_access_file?(source, staff_with_team)
     end
 
-    test "file not shared with public is not universally accessible", %{
-      admin: admin,
-      staff: staff,
-      admin_role: admin_role
-    } do
+    test "person not in permitted team cannot access file", %{staff: staff} do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
+      {:ok, doc} = Document.upsert(%{source: source})
+      team = create_team()
 
-      assert Ingestion.can_access_file?(source, admin)
-      refute Ingestion.can_access_file?(source, staff)
-    end
-
-    test "removing public from sharing revokes universal access", %{
-      staff: staff,
-      admin_role: admin_role,
-      public_role: public_role
-    } do
-      source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, role_id: admin_role.id})
-      {:ok, _} = Ingestion.share_file(source, [public_role.id])
-
-      assert Ingestion.can_access_file?(source, staff)
-
-      {:ok, _} = Ingestion.share_file(source, [])
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
 
       refute Ingestion.can_access_file?(source, staff)
     end
   end
 
-  describe "can_access_file?/2 — unscoped document (no role_id)" do
-    test "document with nil role_id is accessible to all", %{admin: admin, staff: staff} do
+  describe "list_document_permissions/1" do
+    test "returns permissions for a document" do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source})
+      {:ok, doc} = Document.upsert(%{source: source})
+      person = create_person()
 
-      assert Ingestion.can_access_file?(source, admin)
-      assert Ingestion.can_access_file?(source, staff)
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      perms = Ingestion.list_document_permissions(doc.id)
+      assert length(perms) == 1
+      assert hd(perms).person_id == person.id
+    end
+
+    test "returns empty list when no permissions exist" do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+
+      assert Ingestion.list_document_permissions(doc.id) == []
+    end
+  end
+
+  describe "set_document_permission/4" do
+    test "creates a person permission" do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+      person = create_person()
+
+      assert {:ok, perm} =
+               Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      assert perm.document_id == doc.id
+      assert perm.person_id == person.id
+      assert perm.access_rights == ["read"]
+    end
+
+    test "updates existing permission access_rights" do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+      person = create_person()
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      assert {:ok, updated} =
+               Ingestion.set_document_permission(doc.id, :person, person.id, ["read", "write"])
+
+      assert updated.access_rights == ["read", "write"]
+      assert length(Ingestion.list_document_permissions(doc.id)) == 1
+    end
+  end
+
+  describe "delete_document_permission/1" do
+    test "deletes a permission by id" do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+      person = create_person()
+
+      {:ok, perm} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      assert {:ok, _} = Ingestion.delete_document_permission(perm.id)
+      assert Ingestion.list_document_permissions(doc.id) == []
+    end
+
+    test "returns error when permission not found" do
+      assert {:error, :not_found} = Ingestion.delete_document_permission(-1)
     end
   end
 end

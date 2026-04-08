@@ -12,8 +12,7 @@ defmodule Zaq.Ingestion.Document do
   import Ecto.Changeset
   import Ecto.Query
 
-  alias Zaq.Accounts.Role
-  alias Zaq.Ingestion.Chunk
+  alias Zaq.Ingestion.{Chunk, Permission}
   alias Zaq.Repo
 
   schema "documents" do
@@ -22,16 +21,15 @@ defmodule Zaq.Ingestion.Document do
     field :content, :string
     field :content_type, :string, default: "markdown"
     field :metadata, :map, default: %{}
-    field :shared_role_ids, {:array, :integer}, default: []
-    belongs_to :role, Role
 
     has_many :chunks, Chunk
+    has_many :permissions, Permission
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields ~w(source)a
-  @optional_fields ~w(title content content_type metadata role_id shared_role_ids)a
+  @optional_fields ~w(title content content_type metadata)a
 
   def changeset(document, attrs) do
     document
@@ -39,7 +37,6 @@ defmodule Zaq.Ingestion.Document do
     |> validate_required(@required_fields)
     |> validate_inclusion(:content_type, ~w(markdown text html))
     |> unique_constraint(:source)
-    |> foreign_key_constraint(:role_id)
     |> maybe_set_title()
   end
 
@@ -62,9 +59,7 @@ defmodule Zaq.Ingestion.Document do
     %__MODULE__{}
     |> changeset(attrs)
     |> Repo.insert(
-      on_conflict:
-        {:replace,
-         [:content, :title, :content_type, :metadata, :role_id, :shared_role_ids, :updated_at]},
+      on_conflict: {:replace, [:content, :title, :content_type, :metadata, :updated_at]},
       conflict_target: :source
     )
   end
@@ -99,15 +94,6 @@ defmodule Zaq.Ingestion.Document do
   """
   def delete(%__MODULE__{} = document) do
     Repo.delete(document)
-  end
-
-  @doc """
-  Updates only the shared_role_ids on an existing document without touching any other field.
-  """
-  def set_shared_role_ids(%__MODULE__{} = document, shared_role_ids) do
-    document
-    |> changeset(%{shared_role_ids: shared_role_ids})
-    |> Repo.update()
   end
 
   # -- Private --

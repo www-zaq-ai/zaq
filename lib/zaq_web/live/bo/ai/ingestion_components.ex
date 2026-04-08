@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   use ZaqWeb, :verified_routes
 
   import ZaqWeb.Helpers.DateFormat
+  import ZaqWeb.Components.SearchableSelect
   alias ZaqWeb.Helpers.SizeFormat
 
   # ── Helpers ──────────────────────────────────────────────────────────────
@@ -397,7 +398,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
-  attr :all_roles, :list, default: []
 
   def file_list_view(assigns) do
     ~H"""
@@ -413,16 +413,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
               />
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5">
+            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 w-full max-w-0">
               Name
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5">
+            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 w-24 whitespace-nowrap">
               Size
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5">
+            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 w-36">
               Status
             </th>
-            <th class="text-right font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5">
+            <th class="hidden xl:table-cell text-right font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 whitespace-nowrap">
               Modified
             </th>
           </tr>
@@ -444,23 +444,34 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
                 />
               </td>
-              <td class="px-4 py-3">
+              <td class="px-4 py-3 max-w-0 w-full">
                 <div class="flex items-center justify-between">
                   <%= if entry.type == :directory do %>
                     <button
                       phx-click="navigate"
                       phx-value-path={Path.join(@current_dir, entry.name)}
-                      class="flex items-center gap-2 font-mono text-[0.85rem] text-[#03b6d4] hover:underline"
+                      class="flex items-center gap-2 font-mono text-[0.85rem] text-[#03b6d4] hover:underline min-w-0"
+                      title={entry.name}
                     >
-                      <svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+                      <svg
+                        class="w-4 h-4 text-amber-500 shrink-0"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
                         <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
                       </svg>
-                      {entry.name}
+                      <span class="truncate">{entry.name}</span>
                     </button>
                   <% else %>
-                    <span class="flex items-center gap-2 font-mono text-[0.85rem] text-black">
-                      <.file_icon name={entry.name} class={"w-4 h-4 #{file_icon_color(entry.name)}"} />
-                      {entry.name}
+                    <span
+                      class="flex items-center gap-2 font-mono text-[0.85rem] text-black min-w-0"
+                      title={entry.name}
+                    >
+                      <.file_icon
+                        name={entry.name}
+                        class={"w-4 h-4 shrink-0 #{file_icon_color(entry.name)}"}
+                      />
+                      <span class="truncate">{entry.name}</span>
                     </span>
                   <% end %>
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
@@ -530,11 +541,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     </button>
                     <button
                       :if={
-                        entry.type == :file and
-                          Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?
+                        entry.type == :directory or
+                          (entry.type == :file and
+                             Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?)
                       }
                       phx-click="share_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
+                      phx-value-type={entry.type}
                       class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
                       title="Share with roles"
                     >
@@ -571,8 +584,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   </div>
                 </div>
               </td>
-              <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3">
-                {if entry.type == :file, do: format_size(entry.size), else: "—"}
+              <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3 w-24 whitespace-nowrap">
+                <%= if entry.type == :file do %>
+                  {format_size(entry.size)}
+                <% else %>
+                  <% folder_stats = Map.get(@ingestion_map, entry.name) %>
+                  {if folder_stats && folder_stats.total_size > 0,
+                    do: format_size(folder_stats.total_size),
+                    else: "—"}
+                <% end %>
               </td>
               <td class="px-4 py-3">
                 <%= if entry.type == :file do %>
@@ -580,27 +600,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     Map.get(@ingestion_map, entry.name, %{
                       ingested_at: nil,
                       stale?: false,
-                      shared_role_ids: [],
+                      permissions_count: 0,
                       can_share?: false
                     }) %>
                   <%= cond do %>
                     <% status.job_status == "processing" -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit animate-pulse">
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap animate-pulse">
                         processing
                       </span>
                     <% status.job_status == "pending" -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-black/5 text-black/40 w-fit">
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-black/5 text-black/40 w-fit whitespace-nowrap">
                         pending
                       </span>
                     <% status.job_status == "failed" -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-red-100 text-red-600 w-fit">
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-red-100 text-red-600 w-fit whitespace-nowrap">
                         failed
                       </span>
                     <% status.stale? -> %>
                       <div class="flex flex-col gap-0.5">
-                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit">
+                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap">
                           <svg
-                            class="w-3 h-3"
+                            class="w-3 h-3 shrink-0"
                             fill="none"
                             stroke="currentColor"
                             stroke-width="2"
@@ -614,16 +634,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                           </svg>
                           stale
                         </span>
-                        <span class="font-mono text-[0.6rem] text-black/30">
+                        <span class="font-mono text-[0.6rem] text-black/30 whitespace-nowrap">
                           {format_datetime(status.ingested_at)}
                         </span>
                       </div>
                     <% status.ingested_at != nil -> %>
                       <div class="flex flex-col gap-0.5">
                         <div class="flex items-center gap-1 flex-wrap">
-                          <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                          <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 whitespace-nowrap">
                             <svg
-                              class="w-3 h-3"
+                              class="w-3 h-3 shrink-0"
                               fill="none"
                               stroke="currentColor"
                               stroke-width="2"
@@ -634,12 +654,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                             ingested
                           </span>
                           <span
-                            :if={status.shared_role_ids != []}
-                            class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
-                            title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                            :if={status.permissions_count > 0}
+                            class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default whitespace-nowrap"
+                            title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                           >
                             <svg
-                              class="w-3 h-3"
+                              class="w-3 h-3 shrink-0"
                               fill="none"
                               stroke="currentColor"
                               stroke-width="2"
@@ -654,7 +674,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                             shared
                           </span>
                         </div>
-                        <span class="font-mono text-[0.6rem] text-black/30">
+                        <span class="font-mono text-[0.6rem] text-black/30 whitespace-nowrap">
                           {format_datetime(status.ingested_at)}
                         </span>
                       </div>
@@ -662,12 +682,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       <div class="flex items-center gap-1 flex-wrap">
                         <span class="font-mono text-[0.65rem] text-black/20">—</span>
                         <span
-                          :if={status.shared_role_ids != []}
-                          class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
-                          title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                          :if={status.permissions_count > 0}
+                          class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default whitespace-nowrap"
+                          title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                         >
                           <svg
-                            class="w-3 h-3"
+                            class="w-3 h-3 shrink-0"
                             fill="none"
                             stroke="currentColor"
                             stroke-width="2"
@@ -684,10 +704,31 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       </div>
                   <% end %>
                 <% else %>
-                  <span class="font-mono text-[0.65rem] text-black/20">—</span>
+                  <% folder_stats = Map.get(@ingestion_map, entry.name) %>
+                  <%= cond do %>
+                    <% folder_stats && folder_stats.file_count > 0 && folder_stats.ingested_count == folder_stats.file_count -> %>
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 w-fit whitespace-nowrap">
+                        <svg
+                          class="w-3 h-3 shrink-0"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        all ingested
+                      </span>
+                    <% folder_stats && folder_stats.ingested_count > 0 -> %>
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap">
+                        {folder_stats.ingested_count}/{folder_stats.file_count} ingested
+                      </span>
+                    <% true -> %>
+                      <span class="font-mono text-[0.65rem] text-black/20">—</span>
+                  <% end %>
                 <% end %>
               </td>
-              <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3 text-right">
+              <td class="hidden xl:table-cell font-mono text-[0.78rem] text-black/40 px-4 py-3 text-right whitespace-nowrap">
                 {format_datetime(entry.modified_at)}
               </td>
             </tr>
@@ -762,7 +803,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
-  attr :all_roles, :list, default: []
 
   def file_grid_view(assigns) do
     ~H"""
@@ -870,11 +910,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </button>
             <button
               :if={
-                entry.type == :file and
-                  Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?
+                entry.type == :directory or
+                  (entry.type == :file and
+                     Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?)
               }
               phx-click="share_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
+              phx-value-type={entry.type}
               class="p-1 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
               title="Share with roles"
             >
@@ -963,18 +1005,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       ingested
                     </span>
                     <span
-                      :if={status.shared_role_ids != []}
+                      :if={status.permissions_count > 0}
                       class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
-                      title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                      title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                     >
                       shared
                     </span>
                   </div>
                 <% true -> %>
                   <span
-                    :if={status.shared_role_ids != []}
+                    :if={status.permissions_count > 0}
                     class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default mt-1"
-                    title={"Shared with: #{@all_roles |> Enum.filter(&(&1.id in status.shared_role_ids)) |> Enum.map(& &1.name) |> Enum.join(", ")}"}
+                    title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                   >
                     shared
                   </span>
@@ -1661,18 +1703,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   attr :modal_name, :string, required: true
   attr :modal_error, :string, default: nil
-  attr :all_roles, :list, required: true
-  attr :share_modal_role_ids, :list, required: true
+  attr :share_modal_is_folder, :boolean, default: false
+  attr :share_modal_permissions, :list, required: true
+  attr :share_modal_targets_options, :list, required: true
+  attr :share_modal_pending, :list, required: true
 
   def modal_share(assigns) do
     ~H"""
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div class="bg-white rounded-2xl shadow-xl border border-black/[0.06] w-full max-w-md mx-4 overflow-hidden">
-        <div class="px-6 py-5 border-b border-black/[0.06] bg-[#fafafa] flex items-center justify-between">
+      <div class="bg-white rounded-2xl shadow-xl border border-black/[0.06] w-full max-w-lg mx-4 flex flex-col max-h-[90vh]">
+        <%!-- Header --%>
+        <div class="px-6 py-5 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl flex items-center justify-between shrink-0">
           <div>
-            <h3 class="font-mono text-[0.9rem] font-bold text-black">Share with Roles</h3>
+            <h3 class="font-mono text-[0.9rem] font-bold text-black">Share with People & Teams</h3>
             <p class="font-mono text-[0.72rem] text-black/40 mt-0.5 truncate max-w-xs">
               {@modal_name}
+            </p>
+            <p
+              :if={@share_modal_is_folder}
+              class="font-mono text-[0.68rem] text-[#03b6d4] mt-0.5"
+            >
+              Permissions will apply to all documents inside this folder
             </p>
           </div>
           <button
@@ -1691,50 +1742,127 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           </button>
         </div>
 
-        <div class="px-6 py-5">
-          <p class="font-mono text-[0.72rem] text-black/40 mb-4">
-            {if @share_modal_role_ids == [],
-              do: "Private — only the ingesting role can access this file.",
-              else: "Shared with #{length(@share_modal_role_ids)} role(s)."}
-          </p>
-
-          <p :if={@all_roles == []} class="font-mono text-[0.78rem] text-black/30 italic">
-            No roles defined yet.
-          </p>
-
-          <div class="flex flex-wrap gap-2">
-            <label
-              :for={role <- @all_roles}
-              class={[
-                "flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all select-none",
-                if(role.id in @share_modal_role_ids,
-                  do: "border-[#03b6d4] bg-[#03b6d4]/5 text-[#03b6d4]",
-                  else: "border-black/10 bg-[#fafafa] text-black/50 hover:border-black/20"
-                )
-              ]}
-            >
-              <input
-                type="checkbox"
-                checked={role.id in @share_modal_role_ids}
-                phx-click="toggle_share_role"
-                phx-value-role_id={role.id}
-                class="hidden"
-              />
-              <span class={[
-                "w-2 h-2 rounded-full shrink-0",
-                if(role.id in @share_modal_role_ids, do: "bg-[#03b6d4]", else: "bg-black/20")
-              ]}>
-              </span>
-              <span class="font-mono text-[0.82rem] font-medium">{role.name}</span>
-            </label>
+        <%!-- Scrollable: existing permissions + pending list --%>
+        <div class="px-6 py-5 space-y-4 overflow-y-auto max-h-[40vh]">
+          <%!-- Existing permissions --%>
+          <div :if={@share_modal_permissions != []}>
+            <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
+              Current permissions
+            </p>
+            <div class="space-y-2">
+              <div
+                :for={perm <- @share_modal_permissions}
+                class="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-black/10 bg-[#fafafa]"
+              >
+                <div class="flex-1 min-w-0">
+                  <span class="font-mono text-[0.82rem] text-black/80 truncate block">
+                    {if perm.person,
+                      do: "#{perm.person.full_name} (#{perm.person.email})",
+                      else: "team: #{perm.team && perm.team.name}"}
+                  </span>
+                  <div class="flex gap-1 mt-1">
+                    <span
+                      :for={right <- perm.access_rights}
+                      class="font-mono text-[0.65rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4]"
+                    >
+                      {right}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  phx-click="remove_permission"
+                  phx-value-id={perm.id}
+                  class="text-black/20 hover:text-red-400 transition-colors shrink-0"
+                >
+                  <svg
+                    class="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
 
-          <p :if={@modal_error} class="font-mono text-[0.72rem] text-red-500 mt-3">
-            {@modal_error}
-          </p>
+          <%!-- Pending list --%>
+          <div :if={@share_modal_pending != []}>
+            <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
+              To be added
+            </p>
+            <div class="space-y-3">
+              <div
+                :for={{entry, idx} <- Enum.with_index(@share_modal_pending)}
+                class="px-3 py-3 rounded-xl border border-[#03b6d4]/30 bg-[#03b6d4]/5"
+              >
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-mono text-[0.82rem] text-black/80 truncate">{entry.name}</span>
+                  <button
+                    phx-click="remove_pending"
+                    phx-value-index={idx}
+                    class="text-black/20 hover:text-red-400 transition-colors"
+                  >
+                    <svg
+                      class="w-3.5 h-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <label
+                    :for={right <- ~w(read write update delete)}
+                    class={[
+                      "flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-all select-none text-[0.72rem] font-mono",
+                      if(right in entry.access_rights,
+                        do: "border-[#03b6d4] bg-[#03b6d4]/10 text-[#03b6d4]",
+                        else: "border-black/10 bg-white text-black/40 hover:border-black/20"
+                      )
+                    ]}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={right in entry.access_rights}
+                      phx-click="toggle_permission_right"
+                      phx-value-index={idx}
+                      phx-value-right={right}
+                      class="hidden"
+                    />
+                    {right}
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
+        <%!-- Add target — outside scroll so dropdown overflows freely --%>
+        <div class="px-6 pb-4 shrink-0">
+          <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
+            Add person or team
+          </p>
+          <form phx-change="add_permission_target">
+            <.searchable_select
+              id="share-target-select"
+              name="value"
+              value=""
+              options={@share_modal_targets_options}
+              placeholder="Search people or teams…"
+              empty_label="No matches"
+            />
+          </form>
+          <p :if={@modal_error} class="font-mono text-[0.72rem] text-red-500 mt-2">{@modal_error}</p>
+        </div>
+
+        <%!-- Footer --%>
+        <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] rounded-b-2xl flex items-center justify-end gap-2 shrink-0">
           <button
             phx-click="close_modal"
             class="font-mono text-[0.78rem] px-4 py-2 rounded-xl text-black/50 hover:bg-black/5 transition-colors"
@@ -1743,9 +1871,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           </button>
           <button
             phx-click="confirm_share"
-            class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+            class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all disabled:opacity-40"
+            disabled={@share_modal_pending == []}
           >
-            {if @share_modal_role_ids == [], do: "Make Private", else: "Share"}
+            Save Permissions
           </button>
         </div>
       </div>

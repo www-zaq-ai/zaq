@@ -90,9 +90,7 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
     case processor.store_chunk_with_metadata(
            chunk,
            ingest_job.document_id,
-           chunk_job.chunk_index,
-           ingest_job.role_id,
-           ingest_job.shared_role_ids
+           chunk_job.chunk_index
          ) do
       {:ok, _chunk} -> :ok
       {:error, reason} -> {:error, reason}
