@@ -6,6 +6,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Ingestion
+  alias Zaq.Ingestion.Document
 
   setup %{conn: conn} do
     user = admin_fixture(%{username: "people_live_admin_#{System.unique_integer([:positive])}"})
@@ -756,6 +758,39 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
     render_hook(view, "toggle_team", %{"team_id" => to_string(team.id)})
     refute team.id in People.get_person!(person.id).team_ids
+  end
+
+  test "selecting a person loads person_documents from permissions", %{conn: conn} do
+    person = person_fixture()
+
+    {:ok, doc} =
+      Document.create(%{source: "person-doc-#{person.id}.md", content: "doc"})
+
+    {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    state = :sys.get_state(view.pid)
+    person_documents = state.socket.assigns.person_documents
+    assert Enum.any?(person_documents, &(&1.person_id == person.id))
+  end
+
+  test "deselecting a person clears person_documents", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("[phx-click='deselect_person']") |> render_click()
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.person_documents == []
   end
 
   test "create_and_assign_team creates a team and assigns it", %{conn: conn} do

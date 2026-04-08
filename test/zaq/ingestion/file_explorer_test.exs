@@ -449,6 +449,35 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     end
   end
 
+  describe "folder_size/2 (volume-aware)" do
+    setup do
+      vol = Path.join(@test_base, "vol_size")
+      File.mkdir_p!(vol)
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      %{vol: vol}
+    end
+
+    test "returns total size of files recursively", %{vol: vol} do
+      File.write!(Path.join(vol, "a.txt"), "hello")
+      nested = Path.join(vol, "nested")
+      File.mkdir_p!(nested)
+      File.write!(Path.join(nested, "b.txt"), "world!")
+
+      size = FileExplorer.folder_size("docs", ".")
+      assert size == byte_size("hello") + byte_size("world!")
+    end
+
+    test "returns 0 for an empty folder", %{vol: _vol} do
+      assert FileExplorer.folder_size("docs", "empty_subdir") == 0
+    end
+
+    test "returns 0 for unknown volume" do
+      assert FileExplorer.folder_size("nonexistent", ".") == 0
+    end
+  end
+
   describe "create_directory/2 (volume-aware)" do
     setup do
       vol = Path.join(@test_base, "vol_mkdir")

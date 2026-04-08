@@ -158,6 +158,27 @@ defmodule Zaq.Agent.PipelineTest do
     end
   end
 
+  describe "run/2 team_ids lookup from People" do
+    test "completes without error when person_id is nil (no person lookup)" do
+      # incoming with nil person_id — should not crash
+      incoming = %Incoming{
+        content: "What is the answer?",
+        channel_id: "ch",
+        provider: :test,
+        person_id: nil
+      }
+
+      Pipeline.run(incoming, @base_opts)
+      assert_receive {:after_pipeline_complete, _}, 1000
+    end
+
+    test "run/2 with skip_permissions opt propagates without crashing" do
+      opts = Keyword.put(@base_opts, :skip_permissions, true)
+      result = Pipeline.run(@incoming, opts)
+      assert %Outgoing{} = result
+    end
+  end
+
   describe "run/2 return type" do
     test "returns %Outgoing{} with body from pipeline answer" do
       result = Pipeline.run(@incoming, @base_opts)

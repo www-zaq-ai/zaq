@@ -3,6 +3,7 @@ defmodule Zaq.IngestionTest do
 
   import Mox
 
+  alias Zaq.Accounts.People
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer, IngestChunkJob, IngestJob}
   alias Zaq.Repo
@@ -580,6 +581,291 @@ defmodule Zaq.IngestionTest do
       assert Document.get_by_source(source_source) == nil
       assert Document.get_by_source(sidecar_source) == nil
       refute File.exists?(Path.join(root, sidecar_file))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Permission helpers
+  # ---------------------------------------------------------------------------
+
+  defp create_person(attrs \\ %{}) do
+    unique = System.unique_integer([:positive])
+
+    {:ok, person} =
+      People.create_person(
+        Map.merge(
+          %{"full_name" => "Test Person #{unique}", "email" => "person#{unique}@test.com"},
+          attrs
+        )
+      )
+
+    person
+  end
+
+  defp create_team(attrs \\ %{}) do
+    {:ok, team} =
+      People.create_team(Map.merge(%{name: "Team #{System.unique_integer([:positive])}"}, attrs))
+
+    team
+  end
+
+  defp create_doc_with_source(source) do
+    {:ok, doc} = Document.create(%{source: source, content: "content"})
+    doc
+  end
+
+  # ---------------------------------------------------------------------------
+  # Permission schema (changeset tests live in permission_test.exs, but we
+  # test the public Ingestion context functions here)
+  # ---------------------------------------------------------------------------
+
+  describe "set_document_permission/4 and list_document_permissions/1" do
+    test "creates a person permission" do
+      doc = create_doc_with_source("perm-test-person.md")
+      person = create_person()
+
+      assert {:ok, perm} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+      assert perm.person_id == person.id
+      assert perm.access_rights == ["read"]
+
+      perms = Ingestion.list_document_permissions(doc.id)
+      assert length(perms) == 1
+      assert hd(perms).person_id == person.id
+    end
+
+    test "creates a team permission" do
+      doc = create_doc_with_source("perm-test-team.md")
+      team = create_team()
+
+      assert {:ok, perm} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+      assert perm.team_id == team.id
+    end
+
+    test "upserts — updating existing permission changes access_rights" do
+      doc = create_doc_with_source("perm-upsert.md")
+      person = create_person()
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      {:ok, updated} =
+        Ingestion.set_document_permission(doc.id, :person, person.id, ["read", "write"])
+
+      assert updated.access_rights == ["read", "write"]
+      assert length(Ingestion.list_document_permissions(doc.id)) == 1
+    end
+  end
+
+  describe "delete_document_permission/1" do
+    test "deletes an existing permission" do
+      doc = create_doc_with_source("del-perm.md")
+      person = create_person()
+      {:ok, perm} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      assert {:ok, _} = Ingestion.delete_document_permission(perm.id)
+      assert Ingestion.list_document_permissions(doc.id) == []
+    end
+
+    test "returns error for missing permission" do
+      assert {:error, :not_found} = Ingestion.delete_document_permission(-1)
+    end
+  end
+
+  describe "list_person_permissions/1" do
+    test "returns permissions for a given person across documents" do
+      doc1 = create_doc_with_source("lpp-doc1.md")
+      doc2 = create_doc_with_source("lpp-doc2.md")
+      person = create_person()
+
+      {:ok, _} = Ingestion.set_document_permission(doc1.id, :person, person.id, ["read"])
+      {:ok, _} = Ingestion.set_document_permission(doc2.id, :person, person.id, ["read"])
+
+      perms = Ingestion.list_person_permissions(person.id)
+      assert length(perms) >= 2
+      assert Enum.all?(perms, &(&1.person_id == person.id))
+    end
+  end
+
+  describe "list_permitted_document_ids/3" do
+    test "returns doc ids accessible by person" do
+      doc = create_doc_with_source("permitted-person.md")
+      person = create_person()
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id])
+      assert doc.id in result
+    end
+
+    test "returns doc ids accessible by team" do
+      doc = create_doc_with_source("permitted-team.md")
+      team = create_team()
+      person = create_person()
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+
+      result = Ingestion.list_permitted_document_ids(person.id, [team.id], [doc.id])
+      assert doc.id in result
+    end
+
+    test "excludes doc ids without any matching permission" do
+      doc = create_doc_with_source("not-permitted.md")
+      person = create_person()
+
+      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id])
+      refute doc.id in result
+    end
+  end
+
+  describe "get_document_by_source!/1" do
+    test "returns document when it exists" do
+      doc = create_doc_with_source("get-doc-by-source.md")
+      found = Ingestion.get_document_by_source!("get-doc-by-source.md")
+      assert found.id == doc.id
+    end
+
+    test "raises when document not found" do
+      assert_raise RuntimeError, fn ->
+        Ingestion.get_document_by_source!("definitely-missing-#{System.unique_integer()}.md")
+      end
+    end
+  end
+
+  describe "list_documents_under_folder/2" do
+    test "returns documents whose source starts with the given prefix" do
+      folder = "vol/mydir"
+      doc1 = create_doc_with_source("#{folder}/file1.md")
+      doc2 = create_doc_with_source("#{folder}/nested/file2.md")
+      _other = create_doc_with_source("other/file.md")
+
+      results = Ingestion.list_documents_under_folder("vol", "mydir")
+      ids = Enum.map(results, & &1.id)
+
+      assert doc1.id in ids
+      assert doc2.id in ids
+    end
+  end
+
+  describe "list_folder_permissions/2" do
+    test "returns unique permissions across all docs under a folder" do
+      folder = "vol_fp/folder"
+      doc1 = create_doc_with_source("#{folder}/a.md")
+      doc2 = create_doc_with_source("#{folder}/b.md")
+      person = create_person()
+
+      {:ok, _} = Ingestion.set_document_permission(doc1.id, :person, person.id, ["read"])
+      {:ok, _} = Ingestion.set_document_permission(doc2.id, :person, person.id, ["read"])
+
+      perms = Ingestion.list_folder_permissions("vol_fp", "folder")
+      person_perms = Enum.filter(perms, &(&1.person_id == person.id))
+      assert length(person_perms) == 1
+    end
+  end
+
+  describe "delete_folder_target_permission/3" do
+    test "deletes all permissions for the same person across docs in folder" do
+      folder = "vol_dfp/folder"
+      doc1 = create_doc_with_source("#{folder}/a.md")
+      doc2 = create_doc_with_source("#{folder}/b.md")
+      person = create_person()
+
+      {:ok, perm1} = Ingestion.set_document_permission(doc1.id, :person, person.id, ["read"])
+      {:ok, _perm2} = Ingestion.set_document_permission(doc2.id, :person, person.id, ["read"])
+
+      assert {:ok, 2} = Ingestion.delete_folder_target_permission("vol_dfp", "folder", perm1.id)
+      assert Ingestion.list_document_permissions(doc1.id) == []
+      assert Ingestion.list_document_permissions(doc2.id) == []
+    end
+
+    test "returns error when permission not found" do
+      assert {:error, :not_found} =
+               Ingestion.delete_folder_target_permission("vol", "folder", -1)
+    end
+  end
+
+  describe "can_access_file?/2" do
+    test "returns true when document has no permissions set (public by default)" do
+      source = "public-doc-#{System.unique_integer()}.md"
+      _doc = create_doc_with_source(source)
+      person = create_person()
+      role = %Zaq.Accounts.Role{name: "staff"}
+      user = %{role: role, person_id: person.id, team_ids: []}
+
+      assert Ingestion.can_access_file?(source, user) == true
+    end
+
+    test "returns true when no document exists for the path" do
+      person = create_person()
+      role = %Zaq.Accounts.Role{name: "staff"}
+      user = %{role: role, person_id: person.id, team_ids: []}
+
+      assert Ingestion.can_access_file?("no-such-file-#{System.unique_integer()}.md", user) ==
+               true
+    end
+
+    test "super_admin bypasses all permission checks" do
+      source = "restricted-#{System.unique_integer()}.md"
+      doc = create_doc_with_source(source)
+      person = create_person()
+      other_person = create_person()
+      role = %Zaq.Accounts.Role{name: "super_admin"}
+      user = %{role: role, person_id: other_person.id, team_ids: []}
+
+      # Set a permission for a different person — super_admin still gets in
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      assert Ingestion.can_access_file?(source, user) == true
+    end
+
+    test "person with direct permission can access" do
+      source = "restricted-person-#{System.unique_integer()}.md"
+      doc = create_doc_with_source(source)
+      person = create_person()
+      role = %Zaq.Accounts.Role{name: "staff"}
+      user = %{role: role, person_id: person.id, team_ids: []}
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      assert Ingestion.can_access_file?(source, user) == true
+    end
+
+    test "person with team permission can access" do
+      source = "restricted-team-#{System.unique_integer()}.md"
+      doc = create_doc_with_source(source)
+      person = create_person()
+      team = create_team()
+      role = %Zaq.Accounts.Role{name: "staff"}
+      user = %{role: role, person_id: person.id, team_ids: [team.id]}
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+
+      assert Ingestion.can_access_file?(source, user) == true
+    end
+
+    test "person without any matching permission is denied" do
+      source = "no-access-#{System.unique_integer()}.md"
+      doc = create_doc_with_source(source)
+      other_person = create_person()
+      denied_person = create_person()
+      role = %Zaq.Accounts.Role{name: "staff"}
+      user = %{role: role, person_id: denied_person.id, team_ids: []}
+
+      # Only other_person has permission
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, other_person.id, ["read"])
+
+      assert Ingestion.can_access_file?(source, user) == false
+    end
+  end
+
+  describe "source_for/2" do
+    test "returns document source when document exists for the path" do
+      source = "vol/file.md"
+      _doc = create_doc_with_source(source)
+
+      result = Ingestion.source_for("vol", "file.md")
+      assert result == source
+    end
+
+    test "returns normalized relative path when no document exists" do
+      result = Ingestion.source_for("vol", "missing-#{System.unique_integer()}.md")
+      assert is_binary(result)
     end
   end
 

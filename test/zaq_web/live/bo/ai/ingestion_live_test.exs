@@ -1294,5 +1294,82 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       pending = :sys.get_state(view.pid).socket.assigns.share_modal_pending
       assert length(pending) == 1
     end
+
+    test "remove_pending removes an entry from share_modal_pending", %{view: view, person: person} do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+
+      render_hook(view, "remove_pending", %{"index" => "0"})
+
+      pending = :sys.get_state(view.pid).socket.assigns.share_modal_pending
+      assert pending == []
+    end
+
+    test "add_permission_target with invalid value is a no-op", %{view: view} do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "invalid_value"})
+
+      pending = :sys.get_state(view.pid).socket.assigns.share_modal_pending
+      assert pending == []
+    end
+
+    test "remove_permission for folder deletes across all docs", %{
+      view: view,
+      person: person
+    } do
+      unique = System.unique_integer([:positive])
+      {:ok, doc1} = Document.create(%{source: "folder-#{unique}/a.md", content: "a"})
+      {:ok, doc2} = Document.create(%{source: "folder-#{unique}/b.md", content: "b"})
+
+      {:ok, perm1} = Zaq.Ingestion.set_document_permission(doc1.id, :person, person.id, ["read"])
+      {:ok, _} = Zaq.Ingestion.set_document_permission(doc2.id, :person, person.id, ["read"])
+
+      render_hook(view, "share_item", %{
+        "path" => "folder-#{unique}",
+        "type" => "directory"
+      })
+
+      render_hook(view, "remove_permission", %{"id" => to_string(perm1.id)})
+
+      assert Zaq.Ingestion.list_document_permissions(doc1.id) == []
+      assert Zaq.Ingestion.list_document_permissions(doc2.id) == []
+    end
+
+    test "confirm_share for folder persists permissions to all docs", %{
+      view: view,
+      person: person
+    } do
+      unique = System.unique_integer([:positive])
+      {:ok, doc1} = Document.create(%{source: "sharedir-#{unique}/x.md", content: "x"})
+      {:ok, doc2} = Document.create(%{source: "sharedir-#{unique}/y.md", content: "y"})
+
+      render_hook(view, "share_item", %{
+        "path" => "sharedir-#{unique}",
+        "type" => "directory"
+      })
+
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+      render_hook(view, "confirm_share", %{})
+
+      refute has_element?(view, "button", "Save Permissions")
+      assert [_] = Zaq.Ingestion.list_document_permissions(doc1.id)
+      assert [_] = Zaq.Ingestion.list_document_permissions(doc2.id)
+    end
+  end
+
+  describe "file_url/1" do
+    alias ZaqWeb.Live.BO.AI.IngestionLive
+
+    test "returns /bo/files/ prefixed URL" do
+      assert IngestionLive.file_url("docs/guide.md") == "/bo/files/docs/guide.md"
+    end
+
+    test "strips leading ./ from path" do
+      assert IngestionLive.file_url("./report.pdf") == "/bo/files/report.pdf"
+    end
+
+    test "handles simple filename" do
+      assert IngestionLive.file_url("file.txt") == "/bo/files/file.txt"
+    end
   end
 end

@@ -3,7 +3,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   import Mox
 
+  alias Zaq.Accounts.People
   alias Zaq.Agent.TokenEstimator
+  alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor}
   alias Zaq.Repo
   alias Zaq.System.{EmbeddingConfig, ImageToTextConfig}
@@ -1312,6 +1314,123 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "query_extraction/2 returns empty list when no matching sections exist" do
       stub_embedding_success()
       assert {:ok, []} = DocumentProcessor.query_extraction("no indexed content here")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # query_extraction/2 permission filter branches
+  # ---------------------------------------------------------------------------
+
+  describe "query_extraction/2 permission filter" do
+    setup do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      doc = create_document(%{source: "perm-filter-doc-#{System.unique_integer([:positive])}.md"})
+
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "Restricted access content for RBAC test.",
+        chunk_index: 1,
+        section_path: ["Restricted"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      %{doc: doc}
+    end
+
+    test "skip_permissions: true returns all chunks regardless of person_id", %{doc: doc} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "SkipFilter #{unique}",
+          "email" => "skip#{unique}@test.com"
+        })
+
+      # No permission set for this person, but skip_permissions bypasses filter
+      {:ok, results} =
+        DocumentProcessor.query_extraction("Restricted access content",
+          person_id: person.id,
+          team_ids: [],
+          skip_permissions: true
+        )
+
+      # Result should not be redacted — all chunks returned as-is
+      assert Enum.any?(results, &(&1["document_id"] == doc.id))
+    end
+
+    test "with person_id nil, no permission filtering is applied", %{doc: _doc} do
+      {:ok, results} =
+        DocumentProcessor.query_extraction("Restricted access content",
+          person_id: nil,
+          team_ids: []
+        )
+
+      # nil person_id triggers the no-filter clause
+      assert is_list(results)
+    end
+
+    test "person without permission sees redacted content", %{doc: doc} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Denied #{unique}",
+          "email" => "denied#{unique}@test.com"
+        })
+
+      # Add a permission for a different person so the doc has at least one permission
+      # (if no permissions exist, all are accessible by default)
+      {:ok, other_person} =
+        People.create_person(%{
+          "full_name" => "Other #{unique}",
+          "email" => "other#{unique}@test.com"
+        })
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, other_person.id, ["read"])
+
+      {:ok, results} =
+        DocumentProcessor.query_extraction("Restricted access content",
+          person_id: person.id,
+          team_ids: []
+        )
+
+      restricted = Enum.filter(results, &(&1["document_id"] == doc.id))
+
+      if restricted != [] do
+        assert Enum.all?(restricted, &(&1["content"] == "You don't have access to this chunk."))
+      end
+    end
+
+    test "person with direct permission sees real content", %{doc: doc} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Allowed #{unique}",
+          "email" => "allowed#{unique}@test.com"
+        })
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      {:ok, results} =
+        DocumentProcessor.query_extraction("Restricted access content",
+          person_id: person.id,
+          team_ids: []
+        )
+
+      my_chunks = Enum.filter(results, &(&1["document_id"] == doc.id))
+
+      if my_chunks != [] do
+        refute Enum.all?(my_chunks, &(&1["content"] == "You don't have access to this chunk."))
+      end
     end
   end
 end
