@@ -6,6 +6,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   alias Mailroom.IMAP
   alias Mailroom.IMAP.Envelope
   alias Zaq.Channels.EmailBridge.ImapAdapter.{Listener, Parser}
+  alias Zaq.Channels.EmailBridge.ImapConfigHelpers
 
   @fetch_items [:uid, :envelope, :rfc822, :header]
   @default_idle_timeout 1_500_000
@@ -32,10 +33,10 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
         try do
           case IMAP.list(client) do
             {:ok, list} when is_list(list) ->
-              {:ok, normalize_mailboxes(list)}
+              {:ok, ImapConfigHelpers.normalize_mailbox_names(list)}
 
             list when is_list(list) ->
-              {:ok, normalize_mailboxes(list)}
+              {:ok, ImapConfigHelpers.normalize_mailbox_names(list)}
 
             other ->
               {:error, {:list_mailboxes_failed, other}}
@@ -56,22 +57,6 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   rescue
     error -> {:error, {:connect_failed, Exception.format(:error, error, __STACKTRACE__)}}
   end
-
-  defp normalize_mailboxes(raw_mailboxes) when is_list(raw_mailboxes) do
-    raw_mailboxes
-    |> Enum.map(&mailbox_name/1)
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
-  defp mailbox_name({mailbox, _delimiter, _flags}) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(%{mailbox: mailbox}) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(%{"mailbox" => mailbox}) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(mailbox) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(_), do: nil
 
   @spec fetch_unseen(pid(), String.t(), (map() -> any())) :: :ok | {:error, term()}
   def fetch_unseen(client, mailbox, on_message) when is_pid(client) and is_binary(mailbox) do
@@ -379,46 +364,13 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   defp load_initial_unread?(config), do: config_get(config, :load_initial_unread, false) == true
 
   defp selected_mailboxes(config) do
-    selected =
-      case config_get(config, :selected_mailboxes) do
-        nil -> imap_setting(config, :selected_mailboxes)
-        value -> value
-      end
-
-    selected
-    |> List.wrap()
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
+    ImapConfigHelpers.selected_mailboxes_for_listener(config)
   end
 
   defp config_get(config, key, default \\ nil)
 
-  defp config_get(config, key, default) when is_map(config) and is_atom(key) do
-    case Map.get(config, key) do
-      nil ->
-        case Map.get(config, Atom.to_string(key)) do
-          nil -> imap_setting(config, key, default)
-          value -> value
-        end
-
-      value ->
-        value
-    end
-  end
+  defp config_get(config, key, default) when is_map(config) and is_atom(key),
+    do: ImapConfigHelpers.get(config, key, default)
 
   defp config_get(_config, _key, default), do: default
-
-  defp imap_setting(config, key, default \\ nil) when is_map(config) and is_atom(key) do
-    with settings when is_map(settings) <-
-           Map.get(config, :settings) || Map.get(config, "settings"),
-         imap when is_map(imap) <- Map.get(settings, :imap) || Map.get(settings, "imap") do
-      case Map.fetch(imap, key) do
-        {:ok, value} -> value
-        :error -> Map.get(imap, Atom.to_string(key), default)
-      end
-    else
-      _ -> default
-    end
-  end
 end

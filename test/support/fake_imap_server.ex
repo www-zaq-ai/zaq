@@ -1,6 +1,21 @@
 defmodule Zaq.TestSupport.FakeImapServer do
   use GenServer
 
+  @moduledoc """
+  In-memory fake IMAP server used by tests.
+  """
+
+  @command_atoms %{
+    "LOGIN" => :login,
+    "SELECT" => :select,
+    "LIST" => :list,
+    "SEARCH" => :search,
+    "FETCH" => :fetch,
+    "STORE" => :store,
+    "IDLE" => :idle,
+    "LOGOUT" => :logout
+  }
+
   @default_message %{
     uid: 101,
     subject: "Support request",
@@ -255,109 +270,109 @@ defmodule Zaq.TestSupport.FakeImapServer do
   defp dispatch_command(tag, command, rest, raw, state) do
     command = String.upcase(command)
     notify_command(state.server, command, raw)
+    run_command(command, tag, rest, state)
+  end
 
-    case command do
-      "LOGIN" ->
-        _ = :gen_tcp.send(state.socket, "#{tag} OK LOGIN completed\r\n")
-        state
+  defp run_command("LOGIN", tag, _rest, state) do
+    _ = :gen_tcp.send(state.socket, "#{tag} OK LOGIN completed\r\n")
+    state
+  end
 
-      "SELECT" ->
-        _ = :gen_tcp.send(state.socket, "* FLAGS (\\Seen)\r\n")
-        _ = :gen_tcp.send(state.socket, "* 1 EXISTS\r\n")
-        _ = :gen_tcp.send(state.socket, "* 1 RECENT\r\n")
-        _ = :gen_tcp.send(state.socket, "* OK [UNSEEN 1] Message 1 is first unseen\r\n")
+  defp run_command("SELECT", tag, rest, state) do
+    _ = :gen_tcp.send(state.socket, "* FLAGS (\\Seen)\r\n")
+    _ = :gen_tcp.send(state.socket, "* 1 EXISTS\r\n")
+    _ = :gen_tcp.send(state.socket, "* 1 RECENT\r\n")
+    _ = :gen_tcp.send(state.socket, "* OK [UNSEEN 1] Message 1 is first unseen\r\n")
+
+    _ =
+      :gen_tcp.send(state.socket, "#{tag} OK [READ-WRITE] SELECT #{normalize_mailbox(rest)}\r\n")
+
+    state
+  end
+
+  defp run_command("LIST", tag, _rest, state) do
+    list_mailboxes(tag, state)
+    state
+  end
+
+  defp run_command("SEARCH", tag, _rest, state) do
+    send_search_response(state)
+    _ = :gen_tcp.send(state.socket, "#{tag} OK SEARCH completed\r\n")
+    state
+  end
+
+  defp run_command("FETCH", tag, _rest, state) do
+    send_fetch_response(tag, state)
+    state
+  end
+
+  defp run_command("STORE", tag, _rest, state) do
+    _ = GenServer.call(state.server, :mark_seen)
+    _ = :gen_tcp.send(state.socket, "* 1 FETCH (FLAGS (\\Seen))\r\n")
+    _ = :gen_tcp.send(state.socket, "#{tag} OK STORE completed\r\n")
+    state
+  end
+
+  defp run_command("IDLE", tag, _rest, state) do
+    _ = :gen_tcp.send(state.socket, "+ idling\r\n")
+    %{state | idle_tag: tag, idle_notified: false}
+  end
+
+  defp run_command("LOGOUT", tag, _rest, state) do
+    _ = :gen_tcp.send(state.socket, "* BYE Logging out\r\n")
+    _ = :gen_tcp.send(state.socket, "#{tag} OK LOGOUT completed\r\n")
+    state
+  end
+
+  defp run_command(command, tag, _rest, state) do
+    _ = :gen_tcp.send(state.socket, "#{tag} OK #{command} completed\r\n")
+    state
+  end
+
+  defp list_mailboxes(tag, state) do
+    case GenServer.call(state.server, :list_mode) do
+      :bad ->
+        _ = :gen_tcp.send(state.socket, "#{tag} BAD LIST failed\r\n")
+
+      _ ->
+        Enum.each(GenServer.call(state.server, :mailboxes), fn mailbox ->
+          _ = :gen_tcp.send(state.socket, "* LIST (\\HasNoChildren) \"/\" \"#{mailbox}\"\r\n")
+        end)
+
+        _ = :gen_tcp.send(state.socket, "#{tag} OK LIST completed\r\n")
+    end
+  end
+
+  defp send_search_response(state) do
+    case GenServer.call(state.server, :search_unseen) do
+      [] -> _ = :gen_tcp.send(state.socket, "* SEARCH\r\n")
+      numbers -> _ = :gen_tcp.send(state.socket, "* SEARCH #{Enum.join(numbers, " ")}\r\n")
+    end
+  end
+
+  defp send_fetch_response(tag, state) do
+    case GenServer.call(state.server, :fetch_mode) do
+      :broken ->
+        _ = :gen_tcp.send(state.socket, "* 1 FETCH (\r\n")
+        _ = :gen_tcp.send(state.socket, "#{tag} OK FETCH completed\r\n")
+
+      _ ->
+        message = GenServer.call(state.server, :message)
+        include_envelope = GenServer.call(state.server, :include_envelope)
+        include_header = GenServer.call(state.server, :include_header)
 
         _ =
           :gen_tcp.send(
             state.socket,
-            "#{tag} OK [READ-WRITE] SELECT #{normalize_mailbox(rest)}\r\n"
+            fetch_response(message, include_envelope, include_header)
           )
 
-        state
-
-      "LIST" ->
-        case GenServer.call(state.server, :list_mode) do
-          :bad ->
-            _ = :gen_tcp.send(state.socket, "#{tag} BAD LIST failed\r\n")
-
-          _ ->
-            Enum.each(GenServer.call(state.server, :mailboxes), fn mailbox ->
-              _ = :gen_tcp.send(state.socket, "* LIST (\\HasNoChildren) \"/\" \"#{mailbox}\"\r\n")
-            end)
-
-            _ = :gen_tcp.send(state.socket, "#{tag} OK LIST completed\r\n")
-        end
-
-        state
-
-      "SEARCH" ->
-        unseen = GenServer.call(state.server, :search_unseen)
-
-        case unseen do
-          [] -> _ = :gen_tcp.send(state.socket, "* SEARCH\r\n")
-          numbers -> _ = :gen_tcp.send(state.socket, "* SEARCH #{Enum.join(numbers, " ")}\r\n")
-        end
-
-        _ = :gen_tcp.send(state.socket, "#{tag} OK SEARCH completed\r\n")
-        state
-
-      "FETCH" ->
-        case GenServer.call(state.server, :fetch_mode) do
-          :broken ->
-            _ = :gen_tcp.send(state.socket, "* 1 FETCH (\r\n")
-            _ = :gen_tcp.send(state.socket, "#{tag} OK FETCH completed\r\n")
-
-          _ ->
-            message = GenServer.call(state.server, :message)
-            include_envelope = GenServer.call(state.server, :include_envelope)
-            include_header = GenServer.call(state.server, :include_header)
-
-            _ =
-              :gen_tcp.send(
-                state.socket,
-                fetch_response(message, include_envelope, include_header)
-              )
-
-            _ = :gen_tcp.send(state.socket, "#{tag} OK FETCH completed\r\n")
-        end
-
-        state
-
-      "STORE" ->
-        _ = GenServer.call(state.server, :mark_seen)
-        _ = :gen_tcp.send(state.socket, "* 1 FETCH (FLAGS (\\Seen))\r\n")
-        _ = :gen_tcp.send(state.socket, "#{tag} OK STORE completed\r\n")
-        state
-
-      "IDLE" ->
-        _ = :gen_tcp.send(state.socket, "+ idling\r\n")
-        %{state | idle_tag: tag, idle_notified: false}
-
-      "LOGOUT" ->
-        _ = :gen_tcp.send(state.socket, "* BYE Logging out\r\n")
-        _ = :gen_tcp.send(state.socket, "#{tag} OK LOGOUT completed\r\n")
-        state
-
-      _ ->
-        _ = :gen_tcp.send(state.socket, "#{tag} OK #{command} completed\r\n")
-        state
+        _ = :gen_tcp.send(state.socket, "#{tag} OK FETCH completed\r\n")
     end
   end
 
   defp notify_command(server, command, raw) do
-    atom =
-      case command do
-        "LOGIN" -> :login
-        "SELECT" -> :select
-        "LIST" -> :list
-        "SEARCH" -> :search
-        "FETCH" -> :fetch
-        "STORE" -> :store
-        "IDLE" -> :idle
-        "LOGOUT" -> :logout
-        _ -> :other
-      end
-
+    atom = Map.get(@command_atoms, command, :other)
     send(server, {:command, atom, raw})
   end
 
@@ -377,7 +392,7 @@ defmodule Zaq.TestSupport.FakeImapServer do
     parts =
       if include_envelope do
         [
-          "ENVELOPE (\"Mon, 07 Apr 2026 10:00:00 +0000\" \"#{subject}\" ((\"#{from_name}\" NIL \"#{from_mailbox}\" \"#{from_host}\")) NIL NIL NIL NIL NIL \"#{in_reply_to}\" \"#{message_id}\")"
+          ~s|ENVELOPE ("Mon, 07 Apr 2026 10:00:00 +0000" "#{subject}" (("#{from_name}" NIL "#{from_mailbox}" "#{from_host}")) NIL NIL NIL NIL NIL "#{in_reply_to}" "#{message_id}")|
           | parts
         ]
       else

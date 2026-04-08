@@ -226,9 +226,19 @@ When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
 
 `Zaq.Channels.EmailBridge.ImapAdapter` owns IMAP-specific behavior:
 
-- Builds runtime specs (`runtime_specs/3`) including state + per-mailbox listeners.
-- Runs connection/select/fetch/IDLE operations through Mailroom.
-- Converts IMAP payloads to `%Incoming{}` through adapter-owned parser/threading modules.
+- Runtime model: one `Zaq.Channels.EmailBridge.ImapAdapter.Listener` GenServer per selected mailbox (`state_pid` is `nil` for this runtime).
+- Config shape: reads IMAP values from top-level config and `settings["imap"]` (`url`, `username`, `token`/`password`, `port`, `ssl`, `ssl_depth`, `timeout`, `idle_timeout`, `poll_interval`, `mark_as_read`, `load_initial_unread`, `selected_mailboxes`).
+- Mailbox selection: if `selected_mailboxes` is empty, runtime can start but no listener children are created, so no inbound messages are consumed.
+- Lifecycle: listener boot is `:connect -> optional initial unread fetch -> IDLE`; each `:idle_notify` fetches unseen messages, dispatches sink callback, optionally marks as read, then re-enters IDLE.
+- Error handling: connect/fetch/IDLE re-entry failures and IMAP client exits are logged, client state is cleared, and reconnect is scheduled with `poll_interval` fallback (`30_000ms` default).
+- IDLE timeout: `idle_timeout` defaults to `1_500_000ms` (25 minutes) when missing/invalid and is reused for each IDLE re-entry.
+- Security: IMAP auth uses stored connector credentials (encrypted `channel_configs.token`), TLS is on by default (`ssl != false`), and logs avoid credential values.
+
+#### Email Threading Semantics
+
+- `thread_key`: stable conversation root key (`References` first id -> `In-Reply-To` -> `Message-ID`) used by `Conversations` for grouping.
+- `thread_id`: nearest parent/current reply identity (`In-Reply-To` -> last `References` id -> `Message-ID`) kept in metadata for reply/header continuity.
+- Parser stores both in `incoming.metadata["email"]`; conversation lookup prioritizes `thread_key`.
 
 ### SMTP Helpers (`Zaq.Channels.SmtpHelpers`)
 

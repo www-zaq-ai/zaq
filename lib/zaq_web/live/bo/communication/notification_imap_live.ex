@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   require Logger
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.Router
   alias Zaq.NodeRouter
   alias Zaq.System.ImapConfig
@@ -160,7 +161,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
         message = format_load_error(reason)
 
         Logger.error(
-          "[NotificationImapLive] mailbox load failed provider=#{@imap_provider} url=#{inspect(map_get(config, :url))} ssl=#{inspect(map_get(config, :ssl))} port=#{inspect(map_get(config, :port))} username=#{inspect(map_get(config, :username))} reason=#{inspect(reason)}"
+          "[NotificationImapLive] mailbox load failed provider=#{@imap_provider} url=#{inspect(ImapConfigHelpers.get(config, :url))} ssl=#{inspect(ImapConfigHelpers.get(config, :ssl))} port=#{inspect(ImapConfigHelpers.get(config, :port))} username=#{inspect(ImapConfigHelpers.get(config, :username))} reason=#{inspect(reason)}"
         )
 
         {:noreply,
@@ -182,16 +183,16 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     %ImapConfig{
       enabled: if(channel, do: channel.enabled, else: false),
       url: if(channel, do: channel.url, else: nil),
-      port: parse_int(map_get(settings, "port"), 993),
-      ssl: map_get(settings, "ssl") != false,
-      username: map_get(settings, "username"),
+      port: parse_int(ImapConfigHelpers.get(settings, "port"), 993),
+      ssl: ImapConfigHelpers.get(settings, "ssl") != false,
+      username: ImapConfigHelpers.get(settings, "username"),
       password: decrypt_token(channel),
       selected_mailboxes: selected_mailboxes_string(settings),
-      mark_as_read: map_get(settings, "mark_as_read") != false,
-      load_initial_unread: map_get(settings, "load_initial_unread") == true,
-      ssl_depth: parse_int(map_get(settings, "ssl_depth"), 3),
-      poll_interval: parse_int(map_get(settings, "poll_interval"), 30_000),
-      idle_timeout: parse_int(map_get(settings, "idle_timeout"), 1_500_000)
+      mark_as_read: ImapConfigHelpers.get(settings, "mark_as_read") != false,
+      load_initial_unread: ImapConfigHelpers.get(settings, "load_initial_unread") == true,
+      ssl_depth: parse_int(ImapConfigHelpers.get(settings, "ssl_depth"), 3),
+      poll_interval: parse_int(ImapConfigHelpers.get(settings, "poll_interval"), 30_000),
+      idle_timeout: parse_int(ImapConfigHelpers.get(settings, "idle_timeout"), 1_500_000)
     }
   end
 
@@ -226,7 +227,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp selected_mailboxes_string(settings) do
     settings
-    |> map_get("selected_mailboxes")
+    |> ImapConfigHelpers.get("selected_mailboxes")
     |> case do
       list when is_list(list) -> list
       _ -> ["INBOX"]
@@ -300,12 +301,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   end
 
   defp mailbox_options(selected, available) do
-    (List.wrap(selected) ++ List.wrap(available))
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-    |> Enum.sort()
+    ImapConfigHelpers.normalize_mailbox_names(List.wrap(selected) ++ List.wrap(available))
   end
 
   defp validate_mailbox_load_inputs(%ImapConfig{} = cfg) do
@@ -361,73 +357,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp blank?(""), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_), do: false
-
-  defp map_get(map, key) when is_map(map) and is_atom(key) do
-    keys = [key, Atom.to_string(key)]
-
-    case fetch_first(map, keys) do
-      {:ok, value} -> value
-      :error -> fetch_from_imap_settings(map, keys)
-    end
-  end
-
-  defp map_get(map, key) when is_map(map) and is_binary(key) do
-    keys = [key, atom_key_for_string(map, key)]
-
-    case fetch_first(map, keys) do
-      {:ok, value} -> value
-      :error -> fetch_from_imap_settings(map, keys)
-    end
-  end
-
-  defp map_get(_map, _key), do: nil
-
-  defp fetch_from_imap_settings(map, keys) do
-    with imap when is_map(imap) <- imap_settings_map(map),
-         {:ok, value} <- fetch_first(imap, keys) do
-      value
-    else
-      _ -> nil
-    end
-  end
-
-  defp imap_settings_map(map) do
-    settings = Map.get(map, :settings) || Map.get(map, "settings")
-
-    case settings do
-      settings when is_map(settings) ->
-        case Map.get(settings, :imap) || Map.get(settings, "imap") do
-          imap when is_map(imap) -> imap
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp fetch_first(map, keys) do
-    Enum.reduce_while(keys, :error, fn
-      nil, _acc ->
-        {:cont, :error}
-
-      lookup_key, _acc ->
-        case Map.fetch(map, lookup_key) do
-          {:ok, _value} = hit -> {:halt, hit}
-          :error -> {:cont, :error}
-        end
-    end)
-  end
-
-  defp atom_key_for_string(map, key) do
-    Enum.find_value(map, fn
-      {lookup_key, _value} when is_atom(lookup_key) ->
-        if Atom.to_string(lookup_key) == key, do: lookup_key
-
-      _ ->
-        nil
-    end)
-  end
 
   defp router_module,
     do: Application.get_env(:zaq, :notification_imap_router_module, Router)

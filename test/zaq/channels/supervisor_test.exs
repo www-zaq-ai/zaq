@@ -463,6 +463,18 @@ defmodule Zaq.Channels.SupervisorTest do
     assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
   end
 
+  test "stop_bridge_runtime/2 always removes ETS runtime entry when child cleanup is invalid" do
+    bridge_id = "bridge_stop_cleanup_guarantee"
+
+    :ets.insert(
+      :zaq_channels_listeners,
+      {bridge_id, %{listener_pids: [:invalid_pid], state_pid: :invalid_pid}}
+    )
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+    assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+  end
+
   test "start_link/1 returns error when supervisor is already started" do
     assert {:error, {:already_started, pid}} = Supervisor.start_link([])
     assert is_pid(pid)

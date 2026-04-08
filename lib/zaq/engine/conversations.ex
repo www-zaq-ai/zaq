@@ -167,6 +167,8 @@ defmodule Zaq.Engine.Conversations do
         _ -> %{}
       end
 
+    # thread_key groups the whole email conversation by root reference.
+    # thread_id remains useful for reply continuity, but grouping should stay stable.
     map_get(email_meta, "thread_key") ||
       normalize_message_id(msg.thread_id) ||
       normalize_message_id(msg.message_id) ||

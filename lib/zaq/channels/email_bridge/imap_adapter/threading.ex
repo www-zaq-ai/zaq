@@ -1,5 +1,13 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapter.Threading do
-  @moduledoc false
+  @moduledoc """
+  Resolves email threading identifiers from parsed headers.
+
+  - `resolve_thread_key/1` returns the root key used for conversation grouping.
+  - `resolve_thread_id/1` returns the closest parent/current thread id used for
+    reply continuity metadata.
+
+  Header parsing assumes RFC-style linear whitespace between message ids.
+  """
 
   @spec resolve_thread_id(map()) :: String.t() | nil
   def resolve_thread_id(headers) when is_map(headers) do
@@ -51,7 +59,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Threading do
 
   defp last_reference(value) when is_binary(value) do
     value
-    |> String.split(~r/\s+/, trim: true)
+    |> String.split(~r/[ \t]+/, trim: true)
     |> Enum.map(&normalize_message_id/1)
     |> Enum.reject(&is_nil/1)
     |> List.last()
@@ -71,7 +79,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Threading do
 
   defp first_reference(value) when is_binary(value) do
     value
-    |> String.split(~r/\s+/, trim: true)
+    |> String.split(~r/[ \t]+/, trim: true)
     |> Enum.map(&normalize_message_id/1)
     |> Enum.reject(&is_nil/1)
     |> List.first()

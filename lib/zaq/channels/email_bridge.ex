@@ -11,6 +11,7 @@ defmodule Zaq.Channels.EmailBridge do
 
   require Logger
 
+  alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.{Router, Supervisor}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.NodeRouter
@@ -98,10 +99,10 @@ defmodule Zaq.Channels.EmailBridge do
          {:ok, prepared_config} <- normalize_imap_config(config) do
       case adapter.list_mailboxes(prepared_config) do
         {:ok, mailboxes} when is_list(mailboxes) ->
-          {:ok, normalize_mailboxes(mailboxes)}
+          {:ok, ImapConfigHelpers.normalize_mailbox_names(mailboxes)}
 
         {:error, {:list_mailboxes_failed, {:ok, mailboxes}}} when is_list(mailboxes) ->
-          {:ok, normalize_mailboxes(mailboxes)}
+          {:ok, ImapConfigHelpers.normalize_mailbox_names(mailboxes)}
 
         other ->
           other
@@ -401,81 +402,7 @@ defmodule Zaq.Channels.EmailBridge do
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp normalize_mailboxes(raw_mailboxes) when is_list(raw_mailboxes) do
-    raw_mailboxes
-    |> Enum.map(&mailbox_name/1)
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
-  defp mailbox_name({mailbox, _delimiter, _flags}) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(%{mailbox: mailbox}) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(%{"mailbox" => mailbox}) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(mailbox) when is_binary(mailbox), do: mailbox
-  defp mailbox_name(_), do: nil
-
   defp normalize_imap_config(config) when is_map(config) do
-    imap_settings =
-      config
-      |> map_get(:settings)
-      |> case do
-        settings when is_map(settings) ->
-          case Map.get(settings, "imap") || Map.get(settings, :imap) do
-            map when is_map(map) -> map
-            _ -> %{}
-          end
-
-        _ ->
-          %{}
-      end
-
-    selected_mailboxes =
-      config
-      |> map_get(:selected_mailboxes)
-      |> case do
-        nil -> map_get(imap_settings, :selected_mailboxes)
-        list -> list
-      end
-
-    {:ok,
-     %{
-       provider: map_get(config, :provider) || "email:imap",
-       url: map_get(config, :url),
-       token: first_non_nil([map_get(config, :token), map_get(config, :password)]),
-       username: first_non_nil([map_get(imap_settings, :username), map_get(config, :username)]),
-       port: first_non_nil([map_get(imap_settings, :port), map_get(config, :port)]),
-       ssl: first_non_nil([map_get(imap_settings, :ssl), map_get(config, :ssl)]),
-       ssl_depth:
-         first_non_nil([map_get(imap_settings, :ssl_depth), map_get(config, :ssl_depth)]),
-       timeout: first_non_nil([map_get(imap_settings, :timeout), map_get(config, :timeout)]),
-       idle_timeout:
-         first_non_nil([map_get(imap_settings, :idle_timeout), map_get(config, :idle_timeout)]),
-       poll_interval:
-         first_non_nil([map_get(imap_settings, :poll_interval), map_get(config, :poll_interval)]),
-       mark_as_read:
-         first_non_nil([map_get(imap_settings, :mark_as_read), map_get(config, :mark_as_read)]),
-       load_initial_unread:
-         first_non_nil([
-           map_get(imap_settings, :load_initial_unread),
-           map_get(config, :load_initial_unread)
-         ]),
-       selected_mailboxes: normalize_mailboxes(List.wrap(selected_mailboxes))
-     }}
-  end
-
-  defp map_get(map, key) when is_map(map) and is_atom(key) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> value
-      :error -> Map.get(map, Atom.to_string(key))
-    end
-  end
-
-  defp map_get(_map, _key), do: nil
-
-  defp first_non_nil(values) when is_list(values) do
-    Enum.find(values, fn value -> not is_nil(value) end)
+    {:ok, ImapConfigHelpers.normalize_bridge_config(config)}
   end
 end

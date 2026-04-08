@@ -1,5 +1,19 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
-  @moduledoc false
+  @moduledoc """
+  One mailbox-scoped IMAP listener process.
+
+  Each runtime mailbox gets a dedicated listener GenServer. The listener owns
+  one IMAP client connection and loops through this lifecycle:
+
+  1. connect to mailbox
+  2. optionally fetch initial unread messages
+  3. enter IMAP IDLE
+  4. on `:idle_notify`, fetch unseen messages and re-enter IDLE
+
+  Error handling keeps the process alive and self-healing: failed connects,
+  fetch errors, stale client pids, and IDLE re-entry failures all clear the
+  client and schedule reconnect with `retry_interval`.
+  """
 
   use GenServer
 
@@ -45,8 +59,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   end
 
   def handle_info(:idle_notify, state) do
-    state = fetch_unseen_and_maybe_mark_read(state)
-    if is_pid(state.client), do: :ok = ImapAdapter.enter_idle(state.client, state.idle_timeout)
+    state =
+      state
+      |> fetch_unseen_and_maybe_mark_read()
+      |> maybe_reenter_idle()
+
     {:noreply, state}
   end
 
@@ -76,8 +93,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
       {:ok, client} ->
         state = %{state | client: client}
         state = maybe_fetch_initial_unread(state)
-        :ok = ImapAdapter.enter_idle(client, state.idle_timeout)
-        state
+        maybe_reenter_idle(state)
 
       {:error, reason} ->
         Logger.warning(
@@ -92,7 +108,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   defp fetch_unseen_and_maybe_mark_read(%{client: nil} = state), do: state
 
   defp fetch_unseen_and_maybe_mark_read(state) do
-    case ImapAdapter.fetch_unseen(state.client, state.mailbox, &handle_message(state, &1)) do
+    case safe_fetch_unseen(state.client, state.mailbox, &handle_message(state, &1)) do
       :ok ->
         state
 
@@ -101,8 +117,51 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
           "[EmailBridge.ImapListener] fetch unseen failed bridge_id=#{state.bridge_id} mailbox=#{state.mailbox} reason=#{inspect(reason)}"
         )
 
-        state
+        schedule_reconnect(state.retry_interval)
+        %{state | client: nil}
     end
+  end
+
+  defp maybe_reenter_idle(%{client: client} = state) when is_pid(client) do
+    if Process.alive?(client) do
+      case safe_enter_idle(client, state.idle_timeout) do
+        :ok ->
+          state
+
+        {:error, reason} ->
+          Logger.warning(
+            "[EmailBridge.ImapListener] IDLE re-entry failed bridge_id=#{state.bridge_id} mailbox=#{state.mailbox} reason=#{inspect(reason)}"
+          )
+
+          schedule_reconnect(state.retry_interval)
+          %{state | client: nil}
+      end
+    else
+      Logger.warning(
+        "[EmailBridge.ImapListener] stale IMAP client before IDLE bridge_id=#{state.bridge_id} mailbox=#{state.mailbox}"
+      )
+
+      schedule_reconnect(state.retry_interval)
+      %{state | client: nil}
+    end
+  end
+
+  defp maybe_reenter_idle(state), do: state
+
+  defp safe_fetch_unseen(client, mailbox, on_message) do
+    ImapAdapter.fetch_unseen(client, mailbox, on_message)
+  rescue
+    error -> {:error, {:imap_fetch_failed, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:imap_fetch_failed, reason}}
+  end
+
+  defp safe_enter_idle(client, idle_timeout) do
+    ImapAdapter.enter_idle(client, idle_timeout)
+  rescue
+    error -> {:error, {:imap_idle_failed, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:imap_idle_failed, reason}}
   end
 
   defp handle_message(state, message) do

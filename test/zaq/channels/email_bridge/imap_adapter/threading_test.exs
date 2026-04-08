@@ -45,4 +45,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ThreadingTest do
     assert Threading.resolve_thread_key(%{"message_id" => "<self@example.com>"}) ==
              "self@example.com"
   end
+
+  test "references parsing accepts linear whitespace separators" do
+    headers = %{"references" => "<first@example.com>\t<second@example.com>"}
+
+    assert Threading.resolve_thread_key(headers) == "first@example.com"
+    assert Threading.resolve_thread_id(headers) == "second@example.com"
+  end
 end

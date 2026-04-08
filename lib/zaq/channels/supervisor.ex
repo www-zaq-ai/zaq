@@ -72,9 +72,13 @@ defmodule Zaq.Channels.Supervisor do
   def stop_bridge_runtime(_config, bridge_id) do
     case :ets.lookup(@table, bridge_id) do
       [{^bridge_id, runtime}] ->
-        Enum.each(runtime.listener_pids, &DynamicSupervisor.terminate_child(__MODULE__, &1))
-        maybe_stop_state(runtime.state_pid)
-        :ets.delete(@table, bridge_id)
+        try do
+          Enum.each(runtime.listener_pids, &safe_terminate_child/1)
+          maybe_stop_state(runtime.state_pid)
+        after
+          :ets.delete(@table, bridge_id)
+        end
+
         :ok
 
       [] ->
@@ -194,10 +198,19 @@ defmodule Zaq.Channels.Supervisor do
   defp maybe_start_state_process(nil), do: {:ok, nil}
   defp maybe_start_state_process(spec), do: start_state_process(spec)
 
-  defp maybe_stop_state(pid) when is_pid(pid),
-    do: DynamicSupervisor.terminate_child(__MODULE__, pid)
+  defp maybe_stop_state(pid) when is_pid(pid), do: safe_terminate_child(pid)
 
   defp maybe_stop_state(_), do: :ok
+
+  defp safe_terminate_child(pid) when is_pid(pid) do
+    DynamicSupervisor.terminate_child(__MODULE__, pid)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_terminate_child(_), do: :ok
 
   defp running?(bridge_id) do
     case :ets.lookup(@table, bridge_id) do

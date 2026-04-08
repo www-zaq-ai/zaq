@@ -120,6 +120,29 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     assert {:noreply, ^state} = Listener.handle_info(:idle_notify, state)
   end
 
+  test "handle_info/2 idle_notify clears stale dead client and schedules reconnect" do
+    dead_client = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_client)
+    assert_receive {:DOWN, ^ref, :process, ^dead_client, _reason}
+
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_stale_client",
+      mailbox: "INBOX",
+      sink_mfa: {__MODULE__, :sink, []},
+      sink_opts: [],
+      client: dead_client,
+      retry_interval: 5,
+      mark_as_read: true,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
+
+    assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+    assert updated.client == nil
+    assert_receive :reconnect, 50
+  end
+
   test "handle_info/2 connect keeps client nil when connection fails" do
     state = %{
       config: %{url: "imap://127.0.0.1:1", username: "demo", password: "secret", ssl: false},
