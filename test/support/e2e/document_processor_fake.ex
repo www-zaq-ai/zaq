@@ -74,13 +74,19 @@ defmodule Zaq.E2E.DocumentProcessorFake do
   def query_extraction(query, access_opts \\ []) do
     person_id = Keyword.get(access_opts, :person_id)
     team_ids = Keyword.get(access_opts, :team_ids, [])
+    skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
     terms = tokenize(query)
 
     docs =
       Repo.all(from(d in Document))
       |> Enum.map(fn doc -> {score_document(doc, terms), doc} end)
 
-    docs = filter_by_permissions(docs, person_id, team_ids)
+    docs =
+      if skip_permissions do
+        docs
+      else
+        filter_by_permissions(docs, person_id, team_ids)
+      end
 
     matches =
       docs

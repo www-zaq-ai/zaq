@@ -39,6 +39,9 @@ defmodule Zaq.Ingestion.Permission do
     |> unique_constraint([:document_id, :team_id], name: :uix_doc_perm_team)
   end
 
+  # Intentionally mirrors the DB CHECK constraint — changeset validation gives
+  # early feedback before hitting the database; the constraint ensures integrity
+  # even for bulk inserts that bypass changesets.
   defp validate_target_present(changeset) do
     if is_nil(get_field(changeset, :person_id)) and is_nil(get_field(changeset, :team_id)) do
       add_error(changeset, :base, "must set person_id or team_id")

@@ -1432,5 +1432,98 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         refute Enum.all?(my_chunks, &(&1["content"] == "You don't have access to this chunk."))
       end
     end
+
+    test "all chunks from denied doc are redacted when doc has a permission for another person",
+         %{doc: doc} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "NoPerm #{unique}",
+          "email" => "noperm#{unique}@test.com"
+        })
+
+      {:ok, other} =
+        People.create_person(%{
+          "full_name" => "Owner #{unique}",
+          "email" => "owner#{unique}@test.com"
+        })
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, other.id, ["read"])
+
+      {:ok, results} =
+        DocumentProcessor.query_extraction("Restricted access content",
+          person_id: person.id,
+          team_ids: []
+        )
+
+      restricted = Enum.filter(results, &(&1["document_id"] == doc.id))
+
+      if restricted != [] do
+        assert Enum.all?(
+                 restricted,
+                 &(&1["content"] == DocumentProcessor.access_denied_message())
+               )
+      end
+    end
+
+    test "chunks from multiple docs are independently filtered", %{doc: doc} do
+      unique = System.unique_integer([:positive])
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      other_doc =
+        create_document(%{source: "perm-filter-other-#{unique}.md"})
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: other_doc.id,
+        content: "Permitted doc content for mixed test.",
+        chunk_index: 1,
+        section_path: ["Permitted"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Mixed #{unique}",
+          "email" => "mixed#{unique}@test.com"
+        })
+
+      {:ok, owner} =
+        People.create_person(%{
+          "full_name" => "DeniedOwner #{unique}",
+          "email" => "do#{unique}@test.com"
+        })
+
+      # person has access to other_doc but not doc
+      {:ok, _} = Ingestion.set_document_permission(other_doc.id, :person, person.id, ["read"])
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, owner.id, ["read"])
+
+      {:ok, results} =
+        DocumentProcessor.query_extraction("content",
+          person_id: person.id,
+          team_ids: []
+        )
+
+      denied_chunks = Enum.filter(results, &(&1["document_id"] == doc.id))
+      allowed_chunks = Enum.filter(results, &(&1["document_id"] == other_doc.id))
+
+      if denied_chunks != [] do
+        assert Enum.all?(
+                 denied_chunks,
+                 &(&1["content"] == DocumentProcessor.access_denied_message())
+               )
+      end
+
+      if allowed_chunks != [] do
+        refute Enum.all?(
+                 allowed_chunks,
+                 &(&1["content"] == DocumentProcessor.access_denied_message())
+               )
+      end
+    end
   end
 end

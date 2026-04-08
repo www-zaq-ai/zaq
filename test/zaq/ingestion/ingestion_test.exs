@@ -712,6 +712,48 @@ defmodule Zaq.IngestionTest do
       result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id])
       refute doc.id in result
     end
+
+    test "returns empty list when person_id does not exist" do
+      doc = create_doc_with_source("nonexistent-person.md")
+      non_existing_person_id = -1
+
+      result = Ingestion.list_permitted_document_ids(non_existing_person_id, [], [doc.id])
+      assert result == []
+    end
+
+    test "returns empty list when team_ids don't match any permissions" do
+      doc = create_doc_with_source("nonexistent-team.md")
+      person = create_person()
+
+      result = Ingestion.list_permitted_document_ids(person.id, [-1, -2], [doc.id])
+      assert result == []
+    end
+
+    test "handles duplicate doc_ids in input without duplicating results" do
+      doc = create_doc_with_source("dup-doc-ids.md")
+      person = create_person()
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id, doc.id, doc.id])
+      assert Enum.count(result, &(&1 == doc.id)) == 1
+    end
+
+    test "returns mixed results for docs with and without permissions" do
+      permitted_doc = create_doc_with_source("mixed-permitted.md")
+      denied_doc = create_doc_with_source("mixed-denied.md")
+      person = create_person()
+      other_person = create_person()
+      {:ok, _} = Ingestion.set_document_permission(permitted_doc.id, :person, person.id, ["read"])
+
+      {:ok, _} =
+        Ingestion.set_document_permission(denied_doc.id, :person, other_person.id, ["read"])
+
+      result =
+        Ingestion.list_permitted_document_ids(person.id, [], [permitted_doc.id, denied_doc.id])
+
+      assert permitted_doc.id in result
+      refute denied_doc.id in result
+    end
   end
 
   describe "get_document_by_source!/1" do

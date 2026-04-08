@@ -158,23 +158,24 @@ defmodule Zaq.Ingestion do
 
   def set_document_permission(document_id, type, target_id, access_rights)
       when type in [:person, :team] do
-    {filter, attrs} =
+    {conflict_fragment, attrs} =
       case type do
         :person ->
-          {[document_id: document_id, person_id: target_id],
+          {"(document_id, person_id) WHERE person_id IS NOT NULL",
            %{document_id: document_id, person_id: target_id, access_rights: access_rights}}
 
         :team ->
-          {[document_id: document_id, team_id: target_id],
+          {"(document_id, team_id) WHERE team_id IS NOT NULL",
            %{document_id: document_id, team_id: target_id, access_rights: access_rights}}
       end
 
-    existing = Repo.get_by(Permission, filter)
+    now = DateTime.utc_now(:second)
 
-    case existing do
-      nil -> Repo.insert(Permission.changeset(%Permission{}, attrs))
-      perm -> Repo.update(Permission.changeset(perm, %{access_rights: access_rights}))
-    end
+    Repo.insert(
+      Permission.changeset(%Permission{}, attrs),
+      on_conflict: [set: [access_rights: access_rights, updated_at: now]],
+      conflict_target: {:unsafe_fragment, conflict_fragment}
+    )
   end
 
   def delete_document_permission(permission_id) do
@@ -187,6 +188,10 @@ defmodule Zaq.Ingestion do
   @doc """
   Returns the unique set of person/team permissions across all documents under
   the given folder. Deduplicates by person_id / team_id — one entry per target.
+
+  **Note:** permissions are point-in-time snapshots of existing documents.
+  Files added to the folder after permissions are set are not automatically
+  covered — callers must re-apply folder permissions to include new documents.
   """
   def list_folder_permissions(volume_name, folder_path) do
     docs = list_documents_under_folder(volume_name, folder_path)

@@ -28,6 +28,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   require Logger
 
+  @access_denied_message "You don't have access to this chunk."
+
+  @doc """
+  Returns the message used to replace chunk content when a user lacks access.
+  Referenced in tests and the answering prompt migration.
+  """
+  def access_denied_message, do: @access_denied_message
+
   NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
   alias Zaq.Ingestion.CSVParser
 
@@ -471,7 +479,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  @doc false
+  @doc """
+  Chunks `content`, generates embeddings, and persists them for `document_id`.
+
+  Returns `{:ok, report}` on success or `{:error, reason}` on failure.
+
+  ## Options
+
+    * `:reset_chunks` - delete existing chunks before inserting (default `true`).
+    * `:retry_chunk_indices` - list of chunk indices to re-process without resetting all chunks.
+  """
   def process_and_store_chunks_report(content, document_id, opts \\ []) do
     reset_chunks = Keyword.get(opts, :reset_chunks, true)
     retry_chunk_indices = Keyword.get(opts, :retry_chunk_indices)
@@ -665,6 +682,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Groups by document_id and section_path, sorted by vector distance.
 
   Returns a list of maps with `"content"`, `"source"`, and `"distance"`.
+
+  ## Options
+
+    * `:person_id` - ID of the requesting person; when set, only documents
+      the person (or their teams) can access are returned.
+    * `:team_ids` - list of team IDs the person belongs to (default `[]`).
+    * `:skip_permissions` - when `true`, bypasses all permission filtering.
+      Intended for internal/admin queries only (default `false`).
   """
   @spec query_extraction(String.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
   def query_extraction(query, access_opts \\ []) do
@@ -994,14 +1019,19 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp apply_permission_filter(data, false, person_id, team_ids) do
     doc_ids = data |> Enum.map(& &1["document_id"]) |> Enum.uniq()
-    permitted = Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, doc_ids)
+
+    permitted =
+      doc_ids
+      |> Enum.chunk_every(500)
+      |> Enum.flat_map(&Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, &1))
+
     permitted_set = MapSet.new(permitted)
 
     Enum.map(data, fn chunk ->
       if MapSet.member?(permitted_set, chunk["document_id"]) do
         chunk
       else
-        Map.put(chunk, "content", "You don't have access to this chunk.")
+        Map.put(chunk, "content", @access_denied_message)
       end
     end)
   end
