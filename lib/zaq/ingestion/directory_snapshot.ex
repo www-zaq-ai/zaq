@@ -3,11 +3,10 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
 
   import Ecto.Query
 
-  alias Zaq.Accounts
-  alias Zaq.Ingestion.{Document, IngestJob, Sidecar, SourcePath}
+  alias Zaq.Ingestion.{Document, FileExplorer, IngestJob, Sidecar, SourcePath}
   alias Zaq.Repo
 
-  def build(entries, current_volume, current_dir, current_user) do
+  def build(entries, current_volume, current_dir, _current_user) do
     file_entries = Enum.filter(entries, &(&1.type == :file))
 
     entry_details = build_entry_details(file_entries, current_volume, current_dir)
@@ -18,17 +17,19 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
       attach_doc_and_job_details(entry_details, documents_by_source, jobs_map)
 
     top_level_details = top_level_details(entry_details)
-    public_role_id = public_role_id()
 
     {ingestion_map, visible_names} =
-      build_ingestion_map(top_level_details, current_user, public_role_id)
+      build_ingestion_map(top_level_details)
+
+    dir_entries = Enum.filter(entries, &(&1.type == :directory))
+    folder_map = build_folder_map(dir_entries, current_volume, current_dir)
 
     top_level_entries_by_name =
       Map.new(top_level_details, fn detail -> {detail.entry.name, detail.entry} end)
 
     %{
       entries: select_visible_entries(entries, top_level_entries_by_name, visible_names),
-      ingestion_map: ingestion_map
+      ingestion_map: Map.merge(ingestion_map, folder_map)
     }
   end
 
@@ -136,53 +137,87 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
     end)
   end
 
-  defp build_ingestion_map(top_level_details, current_user, public_role_id) do
-    super_admin? = current_user.role.name == "super_admin"
-    current_role_id = current_user.role_id
+  defp build_ingestion_map(top_level_details) do
+    doc_ids =
+      top_level_details
+      |> Enum.map(& &1.doc)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.id)
+
+    permissions_count_map = fetch_permissions_counts(doc_ids)
 
     Enum.reduce(top_level_details, {%{}, MapSet.new()}, fn detail, {map, visible} ->
-      {status, visible?} =
-        resolve_entry_status(
-          detail.entry,
-          detail.doc,
-          super_admin?,
-          current_role_id,
-          public_role_id
-        )
-
+      status = resolve_entry_status(detail.entry, detail.doc, permissions_count_map)
       status = Map.put(status, :job_status, detail.job_status)
       map = Map.put(map, detail.entry.name, status)
-      visible = if visible?, do: MapSet.put(visible, detail.entry.name), else: visible
+      visible = MapSet.put(visible, detail.entry.name)
       {map, visible}
     end)
   end
 
-  defp resolve_entry_status(_entry, nil, _super_admin?, _current_role_id, _public_role_id) do
-    {%{ingested_at: nil, stale?: false, shared_role_ids: [], can_share?: true}, true}
+  defp fetch_permissions_counts([]), do: %{}
+
+  defp fetch_permissions_counts(doc_ids) do
+    import Ecto.Query
+
+    alias Zaq.Ingestion.Permission
+
+    from(p in Permission,
+      where: p.document_id in ^doc_ids,
+      group_by: p.document_id,
+      select: {p.document_id, count(p.id)}
+    )
+    |> Repo.all()
+    |> Map.new()
   end
 
-  defp resolve_entry_status(entry, doc, super_admin?, current_role_id, public_role_id) do
-    shared = doc.shared_role_ids
-    public? = not is_nil(public_role_id) and public_role_id in shared
-
-    visible? =
-      super_admin? or public? or is_nil(doc.role_id) or
-        doc.role_id == current_role_id or current_role_id in shared
-
-    can_share? = super_admin? or is_nil(doc.role_id) or doc.role_id == current_role_id
-    {entry_ingestion_status(entry, doc, can_share?), visible?}
+  defp resolve_entry_status(_entry, nil, _permissions_count_map) do
+    %{ingested_at: nil, stale?: false, permissions_count: 0, can_share?: true}
   end
 
-  defp entry_ingestion_status(entry, doc, can_share?) do
+  defp resolve_entry_status(entry, doc, permissions_count_map) do
     ingested_at = if doc.content, do: doc.updated_at, else: nil
     stale? = not is_nil(ingested_at) and DateTime.compare(entry.modified_at, ingested_at) == :gt
+    permissions_count = Map.get(permissions_count_map, doc.id, 0)
 
     %{
       ingested_at: ingested_at,
       stale?: stale?,
-      shared_role_ids: doc.shared_role_ids,
-      can_share?: can_share?
+      permissions_count: permissions_count,
+      can_share?: true
     }
+  end
+
+  defp build_folder_map(dir_entries, current_volume, current_dir) do
+    Map.new(dir_entries, fn entry ->
+      folder_path = Path.join(current_dir, entry.name)
+      prefixes = SourcePath.source_candidates(current_volume, folder_path)
+
+      doc_stats = fetch_folder_doc_stats(prefixes)
+      total_size = FileExplorer.folder_size(current_volume, folder_path)
+
+      stats = %{
+        type: :directory,
+        total_size: total_size,
+        file_count: doc_stats.total,
+        ingested_count: doc_stats.ingested
+      }
+
+      {entry.name, stats}
+    end)
+  end
+
+  defp fetch_folder_doc_stats(prefixes) do
+    conditions =
+      prefixes
+      |> Enum.map(fn prefix -> dynamic([d], like(d.source, ^"#{prefix}/%")) end)
+      |> Enum.reduce(fn cond, acc -> dynamic([d], ^acc or ^cond) end)
+
+    from(d in Document, where: ^conditions, select: not is_nil(d.content))
+    |> Repo.all()
+    |> Enum.reduce(%{total: 0, ingested: 0}, fn has_content, acc ->
+      %{acc | total: acc.total + 1, ingested: acc.ingested + if(has_content, do: 1, else: 0)}
+    end)
   end
 
   defp select_visible_entries(entries, top_level_entries_by_name, visible_names) do
@@ -204,13 +239,6 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
       Map.get(top_level_entries_by_name, entry.name)
     else
       nil
-    end
-  end
-
-  defp public_role_id do
-    case Accounts.get_role_by_name("public") do
-      nil -> nil
-      role -> role.id
     end
   end
 end

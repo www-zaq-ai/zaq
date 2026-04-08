@@ -786,9 +786,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "ingest_selected clears selection and shows flash for a file", %{conn: conn} do
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                   _role_id,
-                                                                   _shared_role_ids ->
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil}}
       end)
 
@@ -806,9 +804,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "ingest_selected clears selection and shows flash for a directory", %{conn: conn} do
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                   _role_id,
-                                                                   _shared_role_ids ->
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil}}
       end)
 
@@ -825,17 +821,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert has_element?(view, "p", ~r/readme\.md/)
     end
 
-    test "ingest_selected passes current_user role_id to ingest functions", %{conn: conn} do
+    test "ingest_selected processes file without role_id (RBAC-based access)", %{conn: conn} do
       parent = self()
 
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                   role_id,
-                                                                   _shared_role_ids ->
-        send(parent, {:role_id_used, role_id})
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+        send(parent, {:path_ingested, path})
         {:ok, %{id: nil}}
       end)
-
-      user = Zaq.Accounts.get_user_by_username("ingestion_live_admin")
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -843,8 +835,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_select", %{"path" => "alpha.md"})
       render_hook(view, "ingest_selected", %{})
 
-      assert_receive {:role_id_used, role_id}, 500
-      assert role_id == user.role_id
+      assert_receive {:path_ingested, _path}, 500
     end
   end
 

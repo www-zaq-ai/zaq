@@ -244,7 +244,35 @@ defmodule Zaq.Ingestion.FileExplorer do
     end
   end
 
+  @doc """
+  Returns the total size in bytes of all files recursively under the given folder.
+  """
+  def folder_size(volume_name, relative_path) do
+    case resolve_path(volume_name, relative_path) do
+      {:ok, full_path} -> recursive_size(full_path)
+      _ -> 0
+    end
+  end
+
   # ── Private helpers ──────────────────────────────────────────────
+
+  defp recursive_size(path) do
+    case File.ls(path) do
+      {:ok, names} ->
+        Enum.reduce(names, 0, fn name, acc ->
+          child = Path.join(path, name)
+
+          case File.stat(child) do
+            {:ok, %{type: :directory}} -> acc + recursive_size(child)
+            {:ok, %{size: size}} -> acc + size
+            _ -> acc
+          end
+        end)
+
+      _ ->
+        0
+    end
+  end
 
   defp list_entries(full_path) do
     full_path

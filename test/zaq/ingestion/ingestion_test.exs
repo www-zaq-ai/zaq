@@ -79,25 +79,19 @@ defmodule Zaq.IngestionTest do
     def store_chunk_with_metadata(
           %DocumentChunker.Chunk{} = chunk,
           document_id,
-          chunk_index,
-          role_id,
-          shared_role_ids
+          chunk_index
         ) do
       Chunk.create(%{
         document_id: document_id,
         content: chunk.content,
-        chunk_index: chunk_index,
-        role_id: role_id,
-        shared_role_ids: shared_role_ids
+        chunk_index: chunk_index
       })
     end
   end
 
   describe "ingest_file/2" do
     test "creates a job and enqueues worker in async mode" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 2, document_id: nil}}
       end)
 
@@ -110,9 +104,7 @@ defmodule Zaq.IngestionTest do
     test "creates a job and processes inline" do
       Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 3, document_id: nil}}
       end)
 
@@ -140,9 +132,7 @@ defmodule Zaq.IngestionTest do
         _ = FileExplorer.delete_directory(folder)
       end)
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 2, fn _path,
-                                                                    _role_id,
-                                                                    _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, 2, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -205,9 +195,7 @@ defmodule Zaq.IngestionTest do
       job = create_job(%{status: "failed", error: "something broke"})
       Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -305,9 +293,7 @@ defmodule Zaq.IngestionTest do
 
   describe "ingest_file/3 (volume-aware)" do
     test "stores volume_name on the created job" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -316,9 +302,7 @@ defmodule Zaq.IngestionTest do
     end
 
     test "nil volume_name when not provided (backward compat)" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path,
-                                                                 _role_id,
-                                                                 _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
@@ -327,27 +311,22 @@ defmodule Zaq.IngestionTest do
     end
   end
 
-  describe "track_upload/3" do
-    test "creates a document record with volume-prefixed source and uploader's role_id" do
-      role = role_fixture()
+  describe "track_upload/2" do
+    test "creates a document record with volume-prefixed source" do
       volume = "default"
       path = "file_#{System.unique_integer([:positive])}.md"
 
-      assert {:ok, doc} = Ingestion.track_upload(volume, path, role.id)
+      assert {:ok, doc} = Ingestion.track_upload(volume, path)
       assert doc.source == Path.join([volume, path])
-      assert doc.role_id == role.id
       assert doc.content == nil
     end
 
     test "upserts: does not duplicate when called again for the same source" do
-      role1 = role_fixture()
-      role2 = role_fixture()
       volume = "default"
       path = "file_#{System.unique_integer([:positive])}.md"
 
-      assert {:ok, _} = Ingestion.track_upload(volume, path, role1.id)
-      assert {:ok, doc} = Ingestion.track_upload(volume, path, role2.id)
-      assert doc.role_id == role2.id
+      assert {:ok, _} = Ingestion.track_upload(volume, path)
+      assert {:ok, _doc} = Ingestion.track_upload(volume, path)
       assert Repo.aggregate(Document, :count) >= 1
     end
   end
@@ -604,52 +583,6 @@ defmodule Zaq.IngestionTest do
     end
   end
 
-  describe "share_file/2" do
-    test "updates shared_role_ids on an existing document" do
-      role1 = role_fixture()
-      role2 = role_fixture()
-      source = "file_#{System.unique_integer([:positive])}.md"
-
-      {:ok, _} = Document.upsert(%{source: source, role_id: role1.id})
-      {:ok, _} = Document.upsert(%{source: source, role_id: role1.id})
-
-      assert {:ok, _} = Ingestion.share_file(source, [role2.id])
-      assert Document.get_by_source(source).shared_role_ids == [role2.id]
-    end
-
-    test "creates a minimal document when none exists yet" do
-      role = role_fixture()
-      source = "file_#{System.unique_integer([:positive])}.md"
-
-      assert {:ok, _} = Ingestion.share_file(source, [role.id])
-
-      doc = Document.get_by_source(source)
-      assert doc.shared_role_ids == [role.id]
-      assert doc.role_id == nil
-    end
-
-    test "does not overwrite ingested content" do
-      role = role_fixture()
-      source = "file_#{System.unique_integer([:positive])}.md"
-
-      {:ok, _} = Document.upsert(%{source: source, content: "# Hello", role_id: role.id})
-      {:ok, _} = Ingestion.share_file(source, [role.id])
-
-      assert Document.get_by_source(source).content == "# Hello"
-    end
-
-    test "clears sharing when called with empty list" do
-      role = role_fixture()
-      source = "file_#{System.unique_integer([:positive])}.md"
-
-      {:ok, _} = Document.upsert(%{source: source, role_id: role.id})
-      {:ok, _} = Ingestion.share_file(source, [role.id])
-      {:ok, _} = Ingestion.share_file(source, [])
-
-      assert Document.get_by_source(source).shared_role_ids == []
-    end
-  end
-
   describe "ingest_folder/3 (volume-aware)" do
     test "stores volume_name on all created jobs" do
       unique = System.unique_integer([:positive])
@@ -679,9 +612,7 @@ defmodule Zaq.IngestionTest do
 
       on_exit(fn -> _ = FileExplorer.delete_directory(folder) end)
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 1, fn _path,
-                                                                    _role_id,
-                                                                    _shared_role_ids ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, 1, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 

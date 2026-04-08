@@ -5,7 +5,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   import ZaqWeb.Live.BO.AI.IngestionComponents
 
-  alias Zaq.Accounts
+  alias Zaq.Accounts.People
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
   alias Zaq.System
@@ -36,9 +36,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        current_volume: current_volume,
        # Embedding readiness
        embedding_ready: System.embedding_ready?(),
-       # Role sharing
-       all_roles: Accounts.list_roles(),
-       share_modal_role_ids: [],
+       # Permission sharing
+       share_modal_document_id: nil,
+       share_modal_is_folder: false,
+       share_modal_folder_path: nil,
+       share_modal_permissions: [],
+       share_modal_all_targets: build_share_targets_options(),
+       share_modal_targets_options: build_share_targets_options(),
+       share_modal_pending: [],
        # View mode
        view_mode: "list",
        # Modal state
@@ -70,11 +75,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # handle_event/3 — all clauses grouped together
   # ────────────────────────────────────────────────────────────────
 
-  # Role sharing (share modal)
+  # Permission sharing (share modal)
 
-  def handle_event("share_item", %{"path" => path}, socket) do
-    current_shared =
-      get_in(socket.assigns.ingestion_map, [Path.basename(path), :shared_role_ids]) || []
+  def handle_event("share_item", %{"path" => path, "type" => "directory"}, socket) do
+    all_targets = socket.assigns.share_modal_all_targets
 
     {:noreply,
      assign(socket,
@@ -82,33 +86,160 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        modal_path: path,
        modal_name: Path.basename(path),
        modal_error: nil,
-       share_modal_role_ids: current_shared
+       share_modal_is_folder: true,
+       share_modal_folder_path: path,
+       share_modal_document_id: nil,
+       share_modal_permissions: [],
+       share_modal_pending: [],
+       share_modal_targets_options: filtered_targets(all_targets, [], [])
      )}
   end
 
-  def handle_event("toggle_share_role", %{"role_id" => role_id_str}, socket) do
-    role_id = String.to_integer(role_id_str)
-    current = socket.assigns.share_modal_role_ids
+  def handle_event("share_item", %{"path" => path}, socket) do
+    source = ingestion_call(:source_for, [socket.assigns.current_volume, path])
+    doc = Ingestion.get_document_by_source!(source)
+    permissions = ingestion_call(:list_document_permissions, [doc.id])
+
+    all_targets = socket.assigns.share_modal_all_targets
+
+    {:noreply,
+     assign(socket,
+       modal: :share,
+       modal_path: path,
+       modal_name: Path.basename(path),
+       modal_error: nil,
+       share_modal_is_folder: false,
+       share_modal_folder_path: nil,
+       share_modal_document_id: doc.id,
+       share_modal_permissions: permissions,
+       share_modal_pending: [],
+       share_modal_targets_options: filtered_targets(all_targets, permissions, [])
+     )}
+  end
+
+  def handle_event("add_permission_target", %{"value" => value}, socket) do
+    case parse_share_target(value, socket.assigns.share_modal_targets_options) do
+      nil ->
+        {:noreply, socket}
+
+      new_entry ->
+        pending = socket.assigns.share_modal_pending
+
+        already_pending? =
+          Enum.any?(pending, &(&1.type == new_entry.type and &1.id == new_entry.id))
+
+        {:noreply,
+         if already_pending? do
+           socket
+         else
+           new_pending = pending ++ [new_entry]
+
+           assign(socket,
+             share_modal_pending: new_pending,
+             share_modal_targets_options:
+               filtered_targets(
+                 socket.assigns.share_modal_all_targets,
+                 socket.assigns.share_modal_permissions,
+                 new_pending
+               )
+           )
+         end}
+    end
+  end
+
+  def handle_event("toggle_permission_right", %{"index" => idx_str, "right" => right}, socket) do
+    idx = String.to_integer(idx_str)
 
     updated =
-      if role_id in current,
-        do: List.delete(current, role_id),
-        else: [role_id | current]
+      socket.assigns.share_modal_pending
+      |> List.update_at(idx, fn entry ->
+        rights = entry.access_rights
 
-    {:noreply, assign(socket, :share_modal_role_ids, updated)}
+        updated_rights =
+          if right in rights, do: List.delete(rights, right), else: rights ++ [right]
+
+        %{entry | access_rights: updated_rights}
+      end)
+
+    {:noreply, assign(socket, share_modal_pending: updated)}
+  end
+
+  def handle_event("remove_pending", %{"index" => idx_str}, socket) do
+    idx = String.to_integer(idx_str)
+    updated = List.delete_at(socket.assigns.share_modal_pending, idx)
+
+    {:noreply,
+     assign(socket,
+       share_modal_pending: updated,
+       share_modal_targets_options:
+         filtered_targets(
+           socket.assigns.share_modal_all_targets,
+           socket.assigns.share_modal_permissions,
+           updated
+         )
+     )}
+  end
+
+  def handle_event("remove_permission", %{"id" => id_str}, socket) do
+    id = String.to_integer(id_str)
+    {:ok, _} = ingestion_call(:delete_document_permission, [id])
+
+    permissions =
+      ingestion_call(:list_document_permissions, [socket.assigns.share_modal_document_id])
+
+    {:noreply,
+     assign(socket,
+       share_modal_permissions: permissions,
+       share_modal_targets_options:
+         filtered_targets(
+           socket.assigns.share_modal_all_targets,
+           permissions,
+           socket.assigns.share_modal_pending
+         )
+     )}
   end
 
   def handle_event("confirm_share", _params, socket) do
-    source =
-      ingestion_call(:source_for, [socket.assigns.current_volume, socket.assigns.modal_path])
+    pending = socket.assigns.share_modal_pending
+    name = socket.assigns.modal_name
 
-    {:ok, _} = ingestion_call(:share_file, [source, socket.assigns.share_modal_role_ids])
+    if socket.assigns.share_modal_is_folder do
+      docs =
+        ingestion_call(:list_documents_under_folder, [
+          socket.assigns.current_volume,
+          socket.assigns.share_modal_folder_path
+        ])
 
-    {:noreply,
-     socket
-     |> assign(modal: nil, modal_error: nil)
-     |> load_entries()
-     |> put_flash(:info, "Sharing updated for \"#{socket.assigns.modal_name}\".")}
+      for doc <- docs,
+          %{type: type, id: id, access_rights: rights} <- pending do
+        ingestion_call(:set_document_permission, [doc.id, type, id, rights])
+      end
+
+      {:noreply,
+       socket
+       |> assign(modal: nil, modal_error: nil, share_modal_pending: [])
+       |> load_entries()
+       |> put_flash(:info, "Permissions applied to all documents in \"#{name}\".")}
+    else
+      doc_id = socket.assigns.share_modal_document_id
+
+      for %{type: type, id: id, access_rights: rights} <- pending do
+        ingestion_call(:set_document_permission, [doc_id, type, id, rights])
+      end
+
+      permissions = ingestion_call(:list_document_permissions, [doc_id])
+
+      {:noreply,
+       socket
+       |> assign(
+         modal: nil,
+         modal_error: nil,
+         share_modal_permissions: permissions,
+         share_modal_pending: []
+       )
+       |> load_entries()
+       |> put_flash(:info, "Permissions saved for \"#{name}\".")}
+    end
   end
 
   # Volume
@@ -421,15 +552,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("ingest_selected", _params, socket) do
     mode = String.to_existing_atom(socket.assigns.ingest_mode)
     volume = socket.assigns.current_volume
-    role_id = socket.assigns.current_user.role_id
 
     for path <- socket.assigns.selected do
       case ingestion_call(:file_info, [volume, path]) do
         {:ok, %{type: :directory}} ->
-          ingestion_call(:ingest_folder, [path, mode, volume, role_id])
+          ingestion_call(:ingest_folder, [path, mode, volume])
 
         {:ok, %{type: :file}} ->
-          ingestion_call(:ingest_file, [path, mode, volume, role_id])
+          ingestion_call(:ingest_file, [path, mode, volume])
 
         _ ->
           :skip
@@ -470,7 +600,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("upload", _params, socket) do
     volume = socket.assigns.current_volume
-    role_id = socket.assigns.current_user.role_id
 
     uploaded =
       consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
@@ -479,7 +608,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
         case ingestion_call(:upload_file, [volume, dest, binary]) do
           {:ok, _full_path} ->
-            ingestion_call(:track_upload, [volume, dest, role_id])
+            ingestion_call(:track_upload, [volume, dest])
             {:ok, dest}
 
           error ->
@@ -707,6 +836,38 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Kept public for backward-compat with tests that call these directly.
   defdelegate format_size(bytes), to: ZaqWeb.Live.BO.AI.IngestionComponents
   defdelegate status_color(status), to: ZaqWeb.Live.BO.AI.IngestionComponents
+
+  defp build_share_targets_options do
+    people_opts =
+      People.list_people()
+      |> Enum.map(fn p -> {"#{p.full_name} (#{p.email})", "person:#{p.id}"} end)
+
+    teams_opts =
+      People.list_teams()
+      |> Enum.map(fn t -> {"team: #{t.name}", "team:#{t.id}"} end)
+
+    people_opts ++ teams_opts
+  end
+
+  defp filtered_targets(all_targets, permissions, pending) do
+    excluded =
+      Enum.map(permissions, fn p ->
+        if p.person, do: "person:#{p.person.id}", else: "team:#{p.team.id}"
+      end) ++ Enum.map(pending, fn e -> "#{e.type}:#{e.id}" end)
+
+    Enum.reject(all_targets, fn {_label, value} -> value in excluded end)
+  end
+
+  defp parse_share_target(value, options) do
+    with [type_str, id_str] <- String.split(value, ":", parts: 2),
+         type when type in [:person, :team] <- String.to_existing_atom(type_str),
+         {id, ""} <- Integer.parse(id_str),
+         {label, _} <- Enum.find(options, fn {_l, v} -> v == value end) do
+      %{type: type, id: id, name: label, access_rights: ["read"]}
+    else
+      _ -> nil
+    end
+  end
 
   @doc """
   Returns the BO URL for viewing a file in the browser.

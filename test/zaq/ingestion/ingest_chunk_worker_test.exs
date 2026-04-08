@@ -5,19 +5,19 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
   alias Zaq.Repo
 
   defmodule RateLimitProcessor do
-    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index, _role_id, _shared_role_ids) do
+    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
       {:error, {:rate_limited, 42, %{status: 429}}}
     end
   end
 
   defmodule SuccessProcessor do
-    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index, _role_id, _shared_role_ids) do
+    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
       {:ok, %{id: 1}}
     end
   end
 
   defmodule FailingProcessor do
-    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index, _role_id, _shared_role_ids) do
+    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
       {:error, :boom}
     end
   end

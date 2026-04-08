@@ -20,7 +20,6 @@ defmodule Zaq.Agent.Pipeline do
   ## Options
 
     * `:history`            — conversation history map (default: `%{}`)
-    * `:role_ids`           — role IDs for document filtering (default: `[]`)
     * `:on_status`          — 2-arity fn `(stage, message) :: :ok` for progress
                               callbacks; used by LiveView to push status updates
                               (default: silent no-op)
@@ -61,6 +60,15 @@ defmodule Zaq.Agent.Pipeline do
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
     incoming = identity_plug_mod(opts).call(incoming, opts)
+    person_id = incoming.person_id
+
+    team_ids =
+      case Zaq.Accounts.People.get_person(person_id) do
+        nil -> []
+        person -> person.team_ids || []
+      end
+
+    opts = Keyword.merge(opts, person_id: person_id, team_ids: team_ids)
     result = do_run(incoming.content, opts)
     Outgoing.from_pipeline_result(incoming, result)
   end
@@ -68,7 +76,6 @@ defmodule Zaq.Agent.Pipeline do
   @spec do_run(String.t(), keyword()) :: map()
   defp do_run(content, opts) do
     history = Keyword.get(opts, :history, %{})
-    role_ids = Keyword.get(opts, :role_ids, [])
     on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
     ctx = %{trace_id: generate_trace_id(), node: node()}
     hooks = hooks_mod(opts)
@@ -82,7 +89,7 @@ defmodule Zaq.Agent.Pipeline do
          :ok <- on_status.(:retrieving, retrieval_result.positive_answer),
          {:ok, answering_payload} <-
            hooks.dispatch_before(:before_answering, retrieval_result, ctx),
-         {:ok, extraction_result} <- do_query_extraction(answering_payload, role_ids, opts),
+         {:ok, extraction_result} <- do_query_extraction(answering_payload, opts),
          :ok <- on_status.(:answering, "Formulating your answer…"),
          {:ok, answer_result} <-
            do_answering(clean_msg, extraction_result, answering_payload, history, opts),
@@ -203,12 +210,16 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_query_extraction(%{query: query, negative_answer: negative_answer}, role_ids, opts) do
+  defp do_query_extraction(%{query: query, negative_answer: negative_answer}, opts) do
+    person_id = Keyword.get(opts, :person_id)
+    team_ids = Keyword.get(opts, :team_ids, [])
+    skip_permissions = Keyword.get(opts, :skip_permissions, false)
+
     case node_router(opts).call(
            :ingestion,
            document_processor_mod(opts),
            :query_extraction,
-           [query, role_ids]
+           [query, [person_id: person_id, team_ids: team_ids, skip_permissions: skip_permissions]]
          ) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}

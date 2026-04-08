@@ -213,6 +213,9 @@ defmodule Zaq.Accounts.People do
 
   defp maybe_backfill(acc, _field, _current, _from_loser), do: acc
 
+  def get_person(id) when is_nil(id), do: nil
+  def get_person(id), do: Repo.get(Person, id)
+
   def get_person!(id), do: Repo.get!(Person, id)
 
   def get_person_with_channels!(id) do

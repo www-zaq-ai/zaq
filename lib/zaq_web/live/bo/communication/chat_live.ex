@@ -10,7 +10,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
-  alias Zaq.Accounts.Permissions
   alias Zaq.Agent.{CitationNormalizer, History, Pipeline}
   alias Zaq.Channels.{Router, WebBridge}
   alias Zaq.Engine.Messages.Incoming
@@ -362,19 +361,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   # ── Async pipeline runner (runs inside Task) ───────────────────────
 
   defp run_pipeline_async(session_id, request_id, user_msg, history, current_user) do
-    role_ids = Permissions.list_accessible_role_ids(current_user)
-
     incoming = %Incoming{
       content: user_msg,
       channel_id: "bo",
+      author_id: current_user.id,
       provider: :web,
       metadata: %{session_id: session_id, request_id: request_id, user_content: user_msg}
     }
 
+    # Explicit: BO-authenticated users with no person record get full access.
+    # This is a deliberate policy decision, not a nil shortcut.
+    bo_user_without_person = is_nil(current_user.person_id)
+
     outgoing =
       Pipeline.run(incoming,
         history: history,
-        role_ids: role_ids,
+        skip_permissions: bo_user_without_person,
         telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
         on_status: WebBridge.on_status_callback(session_id, request_id),
         node_router: node_router()

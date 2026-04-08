@@ -58,7 +58,6 @@
           current_dir={@current_dir}
           current_volume={@current_volume}
           ingestion_map={@ingestion_map}
-          all_roles={@all_roles}
         />
         <.file_grid_view
           :if={@view_mode == "grid"}
@@ -67,7 +66,6 @@
           current_dir={@current_dir}
           current_volume={@current_volume}
           ingestion_map={@ingestion_map}
-          all_roles={@all_roles}
         />
       </div>
 
@@ -105,8 +103,10 @@
     :if={@modal == :share}
     modal_name={@modal_name}
     modal_error={@modal_error}
-    all_roles={@all_roles}
-    share_modal_role_ids={@share_modal_role_ids}
+    share_modal_is_folder={@share_modal_is_folder}
+    share_modal_permissions={@share_modal_permissions}
+    share_modal_targets_options={@share_modal_targets_options}
+    share_modal_pending={@share_modal_pending}
   />
   <ZaqWeb.Components.FilePreviewModal.modal
     :if={@modal == :preview and @preview}

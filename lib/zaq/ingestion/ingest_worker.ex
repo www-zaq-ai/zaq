@@ -26,8 +26,6 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"job_id" => job_id} = args, attempt: attempt, max_attempts: max}) do
-    role_id = Map.get(args, "role_id")
-    shared_role_ids = Map.get(args, "shared_role_ids", [])
     job = Repo.get!(IngestJob, job_id)
 
     updated_job = JobLifecycle.mark_processing!(job)
@@ -38,7 +36,7 @@ defmodule Zaq.Ingestion.IngestWorker do
     if Map.get(args, "retry_failed_chunks", false) do
       requeue_failed_chunk_jobs(updated_job, telemetry_dimensions)
     else
-      case prepare_chunks(file_path, role_id, shared_role_ids) do
+      case prepare_chunks(file_path) do
         {:ok, document, :legacy_completed} ->
           finalize_legacy_job(updated_job, document, telemetry_dimensions)
 
@@ -78,13 +76,13 @@ defmodule Zaq.Ingestion.IngestWorker do
     attempt * 5
   end
 
-  defp prepare_chunks(file_path, role_id, shared_role_ids) do
+  defp prepare_chunks(file_path) do
     proc = processor()
 
-    if function_exported?(proc, :prepare_file_chunks, 3) do
-      proc.prepare_file_chunks(file_path, role_id, shared_role_ids)
+    if function_exported?(proc, :prepare_file_chunks, 1) do
+      proc.prepare_file_chunks(file_path)
     else
-      case proc.process_single_file(file_path, role_id, shared_role_ids) do
+      case proc.process_single_file(file_path) do
         {:ok, document} ->
           {:ok, document, :legacy_completed}
 

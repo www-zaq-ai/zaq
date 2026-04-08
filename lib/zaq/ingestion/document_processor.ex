@@ -117,8 +117,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`, `.png`, `.jpg`
   """
-  def process_single_file(file_path, role_id \\ nil, shared_role_ids \\ []) do
-    case process_single_file_with_report(file_path, role_id, shared_role_ids) do
+  def process_single_file(file_path) do
+    case process_single_file_with_report(file_path) do
       {:ok, document, %{failed_chunks: 0}} ->
         {:ok, document}
 
@@ -136,16 +136,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns `{ :ok, document, indexed_chunk_payloads }` where payloads are
   `{chunk_payload_map, chunk_index}` tuples.
   """
-  def prepare_file_chunks(file_path, role_id \\ nil, shared_role_ids \\ []) do
+  def prepare_file_chunks(file_path) do
     Logger.info("Preparing file chunks: #{file_path}")
 
     with {:ok, content} <- read_as_markdown(file_path),
          {:ok, source} <- extract_source(content, file_path),
          {:ok, sidecar_source} <- extract_sidecar_source(file_path),
          {:ok, document} <-
-           store_document(content, source, role_id, Sidecar.source_metadata(sidecar_source)),
-         :ok <-
-           maybe_store_sidecar_document(content, source, sidecar_source, role_id, shared_role_ids) do
+           store_document(content, source, Sidecar.source_metadata(sidecar_source)),
+         :ok <- maybe_store_sidecar_document(content, source, sidecar_source) do
       sections = DocumentChunker.parse_layout(content, format: :markdown)
       chunks = DocumentChunker.chunk_sections(sections)
 
@@ -165,23 +164,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Processes a single file and returns an ingestion report with chunk-level progress.
   """
-  def process_single_file_with_report(
-        file_path,
-        role_id \\ nil,
-        shared_role_ids \\ [],
-        opts \\ []
-      ) do
+  def process_single_file_with_report(file_path, opts \\ []) do
     Logger.info("Processing file: #{file_path}")
 
     with {:ok, content} <- read_as_markdown(file_path),
          {:ok, source} <- extract_source(content, file_path),
          {:ok, sidecar_source} <- extract_sidecar_source(file_path),
          {:ok, document} <-
-           store_document(content, source, role_id, Sidecar.source_metadata(sidecar_source)),
-         :ok <-
-           maybe_store_sidecar_document(content, source, sidecar_source, role_id, shared_role_ids),
-         {:ok, report} <-
-           process_and_store_chunks_report(content, document.id, role_id, shared_role_ids, opts) do
+           store_document(content, source, Sidecar.source_metadata(sidecar_source)),
+         :ok <- maybe_store_sidecar_document(content, source, sidecar_source),
+         {:ok, report} <- process_and_store_chunks_report(content, document.id, opts) do
       Logger.info("Successfully processed: #{source}")
       {:ok, document, report}
     else
@@ -426,15 +418,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp maybe_store_sidecar_document(_content, _source, nil, _role_id, _shared_role_ids), do: :ok
+  defp maybe_store_sidecar_document(_content, _source, nil), do: :ok
 
-  defp maybe_store_sidecar_document(content, source, sidecar_source, role_id, shared_role_ids) do
+  defp maybe_store_sidecar_document(content, source, sidecar_source) do
     attrs = %{
       source: sidecar_source,
       content: content,
       content_type: "markdown",
-      role_id: role_id,
-      shared_role_ids: shared_role_ids,
       metadata: Sidecar.sidecar_metadata(source)
     }
 
@@ -447,8 +437,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Upserts a `Zaq.Ingestion.Document` record.
   """
-  def store_document(content, source, role_id \\ nil, metadata \\ %{}) do
-    attrs = %{content: content, source: source, role_id: role_id, metadata: metadata}
+  def store_document(content, source, metadata \\ %{}) do
+    attrs = %{content: content, source: source, metadata: metadata}
 
     case Document.upsert(attrs) do
       {:ok, document} ->
@@ -465,10 +455,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Chunks the content using `DocumentChunker`, generates embeddings,
   and stores each chunk via the `Chunk` Ecto schema.
   """
-  def process_and_store_chunks(content, document_id, role_id \\ nil, shared_role_ids \\ []) do
-    case process_and_store_chunks_report(content, document_id, role_id, shared_role_ids,
-           reset_chunks: true
-         ) do
+  def process_and_store_chunks(content, document_id) do
+    case process_and_store_chunks_report(content, document_id, reset_chunks: true) do
       {:ok, %{results: results, failed_chunks: 0}} ->
         {:ok, results}
 
@@ -484,13 +472,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc false
-  def process_and_store_chunks_report(
-        content,
-        document_id,
-        role_id \\ nil,
-        shared_role_ids \\ [],
-        opts \\ []
-      ) do
+  def process_and_store_chunks_report(content, document_id, opts \\ []) do
     reset_chunks = Keyword.get(opts, :reset_chunks, true)
     retry_chunk_indices = Keyword.get(opts, :retry_chunk_indices)
 
@@ -510,7 +492,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       |> Task.async_stream(
         fn {chunk, index} ->
           maybe_delete_chunk_before_store(reset_chunks, document_id, index)
-          {index, store_chunk_with_metadata(chunk, document_id, index, role_id, shared_role_ids)}
+          {index, store_chunk_with_metadata(chunk, document_id, index)}
         end,
         timeout: :infinity,
         max_concurrency: chunk_processing_concurrency(),
@@ -591,13 +573,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Stores a single chunk: generates a descriptive title via LLM,
   embeds the content, validates dimension, and inserts via Ecto.
   """
-  def store_chunk_with_metadata(
-        %DocumentChunker.Chunk{} = chunk,
-        document_id,
-        index,
-        role_id \\ nil,
-        shared_role_ids \\ []
-      ) do
+  def store_chunk_with_metadata(%DocumentChunker.Chunk{} = chunk, document_id, index) do
     chunk_with_title = generate_chunk_title(chunk)
 
     case EmbeddingClient.embed(chunk_with_title.content) do
@@ -611,7 +587,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
           {:error, :dimension_mismatch}
         else
-          insert_chunk(chunk_with_title, document_id, index, embedding, role_id, shared_role_ids)
+          insert_chunk(chunk_with_title, document_id, index, embedding)
         end
 
       {:error, reason} ->
@@ -624,23 +600,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Chunk insertion (Ecto)
   # ---------------------------------------------------------------------------
 
-  defp insert_chunk(
-         %DocumentChunker.Chunk{} = chunk,
-         document_id,
-         index,
-         embedding,
-         role_id,
-         shared_role_ids
-       ) do
+  defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding) do
     attrs = %{
       document_id: document_id,
       content: chunk.content,
       chunk_index: index,
       section_path: chunk.section_path,
       metadata: build_metadata(chunk, document_id, index),
-      embedding: Pgvector.HalfVector.new(embedding),
-      role_id: role_id,
-      shared_role_ids: shared_role_ids
+      embedding: Pgvector.HalfVector.new(embedding)
     }
 
     %Chunk{}
@@ -699,13 +666,17 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   Returns a list of maps with `"content"`, `"source"`, and `"distance"`.
   """
-  @spec query_extraction(String.t(), list(integer()) | nil) ::
-          {:ok, list(map())} | {:error, term()}
-  def query_extraction(query, role_ids \\ nil) do
-    with {:ok, ss} <- similarity_search_group_by(query, role_ids),
+  @spec query_extraction(String.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
+  def query_extraction(query, access_opts \\ []) do
+    person_id = Keyword.get(access_opts, :person_id)
+    team_ids = Keyword.get(access_opts, :team_ids, [])
+    skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
+
+    with {:ok, ss} <- similarity_search_group_by(query),
          sections = build_query_sections(ss),
          {:ok, data} <- fetch_sections_with_source(sections) do
-      {:ok, limit_to_context_window(data)}
+      filtered = apply_permission_filter(data, skip_permissions, person_id, team_ids)
+      {:ok, limit_to_context_window(filtered)}
     end
   end
 
@@ -736,7 +707,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Enum.reverse(answer)
   end
 
-  defp similarity_search_group_by(query_text, role_ids) do
+  defp similarity_search_group_by(query_text) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       threshold = distance_threshold()
@@ -745,7 +716,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         Chunk
         |> join(:inner, [c], d in Document, on: c.document_id == d.id)
         |> where([c, _d], fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold))
-        |> maybe_filter_roles(role_ids)
         |> order_by([c, _d], asc: fragment("? <-> ?", c.embedding, ^embedding_vector))
         |> select([c, _d], %{
           document_id: c.document_id,
@@ -788,7 +758,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       |> Repo.all()
       |> Enum.map(fn r ->
         dist = distance_map[{r.document_id, r.section_path}]
-        %{"content" => r.content, "source" => r.source, "distance" => dist}
+
+        %{
+          "content" => r.content,
+          "source" => r.source,
+          "distance" => dist,
+          "document_id" => r.document_id
+        }
       end)
       |> Enum.sort_by(& &1["distance"])
 
@@ -806,7 +782,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns `{:ok, results}` where each result is a map with keys:
   `:chunk`, `:source`, `:rrf_score`, `:text_rank`, `:vector_distance`.
   """
-  def hybrid_search(query_text, role_ids \\ nil, limit \\ nil) do
+  def hybrid_search(query_text, limit \\ nil) do
     limit = limit || hybrid_search_limit()
     candidate_limit = hybrid_candidate_limit(limit)
 
@@ -843,7 +819,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
             ^candidate_limit
           )
         )
-        |> maybe_filter_roles(role_ids)
         |> select([c, d], %{
           chunk: c,
           source: d.source,
@@ -944,7 +919,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns chunks within `distance_threshold` ordered by distance,
   with the document source included.
   """
-  def similarity_search(query_text, role_ids \\ nil, limit \\ 5) do
+  def similarity_search(query_text, limit \\ 5) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       threshold = distance_threshold()
@@ -956,7 +931,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           [c, _d],
           fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold)
         )
-        |> maybe_filter_roles(role_ids)
         |> order_by([c, _d], fragment("? <-> ?", c.embedding, ^embedding_vector))
         |> limit(^limit)
         |> select([c, d], %{
@@ -1012,19 +986,33 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   # ---------------------------------------------------------------------------
-  # Role filtering helper
+  # Permission filter
   # ---------------------------------------------------------------------------
 
-  defp maybe_filter_roles(query, nil), do: query
+  defp apply_permission_filter(data, true, _person_id, _team_ids), do: data
 
-  defp maybe_filter_roles(query, role_ids) do
-    where(
-      query,
-      [c, _d],
-      is_nil(c.role_id) or
-        c.role_id in ^role_ids or
-        fragment("? && ?", c.shared_role_ids, ^role_ids)
-    )
+  defp apply_permission_filter(_data, false, nil, _team_ids) do
+    [
+      %{
+        "content" =>
+          "The requesting user does not have a person record and is not authorized to access any documents. Inform them they lack the required permissions.",
+        "source" => nil
+      }
+    ]
+  end
+
+  defp apply_permission_filter(data, false, person_id, team_ids) do
+    doc_ids = data |> Enum.map(& &1["document_id"]) |> Enum.uniq()
+    permitted = Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, doc_ids)
+    permitted_set = MapSet.new(permitted)
+
+    Enum.map(data, fn chunk ->
+      if MapSet.member?(permitted_set, chunk["document_id"]) do
+        chunk
+      else
+        Map.put(chunk, "content", "You don't have access to this chunk.")
+      end
+    end)
   end
 
   # ---------------------------------------------------------------------------

@@ -493,7 +493,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Enum.join("\n\n")
 
       assert {:ok, report} =
-               DocumentProcessor.process_and_store_chunks_report(content, doc.id, nil, [],
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id,
                  reset_chunks: true
                )
 
@@ -1076,7 +1076,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       end
 
       assert {:ok, results} =
-               DocumentProcessor.hybrid_search("hybrid search keywords", nil, 5)
+               DocumentProcessor.hybrid_search("hybrid search keywords", 5)
 
       assert is_list(results)
 
@@ -1087,87 +1087,26 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       end)
     end
 
-    test "filters chunks by role_ids" do
+    test "returns all chunks (no role filtering — permissions handled at query_extraction level)" do
       stub_embedding_success()
       doc = create_document()
-
-      {:ok, role_a} =
-        Zaq.Accounts.create_role(%{name: "dp_role_a_#{System.unique_integer([:positive])}"})
-
-      {:ok, role_b} =
-        Zaq.Accounts.create_role(%{name: "dp_role_b_#{System.unique_integer([:positive])}"})
 
       dim = embedding_dimension()
       embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
 
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: doc.id,
-        content: "role a chunk",
-        chunk_index: 1,
-        embedding: embedding,
-        role_id: role_a.id
-      })
-      |> Repo.insert!()
+      for i <- 1..3 do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          content: "all chunks visible chunk #{i}",
+          chunk_index: i,
+          embedding: embedding
+        })
+        |> Repo.insert!()
+      end
 
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: doc.id,
-        content: "role b chunk",
-        chunk_index: 2,
-        embedding: embedding,
-        role_id: role_b.id
-      })
-      |> Repo.insert!()
-
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: doc.id,
-        content: "untagged chunk",
-        chunk_index: 3,
-        embedding: embedding
-      })
-      |> Repo.insert!()
-
-      {:ok, results} = DocumentProcessor.hybrid_search("chunk", [role_a.id])
-      chunk_ids = Enum.map(results, & &1.chunk.role_id)
-
-      # role_a chunks and nil-tagged chunks are visible; role_b is not
-      refute role_b.id in chunk_ids
-      assert Enum.any?(chunk_ids, &is_nil/1) or role_a.id in chunk_ids
-    end
-
-    test "nil role_ids returns all chunks" do
-      stub_embedding_success()
-      doc = create_document()
-
-      {:ok, role} =
-        Zaq.Accounts.create_role(%{name: "dp_role_nil_#{System.unique_integer([:positive])}"})
-
-      dim = embedding_dimension()
-      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
-
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: doc.id,
-        content: "tagged chunk",
-        chunk_index: 1,
-        embedding: embedding,
-        role_id: role.id
-      })
-      |> Repo.insert!()
-
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: doc.id,
-        content: "untagged chunk",
-        chunk_index: 2,
-        embedding: embedding
-      })
-      |> Repo.insert!()
-
-      {:ok, results} = DocumentProcessor.hybrid_search("chunk", nil)
-      assert length(results) >= 2
+      {:ok, results} = DocumentProcessor.hybrid_search("all chunks visible")
+      assert length(results) >= 3
     end
   end
 
@@ -1337,7 +1276,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Enum.join("\n\n")
 
       assert {:ok, report} =
-               DocumentProcessor.process_and_store_chunks_report(content, doc.id, nil, [],
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id,
                  reset_chunks: false,
                  retry_chunk_indices: [2]
                )
@@ -1362,7 +1301,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       content = "# Heading\n\n" <> String.duplicate("mismatch ", 120)
 
       assert {:error, reason} =
-               DocumentProcessor.process_and_store_chunks_report(content, doc.id, nil, [],
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id,
                  reset_chunks: true
                )
 
