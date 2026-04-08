@@ -37,6 +37,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 | Agent pipeline, LLM, retrieval, answering | `docs/services/agent.md` |
 | BO authentication & authorization | `docs/services/bo-auth.md` |
 | Channels, adapters, Mattermost | `docs/services/channels.md` |
+| Engine, conversations, notifications, dispatch | `docs/services/engine.md` |
 | Ingestion pipeline, chunking, embedding | `docs/services/ingestion.md` |
 | License loading & feature gating | `docs/services/license.md` |
 | System config, secrets, encryption | `docs/services/system-config.md` |

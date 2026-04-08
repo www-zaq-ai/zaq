@@ -36,14 +36,36 @@ File path
 ## Modules
 
 ### Public API (`Zaq.Ingestion`)
-- `ingest_file/5` — trigger ingestion for a single file (`:async` or `:inline` mode); accepts `volume_name`, `role_id`, `shared_role_ids`
-- `ingest_folder/5` — trigger ingestion for all files in a directory
+
+**Ingestion triggers**
+- `ingest_file/3` — trigger ingestion for a single file (`:async` or `:inline` mode); accepts `path, mode \\ :async, volume_name \\ nil`
+- `ingest_folder/3` — trigger ingestion for all files in a directory; accepts `path, mode \\ :async, volume_name \\ nil`
+
+**Job queries**
 - `list_jobs/1` — paginated job list with optional status filter
 - `get_job/1` — fetch a single job by ID
 - `retry_job/1` — re-queue a failed job
 - `cancel_job/1` — cancel a pending job
 - `subscribe/0` — subscribe to `"ingestion:jobs"` PubSub topic for real-time updates
-- Also exposes: `delete_path/4`, `delete_paths/3`, `rename_entry/4`, `build_directory_snapshot/4`
+
+**Filesystem operations**
+- `list_volumes/0` — returns configured volumes map
+- `list_entries/2` — list directory entries for a volume + path
+- `create_directory/2` — create a directory in a volume
+- `upload_file/3` — write file content into a volume
+- `file_info/2` — stat a file in a volume
+- `rename_entry/4` — rename/move a file within a volume (delegates to `RenameService`)
+- `delete_path/4` — delete a file or directory and its DB records
+- `delete_paths/3` — batch delete
+- `directory_snapshot/3` — lists entries and combines with DB document/job state (delegates to `DirectorySnapshot.build/4`)
+
+**Access control**
+- `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; files with no permissions record are public by default
+- `list_document_permissions/1` — list all permissions for a document (preloads `:person`, `:team`)
+- `list_person_permissions/1` — list all permissions for a person (preloads `:document`)
+- `list_folder_permissions/2` — unique set of person/team permissions across all documents under a folder
+- `set_document_permission/4` — upsert a permission record for `type \in [:person, :team]`
+- `delete_document_permission/1` — remove a permission by ID
 
 ### Oban Worker (`Zaq.Ingestion.IngestWorker`)
 - Queue: `:ingestion`, max 3 attempts, 5s × attempt backoff
@@ -145,8 +167,9 @@ File path
 
 ### Directory Snapshot (`Zaq.Ingestion.DirectorySnapshot`)
 - `build/4` — combines filesystem entries with DB document/job state for the file explorer LiveView
-- Returns `%{entries: [...], ingestion_map: %{name => %{ingested_at, stale?, shared_role_ids, can_share?, job_status}}}`
-- Applies role-based visibility: super_admin sees all; others see public or own-role documents
+- Returns `%{entries: [...], ingestion_map: %{name => %{ingested_at, stale?, permissions_count, can_share?, job_status}}}`
+- For directory entries the map value contains `%{type: :directory, total_size, file_count, ingested_count}`
+- `ingestion_map` values for files now include `permissions_count` (integer, count of `Permission` rows) instead of role-based fields
 
 ### Schemas
 
@@ -164,7 +187,7 @@ File path
 - `put_embedding/2` — separate changeset step for async embedding writes
 
 **`Zaq.Ingestion.IngestJob`**
-- Fields: `file_path`, `status`, `mode`, `error`, `started_at`, `completed_at`, `chunks_count`, `total_chunks`, `ingested_chunks`, `failed_chunks`, `failed_chunk_indices`, `document_id`, `volume_name`, `role_id`, `shared_role_ids`
+- Fields: `file_path`, `status`, `mode`, `error`, `started_at`, `completed_at`, `chunks_count`, `total_chunks`, `ingested_chunks`, `failed_chunks`, `failed_chunk_indices`, `document_id`, `volume_name`
 - Statuses: `pending | processing | completed | completed_with_errors | failed`
 - Modes: `async | inline`
 - Primary key: UUID (`:binary_id`)
@@ -174,6 +197,13 @@ File path
 - Statuses: `pending | processing | completed | failed_final`
 - Purpose: persisted chunk-level retries and resumable ingestion after restarts
 
+**`Zaq.Ingestion.Permission`**
+- Schema: `document_permissions`
+- Fields: `document_id`, `person_id`, `team_id`, `access_rights` (array of strings, default `["read"]`)
+- Valid rights: `read`, `write`, `update`, `delete`
+- Either `person_id` or `team_id` must be set (enforced by DB CHECK constraint and changeset validation)
+- Unique partial indexes: `(document_id, person_id)` where person_id not null; `(document_id, team_id)` where team_id not null
+
 ### Embedding Client (`Zaq.Embedding.Client`)
 - Standalone module (not under `agent/`) — used by both ingestion and search
 - OpenAI-compatible `/embeddings` endpoint via `Req`
@@ -181,7 +211,7 @@ File path
 - Default model: `bge-multilingual-gemma2`, default dimension: `3584`
 - Mockable in tests via `req_options: [plug: {Req.Test, Zaq.Embedding.Client}]`
 
-### Document Processor Behaviour (`Zaq.DocumentProcessor.Behaviour`)
+### Document Processor Behaviour (`Zaq.DocumentProcessorBehaviour`)
 - Single callback: `process_single_file/1`
 - Allows swapping processor implementations without touching `IngestWorker`
 
@@ -213,9 +243,10 @@ lib/zaq/ingestion/
 ├── ingest_chunk_worker.ex        # Oban worker for chunk-level processing/retries
 ├── ingest_job.ex                 # Ecto schema for ingestion job tracking
 ├── ingest_worker.ex              # Oban worker for async job processing
-├── ingestion.ex                  # Public API: trigger, query, retry, cancel, delete, rename
+├── ingestion.ex                  # Public API: trigger, query, retry, cancel, delete, rename, permissions
 ├── job_lifecycle.ex              # IngestJob state transitions + PubSub broadcast
 ├── oban_telemetry.ex             # Oban telemetry setup
+├── permission.ex                 # Ecto schema for person/team document access permissions
 ├── rename_service.ex             # File rename with DB source update + rollback
 ├── sidecar.ex                    # Sidecar companion Markdown metadata helpers
 ├── source_path.ex                # Path ↔ document source normalization helpers
@@ -224,8 +255,8 @@ lib/zaq/ingestion/
 lib/zaq/embedding/
 └── client.ex                     # Generic OpenAI-compatible embedding HTTP client
 
-lib/zaq/document_processor/
-└── behaviour.ex                  # Behaviour contract for document processor implementations
+lib/zaq/ingestion/
+└── document_processor_behaviour.ex  # Behaviour contract (Zaq.DocumentProcessorBehaviour) for document processor implementations
 ```
 
 ---

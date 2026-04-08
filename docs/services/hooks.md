@@ -195,14 +195,3 @@ lib/zaq/hooks/
 ├── handler.ex          # Behaviour contract + full event catalogue with payload shapes
 └── supervisor.ex       # Starts Registry and DynamicSupervisor
 ```
-
----
-
-## What's Left
-
-### Should Do
-- [ ] Priority ordering is not applied for `dispatch_after` async hooks (spawned in registration order)
-- [ ] Async hook failures are only logged — no dead-letter or audit trail
-
-### Nice to Have
-- [ ] Timeout enforcement for sync handlers to prevent slow hooks from blocking the pipeline

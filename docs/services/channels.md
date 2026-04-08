@@ -24,6 +24,7 @@ All channel delivery flows through canonical message structs (`Incoming` / `Outg
 | `Zaq.Channels.ChannelConfig` | `lib/zaq/channels/channel_config.ex` | Ecto schema — connector configs |
 | `Zaq.Channels.RetrievalChannel` | `lib/zaq/channels/retrieval_channel.ex` | Ecto schema — per-channel subscriptions |
 | `Zaq.Channels.MattermostAdmin` | `lib/zaq/channels/mattermost_admin.ex` | Admin helpers for Mattermost UI |
+| `Zaq.Channels.SmtpHelpers` | `lib/zaq/channels/smtp_helpers.ex` | Internal SMTP settings key normalizer |
 | `Zaq.Engine.Messages.Incoming` | `lib/zaq/engine/messages/incoming.ex` | Canonical inbound message struct |
 | `Zaq.Engine.Messages.Outgoing` | `lib/zaq/engine/messages/outgoing.ex` | Canonical outbound message struct |
 
@@ -211,6 +212,12 @@ When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
 - `to_internal/2` — stub for future inbound email parsing; currently returns `{:error, :not_implemented}`.
 
+### SMTP Helpers (`Zaq.Channels.SmtpHelpers`)
+
+Internal utility module used by the email bridge. Not part of the public API.
+
+- `map_get/2` — looks up a settings key by string name, falling back to its atom equivalent. Handles the dual string/atom key formats that SMTP settings maps may contain (e.g., `"relay"` and `:relay` are both accepted).
+
 ---
 
 ## Web Bridge
@@ -343,9 +350,3 @@ When `list_active_by_config/1` returns non-empty results, the listener is starte
 - `MattermostAdmin` for UI-facing admin operations
 - Canonical `Incoming` / `Outgoing` structs as the adapter boundary contract
 - All cross-node calls routed through `Zaq.NodeRouter`
-
-## What's Left
-
-- Inbound email parsing (`EmailBridge.to_internal/2` is a stub)
-- Slack, Teams, Telegram, Discord adapters (providers are registered in `@valid_providers` but adapter implementations are external dependencies)
-- Ingestion channel pipeline (ingestion `ChannelConfig` kinds exist in schema but no ingestion bridge is implemented in this service)
