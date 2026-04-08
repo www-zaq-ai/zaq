@@ -156,6 +156,18 @@ defmodule Zaq.Channels.Router do
     end
   end
 
+  @doc "Lists available mailboxes for an email provider using bridge routing."
+  @spec list_mailboxes(atom() | String.t(), map()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_mailboxes(provider, config_params) when is_map(config_params) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         true <- function_exported?(bridge, :list_mailboxes, 2) || {:error, :unsupported} do
+      bridge.list_mailboxes(
+        Map.put(config_params, :provider, to_string(provider)),
+        fetch_connection_details(provider)
+      )
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------

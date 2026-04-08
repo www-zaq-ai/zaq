@@ -23,7 +23,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   end
 
   test "mounts with defaults when no smtp config exists", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     assert has_element?(view, "#smtp-config-form")
     assert has_element?(view, "#test-email-form")
@@ -47,7 +47,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
       }
     })
 
-    {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, _view, html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     assert html =~ "smtp.mail.internal"
     assert html =~ "2525"
@@ -57,7 +57,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   end
 
   test "validate renders smtp security warnings", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     view
     |> element("#smtp-config-form")
@@ -80,7 +80,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   end
 
   test "save persists config and encrypts password", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     view
     |> element("#smtp-config-form")
@@ -110,7 +110,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   end
 
   test "save shows changeset errors for invalid data", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     view
     |> element("#smtp-config-form")
@@ -134,7 +134,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
 
   test "save handles missing encryption key", %{conn: conn} do
     with_secret_config([encryption_key: nil, key_id: "test-v1"], fn ->
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
       view
       |> element("#smtp-config-form")
@@ -159,7 +159,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
 
   test "save handles invalid encryption key", %{conn: conn} do
     with_secret_config([encryption_key: "bad-key", key_id: "test-v1"], fn ->
-      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
       view
       |> element("#smtp-config-form")
@@ -197,7 +197,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
         }
       })
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     view |> element("button[phx-click='activate']") |> render_click()
     assert Repo.get!(ChannelConfig, channel.id).enabled
@@ -220,7 +220,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
       }
     })
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     view |> element("button[phx-click='activate']") |> render_click()
 
@@ -228,7 +228,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   end
 
   test "test_connection validates recipient presence and format", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     view |> element("#test-email-form") |> render_submit(%{"recipient" => ""})
     assert render(view) =~ "Enter a recipient email to send a test."
@@ -238,7 +238,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   end
 
   test "test_connection enters loading then reports not configured", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email/smtp")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 
     view
     |> element("#test-email-form")

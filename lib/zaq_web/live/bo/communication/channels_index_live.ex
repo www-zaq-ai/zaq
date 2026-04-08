@@ -9,7 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   import Ecto.Query
 
-  @retrieval_providers ~w(slack teams mattermost discord telegram webhook)
+  @retrieval_providers ~w(slack teams mattermost discord telegram webhook email)
   @ingestion_providers ~w(zaq_local google_drive sharepoint)
   @notification_providers ~w(email:smtp)
 
@@ -57,6 +57,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
       label: "Webhook",
       color: "#666666",
       desc: "POST events to any HTTP endpoint. Use for custom integrations, Zapier, Make, or n8n."
+    },
+    %{
+      id: "email",
+      label: "Email",
+      color: "#16a34a",
+      desc:
+        "Configure inbound IMAP reception and outbound SMTP sending from a single email channel entry."
     }
   ]
 
@@ -94,7 +101,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   # Provider IDs shown as mini-logos inside category cards on the index page
   @retrieval_preview ~w(slack teams mattermost discord telegram)
   @ingestion_preview ~w(zaq_local google_drive sharepoint)
-  @notification_preview ~w(email)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -104,7 +110,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
      socket
      |> assign(:retrieval_preview, @retrieval_preview)
      |> assign(:ingestion_preview, @ingestion_preview)
-     |> assign(:notification_preview, @notification_preview)
      |> assign(:stats, if(available, do: compute_stats(), else: %{}))}
   end
 
@@ -138,7 +143,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   # --- Helpers used by template ---
 
   def stat_for(stats, provider) do
-    Map.get(stats, String.to_existing_atom(provider), 0)
+    case provider do
+      "email" ->
+        Map.get(stats, :"email:imap", 0) + Map.get(stats, :"email:smtp", 0)
+
+      _ ->
+        Map.get(stats, String.to_existing_atom(provider), 0)
+    end
+  rescue
+    ArgumentError ->
+      0
   end
 
   def retrieval_total(stats) do
@@ -160,6 +174,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   end
 
   def provider_path(_kind, "zaq_local"), do: "/bo/ingestion"
+  def provider_path(:retrieval, "email"), do: "/bo/channels/retrieval/email"
   def provider_path(:retrieval, id), do: "/bo/channels/retrieval/#{id}"
   def provider_path(:ingestion, id), do: "/bo/channels/ingestion/#{id}"
   def provider_path(:notification, id), do: "/bo/channels/notifications/#{id}"

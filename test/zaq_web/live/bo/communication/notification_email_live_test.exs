@@ -21,15 +21,17 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLiveTest do
     %{conn: conn, user: user}
   end
 
-  test "renders SMTP connection card", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email")
+  test "renders IMAP and SMTP connection cards", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email")
 
+    assert has_element?(view, "#connection-type-card-imap")
+    assert has_element?(view, "#connection-type-card-imap", "IMAP")
     assert has_element?(view, "#connection-type-card-smtp")
     assert has_element?(view, "#connection-type-card-smtp", "SMTP")
   end
 
   test "shows not configured badge when SMTP channel is absent", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email")
 
     assert has_element?(view, "#connection-type-card-smtp", "Not configured")
   end
@@ -37,7 +39,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLiveTest do
   test "shows active badge when SMTP channel exists and enabled", %{conn: conn} do
     insert_smtp_channel(%{enabled: true})
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email")
 
     assert has_element?(view, "#connection-type-card-smtp", "active")
   end
@@ -45,7 +47,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLiveTest do
   test "shows service unavailable page when channels service is down", %{conn: conn} do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> nil end)
 
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/email")
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email")
 
     assert has_element?(view, "h2", "Service Unavailable")
   end

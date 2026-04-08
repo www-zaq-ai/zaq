@@ -77,6 +77,11 @@ defmodule ZaqWeb.Router do
       # Channels — index (landing page with both sections)
       live "/channels", Live.BO.Communication.ChannelsIndexLive, :index
 
+      # Email channel configuration
+      live "/channels/retrieval/email", Live.BO.Communication.NotificationEmailLive, :index
+      live "/channels/retrieval/email/smtp", Live.BO.Communication.NotificationSmtpLive, :index
+      live "/channels/retrieval/email/imap", Live.BO.Communication.NotificationImapLive, :index
+
       # Retrieval channels — provider detail pages
       live "/channels/retrieval", Live.BO.Communication.ChannelsIndexLive, :retrieval
       live "/channels/retrieval/:provider", Live.BO.Communication.ChannelsLive, :retrieval
@@ -84,14 +89,6 @@ defmodule ZaqWeb.Router do
       # Ingestion channels — provider detail pages
       live "/channels/ingestion", Live.BO.Communication.ChannelsIndexLive, :ingestion
       live "/channels/ingestion/:provider", Live.BO.Communication.ChannelsLive, :ingestion
-
-      # Notification channels
-      live "/channels/notifications", Live.BO.Communication.ChannelsIndexLive, :notification
-      live "/channels/notifications/email", Live.BO.Communication.NotificationEmailLive, :index
-
-      live "/channels/notifications/email/:type",
-           Live.BO.Communication.NotificationSmtpLive,
-           :index
 
       live "/channels/notifications/logs", Live.BO.Communication.NotificationLogsLive
 

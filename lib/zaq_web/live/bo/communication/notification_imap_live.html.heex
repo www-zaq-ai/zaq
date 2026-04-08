@@ -1,0 +1,380 @@
+<%= if !@service_available do %>
+  <ZaqWeb.Components.ServiceUnavailable.page
+    current_user={@current_user}
+    current_path={@current_path}
+    page_title={@page_title}
+    services={@required_roles}
+  />
+<% else %>
+  <ZaqWeb.Components.BOLayout.bo_layout
+    current_user={@current_user}
+    flash={@flash}
+    page_title={@page_title}
+    current_path={@current_path}
+    features_version={@features_version}
+  >
+    <div class="mb-6">
+      <div class="flex items-center gap-1.5 font-mono text-[0.7rem] text-black/40 mb-4">
+        <.link navigate={~p"/bo/channels"} class="hover:text-black transition-colors">
+          Channels
+        </.link>
+        <span>/</span>
+        <.link navigate={~p"/bo/channels/retrieval"} class="hover:text-black transition-colors">
+          Communication Channels
+        </.link>
+        <span>/</span>
+        <.link
+          navigate={~p"/bo/channels/retrieval/email"}
+          class="hover:text-black transition-colors"
+        >
+          Email
+        </.link>
+        <span>/</span>
+        <span class="text-black">IMAP</span>
+      </div>
+
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="font-mono text-xl font-bold text-black tracking-tight">{@page_title}</h1>
+          <p class="font-mono text-[0.75rem] text-black/40 mt-1">
+            Configure inbound email reception and mailbox listeners.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <span class={[
+            "font-mono text-[0.72rem] px-2.5 py-1 rounded-full uppercase tracking-wider",
+            if(@imap_enabled,
+              do: "bg-emerald-100 text-emerald-700",
+              else: "bg-black/5 text-black/40"
+            )
+          ]}>
+            {if @imap_enabled, do: "Active", else: "Inactive"}
+          </span>
+          <button
+            type="button"
+            phx-click="activate"
+            class={[
+              "font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl transition-all shadow-sm",
+              if(@imap_enabled,
+                do:
+                  "bg-white border border-black/10 text-black/60 hover:border-red-300 hover:text-red-600",
+                else: "bg-[#0284c7] text-white hover:bg-[#0369a1] shadow-[#0284c7]/20"
+              )
+            ]}
+          >
+            {if @imap_enabled, do: "Deactivate", else: "Activate"}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="max-w-2xl bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">IMAP Settings</h2>
+        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+          Inbound mailbox connection and listener behavior.
+        </p>
+      </div>
+
+      <div class="px-8 py-6">
+        <.form
+          for={@form}
+          id="imap-config-form"
+          phx-submit="save"
+          phx-change="validate"
+          class="space-y-5"
+        >
+          <div class="grid grid-cols-3 gap-4">
+            <div class="col-span-3 sm:col-span-1">
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                IMAP Host / URL
+              </label>
+              <input
+                type="text"
+                name="imap_config[url]"
+                value={@form[:url].value}
+                phx-debounce="400"
+                placeholder="imap.gmail.com"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+              />
+              <p
+                :if={@form[:url].errors != []}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {elem(hd(@form[:url].errors), 0)}
+              </p>
+            </div>
+
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Port
+              </label>
+              <input
+                type="number"
+                name="imap_config[port]"
+                value={@form[:port].value}
+                phx-debounce="400"
+                placeholder="993"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+              />
+            </div>
+
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                SSL Depth
+              </label>
+              <input
+                type="number"
+                name="imap_config[ssl_depth]"
+                value={@form[:ssl_depth].value}
+                phx-debounce="400"
+                min="0"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+              />
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <input
+              id="imap-ssl"
+              type="checkbox"
+              name="imap_config[ssl]"
+              value="true"
+              checked={@form[:ssl].value != false}
+              class="rounded border-black/20 text-[#0284c7] focus:ring-[#0284c7]/30"
+            />
+            <label for="imap-ssl" class="font-mono text-[0.75rem] text-black/70">
+              Enable SSL/TLS (recommended)
+            </label>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Username
+              </label>
+              <input
+                type="text"
+                name="imap_config[username]"
+                value={@form[:username].value}
+                phx-debounce="400"
+                placeholder="zaq@example.com"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+              />
+            </div>
+
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Password
+              </label>
+              <div class="relative">
+                <input
+                  id="imap-password"
+                  type="password"
+                  name="imap_config[password]"
+                  value={@form[:password].value}
+                  phx-debounce="400"
+                  placeholder="••••••••"
+                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-11 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+                />
+                <button
+                  type="button"
+                  onclick="var i=document.getElementById('imap-password');i.type=i.type==='password'?'text':'password';this.querySelector('.eye-on').classList.toggle('hidden');this.querySelector('.eye-off').classList.toggle('hidden');"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+                  tabindex="-1"
+                >
+                  <svg
+                    class="eye-on w-4 h-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle
+                      cx="12"
+                      cy="12"
+                      r="3"
+                    />
+                  </svg>
+                  <svg
+                    class="eye-off hidden w-4 h-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" /><line
+                      x1="1"
+                      y1="1"
+                      x2="23"
+                      y2="23"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block">
+                Selected Mailboxes
+              </label>
+              <button
+                id="load-imap-mailboxes"
+                type="button"
+                phx-click="load_mailboxes"
+                disabled={@mailbox_status == :loading}
+                class="font-mono text-[0.72rem] font-semibold px-3 py-1.5 rounded-lg border border-[#0284c7]/25 text-[#0284c7] hover:bg-[#0284c7]/5 transition-all"
+              >
+                {if @mailbox_status == :loading, do: "Loading...", else: "Load / Refresh"}
+              </button>
+            </div>
+
+            <select
+              id="imap-selected-mailboxes"
+              name="imap_config[selected_mailboxes][]"
+              multiple
+              class="w-full min-h-32 font-mono text-[0.88rem] text-black border border-black/10 rounded-xl px-3 py-2 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+            >
+              <option
+                :for={mailbox <- @available_mailboxes}
+                value={mailbox}
+                selected={mailbox in List.wrap(@form[:selected_mailboxes].value)}
+              >
+                {mailbox}
+              </option>
+            </select>
+
+            <p class="font-mono text-[0.68rem] text-black/40">
+              Load mailboxes first, then pick one or more folders to listen to.
+            </p>
+
+            <div
+              :if={@mailbox_status == :ok}
+              id="imap-mailboxes-status-ok"
+              class="font-mono text-[0.72rem] text-emerald-600"
+            >
+              Mailboxes loaded.
+            </div>
+
+            <div
+              :if={is_tuple(@mailbox_status) and elem(@mailbox_status, 0) == :error}
+              id="imap-mailboxes-status-error"
+              class="font-mono text-[0.72rem] text-red-500"
+            >
+              {elem(@mailbox_status, 1)}
+            </div>
+
+            <p
+              :if={@form[:selected_mailboxes].errors != []}
+              class="font-mono text-[0.72rem] text-red-500"
+            >
+              {elem(hd(@form[:selected_mailboxes].errors), 0)}
+            </p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Poll Interval (ms)
+              </label>
+              <input
+                type="number"
+                name="imap_config[poll_interval]"
+                value={@form[:poll_interval].value}
+                phx-debounce="400"
+                min="1000"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+              />
+            </div>
+
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                IDLE Timeout (ms)
+              </label>
+              <input
+                type="number"
+                name="imap_config[idle_timeout]"
+                value={@form[:idle_timeout].value}
+                phx-debounce="400"
+                min="1000"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+              />
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <input
+              id="imap-mark-as-read"
+              type="checkbox"
+              name="imap_config[mark_as_read]"
+              value="true"
+              checked={@form[:mark_as_read].value != false}
+              class="rounded border-black/20 text-[#0284c7] focus:ring-[#0284c7]/30"
+            />
+            <label for="imap-mark-as-read" class="font-mono text-[0.75rem] text-black/70">
+              Mark processed emails as read
+            </label>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <input
+              id="imap-load-initial-unread"
+              type="checkbox"
+              name="imap_config[load_initial_unread]"
+              value="true"
+              checked={@form[:load_initial_unread].value == true}
+              class="rounded border-black/20 text-[#0284c7] focus:ring-[#0284c7]/30"
+            />
+            <label for="imap-load-initial-unread" class="font-mono text-[0.75rem] text-black/70">
+              Load existing unread emails on startup
+            </label>
+          </div>
+
+          <div class="pt-2 flex items-center gap-3">
+            <button
+              id="save-imap-config"
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#2c3a50] text-white hover:bg-[#2c3a50]/80 shadow-sm transition-all"
+            >
+              Save Configuration
+            </button>
+
+            <div
+              :if={@save_status == :ok}
+              id="save-status-ok"
+              class="flex items-center gap-2 font-mono text-[0.75rem] text-emerald-600"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Saved
+            </div>
+
+            <div
+              :if={is_tuple(@save_status) and elem(@save_status, 0) == :error}
+              id="save-status-error"
+              class="font-mono text-[0.75rem] text-red-500"
+            >
+              {elem(@save_status, 1)}
+            </div>
+          </div>
+        </.form>
+      </div>
+    </div>
+  </ZaqWeb.Components.BOLayout.bo_layout>
+<% end %>

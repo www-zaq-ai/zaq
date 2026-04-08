@@ -87,6 +87,16 @@ defmodule Zaq.Channels.EmailBridge do
     end
   end
 
+  @doc "Lists available IMAP mailboxes through the configured email adapter."
+  @spec list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_mailboxes(config, _connection_details \\ %{}) when is_map(config) do
+    provider = Map.get(config, :provider) || Map.get(config, "provider")
+
+    with {:ok, adapter} <- adapter_for(provider) do
+      adapter.list_mailboxes(config)
+    end
+  end
+
   @doc """
   Delivers `%Outgoing{}` as an email to `outgoing.channel_id` (the recipient address).
 
