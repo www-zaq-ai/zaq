@@ -242,6 +242,29 @@ defmodule Zaq.Channels.RouterTest do
     end
   end
 
+  describe "sync_provider_runtime/1" do
+    test "starts runtime when provider config is enabled" do
+      config = insert_config(:mattermost)
+      config_id = config.id
+
+      assert :ok = Router.sync_provider_runtime(:mattermost)
+      assert_received {:start_runtime, "mattermost", ^config_id}
+    end
+
+    test "stops runtime when provider config is disabled" do
+      config = insert_config(:mattermost)
+      {:ok, _} = config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update()
+
+      assert :ok = Router.sync_provider_runtime(:mattermost)
+      assert_received {:stop_runtime, "mattermost", _}
+    end
+
+    test "returns strict channel_not_configured error when config is missing" do
+      assert {:error, {:channel_not_configured, :mattermost}} =
+               Router.sync_provider_runtime(:mattermost)
+    end
+  end
+
   describe "list_mailboxes/2" do
     test "delegates mailbox listing through configured bridge" do
       params = %{url: "imap.example.com", username: "user@example.com", password: "secret"}

@@ -10,7 +10,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
   defmodule RouterStubOk do
     def list_mailboxes("email:imap", _config), do: {:ok, ["INBOX", "Support", "Sales"]}
-    def sync_config_runtime(_before, _after), do: :ok
+    def sync_provider_runtime("email:imap"), do: :ok
   end
 
   defmodule RouterStubSlow do
@@ -19,12 +19,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
       {:ok, ["INBOX", "Support"]}
     end
 
-    def sync_config_runtime(_before, _after), do: :ok
+    def sync_provider_runtime("email:imap"), do: :ok
   end
 
   defmodule RouterStubError do
     def list_mailboxes("email:imap", _config), do: {:error, :auth_failed}
-    def sync_config_runtime(_before, _after), do: :ok
+    def sync_provider_runtime("email:imap"), do: :ok
   end
 
   setup :verify_on_exit!
@@ -71,9 +71,17 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     channel = ChannelConfig.get_any_by_provider("email:imap")
     assert channel
     assert channel.url == "imap.example.com"
+    assert channel.settings["imap"]["username"] == "zaq@example.com"
     assert channel.settings["imap"]["ssl_depth"] == 3
     assert channel.settings["imap"]["selected_mailboxes"] == ["INBOX", "Support"]
     assert has_element?(view, "#save-status-ok")
+
+    {:ok, reloaded_view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    assert has_element?(
+             reloaded_view,
+             "#imap-config-form input[name='imap_config[username]'][value='zaq@example.com']"
+           )
   end
 
   test "load mailboxes updates multiselect options", %{conn: conn} do
@@ -98,8 +106,13 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
     view |> element("#load-imap-mailboxes") |> render_click()
 
-    assert has_element?(view, "#imap-mailboxes-status-ok", "Mailboxes loaded")
-    assert has_element?(view, "#imap-selected-mailboxes option[value='Support']")
+    assert_eventually(fn ->
+      has_element?(view, "#imap-mailboxes-status-ok", "Mailboxes loaded")
+    end)
+
+    assert_eventually(fn ->
+      has_element?(view, "#imap-selected-mailboxes option[value='Support']")
+    end)
   end
 
   test "load mailboxes shows clean connection error", %{conn: conn} do
@@ -124,8 +137,49 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
     view |> element("#load-imap-mailboxes") |> render_click()
 
-    assert has_element?(view, "#imap-mailboxes-status-error")
-    assert render(view) =~ "Connection failed while loading IMAP mailboxes"
+    assert_eventually(fn -> has_element?(view, "#imap-mailboxes-status-error") end)
+    assert_eventually(fn -> render(view) =~ "Connection failed while loading IMAP mailboxes" end)
+  end
+
+  test "mailbox load error is preserved across validate events", %{conn: conn} do
+    Application.put_env(:zaq, :notification_imap_router_module, RouterStubError)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :notification_imap_router_module)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    view
+    |> element("#imap-config-form")
+    |> render_change(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX"]
+      }
+    })
+
+    view |> element("#load-imap-mailboxes") |> render_click()
+
+    assert_eventually(fn -> has_element?(view, "#imap-mailboxes-status-error") end)
+    assert_eventually(fn -> render(view) =~ "Connection failed while loading IMAP mailboxes" end)
+
+    view
+    |> element("#imap-config-form")
+    |> render_change(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "port" => "994",
+        "selected_mailboxes" => ["INBOX"]
+      }
+    })
+
+    assert_eventually(fn -> has_element?(view, "#imap-mailboxes-status-error") end)
+    assert_eventually(fn -> render(view) =~ "Connection failed while loading IMAP mailboxes" end)
   end
 
   test "load mailboxes shows validation error when connection fields are missing", %{conn: conn} do
@@ -159,7 +213,25 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
     _ = view |> element("#load-imap-mailboxes") |> render_click()
 
-    assert has_element?(view, "#imap-mailboxes-status-ok", "Mailboxes loaded")
-    assert has_element?(view, "#imap-selected-mailboxes option[value='Support']")
+    assert_eventually(fn ->
+      has_element?(view, "#imap-mailboxes-status-ok", "Mailboxes loaded")
+    end)
+
+    assert_eventually(fn ->
+      has_element?(view, "#imap-selected-mailboxes option[value='Support']")
+    end)
+  end
+
+  defp assert_eventually(fun, attempts \\ 20)
+
+  defp assert_eventually(_fun, 0), do: flunk("condition not met in time")
+
+  defp assert_eventually(fun, attempts) do
+    if fun.() do
+      assert true
+    else
+      Process.sleep(20)
+      assert_eventually(fun, attempts - 1)
+    end
   end
 end

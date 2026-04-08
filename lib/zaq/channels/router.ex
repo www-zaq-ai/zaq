@@ -133,13 +133,25 @@ defmodule Zaq.Channels.Router do
 
   def sync_config_runtime(_before, _after), do: :ok
 
+  @doc "Synchronizes runtime processes from canonical DB config for provider."
+  @spec sync_provider_runtime(atom() | String.t()) :: :ok | {:error, term()}
+  def sync_provider_runtime(provider) do
+    with {:ok, config} <- fetch_any_channel_config(provider) do
+      if config.enabled do
+        with_bridge_runtime(config, :start_runtime)
+      else
+        with_bridge_runtime(config, :stop_runtime)
+      end
+    end
+  end
+
   def fetch_profile("web", author_id), do: {:ok, %{id: author_id, name: "Web User"}}
 
   @doc "Fetches a user's canonical profile from the platform bridge."
   @spec fetch_profile(atom() | String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_profile(platform, author_id) when is_binary(author_id) do
     with {:ok, bridge} <- resolve_bridge(platform),
-         true <- function_exported?(bridge, :fetch_profile, 2) || {:error, :unsupported} do
+         true <- bridge_supports?(bridge, :fetch_profile, 2) || {:error, :unsupported} do
       bridge.fetch_profile(
         author_id,
         Map.put(fetch_connection_details(platform), :provider, platform)
@@ -151,7 +163,7 @@ defmodule Zaq.Channels.Router do
   @spec test_connection(map(), String.t()) :: {:ok, term()} | {:error, term()}
   def test_connection(%{provider: provider} = config, channel_id) when is_binary(channel_id) do
     with {:ok, bridge} <- resolve_bridge(provider),
-         true <- function_exported?(bridge, :test_connection, 2) || {:error, :unsupported} do
+         true <- bridge_supports?(bridge, :test_connection, 2) || {:error, :unsupported} do
       bridge.test_connection(config, channel_id)
     end
   end
@@ -160,7 +172,7 @@ defmodule Zaq.Channels.Router do
   @spec list_mailboxes(atom() | String.t(), map()) :: {:ok, [String.t()]} | {:error, term()}
   def list_mailboxes(provider, config_params) when is_map(config_params) do
     with {:ok, bridge} <- resolve_bridge(provider),
-         true <- function_exported?(bridge, :list_mailboxes, 2) || {:error, :unsupported} do
+         true <- bridge_supports?(bridge, :list_mailboxes, 2) || {:error, :unsupported} do
       bridge.list_mailboxes(
         Map.put(config_params, :provider, to_string(provider)),
         fetch_connection_details(provider)
@@ -195,16 +207,27 @@ defmodule Zaq.Channels.Router do
     end
   end
 
+  defp fetch_any_channel_config(provider) do
+    case ChannelConfig.get_any_by_provider(to_string(provider)) do
+      nil -> {:error, {:channel_not_configured, provider}}
+      config -> {:ok, config}
+    end
+  end
+
   defp with_bridge_runtime(%{provider: provider} = config, fun)
        when fun in [:start_runtime, :stop_runtime] do
     with {:ok, bridge} <- resolve_bridge(provider),
-         true <-
-           (Code.ensure_loaded?(bridge) && function_exported?(bridge, fun, 1)) || :unsupported do
+         true <- bridge_supports?(bridge, fun, 1) || :unsupported do
       apply(bridge, fun, [config])
     else
       :unsupported -> :ok
       {:error, _} = error -> error
     end
+  end
+
+  defp bridge_supports?(bridge, fun, arity)
+       when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
+    Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
   end
 
   defp provider_to_bridge_key(@smtp_provider), do: :email

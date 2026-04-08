@@ -27,4 +27,22 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ThreadingTest do
 
     assert Threading.resolve_thread_id(headers) == "self@example.com"
   end
+
+  test "resolve_thread_key prefers first references message id" do
+    headers = %{
+      "in_reply_to" => "<parent@example.com>",
+      "references" => "<root@example.com> <parent@example.com>",
+      "message_id" => "<self@example.com>"
+    }
+
+    assert Threading.resolve_thread_key(headers) == "root@example.com"
+  end
+
+  test "resolve_thread_key falls back to in_reply_to then message_id" do
+    assert Threading.resolve_thread_key(%{"in_reply_to" => "<parent@example.com>"}) ==
+             "parent@example.com"
+
+    assert Threading.resolve_thread_key(%{"message_id" => "<self@example.com>"}) ==
+             "self@example.com"
+  end
 end

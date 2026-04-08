@@ -5,10 +5,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
   alias Mailroom.IMAP
   alias Mailroom.IMAP.Envelope
-  alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.EmailBridge.ImapAdapter.{Listener, Parser, RuntimeState}
+  alias Zaq.Channels.EmailBridge.ImapAdapter.{Listener, Parser}
 
-  @fetch_items [:uid, :envelope, :rfc822_text, :header]
+  @fetch_items [:uid, :envelope, :rfc822, :header]
   @default_idle_timeout 1_500_000
 
   @spec to_internal(map(), map()) :: Zaq.Engine.Messages.Incoming.t() | {:error, term()}
@@ -32,13 +31,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
       {:ok, client} ->
         try do
           case IMAP.list(client) do
+            {:ok, list} when is_list(list) ->
+              {:ok, normalize_mailboxes(list)}
+
             list when is_list(list) ->
-              {:ok,
-               list
-               |> Enum.map(fn {mailbox, _delimiter, _flags} -> mailbox end)
-               |> Enum.filter(&is_binary/1)
-               |> Enum.uniq()
-               |> Enum.sort()}
+              {:ok, normalize_mailboxes(list)}
 
             other ->
               {:error, {:list_mailboxes_failed, other}}
@@ -60,6 +57,22 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     error -> {:error, {:connect_failed, Exception.format(:error, error, __STACKTRACE__)}}
   end
 
+  defp normalize_mailboxes(raw_mailboxes) when is_list(raw_mailboxes) do
+    raw_mailboxes
+    |> Enum.map(&mailbox_name/1)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp mailbox_name({mailbox, _delimiter, _flags}) when is_binary(mailbox), do: mailbox
+  defp mailbox_name(%{mailbox: mailbox}) when is_binary(mailbox), do: mailbox
+  defp mailbox_name(%{"mailbox" => mailbox}) when is_binary(mailbox), do: mailbox
+  defp mailbox_name(mailbox) when is_binary(mailbox), do: mailbox
+  defp mailbox_name(_), do: nil
+
   @spec fetch_unseen(pid(), String.t(), (map() -> any())) :: :ok | {:error, term()}
   def fetch_unseen(client, mailbox, on_message) when is_pid(client) and is_binary(mailbox) do
     IMAP.search(client, "UNSEEN", @fetch_items, fn {seq, response} ->
@@ -73,9 +86,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     error -> {:error, {:imap_fetch_failed, Exception.message(error)}}
   end
 
-  @spec enter_idle(pid(), map()) :: :ok
-  def enter_idle(client, config) when is_pid(client) do
-    timeout = idle_timeout(ChannelConfig.imap_settings(config))
+  @spec enter_idle(pid(), map() | integer()) :: :ok
+  def enter_idle(client, config_or_timeout) when is_pid(client) do
+    timeout = idle_timeout(config_or_timeout)
     _ = IMAP.idle(client, self(), :idle_notify, timeout: timeout)
     :ok
   end
@@ -97,17 +110,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     _ -> :ok
   end
 
-  @spec state_child_spec(map(), String.t()) :: map()
-  def state_child_spec(config, bridge_id) when is_binary(bridge_id) do
-    %{
-      id: {RuntimeState, bridge_id},
-      start: {RuntimeState, :start_link, [[bridge_id: bridge_id, config: config]]},
-      restart: :permanent,
-      type: :worker
-    }
-  end
-
-  @spec runtime_specs(map(), String.t(), keyword()) :: {:ok, {map(), [map()]}} | {:error, term()}
+  @spec runtime_specs(map(), String.t(), keyword()) :: {:ok, {nil, [map()]}} | {:error, term()}
   def runtime_specs(config, bridge_id, opts \\ []) when is_binary(bridge_id) and is_list(opts) do
     sink_opts = Keyword.get(opts, :sink_opts, [])
 
@@ -119,7 +122,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
              sink_mfa: sink_mfa,
              sink_opts: Keyword.put(sink_opts, :adapter, __MODULE__)
            ) do
-      {:ok, {state_child_spec(config, bridge_id), listeners}}
+      {:ok, {nil, listeners}}
     end
   end
 
@@ -142,7 +145,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
     specs =
       config
-      |> ChannelConfig.imap_selected_mailboxes()
+      |> selected_mailboxes()
       |> Enum.map(fn mailbox ->
         listener_child_spec(
           config,
@@ -170,6 +173,10 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
              config: config,
              bridge_id: bridge_id,
              mailbox: mailbox,
+             retry_interval: retry_interval(config),
+             mark_as_read: mark_as_read?(config),
+             load_initial_unread: load_initial_unread?(config),
+             idle_timeout: idle_timeout(config),
              sink_mfa: sink_mfa,
              sink_opts: Keyword.put(sink_opts, :mailbox, mailbox)
            ]
@@ -191,7 +198,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
       "message_id" => envelope.message_id,
       "in_reply_to" => envelope.in_reply_to,
       "references" => parse_references(Map.get(response, :header)),
-      "body_text" => Map.get(response, :rfc822_text),
+      "raw_rfc822" => Map.get(response, :rfc822),
       "body_html" => nil,
       "attachments" => []
     }
@@ -216,18 +223,17 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   defp parse_references(_), do: nil
 
   defp connect_client(config) do
-    settings = settings_for(config)
-    {server, port_from_url} = endpoint_from_url(Map.get(config, :url))
+    {server, port_from_url} = endpoint_from_url(config_get(config, :url))
 
-    username = Map.get(settings, "username") || Map.get(config, :username)
-    password = Map.get(config, :token) || Map.get(config, :password)
-    ssl = ssl?(settings)
+    username = config_get(config, :username)
+    password = config_get(config, :token) || config_get(config, :password)
+    ssl = ssl?(config)
 
     opts = [
       ssl: ssl,
-      ssl_opts: [depth: ssl_depth(settings), cacerts: :public_key.cacerts_get()],
-      port: port_from_url || port(settings),
-      timeout: timeout(settings)
+      ssl_opts: [depth: ssl_depth(config), cacerts: :public_key.cacerts_get()],
+      port: port_from_url || port(config),
+      timeout: timeout(config)
     ]
 
     if is_binary(server) and server != "" do
@@ -236,7 +242,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
       rescue
         error ->
           Logger.error(
-            "[ImapAdapter] connect exception url=#{inspect(Map.get(config, :url))} ssl=#{inspect(ssl)} port=#{inspect(opts[:port])} username=#{inspect(username)} reason=#{Exception.message(error)}"
+            "[ImapAdapter] connect exception url=#{inspect(config_get(config, :url))} ssl=#{inspect(ssl)} port=#{inspect(opts[:port])} username=#{inspect(username)} reason=#{Exception.message(error)}"
           )
 
           reraise error, __STACKTRACE__
@@ -245,7 +251,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
           normalized = normalize_connect_error(reason)
 
           Logger.error(
-            "[ImapAdapter] connect exit url=#{inspect(Map.get(config, :url))} ssl=#{inspect(ssl)} port=#{inspect(opts[:port])} username=#{inspect(username)} reason=#{inspect(normalized)} raw=#{inspect(reason)}"
+            "[ImapAdapter] connect exit url=#{inspect(config_get(config, :url))} ssl=#{inspect(ssl)} port=#{inspect(opts[:port])} username=#{inspect(username)} reason=#{inspect(normalized)} raw=#{inspect(reason)}"
           )
 
           {:error, {:connect_failed, normalized}}
@@ -258,22 +264,6 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   defp normalize_connect_error({:timeout, _}), do: :timeout
   defp normalize_connect_error({:noproc, _}), do: :noproc
   defp normalize_connect_error(reason), do: reason
-
-  defp settings_for(config) do
-    case ChannelConfig.imap_settings(config) do
-      map when map == %{} ->
-        %{
-          "username" => Map.get(config, :username),
-          "port" => Map.get(config, :port),
-          "ssl" => Map.get(config, :ssl),
-          "ssl_depth" => Map.get(config, :ssl_depth),
-          "timeout" => Map.get(config, :timeout)
-        }
-
-      map ->
-        map
-    end
-  end
 
   defp endpoint_from_url(nil), do: {nil, nil}
 
@@ -290,12 +280,12 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
   defp endpoint_from_url(_), do: {nil, nil}
 
-  defp ssl?(settings), do: Map.get(settings, "ssl", true) != false
+  defp ssl?(config), do: config_get(config, :ssl, true) != false
 
-  defp port(settings) do
-    fallback = default_port(settings)
+  defp port(config) do
+    fallback = default_port(config)
 
-    case Map.get(settings, "port") do
+    case config_get(config, :port) do
       port when is_integer(port) and port > 0 ->
         port
 
@@ -307,7 +297,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     end
   end
 
-  defp default_port(settings), do: if(ssl?(settings), do: 993, else: 143)
+  defp default_port(config), do: if(ssl?(config), do: 993, else: 143)
 
   defp parse_positive_int(value, fallback) when is_binary(value) do
     case Integer.parse(value) do
@@ -316,8 +306,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     end
   end
 
-  defp timeout(settings) do
-    case Map.get(settings, "timeout") do
+  defp timeout(config) do
+    case config_get(config, :timeout) do
       v when is_integer(v) and v > 0 ->
         v
 
@@ -332,8 +322,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     end
   end
 
-  defp ssl_depth(settings) do
-    case Map.get(settings, "ssl_depth", 3) do
+  defp ssl_depth(config) do
+    case config_get(config, :ssl_depth, 3) do
       v when is_integer(v) and v >= 0 ->
         v
 
@@ -348,8 +338,12 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     end
   end
 
-  defp idle_timeout(settings) do
-    case Map.get(settings, "idle_timeout") do
+  defp idle_timeout(config_or_timeout)
+       when is_integer(config_or_timeout) and config_or_timeout > 0,
+       do: config_or_timeout
+
+  defp idle_timeout(config) do
+    case config_get(config, :idle_timeout) do
       v when is_integer(v) and v > 0 ->
         v
 
@@ -361,6 +355,70 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
       _ ->
         @default_idle_timeout
+    end
+  end
+
+  defp retry_interval(config) do
+    case config_get(config, :poll_interval) do
+      v when is_integer(v) and v > 0 ->
+        v
+
+      v when is_binary(v) ->
+        case Integer.parse(v) do
+          {parsed, ""} when parsed > 0 -> parsed
+          _ -> 30_000
+        end
+
+      _ ->
+        30_000
+    end
+  end
+
+  defp mark_as_read?(config), do: config_get(config, :mark_as_read, true) != false
+
+  defp load_initial_unread?(config), do: config_get(config, :load_initial_unread, false) == true
+
+  defp selected_mailboxes(config) do
+    selected =
+      case config_get(config, :selected_mailboxes) do
+        nil -> imap_setting(config, :selected_mailboxes)
+        value -> value
+      end
+
+    selected
+    |> List.wrap()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp config_get(config, key, default \\ nil)
+
+  defp config_get(config, key, default) when is_map(config) and is_atom(key) do
+    case Map.get(config, key) do
+      nil ->
+        case Map.get(config, Atom.to_string(key)) do
+          nil -> imap_setting(config, key, default)
+          value -> value
+        end
+
+      value ->
+        value
+    end
+  end
+
+  defp config_get(_config, _key, default), do: default
+
+  defp imap_setting(config, key, default \\ nil) when is_map(config) and is_atom(key) do
+    with settings when is_map(settings) <-
+           Map.get(config, :settings) || Map.get(config, "settings"),
+         imap when is_map(imap) <- Map.get(settings, :imap) || Map.get(settings, "imap") do
+      case Map.fetch(imap, key) do
+        {:ok, value} -> value
+        :error -> Map.get(imap, Atom.to_string(key), default)
+      end
+    else
+      _ -> default
     end
   end
 end

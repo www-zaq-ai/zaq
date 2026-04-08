@@ -22,7 +22,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.RuntimeSpecsTest do
 
     sink_mfa = {Zaq.Channels.EmailBridge, :from_listener, []}
 
-    assert {:ok, {_state_spec, [listener_spec]}} =
+    assert {:ok, {nil, [listener_spec]}} =
              ImapAdapter.runtime_specs(config, "email:imap_11", sink_mfa: sink_mfa, sink_opts: [])
 
     {_, _, [listener_opts]} = listener_spec.start

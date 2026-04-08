@@ -19,7 +19,7 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   alias Zaq.Utils.ParseUtils
 
   def send_notification(identifier, payload, metadata) do
-    {from_name, from_email} = email_sender()
+    {from_name, from_email} = email_sender(payload, metadata)
     delivery_opts = email_delivery_opts()
 
     subject = Map.get(payload, "subject", "")
@@ -33,6 +33,7 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
       |> subject(subject)
       |> text_body(body)
       |> html_body(html)
+      |> apply_custom_headers(payload, metadata)
 
     case Mailer.deliver(email, delivery_opts) do
       {:ok, _} -> :ok
@@ -54,6 +55,27 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
     end)
   end
 
+  defp apply_custom_headers(email, payload, metadata) do
+    headers =
+      map_get(metadata, "headers") ||
+        map_get(payload, "headers") ||
+        %{}
+
+    case headers do
+      map when is_map(map) ->
+        Enum.reduce(map, email, fn
+          {key, value}, acc when is_binary(key) and is_binary(value) and value != "" ->
+            header(acc, key, value)
+
+          _, acc ->
+            acc
+        end)
+
+      _ ->
+        email
+    end
+  end
+
   defp html_escape(str) do
     str
     |> String.replace("&", "&amp;")
@@ -61,11 +83,27 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
     |> String.replace(">", "&gt;")
   end
 
-  defp email_sender do
-    settings = smtp_settings()
+  defp email_sender(payload, metadata) when is_map(payload) and is_map(metadata) do
+    from_name = resolve_sender_name(payload, metadata)
+    from_email = resolve_sender_email(payload, metadata)
 
-    {map_get(settings, "from_name") || "ZAQ",
-     map_get(settings, "from_email") || "noreply@zaq.local"}
+    {normalize_name(from_name) || "ZAQ", normalize_email(from_email) || "noreply@zaq.local"}
+  end
+
+  defp resolve_sender_email(payload, metadata) do
+    from_value = map_get(metadata, "from") || map_get(payload, "from")
+
+    map_get(metadata, "from_email") ||
+      map_get(payload, "from_email") ||
+      from_value_email(from_value)
+  end
+
+  defp resolve_sender_name(payload, metadata) do
+    from_value = map_get(metadata, "from") || map_get(payload, "from")
+
+    map_get(metadata, "from_name") ||
+      map_get(payload, "from_name") ||
+      from_value_name(from_value)
   end
 
   defp email_delivery_opts do
@@ -167,12 +205,44 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   defp blank?(""), do: true
   defp blank?(_), do: false
 
-  defp smtp_settings do
-    case ChannelConfig.get_by_provider(@smtp_provider) do
-      %ChannelConfig{settings: settings} when is_map(settings) -> settings
-      _ -> %{}
+  defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
+
+  defp from_value_email({_, email}) when is_binary(email), do: email
+  defp from_value_email(%{email: email}) when is_binary(email), do: email
+  defp from_value_email(%{"email" => email}) when is_binary(email), do: email
+  defp from_value_email(%{address: email}) when is_binary(email), do: email
+  defp from_value_email(%{"address" => email}) when is_binary(email), do: email
+  defp from_value_email(email) when is_binary(email), do: email
+  defp from_value_email(_), do: nil
+
+  defp from_value_name({name, _}) when is_binary(name), do: name
+  defp from_value_name(%{name: name}) when is_binary(name), do: name
+  defp from_value_name(%{"name" => name}) when is_binary(name), do: name
+  defp from_value_name(_), do: nil
+
+  defp normalize_email(nil), do: nil
+
+  defp normalize_email(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
     end
   end
 
-  defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
+  defp normalize_email(_), do: nil
+
+  defp normalize_name(nil), do: nil
+
+  defp normalize_name(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_name(_), do: nil
 end

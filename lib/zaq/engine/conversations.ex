@@ -122,10 +122,13 @@ defmodule Zaq.Engine.Conversations do
   Gets or creates a conversation scoped to the sender and provider (channel type).
   """
   def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result) do
+    channel_type = normalize_channel_type(msg.provider)
+    channel_user_id = conversation_channel_user_id(msg, channel_type)
+
     with {:ok, conv} <-
            get_or_create_conversation_for_channel(
-             msg.author_id,
-             to_string(msg.provider),
+             channel_user_id,
+             channel_type,
              nil
            ),
          {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
@@ -142,6 +145,66 @@ defmodule Zaq.Engine.Conversations do
       :ok
     end
   end
+
+  defp normalize_channel_type(provider) when is_atom(provider),
+    do: normalize_channel_type(to_string(provider))
+
+  defp normalize_channel_type(provider) when is_binary(provider) do
+    case provider do
+      "email" -> "email:imap"
+      other -> other
+    end
+  end
+
+  defp normalize_channel_type(_), do: "api"
+
+  defp conversation_channel_user_id(msg, "email:imap") do
+    email_meta =
+      msg.metadata
+      |> map_get("email")
+      |> case do
+        meta when is_map(meta) -> meta
+        _ -> %{}
+      end
+
+    map_get(email_meta, "thread_key") ||
+      normalize_message_id(msg.thread_id) ||
+      normalize_message_id(msg.message_id) ||
+      msg.author_id
+  end
+
+  defp conversation_channel_user_id(msg, _channel_type), do: msg.author_id
+
+  defp map_get(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || Map.get(map, atom_key_for_string(map, key))
+  end
+
+  defp map_get(_map, _key), do: nil
+
+  defp atom_key_for_string(map, key) do
+    Enum.find_value(map, fn
+      {lookup_key, _value} when is_atom(lookup_key) ->
+        if Atom.to_string(lookup_key) == key, do: lookup_key
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp normalize_message_id(nil), do: nil
+
+  defp normalize_message_id(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.trim_leading("<")
+    |> String.trim_trailing(">")
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_message_id(_), do: nil
 
   # ── Messages ───────────────────────────────────────────────────────
 

@@ -64,12 +64,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     assert has_element?(view, "h2", "Service Unavailable")
   end
 
+  test "shows not configured badge when no channel is active", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/bo/channels")
+
+    assert html =~ "Not configured"
+  end
+
   describe "module helpers" do
     test "stat_for returns count or default zero" do
       stats = %{slack: 2}
 
       assert ChannelsIndexLive.stat_for(stats, "slack") == 2
       assert ChannelsIndexLive.stat_for(stats, "teams") == 0
+    end
+
+    test "stat_for sums email imap and smtp" do
+      stats = %{:"email:imap" => 3, :"email:smtp" => 4}
+
+      assert ChannelsIndexLive.stat_for(stats, "email") == 7
+    end
+
+    test "stat_for returns zero for unknown provider" do
+      assert ChannelsIndexLive.stat_for(%{}, "unknown_provider") == 0
     end
 
     test "retrieval_total and ingestion_total aggregate known providers" do
@@ -83,6 +99,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
       assert ChannelsIndexLive.ingestion_total(stats) == 7
     end
 
+    test "notification_total aggregates notification providers" do
+      stats = %{:"email:smtp" => 2}
+
+      assert ChannelsIndexLive.notification_total(stats) == 2
+    end
+
     test "provider_path handles zaq_local special case and scoped paths" do
       assert ChannelsIndexLive.provider_path(:ingestion, "zaq_local") == "/bo/ingestion"
 
@@ -91,6 +113,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
 
       assert ChannelsIndexLive.provider_path(:ingestion, "sharepoint") ==
                "/bo/channels/ingestion/sharepoint"
+
+      assert ChannelsIndexLive.provider_path(:notification, "email") ==
+               "/bo/channels/notifications/email"
     end
   end
 

@@ -5,7 +5,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
 
   require Logger
 
-  alias Zaq.Channels.{ChannelConfig, EmailBridge.ImapAdapter}
+  alias Zaq.Channels.EmailBridge.ImapAdapter
 
   @default_retry_interval 30_000
 
@@ -29,9 +29,10 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
       sink_mfa: sink_mfa,
       sink_opts: sink_opts,
       client: nil,
-      retry_interval: retry_interval(config),
-      mark_as_read: mark_as_read?(config),
-      load_initial_unread: load_initial_unread?(config)
+      retry_interval: Keyword.get(opts, :retry_interval, retry_interval(config)),
+      mark_as_read: Keyword.get(opts, :mark_as_read, mark_as_read?(config)),
+      load_initial_unread: Keyword.get(opts, :load_initial_unread, load_initial_unread?(config)),
+      idle_timeout: Keyword.get(opts, :idle_timeout, idle_timeout(config))
     }
 
     send(self(), :connect)
@@ -45,7 +46,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
 
   def handle_info(:idle_notify, state) do
     state = fetch_unseen_and_maybe_mark_read(state)
-    if is_pid(state.client), do: :ok = ImapAdapter.enter_idle(state.client, state.config)
+    if is_pid(state.client), do: :ok = ImapAdapter.enter_idle(state.client, state.idle_timeout)
     {:noreply, state}
   end
 
@@ -75,7 +76,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
       {:ok, client} ->
         state = %{state | client: client}
         state = maybe_fetch_initial_unread(state)
-        :ok = ImapAdapter.enter_idle(client, state.config)
+        :ok = ImapAdapter.enter_idle(client, state.idle_timeout)
         state
 
       {:error, reason} ->
@@ -143,17 +144,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   end
 
   defp mark_as_read?(config) do
-    config
-    |> ChannelConfig.imap_settings()
-    |> Map.get("mark_as_read", true)
-    |> Kernel.!=(false)
+    config_get(config, :mark_as_read, true) != false
   end
 
   defp load_initial_unread?(config) do
-    config
-    |> ChannelConfig.imap_settings()
-    |> Map.get("load_initial_unread", false)
-    |> Kernel.==(true)
+    config_get(config, :load_initial_unread, false) == true
   end
 
   defp maybe_fetch_initial_unread(%{load_initial_unread: true} = state),
@@ -162,10 +157,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   defp maybe_fetch_initial_unread(state), do: state
 
   defp retry_interval(config) do
-    value =
-      config
-      |> ChannelConfig.imap_settings()
-      |> Map.get("poll_interval", @default_retry_interval)
+    value = config_get(config, :poll_interval, @default_retry_interval)
 
     case value do
       v when is_integer(v) and v > 0 ->
@@ -181,6 +173,33 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
         @default_retry_interval
     end
   end
+
+  defp idle_timeout(config) do
+    case config_get(config, :idle_timeout) do
+      v when is_integer(v) and v > 0 ->
+        v
+
+      v when is_binary(v) ->
+        case Integer.parse(v) do
+          {parsed, ""} when parsed > 0 -> parsed
+          _ -> 1_500_000
+        end
+
+      _ ->
+        1_500_000
+    end
+  end
+
+  defp config_get(config, key, default \\ nil)
+
+  defp config_get(config, key, default) when is_map(config) and is_atom(key) do
+    case Map.get(config, key) do
+      nil -> Map.get(config, Atom.to_string(key), default)
+      value -> value
+    end
+  end
+
+  defp config_get(_config, _key, default), do: default
 
   defp schedule_reconnect(interval), do: Process.send_after(self(), :reconnect, interval)
 end

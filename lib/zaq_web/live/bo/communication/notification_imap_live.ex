@@ -53,7 +53,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
          socket.assigns.available_mailboxes
        )
      )
-     |> assign(:mailbox_status, :idle)
      |> assign(:save_status, :idle)}
   end
 
@@ -64,7 +63,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     case validate_mailbox_load_inputs(config) do
       :ok ->
         selected = Ecto.Changeset.get_field(socket.assigns.form.source, :selected_mailboxes, [])
-        send(self(), {:load_mailboxes, mailbox_load_params(config), selected})
+        spawn_mailbox_loader(mailbox_load_params(config), selected)
 
         {:noreply,
          socket
@@ -73,22 +72,20 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
       {:error, message} ->
         {:noreply,
          socket
-         |> assign(:mailbox_status, {:error, message})
-         |> put_flash(:error, message)}
+         |> assign(:mailbox_status, {:error, message})}
     end
   end
 
   @impl true
   def handle_event("save", %{"imap_config" => params}, socket) do
-    previous_config = ChannelConfig.get_any_by_provider(@imap_provider)
     config = current_imap_config()
     changeset = ImapConfig.changeset(config, params)
 
     case persist_imap_config(changeset) do
-      {:ok, updated_config} ->
+      {:ok, _updated_config} ->
         fresh = current_imap_config()
         fresh_changeset = ImapConfig.changeset(fresh, %{})
-        sync_result = sync_runtime(previous_config, updated_config)
+        sync_result = sync_runtime(@imap_provider)
 
         {:noreply,
          socket
@@ -117,15 +114,14 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   @impl true
   def handle_event("activate", _params, socket) do
-    previous_config = ChannelConfig.get_any_by_provider(@imap_provider)
     config = current_imap_config()
     changeset = ImapConfig.changeset(config, %{"enabled" => to_string(!config.enabled)})
 
     case persist_imap_config(changeset) do
-      {:ok, updated_config} ->
+      {:ok, _updated_config} ->
         fresh = current_imap_config()
         fresh_changeset = ImapConfig.changeset(fresh, %{})
-        sync_result = sync_runtime(previous_config, updated_config)
+        sync_result = sync_runtime(@imap_provider)
 
         {:noreply,
          socket
@@ -152,8 +148,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   end
 
   @impl true
-  def handle_info({:load_mailboxes, config, selected}, socket) do
-    case NodeRouter.call(:channels, router_module(), :list_mailboxes, [@imap_provider, config]) do
+  def handle_info({:load_mailboxes_result, config, selected, result}, socket) do
+    case result do
       {:ok, mailboxes} ->
         {:noreply,
          socket
@@ -164,15 +160,16 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
         message = format_load_error(reason)
 
         Logger.error(
-          "[NotificationImapLive] mailbox load failed provider=#{@imap_provider} url=#{inspect(config.url)} ssl=#{inspect(config.ssl)} port=#{inspect(config.port)} username=#{inspect(config.username)} reason=#{inspect(reason)}"
+          "[NotificationImapLive] mailbox load failed provider=#{@imap_provider} url=#{inspect(map_get(config, :url))} ssl=#{inspect(map_get(config, :ssl))} port=#{inspect(map_get(config, :port))} username=#{inspect(map_get(config, :username))} reason=#{inspect(reason)}"
         )
 
         {:noreply,
          socket
-         |> assign(:mailbox_status, {:error, message})
-         |> put_flash(:error, message)}
+         |> assign(:mailbox_status, {:error, message})}
     end
   end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   defp format_changeset_errors(changeset) do
     ChangesetErrors.format(changeset, field_separator: " ")
@@ -257,21 +254,42 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     %{
       provider: @imap_provider,
       url: config.url,
-      port: config.port,
-      ssl: config.ssl,
-      ssl_depth: config.ssl_depth,
-      username: config.username,
-      password: config.password,
-      selected_mailboxes: config.selected_mailboxes,
-      mark_as_read: config.mark_as_read,
-      load_initial_unread: config.load_initial_unread,
-      poll_interval: config.poll_interval,
-      idle_timeout: config.idle_timeout
+      token: config.password,
+      settings: %{
+        "imap" => %{
+          "port" => config.port,
+          "ssl" => config.ssl,
+          "ssl_depth" => config.ssl_depth,
+          "username" => config.username,
+          "selected_mailboxes" => ImapConfig.normalize_mailboxes(config.selected_mailboxes),
+          "mark_as_read" => config.mark_as_read,
+          "load_initial_unread" => config.load_initial_unread,
+          "poll_interval" => config.poll_interval,
+          "idle_timeout" => config.idle_timeout
+        }
+      }
     }
   end
 
-  defp sync_runtime(previous, updated) do
-    NodeRouter.call(:channels, router_module(), :sync_config_runtime, [previous, updated])
+  defp spawn_mailbox_loader(config, selected) do
+    caller = self()
+
+    Task.start(fn ->
+      result =
+        try do
+          NodeRouter.call(:channels, router_module(), :list_mailboxes, [@imap_provider, config])
+        rescue
+          error -> {:error, {:mailbox_load_failed, Exception.message(error)}}
+        catch
+          :exit, reason -> {:error, {:mailbox_load_failed, reason}}
+        end
+
+      send(caller, {:load_mailboxes_result, config, selected, result})
+    end)
+  end
+
+  defp sync_runtime(provider) do
+    NodeRouter.call(:channels, router_module(), :sync_provider_runtime, [provider])
   end
 
   defp maybe_put_runtime_sync_flash(socket, :ok), do: socket
@@ -344,8 +362,72 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_), do: false
 
-  defp map_get(map, key) when is_map(map), do: Map.get(map, key)
+  defp map_get(map, key) when is_map(map) and is_atom(key) do
+    keys = [key, Atom.to_string(key)]
+
+    case fetch_first(map, keys) do
+      {:ok, value} -> value
+      :error -> fetch_from_imap_settings(map, keys)
+    end
+  end
+
+  defp map_get(map, key) when is_map(map) and is_binary(key) do
+    keys = [key, atom_key_for_string(map, key)]
+
+    case fetch_first(map, keys) do
+      {:ok, value} -> value
+      :error -> fetch_from_imap_settings(map, keys)
+    end
+  end
+
   defp map_get(_map, _key), do: nil
+
+  defp fetch_from_imap_settings(map, keys) do
+    with imap when is_map(imap) <- imap_settings_map(map),
+         {:ok, value} <- fetch_first(imap, keys) do
+      value
+    else
+      _ -> nil
+    end
+  end
+
+  defp imap_settings_map(map) do
+    settings = Map.get(map, :settings) || Map.get(map, "settings")
+
+    case settings do
+      settings when is_map(settings) ->
+        case Map.get(settings, :imap) || Map.get(settings, "imap") do
+          imap when is_map(imap) -> imap
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp fetch_first(map, keys) do
+    Enum.reduce_while(keys, :error, fn
+      nil, _acc ->
+        {:cont, :error}
+
+      lookup_key, _acc ->
+        case Map.fetch(map, lookup_key) do
+          {:ok, _value} = hit -> {:halt, hit}
+          :error -> {:cont, :error}
+        end
+    end)
+  end
+
+  defp atom_key_for_string(map, key) do
+    Enum.find_value(map, fn
+      {lookup_key, _value} when is_atom(lookup_key) ->
+        if Atom.to_string(lookup_key) == key, do: lookup_key
+
+      _ ->
+        nil
+    end)
+  end
 
   defp router_module,
     do: Application.get_env(:zaq, :notification_imap_router_module, Router)

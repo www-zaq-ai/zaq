@@ -69,7 +69,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       assert_receive {:email, email}
       assert email.subject == "Hello"
-      assert email.from == {"ZAQ", "noreply@example.com"}
+      assert email.from == {"ZAQ", "noreply@zaq.local"}
     end
 
     test "uses email_body from metadata over payload body when present" do
@@ -167,15 +167,45 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
                EmailNotification.send_notification("user@example.com", payload(), %{})
     end
 
-    test "uses configured sender from settings" do
+    test "uses sender provided in payload" do
       upsert_smtp_channel(%{
         settings: smtp_settings(%{"from_name" => "ZAQ Bot", "from_email" => "bot@example.com"})
       })
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+      p = Map.merge(payload(), %{"from_name" => "ZAQ Bot", "from_email" => "bot@example.com"})
+
+      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ Bot", "bot@example.com"}
+    end
+
+    test "uses sender provided in metadata as map" do
+      upsert_smtp_channel()
+
+      metadata = %{"from" => %{"name" => "ZAQ Agent", "email" => "agent@example.com"}}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ Agent", "agent@example.com"}
+    end
+
+    test "applies custom SMTP headers from metadata" do
+      upsert_smtp_channel()
+
+      metadata = %{
+        "headers" => %{
+          "In-Reply-To" => "<msg-2@example.com>",
+          "References" => "<msg-1@example.com> <msg-2@example.com>"
+        }
+      }
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert {"In-Reply-To", "<msg-2@example.com>"} in email.headers
+      assert {"References", "<msg-1@example.com> <msg-2@example.com>"} in email.headers
     end
   end
 end

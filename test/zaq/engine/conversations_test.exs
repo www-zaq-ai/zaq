@@ -146,6 +146,51 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
+  describe "persist_from_incoming/2" do
+    test "normalizes legacy email provider and groups by email thread key" do
+      result = %{
+        answer: "Sure, here is the answer.",
+        confidence_score: 0.95,
+        latency_ms: 120,
+        prompt_tokens: 20,
+        completion_tokens: 30,
+        total_tokens: 50
+      }
+
+      thread_key = "root-thread@example.com"
+
+      first = %Zaq.Engine.Messages.Incoming{
+        content: "First email",
+        channel_id: "sender@example.com",
+        author_id: "sender@example.com",
+        provider: :email,
+        thread_id: "parent-a@example.com",
+        message_id: "<msg-a@example.com>",
+        metadata: %{"email" => %{"thread_key" => thread_key}}
+      }
+
+      second = %Zaq.Engine.Messages.Incoming{
+        content: "Second email in same thread",
+        channel_id: "sender@example.com",
+        author_id: "sender@example.com",
+        provider: :"email:imap",
+        thread_id: "parent-b@example.com",
+        message_id: "<msg-b@example.com>",
+        metadata: %{"email" => %{"thread_key" => thread_key}}
+      }
+
+      assert :ok = Conversations.persist_from_incoming(first, result)
+      assert :ok = Conversations.persist_from_incoming(second, result)
+
+      [conv] = Conversations.list_conversations(channel_type: "email:imap")
+      assert conv.channel_user_id == thread_key
+
+      messages = Conversations.list_messages(conv)
+      assert Enum.count(messages, &(&1.role == "user")) == 2
+      assert Enum.count(messages, &(&1.role == "assistant")) == 2
+    end
+  end
+
   # ── add_message/2 ──────────────────────────────────────────────────
 
   describe "add_message/2" do

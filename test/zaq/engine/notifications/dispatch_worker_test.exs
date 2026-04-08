@@ -104,7 +104,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
       assert_receive {:email, email}
       assert email.subject == "Dispatch Subject"
-      assert email.from == {"ZAQ", "noreply@example.com"}
+      assert email.from == {"ZAQ", "noreply@zaq.local"}
     end
 
     test "reads payload from notification_logs, not job args" do

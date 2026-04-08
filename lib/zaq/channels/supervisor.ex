@@ -59,7 +59,8 @@ defmodule Zaq.Channels.Supervisor do
   def start_runtime(bridge_id, state_spec, listener_specs \\ [])
 
   def start_runtime(bridge_id, state_spec, listener_specs)
-      when is_binary(bridge_id) and is_map(state_spec) and is_list(listener_specs) do
+      when is_binary(bridge_id) and (is_nil(state_spec) or is_map(state_spec)) and
+             is_list(listener_specs) do
     if running?(bridge_id) do
       {:error, :already_running}
     else
@@ -121,7 +122,7 @@ defmodule Zaq.Channels.Supervisor do
   end
 
   defp do_start_runtime(bridge_id, state_spec, listener_specs) do
-    case start_state_process(state_spec) do
+    case maybe_start_state_process(state_spec) do
       {:ok, state_pid} ->
         case start_listener_children(listener_specs, bridge_id) do
           {:ok, listener_pids} ->
@@ -189,6 +190,9 @@ defmodule Zaq.Channels.Supervisor do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp maybe_start_state_process(nil), do: {:ok, nil}
+  defp maybe_start_state_process(spec), do: start_state_process(spec)
 
   defp maybe_stop_state(pid) when is_pid(pid),
     do: DynamicSupervisor.terminate_child(__MODULE__, pid)

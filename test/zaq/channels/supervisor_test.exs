@@ -325,6 +325,25 @@ defmodule Zaq.Channels.SupervisorTest do
     assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
   end
 
+  test "start_runtime/3 supports nil state spec" do
+    bridge_id = "bridge_nil_state_runtime"
+
+    listener_spec = %{
+      id: {:listener_nil_state, bridge_id},
+      start: {ListenerProc, :start_link, [[]]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, nil, [listener_spec])
+    assert runtime.state_pid == nil
+    assert length(runtime.listener_pids) == 1
+    assert Enum.all?(runtime.listener_pids, &Process.alive?/1)
+    assert {:error, :not_running} = Supervisor.lookup_state_pid(bridge_id)
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+  end
+
   test "start_runtime/3 accepts already started state process" do
     bridge_id = "bridge_state_already_started"
     state_name = {:state_already_started_proc, bridge_id}
