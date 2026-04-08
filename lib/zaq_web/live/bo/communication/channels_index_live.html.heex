@@ -128,55 +128,6 @@
           </div>
         </.link>
         
-<!-- Notifications -->
-        <.link
-          id="category-card-notifications"
-          navigate={~p"/bo/channels/notifications"}
-          class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-green-300 hover:shadow-lg hover:shadow-green-500/5 transition-all duration-200 cursor-pointer overflow-hidden"
-        >
-          <div class="absolute inset-0 bg-gradient-to-br from-green-500/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-          <div class="flex items-start justify-between">
-            <div class="w-12 h-12 rounded-xl bg-green-50 grid place-items-center">
-              <svg
-                class="w-6 h-6 text-green-600"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                viewBox="0 0 24 24"
-              >
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
-            </div>
-            <% notification_count =
-              ZaqWeb.Live.BO.Communication.ChannelsIndexLive.notification_total(@stats) %>
-            <span class={[
-              "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
-              if(notification_count > 0,
-                do: "bg-emerald-100 text-emerald-700",
-                else: "bg-black/5 text-black/30"
-              )
-            ]}>
-              {if notification_count > 0, do: "active", else: "Not configured"}
-            </span>
-          </div>
-          <div>
-            <h3 class="font-mono text-sm font-bold text-black mb-1">Notification Channels</h3>
-            <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
-              Outbound delivery for alerts, invitations, and system notifications.
-            </p>
-          </div>
-          <div class="flex items-center gap-2 mt-auto">
-            <div
-              :for={provider <- @notification_preview}
-              class="w-6 h-6 rounded-md bg-black/[0.03] grid place-items-center"
-              title={provider}
-            >
-              <ZaqWeb.Components.ChannelIcons.icon provider={provider} class="w-3.5 h-3.5" />
-            </div>
-          </div>
-        </.link>
-        
 <!-- AI Agents — Coming Soon -->
         <div
           id="category-card-ai-agents"

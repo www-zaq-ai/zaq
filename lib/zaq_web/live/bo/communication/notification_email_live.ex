@@ -6,8 +6,15 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
 
   @connection_types [
     %{
+      id: "imap",
+      label: "Receiving / IMAP",
+      color: "#0284c7",
+      desc:
+        "Configure inbound email reception from selected mailboxes. ZAQ listens for unread messages and relays them to the pipeline."
+    },
+    %{
       id: "smtp",
-      label: "SMTP",
+      label: "Sending / SMTP",
       color: "#16a34a",
       desc:
         "Configure outbound email delivery using any SMTP relay. Supports STARTTLS, SSL/TLS, and custom authentication."
@@ -20,10 +27,11 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
 
     {:ok,
      socket
-     |> assign(:page_title, "Email Notifications")
-     |> assign(:current_path, "/bo/channels/notifications/email")
+     |> assign(:page_title, "Email Channel")
+     |> assign(:current_path, "/bo/channels/retrieval/email")
      |> assign(:cards, @connection_types)
-     |> assign(:smtp_active, available && ChannelConfig.get_by_provider("email:smtp") != nil)}
+     |> assign(:smtp_active, available && ChannelConfig.get_by_provider("email:smtp") != nil)
+     |> assign(:imap_active, available && ChannelConfig.get_by_provider("email:imap") != nil)}
   end
 
   @impl true

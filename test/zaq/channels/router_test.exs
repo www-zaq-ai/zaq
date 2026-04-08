@@ -46,6 +46,11 @@ defmodule Zaq.Channels.RouterTest do
       send(self(), {:stop_runtime, config.provider, config.id})
       :ok
     end
+
+    def list_mailboxes(config, details) do
+      send(self(), {:list_mailboxes, config, details})
+      {:ok, ["INBOX", "Support"]}
+    end
   end
 
   defmodule FailingBridge do
@@ -234,6 +239,18 @@ defmodule Zaq.Channels.RouterTest do
     test "returns no_bridge error when provider is not configured" do
       config = %{id: 99, provider: "missing-provider", enabled: true}
       assert {:error, {:no_bridge, "missing-provider"}} = Router.sync_config_runtime(nil, config)
+    end
+  end
+
+  describe "list_mailboxes/2" do
+    test "delegates mailbox listing through configured bridge" do
+      params = %{url: "imap.example.com", username: "user@example.com", password: "secret"}
+
+      assert {:ok, ["INBOX", "Support"]} = Router.list_mailboxes(:mattermost, params)
+      assert_received {:list_mailboxes, cfg, details}
+      assert cfg.provider == "mattermost"
+      assert cfg.url == "imap.example.com"
+      assert is_map(details)
     end
   end
 

@@ -1,6 +1,8 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   @moduledoc false
 
+  require Logger
+
   alias Mailroom.IMAP
   alias Mailroom.IMAP.Envelope
   alias Zaq.Channels.ChannelConfig
@@ -18,21 +20,44 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
   @spec connect(map(), String.t()) :: {:ok, pid()} | {:error, term()}
   def connect(config, mailbox) when is_binary(mailbox) do
-    settings = ChannelConfig.imap_settings(config)
-    server = Map.get(settings, "server") || config.url
-    username = Map.get(settings, "username")
-    password = config.token
-
-    opts = [
-      ssl: ssl?(settings),
-      port: port(settings),
-      timeout: timeout(settings)
-    ]
-
-    with {:ok, client} <- IMAP.connect(server, username, password, opts) do
+    with {:ok, client} <- connect_client(config) do
       _ = IMAP.select(client, mailbox)
       {:ok, client}
     end
+  end
+
+  @spec list_mailboxes(map()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_mailboxes(config) do
+    case connect_client(config) do
+      {:ok, client} ->
+        try do
+          case IMAP.list(client) do
+            list when is_list(list) ->
+              {:ok,
+               list
+               |> Enum.map(fn {mailbox, _delimiter, _flags} -> mailbox end)
+               |> Enum.filter(&is_binary/1)
+               |> Enum.uniq()
+               |> Enum.sort()}
+
+            other ->
+              {:error, {:list_mailboxes_failed, other}}
+          end
+        rescue
+          error ->
+            {:error, {:list_mailboxes_failed, Exception.format(:error, error, __STACKTRACE__)}}
+        after
+          _ = disconnect(client)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:connect_failed, other}}
+    end
+  rescue
+    error -> {:error, {:connect_failed, Exception.format(:error, error, __STACKTRACE__)}}
   end
 
   @spec fetch_unseen(pid(), String.t(), (map() -> any())) :: :ok | {:error, term()}
@@ -190,6 +215,81 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
   defp parse_references(_), do: nil
 
+  defp connect_client(config) do
+    settings = settings_for(config)
+    {server, port_from_url} = endpoint_from_url(Map.get(config, :url))
+
+    username = Map.get(settings, "username") || Map.get(config, :username)
+    password = Map.get(config, :token) || Map.get(config, :password)
+    ssl = ssl?(settings)
+
+    opts = [
+      ssl: ssl,
+      ssl_opts: [depth: ssl_depth(settings), cacerts: :public_key.cacerts_get()],
+      port: port_from_url || port(settings),
+      timeout: timeout(settings)
+    ]
+
+    if is_binary(server) and server != "" do
+      try do
+        IMAP.connect(server, username, password, opts)
+      rescue
+        error ->
+          Logger.error(
+            "[ImapAdapter] connect exception url=#{inspect(Map.get(config, :url))} ssl=#{inspect(ssl)} port=#{inspect(opts[:port])} username=#{inspect(username)} reason=#{Exception.message(error)}"
+          )
+
+          reraise error, __STACKTRACE__
+      catch
+        :exit, reason ->
+          normalized = normalize_connect_error(reason)
+
+          Logger.error(
+            "[ImapAdapter] connect exit url=#{inspect(Map.get(config, :url))} ssl=#{inspect(ssl)} port=#{inspect(opts[:port])} username=#{inspect(username)} reason=#{inspect(normalized)} raw=#{inspect(reason)}"
+          )
+
+          {:error, {:connect_failed, normalized}}
+      end
+    else
+      {:error, :invalid_imap_url}
+    end
+  end
+
+  defp normalize_connect_error({:timeout, _}), do: :timeout
+  defp normalize_connect_error({:noproc, _}), do: :noproc
+  defp normalize_connect_error(reason), do: reason
+
+  defp settings_for(config) do
+    case ChannelConfig.imap_settings(config) do
+      map when map == %{} ->
+        %{
+          "username" => Map.get(config, :username),
+          "port" => Map.get(config, :port),
+          "ssl" => Map.get(config, :ssl),
+          "ssl_depth" => Map.get(config, :ssl_depth),
+          "timeout" => Map.get(config, :timeout)
+        }
+
+      map ->
+        map
+    end
+  end
+
+  defp endpoint_from_url(nil), do: {nil, nil}
+
+  defp endpoint_from_url(url) when is_binary(url) do
+    normalized = String.trim(url)
+
+    uri =
+      if String.contains?(normalized, "://"),
+        do: URI.parse(normalized),
+        else: URI.parse("imap://#{normalized}")
+
+    {uri.host, uri.port}
+  end
+
+  defp endpoint_from_url(_), do: {nil, nil}
+
   defp ssl?(settings), do: Map.get(settings, "ssl", true) != false
 
   defp port(settings) do
@@ -229,6 +329,22 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
       _ ->
         15_000
+    end
+  end
+
+  defp ssl_depth(settings) do
+    case Map.get(settings, "ssl_depth", 3) do
+      v when is_integer(v) and v >= 0 ->
+        v
+
+      v when is_binary(v) ->
+        case Integer.parse(v) do
+          {parsed, ""} when parsed >= 0 -> parsed
+          _ -> 3
+        end
+
+      _ ->
+        3
     end
   end
 

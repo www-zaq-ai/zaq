@@ -18,7 +18,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
     {:ok,
      socket
-     |> assign(:current_path, "/bo/channels/notifications/email/smtp")
+     |> assign(:current_path, "/bo/channels/retrieval/email/smtp")
      |> assign(:page_title, "SMTP Configuration")
      |> assign(:form, to_form(changeset))
      |> assign(:smtp_warnings, smtp_warnings(changeset))
@@ -29,8 +29,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   end
 
   @impl true
-  def handle_params(%{"type" => type}, _uri, socket) do
-    {:noreply, assign(socket, :current_path, "/bo/channels/notifications/email/#{type}")}
+  def handle_params(_params, _uri, socket) do
+    {:noreply, assign(socket, :current_path, "/bo/channels/retrieval/email/smtp")}
   end
 
   @impl true

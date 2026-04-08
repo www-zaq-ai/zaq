@@ -30,7 +30,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
       sink_opts: sink_opts,
       client: nil,
       retry_interval: retry_interval(config),
-      mark_as_read: mark_as_read?(config)
+      mark_as_read: mark_as_read?(config),
+      load_initial_unread: load_initial_unread?(config)
     }
 
     send(self(), :connect)
@@ -73,7 +74,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
     case ImapAdapter.connect(state.config, state.mailbox) do
       {:ok, client} ->
         state = %{state | client: client}
-        state = fetch_unseen_and_maybe_mark_read(state)
+        state = maybe_fetch_initial_unread(state)
         :ok = ImapAdapter.enter_idle(client, state.config)
         state
 
@@ -147,6 +148,18 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
     |> Map.get("mark_as_read", true)
     |> Kernel.!=(false)
   end
+
+  defp load_initial_unread?(config) do
+    config
+    |> ChannelConfig.imap_settings()
+    |> Map.get("load_initial_unread", false)
+    |> Kernel.==(true)
+  end
+
+  defp maybe_fetch_initial_unread(%{load_initial_unread: true} = state),
+    do: fetch_unseen_and_maybe_mark_read(state)
+
+  defp maybe_fetch_initial_unread(state), do: state
 
   defp retry_interval(config) do
     value =

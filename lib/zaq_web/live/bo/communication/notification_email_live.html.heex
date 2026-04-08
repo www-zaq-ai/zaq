@@ -15,7 +15,7 @@
   >
     <div class="mb-6">
       <.link
-        navigate={~p"/bo/channels/notifications"}
+        navigate={~p"/bo/channels/retrieval"}
         class="inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-black/40 hover:text-black transition-colors mb-4"
       >
         <svg
@@ -27,11 +27,11 @@
         >
           <path d="M19 12H5M12 5l-7 7 7 7" />
         </svg>
-        Notification Channels
+        Communication Channels
       </.link>
       <h1 class="font-mono text-xl font-bold text-black tracking-tight">{@page_title}</h1>
       <p class="font-mono text-[0.75rem] text-black/40 mt-1">
-        Choose a connection type to configure email delivery.
+        Choose how ZAQ receives and sends email.
       </p>
     </div>
 
@@ -39,7 +39,7 @@
       <.link
         :for={card <- @cards}
         id={"connection-type-card-#{card.id}"}
-        navigate={~p"/bo/channels/notifications/email/#{card.id}"}
+        navigate={"/bo/channels/retrieval/email/#{card.id}"}
         class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden"
       >
         <div
@@ -55,12 +55,14 @@
           </div>
           <span class={[
             "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
-            if(@smtp_active && card.id == "smtp",
+            if((card.id == "smtp" && @smtp_active) || (card.id == "imap" && @imap_active),
               do: "bg-emerald-100 text-emerald-700",
               else: "bg-black/5 text-black/30"
             )
           ]}>
-            {if @smtp_active && card.id == "smtp", do: "active", else: "Not configured"}
+            {if (card.id == "smtp" && @smtp_active) || (card.id == "imap" && @imap_active),
+              do: "active",
+              else: "Not configured"}
           </span>
         </div>
         <div>

@@ -35,6 +35,7 @@
 - BO modules in `lib/zaq_web/` must not access persistence or integrations directly.
 - Cross-context calls use public context functions, not internal helpers.
 - Cross-service BO calls always go through `NodeRouter.call/4`.
+- BO channel configuration flows must call `Zaq.Channels.Router` APIs via `NodeRouter.call/4`; they must not call bridge or adapter modules directly.
 
 ---
 
