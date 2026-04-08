@@ -572,7 +572,7 @@ defmodule Zaq.Accounts.PeopleTest do
 
   # ── Teams ─────────────────────────────────────────────────────────────────
 
-  defp team_attrs(overrides \\ %{}) do
+  defp team_attrs(overrides) do
     Map.merge(%{name: "Team #{System.unique_integer([:positive])}"}, overrides)
   end
 

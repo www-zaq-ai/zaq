@@ -990,16 +990,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   defp apply_permission_filter(data, true, _person_id, _team_ids), do: data
-
-  defp apply_permission_filter(_data, false, nil, _team_ids) do
-    [
-      %{
-        "content" =>
-          "The requesting user does not have a person record and is not authorized to access any documents. Inform them they lack the required permissions.",
-        "source" => nil
-      }
-    ]
-  end
+  defp apply_permission_filter(data, _skip, nil, _team_ids), do: data
 
   defp apply_permission_filter(data, false, person_id, team_ids) do
     doc_ids = data |> Enum.map(& &1["document_id"]) |> Enum.uniq()

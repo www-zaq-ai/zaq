@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Accounts.Team
+  alias Zaq.Ingestion
 
   def mount(_params, _session, socket) do
     socket =
@@ -18,6 +19,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:error, nil)
       |> assign(:selected_person, nil)
       |> assign(:person_channels, [])
+      |> assign(:person_documents, [])
       |> assign(:modal, nil)
       |> assign(:modal_entity, nil)
       |> assign(:modal_parent_id, nil)
@@ -152,11 +154,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   def handle_event("select_person", %{"id" => id}, socket) do
     person = People.get_person_with_channels!(id)
+    person_documents = Ingestion.list_person_permissions(person.id)
 
     {:noreply,
      socket
      |> assign(:selected_person, person)
      |> assign(:person_channels, person.channels)
+     |> assign(:person_documents, person_documents)
      |> assign(:confirm_delete, nil)}
   end
 
@@ -165,6 +169,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      socket
      |> assign(:selected_person, nil)
      |> assign(:person_channels, [])
+     |> assign(:person_documents, [])
      |> assign(:confirm_delete, nil)}
   end
 
@@ -1029,6 +1034,37 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               on_create_event="create_and_assign_team"
             />
           </form>
+        </div>
+        <%!-- Documents section --%>
+        <div class="px-6 py-4 border-b border-black/6">
+          <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider mb-3">
+            Documents
+          </p>
+          <div :if={@person_documents == []} class="py-2">
+            <p class="font-mono text-[0.72rem] text-black/25">
+              No documents shared with this person.
+            </p>
+          </div>
+          <div :if={@person_documents != []} class="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+            <div
+              :for={perm <- @person_documents}
+              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/[0.02] border border-black/6"
+            >
+              <div class="flex-1 min-w-0">
+                <p class="font-mono text-[0.75rem] text-black/70 truncate">
+                  {perm.document.title || perm.document.source}
+                </p>
+              </div>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <span
+                  :for={right <- perm.access_rights}
+                  class="font-mono text-[0.6rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] border border-[#03b6d4]/20"
+                >
+                  {right}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
         <%!-- Channels section --%>
         <div class="px-6 py-4">

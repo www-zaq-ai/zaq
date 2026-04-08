@@ -13,7 +13,7 @@ defmodule Zaq.People.IdentityPlugTest do
 
   # ── Helpers ─────────────────────────────────────────────────────────────
 
-  defp incoming(overrides \\ %{}) do
+  defp incoming(overrides) do
     struct(
       %Incoming{
         content: "hello",

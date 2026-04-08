@@ -96,6 +96,16 @@ defmodule Zaq.Ingestion.Document do
     Repo.delete(document)
   end
 
+  @doc """
+  Builds an Ecto `dynamic` OR-condition matching documents whose source starts
+  with any of the given prefixes (i.e. `source LIKE "prefix/%"`).
+  """
+  def source_prefix_conditions(prefixes) do
+    prefixes
+    |> Enum.map(fn prefix -> dynamic([d], like(d.source, ^"#{prefix}/%")) end)
+    |> Enum.reduce(fn cond, acc -> dynamic([d], ^acc or ^cond) end)
+  end
+
   # -- Private --
 
   # Derive title from source filename if not provided

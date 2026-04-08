@@ -45,6 +45,7 @@ defmodule Zaq.Agent.Pipeline do
   """
 
   require Logger
+  alias Zaq.Accounts.People
   alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
   alias Zaq.Engine.Messages.Incoming
@@ -63,7 +64,7 @@ defmodule Zaq.Agent.Pipeline do
     person_id = incoming.person_id
 
     team_ids =
-      case Zaq.Accounts.People.get_person(person_id) do
+      case People.get_person(person_id) do
         nil -> []
         person -> person.team_ids || []
       end

@@ -428,7 +428,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert_raise Ecto.NoResultsError, fn -> People.get_person!(loser.id) end
   end
 
-  test "merge carries team_ids from loser to survivor", %{conn: conn} do
+  test "merge carries team_ids from loser to survivor", %{conn: _conn} do
     {:ok, team_a} = People.create_team(%{name: "MergeTeamA#{System.unique_integer([:positive])}"})
     {:ok, team_b} = People.create_team(%{name: "MergeTeamB#{System.unique_integer([:positive])}"})
 

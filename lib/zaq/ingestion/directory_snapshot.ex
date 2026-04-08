@@ -208,10 +208,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
   end
 
   defp fetch_folder_doc_stats(prefixes) do
-    conditions =
-      prefixes
-      |> Enum.map(fn prefix -> dynamic([d], like(d.source, ^"#{prefix}/%")) end)
-      |> Enum.reduce(fn cond, acc -> dynamic([d], ^acc or ^cond) end)
+    conditions = Document.source_prefix_conditions(prefixes)
 
     from(d in Document, where: ^conditions, select: not is_nil(d.content))
     |> Repo.all()
