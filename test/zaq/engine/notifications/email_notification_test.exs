@@ -207,5 +207,129 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert {"In-Reply-To", "<msg-2@example.com>"} in email.headers
       assert {"References", "<msg-1@example.com> <msg-2@example.com>"} in email.headers
     end
+
+    test "prefers metadata headers over payload and filters invalid headers" do
+      upsert_smtp_channel()
+
+      metadata = %{
+        "headers" => %{
+          "X-Meta" => "meta-value",
+          "X-Empty" => "",
+          "X-NonBinary" => 123,
+          42 => "ignored"
+        }
+      }
+
+      p =
+        Map.merge(payload(), %{
+          "headers" => %{
+            "X-Payload" => "payload-value",
+            "X-Other" => "payload-other"
+          }
+        })
+
+      assert :ok = EmailNotification.send_notification("user@example.com", p, metadata)
+
+      assert_receive {:email, email}
+      assert {"X-Meta", "meta-value"} in email.headers
+
+      refute Enum.any?(email.headers, fn {key, _value} ->
+               key in ["X-Payload", "X-Other", "X-Empty"]
+             end)
+
+      refute Enum.any?(email.headers, fn {_key, value} -> value == "ignored" end)
+    end
+
+    test "extracts sender from tuple in payload from field" do
+      upsert_smtp_channel()
+
+      p =
+        Map.merge(payload(), %{
+          "from" => {"  Tuple Sender  ", "  tuple.sender@example.com  "}
+        })
+
+      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+
+      assert_receive {:email, email}
+      assert email.from == {"Tuple Sender", "tuple.sender@example.com"}
+    end
+
+    test "extracts sender email from address map and falls back to default name" do
+      upsert_smtp_channel()
+
+      metadata = %{"from" => %{"address" => "  address.sender@example.com  "}}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "address.sender@example.com"}
+    end
+
+    test "normalizes blank sender values and falls back to defaults" do
+      upsert_smtp_channel()
+
+      metadata = %{
+        "from_name" => "   ",
+        "from_email" => "   ",
+        "from" => %{"name" => " ", "email" => "   "}
+      }
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "noreply@zaq.local"}
+    end
+
+    test "covers starttls tls mode branches with relay and no username" do
+      tls_modes = ["always", "never", "if_available", "enabled", "unexpected"]
+
+      Enum.each(tls_modes, fn tls_mode ->
+        upsert_smtp_channel(%{
+          settings:
+            smtp_settings(%{
+              "relay" => "127.0.0.1",
+              "port" => "1",
+              "transport_mode" => "starttls",
+              "tls" => tls_mode,
+              "tls_verify" => "verify_none",
+              "username" => nil,
+              "password" => nil
+            })
+        })
+
+        assert {:error, _reason} =
+                 EmailNotification.send_notification("user@example.com", payload(), %{})
+      end)
+    end
+
+    test "uses verify_peer with ca cert path and username auth branch" do
+      upsert_smtp_channel(%{
+        settings:
+          smtp_settings(%{
+            "relay" => "127.0.0.1",
+            "port" => "1",
+            "transport_mode" => "starttls",
+            "tls" => "enabled",
+            "tls_verify" => "verify_peer",
+            "ca_cert_path" => "/tmp/fake-ca.pem",
+            "username" => "user@example.com",
+            "password" => nil
+          })
+      })
+
+      assert {:error, _reason} =
+               EmailNotification.send_notification("user@example.com", payload(), %{})
+    end
+
+    test "ignores non-map headers payload and metadata values" do
+      upsert_smtp_channel()
+
+      p = Map.put(payload(), "headers", "not-a-map")
+      metadata = %{"headers" => ["not", "a", "map"]}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", p, metadata)
+      assert_receive {:email, email}
+      refute Enum.any?(email.headers, fn {key, _} -> String.starts_with?(key, "X-") end)
+    end
   end
 end

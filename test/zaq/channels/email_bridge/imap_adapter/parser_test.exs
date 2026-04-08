@@ -100,4 +100,113 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     assert incoming.metadata["email"]["headers"]["references"] == "<Root42@Example.com>"
     assert incoming.metadata["email"]["reply_from"] == "julien@eweev.com"
   end
+
+  test "returns tagged error for non-map payload" do
+    assert {:error, :invalid_email_payload} = Parser.to_incoming("not-a-map", %{})
+  end
+
+  test "falls back to raw payload fields when RFC822 parsing fails" do
+    payload = %{
+      raw_rfc822: <<255>>,
+      body_text: "fallback plain",
+      body_html: "<p>fallback html</p>",
+      message_id: "<raw-msg@example.com>",
+      in_reply_to: "<raw-root@example.com>",
+      references: "  <raw-root@example.com>   \n   <raw-parent@example.com>  ",
+      subject: "Fallback subject",
+      to: "Team Inbox <team@example.com>",
+      from: %{"address" => "sender@example.com", "name" => "Sender"}
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.content == "fallback plain"
+    assert incoming.message_id == "<raw-msg@example.com>"
+    assert incoming.metadata["email"]["html_body"] == "<p>fallback html</p>"
+    assert incoming.metadata["email"]["subject"] == "Fallback subject"
+    assert incoming.metadata["email"]["reply_from"] == "team@example.com"
+
+    assert incoming.metadata["email"]["headers"]["references"] ==
+             "<raw-root@example.com> <raw-parent@example.com>"
+  end
+
+  test "uses parsed To header when Delivered-To is absent" do
+    raw_rfc822 =
+      [
+        "Message-ID: <msg@example.com>",
+        "To: Support Team <support@example.com>",
+        "Content-Type: text/plain; charset=UTF-8",
+        "",
+        "Body",
+        ""
+      ]
+      |> Enum.join("\r\n")
+
+    payload = %{
+      raw_rfc822: raw_rfc822,
+      from: %{address: "sender@example.com", name: "Sender"}
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.metadata["email"]["reply_from"] == "support@example.com"
+  end
+
+  test "supports To fallback variants from payload" do
+    cases = [
+      {{"Support", "support@example.com"}, "support@example.com"},
+      {%{email: "support@example.com"}, "support@example.com"},
+      {%{"email" => "support@example.com"}, "support@example.com"},
+      {[%{email: "first@example.com"}, %{"email" => "second@example.com"}], "first@example.com"},
+      {"Support Team <support@example.com>", "support@example.com"}
+    ]
+
+    Enum.each(cases, fn {to_value, expected} ->
+      payload = %{
+        raw_rfc822: <<255>>,
+        body_text: "body",
+        to: to_value,
+        from: %{address: "sender@example.com", name: "Sender"}
+      }
+
+      incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+      assert incoming.metadata["email"]["reply_from"] == expected
+    end)
+  end
+
+  test "normalizes empty references to nil" do
+    payload = %{
+      body_text: "plain body",
+      references: " \n   ",
+      from: %{address: "sender@example.com", name: "Sender"}
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.metadata["email"]["headers"]["references"] == nil
+  end
+
+  test "supports sender variants and filters nil attachment fields" do
+    payload = %{
+      body_text: "plain body",
+      from: "sender@example.com",
+      attachments: [
+        %{filename: "report.csv", size: 12},
+        %{"content_type" => "application/pdf", "download_ref" => "ref-2"},
+        %{filename: nil, download_ref: nil}
+      ]
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.channel_id == "sender@example.com"
+    assert incoming.author_name == nil
+
+    assert incoming.metadata["email"]["attachments"] == [
+             %{"filename" => "report.csv", "size" => 12},
+             %{"content_type" => "application/pdf", "download_ref" => "ref-2"},
+             %{}
+           ]
+  end
 end
