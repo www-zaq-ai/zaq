@@ -233,6 +233,7 @@ When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
 - Error handling: connect/fetch/IDLE re-entry failures and IMAP client exits are logged, client state is cleared, and reconnect is scheduled with `poll_interval` fallback (`30_000ms` default).
 - IDLE timeout: `idle_timeout` defaults to `1_500_000ms` (25 minutes) when missing/invalid and is reused for each IDLE re-entry.
 - Security: IMAP auth uses stored connector credentials (encrypted `channel_configs.token`), TLS is on by default (`ssl != false`), and logs avoid credential values.
+- Security: parser stores `incoming.metadata["email"]["html_body"]` as raw, untrusted email HTML for fidelity. Renderers must treat it as untrusted content and only display it through explicit sanitization or strict isolation/sandboxing.
 
 #### Email Threading Semantics
 

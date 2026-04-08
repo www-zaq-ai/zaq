@@ -39,7 +39,7 @@ defmodule Zaq.Channels.ChannelConfig do
     |> validate_inclusion(:kind, @valid_kinds)
     |> maybe_require_connection_fields()
     |> maybe_validate_imap_settings()
-    |> maybe_validate_imap_smtp_dependency()
+    |> maybe_validate_imap_smtp_dependency_on_persist()
     |> unique_constraint(:provider)
     |> maybe_encrypt_token()
   end
@@ -94,25 +94,25 @@ defmodule Zaq.Channels.ChannelConfig do
     end
   end
 
-  defp maybe_validate_imap_smtp_dependency(changeset) do
-    provider = get_field(changeset, :provider)
-    enabled = get_field(changeset, :enabled)
+  defp maybe_validate_imap_smtp_dependency_on_persist(changeset) do
+    prepare_changes(changeset, fn persisted_changeset ->
+      provider = get_field(persisted_changeset, :provider)
+      enabled = get_field(persisted_changeset, :enabled)
 
-    if provider == @imap_provider and enabled do
-      case get_any_by_provider(@smtp_provider) do
-        %{enabled: true} ->
-          changeset
-
-        _ ->
-          add_error(
-            changeset,
-            :enabled,
-            "email:imap requires an enabled email:smtp configuration"
-          )
+      if provider == @imap_provider and enabled and not smtp_enabled?(persisted_changeset.repo) do
+        add_error(
+          persisted_changeset,
+          :enabled,
+          "email:imap requires an enabled email:smtp configuration"
+        )
+      else
+        persisted_changeset
       end
-    else
-      changeset
-    end
+    end)
+  end
+
+  defp smtp_enabled?(repo) do
+    match?(%__MODULE__{}, repo.get_by(__MODULE__, provider: @smtp_provider, enabled: true))
   end
 
   defp maybe_encrypt_token(changeset) do

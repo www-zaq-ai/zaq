@@ -122,20 +122,25 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert "imap.selected_mailboxes must contain at least one mailbox" in errors_on(changeset).settings
   end
 
-  test "email:imap enabled requires enabled email:smtp" do
+  test "email:imap dependency is enforced at persistence time" do
     changeset =
       ChannelConfig.changeset(%ChannelConfig{}, %{
         name: "Email IMAP",
         provider: "email:imap",
         kind: "retrieval",
+        url: "imap.example.com",
         token: "imap-secret",
         enabled: true,
         settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
       })
 
-    refute changeset.valid?
+    assert changeset.valid?
 
-    assert "email:imap requires an enabled email:smtp configuration" in errors_on(changeset).enabled
+    assert {:error, %Ecto.Changeset{} = failed_changeset} = Repo.insert(changeset)
+
+    assert "email:imap requires an enabled email:smtp configuration" in errors_on(
+             failed_changeset
+           ).enabled
   end
 
   test "email:imap changeset is valid when smtp dependency is enabled" do
@@ -158,6 +163,29 @@ defmodule Zaq.Channels.ChannelConfigTest do
       })
 
     assert changeset.valid?
+  end
+
+  test "email:imap enabled persists when smtp dependency is enabled" do
+    assert {:ok, _smtp} =
+             ChannelConfig.upsert_by_provider("email:smtp", %{
+               name: "Email SMTP",
+               kind: "retrieval",
+               enabled: true,
+               settings: %{"relay" => "smtp.example.com", "port" => "587"}
+             })
+
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP",
+        provider: "email:imap",
+        kind: "retrieval",
+        url: "imap.example.com",
+        token: "imap-secret",
+        enabled: true,
+        settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+      })
+
+    assert {:ok, _config} = Repo.insert(changeset)
   end
 
   test "list_enabled_by_kind/2 returns only enabled configs for kind and known providers" do
