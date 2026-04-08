@@ -132,6 +132,8 @@ defmodule Zaq.Channels.Router do
 
   def sync_config_runtime(_before, _after), do: :ok
 
+  def fetch_profile("web", author_id), do: {:ok, %{id: author_id, name: "Web User"}}
+
   @doc "Fetches a user's canonical profile from the platform bridge."
   @spec fetch_profile(atom() | String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_profile(platform, author_id) when is_binary(author_id) do

@@ -80,18 +80,7 @@ defmodule Zaq.E2E.DocumentProcessorFake do
       Repo.all(from(d in Document))
       |> Enum.map(fn doc -> {score_document(doc, terms), doc} end)
 
-    docs =
-      if person_id do
-        doc_ids = Enum.map(docs, fn {_, d} -> d.id end)
-        permitted = Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, doc_ids)
-        permitted_set = MapSet.new(permitted)
-
-        Enum.map(docs, fn {score, doc} ->
-          if MapSet.member?(permitted_set, doc.id), do: {score, doc}, else: {0, doc}
-        end)
-      else
-        docs
-      end
+    docs = filter_by_permissions(docs, person_id, team_ids)
 
     matches =
       docs
@@ -167,6 +156,18 @@ defmodule Zaq.E2E.DocumentProcessorFake do
       "source" => doc.source,
       "distance" => 1.0
     }
+  end
+
+  defp filter_by_permissions(docs, nil, _team_ids), do: docs
+
+  defp filter_by_permissions(docs, person_id, team_ids) do
+    doc_ids = Enum.map(docs, fn {_, d} -> d.id end)
+    permitted = Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, doc_ids)
+    permitted_set = MapSet.new(permitted)
+
+    Enum.map(docs, fn {score, doc} ->
+      if MapSet.member?(permitted_set, doc.id), do: {score, doc}, else: {0, doc}
+    end)
   end
 
   defp compact_content(content) do

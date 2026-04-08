@@ -41,16 +41,16 @@ Two-migration strategy: first add the new `document_permissions` table, then dro
 
 ## Steps
 
-- [ ] **Step 1 — Migration (add):** Create `document_permissions` table with partial unique indexes and CHECK constraint
-- [ ] **Step 2 — Schema:** Add `Zaq.Ingestion.Permission` Ecto schema; add `has_many :permissions` to `Document`
-- [ ] **Step 3 — Context functions:** Add `list_document_permissions/1`, `set_document_permission/4`, `delete_document_permission/1`, `list_permitted_document_ids/3`; update `can_access_file?` to use Permission table; remove `share_file/2`
-- [ ] **Step 4 — Migration (remove):** Drop `shared_role_ids` and `role_id` from `documents` and `chunks`; remove those fields from schemas; update `ingest_file`/`ingest_folder` signatures
-- [ ] **Step 5a — Pipeline cleanup:** Remove `role_ids` opt from `pipeline.ex`; remove `maybe_filter_roles` call from `similarity_search_group_by`; remove `role_ids` param from `query_extraction`
-- [ ] **Step 5b — Pipeline — permission threading:** Load `team_ids` from person after identity plug; forward `person_id` + `team_ids` through `do_run` → `do_query_extraction` → `query_extraction`
-- [ ] **Step 5c — DocumentProcessor filter:** Retain `document_id` in `fetch_sections_with_source` output; add `apply_permission_filter/3`
-- [ ] **Step 6 — LiveView:** Remove `all_roles`, `share_modal_role_ids`, `toggle_share_role`; add new assigns + `add_permission_target`, `toggle_permission_right`, `remove_permission`, updated `confirm_share` handlers; update `ingestion_map` to include permission count instead of `shared_role_ids`
-- [ ] **Step 7 — UI component:** Replace `modal_share/1` with SearchableSelect-based person/team picker + access rights checkboxes + existing permissions list; update shared badge to show person/team count
-- [ ] **Step 8 — Tests:** Schema changeset tests, context function tests, pipeline integration tests, LiveView event tests
+- [x] **Step 1 — Migration (add):** Create `document_permissions` table with partial unique indexes and CHECK constraint
+- [x] **Step 2 — Schema:** Add `Zaq.Ingestion.Permission` Ecto schema; add `has_many :permissions` to `Document`
+- [x] **Step 3 — Context functions:** Add `list_document_permissions/1`, `set_document_permission/4`, `delete_document_permission/1`, `list_permitted_document_ids/3`; update `can_access_file?` to use Permission table; remove `share_file/2`
+- [x] **Step 4 — Migration (remove):** Drop `shared_role_ids` and `role_id` from `documents` and `chunks`; remove those fields from schemas; update `ingest_file`/`ingest_folder` signatures
+- [x] **Step 5a — Pipeline cleanup:** Remove `role_ids` opt from `pipeline.ex`; remove `maybe_filter_roles` call from `similarity_search_group_by`; remove `role_ids` param from `query_extraction`
+- [x] **Step 5b — Pipeline — permission threading:** Load `team_ids` from person after identity plug; forward `person_id` + `team_ids` through `do_run` → `do_query_extraction` → `query_extraction`
+- [x] **Step 5c — DocumentProcessor filter:** Retain `document_id` in `fetch_sections_with_source` output; add `apply_permission_filter/3`
+- [x] **Step 6 — LiveView:** Remove `all_roles`, `share_modal_role_ids`, `toggle_share_role`; add new assigns + `add_permission_target`, `toggle_permission_right`, `remove_permission`, updated `confirm_share` handlers; update `ingestion_map` to include permission count instead of `shared_role_ids`
+- [x] **Step 7 — UI component:** Replace `modal_share/1` with SearchableSelect-based person/team picker + access rights checkboxes + existing permissions list; update shared badge to show person/team count
+- [x] **Step 8 — Tests:** Schema changeset tests, context function tests, pipeline integration tests, LiveView event tests
 
 ---
 
@@ -346,9 +346,9 @@ Update `shared` badge to show person/team count from `permissions_count` instead
 
 ## Definition of Done
 
-- [ ] All steps above completed
-- [ ] Tests written and passing
-- [ ] `mix precommit` passes
+- [x] All steps above completed
+- [x] Tests written and passing
+- [x] `mix precommit` passes
 - [ ] Relevant docs updated
 - [ ] `docs/QUALITY_SCORE.md` updated if domain grade changed
 - [ ] Item removed from `docs/exec-plans/tech-debt-tracker.md` if applicable

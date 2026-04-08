@@ -371,7 +371,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
     # Explicit: BO-authenticated users with no person record get full access.
     # This is a deliberate policy decision, not a nil shortcut.
-    bo_user_without_person = is_nil(current_user.person_id)
+    bo_user_without_person = is_nil(Map.get(current_user, :person_id))
 
     outgoing =
       Pipeline.run(incoming,

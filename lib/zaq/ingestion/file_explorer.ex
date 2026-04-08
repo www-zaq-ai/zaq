@@ -258,19 +258,16 @@ defmodule Zaq.Ingestion.FileExplorer do
 
   defp recursive_size(path) do
     case File.ls(path) do
-      {:ok, names} ->
-        Enum.reduce(names, 0, fn name, acc ->
-          child = Path.join(path, name)
+      {:ok, names} -> Enum.reduce(names, 0, &(child_size(Path.join(path, &1)) + &2))
+      _ -> 0
+    end
+  end
 
-          case File.stat(child) do
-            {:ok, %{type: :directory}} -> acc + recursive_size(child)
-            {:ok, %{size: size}} -> acc + size
-            _ -> acc
-          end
-        end)
-
-      _ ->
-        0
+  defp child_size(child) do
+    case File.stat(child) do
+      {:ok, %{type: :directory}} -> recursive_size(child)
+      {:ok, %{size: size}} -> size
+      _ -> 0
     end
   end
 

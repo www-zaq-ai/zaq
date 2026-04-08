@@ -149,6 +149,13 @@ defmodule Zaq.Ingestion do
     |> Repo.all()
   end
 
+  def list_person_permissions(person_id) do
+    Permission
+    |> where([p], p.person_id == ^person_id)
+    |> preload(:document)
+    |> Repo.all()
+  end
+
   def set_document_permission(document_id, type, target_id, access_rights)
       when type in [:person, :team] do
     {filter, attrs} =
@@ -178,6 +185,46 @@ defmodule Zaq.Ingestion do
   end
 
   @doc """
+  Returns the unique set of person/team permissions across all documents under
+  the given folder. Deduplicates by person_id / team_id — one entry per target.
+  """
+  def list_folder_permissions(volume_name, folder_path) do
+    docs = list_documents_under_folder(volume_name, folder_path)
+    doc_ids = Enum.map(docs, & &1.id)
+
+    Permission
+    |> where([p], p.document_id in ^doc_ids)
+    |> preload([:person, :team])
+    |> Repo.all()
+    |> Enum.uniq_by(fn p ->
+      if p.person_id, do: {:person, p.person_id}, else: {:team, p.team_id}
+    end)
+  end
+
+  @doc """
+  Deletes all permissions for the same person or team target (identified by
+  `permission_id`) across every document under the given folder.
+  """
+  def delete_folder_target_permission(volume_name, folder_path, permission_id) do
+    docs = list_documents_under_folder(volume_name, folder_path)
+    doc_ids = Enum.map(docs, & &1.id)
+
+    case Repo.get(Permission, permission_id) do
+      nil ->
+        {:error, :not_found}
+
+      perm ->
+        filter =
+          if perm.person_id,
+            do: dynamic([p], p.document_id in ^doc_ids and p.person_id == ^perm.person_id),
+            else: dynamic([p], p.document_id in ^doc_ids and p.team_id == ^perm.team_id)
+
+        {count, _} = Permission |> where(^filter) |> Repo.delete_all()
+        {:ok, count}
+    end
+  end
+
+  @doc """
   Returns all documents whose source lives under the given folder.
 
   Accepts a list of source prefixes (legacy + volume-prefixed) and returns
@@ -185,11 +232,7 @@ defmodule Zaq.Ingestion do
   """
   def list_documents_under_folder(volume_name, folder_path) do
     prefixes = SourcePath.source_candidates(volume_name, folder_path)
-
-    conditions =
-      prefixes
-      |> Enum.map(fn prefix -> dynamic([d], like(d.source, ^"#{prefix}/%")) end)
-      |> Enum.reduce(fn cond, acc -> dynamic([d], ^acc or ^cond) end)
+    conditions = Document.source_prefix_conditions(prefixes)
 
     from(d in Document, where: ^conditions)
     |> Repo.all()

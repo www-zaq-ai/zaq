@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.People
   alias Zaq.Ingestion.{Chunk, Document, IngestJob}
   alias Zaq.Repo
   alias Zaq.System.EmbeddingConfig
@@ -1190,6 +1191,108 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert MapSet.member?(selected, "./photo.png")
       refute MapSet.member?(selected, "./photo.md")
+    end
+  end
+
+  describe "share modal — document permissions" do
+    setup %{conn: conn} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Alice Share",
+          email: "alice_share#{unique}@example.com"
+        })
+
+      {:ok, team} =
+        People.create_team(%{name: "Eng#{unique}"})
+
+      {:ok, doc} = Document.create(%{source: "alpha.md", content: "shared content"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      %{view: view, doc: doc, person: person, team: team}
+    end
+
+    test "share_item opens the share modal for a file", %{view: view} do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+
+      assert has_element?(view, "button", "Save Permissions")
+    end
+
+    test "add_permission_target with a person appends to pending", %{
+      view: view,
+      person: person
+    } do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+
+      assert render(view) =~ person.full_name
+    end
+
+    test "add_permission_target with a team appends to pending", %{view: view, team: team} do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "team:#{team.id}"})
+
+      assert render(view) =~ team.name
+    end
+
+    test "toggle_permission_right adds a right to a pending entry", %{
+      view: view,
+      person: person
+    } do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+
+      pending_before =
+        :sys.get_state(view.pid).socket.assigns.share_modal_pending
+
+      assert [%{access_rights: ["read"]}] = pending_before
+
+      render_hook(view, "toggle_permission_right", %{"index" => "0", "right" => "write"})
+
+      pending_after =
+        :sys.get_state(view.pid).socket.assigns.share_modal_pending
+
+      assert [%{access_rights: rights}] = pending_after
+      assert "write" in rights
+    end
+
+    test "confirm_share persists permissions to the database", %{
+      view: view,
+      doc: doc,
+      person: person
+    } do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+      render_hook(view, "confirm_share", %{})
+
+      refute has_element?(view, "button", "Save Permissions")
+      assert [perm] = Zaq.Ingestion.list_document_permissions(doc.id)
+      assert perm.person_id == person.id
+      assert perm.access_rights == ["read"]
+    end
+
+    test "remove_permission deletes an existing permission", %{
+      view: view,
+      doc: doc,
+      person: person
+    } do
+      {:ok, perm} = Zaq.Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "remove_permission", %{"id" => to_string(perm.id)})
+
+      assert Zaq.Ingestion.list_document_permissions(doc.id) == []
+    end
+
+    test "duplicate add_permission_target is ignored", %{view: view, person: person} do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+
+      pending = :sys.get_state(view.pid).socket.assigns.share_modal_pending
+      assert length(pending) == 1
     end
   end
 end

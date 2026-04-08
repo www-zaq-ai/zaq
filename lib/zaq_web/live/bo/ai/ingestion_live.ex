@@ -80,6 +80,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("share_item", %{"path" => path, "type" => "directory"}, socket) do
     all_targets = socket.assigns.share_modal_all_targets
 
+    permissions =
+      ingestion_call(:list_folder_permissions, [socket.assigns.current_volume, path])
+
     {:noreply,
      assign(socket,
        modal: :share,
@@ -89,9 +92,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        share_modal_is_folder: true,
        share_modal_folder_path: path,
        share_modal_document_id: nil,
-       share_modal_permissions: [],
+       share_modal_permissions: permissions,
        share_modal_pending: [],
-       share_modal_targets_options: filtered_targets(all_targets, [], [])
+       share_modal_targets_options: filtered_targets(all_targets, permissions, [])
      )}
   end
 
@@ -182,10 +185,24 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("remove_permission", %{"id" => id_str}, socket) do
     id = String.to_integer(id_str)
-    {:ok, _} = ingestion_call(:delete_document_permission, [id])
 
     permissions =
-      ingestion_call(:list_document_permissions, [socket.assigns.share_modal_document_id])
+      if socket.assigns.share_modal_is_folder do
+        {:ok, _} =
+          ingestion_call(:delete_folder_target_permission, [
+            socket.assigns.current_volume,
+            socket.assigns.share_modal_folder_path,
+            id
+          ])
+
+        ingestion_call(:list_folder_permissions, [
+          socket.assigns.current_volume,
+          socket.assigns.share_modal_folder_path
+        ])
+      else
+        {:ok, _} = ingestion_call(:delete_document_permission, [id])
+        ingestion_call(:list_document_permissions, [socket.assigns.share_modal_document_id])
+      end
 
     {:noreply,
      assign(socket,
