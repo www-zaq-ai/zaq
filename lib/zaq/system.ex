@@ -25,7 +25,7 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_fields ~w(provider endpoint api_key model temperature top_p supports_logprobs supports_json_mode max_context_window distance_threshold)
+  @llm_fields ~w(provider endpoint api_key model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
   @embedding_fields ~w(provider endpoint api_key model dimension chunk_min_tokens chunk_max_tokens)
   @image_to_text_fields ~w(provider endpoint api_key model)
 
@@ -109,6 +109,7 @@ defmodule Zaq.System do
       model: raw["model"] || "llama-3.3-70b-instruct",
       temperature: parse_float(raw["temperature"], 0.0),
       top_p: parse_float(raw["top_p"], 0.9),
+      path: raw["path"] || "/chat/completions",
       supports_logprobs: parse_bool(raw["supports_logprobs"], true),
       supports_json_mode: parse_bool(raw["supports_json_mode"], true),
       max_context_window: parse_int(raw["max_context_window"], 5_000),

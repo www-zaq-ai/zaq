@@ -11,6 +11,7 @@ defmodule Zaq.System.LLMConfig do
     field :model, :string, default: "llama-3.3-70b-instruct"
     field :temperature, :float, default: 0.0
     field :top_p, :float, default: 0.9
+    field :path, :string, default: "/chat/completions"
     field :supports_logprobs, :boolean, default: true
     field :supports_json_mode, :boolean, default: true
     field :max_context_window, :integer, default: 5_000
@@ -26,6 +27,7 @@ defmodule Zaq.System.LLMConfig do
       :model,
       :temperature,
       :top_p,
+      :path,
       :supports_logprobs,
       :supports_json_mode,
       :max_context_window,

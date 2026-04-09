@@ -88,14 +88,10 @@ defmodule Zaq.Agent.LLM do
       model: cfg.model,
       temperature: cfg.temperature,
       top_p: cfg.top_p,
-      endpoint: endpoint_for(cfg),
+      endpoint: cfg.endpoint <> cfg.path,
       api_key: cfg.api_key
     }
 
     Map.merge(base, Map.new(overrides))
   end
-
-  defp endpoint_for(%{provider: "anthropic", endpoint: ep}) when ep not in [nil, ""], do: ep
-  defp endpoint_for(%{provider: "anthropic"}), do: "https://api.anthropic.com/v1/messages"
-  defp endpoint_for(%{endpoint: ep}), do: ep <> "/chat/completions"
 end

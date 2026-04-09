@@ -83,7 +83,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     params =
       if provider_id != previous_provider do
-        Map.put(params, "endpoint", llm_provider_endpoint(provider_id))
+        params
+        |> Map.put("endpoint", llm_provider_endpoint(provider_id))
+        |> Map.put("path", llm_provider_path(provider_id))
       else
         params
       end
@@ -372,6 +374,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ArgumentError -> ""
   end
 
+  # Returns the execution path for the first active model of a provider, or "/chat/completions".
+  defp provider_path("custom"), do: "/chat/completions"
+
+  defp provider_path(provider_id) do
+    provider_atom = String.to_existing_atom(provider_id)
+
+    model = LLMDB.models(provider_atom) |> Enum.find(&(not &1.deprecated and not &1.retired))
+
+    path =
+      model
+      |> then(fn m -> m && m.execution && m.execution[:text] && m.execution[:text][:path] end)
+
+    if is_binary(path), do: path, else: "/chat/completions"
+  rescue
+    ArgumentError -> "/chat/completions"
+  end
+
   # Returns [{display_name, provider_id_string}] for providers whose models satisfy
   # model_filter, plus a "Custom" fallback. Pass `fn _ -> true end` for no filter.
   defp provider_options(model_filter) do
@@ -408,6 +427,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp llm_provider_options, do: provider_options(fn _ -> true end)
   defp llm_model_options(provider_id), do: model_options(provider_id, fn _ -> true end)
   defp llm_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
+  defp llm_provider_path(provider_id), do: provider_path(provider_id)
 
   # ── Embedding-specific helpers ─────────────────────────────────────────
 
@@ -664,6 +684,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           phx-change="validate_llm"
           class="space-y-5"
         >
+          <input type="hidden" name="llm_config[path]" value={@form[:path].value} />
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
