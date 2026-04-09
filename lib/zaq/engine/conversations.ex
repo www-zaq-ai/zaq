@@ -19,6 +19,7 @@ defmodule Zaq.Engine.Conversations do
 
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
+  alias Zaq.Utils.EmailUtils
 
   # ── Conversations ──────────────────────────────────────────────────
 
@@ -170,8 +171,8 @@ defmodule Zaq.Engine.Conversations do
     # thread_key groups the whole email conversation by root reference.
     # thread_id remains useful for reply continuity, but grouping should stay stable.
     map_get(email_meta, "thread_key") ||
-      normalize_message_id(msg.thread_id) ||
-      normalize_message_id(msg.message_id) ||
+      EmailUtils.normalize_message_id(msg.thread_id) ||
+      EmailUtils.normalize_message_id(msg.message_id) ||
       msg.author_id
   end
 
@@ -192,21 +193,6 @@ defmodule Zaq.Engine.Conversations do
         nil
     end)
   end
-
-  defp normalize_message_id(nil), do: nil
-
-  defp normalize_message_id(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> String.trim_leading("<")
-    |> String.trim_trailing(">")
-    |> case do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp normalize_message_id(_), do: nil
 
   # ── Messages ───────────────────────────────────────────────────────
 

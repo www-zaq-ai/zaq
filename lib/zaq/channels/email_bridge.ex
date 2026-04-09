@@ -15,6 +15,7 @@ defmodule Zaq.Channels.EmailBridge do
   alias Zaq.Channels.{Router, Supervisor}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.NodeRouter
+  alias Zaq.Utils.EmailUtils
 
   @doc "Converts an email adapter payload to the internal `%Incoming{}` format."
   @spec to_internal(map(), map()) :: Incoming.t() | {:error, term()}
@@ -280,7 +281,7 @@ defmodule Zaq.Channels.EmailBridge do
     email_meta = get_meta(outgoing.metadata, "email", :email) || %{}
     threading = get_meta(email_meta, "threading", :threading) || %{}
     incoming_headers = get_meta(email_meta, "headers", :headers) || %{}
-    in_reply_to = normalize_message_id(outgoing.in_reply_to)
+    in_reply_to = EmailUtils.normalize_message_id(outgoing.in_reply_to)
 
     references =
       (get_meta(threading, "references", :references) ||
@@ -298,7 +299,7 @@ defmodule Zaq.Channels.EmailBridge do
   defp references_list(value) when is_list(value) do
     value
     |> Enum.filter(&is_binary/1)
-    |> Enum.map(&normalize_message_id/1)
+    |> Enum.map(&EmailUtils.normalize_message_id/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
@@ -306,7 +307,7 @@ defmodule Zaq.Channels.EmailBridge do
   defp references_list(value) when is_binary(value) do
     value
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.map(&normalize_message_id/1)
+    |> Enum.map(&EmailUtils.normalize_message_id/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
@@ -334,21 +335,6 @@ defmodule Zaq.Channels.EmailBridge do
 
   defp format_message_id(nil), do: nil
   defp format_message_id(value), do: "<" <> value <> ">"
-
-  defp normalize_message_id(nil), do: nil
-
-  defp normalize_message_id(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> String.trim_leading("<")
-    |> String.trim_trailing(">")
-    |> case do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp normalize_message_id(_), do: nil
 
   defp resolve_from_email(metadata, reply?) when is_map(metadata) do
     explicit =
