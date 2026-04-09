@@ -85,7 +85,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       if provider_id != previous_provider do
         params
         |> Map.put("endpoint", llm_provider_endpoint(provider_id))
-        |> Map.put("path", llm_provider_path(provider_id))
+        |> Map.put("path", llm_provider_path(provider_id, model_id))
       else
         params
       end
@@ -374,13 +374,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ArgumentError -> ""
   end
 
-  # Returns the execution path for the first active model of a provider, or "/chat/completions".
-  defp provider_path("custom"), do: "/chat/completions"
+  # Returns the execution path for the selected model of a provider, or "/chat/completions".
+  defp provider_path("custom", _model_id), do: "/chat/completions"
 
-  defp provider_path(provider_id) do
+  defp provider_path(provider_id, model_id) do
     provider_atom = String.to_existing_atom(provider_id)
 
-    model = LLMDB.models(provider_atom) |> Enum.find(&(not &1.deprecated and not &1.retired))
+    model = LLMDB.models(provider_atom) |> Enum.find(&(&1.id == model_id))
 
     path =
       model
@@ -427,7 +427,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp llm_provider_options, do: provider_options(fn _ -> true end)
   defp llm_model_options(provider_id), do: model_options(provider_id, fn _ -> true end)
   defp llm_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
-  defp llm_provider_path(provider_id), do: provider_path(provider_id)
+  defp llm_provider_path(provider_id, model_id), do: provider_path(provider_id, model_id)
 
   # ── Embedding-specific helpers ─────────────────────────────────────────
 
