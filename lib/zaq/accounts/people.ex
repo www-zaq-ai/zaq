@@ -12,8 +12,15 @@ defmodule Zaq.Accounts.People do
 
   # ── People ──────────────────────────────────────────────────────────────
 
-  def list_people do
-    people = Repo.all(from p in Person, order_by: p.full_name)
+  def list_people(opts \\ []) do
+    limit = Keyword.get(opts, :limit)
+
+    query =
+      if limit,
+        do: from(p in Person, order_by: p.full_name, limit: ^limit),
+        else: from(p in Person, order_by: p.full_name)
+
+    people = Repo.all(query)
     Repo.preload(people, channels: channels_ordered())
   end
 
