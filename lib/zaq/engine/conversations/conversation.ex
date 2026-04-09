@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Conversations.Conversation do
-  @moduledoc "Ecto schema for a conversation between a user and the ZAQ agent."
+  @moduledoc "Ecto schema for a conversation with the ZAQ agent, initiated by a user or an external person."
 
   use Ecto.Schema
   import Ecto.Changeset
@@ -18,6 +18,7 @@ defmodule Zaq.Engine.Conversations.Conversation do
     field :metadata, :map, default: %{}
 
     belongs_to :user, Zaq.Accounts.User, type: :integer, foreign_key: :user_id
+    belongs_to :person, Zaq.Accounts.Person, type: :integer, foreign_key: :person_id
     has_many :messages, Message
     has_many :shares, ConversationShare
 
@@ -33,6 +34,7 @@ defmodule Zaq.Engine.Conversations.Conversation do
     |> cast(attrs, [
       :title,
       :user_id,
+      :person_id,
       :channel_user_id,
       :channel_type,
       :channel_config_id,

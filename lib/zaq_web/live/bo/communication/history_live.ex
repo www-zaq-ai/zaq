@@ -2,32 +2,69 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
   @moduledoc """
   Conversation history page.
 
-  All authenticated users can see their own conversation history.
-  Super-admins can switch to an "All Users" scope to inspect every
-  conversation in the system, with additional identity and channel filters.
+  - `/bo/history`          — active conversations
+  - `/bo/history/archived` — archived conversations
+
+  All authenticated users can see their own history.
+  Super-admins can switch to an "All Users" scope with additional
+  identity, team, person, and channel filters.
+
+  Supports per-row delete/archive and bulk select → archive/delete.
   """
 
   use ZaqWeb, :live_view
 
+  import ZaqWeb.Components.SearchableSelect
+
+  alias Zaq.Accounts.People
   alias Zaq.NodeRouter
 
   @impl true
   def mount(_params, _session, socket) do
     current_user = socket.assigns[:current_user]
     is_admin = super_admin?(current_user)
-    user_id = current_user && current_user.id
-
-    conversations = load_conversations(user_id: user_id)
 
     {:ok,
      socket
-     |> assign(:page_title, "History")
      |> assign(:current_path, "/bo/history")
      |> assign(:is_admin, is_admin)
-     |> assign(:conversations, conversations)
+     |> assign(:conversations, [])
+     |> assign(:selected, MapSet.new())
      |> assign(:filter_scope, "own")
-     |> assign(:filter_status, "all")
-     |> assign(:filter_channel_type, "all")}
+     |> assign(:filter_channel_type, "all")
+     |> assign(:filter_team_id, "all")
+     |> assign(:filter_person_id, "all")
+     |> assign(:teams, People.list_teams())
+     |> assign(:people, People.list_people())}
+  end
+
+  @impl true
+  def handle_params(_params, _uri, socket) do
+    status =
+      case socket.assigns.live_action do
+        :archived -> "archived"
+        _ -> "active"
+      end
+
+    page_title = if status == "archived", do: "Archived History", else: "History"
+    current_user = socket.assigns[:current_user]
+    user_id = current_user && current_user.id
+
+    opts =
+      [{:status, status}]
+      |> then(fn o ->
+        if socket.assigns.filter_scope == "own", do: [{:user_id, user_id} | o], else: o
+      end)
+      |> maybe_filter(:channel_type, socket.assigns.filter_channel_type)
+      |> maybe_filter_int(:team_id, socket.assigns.filter_team_id)
+      |> maybe_filter_int(:person_id, socket.assigns.filter_person_id)
+
+    {:noreply,
+     socket
+     |> assign(:page_title, page_title)
+     |> assign(:status, status)
+     |> assign(:selected, MapSet.new())
+     |> assign(:conversations, load_conversations(opts))}
   end
 
   @impl true
@@ -40,26 +77,101 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
         do: Map.get(params, "scope", socket.assigns.filter_scope),
         else: "own"
 
-    status = Map.get(params, "status", socket.assigns.filter_status)
     channel_type = Map.get(params, "channel_type", socket.assigns.filter_channel_type)
 
+    team_id =
+      if scope == "all",
+        do: Map.get(params, "team_id", socket.assigns.filter_team_id),
+        else: "all"
+
+    person_id =
+      if scope == "all",
+        do: Map.get(params, "person_id", socket.assigns.filter_person_id),
+        else: "all"
+
     opts =
-      []
+      [{:status, socket.assigns.status}]
       |> then(fn o -> if scope == "own", do: [{:user_id, user_id} | o], else: o end)
-      |> maybe_filter(:status, status)
       |> maybe_filter(:channel_type, channel_type)
+      |> maybe_filter_int(:team_id, team_id)
+      |> maybe_filter_int(:person_id, person_id)
 
     {:noreply,
      socket
      |> assign(:conversations, load_conversations(opts))
      |> assign(:filter_scope, scope)
-     |> assign(:filter_status, status)
-     |> assign(:filter_channel_type, channel_type)}
+     |> assign(:filter_channel_type, channel_type)
+     |> assign(:filter_team_id, team_id)
+     |> assign(:filter_person_id, person_id)
+     |> assign(:selected, MapSet.new())}
+  end
+
+  def handle_event("toggle_select", %{"id" => id}, socket) do
+    selected =
+      if MapSet.member?(socket.assigns.selected, id),
+        do: MapSet.delete(socket.assigns.selected, id),
+        else: MapSet.put(socket.assigns.selected, id)
+
+    {:noreply, assign(socket, :selected, selected)}
+  end
+
+  def handle_event("select_all", _params, socket) do
+    all_ids = Enum.map(socket.assigns.conversations, & &1.id) |> MapSet.new()
+
+    selected =
+      if MapSet.equal?(socket.assigns.selected, all_ids),
+        do: MapSet.new(),
+        else: all_ids
+
+    {:noreply, assign(socket, :selected, selected)}
+  end
+
+  def handle_event("archive_conversation", %{"id" => id}, socket) do
+    NodeRouter.call(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [id])
+    {:noreply, remove_conversations(socket, [id])}
+  end
+
+  def handle_event("delete_conversation", %{"id" => id}, socket) do
+    NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
+    {:noreply, remove_conversations(socket, [id])}
+  end
+
+  def handle_event("bulk_archive", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected)
+
+    Enum.each(
+      ids,
+      &NodeRouter.call(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [&1])
+    )
+
+    {:noreply, remove_conversations(socket, ids)}
+  end
+
+  def handle_event("bulk_delete", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected)
+
+    Enum.each(
+      ids,
+      &NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [&1])
+    )
+
+    {:noreply, remove_conversations(socket, ids)}
   end
 
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
+
+  defp remove_conversations(socket, ids) do
+    id_set = MapSet.new(ids)
+
+    socket
+    |> assign(
+      :conversations,
+      Enum.reject(socket.assigns.conversations, &MapSet.member?(id_set, &1.id))
+    )
+    |> assign(:selected, MapSet.difference(socket.assigns.selected, id_set))
+  end
 
   defp load_conversations(opts) do
     result = NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_conversations, [opts])
@@ -71,4 +183,14 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
 
   defp maybe_filter(opts, _key, "all"), do: opts
   defp maybe_filter(opts, key, value), do: [{key, value} | opts]
+
+  defp maybe_filter_int(opts, _key, "all"), do: opts
+  defp maybe_filter_int(opts, _key, ""), do: opts
+  defp maybe_filter_int(opts, _key, nil), do: opts
+
+  defp maybe_filter_int(opts, key, value) when is_binary(value),
+    do: maybe_filter_int(opts, key, Integer.parse(value))
+
+  defp maybe_filter_int(opts, key, {int, _}), do: [{key, int} | opts]
+  defp maybe_filter_int(opts, _key, :error), do: opts
 end

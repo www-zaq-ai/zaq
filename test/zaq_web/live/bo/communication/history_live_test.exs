@@ -41,7 +41,10 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
   end
 
   describe "filter event" do
-    test "filter by status=archived excludes active conversations", %{conn: conn, user: user} do
+    test "archived route shows archived and excludes active conversations", %{
+      conn: conn,
+      user: user
+    } do
       _active = create_conv(user.id, %{title: "Active Conv", status: "active"})
 
       {:ok, archived} =
@@ -50,12 +53,7 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
           Conversations.archive_conversation(c)
         end)
 
-      {:ok, view, _html} = live(conn, ~p"/bo/history")
-
-      html =
-        view
-        |> element("form[phx-change='filter']")
-        |> render_change(%{"status" => "archived", "channel_type" => "all"})
+      {:ok, _view, html} = live(conn, ~p"/bo/history/archived")
 
       assert html =~ archived.title
       refute html =~ "Active Conv"
