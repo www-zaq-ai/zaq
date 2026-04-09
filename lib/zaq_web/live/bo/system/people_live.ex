@@ -42,6 +42,25 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     {:ok, refresh_people(socket)}
   end
 
+  def handle_params(%{"person_id" => id}, _uri, socket) do
+    case People.get_person_with_channels(id) do
+      nil ->
+        {:noreply, socket}
+
+      person ->
+        person_documents = Ingestion.list_person_permissions(person.id)
+
+        {:noreply,
+         socket
+         |> assign(:selected_person, person)
+         |> assign(:person_channels, person.channels)
+         |> assign(:person_documents, person_documents)
+         |> assign(:confirm_delete, nil)}
+    end
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
   # ── Tab ─────────────────────────────────────────────────────────────────
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do

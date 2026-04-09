@@ -96,7 +96,8 @@ defmodule ZaqWeb.Router do
       live "/preview/*path", Live.BO.AI.FilePreviewLive
 
       live "/chat", Live.BO.Communication.ChatLive
-      live "/history", Live.BO.Communication.HistoryLive
+      live "/history", Live.BO.Communication.HistoryLive, :index
+      live "/history/archived", Live.BO.Communication.HistoryLive, :archived
 
       live "/conversations/:id", Live.BO.Communication.ConversationDetailLive, :show
 

@@ -294,7 +294,8 @@ test.describe("People", () => {
     await page.locator(SEL.filterName).fill("zzz-no-match")
     await expect(page.getByText(name)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).clear()
+    // Clear no-match filter and re-filter by unique ts — person must be visible again
+    await page.locator(SEL.filterName).fill(`${ts}`)
     await expect(page.getByText(name)).toBeVisible()
   })
 

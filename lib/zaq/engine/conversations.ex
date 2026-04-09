@@ -17,6 +17,7 @@ defmodule Zaq.Engine.Conversations do
     TokenUsageAggregator
   }
 
+  alias Zaq.Accounts.{Person, PersonChannel}
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
   alias Zaq.Utils.EmailUtils
@@ -86,19 +87,40 @@ defmodule Zaq.Engine.Conversations do
   Supported opts: `user_id`, `channel_user_id`, `status`, `limit`.
   """
   def list_conversations(opts \\ []) do
-    query = from(c in Conversation, order_by: [desc: c.inserted_at])
+    query = from(c in Conversation, order_by: [desc: c.updated_at])
 
     query =
       Enum.reduce(opts, query, fn
-        {:user_id, user_id}, q -> where(q, [c], c.user_id == ^user_id)
-        {:channel_user_id, id}, q -> where(q, [c], c.channel_user_id == ^id)
-        {:channel_type, channel_type}, q -> where(q, [c], c.channel_type == ^channel_type)
-        {:status, status}, q -> where(q, [c], c.status == ^status)
-        {:limit, n}, q -> limit(q, ^n)
-        _, q -> q
+        {:user_id, user_id}, q ->
+          where(q, [c], c.user_id == ^user_id)
+
+        {:channel_user_id, id}, q ->
+          where(q, [c], c.channel_user_id == ^id)
+
+        {:channel_type, channel_type}, q ->
+          where(q, [c], c.channel_type == ^channel_type)
+
+        {:status, status}, q ->
+          where(q, [c], c.status == ^status)
+
+        {:person_id, person_id}, q ->
+          where(q, [c], c.person_id == ^person_id)
+
+        {:team_id, team_id}, q ->
+          person_subquery = from(p in Person, where: ^team_id in p.team_ids, select: p.id)
+          where(q, [c], c.person_id in subquery(person_subquery))
+
+        {:limit, n}, q ->
+          limit(q, ^n)
+
+        _, q ->
+          q
       end)
 
-    Repo.all(query)
+    query
+    |> Repo.all()
+    |> backfill_missing_person_ids()
+    |> Repo.preload([:person, :user])
   end
 
   @doc "Updates a conversation with the given attrs."
@@ -111,6 +133,23 @@ defmodule Zaq.Engine.Conversations do
   @doc "Sets the conversation status to archived."
   def archive_conversation(%Conversation{} = conversation) do
     update_conversation(conversation, %{status: "archived"})
+  end
+
+  @doc "Archives a conversation by ID."
+  def archive_conversation_by_id(id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    Repo.update_all(from(c in Conversation, where: c.id == ^id),
+      set: [status: "archived", updated_at: now]
+    )
+
+    :ok
+  end
+
+  @doc "Deletes a conversation by ID."
+  def delete_conversation_by_id(id) do
+    Repo.delete_all(from(c in Conversation, where: c.id == ^id))
+    :ok
   end
 
   @doc "Deletes a conversation and all associated messages (cascaded by DB)."
@@ -132,6 +171,8 @@ defmodule Zaq.Engine.Conversations do
              channel_type,
              nil
            ),
+         {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
+         {:ok, conv} <- maybe_assign_person(conv, msg.person_id || Map.get(result, :person_id)),
          {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
          {:ok, _} <-
            add_message(conv, %{
@@ -146,6 +187,91 @@ defmodule Zaq.Engine.Conversations do
       :ok
     end
   end
+
+  defp touch_conversation(%Conversation{} = conv) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    Repo.update_all(from(c in Conversation, where: c.id == ^conv.id), set: [updated_at: now])
+  end
+
+  defp maybe_assign_person(%Conversation{person_id: nil} = conv, person_id)
+       when not is_nil(person_id) do
+    conv
+    |> Conversation.changeset(%{person_id: person_id})
+    |> Repo.update()
+  end
+
+  defp maybe_assign_person(conv, _person_id), do: {:ok, conv}
+
+  # Stores the sender's email address in conversation metadata for email:imap
+  # conversations. The channel_user_id for email is a thread key (message ID),
+  # not the sender address — storing author_id enables person lookup later.
+  defp maybe_store_author_id(%Conversation{channel_type: "email:imap"} = conv, author_id)
+       when not is_nil(author_id) do
+    if Map.get(conv.metadata, "author_id") do
+      {:ok, conv}
+    else
+      conv
+      |> Conversation.changeset(%{metadata: Map.put(conv.metadata, "author_id", author_id)})
+      |> Repo.update()
+    end
+  end
+
+  defp maybe_store_author_id(conv, _author_id), do: {:ok, conv}
+
+  # Lazy backfill: for conversations with person_id nil, resolve via PersonChannel.
+  # Two lookup strategies:
+  #   1. channel_user_id → PersonChannel.channel_identifier (mattermost, slack, etc.)
+  #   2. metadata["author_id"] → PersonChannel.channel_identifier (email:imap)
+  defp backfill_missing_person_ids(conversations) do
+    unresolved = Enum.filter(conversations, &is_nil(&1.person_id))
+
+    if unresolved == [] do
+      conversations
+    else
+      by_channel_user_id =
+        unresolved
+        |> Enum.map(& &1.channel_user_id)
+        |> Enum.reject(&is_nil/1)
+
+      by_author_id =
+        unresolved
+        |> Enum.map(&Map.get(&1.metadata, "author_id"))
+        |> Enum.reject(&is_nil/1)
+
+      lookup_ids = Enum.uniq(by_channel_user_id ++ by_author_id)
+
+      channel_map =
+        if lookup_ids == [] do
+          %{}
+        else
+          Repo.all(
+            from c in PersonChannel,
+              where: c.channel_identifier in ^lookup_ids,
+              select: {c.channel_identifier, c.person_id}
+          )
+          |> Map.new()
+        end
+
+      Enum.map(conversations, fn conv ->
+        resolved =
+          Map.get(channel_map, conv.channel_user_id) ||
+            Map.get(channel_map, Map.get(conv.metadata, "author_id"))
+
+        maybe_backfill_person_id(conv, resolved)
+      end)
+    end
+  end
+
+  defp maybe_backfill_person_id(%{person_id: nil} = conv, resolved) when not is_nil(resolved) do
+    Repo.update_all(
+      from(c in Conversation, where: c.id == ^conv.id),
+      set: [person_id: resolved]
+    )
+
+    %{conv | person_id: resolved}
+  end
+
+  defp maybe_backfill_person_id(conv, _resolved), do: conv
 
   defp normalize_channel_type(provider) when is_atom(provider),
     do: normalize_channel_type(to_string(provider))
@@ -209,6 +335,7 @@ defmodule Zaq.Engine.Conversations do
       |> Repo.insert()
 
     with {:ok, msg} <- result do
+      touch_conversation(conversation)
       maybe_record_message_telemetry(conversation, msg)
 
       if msg.role == "assistant" do

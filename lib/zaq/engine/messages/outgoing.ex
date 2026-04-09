@@ -53,7 +53,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
       author_name: incoming.author_name,
       provider: incoming.provider,
       in_reply_to: incoming.message_id,
-      metadata: Map.merge(incoming.metadata, result)
+      metadata: incoming.metadata |> Map.merge(result) |> Map.put(:person_id, incoming.person_id)
     }
   end
 end

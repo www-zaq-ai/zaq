@@ -222,6 +222,13 @@ defmodule Zaq.Accounts.People do
     Repo.get!(Person, id) |> Repo.preload(channels: channels_ordered())
   end
 
+  def get_person_with_channels(id) do
+    case Repo.get(Person, id) do
+      nil -> nil
+      person -> Repo.preload(person, channels: channels_ordered())
+    end
+  end
+
   def create_person(attrs) do
     attrs = Map.put_new(stringify_keys(attrs), "incomplete", true)
     %Person{} |> Person.changeset(attrs) |> Repo.insert()
