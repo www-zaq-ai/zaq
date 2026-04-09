@@ -39,7 +39,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
   alias Zaq.Ingestion.CSVParser
 
-  @supported_extensions ~w(.md .pdf .docx .xlsx .csv .png .jpg)
+  @supported_extensions ~w(.md .pdf .docx .xlsx .csv .png .jpg .jpeg)
 
   @rrf_k 60
 
@@ -195,7 +195,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Needed when ingesting files produced by external tools (e.g. the Python
   # PDF pipeline) that may emit Latin-1 or other non-UTF-8 encodings.
   defp sanitize_utf8(binary), do: sanitize_utf8(binary, [])
-
+  # Null bytes (U+0000) are valid UTF-8 but PostgreSQL text columns reject them.
+  defp sanitize_utf8(<<0, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
   defp sanitize_utf8(<<>>, acc), do: IO.iodata_to_binary(:lists.reverse(acc))
   defp sanitize_utf8(<<c::utf8, rest::binary>>, acc), do: sanitize_utf8(rest, [<<c::utf8>> | acc])
   defp sanitize_utf8(<<_::8, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
@@ -216,7 +217,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         md_path = Path.rootname(file_path) <> ".md"
         read_sidecar_or_convert(md_path, "XLSX", fn -> convert_xlsx(file_path, md_path) end)
 
-      ext when ext in [".png", ".jpg"] ->
+      ext when ext in [".png", ".jpg", ".jpeg"] ->
         md_path = Path.rootname(file_path) <> ".md"
         read_sidecar_or_convert(md_path, "image", fn -> convert_image(file_path, md_path) end)
 
@@ -279,11 +280,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp read_image_as_markdown(file_path) do
+    {safe_path, cleanup_alias} = prepare_image_input(file_path)
     output_json = image_description_output_path(file_path)
 
     try do
       with {:ok, opts} <- image_to_text_opts(),
-           {:ok, _} <- image_to_text_step().run_single(file_path, output_json, opts),
+           {:ok, _} <- image_to_text_step().run_single(safe_path, output_json, opts),
            {:ok, raw_json} <- File.read(output_json),
            {:ok, description} <- extract_image_description(raw_json, file_path) do
         image_name = Path.basename(file_path)
@@ -292,7 +294,54 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         {:ok, sanitize_utf8(markdown)}
       end
     after
+      cleanup_alias.()
       _ = File.rm(output_json)
+    end
+  end
+
+  # Creates a symlink (or copy) with an ASCII-safe filename when the image path
+  # contains spaces, accents, or other non-ASCII characters that confuse Python.
+  defp prepare_image_input(image_path) do
+    basename = Path.basename(image_path)
+
+    if String.match?(basename, ~r/[^a-zA-Z0-9._\-]/) do
+      alias_path = build_image_alias_path(image_path)
+      create_image_alias(image_path, alias_path)
+    else
+      {image_path, fn -> :ok end}
+    end
+  end
+
+  defp create_image_alias(image_path, alias_path) do
+    case File.ln_s(image_path, alias_path) do
+      :ok -> {alias_path, fn -> File.rm(alias_path) end}
+      {:error, _} -> create_image_alias_copy(image_path, alias_path)
+    end
+  end
+
+  defp create_image_alias_copy(image_path, alias_path) do
+    case File.cp(image_path, alias_path) do
+      :ok -> {alias_path, fn -> File.rm(alias_path) end}
+      {:error, _} -> {image_path, fn -> :ok end}
+    end
+  end
+
+  defp build_image_alias_path(image_path) do
+    dir = Path.dirname(image_path)
+    ext = Path.extname(image_path)
+
+    normalized_stem =
+      image_path
+      |> Path.basename(ext)
+      |> String.replace(~r/[^a-zA-Z0-9._\-]/, "_")
+
+    candidate = Path.join(dir, normalized_stem <> ext)
+
+    if File.exists?(candidate) do
+      unique = System.unique_integer([:positive])
+      Path.join(dir, "#{normalized_stem}__zaq_tmp_#{unique}#{ext}")
+    else
+      candidate
     end
   end
 
@@ -300,7 +349,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     stem =
       file_path
       |> Path.basename(Path.extname(file_path))
-      |> String.replace(~r/\s+/u, "_")
+      |> String.replace(~r/[^a-zA-Z0-9._\-]/, "_")
 
     Path.join(
       System.tmp_dir!(),

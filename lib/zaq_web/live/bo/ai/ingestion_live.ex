@@ -11,7 +11,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.System
   alias ZaqWeb.Live.BO.PreviewHelpers
 
-  @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv .png .jpg)
+  @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
 
   def mount(_params, _session, socket) do
@@ -615,6 +615,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :files, ref)}
+  end
+
   def handle_event("upload", _params, socket) do
     volume = socket.assigns.current_volume
 
@@ -784,6 +788,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp maybe_refresh_entries_after_job(socket, %{status: status})
        when status in ["completed", "completed_with_errors", "failed"] do
+    load_entries(socket)
+  end
+
+  # Refresh as soon as chunks are scheduled (prepare_file_chunks just completed):
+  # the sidecar .md is on disk and in the DB at this point, before any embedding runs.
+  defp maybe_refresh_entries_after_job(socket, %{
+         status: "processing",
+         total_chunks: total,
+         ingested_chunks: 0
+       })
+       when is_integer(total) and total > 0 do
     load_entries(socket)
   end
 

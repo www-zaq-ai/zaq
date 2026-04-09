@@ -1079,25 +1079,41 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </label>
             </p>
             <p class="font-mono text-[0.65rem] text-black/25">
-              .md .txt .pdf .docx .xlsx .csv .png .jpg — max 20 MB
+              .md .txt .pdf .docx .xlsx .csv .png .jpg .jpeg — max 20 MB
             </p>
           </div>
         </div>
 
         <%= for entry <- @uploads.files.entries do %>
-          <div class="flex items-center justify-between mt-3 px-2">
-            <span class="font-mono text-[0.8rem] text-black truncate max-w-[60%]">
-              {entry.client_name}
-            </span>
-            <div class="flex items-center gap-3">
-              <div class="w-32 h-1.5 bg-black/5 rounded-full overflow-hidden">
-                <div
-                  class="h-full bg-[#03b6d4] rounded-full transition-all"
-                  style={"width: #{entry.progress}%;"}
-                />
+          <div class="mt-3 px-2">
+            <div class="flex items-center justify-between">
+              <span class="font-mono text-[0.8rem] text-black truncate max-w-[60%]">
+                {entry.client_name}
+              </span>
+              <div class="flex items-center gap-3">
+                <div class="w-32 h-1.5 bg-black/5 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-[#03b6d4] rounded-full transition-all"
+                    style={"width: #{entry.progress}%;"}
+                  />
+                </div>
+                <span class="font-mono text-[0.7rem] text-black/40">{entry.progress}%</span>
+                <button
+                  type="button"
+                  phx-click="cancel_upload"
+                  phx-value-ref={entry.ref}
+                  class="text-black/30 hover:text-red-400 transition-colors"
+                  title="Remove"
+                >
+                  &times;
+                </button>
               </div>
-              <span class="font-mono text-[0.7rem] text-black/40">{entry.progress}%</span>
             </div>
+            <%= for err <- upload_errors(@uploads.files, entry) do %>
+              <p class="font-mono text-[0.7rem] text-red-500 mt-1">
+                {upload_error_message(err)}
+              </p>
+            <% end %>
           </div>
         <% end %>
 
@@ -1119,6 +1135,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
     </div>
     """
   end
+
+  defp upload_error_message(:too_large), do: "File exceeds 20 MB limit."
+  defp upload_error_message(:not_accepted), do: "File type not supported."
+  defp upload_error_message(:too_many_files), do: "Too many files selected (max 10)."
+  defp upload_error_message(_), do: "Upload failed."
 
   # ── Jobs Panel ────────────────────────────────────────────────────────────
 

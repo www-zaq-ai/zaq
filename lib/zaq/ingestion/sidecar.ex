@@ -5,7 +5,7 @@ defmodule Zaq.Ingestion.Sidecar do
 
   @sidecar_source_key "sidecar_source"
   @source_document_source_key "source_document_source"
-  @source_extensions ~w(.pdf .docx .xlsx .png .jpg)
+  @source_extensions ~w(.pdf .docx .xlsx .png .jpg .jpeg)
 
   @doc """
   Returns expected markdown sidecar path for a source file path.
