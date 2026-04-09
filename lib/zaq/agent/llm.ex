@@ -80,6 +80,9 @@ defmodule Zaq.Agent.LLM do
       #   api_key: ""
       # }
   """
+  alias LangChain.ChatModels.ChatAnthropic
+  alias LangChain.ChatModels.ChatOpenAI
+
   def chat_config(overrides \\ []) do
     cfg = Zaq.System.get_llm_config()
 
@@ -103,7 +106,7 @@ defmodule Zaq.Agent.LLM do
   everything else.
   """
   def build_model(%{provider: "anthropic"} = config) do
-    LangChain.ChatModels.ChatAnthropic.new!(%{
+    ChatAnthropic.new!(%{
       model: config.model,
       temperature: config.temperature,
       api_key: config.api_key,
@@ -112,6 +115,6 @@ defmodule Zaq.Agent.LLM do
   end
 
   def build_model(config) do
-    LangChain.ChatModels.ChatOpenAI.new!(config)
+    ChatOpenAI.new!(config)
   end
 end
