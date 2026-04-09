@@ -35,7 +35,7 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
      |> assign(:filter_team_id, "all")
      |> assign(:filter_person_id, "all")
      |> assign(:teams, People.list_teams())
-     |> assign(:people, People.list_people())}
+     |> assign(:people, People.list_people(limit: 100))}
   end
 
   @impl true
