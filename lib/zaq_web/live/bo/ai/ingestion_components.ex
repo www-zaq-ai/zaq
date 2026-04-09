@@ -404,8 +404,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
     <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[45vh] overflow-y-scroll">
       <table class="w-full">
         <thead>
-          <tr class="border-b border-black/[0.06] bg-[#fafafa]">
-            <th class="w-10 px-4 py-3.5">
+          <tr class="border-b border-black/[0.06] bg-[#fafafa] sticky top-0 z-10">
+            <th class="w-6 px-2 py-2 xl:px-3 xl:py-3.5">
               <input
                 type="checkbox"
                 phx-click="select_all"
@@ -413,29 +413,32 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
               />
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 w-full max-w-0">
+            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-full max-w-0">
               Name
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 w-24 whitespace-nowrap">
+            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-24 whitespace-nowrap">
               Size
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 w-36">
+            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-36">
               Status
             </th>
-            <th class="hidden xl:table-cell text-right font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-4 py-3.5 whitespace-nowrap">
+            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-28 whitespace-nowrap">
+              Access
+            </th>
+            <th class="hidden xl:table-cell text-right font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 whitespace-nowrap">
               Modified
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@entries == []} class="border-b border-black/[0.04]">
-            <td colspan="5" class="px-4 py-8 text-center font-mono text-[0.8rem] text-black/30">
+            <td colspan="6" class="px-4 py-8 text-center font-mono text-[0.8rem] text-black/30">
               Empty directory
             </td>
           </tr>
           <%= for entry <- @entries do %>
             <tr class="border-b border-black/[0.04] last:border-0 hover:bg-black/[0.015] transition-colors group">
-              <td class="px-4 py-3 w-10">
+              <td class="px-2 py-2 xl:px-3 xl:py-3 w-6">
                 <input
                   type="checkbox"
                   phx-click="toggle_select"
@@ -444,7 +447,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
                 />
               </td>
-              <td class="px-4 py-3 max-w-0 w-full">
+              <td class="px-2 py-2 xl:px-4 xl:py-3 max-w-0 w-full">
                 <div class="flex items-center justify-between">
                   <%= if entry.type == :directory do %>
                     <button
@@ -463,8 +466,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       <span class="truncate">{entry.name}</span>
                     </button>
                   <% else %>
-                    <span
-                      class="flex items-center gap-2 font-mono text-[0.85rem] text-black min-w-0"
+                    <button
+                      type="button"
+                      phx-click="open_preview"
+                      phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
+                      class="flex items-center gap-2 font-mono text-[0.85rem] text-black hover:text-[#03b6d4] hover:underline min-w-0 text-left cursor-pointer"
                       title={entry.name}
                     >
                       <.file_icon
@@ -472,31 +478,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                         class={"w-4 h-4 shrink-0 #{file_icon_color(entry.name)}"}
                       />
                       <span class="truncate">{entry.name}</span>
-                    </span>
+                    </button>
                   <% end %>
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
-                    <button
-                      :if={entry.type == :file}
-                      type="button"
-                      phx-click="open_preview"
-                      phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
-                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
-                      title="Preview"
-                    >
-                      <svg
-                        class="w-3.5 h-3.5"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                        />
-                      </svg>
-                    </button>
                     <button
                       phx-click="move_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
@@ -584,7 +568,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   </div>
                 </div>
               </td>
-              <td class="font-mono text-[0.78rem] text-black/40 px-4 py-3 w-24 whitespace-nowrap">
+              <td class="font-mono text-[0.78rem] text-black/40 px-2 py-2 xl:px-4 xl:py-3 w-24 whitespace-nowrap">
                 <%= if entry.type == :file do %>
                   {format_size(entry.size)}
                 <% else %>
@@ -594,13 +578,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     else: "—"}
                 <% end %>
               </td>
-              <td class="px-4 py-3">
+              <%!-- Status column: ingestion state only --%>
+              <td class="px-2 py-2 xl:px-4 xl:py-3">
                 <%= if entry.type == :file do %>
                   <% status =
                     Map.get(@ingestion_map, entry.name, %{
                       ingested_at: nil,
                       stale?: false,
                       permissions_count: 0,
+                      is_public: false,
                       can_share?: false
                     }) %>
                   <%= cond do %>
@@ -640,52 +626,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       </div>
                     <% status.ingested_at != nil -> %>
                       <div class="flex flex-col gap-0.5">
-                        <div class="flex items-center gap-1 flex-wrap">
-                          <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 whitespace-nowrap">
-                            <svg
-                              class="w-3 h-3 shrink-0"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              viewBox="0 0 24 24"
-                            >
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                            ingested
-                          </span>
-                          <span
-                            :if={status.permissions_count > 0}
-                            class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default whitespace-nowrap"
-                            title={"Shared with #{status.permissions_count} person(s)/team(s)"}
-                          >
-                            <svg
-                              class="w-3 h-3 shrink-0"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                              />
-                            </svg>
-                            shared
-                          </span>
-                        </div>
-                        <span class="font-mono text-[0.6rem] text-black/30 whitespace-nowrap">
-                          {format_datetime(status.ingested_at)}
-                        </span>
-                      </div>
-                    <% true -> %>
-                      <div class="flex items-center gap-1 flex-wrap">
-                        <span class="font-mono text-[0.65rem] text-black/20">—</span>
-                        <span
-                          :if={status.permissions_count > 0}
-                          class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default whitespace-nowrap"
-                          title={"Shared with #{status.permissions_count} person(s)/team(s)"}
-                        >
+                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 whitespace-nowrap">
                           <svg
                             class="w-3 h-3 shrink-0"
                             fill="none"
@@ -693,42 +634,103 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                             stroke-width="2"
                             viewBox="0 0 24 24"
                           >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                            />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                           </svg>
-                          shared
+                          ingested
+                        </span>
+                        <span class="font-mono text-[0.6rem] text-black/30 whitespace-nowrap">
+                          {format_datetime(status.ingested_at)}
                         </span>
                       </div>
+                    <% true -> %>
+                      <span class="font-mono text-[0.65rem] text-black/20">—</span>
                   <% end %>
                 <% else %>
                   <% folder_stats = Map.get(@ingestion_map, entry.name) %>
                   <%= cond do %>
                     <% folder_stats && folder_stats.file_count > 0 && folder_stats.ingested_count == folder_stats.file_count -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 w-fit whitespace-nowrap">
-                        <svg
-                          class="w-3 h-3 shrink-0"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          viewBox="0 0 24 24"
-                        >
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                        all ingested
+                      <span class="font-mono text-[0.78rem] text-emerald-600">
+                        {folder_stats.file_count}/{folder_stats.file_count}
                       </span>
                     <% folder_stats && folder_stats.ingested_count > 0 -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap">
-                        {folder_stats.ingested_count}/{folder_stats.file_count} ingested
+                      <span class="font-mono text-[0.78rem] text-amber-600">
+                        {folder_stats.ingested_count}/{folder_stats.file_count}
                       </span>
                     <% true -> %>
                       <span class="font-mono text-[0.65rem] text-black/20">—</span>
                   <% end %>
                 <% end %>
               </td>
-              <td class="hidden xl:table-cell font-mono text-[0.78rem] text-black/40 px-4 py-3 text-right whitespace-nowrap">
+              <%!-- Access column: shared / public badges --%>
+              <td class="px-2 py-2 xl:px-4 xl:py-3 w-28">
+                <%= if entry.type == :file do %>
+                  <% status =
+                    Map.get(@ingestion_map, entry.name, %{permissions_count: 0, is_public: false}) %>
+                  <div class="flex items-center gap-1 flex-wrap">
+                    <span
+                      :if={status.permissions_count > 0}
+                      class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default whitespace-nowrap"
+                      title={"Shared with #{status.permissions_count} person(s)/team(s)"}
+                    >
+                      <svg
+                        class="w-3 h-3 shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                        />
+                      </svg>
+                      shared
+                    </span>
+                    <span
+                      :if={Map.get(status, :is_public, false)}
+                      class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-violet-100 text-violet-600 cursor-default whitespace-nowrap"
+                      title="Public — accessible to all authenticated users"
+                    >
+                      <svg
+                        class="w-3 h-3 shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle cx="12" cy="12" r="10" /><path
+                          stroke-linecap="round"
+                          d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                        />
+                      </svg>
+                      public
+                    </span>
+                  </div>
+                <% else %>
+                  <% folder_stats = Map.get(@ingestion_map, entry.name) %>
+                  <span
+                    :if={folder_stats && Map.get(folder_stats, :is_public, false)}
+                    class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-violet-100 text-violet-600 cursor-default whitespace-nowrap"
+                    title="Public — all files in this folder are accessible to all authenticated users"
+                  >
+                    <svg
+                      class="w-3 h-3 shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle cx="12" cy="12" r="10" /><path
+                        stroke-linecap="round"
+                        d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                      />
+                    </svg>
+                    public
+                  </span>
+                <% end %>
+              </td>
+              <td class="hidden xl:table-cell font-mono text-[0.78rem] text-black/40 px-2 py-2 xl:px-4 xl:py-3 text-right whitespace-nowrap">
                 {format_datetime(entry.modified_at)}
               </td>
             </tr>
@@ -737,8 +739,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               class="border-b border-black/[0.04] last:border-0 bg-[#03b6d4]/[0.018]"
             >
               <td></td>
-              <td class="px-4 py-1.5" colspan="4">
-                <div class="flex items-center gap-2 pl-6 ml-4 border-l border-dashed border-black/10">
+              <td class="px-4 py-1.5 overflow-hidden max-w-0" colspan="4">
+                <button
+                  type="button"
+                  phx-click="open_preview"
+                  phx-value-path={
+                    Path.join([
+                      @current_volume,
+                      @current_dir,
+                      Map.get(entry, :related_md, %{name: ""}).name
+                    ])
+                  }
+                  class="flex items-center gap-2 pl-6 ml-4 border-l border-dashed border-black/10 w-full text-left cursor-pointer group/sidecar"
+                  title="Preview converted markdown"
+                >
                   <svg
                     class="w-3 h-3 shrink-0 text-black/20"
                     fill="none"
@@ -752,41 +766,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     name={Map.get(entry, :related_md, %{name: ""}).name}
                     class="w-3.5 h-3.5 text-[#03b6d4]"
                   />
-                  <span class="font-mono text-[0.78rem] text-black/40">
+                  <span class="font-mono text-[0.78rem] text-black/40 group-hover/sidecar:text-[#03b6d4] group-hover/sidecar:underline transition-colors truncate min-w-0">
                     {Map.get(entry, :related_md, %{name: ""}).name}
                   </span>
-                  <span class="font-mono text-[0.65rem] text-black/25">
+                  <span class="font-mono text-[0.65rem] text-black/25 shrink-0 whitespace-nowrap">
                     {format_size(Map.get(entry, :related_md, %{}).size)}
                   </span>
-                  <button
-                    type="button"
-                    phx-click="open_preview"
-                    phx-value-path={
-                      Path.join([
-                        @current_volume,
-                        @current_dir,
-                        Map.get(entry, :related_md, %{name: ""}).name
-                      ])
-                    }
-                    class="ml-auto font-mono text-[0.65rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors flex items-center gap-1 pr-2"
-                    title="Preview converted markdown"
-                  >
-                    <svg
-                      class="w-3 h-3"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                      />
-                    </svg>
-                    preview md
-                  </button>
-                </div>
+                </button>
               </td>
             </tr>
           <% end %>
@@ -952,6 +938,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </button>
           </div>
           <%= if entry.type == :directory do %>
+            <% folder_stats = Map.get(@ingestion_map, entry.name) %>
             <button
               phx-click="navigate"
               phx-value-path={Path.join(@current_dir, entry.name)}
@@ -963,9 +950,31 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               <span class="font-mono text-[0.75rem] text-[#03b6d4] text-center leading-tight px-2 truncate max-w-full">
                 {entry.name}
               </span>
+              <span class="font-mono text-[0.6rem] text-black/30 mt-0.5">
+                {if folder_stats && folder_stats.total_size > 0,
+                  do: format_size(folder_stats.total_size),
+                  else: "—"}
+              </span>
+              <span
+                :if={folder_stats && folder_stats.file_count > 0}
+                class={[
+                  "font-mono text-[0.55rem] px-1.5 py-0.5 rounded mt-1",
+                  if(folder_stats.ingested_count == folder_stats.file_count,
+                    do: "bg-emerald-100 text-emerald-700",
+                    else: "bg-amber-100 text-amber-600"
+                  )
+                ]}
+              >
+                {folder_stats.ingested_count}/{folder_stats.file_count}
+              </span>
             </button>
           <% else %>
-            <div class="w-full pt-8 pb-3 flex flex-col items-center">
+            <button
+              type="button"
+              phx-click="open_preview"
+              phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
+              class="w-full pt-8 pb-3 flex flex-col items-center cursor-pointer"
+            >
               <.file_icon name={entry.name} class={"w-10 h-10 mb-2 #{file_icon_color(entry.name)}"} />
               <span
                 class="font-mono text-[0.75rem] text-black text-center leading-tight px-2 truncate max-w-full"
@@ -1000,26 +1009,42 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     stale
                   </span>
                 <% status.ingested_at != nil -> %>
-                  <div class="flex flex-col items-center gap-0.5 mt-1">
+                  <div class="flex flex-row flex-wrap items-center justify-center gap-1 mt-1">
                     <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
                       ingested
                     </span>
                     <span
                       :if={status.permissions_count > 0}
-                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default"
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4]"
                       title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                     >
                       shared
                     </span>
+                    <span
+                      :if={Map.get(status, :is_public, false)}
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600"
+                      title="Public"
+                    >
+                      public
+                    </span>
                   </div>
                 <% true -> %>
-                  <span
-                    :if={status.permissions_count > 0}
-                    class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default mt-1"
-                    title={"Shared with #{status.permissions_count} person(s)/team(s)"}
-                  >
-                    shared
-                  </span>
+                  <div class="flex flex-row flex-wrap items-center justify-center gap-1 mt-1">
+                    <span
+                      :if={status.permissions_count > 0}
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4]"
+                      title={"Shared with #{status.permissions_count} person(s)/team(s)"}
+                    >
+                      shared
+                    </span>
+                    <span
+                      :if={Map.get(status, :is_public, false)}
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600"
+                      title="Public"
+                    >
+                      public
+                    </span>
+                  </div>
               <% end %>
               <button
                 :if={Map.get(entry, :related_md)}
@@ -1032,7 +1057,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     Map.get(entry, :related_md, %{name: ""}).name
                   ])
                 }
-                class="mt-2 flex items-center gap-1 font-mono text-[0.6rem] text-[#03b6d4]/50 hover:text-[#03b6d4] transition-colors border-t border-dashed border-black/[0.06] pt-2 w-full justify-center"
+                class="mt-2 flex items-center gap-1 font-mono text-[0.6rem] text-[#03b6d4]/50 hover:text-[#03b6d4] hover:underline transition-colors border-t border-dashed border-black/[0.06] pt-2 w-full justify-center cursor-pointer"
                 title="Preview converted markdown"
               >
                 <.file_icon
@@ -1040,7 +1065,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   class="w-3 h-3"
                 /> md preview
               </button>
-            </div>
+            </button>
           <% end %>
         </div>
       </div>
@@ -1154,20 +1179,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         <p class="font-mono text-[0.68rem] text-black/30">{length(@jobs)}</p>
       </div>
 
-      <div class="flex gap-1 mb-3">
+      <div class="flex gap-1 mb-3 flex-wrap">
         <button
-          :for={status <- ~w(all pending processing completed completed_with_errors failed)}
+          :for={
+            {status, label} <- [
+              {"all", "all"},
+              {"completed", "completed"},
+              {"failed", "failed"},
+              {"others", "others"}
+            ]
+          }
           phx-click="filter_status"
           phx-value-status={status}
           class={[
-            "font-mono text-[0.68rem] px-2 py-1 rounded-lg transition-colors",
+            "font-mono text-[0.68rem] px-2 py-1 rounded-lg transition-colors whitespace-nowrap cursor-pointer",
             if(@status_filter == status,
               do: "bg-[#03b6d4] text-white",
               else: "bg-black/5 text-black/40 hover:bg-black/10"
             )
           ]}
         >
-          {status}
+          {label}
         </button>
       </div>
 
@@ -1725,6 +1757,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :modal_name, :string, required: true
   attr :modal_error, :string, default: nil
   attr :share_modal_is_folder, :boolean, default: false
+  attr :share_modal_is_public, :boolean, default: false
+  attr :share_modal_original_is_public, :boolean, default: false
   attr :share_modal_permissions, :list, required: true
   attr :share_modal_targets_options, :list, required: true
   attr :share_modal_pending, :list, required: true
@@ -1765,6 +1799,51 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
         <%!-- Scrollable: existing permissions + pending list --%>
         <div class="px-6 py-5 space-y-4 overflow-y-auto max-h-[40vh]">
+          <%!-- Public access toggle --%>
+          <div
+            class="flex items-center justify-between gap-3 px-3 py-3 rounded-xl border border-black/10 bg-[#fafafa]"
+            data-testid="public-toggle"
+          >
+            <div class="flex items-center gap-2.5 min-w-0">
+              <svg
+                class="w-4 h-4 text-black/40 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path
+                  stroke-linecap="round"
+                  d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                />
+              </svg>
+              <div>
+                <p class="font-mono text-[0.82rem] text-black/80">Public access</p>
+                <p class="font-mono text-[0.68rem] text-black/40">
+                  <%= if @share_modal_is_folder do %>
+                    All files in this folder are visible to everyone
+                  <% else %>
+                    Anyone can view this document
+                  <% end %>
+                </p>
+              </div>
+            </div>
+            <button
+              phx-click="toggle_public"
+              class={[
+                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
+                if(@share_modal_is_public, do: "bg-[#03b6d4]", else: "bg-black/20")
+              ]}
+              role="switch"
+              aria-checked={to_string(@share_modal_is_public)}
+            >
+              <span class={[
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
+                if(@share_modal_is_public, do: "translate-x-4", else: "translate-x-0")
+              ]} />
+            </button>
+          </div>
           <%!-- Existing permissions --%>
           <div :if={@share_modal_permissions != []}>
             <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
@@ -1893,7 +1972,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           <button
             phx-click="confirm_share"
             class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all disabled:opacity-40"
-            disabled={@share_modal_pending == []}
+            disabled={
+              @share_modal_pending == [] and @share_modal_is_public == @share_modal_original_is_public
+            }
           >
             Save Permissions
           </button>

@@ -39,6 +39,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Permission sharing
        share_modal_document_id: nil,
        share_modal_is_folder: false,
+       share_modal_is_public: false,
+       share_modal_original_is_public: false,
        share_modal_folder_path: nil,
        share_modal_permissions: [],
        share_modal_all_targets: build_share_targets_options(),
@@ -83,6 +85,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     permissions =
       ingestion_call(:list_folder_permissions, [socket.assigns.current_volume, path])
 
+    is_public = Ingestion.folder_public?(socket.assigns.current_volume, path)
+
     {:noreply,
      assign(socket,
        modal: :share,
@@ -90,6 +94,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        modal_name: Path.basename(path),
        modal_error: nil,
        share_modal_is_folder: true,
+       share_modal_is_public: is_public,
+       share_modal_original_is_public: is_public,
        share_modal_folder_path: path,
        share_modal_document_id: nil,
        share_modal_permissions: permissions,
@@ -112,12 +118,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        modal_name: Path.basename(path),
        modal_error: nil,
        share_modal_is_folder: false,
+       share_modal_is_public: "public" in doc.tags,
+       share_modal_original_is_public: "public" in doc.tags,
        share_modal_folder_path: nil,
        share_modal_document_id: doc.id,
        share_modal_permissions: permissions,
        share_modal_pending: [],
        share_modal_targets_options: filtered_targets(all_targets, permissions, [])
      )}
+  end
+
+  def handle_event("toggle_public", _params, socket) do
+    {:noreply, assign(socket, share_modal_is_public: not socket.assigns.share_modal_is_public)}
   end
 
   def handle_event("add_permission_target", %{"value" => value}, socket) do
@@ -219,11 +231,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("confirm_share", _params, socket) do
     pending = socket.assigns.share_modal_pending
     name = socket.assigns.modal_name
+    is_public = socket.assigns.share_modal_is_public
+    original_is_public = socket.assigns.share_modal_original_is_public
+    volume = socket.assigns.current_volume
 
     if socket.assigns.share_modal_is_folder do
       docs =
         ingestion_call(:list_documents_under_folder, [
-          socket.assigns.current_volume,
+          volume,
           socket.assigns.share_modal_folder_path
         ])
 
@@ -231,6 +246,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
           %{type: type, id: id, access_rights: rights} <- pending do
         ingestion_call(:set_document_permission, [doc.id, type, id, rights])
       end
+
+      maybe_update_folder_public(volume, socket.assigns.share_modal_folder_path, is_public, original_is_public)
 
       {:noreply,
        socket
@@ -243,6 +260,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       for %{type: type, id: id, access_rights: rights} <- pending do
         ingestion_call(:set_document_permission, [doc_id, type, id, rights])
       end
+
+      maybe_update_document_public(doc_id, is_public, original_is_public)
 
       permissions = ingestion_call(:list_document_permissions, [doc_id])
 
@@ -727,6 +746,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     opts =
       case socket.assigns.status_filter do
         "all" -> []
+        "others" -> [status: ["pending", "processing", "completed_with_errors"]]
         status -> [status: status]
       end
 
@@ -757,7 +777,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp merge_job_update(socket, _), do: socket
 
+  defp maybe_update_folder_public(_volume, _path, same, same), do: :ok
+
+  defp maybe_update_folder_public(volume, path, true, _),
+    do: Ingestion.set_folder_public(volume, path)
+
+  defp maybe_update_folder_public(volume, path, false, _),
+    do: Ingestion.unset_folder_public(volume, path)
+
+  defp maybe_update_document_public(_doc_id, same, same), do: :ok
+
+  defp maybe_update_document_public(doc_id, true, _),
+    do: Ingestion.add_document_tag(doc_id, "public")
+
+  defp maybe_update_document_public(doc_id, false, _),
+    do: Ingestion.remove_document_tag(doc_id, "public")
+
   defp status_match?("all", _job_status), do: true
+
+  defp status_match?("others", job_status),
+    do: job_status in ["pending", "processing", "completed_with_errors"]
+
   defp status_match?(status_filter, job_status), do: status_filter == job_status
 
   defp handle_filtered_job(socket, jobs, existing_index) when is_integer(existing_index) do

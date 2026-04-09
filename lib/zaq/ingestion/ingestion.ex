@@ -9,6 +9,7 @@ defmodule Zaq.Ingestion do
     DirectorySnapshot,
     Document,
     FileExplorer,
+    FolderSetting,
     IngestJob,
     IngestWorker,
     JobLifecycle,
@@ -244,14 +245,104 @@ defmodule Zaq.Ingestion do
   end
 
   def list_permitted_document_ids(person_id, team_ids, doc_ids) do
-    from(p in Permission,
-      where:
-        p.document_id in ^doc_ids and
-          (p.person_id == ^person_id or p.team_id in ^team_ids),
-      select: p.document_id,
-      distinct: true
-    )
-    |> Repo.all()
+    via_permission =
+      from(p in Permission,
+        where:
+          p.document_id in ^doc_ids and
+            (p.person_id == ^person_id or p.team_id in ^team_ids),
+        select: p.document_id,
+        distinct: true
+      )
+      |> Repo.all()
+
+    via_public =
+      from(d in Document,
+        where: d.id in ^doc_ids and fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
+        select: d.id
+      )
+      |> Repo.all()
+
+    Enum.uniq(via_permission ++ via_public)
+  end
+
+  # --- Document tag management ---
+
+  @doc "Adds a tag to a document. No-op if the tag is already present."
+  def add_document_tag(doc_id, tag) do
+    doc = Repo.get!(Document, doc_id)
+
+    if tag in doc.tags do
+      {:ok, doc}
+    else
+      doc
+      |> Ecto.Changeset.change(tags: [tag | doc.tags])
+      |> Repo.update()
+    end
+  end
+
+  @doc "Removes a tag from a document. No-op if the tag is not present."
+  def remove_document_tag(doc_id, tag) do
+    doc = Repo.get!(Document, doc_id)
+
+    doc
+    |> Ecto.Changeset.change(tags: List.delete(doc.tags, tag))
+    |> Repo.update()
+  end
+
+  # --- Folder public flag ---
+
+  @doc """
+  Marks a folder public: persists the flag in `folder_settings` and adds the
+  `"public"` tag to every document whose source starts with `volume/folder_path/`.
+  """
+  def set_folder_public(volume_name, folder_path) do
+    {:ok, _} =
+      FolderSetting.upsert(%{
+        volume_name: volume_name,
+        folder_path: folder_path,
+        tags: ["public"]
+      })
+
+    prefix = "#{volume_name}/#{folder_path}"
+
+    docs =
+      from(d in Document, where: like(d.source, ^"#{prefix}/%"))
+      |> Repo.all()
+
+    for doc <- docs, "public" not in doc.tags do
+      Repo.update!(Ecto.Changeset.change(doc, tags: ["public" | doc.tags]))
+    end
+
+    :ok
+  end
+
+  @doc """
+  Removes the public flag from a folder and strips the `"public"` tag from all
+  documents under it.
+  """
+  def unset_folder_public(volume_name, folder_path) do
+    {:ok, _} =
+      FolderSetting.upsert(%{volume_name: volume_name, folder_path: folder_path, tags: []})
+
+    prefix = "#{volume_name}/#{folder_path}"
+
+    docs =
+      from(d in Document, where: like(d.source, ^"#{prefix}/%"))
+      |> Repo.all()
+
+    for doc <- docs, "public" in doc.tags do
+      Repo.update!(Ecto.Changeset.change(doc, tags: List.delete(doc.tags, "public")))
+    end
+
+    :ok
+  end
+
+  @doc "Returns true if the folder has the `\"public\"` tag set."
+  def folder_public?(volume_name, folder_path) do
+    case FolderSetting.get(volume_name, folder_path) do
+      nil -> false
+      setting -> "public" in setting.tags
+    end
   end
 
   def get_document_by_source!(source) do
@@ -342,5 +433,9 @@ defmodule Zaq.Ingestion do
   end
 
   defp maybe_filter_status(query, nil), do: query
+
+  defp maybe_filter_status(query, statuses) when is_list(statuses),
+    do: where(query, [j], j.status in ^statuses)
+
   defp maybe_filter_status(query, status), do: where(query, [j], j.status == ^status)
 end

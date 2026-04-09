@@ -1372,4 +1372,89 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert IngestionLive.file_url("file.txt") == "/bo/files/file.txt"
     end
   end
+
+  # ────────────────────────────────────────────────────────────────
+  # Public access toggle
+  # ────────────────────────────────────────────────────────────────
+
+  describe "share modal — public toggle for a document" do
+    test "share modal shows Public access toggle", %{conn: conn} do
+      {:ok, _doc} = Document.create(%{source: "alpha.md", content: "content"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+
+      assert has_element?(view, "[data-testid='public-toggle']")
+    end
+
+    test "toggling public and confirming saves the tag to the document", %{conn: conn} do
+      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "confirm_share", %{})
+
+      assert "public" in Repo.get!(Document, doc.id).tags
+    end
+
+    test "toggling public twice and confirming leaves the tag unchanged", %{conn: conn} do
+      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "confirm_share", %{})
+
+      refute "public" in Repo.get!(Document, doc.id).tags
+    end
+
+    test "toggle without confirm does not persist", %{conn: conn} do
+      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "close_modal", %{})
+
+      refute "public" in Repo.get!(Document, doc.id).tags
+    end
+  end
+
+  describe "share modal — public toggle for a folder" do
+    test "toggling folder public and confirming saves the flag and tags all docs inside", %{
+      conn: conn
+    } do
+      # Sources are volume-prefixed: "default/docs/readme.md"
+      {:ok, doc} = Document.create(%{source: "default/docs/readme.md", content: "content"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "docs", "type" => "directory"})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "confirm_share", %{})
+
+      assert "public" in Repo.get!(Document, doc.id).tags
+      assert Zaq.Ingestion.folder_public?("default", "docs")
+    end
+
+    test "toggling folder public twice and confirming leaves flag unchanged", %{conn: conn} do
+      {:ok, doc} = Document.create(%{source: "default/docs/readme.md", content: "content"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "docs", "type" => "directory"})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "confirm_share", %{})
+
+      refute "public" in Repo.get!(Document, doc.id).tags
+      refute Zaq.Ingestion.folder_public?("default", "docs")
+    end
+  end
 end

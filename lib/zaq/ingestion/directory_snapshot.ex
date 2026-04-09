@@ -3,7 +3,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
 
   import Ecto.Query
 
-  alias Zaq.Ingestion.{Document, FileExplorer, IngestJob, Sidecar, SourcePath}
+  alias Zaq.Ingestion.{Document, FileExplorer, FolderSetting, IngestJob, Sidecar, SourcePath}
   alias Zaq.Repo
 
   def build(entries, current_volume, current_dir, _current_user) do
@@ -172,7 +172,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
   end
 
   defp resolve_entry_status(_entry, nil, _permissions_count_map) do
-    %{ingested_at: nil, stale?: false, permissions_count: 0, can_share?: true}
+    %{ingested_at: nil, stale?: false, permissions_count: 0, is_public: false, can_share?: true}
   end
 
   defp resolve_entry_status(entry, doc, permissions_count_map) do
@@ -184,6 +184,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
       ingested_at: ingested_at,
       stale?: stale?,
       permissions_count: permissions_count,
+      is_public: "public" in doc.tags,
       can_share?: true
     }
   end
@@ -196,11 +197,18 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
       doc_stats = fetch_folder_doc_stats(prefixes)
       total_size = FileExplorer.folder_size(current_volume, folder_path)
 
+      is_public =
+        case FolderSetting.get(current_volume, folder_path) do
+          nil -> false
+          setting -> "public" in setting.tags
+        end
+
       stats = %{
         type: :directory,
         total_size: total_size,
         file_count: doc_stats.total,
-        ingested_count: doc_stats.ingested
+        ingested_count: doc_stats.ingested,
+        is_public: is_public
       }
 
       {entry.name, stats}

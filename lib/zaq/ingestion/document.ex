@@ -21,6 +21,7 @@ defmodule Zaq.Ingestion.Document do
     field :content, :string
     field :content_type, :string, default: "markdown"
     field :metadata, :map, default: %{}
+    field :tags, {:array, :string}, default: []
 
     has_many :chunks, Chunk
     has_many :permissions, Permission
@@ -29,7 +30,7 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @required_fields ~w(source)a
-  @optional_fields ~w(title content content_type metadata)a
+  @optional_fields ~w(title content content_type metadata tags)a
 
   def changeset(document, attrs) do
     document
@@ -60,7 +61,8 @@ defmodule Zaq.Ingestion.Document do
     |> changeset(attrs)
     |> Repo.insert(
       on_conflict: {:replace, [:content, :title, :content_type, :metadata, :updated_at]},
-      conflict_target: :source
+      conflict_target: :source,
+      returning: true
     )
   end
 

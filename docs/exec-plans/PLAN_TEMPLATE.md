@@ -15,6 +15,10 @@ Move it to `docs/exec-plans/completed/` when done.
 
 ---
 
+## RULES
+
+Use TDD - write test first all red then they turn green
+
 ## Goal
 
 One paragraph. What problem does this solve and what does done look like?

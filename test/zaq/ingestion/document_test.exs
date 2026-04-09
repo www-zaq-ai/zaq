@@ -131,4 +131,33 @@ defmodule Zaq.Ingestion.DocumentTest do
       assert Document.get(doc.id) == nil
     end
   end
+
+  describe "tags field" do
+    test "defaults to empty list" do
+      {:ok, doc} = Document.create(@valid_attrs)
+      assert doc.tags == []
+    end
+
+    test "can be set on create" do
+      {:ok, doc} = Document.create(Map.put(@valid_attrs, :tags, ["public"]))
+      assert doc.tags == ["public"]
+    end
+
+    test "changeset accepts tags" do
+      changeset = Document.changeset(%Document{}, Map.put(@valid_attrs, :tags, ["public"]))
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :tags) == ["public"]
+    end
+
+    test "upsert does not overwrite tags when conflict on source" do
+      {:ok, _original} = Document.create(Map.put(@valid_attrs, :tags, ["public"]))
+      # Re-ingest with no tags specified — tags column is NOT in the replace list
+      # so existing tags are preserved in the DB, but the returned struct reflects
+      # only the inserted values (Postgres returning on on_conflict).
+      # The important guarantee is that the DB row still has the tag.
+      {:ok, _updated} = Document.upsert(@valid_attrs)
+      persisted = Document.get_by_source(@valid_attrs.source)
+      assert persisted.tags == ["public"]
+    end
+  end
 end
