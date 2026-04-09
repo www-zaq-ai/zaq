@@ -46,7 +46,7 @@ defmodule Zaq.Accounts.PeopleTest do
     end
 
     test "preloads channels with each person" do
-      person = create_person()
+      person = create_person(%{email: nil})
       add_channel(person.id)
 
       [loaded] = People.list_people()
@@ -75,6 +75,20 @@ defmodule Zaq.Accounts.PeopleTest do
     test "fails with invalid status" do
       assert {:error, changeset} = People.create_person(person_attrs(%{status: "banned"}))
       assert errors_on(changeset).status != []
+    end
+
+    test "auto-links email channel when email is present" do
+      {:ok, person} = People.create_person(person_attrs())
+      channels = People.list_person_channels(person.id)
+      assert length(channels) == 1
+      assert hd(channels).platform == "email"
+      assert hd(channels).channel_identifier == "jane@example.com"
+      assert hd(channels).weight == 0
+    end
+
+    test "does not auto-link email channel when email is nil" do
+      {:ok, person} = People.create_person(person_attrs(%{email: nil}))
+      assert People.list_person_channels(person.id) == []
     end
   end
 
@@ -122,6 +136,25 @@ defmodule Zaq.Accounts.PeopleTest do
       assert {:error, changeset} = People.update_person(person, %{status: "unknown"})
       assert errors_on(changeset).status != []
     end
+
+    test "auto-links email channel when email is set for the first time" do
+      person = create_person(%{email: nil})
+      assert People.list_person_channels(person.id) == []
+
+      {:ok, updated} = People.update_person(person, %{email: "new@example.com"})
+      channels = People.list_person_channels(updated.id)
+      assert length(channels) == 1
+      assert hd(channels).platform == "email"
+      assert hd(channels).channel_identifier == "new@example.com"
+    end
+
+    test "does not duplicate email channel when email is unchanged" do
+      person = create_person()
+      assert length(People.list_person_channels(person.id)) == 1
+
+      {:ok, _} = People.update_person(person, %{full_name: "Jane Doe"})
+      assert length(People.list_person_channels(person.id)) == 1
+    end
   end
 
   describe "delete_person/1" do
@@ -136,13 +169,13 @@ defmodule Zaq.Accounts.PeopleTest do
 
   describe "add_channel/1" do
     test "first channel gets weight 0" do
-      person = create_person()
+      person = create_person(%{email: nil})
       {:ok, channel} = People.add_channel(channel_attrs(person.id))
       assert channel.weight == 0
     end
 
     test "subsequent channels auto-increment weight" do
-      person = create_person()
+      person = create_person(%{email: nil})
       add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "@slack"})
 
       {:ok, second} =
@@ -188,7 +221,7 @@ defmodule Zaq.Accounts.PeopleTest do
 
   describe "get_preferred_channel/1" do
     test "returns weight-0 channel" do
-      person = create_person()
+      person = create_person(%{email: nil})
       first = add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "@slack"})
       add_channel(person.id, %{"platform" => "email", "channel_identifier" => "j@x.com"})
 
@@ -198,7 +231,7 @@ defmodule Zaq.Accounts.PeopleTest do
     end
 
     test "returns nil when no channels" do
-      person = create_person()
+      person = create_person(%{email: nil})
       assert People.get_preferred_channel(person.id) == nil
     end
   end
@@ -214,7 +247,7 @@ defmodule Zaq.Accounts.PeopleTest do
 
   describe "delete_channel/1" do
     test "removes the channel" do
-      person = create_person()
+      person = create_person(%{email: nil})
       channel = add_channel(person.id)
       assert {:ok, _} = People.delete_channel(channel)
       assert People.list_person_channels(person.id) == []
@@ -223,7 +256,7 @@ defmodule Zaq.Accounts.PeopleTest do
 
   describe "swap_channel_weights/2" do
     test "exchanges weights atomically" do
-      person = create_person()
+      person = create_person(%{email: nil})
       a = add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "@slack"})
       b = add_channel(person.id, %{"platform" => "email", "channel_identifier" => "j@x.com"})
 
@@ -239,7 +272,7 @@ defmodule Zaq.Accounts.PeopleTest do
     end
 
     test "weight 0 stays preferred after swap (it moves to the other channel)" do
-      person = create_person()
+      person = create_person(%{email: nil})
       a = add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "@slack"})
       b = add_channel(person.id, %{"platform" => "email", "channel_identifier" => "j@x.com"})
 
@@ -693,7 +726,7 @@ defmodule Zaq.Accounts.PeopleTest do
     end
 
     test "returns person with channels when found" do
-      person = create_person()
+      person = create_person(%{email: nil})
       add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "@gc_test"})
       loaded = People.get_person_with_channels(person.id)
       assert loaded.id == person.id

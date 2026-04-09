@@ -691,7 +691,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   end
 
   test "move_channel_up and move_channel_down reorder channels", %{conn: conn} do
-    person = person_fixture()
+    person = person_fixture(%{"email" => nil})
     c1 = channel_fixture(person, %{"channel_identifier" => "@ch-first"})
     c2 = channel_fixture(person, %{"channel_identifier" => "@ch-second"})
 
@@ -711,7 +711,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   end
 
   test "move_channel_up/down no-op branches keep order", %{conn: conn} do
-    person = person_fixture()
+    person = person_fixture(%{"email" => nil})
     c1 = channel_fixture(person, %{"channel_identifier" => "@noop-first"})
     c2 = channel_fixture(person, %{"channel_identifier" => "@noop-second"})
 

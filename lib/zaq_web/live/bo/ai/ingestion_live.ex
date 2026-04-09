@@ -247,7 +247,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         ingestion_call(:set_document_permission, [doc.id, type, id, rights])
       end
 
-      maybe_update_folder_public(volume, socket.assigns.share_modal_folder_path, is_public, original_is_public)
+      maybe_update_folder_public(
+        volume,
+        socket.assigns.share_modal_folder_path,
+        is_public,
+        original_is_public
+      )
 
       {:noreply,
        socket
