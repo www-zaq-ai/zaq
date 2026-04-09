@@ -84,7 +84,7 @@ defmodule Zaq.Engine.Conversations do
   @doc """
   Lists conversations with optional filters.
 
-  Supported opts: `user_id`, `channel_user_id`, `status`, `limit`.
+  Supported opts: `user_id`, `channel_user_id`, `status`, `limit`, `offset`.
   """
   def list_conversations(opts \\ []) do
     query = from(c in Conversation, order_by: [desc: c.updated_at])
@@ -112,6 +112,9 @@ defmodule Zaq.Engine.Conversations do
 
         {:limit, n}, q ->
           limit(q, ^n)
+
+        {:offset, n}, q ->
+          offset(q, ^n)
 
         _, q ->
           q
@@ -224,54 +227,60 @@ defmodule Zaq.Engine.Conversations do
   #   2. metadata["author_id"] → PersonChannel.channel_identifier (email:imap)
   defp backfill_missing_person_ids(conversations) do
     unresolved = Enum.filter(conversations, &is_nil(&1.person_id))
+    if unresolved == [], do: conversations, else: do_backfill(conversations, unresolved)
+  end
 
-    if unresolved == [] do
-      conversations
-    else
-      by_channel_user_id =
-        unresolved
-        |> Enum.map(& &1.channel_user_id)
-        |> Enum.reject(&is_nil/1)
+  defp do_backfill(conversations, unresolved) do
+    by_channel_user_id =
+      unresolved |> Enum.map(& &1.channel_user_id) |> Enum.reject(&is_nil/1)
 
-      by_author_id =
-        unresolved
-        |> Enum.map(&Map.get(&1.metadata, "author_id"))
-        |> Enum.reject(&is_nil/1)
+    by_author_id =
+      unresolved |> Enum.map(&Map.get(&1.metadata, "author_id")) |> Enum.reject(&is_nil/1)
 
-      lookup_ids = Enum.uniq(by_channel_user_id ++ by_author_id)
+    lookup_ids = Enum.uniq(by_channel_user_id ++ by_author_id)
 
-      channel_map =
-        if lookup_ids == [] do
-          %{}
-        else
-          Repo.all(
-            from c in PersonChannel,
-              where: c.channel_identifier in ^lookup_ids,
-              select: {c.channel_identifier, c.person_id}
-          )
-          |> Map.new()
-        end
+    channel_map =
+      if lookup_ids == [] do
+        %{}
+      else
+        Repo.all(
+          from c in PersonChannel,
+            where: c.channel_identifier in ^lookup_ids,
+            select: {c.channel_identifier, c.person_id}
+        )
+        |> Map.new()
+      end
 
-      Enum.map(conversations, fn conv ->
-        resolved =
-          Map.get(channel_map, conv.channel_user_id) ||
-            Map.get(channel_map, Map.get(conv.metadata, "author_id"))
+    # Build a map of id → resolved person_id for conversations that need updating
+    updates =
+      Map.new(
+        for conv <- conversations,
+            is_nil(conv.person_id),
+            resolved =
+              Map.get(channel_map, conv.channel_user_id) ||
+                Map.get(channel_map, Map.get(conv.metadata, "author_id")),
+            not is_nil(resolved),
+            do: {conv.id, resolved}
+      )
 
-        maybe_backfill_person_id(conv, resolved)
+    # Batch all DB writes in a single transaction instead of one query per row
+    if map_size(updates) > 0, do: batch_update_person_ids(updates)
+
+    Enum.map(conversations, fn conv ->
+      case Map.get(updates, conv.id) do
+        nil -> conv
+        person_id -> %{conv | person_id: person_id}
+      end
+    end)
+  end
+
+  defp batch_update_person_ids(updates) do
+    Repo.transaction(fn ->
+      Enum.each(updates, fn {id, person_id} ->
+        Repo.update_all(from(c in Conversation, where: c.id == ^id), set: [person_id: person_id])
       end)
-    end
+    end)
   end
-
-  defp maybe_backfill_person_id(%{person_id: nil} = conv, resolved) when not is_nil(resolved) do
-    Repo.update_all(
-      from(c in Conversation, where: c.id == ^conv.id),
-      set: [person_id: resolved]
-    )
-
-    %{conv | person_id: resolved}
-  end
-
-  defp maybe_backfill_person_id(conv, _resolved), do: conv
 
   defp normalize_channel_type(provider) when is_atom(provider),
     do: normalize_channel_type(to_string(provider))

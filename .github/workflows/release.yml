@@ -186,6 +186,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "DISCORD_WEBHOOK_URL not set, skipping notification"
+            exit 0
+          fi
+
           BODY=$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq '.body // ""')
           # Trim to Discord embed description limit (4096 chars)
           BODY="${BODY:0:4000}"

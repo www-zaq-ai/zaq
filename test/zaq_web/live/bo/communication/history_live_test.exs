@@ -247,7 +247,81 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
     end
   end
 
+  describe "person resolution" do
+    test "shows person full_name in identity column for super_admin in all-scope", %{conn: _conn} do
+      admin = super_admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(build_conn(), %{user_id: admin.id})
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Resolved Person",
+          "email" => "resolved#{System.unique_integer([:positive])}@example.com"
+        })
+
+      {:ok, _conv} =
+        Conversations.create_conversation(%{
+          channel_type: "bo",
+          channel_user_id: "u_#{System.unique_integer([:positive])}",
+          person_id: person.id,
+          title: "Person Linked Conv"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      html =
+        view
+        |> element("form[phx-change='filter']")
+        |> render_change(%{"scope" => "all", "channel_type" => "all"})
+
+      assert html =~ "Resolved Person"
+    end
+  end
+
   describe "filter event with team_id and person_id" do
+    test "filter with person_id in all-scope returns only conversations for that person", %{
+      conn: conn
+    } do
+      admin = super_admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(conn, %{user_id: admin.id})
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "FilteredPerson",
+          "email" => "filtered#{System.unique_integer([:positive])}@example.com"
+        })
+
+      {:ok, conv} =
+        Conversations.create_conversation(%{
+          channel_type: "bo",
+          channel_user_id: "u_#{System.unique_integer([:positive])}",
+          person_id: person.id,
+          title: "PersonFiltered Conv"
+        })
+
+      {:ok, other_conv} =
+        Conversations.create_conversation(%{
+          channel_type: "bo",
+          channel_user_id: "u_#{System.unique_integer([:positive])}",
+          title: "Unrelated Conv"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      html =
+        view
+        |> element("form[phx-change='filter']")
+        |> render_change(%{
+          "scope" => "all",
+          "channel_type" => "all",
+          "person_id" => to_string(person.id)
+        })
+
+      assert html =~ conv.title
+      refute html =~ other_conv.title
+    end
+
     test "filter with team_id in all-scope returns conversations for that team", %{
       conn: conn
     } do
