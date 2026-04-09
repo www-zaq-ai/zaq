@@ -103,6 +103,7 @@
             placeholder="Search person..."
             empty_label="All people"
             compact={true}
+            on_search="search_people"
             options={[{"All people", "all"} | Enum.map(@people, &{&1.full_name, &1.id})]}
           />
         </div>

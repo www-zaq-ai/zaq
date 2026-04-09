@@ -10,11 +10,12 @@ defmodule ZaqWeb.Components.SearchableSelect do
   attr :empty_label, :string, default: "Select..."
   attr :allow_create, :boolean, default: false
   attr :on_create_event, :string, default: "create_and_assign_team"
+  attr :on_search, :string, default: nil
   attr :compact, :boolean, default: false
 
   def searchable_select(assigns) do
     ~H"""
-    <div id={@id} phx-hook="SearchableSelect" class="relative">
+    <div id={@id} phx-hook="SearchableSelect" data-server-search={@on_search} class="relative">
       <input type="hidden" name={@name} value={@value} data-select-value />
       <button
         type="button"

@@ -35,7 +35,7 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
      |> assign(:filter_team_id, "all")
      |> assign(:filter_person_id, "all")
      |> assign(:teams, People.list_teams())
-     |> assign(:people, People.list_people(limit: 100))}
+     |> assign(:people, [])}
   end
 
   @impl true
@@ -104,6 +104,10 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
      |> assign(:filter_team_id, team_id)
      |> assign(:filter_person_id, person_id)
      |> assign(:selected, MapSet.new())}
+  end
+
+  def handle_event("search_people", %{"query" => query}, socket) do
+    {:noreply, assign(socket, :people, People.search_people(query, [], 20))}
   end
 
   def handle_event("toggle_select", %{"id" => id}, socket) do

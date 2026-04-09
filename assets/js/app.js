@@ -194,7 +194,19 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this._outsideClick = (e) => { if (!root.contains(e.target)) closePanel() }
         document.addEventListener('click', this._outsideClick, true)
 
-        search().addEventListener('input', (e) => { e.stopPropagation(); filter(search().value) })
+        search().addEventListener('input', (e) => {
+          e.stopPropagation()
+          this._search = search().value
+          const serverSearch = root.dataset.serverSearch
+          if (serverSearch) {
+            clearTimeout(this._searchTimer)
+            this._searchTimer = setTimeout(() => {
+              this.pushEvent(serverSearch, { query: this._search })
+            }, 300)
+          } else {
+            filter(this._search)
+          }
+        })
         search().addEventListener('change', (e) => { e.stopPropagation() })
 
         list().addEventListener('click', (e) => {
@@ -249,6 +261,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
       },
       destroyed() {
         if (this._outsideClick) document.removeEventListener('click', this._outsideClick, true)
+        clearTimeout(this._searchTimer)
       }
     },
     AutoExpand: {
