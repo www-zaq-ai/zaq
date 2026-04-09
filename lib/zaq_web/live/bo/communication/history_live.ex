@@ -139,23 +139,47 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
   def handle_event("bulk_archive", _params, socket) do
     ids = MapSet.to_list(socket.assigns.selected)
 
-    Enum.each(
-      ids,
-      &NodeRouter.call(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [&1])
-    )
+    {successful_ids, failed_count} =
+      Enum.reduce(ids, {[], 0}, fn id, {ok_ids, fail_count} ->
+        case NodeRouter.call(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [id]) do
+          :ok -> {[id | ok_ids], fail_count}
+          _ -> {ok_ids, fail_count + 1}
+        end
+      end)
 
-    {:noreply, remove_conversations(socket, ids)}
+    socket =
+      socket
+      |> remove_conversations(successful_ids)
+      |> then(fn s ->
+        if failed_count > 0,
+          do: put_flash(s, :error, "Failed to archive #{failed_count} conversation(s)"),
+          else: s
+      end)
+
+    {:noreply, socket}
   end
 
   def handle_event("bulk_delete", _params, socket) do
     ids = MapSet.to_list(socket.assigns.selected)
 
-    Enum.each(
-      ids,
-      &NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [&1])
-    )
+    {successful_ids, failed_count} =
+      Enum.reduce(ids, {[], 0}, fn id, {ok_ids, fail_count} ->
+        case NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id]) do
+          :ok -> {[id | ok_ids], fail_count}
+          _ -> {ok_ids, fail_count + 1}
+        end
+      end)
 
-    {:noreply, remove_conversations(socket, ids)}
+    socket =
+      socket
+      |> remove_conversations(successful_ids)
+      |> then(fn s ->
+        if failed_count > 0,
+          do: put_flash(s, :error, "Failed to delete #{failed_count} conversation(s)"),
+          else: s
+      end)
+
+    {:noreply, socket}
   end
 
   # ---------------------------------------------------------------------------
