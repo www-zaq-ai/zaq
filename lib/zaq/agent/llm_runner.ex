@@ -4,9 +4,8 @@ defmodule Zaq.Agent.LLMRunner do
   require Logger
 
   alias LangChain.Chains.LLMChain
-  alias LangChain.ChatModels.ChatAnthropic
-  alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
+  alias Zaq.Agent.LLM
   alias LangChain.Message.ContentPart
   alias LangChain.Utils.ChainResult
 
@@ -202,18 +201,7 @@ defmodule Zaq.Agent.LLMRunner do
 
   defp normalized_text(_), do: :error
 
-  defp build_llm_model(%{provider: "anthropic"} = config) do
-    ChatAnthropic.new!(%{
-      model: config.model,
-      temperature: config.temperature,
-      api_key: config.api_key,
-      endpoint: config.endpoint
-    })
-  end
-
-  defp build_llm_model(config) do
-    ChatOpenAI.new!(config)
-  end
+  defp build_llm_model(config), do: LLM.build_model(config)
 
   defp maybe_add_system_message(chain, prompt) when is_binary(prompt) and prompt != "",
     do: LLMChain.add_message(chain, Message.new_system!(prompt))

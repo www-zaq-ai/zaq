@@ -12,8 +12,6 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   require Logger
 
   alias LangChain.Chains.LLMChain
-  alias LangChain.ChatModels.ChatAnthropic
-  alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
   alias Zaq.Agent.{LLM, LLMRunner}
   alias Zaq.Utils.TextUtils
@@ -92,18 +90,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp build_llm_model(%{provider: "anthropic"} = config) do
-    ChatAnthropic.new!(%{
-      model: config.model,
-      temperature: config.temperature,
-      api_key: config.api_key,
-      endpoint: config.endpoint
-    })
-  end
-
-  defp build_llm_model(config) do
-    ChatOpenAI.new!(config)
-  end
+  defp build_llm_model(config), do: LLM.build_model(config)
 
   defp remove_quotes(text) do
     text

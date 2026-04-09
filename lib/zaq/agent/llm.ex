@@ -94,4 +94,24 @@ defmodule Zaq.Agent.LLM do
 
     Map.merge(base, Map.new(overrides))
   end
+
+  @doc """
+  Builds a LangChain chat model struct from an LLM config map.
+
+  Dispatches to `ChatAnthropic` for `provider: "anthropic"`, and falls
+  back to `ChatOpenAI` (which covers all OpenAI-compatible endpoints) for
+  everything else.
+  """
+  def build_model(%{provider: "anthropic"} = config) do
+    LangChain.ChatModels.ChatAnthropic.new!(%{
+      model: config.model,
+      temperature: config.temperature,
+      api_key: config.api_key,
+      endpoint: config.endpoint
+    })
+  end
+
+  def build_model(config) do
+    LangChain.ChatModels.ChatOpenAI.new!(config)
+  end
 end
