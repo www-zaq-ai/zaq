@@ -170,3 +170,42 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  notify_discord:
+    name: Post release changelog to Discord
+    needs: release
+    if: ${{ needs.release.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord notification
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TAG: ${{ needs.release.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          BODY=$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq '.body // ""')
+          # Trim to Discord embed description limit (4096 chars)
+          BODY="${BODY:0:4000}"
+          RELEASE_URL="https://github.com/${REPO}/releases/tag/${TAG}"
+
+          PAYLOAD=$(jq -n \
+            --arg title "🚀 ZAQ ${TAG} is out!" \
+            --arg desc "${BODY}" \
+            --arg url "${RELEASE_URL}" \
+            '{
+              username: "Release Bot",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: 5814783,
+                footer: { text: "See the full release on GitHub" }
+              }]
+            }')
+
+          curl -fsSL -X POST "${DISCORD_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "${PAYLOAD}"
