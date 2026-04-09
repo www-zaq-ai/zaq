@@ -508,7 +508,7 @@ defmodule Zaq.HooksTest do
   test "documented_events/0 returns a non-empty list of atoms" do
     events = Hooks.documented_events()
     assert is_list(events)
-    assert length(events) > 0
+    assert events != []
     assert Enum.all?(events, &is_atom/1)
   end
 
