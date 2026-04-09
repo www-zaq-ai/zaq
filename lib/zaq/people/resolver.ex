@@ -73,6 +73,8 @@ defmodule Zaq.People.Resolver do
     }
   end
 
+  def normalize("email:imap", attrs), do: normalize("email", attrs)
+
   def normalize(_platform, attrs) do
     %{
       "channel_id" => get(attrs, :channel_id),

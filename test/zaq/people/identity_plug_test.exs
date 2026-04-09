@@ -2,6 +2,7 @@ defmodule Zaq.People.IdentityPlugTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.Person
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.People.IdentityPlug
 
@@ -175,6 +176,29 @@ defmodule Zaq.People.IdentityPlugTest do
       refute is_nil(result.person_id)
       person = People.get_person_with_channels!(result.person_id)
       assert person.full_name == "String Key Name"
+    end
+  end
+
+  # ── IMAP email resolution ────────────────────────────────────────────────
+
+  describe "call/2 email:imap" do
+    test "resolves to existing person by email (no prior PersonChannel)" do
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Jad Tarabay",
+          email: "j.tarabay@zaq.ai"
+        })
+
+      msg = incoming(%{provider: :"email:imap", author_id: "j.tarabay@zaq.ai"})
+
+      before_count = Repo.aggregate(Person, :count, :id)
+      result = IdentityPlug.call(msg, channels_router: StubRouterError)
+      after_count = Repo.aggregate(Person, :count, :id)
+
+      assert result.person_id == person.id
+      assert before_count == after_count
+      resolved = People.get_person_with_channels!(result.person_id)
+      assert resolved.email == "j.tarabay@zaq.ai"
     end
   end
 

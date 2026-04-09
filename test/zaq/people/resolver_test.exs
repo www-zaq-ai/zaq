@@ -210,6 +210,32 @@ defmodule Zaq.People.ResolverTest do
     end
   end
 
+  # ── email:imap ───────────────────────────────────────────────────────────
+
+  describe "normalize/2 - email:imap" do
+    test "maps channel_id into both channel_id and email" do
+      attrs = %{channel_id: "sender@example.com"}
+      result = Resolver.normalize("email:imap", attrs)
+
+      assert result["channel_id"] == "sender@example.com"
+      assert result["email"] == "sender@example.com"
+    end
+
+    test "prefers explicit email over channel_id" do
+      attrs = %{email: "sender@example.com", channel_id: "other_id"}
+      result = Resolver.normalize("email:imap", attrs)
+
+      assert result["channel_id"] == "sender@example.com"
+      assert result["email"] == "sender@example.com"
+    end
+
+    test "delegates to email normalizer (identical result)" do
+      attrs = %{channel_id: "imap@example.com", display_name: "IMAP User"}
+
+      assert Resolver.normalize("email:imap", attrs) == Resolver.normalize("email", attrs)
+    end
+  end
+
   # ── fallback ─────────────────────────────────────────────────────────────
 
   describe "normalize/2 - unknown platform" do
