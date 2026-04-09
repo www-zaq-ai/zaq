@@ -179,7 +179,8 @@ defmodule Zaq.Accounts.People do
       |> Repo.update_all(set: [person_id: survivor.id])
 
       # A partial person's full_name may have been seeded from the channel_identifier
-      # as a fallback. Treat it as empty so a real name from the loser takes precedence.
+      # (e.g. an email address) as a fallback. Treat it as empty for both sides so a
+      # real name always wins over an auto-generated one.
       survivor_channel_ids =
         Repo.all(
           from c in PersonChannel,
@@ -190,11 +191,14 @@ defmodule Zaq.Accounts.People do
       effective_name =
         if survivor.full_name in survivor_channel_ids, do: nil, else: survivor.full_name
 
+      effective_loser_name =
+        if loser.full_name in survivor_channel_ids, do: nil, else: loser.full_name
+
       merged_team_ids = (survivor.team_ids ++ loser.team_ids) |> Enum.uniq()
 
       backfill =
         %{team_ids: merged_team_ids}
-        |> maybe_backfill(:full_name, effective_name, loser.full_name)
+        |> maybe_backfill(:full_name, effective_name, effective_loser_name)
         |> maybe_backfill(:email, survivor.email, loser.email)
         |> maybe_backfill(:phone, survivor.phone, loser.phone)
 
@@ -206,6 +210,8 @@ defmodule Zaq.Accounts.People do
         survivor
         |> Person.update_changeset(backfill)
         |> Repo.update()
+
+      maybe_link_email_channel(survivor)
 
       survivor
     end)
@@ -239,11 +245,26 @@ defmodule Zaq.Accounts.People do
 
   def create_person(attrs) do
     attrs = Map.put_new(stringify_keys(attrs), "incomplete", true)
-    %Person{} |> Person.changeset(attrs) |> Repo.insert()
+
+    case %Person{} |> Person.changeset(attrs) |> Repo.insert() do
+      {:ok, person} ->
+        maybe_link_email_channel(person)
+        {:ok, person}
+
+      error ->
+        error
+    end
   end
 
   def update_person(%Person{} = person, attrs) do
-    person |> Person.update_changeset(attrs) |> Repo.update()
+    case person |> Person.update_changeset(attrs) |> Repo.update() do
+      {:ok, updated} ->
+        if updated.email != person.email, do: maybe_link_email_channel(updated)
+        {:ok, updated}
+
+      error ->
+        error
+    end
   end
 
   def delete_person(%Person{} = person), do: Repo.delete(person)
@@ -403,6 +424,20 @@ defmodule Zaq.Accounts.People do
   defp canonical_platform("email:imap"), do: "email"
   defp canonical_platform(platform), do: platform
 
+  # Called from create_person/update_person with a resolved Person struct.
+  defp maybe_link_email_channel(%Person{email: email} = person)
+       when is_binary(email) and email != "" do
+    ensure_channel_linked(person, "email", %{
+      "channel_id" => email,
+      "email" => email,
+      "display_name" => person.full_name
+    })
+  end
+
+  defp maybe_link_email_channel(_person), do: :ok
+
+  # Called from find_or_create_from_channel / create_partial_person where we
+  # have a platform and attrs map rather than a resolved Person struct.
   defp maybe_link_email_channel(person, platform, attrs) do
     email = Map.get(attrs, "email") || Map.get(attrs, :email)
 
@@ -416,11 +451,18 @@ defmodule Zaq.Accounts.People do
   end
 
   defp backfill_person(person, attrs) do
+    # If full_name looks like an email address it was seeded from a channel identifier.
+    # Treat it as absent so an incoming display_name can replace it.
+    effective_name =
+      if is_binary(person.full_name) and String.contains?(person.full_name, "@"),
+        do: nil,
+        else: person.full_name
+
     updates =
       %{}
       |> maybe_put_if_nil(:email, person.email, attrs)
       |> maybe_put_if_nil(:phone, person.phone, attrs)
-      |> maybe_put_if_nil(:full_name, person.full_name, attrs, "display_name")
+      |> maybe_put_if_nil(:full_name, effective_name, attrs, "display_name")
 
     if map_size(updates) > 0 do
       {:ok, updated} = update_person(person, updates)
