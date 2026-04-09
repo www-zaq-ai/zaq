@@ -667,4 +667,75 @@ defmodule Zaq.Accounts.PeopleTest do
       refute team.id in updated.team_ids
     end
   end
+
+  # ── get_person/1 nil guard ─────────────────────────────────────────
+
+  describe "get_person/1" do
+    test "returns nil when id is nil" do
+      assert People.get_person(nil) == nil
+    end
+
+    test "returns nil for unknown id" do
+      assert People.get_person(0) == nil
+    end
+
+    test "returns person when found" do
+      person = create_person()
+      assert People.get_person(person.id).id == person.id
+    end
+  end
+
+  # ── get_person_with_channels/1 ────────────────────────────────────
+
+  describe "get_person_with_channels/1" do
+    test "returns nil for unknown id" do
+      assert People.get_person_with_channels(0) == nil
+    end
+
+    test "returns person with channels when found" do
+      person = create_person()
+      add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "@gc_test"})
+      loaded = People.get_person_with_channels(person.id)
+      assert loaded.id == person.id
+      assert length(loaded.channels) == 1
+    end
+  end
+
+  # ── search_people/3 ───────────────────────────────────────────────
+
+  describe "search_people/3" do
+    test "returns people matching query by full_name" do
+      person = create_person(%{full_name: "Searchable Name XYZ", email: "sxyz@example.com"})
+
+      results = People.search_people("Searchable Name XYZ")
+      assert Enum.any?(results, &(&1.id == person.id))
+    end
+
+    test "returns people matching query by email" do
+      person = create_person(%{full_name: "Email Searcher", email: "searchemail99@example.com"})
+
+      results = People.search_people("searchemail99")
+      assert Enum.any?(results, &(&1.id == person.id))
+    end
+
+    test "excludes ids passed in exclude_ids" do
+      person = create_person(%{full_name: "Excludable Person", email: "exclude_me@example.com"})
+
+      results = People.search_people("Excludable", [person.id])
+      refute Enum.any?(results, &(&1.id == person.id))
+    end
+
+    test "respects limit parameter" do
+      for i <- 1..5 do
+        create_person(%{full_name: "LimitSearch#{i}", email: "ls#{i}@example.com"})
+      end
+
+      results = People.search_people("LimitSearch", [], 3)
+      assert length(results) <= 3
+    end
+
+    test "returns empty list when no match" do
+      assert People.search_people("NoMatchXYZABC123") == []
+    end
+  end
 end

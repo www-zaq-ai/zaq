@@ -3,6 +3,7 @@ defmodule Zaq.Engine.ConversationsTest do
 
   @moduletag capture_log: true
 
+  alias Zaq.Accounts.People
   alias Zaq.Engine.Conversations
 
   # ── Helpers ────────────────────────────────────────────────────────
@@ -626,6 +627,167 @@ defmodule Zaq.Engine.ConversationsTest do
                Conversations.share_conversation(conv, %{permission: "write"})
 
       assert %{permission: _} = errors_on(changeset)
+    end
+  end
+
+  # ── archive_conversation_by_id/1 ────────────────────────────────────
+
+  describe "archive_conversation_by_id/1" do
+    test "sets conversation status to archived by id" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      assert :ok = Conversations.archive_conversation_by_id(conv.id)
+
+      updated = Conversations.get_conversation!(conv.id)
+      assert updated.status == "archived"
+    end
+
+    test "is idempotent when called twice" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      assert :ok = Conversations.archive_conversation_by_id(conv.id)
+      assert :ok = Conversations.archive_conversation_by_id(conv.id)
+
+      updated = Conversations.get_conversation!(conv.id)
+      assert updated.status == "archived"
+    end
+
+    test "is a no-op for unknown id (returns :ok)" do
+      assert :ok = Conversations.archive_conversation_by_id(Ecto.UUID.generate())
+    end
+  end
+
+  # ── delete_conversation_by_id/1 ─────────────────────────────────────
+
+  describe "delete_conversation_by_id/1" do
+    test "deletes the conversation" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      assert :ok = Conversations.delete_conversation_by_id(conv.id)
+      assert is_nil(Conversations.get_conversation(conv.id))
+    end
+
+    test "is a no-op for unknown id (returns :ok)" do
+      assert :ok = Conversations.delete_conversation_by_id(Ecto.UUID.generate())
+    end
+  end
+
+  # ── list_conversations/1 with person_id and team_id ─────────────────
+
+  describe "list_conversations/1 person_id and team_id filters" do
+    test "filters by person_id" do
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Conversation Person",
+          "email" => "convperson#{System.unique_integer([:positive])}@example.com"
+        })
+
+      {:ok, conv} =
+        Conversations.create_conversation(conv_attrs(%{person_id: person.id}))
+
+      {:ok, _other} = Conversations.create_conversation(conv_attrs())
+
+      results = Conversations.list_conversations(person_id: person.id)
+      assert Enum.any?(results, &(&1.id == conv.id))
+      assert Enum.all?(results, &(&1.person_id == person.id))
+    end
+
+    test "filters by team_id — returns conversations for persons in that team" do
+      {:ok, team} =
+        People.create_team(%{name: "Conv Team #{System.unique_integer([:positive])}"})
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Team Member Conv",
+          "email" => "tmconv#{System.unique_integer([:positive])}@example.com"
+        })
+
+      {:ok, person} = People.assign_team(person, team.id)
+
+      {:ok, conv} =
+        Conversations.create_conversation(conv_attrs(%{person_id: person.id}))
+
+      {:ok, _unrelated} = Conversations.create_conversation(conv_attrs())
+
+      results = Conversations.list_conversations(team_id: team.id)
+      assert Enum.any?(results, &(&1.id == conv.id))
+    end
+  end
+
+  # ── backfill_missing_person_ids via list_conversations ───────────────
+
+  describe "backfill_missing_person_ids" do
+    test "resolves person_id from PersonChannel when conversation has channel_user_id match" do
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Backfill Person",
+          "email" => "backfill#{System.unique_integer([:positive])}@example.com"
+        })
+
+      channel_identifier = "bf_chan_#{System.unique_integer([:positive])}"
+
+      {:ok, _channel} =
+        People.add_channel(%{
+          "person_id" => person.id,
+          "platform" => "mattermost",
+          "channel_identifier" => channel_identifier
+        })
+
+      {:ok, conv} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: channel_identifier
+        })
+
+      # Confirm person_id starts nil
+      assert is_nil(conv.person_id)
+
+      results = Conversations.list_conversations(channel_user_id: channel_identifier)
+      [loaded] = results
+      assert loaded.person_id == person.id
+    end
+
+    test "resolves person_id via metadata author_id for email:imap conversations" do
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Email Backfill",
+          "email" => "emailbf#{System.unique_integer([:positive])}@example.com"
+        })
+
+      author_id = "author_#{System.unique_integer([:positive])}@example.com"
+
+      {:ok, _channel} =
+        People.add_channel(%{
+          "person_id" => person.id,
+          "platform" => "email",
+          "channel_identifier" => author_id
+        })
+
+      thread_key = "thread_#{System.unique_integer([:positive])}"
+
+      {:ok, conv} =
+        Conversations.create_conversation(%{
+          channel_type: "email:imap",
+          channel_user_id: thread_key,
+          metadata: %{"author_id" => author_id}
+        })
+
+      assert is_nil(conv.person_id)
+
+      results = Conversations.list_conversations(channel_user_id: thread_key)
+      [loaded] = results
+      assert loaded.person_id == person.id
+    end
+
+    test "skips backfill when no PersonChannel match exists" do
+      {:ok, conv} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "nomatch_#{System.unique_integer([:positive])}"
+        })
+
+      assert is_nil(conv.person_id)
+
+      results = Conversations.list_conversations(channel_user_id: conv.channel_user_id)
+      [loaded] = results
+      assert is_nil(loaded.person_id)
     end
   end
 end

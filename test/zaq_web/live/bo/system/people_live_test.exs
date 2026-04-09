@@ -809,4 +809,58 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     [created_team] = Enum.filter(People.list_teams(), &(&1.name == team_name))
     assert created_team.id in People.get_person!(person.id).team_ids
   end
+
+  # ── handle_params with person_id ─────────────────────────────────────────
+
+  test "navigating to /bo/people?person_id=<id> pre-selects person", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Pre-Selected Person"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people?person_id=#{person.id}")
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.selected_person.id == person.id
+  end
+
+  test "navigating to /bo/people?person_id=<nonexistent> does not crash", %{conn: conn} do
+    {:ok, _view, _html} = live(conn, ~p"/bo/people?person_id=99999999")
+  end
+
+  # ── save person edit ─────────────────────────────────────────────────────
+
+  test "save person edit updates person and refreshes list", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Before Edit Name"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_modal'][phx-value-action='edit'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    new_name = "After Edit Name#{System.unique_integer([:positive])}"
+
+    view
+    |> form("#person-modal-form", %{
+      "person" => %{"full_name" => new_name, "email" => person.email}
+    })
+    |> render_submit()
+
+    assert render(view) =~ new_name
+  end
+
+  # ── switch_tab resets selected person ────────────────────────────────────
+
+  test "switching to People tab after Teams clears selected state", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+    view |> element("[phx-value-tab='people']") |> render_click()
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.active_tab == :people
+    assert state.socket.assigns.selected_person == nil
+  end
 end

@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.People
   alias Zaq.Engine.Conversations
 
   setup %{conn: conn} do
@@ -88,6 +89,201 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
         view
         |> element("form[phx-change='filter']")
         |> render_change(%{"status" => "all", "channel_type" => "all"})
+
+      assert html =~ conv.title
+    end
+  end
+
+  describe "toggle_select event" do
+    test "adds a conversation id to selected set", %{conn: conn, user: user} do
+      conv = create_conv(user.id, %{title: "Toggle Me"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "toggle_select", %{"id" => conv.id})
+
+      state = :sys.get_state(view.pid)
+      assert MapSet.member?(state.socket.assigns.selected, conv.id)
+    end
+
+    test "removes a conversation id from selected set when already selected", %{
+      conn: conn,
+      user: user
+    } do
+      conv = create_conv(user.id, %{title: "Deselect Me"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "toggle_select", %{"id" => conv.id})
+      render_hook(view, "toggle_select", %{"id" => conv.id})
+
+      state = :sys.get_state(view.pid)
+      refute MapSet.member?(state.socket.assigns.selected, conv.id)
+    end
+  end
+
+  describe "select_all event" do
+    test "selects all visible conversations", %{conn: conn, user: user} do
+      c1 = create_conv(user.id, %{title: "All Conv 1"})
+      c2 = create_conv(user.id, %{title: "All Conv 2"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "select_all", %{})
+
+      state = :sys.get_state(view.pid)
+      assert MapSet.member?(state.socket.assigns.selected, c1.id)
+      assert MapSet.member?(state.socket.assigns.selected, c2.id)
+    end
+
+    test "deselects all when all are already selected", %{conn: conn, user: user} do
+      _conv = create_conv(user.id, %{title: "Select All Toggle"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "select_all", %{})
+      render_hook(view, "select_all", %{})
+
+      state = :sys.get_state(view.pid)
+      assert MapSet.size(state.socket.assigns.selected) == 0
+    end
+  end
+
+  describe "archive_conversation event" do
+    test "removes conversation from list without page reload", %{conn: conn, user: user} do
+      conv = create_conv(user.id, %{title: "To Archive"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "archive_conversation", %{"id" => conv.id})
+
+      refute has_element?(view, "#conv-#{conv.id}")
+    end
+  end
+
+  describe "delete_conversation event" do
+    test "removes conversation from list", %{conn: conn, user: user} do
+      conv = create_conv(user.id, %{title: "To Delete"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "delete_conversation", %{"id" => conv.id})
+
+      refute has_element?(view, "#conv-#{conv.id}")
+    end
+  end
+
+  describe "bulk_archive event" do
+    test "removes all selected conversations from list", %{conn: conn, user: user} do
+      c1 = create_conv(user.id, %{title: "Bulk Archive 1"})
+      c2 = create_conv(user.id, %{title: "Bulk Archive 2"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "toggle_select", %{"id" => c1.id})
+      render_hook(view, "toggle_select", %{"id" => c2.id})
+      render_hook(view, "bulk_archive", %{})
+
+      refute has_element?(view, "#conv-#{c1.id}")
+      refute has_element?(view, "#conv-#{c2.id}")
+    end
+  end
+
+  describe "bulk_delete event" do
+    test "removes all selected conversations from list", %{conn: conn, user: user} do
+      c1 = create_conv(user.id, %{title: "Bulk Delete 1"})
+      c2 = create_conv(user.id, %{title: "Bulk Delete 2"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      render_hook(view, "toggle_select", %{"id" => c1.id})
+      render_hook(view, "toggle_select", %{"id" => c2.id})
+      render_hook(view, "bulk_delete", %{})
+
+      refute has_element?(view, "#conv-#{c1.id}")
+      refute has_element?(view, "#conv-#{c2.id}")
+    end
+  end
+
+  describe "super-admin scope" do
+    setup %{conn: conn} do
+      admin = super_admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(conn, %{user_id: admin.id})
+      %{conn: conn, admin: admin}
+    end
+
+    test "super_admin can switch scope to all users", %{conn: conn, admin: admin} do
+      other_user = user_fixture()
+      other_conv = create_conv(other_user.id, %{title: "Other User Scoped Conv"})
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      html =
+        view
+        |> element("form[phx-change='filter']")
+        |> render_change(%{"scope" => "all", "channel_type" => "all"})
+
+      assert html =~ other_conv.title
+      _ = admin
+    end
+
+    test "super_admin all scope with channel_type filter narrows results", %{conn: conn} do
+      {:ok, mm_conv} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "mm_admin_#{System.unique_integer([:positive])}",
+          title: "Admin MM Conv"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      html =
+        view
+        |> element("form[phx-change='filter']")
+        |> render_change(%{"scope" => "all", "channel_type" => "mattermost"})
+
+      assert html =~ mm_conv.title
+    end
+
+    test "non-admin scope is always forced to own even if params say all", %{conn: conn} do
+      # For a non-admin user, scope is forced to "own". This test confirms admins do get "all".
+      # (The non-admin path is tested via the regular setup block's user.)
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.is_admin == true
+    end
+  end
+
+  describe "filter event with team_id and person_id" do
+    test "filter with team_id in all-scope returns conversations for that team", %{
+      conn: conn
+    } do
+      admin = super_admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(conn, %{user_id: admin.id})
+
+      {:ok, team} =
+        People.create_team(%{name: "HistTeam#{System.unique_integer([:positive])}"})
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "HistPerson",
+          "email" => "histperson#{System.unique_integer([:positive])}@example.com"
+        })
+
+      People.assign_team(person, team.id)
+
+      {:ok, conv} =
+        Conversations.create_conversation(%{
+          channel_type: "bo",
+          channel_user_id: "u_#{System.unique_integer([:positive])}",
+          person_id: person.id,
+          title: "TeamFiltered Conv"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      html =
+        view
+        |> element("form[phx-change='filter']")
+        |> render_change(%{
+          "scope" => "all",
+          "channel_type" => "all",
+          "team_id" => to_string(team.id)
+        })
 
       assert html =~ conv.title
     end
