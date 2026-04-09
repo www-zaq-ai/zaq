@@ -457,8 +457,11 @@ defmodule Zaq.HooksTest do
     Hooks.dispatch_async(:retrieval_complete, %{}, %{})
 
     assert_receive {:telemetry, [:zaq, :hooks, :handler, :error], %{},
-                    %{event: :retrieval_complete, handler: ThrowingHook,
-                      reason: {:throw, :thrown_value}}}
+                    %{
+                      event: :retrieval_complete,
+                      handler: ThrowingHook,
+                      reason: {:throw, :thrown_value}
+                    }}
   end
 
   # ---------------------------------------------------------------------------
