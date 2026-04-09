@@ -123,47 +123,47 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await expect(modal).toContainText(queryToken);
   });
 
-  // test("Journey 2: maintain hierarchy and stale-document hygiene", async ({ page }) => {
-  //   const folderName = uniqueId("e2e-folder");
-  //   const fileBase = uniqueId("e2e-hygiene");
-  //   const fileName = `${fileBase}.md`;
+  test("Journey 2: maintain hierarchy and stale-document hygiene", async ({ page }) => {
+    const folderName = uniqueId("e2e-folder");
+    const fileBase = uniqueId("e2e-hygiene");
+    const fileName = `${fileBase}.md`;
 
-  //   await gotoBackOfficeLive(page, "/bo/ingestion");
+    await gotoBackOfficeLive(page, "/bo/ingestion");
 
-  //   await page.locator("#new-folder-button").click();
-  //   await expect(page.locator("#new-folder-modal")).toBeVisible();
-  //   await page.locator("#new-folder-input").fill(folderName);
-  //   await page.locator("#create-folder-button").click();
-  //   await expect(page.locator("#new-folder-modal")).toBeHidden();
+    await page.locator("#new-folder-button").click();
+    await expect(page.locator("#new-folder-modal")).toBeVisible();
+    await page.locator("#new-folder-input").fill(folderName);
+    await page.locator("#create-folder-button").click();
+    await expect(page.locator("#new-folder-modal")).toBeHidden();
 
-  //   await page.getByRole("button", { name: folderName }).first().click();
-  //   await expect(page.locator("main")).toContainText(folderName);
+    await page.getByRole("button", { name: folderName }).first().click();
+    await expect(page.locator("main")).toContainText(folderName);
 
-  //   await addRawMarkdown(page, fileBase, "# Hygiene v1\n\nInitial content for stale check.");
-  //   await selectFileRow(page, fileName);
-  //   await ingestSelectedInline(page);
-  //   // Wait for the PubSub handle_info cycle: job_updated → load_entries → doc.updated_at = T1.
-  //   // Only after this is the document recorded in the DB with its ingested timestamp.
-  //   await expect(page.locator("tr", { hasText: fileName })).toContainText("ingested");
+    await addRawMarkdown(page, fileBase, "# Hygiene v1\n\nInitial content for stale check.");
+    await selectFileRow(page, fileName);
+    await ingestSelectedInline(page);
+    // Wait for the PubSub handle_info cycle: job_updated → load_entries → doc.updated_at = T1.
+    // Only after this is the document recorded in the DB with its ingested timestamp.
+    await expect(page.locator("tr", { hasText: fileName })).toContainText("ingested");
 
-  //   await gotoBackOfficeLive(page, "/bo/ingestion");
-  //   await page.getByRole("button", { name: folderName }).first().click();
-  //   // Wait for the navigate event to be processed and the file row to appear.
-  //   await expect(page.locator("tr", { hasText: fileName })).toBeVisible();
+    await gotoBackOfficeLive(page, "/bo/ingestion");
+    await page.getByRole("button", { name: folderName }).first().click();
+    // Wait for the navigate event to be processed and the file row to appear.
+    await expect(page.locator("tr", { hasText: fileName })).toBeVisible();
 
-  //   // Wait long enough so the file system mtime of v2 is strictly greater than doc.updated_at (T1).
-  //   await page.waitForTimeout(5000);
+    // Wait long enough so the file system mtime of v2 is strictly greater than doc.updated_at (T1).
+    await page.waitForTimeout(5000);
 
-  //   // Overwrite the file — save_raw_content calls load_entries → load_ingestion_status,
-  //   // so the stale badge is computed and sent in the same diff that closes the modal.
-  //   await addRawMarkdown(page, fileBase, "# Hygiene v2\n\nUpdated content should mark file stale.");
+    // Overwrite the file — save_raw_content calls load_entries → load_ingestion_status,
+    // so the stale badge is computed and sent in the same diff that closes the modal.
+    await addRawMarkdown(page, fileBase, "# Hygiene v2\n\nUpdated content should mark file stale.");
 
-  //   // Modal is hidden = diff applied = stale badge already in the DOM.
-  //   await expect(page.locator("tr", { hasText: fileName })).toContainText("stale");
+    // Modal is hidden = diff applied = stale badge already in the DOM.
+    await expect(page.locator("tr", { hasText: fileName })).toContainText("stale");
 
-  //   await page.goto(previewPath(`${folderName}/${fileName}`));
-  //   await expect(page.locator("body")).toContainText("Updated content should mark file stale");
-  // });
+    await page.goto(previewPath(`${folderName}/${fileName}`));
+    await expect(page.locator("body")).toContainText("Updated content should mark file stale");
+  });
 
   test("Journey 3: tune prompts and verify answer-quality loop", async ({ page }) => {
     const controlQuestion = "What does the employee benefits handbook include?";
