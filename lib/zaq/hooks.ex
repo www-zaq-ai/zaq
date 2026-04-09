@@ -2,7 +2,7 @@ defmodule Zaq.Hooks do
   @moduledoc """
   Dispatch API for the ZAQ hook system.
 
-  ## `dispatch_before/3` — sync, can mutate, can halt
+  ## `dispatch_sync/3` — intercepting chain (sync, can mutate, can halt)
 
   Runs all `:sync` hooks registered for `event` in priority order.
   Each hook receives the payload output by the previous hook.
@@ -13,14 +13,142 @@ defmodule Zaq.Hooks do
     * Exception raised   — caught; warning logged; chain continues with previous payload
     * `:ok`              — pass-through; payload unchanged; chain continues
 
-  ## `dispatch_after/3` — observers + async fire-and-forget
+  ## `dispatch_async/3` — fire-and-forget notification
 
-  Runs all hooks for `event`. Always returns `:ok`.
+  Runs all hooks for `event`. Always returns `:ok` immediately.
 
     * `:sync` hooks run in-process; return value is ignored; errors are caught
     * `:async` hooks are spawned in a `Task`:
       - `node_role: :local` → direct `Task.start/1`
       - `node_role: role`   → `Task.start/1` wrapping `NodeRouter.call/4`
+
+  ## Events
+
+  All events must be registered here. Use `documented_events/0` to get the list
+  programmatically (e.g. in `mix hooks.verify`).
+
+  ### Agent Pipeline — `Zaq.Agent.Pipeline`
+
+  Context for all pipeline events: `%{trace_id: String.t(), node: node()}`
+
+  #### `:retrieval` — `dispatch_sync` (intercepting)
+
+  Fired before the knowledge-base retrieval step. Handlers may rewrite the
+  content before it reaches the retriever.
+
+      %{
+        content: String.t()   # sanitised user input; mutate to override
+      }
+
+  #### `:retrieval_complete` — `dispatch_async` (observer)
+
+  Fired after retrieval succeeds with the raw retrieval result.
+
+      %{
+        query:           String.t(),  # generated search query
+        language:        String.t(),
+        positive_answer: String.t(),  # retriever's positive passage
+        negative_answer: String.t()   # retriever's fallback passage
+      }
+
+  #### `:answering` — `dispatch_sync` (intercepting)
+
+  Fired after retrieval and before the LLM answering step. Handlers may
+  augment or replace the retrieval payload passed to the answerer.
+
+      %{
+        query:           String.t(),
+        language:        String.t(),
+        positive_answer: String.t(),
+        negative_answer: String.t()
+      }
+
+  #### `:answer_generated` — `dispatch_async` (observer)
+
+  Fired immediately after the LLM produces an answer, before pipeline
+  post-processing (confidence scoring, no-answer detection).
+
+      %{
+        answer: %Zaq.Agent.Answering.Result{}
+      }
+
+  #### `:pipeline_complete` — `dispatch_async` (observer)
+
+  Fired at the very end of a successful pipeline run with the final result
+  map returned to the caller.
+
+      %{
+        answer:             String.t(),
+        confidence_score:   float(),
+        latency_ms:         non_neg_integer(),
+        prompt_tokens:      non_neg_integer(),
+        completion_tokens:  non_neg_integer(),
+        total_tokens:       non_neg_integer(),
+        error:              false,
+        chunks:             [%{"content" => String.t(), "source" => String.t(), "metadata" => map()}]
+      }
+
+  `chunks` contains the retrieved chunks used to generate the answer.
+  It is `[]` when the pipeline produced no retrieval results.
+
+  ---
+
+  ### Ingestion — `Zaq.Ingestion.Chunk`
+
+  Context for ingestion system events: `%{}`
+
+  #### `:embedding_reset` — `dispatch_async` (observer)
+
+  Fired after `Chunk.reset_table/1` drops and recreates the chunks table with
+  a new embedding dimension. Paid features that maintain their own embedding
+  columns should listen to this event to reset and re-embed their data.
+
+      %{
+        new_dimension: integer()  # the new embedding vector dimension
+      }
+
+  ---
+
+  ### Conversations — `Zaq.Engine.Conversations`
+
+  Context for conversation events: `%{}`
+
+  #### `:feedback_provided` — `dispatch_async` (observer)
+
+  Fired after a message rating is created or updated (both positive and
+  negative feedback paths). `conversation_history` is always present and
+  contains all messages in the conversation ordered by insertion time.
+
+      %{
+        message:              %Zaq.Engine.Conversations.Message{},
+        rating:               %Zaq.Engine.Conversations.MessageRating{},
+        conversation_history: [%Zaq.Engine.Conversations.Message{}],  # mandatory
+        rater_attrs:          %{
+                                user_id:         Ecto.UUID.t() | nil,
+                                channel_user_id: String.t() | nil,
+                                rating:          1 | 5,
+                                comment:         String.t() | nil
+                              }
+      }
+
+  ---
+
+  ### Channels — `Zaq.Channels.JidoChatBridge`
+
+  Context for channel events: `%{}`
+
+  #### `:reply_received` — `dispatch_sync` (intercepting)
+
+  Fired when a subscribed chat message arrives in `JidoChatBridge`. Handlers
+  may inspect or mutate the post before it is processed further.
+
+      %{
+        root_id:  String.t() | nil,  # external thread ID
+        user_id:  String.t() | nil,  # author's user ID
+        message:  String.t()         # raw message text
+      }
+
+  ---
 
   ## Telemetry
 
@@ -43,17 +171,32 @@ defmodule Zaq.Hooks do
 
   alias Zaq.Hooks.Hook
 
+  @documented_events [
+    :retrieval,
+    :retrieval_complete,
+    :answering,
+    :answer_generated,
+    :pipeline_complete,
+    :embedding_reset,
+    :feedback_provided,
+    :reply_received
+  ]
+
   # ---------------------------------------------------------------------------
   # Public API
   # ---------------------------------------------------------------------------
+
+  @doc "Returns the list of all documented hook event atoms."
+  @spec documented_events() :: [atom()]
+  def documented_events, do: @documented_events
 
   @doc """
   Runs `:sync` hooks for `event` in priority order, threading the payload.
 
   Returns `{:ok, payload}` (possibly mutated) or `{:halt, payload}`.
   """
-  @spec dispatch_before(atom(), map(), map()) :: {:ok, map()} | {:halt, map()}
-  def dispatch_before(event, payload, ctx) do
+  @spec dispatch_sync(atom(), map(), map()) :: {:ok, map()} | {:halt, map()}
+  def dispatch_sync(event, payload, ctx) do
     hooks = registry_mod().lookup(event) |> Enum.filter(&(&1.mode == :sync))
     hook_count = length(hooks)
 
@@ -82,8 +225,8 @@ defmodule Zaq.Hooks do
   `:sync` hooks run in-process (return value ignored). `:async` hooks are
   spawned in Tasks and may execute on remote nodes via `NodeRouter`.
   """
-  @spec dispatch_after(atom(), map(), map()) :: :ok
-  def dispatch_after(event, payload, ctx) do
+  @spec dispatch_async(atom(), map(), map()) :: :ok
+  def dispatch_async(event, payload, ctx) do
     hooks = registry_mod().lookup(event)
     hook_count = length(hooks)
 
@@ -92,7 +235,7 @@ defmodule Zaq.Hooks do
     :telemetry.execute(
       [:zaq, :hooks, :dispatch, :start],
       %{},
-      %{event: event, mode: :after, hook_count: hook_count}
+      %{event: event, mode: :async, hook_count: hook_count}
     )
 
     {sync_hooks, async_hooks} = Enum.split_with(hooks, &(&1.mode == :sync))
@@ -103,7 +246,7 @@ defmodule Zaq.Hooks do
     :telemetry.execute(
       [:zaq, :hooks, :dispatch, :stop],
       %{duration: System.monotonic_time() - start},
-      %{event: event, mode: :after}
+      %{event: event, mode: :async}
     )
 
     :ok

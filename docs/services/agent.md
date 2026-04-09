@@ -23,18 +23,18 @@ correctly in both single-node and multi-node deployments.
 User question (BO Chat / Channel)
   → Pipeline.run/2                          ← unified entrypoint for all channels
       → PromptGuard.validate/1              ← blocks prompt injection (runs on BO node)
-      → Hooks.dispatch_before(:before_retrieval, ...)
+      → Hooks.dispatch_sync(:retrieval, ...)
       → NodeRouter.call(:agent, Retrieval)  ← routed to agent node
           → Retrieval.ask/2                 ← LLM rewrites question into search queries (JSON)
-      → Hooks.dispatch_after(:after_retrieval, ...)
-      → Hooks.dispatch_before(:before_answering, ...)
+      → Hooks.dispatch_async(:retrieval_complete, ...)
+      → Hooks.dispatch_sync(:answering, ...)
       → NodeRouter.call(:ingestion, DocumentProcessor.query_extraction)
           → hybrid search, returns ranked chunks
       → NodeRouter.call(:agent, Answering)  ← routed to agent node
           → Answering.ask/2                 ← LLM formulates answer from context
       → PromptGuard.output_safe?/1          ← checks for system prompt leakage
-      → Hooks.dispatch_after(:after_answer_generated, ...)
-      → Hooks.dispatch_after(:after_pipeline_complete, ...)
+      → Hooks.dispatch_async(:answer_generated, ...)
+      → Hooks.dispatch_async(:pipeline_complete, ...)
   → %{answer, confidence_score, latency_ms, prompt_tokens, ...}
 
   On no-answer: sets knowledge_gap: true, emits qa.no_answer.count telemetry

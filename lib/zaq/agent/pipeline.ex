@@ -11,11 +11,11 @@ defmodule Zaq.Agent.Pipeline do
 
   The pipeline dispatches the following hook events:
 
-    * `:before_retrieval`        — sync; may mutate `%{content: string}` or halt
-    * `:after_retrieval`         — sync + async; payload is the retrieval result map
-    * `:before_answering`        — sync; may mutate the retrieval/extraction payload
-    * `:after_answer_generated`  — sync + async; payload is `%{answer: result}`
-    * `:after_pipeline_complete` — async; payload is the final result map
+    * `:retrieval`          — sync (`dispatch_sync`); may mutate `%{content: string}` or halt
+    * `:retrieval_complete` — async (`dispatch_async`); payload is the retrieval result map
+    * `:answering`          — sync (`dispatch_sync`); may mutate the retrieval/extraction payload
+    * `:answer_generated`   — async (`dispatch_async`); payload is `%{answer: result}`
+    * `:pipeline_complete`  — async (`dispatch_async`); payload is the final result map
 
   ## Options
 
@@ -83,19 +83,19 @@ defmodule Zaq.Agent.Pipeline do
 
     with {:ok, clean_msg} <- prompt_guard(opts).validate(content),
          {:ok, retrieval_payload} <-
-           hooks.dispatch_before(:before_retrieval, %{content: clean_msg}, ctx),
+           hooks.dispatch_sync(:retrieval, %{content: clean_msg}, ctx),
          :ok <- on_status.(:retrieving, "ZAQ is searching your knowledge base…"),
          {:ok, retrieval_result} <- do_retrieval(retrieval_payload.content, history, opts),
-         :ok <- hooks.dispatch_after(:after_retrieval, retrieval_result, ctx),
+         :ok <- hooks.dispatch_async(:retrieval_complete, retrieval_result, ctx),
          :ok <- on_status.(:retrieving, retrieval_result.positive_answer),
          {:ok, answering_payload} <-
-           hooks.dispatch_before(:before_answering, retrieval_result, ctx),
+           hooks.dispatch_sync(:answering, retrieval_result, ctx),
          {:ok, extraction_result} <- do_query_extraction(answering_payload, opts),
          :ok <- on_status.(:answering, "Formulating your answer…"),
          {:ok, answer_result} <-
            do_answering(clean_msg, extraction_result, answering_payload, history, opts),
          {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.answer) do
-      :ok = hooks.dispatch_after(:after_answer_generated, %{answer: answer_result}, ctx)
+      :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
       sources = build_sources(extraction_result)
 
       result =
@@ -118,8 +118,8 @@ defmodule Zaq.Agent.Pipeline do
         end
 
       :ok =
-        hooks.dispatch_after(
-          :after_pipeline_complete,
+        hooks.dispatch_async(
+          :pipeline_complete,
           Map.put(result, :chunks, extraction_result),
           ctx
         )
@@ -151,7 +151,7 @@ defmodule Zaq.Agent.Pipeline do
             history: history
           })
 
-        :ok = hooks.dispatch_after(:after_pipeline_complete, Map.put(result, :chunks, []), ctx)
+        :ok = hooks.dispatch_async(:pipeline_complete, Map.put(result, :chunks, []), ctx)
         result
 
       {:error, :no_results} ->
@@ -166,7 +166,7 @@ defmodule Zaq.Agent.Pipeline do
             history: history
           })
 
-        :ok = hooks.dispatch_after(:after_pipeline_complete, Map.put(result, :chunks, []), ctx)
+        :ok = hooks.dispatch_async(:pipeline_complete, Map.put(result, :chunks, []), ctx)
         result
 
       {:error, reason} ->

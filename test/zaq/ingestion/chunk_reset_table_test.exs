@@ -6,15 +6,15 @@ defmodule Zaq.Ingestion.ChunkResetTableTest do
   alias Zaq.Hooks.{Hook, Registry}
   alias Zaq.Ingestion.Chunk
 
-  # Captures :after_embedding_reset dispatches by forwarding to the test
+  # Captures :embedding_reset dispatches by forwarding to the test
   # process stored in a shared ETS table.
   defmodule ResetHookTestHandler do
     @behaviour Zaq.Hooks.Handler
 
     @impl true
-    def handle(:after_embedding_reset, payload, _ctx) do
+    def handle(:embedding_reset, payload, _ctx) do
       case :ets.lookup(:chunk_reset_hook_captures, :receiver) do
-        [{:receiver, pid}] -> send(pid, {:after_embedding_reset, payload})
+        [{:receiver, pid}] -> send(pid, {:embedding_reset, payload})
         [] -> :ok
       end
 
@@ -32,7 +32,7 @@ defmodule Zaq.Ingestion.ChunkResetTableTest do
 
     Registry.register(%Hook{
       handler: ResetHookTestHandler,
-      events: [:after_embedding_reset],
+      events: [:embedding_reset],
       mode: :async
     })
 
@@ -46,9 +46,9 @@ defmodule Zaq.Ingestion.ChunkResetTableTest do
       assert :ok = Chunk.reset_table(384)
     end
 
-    test "dispatches :after_embedding_reset with new_dimension in payload" do
+    test "dispatches :embedding_reset with new_dimension in payload" do
       Chunk.reset_table(512)
-      assert_receive {:after_embedding_reset, %{new_dimension: 512}}, 1000
+      assert_receive {:embedding_reset, %{new_dimension: 512}}, 1000
     end
   end
 end

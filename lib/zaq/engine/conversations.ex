@@ -437,7 +437,7 @@ defmodule Zaq.Engine.Conversations do
           {:ok, rating} ->
             conversation_history = list_conversation_messages(message.conversation_id)
 
-            Zaq.Hooks.dispatch_after(
+            Zaq.Hooks.dispatch_async(
               :feedback_provided,
               %{
                 message: message,

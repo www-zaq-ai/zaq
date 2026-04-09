@@ -23,11 +23,11 @@ defmodule Zaq.Agent.PipelineTest do
     def render(_slug, _assigns), do: "system prompt"
   end
 
-  # Forwards all dispatch_after events to the registered test process.
+  # Forwards all dispatch_async events to the registered test process.
   defmodule StubHooks do
-    def dispatch_before(_event, payload, _ctx), do: {:ok, payload}
+    def dispatch_sync(_event, payload, _ctx), do: {:ok, payload}
 
-    def dispatch_after(event, payload, _ctx) do
+    def dispatch_async(event, payload, _ctx) do
       send(:pipeline_test_pid, {event, payload})
       :ok
     end
@@ -72,7 +72,7 @@ defmodule Zaq.Agent.PipelineTest do
   end
 
   # Triggers the {:error, :no_results, negative_answer} branch inside
-  # do_query_extraction, which dispatches after_pipeline_complete with chunks: [].
+  # do_query_extraction, which dispatches pipeline_complete with chunks: [].
   defmodule StubEmptyDocumentProcessor do
     def query_extraction(_query, _role_ids), do: {:ok, []}
   end
@@ -122,18 +122,18 @@ defmodule Zaq.Agent.PipelineTest do
 
   @incoming %Incoming{content: "What is the answer?", channel_id: "test", provider: :test}
 
-  describe ":after_pipeline_complete chunks in hook payload" do
+  describe ":pipeline_complete chunks in hook payload" do
     test "includes retrieved chunks on a successful run" do
       Pipeline.run(@incoming, @base_opts)
 
-      assert_receive {:after_pipeline_complete, payload}, 1000
+      assert_receive {:pipeline_complete, payload}, 1000
       assert payload.chunks == @stub_chunks
     end
 
     test "chunk entries carry content, source, and metadata" do
       Pipeline.run(@incoming, @base_opts)
 
-      assert_receive {:after_pipeline_complete, %{chunks: [chunk]}}, 1000
+      assert_receive {:pipeline_complete, %{chunks: [chunk]}}, 1000
       assert chunk["content"] == "chunk content"
       assert chunk["source"] == "doc.md"
       assert chunk["metadata"] == %{"origin" => "knowledge_gap", "gap_id" => "abc123"}
@@ -144,7 +144,7 @@ defmodule Zaq.Agent.PipelineTest do
 
       Pipeline.run(@incoming, opts)
 
-      assert_receive {:after_pipeline_complete, payload}, 1000
+      assert_receive {:pipeline_complete, payload}, 1000
       assert payload.chunks == []
     end
 
@@ -153,7 +153,7 @@ defmodule Zaq.Agent.PipelineTest do
 
       Pipeline.run(@incoming, opts)
 
-      assert_receive {:after_pipeline_complete, payload}, 1000
+      assert_receive {:pipeline_complete, payload}, 1000
       assert payload.chunks == []
     end
   end
@@ -169,7 +169,7 @@ defmodule Zaq.Agent.PipelineTest do
       }
 
       Pipeline.run(incoming, @base_opts)
-      assert_receive {:after_pipeline_complete, _}, 1000
+      assert_receive {:pipeline_complete, _}, 1000
     end
 
     test "run/2 with skip_permissions opt propagates without crashing" do

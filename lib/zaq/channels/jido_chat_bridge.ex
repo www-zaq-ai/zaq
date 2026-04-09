@@ -293,7 +293,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       message: incoming.text
     }
 
-    hooks_module().dispatch_before(:reply_received, post, %{})
+    hooks_module().dispatch_sync(:reply_received, post, %{})
     :ok
   end
 
