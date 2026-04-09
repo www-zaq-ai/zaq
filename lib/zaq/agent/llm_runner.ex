@@ -5,9 +5,9 @@ defmodule Zaq.Agent.LLMRunner do
 
   alias LangChain.Chains.LLMChain
   alias LangChain.Message
-  alias Zaq.Agent.LLM
   alias LangChain.Message.ContentPart
   alias LangChain.Utils.ChainResult
+  alias Zaq.Agent.LLM
 
   @empty_content_log_ttl_ms 60_000
   @diag_table :zaq_llm_runner_diag
