@@ -106,13 +106,13 @@
 ### State transitions belong in their own module
 
 - When state transitions have associated side effects (PubSub broadcast, audit log), extract them into a dedicated module so the side effect can never be missed.
-- Example: `Zaq.Ingestion.JobLifecycle` owns all `IngestJob` transitions + broadcast — no caller transitions state directly.
+- Example: Zaq.Ingestion.JobLifecycle owns all `IngestJob` transitions + broadcast — no caller transitions state directly.
 
 ### Single-operation services
 
 - When an operation is complex (multi-step, involves FS + DB, or has a rollback strategy), extract it into a focused `*Service` module.
 - Do not spread the operation across a context module and a LiveView.
-- Examples: `Zaq.Ingestion.DeleteService`, `Zaq.Ingestion.RenameService`.
+- Examples: Zaq.Ingestion.DeleteService, Zaq.Ingestion.RenameService.
 
 ### Oban workers carry only IDs
 
