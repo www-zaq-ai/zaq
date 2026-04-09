@@ -14,7 +14,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Threading do
   @spec resolve_thread_id(map()) :: String.t() | nil
   def resolve_thread_id(headers) when is_map(headers) do
     in_reply_to =
-      EmailUtils.normalize_message_id(Map.get(headers, "in_reply_to") || Map.get(headers, :in_reply_to))
+      EmailUtils.normalize_message_id(
+        Map.get(headers, "in_reply_to") || Map.get(headers, :in_reply_to)
+      )
 
     references =
       Map.get(headers, "references") ||
@@ -23,7 +25,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Threading do
         Map.get(headers, :references_header)
 
     message_id =
-      EmailUtils.normalize_message_id(Map.get(headers, "message_id") || Map.get(headers, :message_id))
+      EmailUtils.normalize_message_id(
+        Map.get(headers, "message_id") || Map.get(headers, :message_id)
+      )
 
     in_reply_to || last_reference(references) || message_id
   end
@@ -39,10 +43,14 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Threading do
         Map.get(headers, :references_header)
 
     in_reply_to =
-      EmailUtils.normalize_message_id(Map.get(headers, "in_reply_to") || Map.get(headers, :in_reply_to))
+      EmailUtils.normalize_message_id(
+        Map.get(headers, "in_reply_to") || Map.get(headers, :in_reply_to)
+      )
 
     message_id =
-      EmailUtils.normalize_message_id(Map.get(headers, "message_id") || Map.get(headers, :message_id))
+      EmailUtils.normalize_message_id(
+        Map.get(headers, "message_id") || Map.get(headers, :message_id)
+      )
 
     first_reference(references) || in_reply_to || message_id
   end
