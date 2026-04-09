@@ -196,6 +196,6 @@ defmodule Zaq.Ingestion.Chunk do
   def reset_table(new_dimension) when is_integer(new_dimension) do
     drop_table()
     create_table(new_dimension)
-    Hooks.dispatch_after(:after_embedding_reset, %{new_dimension: new_dimension}, %{})
+    Hooks.dispatch_async(:embedding_reset, %{new_dimension: new_dimension}, %{})
   end
 end

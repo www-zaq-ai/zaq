@@ -8,7 +8,7 @@ defmodule Zaq.Hooks.Hook do
     * `:events`    — list of event atoms this hook subscribes to
     * `:mode`      — `:sync` (mutates payload, can halt) or `:async` (fire-and-forget)
     * `:node_role` — target role for async dispatch via `NodeRouter`; `:local` spawns a Task
-    * `:priority`  — lower numbers run first (default `50`); only meaningful for `:before_*` sync hooks
+    * `:priority`  — lower numbers run first (default `50`); only meaningful for `dispatch_sync` hooks
   """
 
   @enforce_keys [:handler, :events, :mode]

@@ -135,6 +135,7 @@ defmodule Zaq.MixProject do
         "deps.unlock --unused",
         "format",
         "credo --strict",
+        "hooks.verify",
         "test",
         "e2e"
       ]

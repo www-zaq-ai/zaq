@@ -12,14 +12,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   # ── Stub modules ──────────────────────────────────────────────────────
 
   defmodule StubHooks do
-    def dispatch_before(:reply_received, post, _ctx) do
+    def dispatch_sync(:reply_received, post, _ctx) do
       (Process.whereis(:bridge_test_observer) || self())
       |> then(&send(&1, {:reply_received, post}))
 
       :ok
     end
 
-    def dispatch_before(_event, _payload, _ctx), do: :ok
+    def dispatch_sync(_event, _payload, _ctx), do: :ok
   end
 
   defmodule StubPipeline do

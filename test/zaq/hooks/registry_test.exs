@@ -48,9 +48,9 @@ defmodule Zaq.Hooks.RegistryTest do
   # ---------------------------------------------------------------------------
 
   test "register a hook for one event — lookup returns it" do
-    h = hook(HandlerA, [:after_retrieval])
+    h = hook(HandlerA, [:event_b])
     Registry.register(h)
-    assert [^h] = Registry.lookup(:after_retrieval)
+    assert [^h] = Registry.lookup(:event_b)
   end
 
   # ---------------------------------------------------------------------------
@@ -58,10 +58,10 @@ defmodule Zaq.Hooks.RegistryTest do
   # ---------------------------------------------------------------------------
 
   test "register a hook for multiple events — appears in each lookup" do
-    h = hook(HandlerA, [:before_retrieval, :after_retrieval])
+    h = hook(HandlerA, [:event_a, :event_b])
     Registry.register(h)
-    assert [^h] = Registry.lookup(:before_retrieval)
-    assert [^h] = Registry.lookup(:after_retrieval)
+    assert [^h] = Registry.lookup(:event_a)
+    assert [^h] = Registry.lookup(:event_b)
   end
 
   # ---------------------------------------------------------------------------
@@ -69,13 +69,13 @@ defmodule Zaq.Hooks.RegistryTest do
   # ---------------------------------------------------------------------------
 
   test "two hooks with different priorities — lower priority runs first" do
-    low = hook(HandlerA, [:before_retrieval], priority: 10)
-    high = hook(HandlerB, [:before_retrieval], priority: 90)
+    low = hook(HandlerA, [:event_a], priority: 10)
+    high = hook(HandlerB, [:event_a], priority: 90)
 
     Registry.register(high)
     Registry.register(low)
 
-    [first, second] = Registry.lookup(:before_retrieval)
+    [first, second] = Registry.lookup(:event_a)
     assert first.handler == HandlerA
     assert second.handler == HandlerB
   end
@@ -85,13 +85,13 @@ defmodule Zaq.Hooks.RegistryTest do
   # ---------------------------------------------------------------------------
 
   test "registering the same handler twice for the same event — second replaces first" do
-    h1 = hook(HandlerA, [:before_retrieval], priority: 10)
-    h2 = hook(HandlerA, [:before_retrieval], priority: 20)
+    h1 = hook(HandlerA, [:event_a], priority: 10)
+    h2 = hook(HandlerA, [:event_a], priority: 20)
 
     Registry.register(h1)
     Registry.register(h2)
 
-    hooks = Registry.lookup(:before_retrieval)
+    hooks = Registry.lookup(:event_a)
     assert length(hooks) == 1
     assert hd(hooks).priority == 20
   end
@@ -101,13 +101,13 @@ defmodule Zaq.Hooks.RegistryTest do
   # ---------------------------------------------------------------------------
 
   test "unregister a handler — all its events return []" do
-    h = hook(HandlerA, [:before_retrieval, :after_retrieval])
+    h = hook(HandlerA, [:event_a, :event_b])
     Registry.register(h)
 
     Registry.unregister(HandlerA)
 
-    assert Registry.lookup(:before_retrieval) == []
-    assert Registry.lookup(:after_retrieval) == []
+    assert Registry.lookup(:event_a) == []
+    assert Registry.lookup(:event_b) == []
   end
 
   # ---------------------------------------------------------------------------
@@ -131,9 +131,9 @@ defmodule Zaq.Hooks.RegistryTest do
   # ---------------------------------------------------------------------------
 
   test "registry crash and restart — ETS is rebuilt empty", %{registry_name: name} do
-    h = hook(HandlerA, [:before_retrieval])
+    h = hook(HandlerA, [:event_a])
     Registry.register(h)
-    assert [_] = Registry.lookup(:before_retrieval)
+    assert [_] = Registry.lookup(:event_a)
 
     # Kill the Registry process; ExUnit's supervisor will restart it
     pid = Process.whereis(name)
@@ -150,6 +150,6 @@ defmodule Zaq.Hooks.RegistryTest do
     _ = :sys.get_state(name)
 
     # ETS is fresh after restart
-    assert Registry.lookup(:before_retrieval) == []
+    assert Registry.lookup(:event_a) == []
   end
 end

@@ -172,158 +172,158 @@ defmodule Zaq.HooksTest do
   end
 
   # ---------------------------------------------------------------------------
-  # dispatch_before — Scenarios 9-16
+  # dispatch_sync — Scenarios 9-16
   # ---------------------------------------------------------------------------
 
   # Scenario 9
-  test "dispatch_before with no hooks — returns {:ok, original_payload}" do
+  test "dispatch_sync with no hooks — returns {:ok, original_payload}" do
     payload = %{question: "hello"}
-    assert {:ok, ^payload} = Hooks.dispatch_before(:before_retrieval, payload, %{})
+    assert {:ok, ^payload} = Hooks.dispatch_sync(:retrieval, payload, %{})
   end
 
   # Scenario 10
-  test "dispatch_before single hook returns {:ok, new_payload} — returns new_payload" do
-    Registry.register(sync_hook(MutatingHook, [:before_retrieval]))
+  test "dispatch_sync single hook returns {:ok, new_payload} — returns new_payload" do
+    Registry.register(sync_hook(MutatingHook, [:retrieval]))
 
     assert {:ok, %{enriched: true}} =
-             Hooks.dispatch_before(:before_retrieval, %{}, %{})
+             Hooks.dispatch_sync(:retrieval, %{}, %{})
   end
 
   # Scenario 11
-  test "dispatch_before two hooks in priority order — each mutates, second receives first's output" do
-    Registry.register(sync_hook(FirstHook, [:before_retrieval], 10))
-    Registry.register(sync_hook(SecondHook, [:before_retrieval], 20))
+  test "dispatch_sync two hooks in priority order — each mutates, second receives first's output" do
+    Registry.register(sync_hook(FirstHook, [:retrieval], 10))
+    Registry.register(sync_hook(SecondHook, [:retrieval], 20))
 
     assert {:ok, %{first: true, second: true}} =
-             Hooks.dispatch_before(:before_retrieval, %{}, %{})
+             Hooks.dispatch_sync(:retrieval, %{}, %{})
   end
 
   # Scenario 12
-  test "dispatch_before hook halts — chain stops, subsequent hooks NOT called" do
-    Registry.register(sync_hook(HaltingHook, [:before_retrieval], 10))
-    Registry.register(sync_hook(AfterHaltHook, [:before_retrieval], 20))
+  test "dispatch_sync hook halts — chain stops, subsequent hooks NOT called" do
+    Registry.register(sync_hook(HaltingHook, [:retrieval], 10))
+    Registry.register(sync_hook(AfterHaltHook, [:retrieval], 20))
 
-    assert {:halt, _} = Hooks.dispatch_before(:before_retrieval, %{}, %{})
+    assert {:halt, _} = Hooks.dispatch_sync(:retrieval, %{}, %{})
     refute_received :should_not_be_called
   end
 
   # Scenario 13
-  test "dispatch_before hook returns {:error, reason} — skipped, chain continues" do
-    Registry.register(sync_hook(ErrorHook, [:before_retrieval], 10))
-    Registry.register(sync_hook(AfterErrorHook, [:before_retrieval], 20))
+  test "dispatch_sync hook returns {:error, reason} — skipped, chain continues" do
+    Registry.register(sync_hook(ErrorHook, [:retrieval], 10))
+    Registry.register(sync_hook(AfterErrorHook, [:retrieval], 20))
 
     assert {:ok, %{after_error: true}} =
-             Hooks.dispatch_before(:before_retrieval, %{}, %{})
+             Hooks.dispatch_sync(:retrieval, %{}, %{})
   end
 
   # Scenario 14
-  test "dispatch_before hook raises — caught, chain continues with previous payload" do
-    Registry.register(sync_hook(CrashingHook, [:before_retrieval], 10))
-    Registry.register(sync_hook(MutatingHook, [:before_retrieval], 20))
+  test "dispatch_sync hook raises — caught, chain continues with previous payload" do
+    Registry.register(sync_hook(CrashingHook, [:retrieval], 10))
+    Registry.register(sync_hook(MutatingHook, [:retrieval], 20))
 
     assert {:ok, %{enriched: true}} =
-             Hooks.dispatch_before(:before_retrieval, %{}, %{})
+             Hooks.dispatch_sync(:retrieval, %{}, %{})
   end
 
   # Scenario 15
-  test "dispatch_before ignores async hooks — only sync hooks run" do
-    Registry.register(async_hook(MutatingHook, [:before_retrieval]))
+  test "dispatch_sync ignores async hooks — only sync hooks run" do
+    Registry.register(async_hook(MutatingHook, [:retrieval]))
 
     payload = %{question: "hello"}
-    assert {:ok, ^payload} = Hooks.dispatch_before(:before_retrieval, payload, %{})
+    assert {:ok, ^payload} = Hooks.dispatch_sync(:retrieval, payload, %{})
   end
 
   # Scenario 16
-  test "dispatch_before hook returns :ok — pass-through, payload unchanged, chain continues" do
-    Registry.register(sync_hook(ObserverHook, [:before_retrieval], 10))
-    Registry.register(sync_hook(MutatingHook, [:before_retrieval], 20))
+  test "dispatch_sync hook returns :ok — pass-through, payload unchanged, chain continues" do
+    Registry.register(sync_hook(ObserverHook, [:retrieval], 10))
+    Registry.register(sync_hook(MutatingHook, [:retrieval], 20))
 
     assert {:ok, %{enriched: true}} =
-             Hooks.dispatch_before(:before_retrieval, %{}, %{})
+             Hooks.dispatch_sync(:retrieval, %{}, %{})
   end
 
   # ---------------------------------------------------------------------------
-  # dispatch_after — Scenarios 17-24
+  # dispatch_async — Scenarios 17-24
   # ---------------------------------------------------------------------------
 
   # Scenario 17
-  test "dispatch_after with no hooks — returns :ok" do
-    assert :ok = Hooks.dispatch_after(:after_retrieval, %{}, %{})
+  test "dispatch_async with no hooks — returns :ok" do
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, %{}, %{})
   end
 
   # Scenario 18
-  test "dispatch_after sync observer called — receives correct args, returns :ok" do
+  test "dispatch_async sync observer called — receives correct args, returns :ok" do
     ctx = %{trace_id: "abc"}
     payload = %{data: 42, notify: self()}
 
-    Registry.register(sync_hook(VerifyingObserver, [:after_retrieval]))
-    assert :ok = Hooks.dispatch_after(:after_retrieval, payload, ctx)
-    assert_received {:called, :after_retrieval, ^payload, ^ctx}
+    Registry.register(sync_hook(VerifyingObserver, [:retrieval_complete]))
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, payload, ctx)
+    assert_received {:called, :retrieval_complete, ^payload, ^ctx}
   end
 
   # Scenario 19
-  test "dispatch_after sync observer raises — caught, other observers still run" do
-    Registry.register(sync_hook(CrashingHook, [:after_retrieval], 10))
-    Registry.register(sync_hook(AfterCrashObserver, [:after_retrieval], 20))
+  test "dispatch_async sync observer raises — caught, other observers still run" do
+    Registry.register(sync_hook(CrashingHook, [:retrieval_complete], 10))
+    Registry.register(sync_hook(AfterCrashObserver, [:retrieval_complete], 20))
 
-    assert :ok = Hooks.dispatch_after(:after_retrieval, %{notify: self()}, %{})
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, %{notify: self()}, %{})
     assert_received :after_crash_ran
   end
 
   # Scenario 20
-  test "dispatch_after async hook with node_role: :local — Task.start used, caller returns :ok immediately" do
+  test "dispatch_async async hook with node_role: :local — Task.start used, caller returns :ok immediately" do
     test_pid = self()
     payload = %{notify: test_pid}
 
-    Registry.register(async_hook(AsyncHook, [:after_retrieval], :local))
+    Registry.register(async_hook(AsyncHook, [:retrieval_complete], :local))
 
-    assert :ok = Hooks.dispatch_after(:after_retrieval, payload, %{})
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, payload, %{})
     assert_receive :async_called, 1000
   end
 
   # Scenario 21
-  test "dispatch_after async hook with node_role — NodeRouter.call is invoked inside a Task" do
+  test "dispatch_async async hook with node_role — NodeRouter.call is invoked inside a Task" do
     Application.put_env(:zaq, :hooks_node_router_module, FakeNodeRouter)
 
-    Registry.register(async_hook(PassThroughHook, [:after_retrieval], :agent))
+    Registry.register(async_hook(PassThroughHook, [:retrieval_complete], :agent))
 
     payload = %{data: 1, notify: self()}
     ctx = %{trace_id: "xyz"}
 
-    assert :ok = Hooks.dispatch_after(:after_retrieval, payload, ctx)
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, payload, ctx)
 
     assert_receive {:router_called, :agent, PassThroughHook, :handle,
-                    [:after_retrieval, ^payload, ^ctx]},
+                    [:retrieval_complete, ^payload, ^ctx]},
                    1000
   end
 
   # Scenario 22
-  test "dispatch_after async hook NodeRouter call fails — error caught, caller not affected" do
+  test "dispatch_async async hook NodeRouter call fails — error caught, caller not affected" do
     Application.put_env(:zaq, :hooks_node_router_module, FailingNodeRouter)
 
-    Registry.register(async_hook(PassThroughHook, [:after_retrieval], :agent))
+    Registry.register(async_hook(PassThroughHook, [:retrieval_complete], :agent))
 
-    assert :ok = Hooks.dispatch_after(:after_retrieval, %{}, %{})
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, %{}, %{})
     # Give task time to complete
     Process.sleep(50)
   end
 
   # Scenario 23
-  test "dispatch_after mixed sync + async — sync runs in-process, async spawned, all get same payload snapshot" do
+  test "dispatch_async mixed sync + async — sync runs in-process, async spawned, all get same payload snapshot" do
     payload = %{data: "snap", notify: self()}
 
-    Registry.register(sync_hook(SyncCapture, [:after_retrieval]))
-    Registry.register(async_hook(AsyncHook, [:after_retrieval], :local))
+    Registry.register(sync_hook(SyncCapture, [:retrieval_complete]))
+    Registry.register(async_hook(AsyncHook, [:retrieval_complete], :local))
 
-    assert :ok = Hooks.dispatch_after(:after_retrieval, payload, %{})
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, payload, %{})
     assert_receive {:sync, ^payload}
     assert_receive :async_called, 1000
   end
 
   # Scenario 24
-  test "dispatch_after always returns :ok — even when hooks error or crash" do
-    Registry.register(sync_hook(CrashingHook, [:after_retrieval]))
-    assert :ok = Hooks.dispatch_after(:after_retrieval, %{}, %{})
+  test "dispatch_async always returns :ok — even when hooks error or crash" do
+    Registry.register(sync_hook(CrashingHook, [:retrieval_complete]))
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, %{}, %{})
   end
 
   # ---------------------------------------------------------------------------
@@ -331,33 +331,33 @@ defmodule Zaq.HooksTest do
   # ---------------------------------------------------------------------------
 
   # Scenario 25
-  test "dispatch_before emits :start and :stop telemetry with hook_count and duration" do
+  test "dispatch_sync emits :start and :stop telemetry with hook_count and duration" do
     attach_telemetry(self())
-    Registry.register(sync_hook(PassThroughHook, [:before_retrieval]))
+    Registry.register(sync_hook(PassThroughHook, [:retrieval]))
 
-    Hooks.dispatch_before(:before_retrieval, %{}, %{})
+    Hooks.dispatch_sync(:retrieval, %{}, %{})
 
     assert_receive {:telemetry, [:zaq, :hooks, :dispatch, :start], %{},
-                    %{event: :before_retrieval, mode: :sync, hook_count: 1}}
+                    %{event: :retrieval, mode: :sync, hook_count: 1}}
 
     assert_receive {:telemetry, [:zaq, :hooks, :dispatch, :stop], %{duration: duration},
-                    %{event: :before_retrieval, mode: :sync}}
+                    %{event: :retrieval, mode: :sync}}
 
     assert is_integer(duration)
   end
 
   # Scenario 26
-  test "dispatch_after emits :start and :stop telemetry with hook_count and duration" do
+  test "dispatch_async emits :start and :stop telemetry with hook_count and duration" do
     attach_telemetry(self())
-    Registry.register(sync_hook(PassThroughHook, [:after_retrieval]))
+    Registry.register(sync_hook(PassThroughHook, [:retrieval_complete]))
 
-    Hooks.dispatch_after(:after_retrieval, %{}, %{})
+    Hooks.dispatch_async(:retrieval_complete, %{}, %{})
 
     assert_receive {:telemetry, [:zaq, :hooks, :dispatch, :start], %{},
-                    %{event: :after_retrieval, mode: :after, hook_count: 1}}
+                    %{event: :retrieval_complete, mode: :async, hook_count: 1}}
 
     assert_receive {:telemetry, [:zaq, :hooks, :dispatch, :stop], %{duration: duration},
-                    %{event: :after_retrieval, mode: :after}}
+                    %{event: :retrieval_complete, mode: :async}}
 
     assert is_integer(duration)
   end
@@ -365,23 +365,23 @@ defmodule Zaq.HooksTest do
   # Scenario 27
   test "handler returning {:error, reason} emits :handler :error telemetry with correct metadata" do
     attach_telemetry(self())
-    Registry.register(sync_hook(ErrorHook, [:before_retrieval]))
+    Registry.register(sync_hook(ErrorHook, [:retrieval]))
 
-    Hooks.dispatch_before(:before_retrieval, %{}, %{})
+    Hooks.dispatch_sync(:retrieval, %{}, %{})
 
     assert_receive {:telemetry, [:zaq, :hooks, :handler, :error], %{},
-                    %{event: :before_retrieval, handler: ErrorHook, reason: :something_went_wrong}}
+                    %{event: :retrieval, handler: ErrorHook, reason: :something_went_wrong}}
   end
 
   # Scenario 28
   test "handler raising an exception emits :handler :error telemetry with exception as reason" do
     attach_telemetry(self())
-    Registry.register(sync_hook(CrashingHook, [:before_retrieval]))
+    Registry.register(sync_hook(CrashingHook, [:retrieval]))
 
-    Hooks.dispatch_before(:before_retrieval, %{}, %{})
+    Hooks.dispatch_sync(:retrieval, %{}, %{})
 
     assert_receive {:telemetry, [:zaq, :hooks, :handler, :error], %{},
-                    %{event: :before_retrieval, handler: CrashingHook, reason: reason}}
+                    %{event: :retrieval, handler: CrashingHook, reason: reason}}
 
     assert is_struct(reason, RuntimeError)
   end
