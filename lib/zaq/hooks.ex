@@ -24,8 +24,10 @@ defmodule Zaq.Hooks do
 
   ## Events
 
-  All events must be registered here. Use `documented_events/0` to get the list
-  programmatically (e.g. in `mix hooks.verify`).
+  All events must be registered here and in `@documented_events`.
+  Use `documented_events/0` to get the list programmatically.
+  `mix hooks.verify` (run automatically in `mix precommit`) will fail if an event
+  is dispatched from `lib/` but not present in `documented_events/0`.
 
   ### Agent Pipeline — `Zaq.Agent.Pipeline`
 

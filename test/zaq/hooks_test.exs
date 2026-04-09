@@ -508,7 +508,7 @@ defmodule Zaq.HooksTest do
   test "documented_events/0 returns a non-empty list of atoms" do
     events = Hooks.documented_events()
     assert is_list(events)
-    assert events != []
+    assert [_ | _] = events
     assert Enum.all?(events, &is_atom/1)
   end
 
@@ -523,5 +523,21 @@ defmodule Zaq.HooksTest do
     assert :embedding_reset in events
     assert :feedback_provided in events
     assert :reply_received in events
+  end
+
+  # Scenario 38
+  test "every event in documented_events/0 has a matching section header in Zaq.Hooks moduledoc" do
+    # Ensures @documented_events and the prose documentation stay in sync.
+    # Uses Code.fetch_docs/1 to retrieve the compiled moduledoc string.
+    {:docs_v1, _anno, _lang, _format, %{"en" => moduledoc}, _metadata, _docs} =
+      Code.fetch_docs(Hooks)
+
+    Enum.each(Hooks.documented_events(), fn event ->
+      # Moduledoc headers use backtick-wrapped atoms, e.g. "#### `:retrieval`"
+      expected_header = "#### `:#{event}`"
+
+      assert String.contains?(moduledoc, expected_header),
+             "Expected moduledoc to contain '#{expected_header}' for documented event :#{event}"
+    end)
   end
 end

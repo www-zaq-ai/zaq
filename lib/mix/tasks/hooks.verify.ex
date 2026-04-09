@@ -17,11 +17,30 @@ defmodule Mix.Tasks.Hooks.Verify do
       mix hooks.verify
 
   Exits non-zero on any violation.
+
+  ## Known limitations
+
+  The source scan uses a regex (`dispatch_(?:sync|async)\\(\\s*:(\\w+)`) that
+  only captures *literal* event atoms as the first argument. Calls that pass the
+  event as a variable or build it dynamically are not detected:
+
+      event = :my_event
+      Hooks.dispatch_sync(event, payload, ctx)   # NOT detected
+
+  Always use a literal atom as the first argument to `dispatch_sync/3` and
+  `dispatch_async/3`.
   """
 
   @impl Mix.Task
   def run(_args) do
-    Mix.Task.run("app.start")
+    try do
+      Mix.Task.run("compile", [])
+      Mix.Task.run("app.start")
+    rescue
+      e in Mix.Error ->
+        Mix.shell().error("Failed to start application: #{Exception.message(e)}")
+        exit({:shutdown, 1})
+    end
 
     documented = Zaq.Hooks.documented_events()
     dispatch_sites = find_dispatch_sites()
@@ -60,11 +79,15 @@ defmodule Mix.Tasks.Hooks.Verify do
   # Scans lib/**/*.ex for dispatch_sync/dispatch_async calls and returns
   # a list of {event_atom, file_path} tuples.
   defp find_dispatch_sites do
-    Path.wildcard("lib/**/*.ex")
+    glob = Application.get_env(:zaq, :hooks_verify_glob, "lib/**/*.ex")
+
+    Path.wildcard(glob)
     |> Enum.flat_map(&scan_file/1)
   end
 
-  defp scan_file(path) do
+  # Exposed for testing. Returns [{event_atom, file_path}] from a single file.
+  @doc false
+  def scan_file(path) do
     content = File.read!(path)
 
     ~r/dispatch_(?:sync|async)\(\s*:(\w+)/
