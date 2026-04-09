@@ -125,12 +125,13 @@ defmodule Zaq.Accounts.People do
   @spec find_or_create_from_channel(atom() | String.t(), map()) ::
           {:ok, Person.t()} | {:error, term()}
   def find_or_create_from_channel(platform, attrs) do
-    platform_str = to_string(platform)
+    platform_str = platform |> to_string() |> canonical_platform()
     attrs_with_platform = Map.put_new(attrs, "platform", platform_str)
 
     case match_person(attrs_with_platform) do
       {:ok, person} ->
         ensure_channel_linked(person, platform_str, attrs_with_platform)
+        maybe_link_email_channel(person, platform_str, attrs_with_platform)
         person = backfill_person(person, attrs_with_platform)
         {:ok, Repo.preload(person, channels: channels_ordered())}
 
@@ -399,6 +400,21 @@ defmodule Zaq.Accounts.People do
     end
   end
 
+  defp canonical_platform("email:imap"), do: "email"
+  defp canonical_platform(platform), do: platform
+
+  defp maybe_link_email_channel(person, platform, attrs) do
+    email = Map.get(attrs, "email") || Map.get(attrs, :email)
+
+    if is_binary(email) and email != "" and platform != "email" do
+      ensure_channel_linked(person, "email", %{
+        "channel_id" => email,
+        "email" => email,
+        "display_name" => Map.get(attrs, "display_name") || Map.get(attrs, :display_name)
+      })
+    end
+  end
+
   defp backfill_person(person, attrs) do
     updates =
       %{}
@@ -440,6 +456,8 @@ defmodule Zaq.Accounts.People do
             phone: channel_attrs.phone,
             dm_channel_id: channel_attrs.dm_channel_id
           })
+
+          maybe_link_email_channel(person, platform, channel_attrs)
 
           Repo.preload(person, channels: channels_ordered())
 

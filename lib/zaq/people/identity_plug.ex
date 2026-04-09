@@ -32,7 +32,7 @@ defmodule Zaq.People.IdentityPlug do
   defp resolve(%Incoming{author_id: nil}, _opts), do: {:error, :no_author}
 
   defp resolve(%Incoming{} = incoming, opts) do
-    platform = to_string(incoming.provider)
+    platform = incoming.provider |> to_string() |> canonical_platform()
 
     canonical =
       Resolver.normalize(platform, %{
@@ -102,6 +102,9 @@ defmodule Zaq.People.IdentityPlug do
   end
 
   defp find_channel(_person, _platform, _channel_id), do: nil
+
+  defp canonical_platform("email:imap"), do: "email"
+  defp canonical_platform(platform), do: platform
 
   defp stringify_profile(profile) do
     Map.new(profile, fn
