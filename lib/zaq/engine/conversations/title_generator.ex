@@ -12,8 +12,8 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   require Logger
 
   alias LangChain.Chains.LLMChain
-  alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.ChatModels.ChatAnthropic
+  alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.Message
   alias Zaq.Agent.{LLM, LLMRunner}
   alias Zaq.Utils.TextUtils
