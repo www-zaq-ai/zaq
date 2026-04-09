@@ -33,6 +33,33 @@ defmodule Zaq.HooksTest do
     def handle(_event, _payload, _ctx), do: raise("boom")
   end
 
+  defmodule ThrowingHook do
+    @behaviour Zaq.Hooks.Handler
+    def handle(_event, _payload, _ctx), do: throw(:thrown_value)
+  end
+
+  defmodule AsyncThrowingHook do
+    @behaviour Zaq.Hooks.Handler
+    def handle(_event, payload, _ctx) do
+      if dest = Map.get(payload, :notify) do
+        send(dest, :before_throw)
+      end
+
+      throw(:async_thrown)
+    end
+  end
+
+  defmodule AsyncCrashingHook do
+    @behaviour Zaq.Hooks.Handler
+    def handle(_event, payload, _ctx) do
+      if dest = Map.get(payload, :notify) do
+        send(dest, :before_crash)
+      end
+
+      raise("async boom")
+    end
+  end
+
   defmodule ObserverHook do
     @behaviour Zaq.Hooks.Handler
     def handle(_event, _payload, _ctx), do: :ok
@@ -384,5 +411,114 @@ defmodule Zaq.HooksTest do
                     %{event: :retrieval, handler: CrashingHook, reason: reason}}
 
     assert is_struct(reason, RuntimeError)
+  end
+
+  # ---------------------------------------------------------------------------
+  # dispatch_sync — throw (catch) branch
+  # ---------------------------------------------------------------------------
+
+  # Scenario 29
+  test "dispatch_sync hook throws — caught, chain continues with previous payload" do
+    Registry.register(sync_hook(ThrowingHook, [:retrieval], 10))
+    Registry.register(sync_hook(MutatingHook, [:retrieval], 20))
+
+    assert {:ok, %{enriched: true}} = Hooks.dispatch_sync(:retrieval, %{}, %{})
+  end
+
+  # Scenario 30
+  test "dispatch_sync hook throws — emits :handler :error telemetry with {kind, reason} as reason" do
+    attach_telemetry(self())
+    Registry.register(sync_hook(ThrowingHook, [:retrieval]))
+
+    Hooks.dispatch_sync(:retrieval, %{}, %{})
+
+    assert_receive {:telemetry, [:zaq, :hooks, :handler, :error], %{},
+                    %{event: :retrieval, handler: ThrowingHook, reason: {:throw, :thrown_value}}}
+  end
+
+  # ---------------------------------------------------------------------------
+  # dispatch_async observer — throw (catch) branch
+  # ---------------------------------------------------------------------------
+
+  # Scenario 31
+  test "dispatch_async sync observer throws — caught, other observers still run" do
+    Registry.register(sync_hook(ThrowingHook, [:retrieval_complete], 10))
+    Registry.register(sync_hook(AfterCrashObserver, [:retrieval_complete], 20))
+
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, %{notify: self()}, %{})
+    assert_received :after_crash_ran
+  end
+
+  # Scenario 32
+  test "dispatch_async sync observer throws — emits :handler :error telemetry" do
+    attach_telemetry(self())
+    Registry.register(sync_hook(ThrowingHook, [:retrieval_complete]))
+
+    Hooks.dispatch_async(:retrieval_complete, %{}, %{})
+
+    assert_receive {:telemetry, [:zaq, :hooks, :handler, :error], %{},
+                    %{event: :retrieval_complete, handler: ThrowingHook,
+                      reason: {:throw, :thrown_value}}}
+  end
+
+  # ---------------------------------------------------------------------------
+  # dispatch_async local Task — rescue and catch branches
+  # ---------------------------------------------------------------------------
+
+  # Scenario 33
+  test "dispatch_async async local hook raises — error caught in Task, caller not affected" do
+    Registry.register(async_hook(AsyncCrashingHook, [:retrieval_complete], :local))
+
+    payload = %{notify: self()}
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, payload, %{})
+    assert_receive :before_crash, 1000
+  end
+
+  # Scenario 34
+  test "dispatch_async async local hook throws — error caught in Task, caller not affected" do
+    Registry.register(async_hook(AsyncThrowingHook, [:retrieval_complete], :local))
+
+    payload = %{notify: self()}
+    assert :ok = Hooks.dispatch_async(:retrieval_complete, payload, %{})
+    assert_receive :before_throw, 1000
+  end
+
+  # Scenario 35
+  test "dispatch_async async local hook raises — emits :handler :error telemetry from Task" do
+    attach_telemetry(self())
+    Registry.register(async_hook(AsyncCrashingHook, [:retrieval_complete], :local))
+
+    Hooks.dispatch_async(:retrieval_complete, %{}, %{})
+
+    assert_receive {:telemetry, [:zaq, :hooks, :handler, :error], %{},
+                    %{event: :retrieval_complete, handler: AsyncCrashingHook, reason: reason}},
+                   1000
+
+    assert is_struct(reason, RuntimeError)
+  end
+
+  # ---------------------------------------------------------------------------
+  # documented_events/0
+  # ---------------------------------------------------------------------------
+
+  # Scenario 36
+  test "documented_events/0 returns a non-empty list of atoms" do
+    events = Hooks.documented_events()
+    assert is_list(events)
+    assert length(events) > 0
+    assert Enum.all?(events, &is_atom/1)
+  end
+
+  # Scenario 37
+  test "documented_events/0 includes all known dispatch sites" do
+    events = Hooks.documented_events()
+    assert :retrieval in events
+    assert :retrieval_complete in events
+    assert :answering in events
+    assert :answer_generated in events
+    assert :pipeline_complete in events
+    assert :embedding_reset in events
+    assert :feedback_provided in events
+    assert :reply_received in events
   end
 end
