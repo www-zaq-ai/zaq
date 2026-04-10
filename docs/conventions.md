@@ -5,7 +5,7 @@
 | What | Convention | Example |
 |---|---|---|
 | Contexts | `lib/zaq/<context>/` | `Zaq.Accounts`, `Zaq.Ingestion` |
-| LiveViews | `lib/zaq_web/live/bo/<section>/` | `ZaqWeb.Live.BO.Communication.ConversationsLive` |
+| LiveViews | `lib/zaq_web/live/bo/<section>/` | `ZaqWeb.Live.BO.Communication.HistoryLive` |
 | LiveView modules | `ZaqWeb.Live.BO.<Section>.<n>Live` | `ZaqWeb.Live.BO.AI.IngestionLive` |
 | Context functions | `create_x/1`, `update_x/2`, `delete_x/1` | `create_user/1`, `update_role/2` |
 | Schemas | `Zaq.<Context>.<Entity>` | `Zaq.Accounts.User` |

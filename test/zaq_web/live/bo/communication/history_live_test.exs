@@ -24,6 +24,28 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
     assert html =~ "conversations"
   end
 
+  describe "legacy conversations index intent" do
+    test "shows channel column", %{conn: conn, user: user} do
+      _conv = create_conv(user.id, %{title: "Channel Column Conv"})
+      {:ok, _view, html} = live(conn, ~p"/bo/history")
+
+      assert html =~ "Channel"
+    end
+
+    test "shows empty state when no conversations", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/history")
+
+      assert html =~ "No conversations found"
+    end
+
+    test "renders link to conversation detail", %{conn: conn, user: user} do
+      conv = create_conv(user.id, %{title: "Detail Link Conv"})
+      {:ok, _view, html} = live(conn, ~p"/bo/history")
+
+      assert html =~ "/bo/conversations/#{conv.id}"
+    end
+  end
+
   describe "mount" do
     test "shows conversations for current user", %{conn: conn, user: user} do
       conv = create_conv(user.id, %{title: "My History Conv"})
