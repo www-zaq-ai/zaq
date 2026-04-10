@@ -186,6 +186,16 @@ defmodule Zaq.Ingestion.DocumentChunker do
           position
         )
 
+      html_comment?(line) ->
+        parse_markdown_lines(
+          rest,
+          sections,
+          current_content,
+          current_section,
+          heading_stack,
+          position + 1
+        )
+
       true ->
         new_content = [line | current_content]
 
@@ -420,6 +430,24 @@ defmodule Zaq.Ingestion.DocumentChunker do
     String.match?(line, ~r/^>\s*\*\*\[Image:\s*[^\]]+\]\*\*/)
   end
 
+  defp html_comment?(line) do
+    String.match?(String.trim(line), ~r/^<!--.*-->$/)
+  end
+
+  defp bold_heading_candidate?(text) do
+    word_count = text |> String.split(~r/\s+/, trim: true) |> length()
+
+    cond do
+      # Sentence-like: ends with terminating punctuation
+      String.match?(text, ~r/[.!?»"]\s*$/) -> false
+      # Too many words to be a title
+      word_count > 8 -> false
+      # Measurement: a bare number followed by a single unit word (e.g. "2.5 m", "20 cm")
+      Regex.match?(~r/^\d+[\.,]?\d*\s+[a-zA-Z]+$/, text) -> false
+      true -> true
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Heading parsers
   # ---------------------------------------------------------------------------
@@ -432,7 +460,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defp parse_bold_heading(line) do
-    case Regex.run(~r/^\*\*(\d+\.?\d*\.?)\*\*\s+\*\*(.+?)\*\*\s*$/, line) do
+    case Regex.run(~r/^\*\*(\d+(?:\.\d+)*\.?)\*\*\s+\*\*(.+?)\*\*\s*$/, line) do
       [_, number, title] -> handle_bold_numbered_heading(line, number, title)
       nil -> handle_bold_simple_heading(line)
     end
@@ -450,15 +478,18 @@ defmodule Zaq.Ingestion.DocumentChunker do
 
   defp handle_bold_simple_heading(line) do
     case Regex.run(~r/^\*\*([^*]+)\*\*\s*$/, line) do
-      [_, title] -> process_bold_title(title)
-      nil -> nil
+      [_, title] ->
+        if bold_heading_candidate?(String.trim(title)), do: process_bold_title(title), else: nil
+
+      nil ->
+        nil
     end
   end
 
   defp process_bold_title(title) do
     clean_title = String.trim(title)
 
-    if Regex.match?(~r/^\d+\.?\d*\.?\s+/, clean_title) do
+    if Regex.match?(~r/^\d+(?:\.\d+)*\.?\s+/, clean_title) do
       extract_level_from_bold_title(clean_title)
     else
       handle_non_numbered_bold_title(title, clean_title)
@@ -466,7 +497,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defp extract_level_from_bold_title(clean_title) do
-    case Regex.run(~r/^(\d+\.?\d*\.?)\s+(.+)$/, clean_title) do
+    case Regex.run(~r/^(\d+(?:\.\d+)*\.?)\s+(.+)$/, clean_title) do
       [_, number, _text] ->
         level = determine_heading_level(number)
         {level, String.trim(clean_title)}
@@ -485,7 +516,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defp parse_italic_heading(line) do
-    case Regex.run(~r/^_(\d+\.?\d*\.?\d*\.?)_\s+_(.+?)_\s*$/, line) do
+    case Regex.run(~r/^_(\d+(?:\.\d+)*)_\s+_(.+?)_\s*$/, line) do
       [_, number, title] -> handle_numbered_heading(line, number, title)
       nil -> handle_simple_heading(line)
     end
@@ -519,8 +550,8 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defp extract_heading_level(clean_title) do
-    if Regex.match?(~r/^\d+\.?\d*\.?\d*\.?\s+/, clean_title) do
-      case Regex.run(~r/^(\d+\.?\d*\.?\d*\.?)\s+(.+)$/, clean_title) do
+    if Regex.match?(~r/^\d+(?:\.\d+)*\s+/, clean_title) do
+      case Regex.run(~r/^(\d+(?:\.\d+)*)\s+(.+)$/, clean_title) do
         [_, number, _text] ->
           level = determine_heading_level(number)
           {level, String.trim(clean_title)}
@@ -673,22 +704,30 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # ---------------------------------------------------------------------------
 
   defp chunk_section(section, section_idx) do
-    if section.tokens <= chunk_max_tokens() do
+    overhead = title_overhead_tokens(section)
+    effective_max = max(1, chunk_max_tokens() - overhead)
+
+    if section.tokens <= effective_max do
       [create_chunk(section, section.content, section_idx, 0)]
     else
-      split_into_chunks(section, section_idx)
+      split_into_chunks(section, section_idx, effective_max)
     end
   end
 
-  defp split_into_chunks(section, section_idx) do
+  defp split_into_chunks(section, section_idx, effective_max) do
     paragraphs = String.split(section.content, ~r/\n\n+/)
 
     paragraphs
-    |> combine_to_target_size(chunk_min_tokens(), chunk_max_tokens())
+    |> combine_to_target_size(chunk_min_tokens(), effective_max)
     |> Enum.with_index()
     |> Enum.map(fn {chunk_content, chunk_idx} ->
       create_chunk(section, chunk_content, section_idx, chunk_idx)
     end)
+  end
+
+  defp title_overhead_tokens(section) do
+    prefix = prepend_title_to_content(section, "")
+    if prefix == "", do: 0, else: TokenEstimator.estimate(prefix)
   end
 
   defp combine_to_target_size(paragraphs, min_tokens, max_tokens) do
