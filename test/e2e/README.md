@@ -23,7 +23,7 @@ This prevents false failures where selectors never appear because LiveView JS wa
 ```bash
 npm --prefix test/e2e install
 npx --prefix test/e2e playwright install chromium
-npm --prefix test/e2e run test:journeys
+npm --prefix test/e2e run test
 ```
 
 ## What Bootstrap Does

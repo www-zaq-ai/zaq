@@ -7,15 +7,15 @@ on:
       - release
       - "release/**"
   pull_request:
-    branches-ignore:
+    branches:
       - main
-      - release
-      - "release/**"
 
 jobs:
   e2e:
-    name: Knowledge Ops E2E
+    name: E2E QA
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     services:
       postgres:
@@ -82,8 +82,8 @@ jobs:
       - name: Install Playwright browser
         run: npx --prefix test/e2e playwright install --with-deps chromium
 
-      - name: Run Knowledge Ops E2E journeys
-        run: npm --prefix test/e2e run test:journeys
+      - name: Run full E2E suite
+        run: npm --prefix test/e2e run test
 
       - name: Upload Playwright artifacts
         if: always()
