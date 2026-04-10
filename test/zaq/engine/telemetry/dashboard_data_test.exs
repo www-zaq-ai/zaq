@@ -257,6 +257,19 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert get_in(payload.ingestion_success_rate_chart, [:summary, :value]) == 0.0
   end
 
+  test "load_knowledge_base_metrics/1 falls back to ingestion.failed.count when document.failed.count is zero" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_rollup("ingestion.completed.count", now, 8.0, 8)
+    # ingestion.document.failed.count is absent (sums to 0) so fallback fires
+    insert_rollup("ingestion.failed.count", now, 2.0, 2)
+
+    payload = Telemetry.load_knowledge_base_metrics(%{range: "7d"})
+
+    # 8 completed / (8 + 2) total = 80%
+    assert get_in(payload.ingestion_success_rate_chart, [:summary, :value]) == 80.0
+  end
+
   test "load_conversations_metrics/1 returns conversations dashboard payload" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 

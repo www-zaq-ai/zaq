@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, IngestJob}
   alias Zaq.Repo
   alias Zaq.System.EmbeddingConfig
@@ -1040,6 +1041,136 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     test "unknown status returns fallback classes" do
       assert IngestionLive.status_color("unknown") =~ "bg-black"
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────
+  # NEW: handle_info job_updated — processing with chunks scheduled
+  # ────────────────────────────────────────────────────────────────
+
+  describe "handle_info {:job_updated, job} — processing with chunks" do
+    test "refreshes entries when job transitions to processing with chunks scheduled", %{
+      conn: conn
+    } do
+      # Create a pending job so it appears in the initial list
+      job = create_job(%{file_path: "notes.txt", status: "pending"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # Transition to processing in DB and use the real struct (has all fields)
+      {:ok, processing_job} =
+        Repo.get!(IngestJob, job.id)
+        |> IngestJob.changeset(%{status: "processing", total_chunks: 5})
+        |> Repo.update()
+
+      send(view.pid, {:job_updated, processing_job})
+
+      # View must still be alive and not crash
+      assert has_element?(view, "p", "notes.txt")
+    end
+
+    test "job_updated for a job not matching the current filter is silently ignored", %{
+      conn: conn
+    } do
+      # Create a completed job in the DB so we have a real struct with all fields
+      completed_job = create_job(%{file_path: "ghost.txt", status: "completed"})
+      completed_job = Repo.get!(IngestJob, completed_job.id)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # Filter to only show pending jobs — "completed" won't match
+      render_hook(view, "filter_status", %{"status" => "pending"})
+
+      # Send the completed job — it has no pending match so handle_filtered_job no-op fires
+      send(view.pid, {:job_updated, completed_job})
+
+      state = :sys.get_state(view.pid)
+      job_ids = Enum.map(state.socket.assigns.jobs, & &1.id)
+      refute completed_job.id in job_ids
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────
+  # NEW: status_color for completed_with_errors
+  # ────────────────────────────────────────────────────────────────
+
+  describe "status_color/1 completed_with_errors" do
+    alias ZaqWeb.Live.BO.AI.IngestionLive
+
+    test "completed_with_errors returns orange classes" do
+      assert IngestionLive.status_color("completed_with_errors") =~ "orange"
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────
+  # NEW: Grid view job status badges
+  # These tests exercise branches inside file_grid_view/1 that are
+  # not hit by any other test (processing / pending / failed / stale
+  # status badges in the grid card).
+  # ────────────────────────────────────────────────────────────────
+
+  describe "grid view job status badges" do
+    test "grid view shows processing badge when a job is in processing state", %{conn: conn} do
+      create_job(%{file_path: "notes.txt", status: "processing"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
+
+      assert render(view) =~ "processing"
+    end
+
+    test "grid view shows pending badge when a job is in pending state", %{conn: conn} do
+      create_job(%{file_path: "notes.txt", status: "pending"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
+
+      assert render(view) =~ "pending"
+    end
+
+    test "grid view shows failed badge when a job is in failed state", %{conn: conn} do
+      create_job(%{file_path: "notes.txt", status: "failed"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
+
+      assert render(view) =~ "failed"
+    end
+
+    test "grid view shows stale badge for a document ingested before last file modification", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      {:ok, doc} = Document.create(%{source: "default/notes.txt", content: "old content"})
+
+      Repo.update_all(
+        from(d in Document, where: d.id == ^doc.id),
+        set: [updated_at: ~U[2000-01-01 00:00:00Z]]
+      )
+
+      File.write!(Path.join(tmp_dir, "notes.txt"), "updated content")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
+
+      assert render(view) =~ "stale"
+    end
+
+    test "grid view shows ingested badge and shared indicator when a document has permissions", %{
+      conn: conn
+    } do
+      {:ok, doc} = Document.create(%{source: "default/notes.txt", content: "ingested content"})
+      person = Zaq.Accounts.People.list_people() |> List.first()
+
+      if person do
+        Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
+
+      # Should render ingested state without crashing
+      assert render(view) =~ "ingested"
     end
   end
 

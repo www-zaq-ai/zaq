@@ -393,16 +393,13 @@ On every published release, GitHub Actions builds and pushes a Docker image to G
 - `ghcr.io/www-zaq-ai/zaq:X`
 - `ghcr.io/www-zaq-ai/zaq:latest` (only for stable releases)
 
+## Community
+
+Join the [ZAQ Discord](https://discord.gg/rDUeWP5GbD) to ask questions, share feedback, and connect with other users and contributors.
+
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/my-feature`)
-   - For urgent post-release fixes, use `hotfix/my-fix` instead
-3. Commit your changes using Conventional Commits (example: `git commit -m "feat(auth): add SSO callback handler"`)
-4. Push to the branch (`git push origin <your-branch-name>`)
-5. Open a Pull Request targeting `main`
-
-Please run `mix precommit` before submitting.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, commit conventions, and the PR workflow.
 
 ## License
 

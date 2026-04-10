@@ -701,6 +701,41 @@ defmodule Zaq.Accounts.PeopleTest do
     end
   end
 
+  # ── find_or_create_from_channel — email platform branches ──────────
+
+  describe "find_or_create_from_channel/2 email platform" do
+    test "does not add a duplicate email channel when platform is already email" do
+      # When the platform IS email, maybe_link_email_channel/3 must be a no-op
+      # (no second channel should be created for the same identifier).
+      attrs = %{"channel_id" => "em@example.com", "email" => "em@example.com"}
+
+      assert {:ok, person} = People.find_or_create_from_channel("email", attrs)
+
+      channels = People.list_person_channels(person.id)
+      email_channels = Enum.filter(channels, &(&1.channel_identifier == "em@example.com"))
+      assert length(email_channels) == 1
+    end
+
+    test "backfills display_name onto existing person whose full_name looks like an email address" do
+      # insert_partial_person seeds full_name from channel_identifier (an email address).
+      # backfill_person treats that as absent so a real display_name can replace it.
+      attrs_initial = %{"channel_id" => "bot@company.com", "email" => "bot@company.com"}
+      {:ok, person} = People.find_or_create_from_channel("slack", attrs_initial)
+
+      assert person.full_name == "bot@company.com"
+
+      attrs_with_name = %{
+        "channel_id" => "bot@company.com",
+        "email" => "bot@company.com",
+        "display_name" => "Real Bot Name"
+      }
+
+      {:ok, updated} = People.find_or_create_from_channel("slack", attrs_with_name)
+      assert updated.id == person.id
+      assert updated.full_name == "Real Bot Name"
+    end
+  end
+
   # ── get_person/1 nil guard ─────────────────────────────────────────
 
   describe "get_person/1" do
