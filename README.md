@@ -399,7 +399,7 @@ Join the [ZAQ Discord](https://discord.gg/rDUeWP5GbD) to ask questions, share fe
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, commit conventions, and the PR workflow.
+See `docs/workflows.md` for branching, commit conventions, and the PR workflow.
 
 ## License
 
