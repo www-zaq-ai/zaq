@@ -1,4 +1,7 @@
 const { test, expect } = require("@playwright/test")
+const fs = require("fs")
+const os = require("os")
+const path = require("path")
 const { gotoBackOfficeLive, loginToBackOffice } = require("../support/bo")
 
 const INGESTION_PATH = "/bo/ingestion"
@@ -24,7 +27,8 @@ const SEL = {
 
   // Ingestion page — file browser & upload
   ingestButton: "#ingest-selected-button",
-  uploadFileInput: '#upload-form input[type="file"]',
+  uploadBrowseTrigger: "#upload-form label",
+  uploadSubmitButton: "#upload-files-button",
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -164,14 +168,16 @@ test.describe("Ingestion", () => {
 
     // ── Step 3: Upload the PDF ────────────────────────────────────────────────
 
-    await page.locator(SEL.uploadFileInput).setInputFiles({
-      name: pdfFilename,
-      mimeType: "application/pdf",
-      buffer: minimalPdfBuffer(),
-    })
+    const tempPdfPath = path.join(os.tmpdir(), pdfFilename)
+    fs.writeFileSync(tempPdfPath, minimalPdfBuffer())
+
+    const fileChooserPromise = page.waitForEvent("filechooser")
+    await page.locator(SEL.uploadBrowseTrigger).click()
+    const fileChooser = await fileChooserPromise
+    await fileChooser.setFiles(tempPdfPath)
 
     // LiveView shows "Upload N file(s)" button once the file is queued.
-    const uploadBtn = page.getByRole("button", { name: /Upload \d+ file/ })
+    const uploadBtn = page.locator(SEL.uploadSubmitButton)
     await expect(uploadBtn).toBeVisible()
     await uploadBtn.click()
 

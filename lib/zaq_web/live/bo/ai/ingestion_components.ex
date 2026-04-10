@@ -1184,6 +1184,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
         <button
           :if={@uploads.files.entries != []}
+          id="upload-files-button"
           type="submit"
           disabled={not @embedding_ready}
           class={[
