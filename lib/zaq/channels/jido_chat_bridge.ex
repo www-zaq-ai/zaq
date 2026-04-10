@@ -254,9 +254,31 @@ defmodule Zaq.Channels.JidoChatBridge do
       author_id: incoming.author && incoming.author.user_id,
       author_name: incoming.author && incoming.author.user_name,
       provider: provider,
+      is_dm: (incoming.channel_meta && incoming.channel_meta.is_dm) == true,
       metadata: incoming.metadata || %{}
     }
   end
+
+  @doc """
+  Opens or returns the existing DM channel between the bot and a user.
+
+  Requires `bot_user_id`, `url`, `token`, and `provider` in `connection_details`.
+  Returns `{:ok, dm_channel_id}` on success.
+  """
+  @spec open_dm_channel(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
+  def open_dm_channel(author_id, %{url: url, token: token, bot_user_id: bot_user_id} = details)
+      when is_binary(author_id) and is_binary(bot_user_id) do
+    provider = Map.get(details, :provider, "mattermost")
+
+    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+         true <- function_exported?(adapter, :open_dm_channel, 3) || {:error, :unsupported},
+         {:ok, channel} <- adapter.open_dm_channel(bot_user_id, author_id, url: url, token: token),
+         channel_id when is_binary(channel_id) <- channel["id"] || {:error, :missing_channel_id} do
+      {:ok, channel_id}
+    end
+  end
+
+  def open_dm_channel(_author_id, _details), do: {:error, :missing_connection_details}
 
   @doc "Resolves ZAQ roles for a message author by username. Returns `{:ok, roles | nil}`."
   def resolve_roles(%{author_name: nil}), do: {:ok, nil}

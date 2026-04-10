@@ -1430,6 +1430,17 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             {translate_error(@modal_changeset.errors[:channel_identifier])}
           </p>
         </div>
+        <div :if={Ecto.Changeset.get_field(@modal_changeset, :platform) == "mattermost"}>
+          <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">DM Channel ID</label>
+          <input
+            type="text"
+            name="channel[dm_channel_id]"
+            value={Ecto.Changeset.get_field(@modal_changeset, :dm_channel_id)}
+            phx-debounce="300"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            placeholder="Mattermost DM channel ID"
+          />
+        </div>
         <div class="flex justify-end gap-2 pt-2">
           <button
             type="button"

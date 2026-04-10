@@ -34,11 +34,16 @@ defmodule Zaq.People.IdentityPlug do
   defp resolve(%Incoming{} = incoming, opts) do
     platform = incoming.provider |> to_string() |> canonical_platform()
 
+    # For non-DM channels (public/private), incoming.channel_id is not the DM channel —
+    # pass nil so we don't store the wrong value. The DM channel will be backfilled via
+    # open_dm_channel once the person is resolved.
+    raw_dm_channel_id = if incoming.is_dm, do: incoming.channel_id, else: nil
+
     canonical =
       Resolver.normalize(platform, %{
         channel_id: incoming.author_id,
         username: incoming.author_name,
-        dm_channel_id: incoming.channel_id,
+        dm_channel_id: raw_dm_channel_id,
         metadata: incoming.metadata
       })
 
@@ -49,19 +54,21 @@ defmodule Zaq.People.IdentityPlug do
         # Fast path: known complete person — record interaction and backfill dm_channel_id if missing
         channel = find_channel(person, platform, channel_id)
         touch_channel(channel, canonical["dm_channel_id"])
+        maybe_backfill_dm_channel(channel, platform, incoming, opts)
         {:ok, person}
 
       _ ->
         enriched = maybe_enrich(platform, incoming.author_id, canonical, opts)
-        slow_path(platform, enriched, channel_id)
+        slow_path(platform, enriched, channel_id, incoming, opts)
     end
   end
 
-  defp slow_path(platform, enriched, fallback_channel_id) do
+  defp slow_path(platform, enriched, fallback_channel_id, incoming, opts) do
     case People.find_or_create_from_channel(platform, enriched) do
       {:ok, person} ->
         channel = find_channel(person, platform, enriched["channel_id"] || fallback_channel_id)
         if channel, do: People.record_interaction(channel)
+        maybe_backfill_dm_channel(channel, platform, incoming, opts)
         {:ok, person}
 
       err ->
@@ -93,6 +100,30 @@ defmodule Zaq.People.IdentityPlug do
   end
 
   defp touch_channel(channel, _dm_channel_id), do: People.record_interaction(channel)
+
+  # Fetches the DM channel via open_dm_channel and persists it when:
+  # - message arrived from a non-DM channel (is_dm: false)
+  # - the person channel record has no dm_channel_id yet
+  defp maybe_backfill_dm_channel(nil, _platform, _incoming, _opts), do: :ok
+  defp maybe_backfill_dm_channel(_channel, _platform, %{is_dm: true}, _opts), do: :ok
+
+  defp maybe_backfill_dm_channel(%{dm_channel_id: id}, _platform, _incoming, _opts)
+       when is_binary(id) and id != "",
+       do: :ok
+
+  defp maybe_backfill_dm_channel(channel, platform, incoming, opts) do
+    channels_mod =
+      Keyword.get(
+        opts,
+        :channels_router,
+        Application.get_env(:zaq, :identity_plug_channels_router, Zaq.Channels.Router)
+      )
+
+    case NodeRouter.call(:channels, channels_mod, :open_dm_channel, [platform, incoming.author_id]) do
+      {:ok, dm_channel_id} -> People.update_channel(channel, %{dm_channel_id: dm_channel_id})
+      _ -> :ok
+    end
+  end
 
   defp find_channel(person, platform, channel_id)
        when is_binary(channel_id) and channel_id != "" do

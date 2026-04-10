@@ -145,6 +145,28 @@ defmodule Zaq.Channels.Router do
     end
   end
 
+  @doc """
+  Opens or returns the existing DM channel between the bot and a user.
+
+  Looks up `bot_user_id` from the channel config and delegates to the provider bridge.
+  Returns `{:ok, dm_channel_id}` on success.
+  """
+  @spec open_dm_channel(atom() | String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def open_dm_channel(platform, author_id) when is_binary(author_id) do
+    with {:ok, bridge} <- resolve_bridge(platform),
+         true <- bridge_supports?(bridge, :open_dm_channel, 2) || {:error, :unsupported} do
+      config = ChannelConfig.get_by_provider(to_string(platform))
+      bot_user_id = config && ChannelConfig.jido_chat_bot_user_id(config)
+
+      details =
+        fetch_connection_details(platform)
+        |> Map.put(:provider, platform)
+        |> Map.put(:bot_user_id, bot_user_id)
+
+      bridge.open_dm_channel(author_id, details)
+    end
+  end
+
   def fetch_profile("web", author_id), do: {:ok, %{id: author_id, name: "Web User"}}
 
   @doc "Fetches a user's canonical profile from the platform bridge."
