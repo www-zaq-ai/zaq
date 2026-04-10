@@ -1052,7 +1052,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     test "refreshes entries when job transitions to processing with chunks scheduled", %{
       conn: conn
     } do
-      # Create a pending job so it appears in the initial list
       job = create_job(%{file_path: "notes.txt", status: "pending"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -1160,7 +1159,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn
     } do
       {:ok, doc} = Document.create(%{source: "default/notes.txt", content: "ingested content"})
-      person = Zaq.Accounts.People.list_people() |> List.first()
+      person = People.list_people() |> List.first()
 
       if person do
         Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
