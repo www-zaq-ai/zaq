@@ -667,7 +667,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
         class={[
           "flex-1 font-mono text-[0.72rem] font-semibold py-3 transition-colors",
           if(@active_tab == :people,
-            do: "text-[#03b6d4] border-b-2 border-[#03b6d4]",
+            do: "zaq-text-accent border-b-2 border-[var(--zaq-color-accent)]",
             else: "text-black/40 hover:text-black/60"
           )
         ]}
@@ -680,7 +680,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
         class={[
           "flex-1 font-mono text-[0.72rem] font-semibold py-3 transition-colors",
           if(@active_tab == :teams,
-            do: "text-[#03b6d4] border-b-2 border-[#03b6d4]",
+            do: "zaq-text-accent border-b-2 border-[var(--zaq-color-accent)]",
             else: "text-black/40 hover:text-black/60"
           )
         ]}
@@ -695,13 +695,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     ~H"""
     <div>
       <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
-        <h2 class="font-mono text-sm font-bold text-[#2c3a50]">People</h2>
+        <h2 class="font-mono text-sm font-bold zaq-text-ink">People</h2>
         <button
           id="new-person-button"
           phx-click="open_modal"
           phx-value-action="new"
           phx-value-entity="person"
-          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
         >
           + New Person
         </button>
@@ -716,7 +716,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           value={@filter_name}
           phx-debounce="300"
           placeholder="Name…"
-          class="font-mono text-[0.72rem] text-black px-2.5 py-1.5 rounded-lg border border-black/12 bg-black/[0.02] focus:outline-none focus:ring-1 focus:ring-[#03b6d4]/40 min-w-[80px] flex-1"
+          class="font-mono text-[0.72rem] text-black px-2.5 py-1.5 rounded-lg border border-black/12 bg-black/[0.02] focus:outline-none focus:ring-1 focus:ring-[var(--zaq-color-accent-border)] min-w-[80px] flex-1"
         />
         <input
           type="text"
@@ -724,7 +724,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           value={@filter_email}
           phx-debounce="300"
           placeholder="Email…"
-          class="font-mono text-[0.72rem] text-black px-2.5 py-1.5 rounded-lg border border-black/12 bg-black/[0.02] focus:outline-none focus:ring-1 focus:ring-[#03b6d4]/40 min-w-[80px] flex-1"
+          class="font-mono text-[0.72rem] text-black px-2.5 py-1.5 rounded-lg border border-black/12 bg-black/[0.02] focus:outline-none focus:ring-1 focus:ring-[var(--zaq-color-accent-border)] min-w-[80px] flex-1"
         />
         <input
           type="text"
@@ -732,11 +732,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           value={@filter_phone}
           phx-debounce="300"
           placeholder="Phone…"
-          class="font-mono text-[0.72rem] text-black px-2.5 py-1.5 rounded-lg border border-black/12 bg-black/[0.02] focus:outline-none focus:ring-1 focus:ring-[#03b6d4]/40 min-w-[70px] flex-1"
+          class="font-mono text-[0.72rem] text-black px-2.5 py-1.5 rounded-lg border border-black/12 bg-black/[0.02] focus:outline-none focus:ring-1 focus:ring-[var(--zaq-color-accent-border)] min-w-[70px] flex-1"
         />
         <select
           name="filter_complete"
-          class="font-mono text-[0.72rem] text-black px-2 py-1.5 rounded-lg border border-black/12 bg-white focus:outline-none focus:ring-1 focus:ring-[#03b6d4]/40"
+          class="font-mono text-[0.72rem] text-black px-2 py-1.5 rounded-lg border border-black/12 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--zaq-color-accent-border)]"
         >
           <option value="all" selected={@filter_complete == "all"}>All</option>
           <option value="complete" selected={@filter_complete == "complete"}>Complete</option>
@@ -764,18 +764,18 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           class={[
             "flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-black/[0.02] transition-colors",
             if(@selected_person && @selected_person.id == person.id,
-              do: "bg-[#03b6d4]/8 border-l-2 border-[#03b6d4]",
+              do: "zaq-bg-accent-faint border-l-2 border-[var(--zaq-color-accent)]",
               else: ""
             )
           ]}
           phx-click="select_person"
           phx-value-id={person.id}
         >
-          <div class="w-9 h-9 rounded-lg bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-sm font-bold text-[#2c3a50]/60">
+          <div class="w-9 h-9 rounded-lg zaq-bg-ink-soft grid place-items-center flex-shrink-0 font-mono text-sm font-bold zaq-text-ink-soft">
             {String.first(person.full_name) |> String.upcase()}
           </div>
           <div class="min-w-0 flex-1">
-            <p class="font-mono text-[0.82rem] font-semibold text-[#2c3a50] truncate">
+            <p class="font-mono text-[0.82rem] font-semibold zaq-text-ink truncate">
               {person.full_name}
             </p>
             <p :if={person.role} class="font-mono text-[0.68rem] text-black/40 truncate">
@@ -792,7 +792,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             <% preferred = List.first(person.channels) %>
             <span
               :if={preferred}
-              class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] border border-[#03b6d4]/20"
+              class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent border border-[var(--zaq-color-accent)]"
             >
               {preferred.platform}
             </span>
@@ -837,13 +837,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     ~H"""
     <div>
       <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
-        <h2 class="font-mono text-sm font-bold text-[#2c3a50]">Teams</h2>
+        <h2 class="font-mono text-sm font-bold zaq-text-ink">Teams</h2>
         <button
           id="new-team-button"
           phx-click="open_modal"
           phx-value-action="new"
           phx-value-entity="team"
-          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
         >
           + New Team
         </button>
@@ -857,11 +857,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           :for={team <- @teams}
           class="flex items-center gap-3 px-5 py-3.5 hover:bg-black/[0.02] transition-colors"
         >
-          <div class="w-9 h-9 rounded-lg bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-sm font-bold text-[#2c3a50]/60">
+          <div class="w-9 h-9 rounded-lg zaq-bg-ink-soft grid place-items-center flex-shrink-0 font-mono text-sm font-bold zaq-text-ink-soft">
             {String.first(team.name) |> String.upcase()}
           </div>
           <div class="min-w-0 flex-1">
-            <p class="font-mono text-[0.82rem] font-semibold text-[#2c3a50] truncate">{team.name}</p>
+            <p class="font-mono text-[0.82rem] font-semibold zaq-text-ink truncate">{team.name}</p>
             <p :if={team.description} class="font-mono text-[0.68rem] text-black/40 truncate">
               {team.description}
             </p>
@@ -916,11 +916,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
         <%!-- Header --%>
         <div class="flex items-start justify-between px-6 py-5 border-b border-black/8">
           <div class="flex items-center gap-4 min-w-0">
-            <div class="w-12 h-12 rounded-xl bg-[#2c3a50]/10 grid place-items-center flex-shrink-0 font-mono text-lg font-bold text-[#2c3a50]/60">
+            <div class="w-12 h-12 rounded-xl zaq-bg-ink-soft grid place-items-center flex-shrink-0 font-mono text-lg font-bold zaq-text-ink-soft">
               {String.first(@selected_person.full_name) |> String.upcase()}
             </div>
             <div class="min-w-0">
-              <h3 class="font-mono text-base font-bold text-[#2c3a50] truncate">
+              <h3 class="font-mono text-base font-bold zaq-text-ink truncate">
                 {@selected_person.full_name}
               </h3>
               <p :if={@selected_person.email} class="font-mono text-[0.72rem] text-black/45 mt-0.5">
@@ -941,7 +941,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             <button
               phx-click="open_merge_modal"
               phx-value-id={@selected_person.id}
-              class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-[#03b6d4]/40 text-[#03b6d4] hover:bg-[#03b6d4]/8 transition-colors"
+              class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
             >
               Merge
             </button>
@@ -1019,13 +1019,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             <span
               :for={tid <- @selected_person.team_ids}
               :if={Map.has_key?(teams_map, tid)}
-              class="inline-flex items-center gap-1 font-mono text-[0.68rem] pl-2 pr-1 py-0.5 rounded-full bg-[#2c3a50]/8 text-[#2c3a50]/70 border border-[#2c3a50]/12"
+              class="inline-flex items-center gap-1 font-mono text-[0.68rem] pl-2 pr-1 py-0.5 rounded-full zaq-bg-ink-soft zaq-text-ink-soft border zaq-border-ink-soft"
             >
               {teams_map[tid].name}
               <button
                 phx-click="toggle_team"
                 phx-value-team_id={tid}
-                class="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[#2c3a50]/40 hover:text-[#2c3a50]/80 hover:bg-[#2c3a50]/10 transition-colors"
+                class="w-3.5 h-3.5 rounded-full flex items-center justify-center zaq-text-ink-soft hover:text-[var(--zaq-color-ink)] hover:bg-black/10 transition-colors"
                 title="Remove"
               >
                 <svg
@@ -1077,7 +1077,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               <div class="flex items-center gap-1 flex-shrink-0">
                 <span
                   :for={right <- perm.access_rights}
-                  class="font-mono text-[0.6rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] border border-[#03b6d4]/20"
+                  class="font-mono text-[0.6rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent border border-[var(--zaq-color-accent)]"
                 >
                   {right}
                 </span>
@@ -1095,7 +1095,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               phx-value-action="new"
               phx-value-entity="channel"
               phx-value-parent_id={@selected_person.id}
-              class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[#03b6d4]/40 text-[#03b6d4] hover:bg-[#03b6d4]/8 transition-colors"
+              class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
             >
               + Add Channel
             </button>
@@ -1108,7 +1108,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               :for={{channel, idx} <- Enum.with_index(@person_channels)}
               class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-black/[0.02] border border-black/6"
             >
-              <span class="font-mono text-[0.65rem] font-semibold px-2 py-0.5 rounded bg-[#2c3a50]/8 text-[#2c3a50]/60 flex-shrink-0">
+              <span class="font-mono text-[0.65rem] font-semibold px-2 py-0.5 rounded zaq-bg-ink-soft zaq-text-ink-soft flex-shrink-0">
                 {channel.platform}
               </span>
               <div class="flex-1 min-w-0">
@@ -1227,7 +1227,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     >
       <div class="bg-white rounded-2xl shadow-2xl border border-black/10 w-full max-w-md mx-4">
         <div class="flex items-center justify-between px-6 py-4 border-b border-black/8">
-          <h3 class="font-mono text-sm font-bold text-[#2c3a50]">
+          <h3 class="font-mono text-sm font-bold zaq-text-ink">
             {case {@modal, @modal_entity} do
               {:new, :person} -> "New Person"
               {:edit, :person} -> "Edit Person"
@@ -1286,7 +1286,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="person[full_name]"
             value={Ecto.Changeset.get_field(@modal_changeset, :full_name)}
             phx-debounce="300"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="Jane Smith"
           />
           <p
@@ -1303,7 +1303,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="person[email]"
             value={Ecto.Changeset.get_field(@modal_changeset, :email)}
             phx-debounce="300"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="jane@example.com"
           />
           <p :if={@modal_changeset.errors[:email]} class="font-mono text-[0.68rem] text-red-500 mt-1">
@@ -1317,7 +1317,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="person[phone]"
             value={Ecto.Changeset.get_field(@modal_changeset, :phone)}
             phx-debounce="300"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="+1 555 000 0000"
           />
         </div>
@@ -1328,7 +1328,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="person[role]"
             value={Ecto.Changeset.get_field(@modal_changeset, :role)}
             phx-debounce="300"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="Senior Engineer"
           />
         </div>
@@ -1336,7 +1336,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Status</label>
           <select
             name="person[status]"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
           >
             <option
               value="active"
@@ -1363,7 +1363,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           <button
             id="save-person-button"
             type="submit"
-            class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
           >
             Save
           </button>
@@ -1399,7 +1399,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">Platform *</label>
           <select
             name="channel[platform]"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
           >
             <option value="">Select platform…</option>
             {@platform_options}
@@ -1420,7 +1420,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="channel[channel_identifier]"
             value={Ecto.Changeset.get_field(@modal_changeset, :channel_identifier)}
             phx-debounce="300"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="@jane or jane@example.com"
           />
           <p
@@ -1452,7 +1452,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           <button
             id="save-channel-button"
             type="submit"
-            class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
           >
             Save
           </button>
@@ -1500,7 +1500,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               type="text"
               name="merge_search"
               value={@merge_search}
-              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
               placeholder="Search person to keep…"
               autocomplete="off"
             />
@@ -1515,11 +1515,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               phx-value-id={candidate.id}
               class="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-black/[0.03] text-left transition-colors"
             >
-              <div class="w-6 h-6 rounded bg-[#2c3a50]/10 grid place-items-center font-mono text-xs font-bold text-[#2c3a50]/60 flex-shrink-0">
+              <div class="w-6 h-6 rounded zaq-bg-ink-soft grid place-items-center font-mono text-xs font-bold zaq-text-ink-soft flex-shrink-0">
                 {String.first(candidate.full_name) |> String.upcase()}
               </div>
               <div class="min-w-0">
-                <p class="font-mono text-[0.75rem] font-semibold text-[#2c3a50] truncate">
+                <p class="font-mono text-[0.75rem] font-semibold zaq-text-ink truncate">
                   {candidate.full_name}
                 </p>
                 <p :if={candidate.email} class="font-mono text-[0.65rem] text-black/40 truncate">
@@ -1565,7 +1565,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               type="text"
               name="merge_search"
               value={@merge_search}
-              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+              class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
               placeholder="Search person to delete…"
               autocomplete="off"
             />
@@ -1580,11 +1580,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               phx-value-id={candidate.id}
               class="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-black/[0.03] text-left transition-colors"
             >
-              <div class="w-6 h-6 rounded bg-[#2c3a50]/10 grid place-items-center font-mono text-xs font-bold text-[#2c3a50]/60 flex-shrink-0">
+              <div class="w-6 h-6 rounded zaq-bg-ink-soft grid place-items-center font-mono text-xs font-bold zaq-text-ink-soft flex-shrink-0">
                 {String.first(candidate.full_name) |> String.upcase()}
               </div>
               <div class="min-w-0">
-                <p class="font-mono text-[0.75rem] font-semibold text-[#2c3a50] truncate">
+                <p class="font-mono text-[0.75rem] font-semibold zaq-text-ink truncate">
                   {candidate.full_name}
                 </p>
                 <p :if={candidate.email} class="font-mono text-[0.65rem] text-black/40 truncate">
@@ -1644,7 +1644,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="team[name]"
             value={Ecto.Changeset.get_field(@modal_changeset, :name)}
             phx-debounce="300"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="Engineering"
           />
           <p :if={@modal_changeset.errors[:name]} class="font-mono text-[0.68rem] text-red-500 mt-1">
@@ -1657,7 +1657,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="team[description]"
             phx-debounce="300"
             rows="3"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40 resize-none"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)] resize-none"
             placeholder="Optional description…"
           >{Ecto.Changeset.get_field(@modal_changeset, :description)}</textarea>
         </div>
@@ -1672,7 +1672,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           <button
             id="save-team-button"
             type="submit"
-            class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
           >
             Save
           </button>

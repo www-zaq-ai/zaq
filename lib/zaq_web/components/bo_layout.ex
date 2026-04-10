@@ -33,7 +33,7 @@ defmodule ZaqWeb.Components.BOLayout do
       |> assign(:nav_section_ids, Enum.map(nav_sections, & &1.id))
 
     ~H"""
-    <div class="min-h-screen flex bg-[#f0f4f8]" id="bo-root">
+    <div class="min-h-screen flex bg-[var(--zaq-color-surface)]" id="bo-root">
       <style>
                 /* Sidebar transition */
                 #bo-sidebar {
@@ -112,7 +112,7 @@ defmodule ZaqWeb.Components.BOLayout do
             position: absolute;
             left: 52px;
             top: 0;
-            background: #2c3a50;
+            background: var(--zaq-color-ink);
             min-width: 180px;
             max-height: 400px;
             overflow-y: auto;
@@ -139,10 +139,10 @@ defmodule ZaqWeb.Components.BOLayout do
                   left: 52px;
                   top: 50%;
                   transform: translateY(-50%);
-                  background: #1e2a3a;
+                  background: color-mix(in srgb, var(--zaq-color-ink) 80%, black);
                   color: white;
                   font-size: 0.72rem;
-                  font-family: monospace;
+                  font-family: var(--zaq-font-mono);
                   padding: 4px 10px;
                   border-radius: 6px;
                   white-space: nowrap;
@@ -169,7 +169,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 /* Active section highlight when collapsed */
                 #bo-sidebar.collapsed .active-section-wrap {
                   background: rgba(3, 182, 212, 0.12);
-                  border-left: 2px solid #03b6d4;
+                  border-left: 2px solid var(--zaq-color-accent);
                   border-radius: 6px;
                 }
                 #bo-sidebar.collapsed button.active-section {
@@ -199,7 +199,7 @@ defmodule ZaqWeb.Components.BOLayout do
       <aside
         id="bo-sidebar"
         data-section-ids={Enum.join(@nav_section_ids, ",")}
-        class="fixed top-0 left-0 h-screen bg-[#2c3a50] flex flex-col z-40 shadow-xl"
+        class="fixed top-0 left-0 h-screen zaq-bg-ink flex flex-col z-40 shadow-xl"
       >
         
     <!-- Logo + collapse toggle -->
@@ -242,7 +242,7 @@ defmodule ZaqWeb.Components.BOLayout do
               class={[
                 "flex items-center gap-3 px-2.5 py-2.5 rounded-lg font-mono text-[0.82rem] transition-all",
                 if(String.starts_with?(@current_path, "/bo/dashboard"),
-                  do: "bg-[#03b6d4] text-white shadow-sm",
+                  do: "zaq-bg-accent text-white shadow-sm",
                   else: "text-white/60 hover:text-white hover:bg-white/8"
                 )
               ]}
@@ -321,13 +321,13 @@ defmodule ZaqWeb.Components.BOLayout do
       <main id="bo-main" class="flex-1">
         <!-- Header -->
         <header class="h-16 bg-white border-b border-black/10 flex items-center justify-between px-8 shadow-sm">
-          <h1 class="font-mono text-lg font-bold text-[#2c3a50]">{@page_title}</h1>
+          <h1 class="font-mono text-lg font-bold zaq-text-ink">{@page_title}</h1>
 
           <div class="flex items-center gap-2">
             <a
               id="header-notifications-link"
               href={~p"/bo/channels/notifications/logs"}
-              class="w-10 h-10 rounded-lg border border-black/10 text-[#2c3a50]/75 grid place-items-center hover:bg-black/[0.03] hover:text-[#2c3a50] transition-colors"
+              class="w-10 h-10 rounded-lg border border-black/10 zaq-text-ink-soft grid place-items-center hover:bg-black/[0.03] hover:text-[var(--zaq-color-ink)] transition-colors"
               title="Notifications"
             >
               <svg
@@ -348,7 +348,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <details id="header-settings-menu" class="relative">
               <summary
                 id="header-settings-trigger"
-                class="list-none w-10 h-10 rounded-lg border border-black/10 text-[#2c3a50]/75 grid place-items-center cursor-pointer hover:bg-black/[0.03] hover:text-[#2c3a50] transition-colors"
+                class="list-none w-10 h-10 rounded-lg border border-black/10 zaq-text-ink-soft grid place-items-center cursor-pointer hover:bg-black/[0.03] hover:text-[var(--zaq-color-ink)] transition-colors"
               >
                 <svg
                   class="w-5 h-5"
@@ -377,21 +377,21 @@ defmodule ZaqWeb.Components.BOLayout do
                 <a
                   id="header-settings-diagnostics-link"
                   href={~p"/bo/ai-diagnostics"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   Diagnostics
                 </a>
                 <a
                   id="header-settings-prompt-templates-link"
                   href={~p"/bo/prompt-templates"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   Prompt templates
                 </a>
                 <a
                   id="header-settings-system-config-link"
                   href={~p"/bo/system-config"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   System config
                 </a>
@@ -399,7 +399,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 <a
                   id="header-settings-channels-link"
                   href={~p"/bo/channels"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   Channels
                 </a>
@@ -407,14 +407,14 @@ defmodule ZaqWeb.Components.BOLayout do
                 <a
                   id="header-settings-users-link"
                   href={~p"/bo/users"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   Users
                 </a>
                 <a
                   id="header-settings-roles-link"
                   href={~p"/bo/roles"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   Roles
                 </a>
@@ -422,7 +422,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 <a
                   id="header-settings-license-link"
                   href={~p"/bo/license"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   License manager
                 </a>
@@ -434,10 +434,10 @@ defmodule ZaqWeb.Components.BOLayout do
                 id="header-user-trigger"
                 class="list-none flex items-center gap-2 rounded-lg border border-black/10 px-2 py-1.5 cursor-pointer hover:bg-black/[0.03] transition-colors"
               >
-                <span class="w-8 h-8 rounded-lg bg-[#03b6d4]/15 grid place-items-center text-xs font-bold font-mono text-[#03b6d4] border border-[#03b6d4]/20">
+                <span class="w-8 h-8 rounded-lg zaq-bg-accent-soft-strong grid place-items-center text-xs font-bold font-mono zaq-text-accent border zaq-border-accent-soft">
                   {String.first(@current_user.username) |> String.upcase()}
                 </span>
-                <span class="font-mono text-[0.72rem] text-[#2c3a50]/80">
+                <span class="font-mono text-[0.72rem] zaq-text-ink-soft">
                   {@current_user.username}
                 </span>
               </summary>
@@ -449,7 +449,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 <a
                   id="header-profile-link"
                   href={~p"/bo/profile"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] text-[#2c3a50] hover:bg-black/[0.04]"
+                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
                   Profile
                 </a>
@@ -572,7 +572,8 @@ defmodule ZaqWeb.Components.BOLayout do
         class={[
           "w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-all group",
           if(@active,
-            do: "active-section bg-[#03b6d4]/15 text-[#03b6d4] hover:bg-[#03b6d4]/25",
+            do:
+              "active-section zaq-bg-accent-soft-strong zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)]",
             else: "text-amber-400/80 hover:text-amber-300 hover:bg-white/5"
           )
         ]}
@@ -608,7 +609,7 @@ defmodule ZaqWeb.Components.BOLayout do
                   do: "text-white/25 hover:text-white/40 hover:bg-white/5 cursor-default",
                   else:
                     if(item.active,
-                      do: "bg-[#03b6d4] text-white shadow-sm",
+                      do: "zaq-bg-accent text-white shadow-sm",
                       else: "text-white/55 hover:text-white hover:bg-white/8"
                     )
                 )
@@ -641,7 +642,7 @@ defmodule ZaqWeb.Components.BOLayout do
   defp section_icon(assigns) do
     icon_class =
       if assigns.active,
-        do: "w-4 h-4 flex-shrink-0 text-[#03b6d4] transition-colors",
+        do: "w-4 h-4 flex-shrink-0 zaq-text-accent transition-colors",
         else:
           "w-4 h-4 flex-shrink-0 text-amber-400/80 group-hover:text-amber-300 transition-colors"
 
@@ -712,10 +713,10 @@ defmodule ZaqWeb.Components.BOLayout do
             i
           </div>
           <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-10 hidden group-hover:block">
-            <div class="bg-[#2c3a50] text-white font-mono text-[0.65rem] px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg">
+            <div class="zaq-bg-ink text-white font-mono text-[0.65rem] px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg">
               {@hint}
             </div>
-            <div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#2c3a50] mx-auto" />
+            <div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[var(--zaq-color-ink)] mx-auto" />
           </div>
         </div>
       </div>

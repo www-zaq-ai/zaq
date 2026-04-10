@@ -13,14 +13,14 @@ function ensureTooltip() {
 
   tooltip = document.createElement("div")
   tooltip.id = TOOLTIP_ID
-  tooltip.style.cssText = "position:fixed; z-index:1200; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity 140ms ease, transform 140ms ease; border-radius:10px; border:1px solid rgba(15,23,42,0.18); background:rgba(15,23,42,0.95); box-shadow:0 14px 30px rgba(15,23,42,0.22); color:#e2e8f0; padding:8px 10px; min-width:120px; max-width:220px; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;"
+  tooltip.className = "zaq-chart-tooltip"
 
   tooltip.innerHTML = [
-    "<div style=\"display:flex;align-items:center;gap:6px;margin-bottom:4px;\">",
-    "<span data-tip-dot style=\"display:inline-block;width:8px;height:8px;border-radius:999px;background:#03b6d4;\"></span>",
-    "<span data-tip-label style=\"font-size:11px;color:#cbd5e1;letter-spacing:0.03em;text-transform:uppercase;\"></span>",
+    "<div class=\"zaq-chart-tooltip-header\">",
+    "<span data-tip-dot class=\"zaq-chart-tooltip-dot\"></span>",
+    "<span data-tip-label class=\"zaq-chart-tooltip-label\"></span>",
     "</div>",
-    "<div data-tip-value style=\"font-size:12px;color:#f8fafc;font-weight:700;\"></div>"
+    "<div data-tip-value class=\"zaq-chart-tooltip-value\"></div>"
   ].join("")
 
   document.body.appendChild(tooltip)
@@ -136,7 +136,7 @@ const ChartTooltip = {
   showFromTarget(target, clientX, clientY) {
     this.tooltipLabel.textContent = target.dataset.tipLabel || "Metric"
     this.tooltipValue.textContent = target.dataset.tipValue || "--"
-    this.tooltipDot.style.backgroundColor = target.dataset.tipColor || "#03b6d4"
+    this.tooltipDot.style.backgroundColor = target.dataset.tipColor || "var(--zaq-color-accent)"
 
     this.tooltip.style.opacity = "1"
     this.tooltip.style.transform = "translateY(0px)"

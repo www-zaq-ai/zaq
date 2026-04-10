@@ -43,14 +43,11 @@ defmodule ZaqWeb.Components.ChatMessage do
     ~H"""
     <div class="flex justify-end animate-slide-in-right group">
       <div class="max-w-[70%]">
-        <div
-          class="text-white px-4 py-3 rounded-2xl rounded-br-none shadow-sm"
-          style="background: #2c3a50;"
-        >
+        <div class="text-white px-4 py-3 rounded-2xl rounded-br-none shadow-sm zaq-bg-user-bubble">
           <p class="text-[0.85rem] leading-relaxed whitespace-pre-wrap">{@content}</p>
         </div>
         <div class="flex items-center justify-end gap-2 mt-1 pr-1 msg-actions">
-          <span class="text-[0.62rem]" style="color: #b8b5ae;">{format_time(@timestamp)}</span>
+          <span class="text-[0.62rem] zaq-text-muted">{format_time(@timestamp)}</span>
           {render_slot(@actions)}
         </div>
       </div>
@@ -90,7 +87,7 @@ defmodule ZaqWeb.Components.ChatMessage do
           <%!-- Bubble card --%>
           <div class={[
             "px-4 py-3 rounded-2xl rounded-bl-none border shadow-sm",
-            if(@is_error, do: "bg-red-50 border-red-200", else: "bg-white border-[#e8e6e1]")
+            if(@is_error, do: "bg-red-50 border-red-200", else: "bg-white zaq-card-border-soft")
           ]}>
             <%!-- Body — with optional Typewriter hook for live rendering --%>
             <div
@@ -108,8 +105,7 @@ defmodule ZaqWeb.Components.ChatMessage do
             <%!-- Source cards --%>
             <div
               :if={@sources != []}
-              class="grid grid-cols-2 gap-1.5 mt-3 pt-2.5"
-              style="border-top: 1px solid #f0ede8;"
+              class="grid grid-cols-2 gap-1.5 mt-3 pt-2.5 zaq-divider-top-soft"
             >
               <.source_card
                 :for={source <- @sources}
@@ -122,7 +118,7 @@ defmodule ZaqWeb.Components.ChatMessage do
 
           <%!-- Meta row: timestamp + confidence bar + actions --%>
           <div class="flex items-center gap-2 mt-1.5 ml-0.5">
-            <span class="text-[0.62rem]" style="color: #b8b5ae;">{format_time(@timestamp)}</span>
+            <span class="text-[0.62rem] zaq-text-muted">{format_time(@timestamp)}</span>
 
             <%!-- Confidence bar --%>
             <div
@@ -130,13 +126,13 @@ defmodule ZaqWeb.Components.ChatMessage do
               class="flex items-center gap-1.5"
               title={"#{trunc(Float.round(@confidence * 100, 0))}% confidence"}
             >
-              <div class="w-16 h-1.5 rounded-full overflow-hidden" style="background:#e8e6e1;">
+              <div class="w-16 h-1.5 rounded-full overflow-hidden zaq-confidence-track">
                 <div
                   class="h-full rounded-full"
                   style={"width:#{trunc(Float.round(@confidence * 100, 0))}%; background:#{confidence_color(@confidence)};"}
                 />
               </div>
-              <span class="text-[0.62rem]" style="color:#b8b5ae;">
+              <span class="text-[0.62rem] zaq-text-muted">
                 {trunc(Float.round(@confidence * 100, 0))}%
               </span>
             </div>
@@ -174,16 +170,14 @@ defmodule ZaqWeb.Components.ChatMessage do
       phx-value-path={@preview_path}
       {@click_target_attrs}
       data-testid="source-chip"
-      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors hover:border-[#b2e4ef] hover:bg-[#f0f9fb] min-w-0"
-      style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
+      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors min-w-0 zaq-source-card"
     >
       <svg
-        class="w-3 h-3 flex-shrink-0"
+        class="w-3 h-3 flex-shrink-0 zaq-source-card-icon"
         fill="none"
         stroke="currentColor"
         stroke-width="2"
         viewBox="0 0 24 24"
-        style="color:#03b6d4;"
       >
         <path
           stroke-linecap="round"
@@ -198,18 +192,16 @@ defmodule ZaqWeb.Components.ChatMessage do
       :if={@click_event && is_nil(@preview_path)}
       type="button"
       data-testid="source-chip"
-      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border min-w-0 opacity-60 cursor-not-allowed"
-      style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
+      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border min-w-0 opacity-60 cursor-not-allowed zaq-source-card"
       title="Preview unavailable"
       disabled
     >
       <svg
-        class="w-3 h-3 flex-shrink-0"
+        class="w-3 h-3 flex-shrink-0 zaq-source-card-icon-muted"
         fill="none"
         stroke="currentColor"
         stroke-width="2"
         viewBox="0 0 24 24"
-        style="color:#9e9b94;"
       >
         <path
           stroke-linecap="round"
@@ -224,16 +216,14 @@ defmodule ZaqWeb.Components.ChatMessage do
       :if={is_nil(@click_event) && source_preview_path(@source) != "#"}
       navigate={source_preview_path(@source)}
       data-testid="source-chip"
-      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors hover:border-[#b2e4ef] hover:bg-[#f0f9fb] min-w-0"
-      style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
+      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-colors min-w-0 zaq-source-card"
     >
       <svg
-        class="w-3 h-3 flex-shrink-0"
+        class="w-3 h-3 flex-shrink-0 zaq-source-card-icon"
         fill="none"
         stroke="currentColor"
         stroke-width="2"
         viewBox="0 0 24 24"
-        style="color:#03b6d4;"
       >
         <path
           stroke-linecap="round"
@@ -248,17 +238,15 @@ defmodule ZaqWeb.Components.ChatMessage do
       :if={is_nil(@click_event) && source_preview_path(@source) == "#"}
       type="button"
       data-testid="source-chip"
-      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border min-w-0 opacity-60 cursor-not-allowed"
-      style="background:#faf9f7; border-color:#e8e6e1; color:#5c5a55;"
+      class="flex items-center gap-2 px-2.5 py-2 rounded-lg border min-w-0 opacity-60 cursor-not-allowed zaq-source-card"
       disabled
     >
       <svg
-        class="w-3 h-3 flex-shrink-0"
+        class="w-3 h-3 flex-shrink-0 zaq-source-card-icon-muted"
         fill="none"
         stroke="currentColor"
         stroke-width="2"
         viewBox="0 0 24 24"
-        style="color:#9e9b94;"
       >
         <path
           stroke-linecap="round"

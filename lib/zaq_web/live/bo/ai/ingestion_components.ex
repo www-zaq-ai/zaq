@@ -191,7 +191,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   defp file_icon_color(name) do
     case Path.extname(name) |> String.downcase() do
       ".pdf" -> "text-red-400"
-      ".md" -> "text-[#03b6d4]"
+      ".md" -> "zaq-text-accent"
       ".xlsx" -> "text-emerald-500"
       ".csv" -> "text-emerald-400"
       ".docx" -> "text-blue-400"
@@ -225,7 +225,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           class={[
             "font-mono text-[0.7rem] px-2.5 py-1 rounded-lg transition-colors",
             if(@current_volume == name,
-              do: "bg-[#03b6d4] text-white",
+              do: "bg-[var(--zaq-color-accent)] text-white",
               else: "bg-black/5 text-black/40 hover:bg-black/10"
             )
           ]}
@@ -299,7 +299,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           class={[
             "font-mono text-[0.7rem] px-2.5 py-1 rounded-lg transition-colors",
             if(@ingest_mode == mode,
-              do: "bg-[#03b6d4] text-white",
+              do: "bg-[var(--zaq-color-accent)] text-white",
               else: "bg-black/5 text-black/40 hover:bg-black/10"
             )
           ]}
@@ -313,7 +313,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           class={[
             "font-mono text-[0.78rem] font-bold px-4 py-1.5 rounded-lg transition-all",
             if(MapSet.size(@selected) > 0 and @embedding_ready,
-              do: "bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20",
+              do:
+                "bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)]",
               else: "bg-black/5 text-black/20 cursor-not-allowed"
             )
           ]}
@@ -349,7 +350,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
-      <button phx-click="navigate" phx-value-path="." class="text-[#03b6d4] hover:underline">
+      <button phx-click="navigate" phx-value-path="." class="zaq-text-accent hover:underline">
         root
       </button>
       <span :for={crumb <- @breadcrumbs} class="flex items-center gap-1">
@@ -357,7 +358,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         <button
           phx-click="navigate"
           phx-value-path={crumb.path}
-          class="text-[#03b6d4] hover:underline"
+          class="zaq-text-accent hover:underline"
         >
           {crumb.name}
         </button>
@@ -448,7 +449,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 type="checkbox"
                 phx-click="select_all"
                 checked={MapSet.size(@selected) > 0 and MapSet.size(@selected) == length(@entries)}
-                class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
+                class="rounded border-black/20 zaq-text-accent focus:ring-[var(--zaq-color-accent)]"
               />
             </th>
             <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-full max-w-0">
@@ -482,7 +483,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   phx-click="toggle_select"
                   phx-value-path={Path.join(@current_dir, entry.name)}
                   checked={MapSet.member?(@selected, Path.join(@current_dir, entry.name))}
-                  class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
+                  class="rounded border-black/20 zaq-text-accent focus:ring-[var(--zaq-color-accent)]"
                 />
               </td>
               <td class="px-2 py-2 xl:px-4 xl:py-3 max-w-0 w-full">
@@ -491,7 +492,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     <button
                       phx-click="navigate"
                       phx-value-path={Path.join(@current_dir, entry.name)}
-                      class="flex items-center gap-2 font-mono text-[0.85rem] text-[#03b6d4] hover:underline min-w-0"
+                      class="flex items-center gap-2 font-mono text-[0.85rem] zaq-text-accent hover:underline min-w-0"
                       title={entry.name}
                     >
                       <svg
@@ -508,7 +509,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       type="button"
                       phx-click="open_preview"
                       phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
-                      class="flex items-center gap-2 font-mono text-[0.85rem] text-black hover:text-[#03b6d4] hover:underline min-w-0 text-left cursor-pointer"
+                      class="flex items-center gap-2 font-mono text-[0.85rem] text-black hover:text-[var(--zaq-color-accent)] hover:underline min-w-0 text-left cursor-pointer"
                       title={entry.name}
                     >
                       <.file_icon
@@ -570,7 +571,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       phx-click="share_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors cursor-pointer"
+                      class="p-1.5 hover:bg-[var(--zaq-color-accent-soft)] rounded-lg text-black/30 hover:text-[var(--zaq-color-accent)] transition-colors cursor-pointer"
                       title="Share with roles"
                     >
                       <svg
@@ -707,7 +708,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   <div class="flex items-center gap-1 flex-wrap">
                     <span
                       :if={status.permissions_count > 0}
-                      class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4] cursor-default whitespace-nowrap"
+                      class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent cursor-default whitespace-nowrap"
                       title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                     >
                       <svg
@@ -774,7 +775,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </tr>
             <tr
               :if={Map.get(entry, :related_md)}
-              class="border-b border-black/[0.04] last:border-0 bg-[#03b6d4]/[0.018]"
+              class="border-b border-black/[0.04] last:border-0 zaq-bg-accent-faint"
             >
               <td></td>
               <td class="px-4 py-1.5 overflow-hidden max-w-0" colspan="4">
@@ -802,9 +803,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   </svg>
                   <.file_icon
                     name={Map.get(entry, :related_md, %{name: ""}).name}
-                    class="w-3.5 h-3.5 text-[#03b6d4]"
+                    class="w-3.5 h-3.5 zaq-text-accent"
                   />
-                  <span class="font-mono text-[0.78rem] text-black/40 group-hover/sidecar:text-[#03b6d4] group-hover/sidecar:underline transition-colors truncate min-w-0">
+                  <span class="font-mono text-[0.78rem] text-black/40 group-hover/sidecar:zaq-text-accent group-hover/sidecar:underline transition-colors truncate min-w-0">
                     {Map.get(entry, :related_md, %{name: ""}).name}
                   </span>
                   <span class="font-mono text-[0.65rem] text-black/25 shrink-0 whitespace-nowrap">
@@ -836,7 +837,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           type="checkbox"
           phx-click="select_all"
           checked={MapSet.size(@selected) > 0 and MapSet.size(@selected) == length(@entries)}
-          class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
+          class="rounded border-black/20 zaq-text-accent focus:ring-[var(--zaq-color-accent)]"
         />
         <span class="font-mono text-[0.68rem] text-black/40">Select all</span>
       </div>
@@ -851,7 +852,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           class={[
             "group relative rounded-xl border transition-all cursor-pointer",
             if(MapSet.member?(@selected, Path.join(@current_dir, entry.name)),
-              do: "border-[#03b6d4] bg-[#03b6d4]/[0.03] shadow-sm shadow-[#03b6d4]/10",
+              do:
+                "border-[var(--zaq-color-accent)] zaq-bg-accent-faint shadow-sm shadow-[var(--zaq-color-accent-border)]",
               else: "border-black/[0.06] hover:border-black/10 hover:shadow-sm"
             )
           ]}
@@ -868,7 +870,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               phx-click="toggle_select"
               phx-value-path={Path.join(@current_dir, entry.name)}
               checked={MapSet.member?(@selected, Path.join(@current_dir, entry.name))}
-              class="rounded border-black/20 text-[#03b6d4] focus:ring-[#03b6d4]"
+              class="rounded border-black/20 zaq-text-accent focus:ring-[var(--zaq-color-accent)]"
             />
           </div>
           <div class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
@@ -877,7 +879,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               type="button"
               phx-click="open_preview"
               phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
-              class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+              class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-[var(--zaq-color-accent)] transition-colors"
               title="Preview"
             >
               <svg
@@ -941,7 +943,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               phx-click="share_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
-              class="p-1 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors cursor-pointer"
+              class="p-1 hover:bg-[var(--zaq-color-accent-soft)] rounded-lg text-black/30 hover:text-[var(--zaq-color-accent)] transition-colors cursor-pointer"
               title="Share with roles"
             >
               <svg
@@ -985,7 +987,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               <svg class="w-10 h-10 text-amber-400 mb-2" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
               </svg>
-              <span class="font-mono text-[0.75rem] text-[#03b6d4] text-center leading-tight px-2 truncate max-w-full">
+              <span class="font-mono text-[0.75rem] zaq-text-accent text-center leading-tight px-2 truncate max-w-full">
                 {entry.name}
               </span>
               <span class="font-mono text-[0.6rem] text-black/30 mt-0.5">
@@ -1053,7 +1055,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     </span>
                     <span
                       :if={status.permissions_count > 0}
-                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4]"
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent"
                       title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                     >
                       shared
@@ -1070,7 +1072,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   <div class="flex flex-row flex-wrap items-center justify-center gap-1 mt-1">
                     <span
                       :if={status.permissions_count > 0}
-                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4]"
+                      class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent"
                       title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                     >
                       shared
@@ -1095,7 +1097,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     Map.get(entry, :related_md, %{name: ""}).name
                   ])
                 }
-                class="mt-2 flex items-center gap-1 font-mono text-[0.6rem] text-[#03b6d4]/50 hover:text-[#03b6d4] hover:underline transition-colors border-t border-dashed border-black/[0.06] pt-2 w-full justify-center cursor-pointer"
+                class="mt-2 flex items-center gap-1 font-mono text-[0.6rem] zaq-text-accent opacity-50 hover:text-[var(--zaq-color-accent)] hover:underline transition-colors border-t border-dashed border-black/[0.06] pt-2 w-full justify-center cursor-pointer"
                 title="Preview converted markdown"
               >
                 <.file_icon
@@ -1122,7 +1124,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Upload</p>
       <form id="upload-form" phx-submit="upload" phx-change="validate_upload">
         <div
-          class="bg-white rounded-2xl border-2 border-dashed border-black/10 hover:border-[#03b6d4]/40 transition-colors p-6"
+          class="bg-white rounded-2xl border-2 border-dashed border-black/10 hover:border-[var(--zaq-color-accent)] transition-colors p-6"
           phx-drop-target={@uploads.files.ref}
         >
           <div class="text-center">
@@ -1137,7 +1139,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </svg>
             <p class="font-mono text-[0.8rem] text-black/40 mb-1">
               Drop files here or
-              <label class="text-[#03b6d4] hover:underline cursor-pointer">
+              <label class="zaq-text-accent hover:underline cursor-pointer">
                 browse <.live_file_input upload={@uploads.files} class="hidden" />
               </label>
             </p>
@@ -1156,7 +1158,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               <div class="flex items-center gap-3">
                 <div class="w-32 h-1.5 bg-black/5 rounded-full overflow-hidden">
                   <div
-                    class="h-full bg-[#03b6d4] rounded-full transition-all"
+                    class="h-full bg-[var(--zaq-color-accent)] rounded-full transition-all"
                     style={"width: #{entry.progress}%;"}
                   />
                 </div>
@@ -1187,7 +1189,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           class={[
             "mt-4 font-mono text-[0.78rem] font-bold px-5 py-2 rounded-xl transition-all",
             if(@embedding_ready,
-              do: "bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20",
+              do:
+                "bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)]",
               else: "bg-black/5 text-black/20 cursor-not-allowed"
             )
           ]}
@@ -1232,7 +1235,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           class={[
             "font-mono text-[0.68rem] px-2 py-1 rounded-lg transition-colors whitespace-nowrap cursor-pointer",
             if(@status_filter == status,
-              do: "bg-[#03b6d4] text-white",
+              do: "bg-[var(--zaq-color-accent)] text-white",
               else: "bg-black/5 text-black/40 hover:bg-black/10"
             )
           ]}
@@ -1329,9 +1332,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
       >
         <div class="px-6 pt-6 pb-4">
           <div class="flex items-center gap-3 mb-1">
-            <div class="w-9 h-9 rounded-xl bg-[#03b6d4]/10 flex items-center justify-center shrink-0">
+            <div class="w-9 h-9 rounded-xl zaq-bg-accent-soft flex items-center justify-center shrink-0">
               <svg
-                class="w-4.5 h-4.5 text-[#03b6d4]"
+                class="w-4.5 h-4.5 zaq-text-accent"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
@@ -1372,7 +1375,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   value={@modal_name}
                   phx-hook="FocusAndSelect"
                   placeholder="my-document"
-                  class="flex-1 font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all placeholder:text-black/20"
+                  class="flex-1 font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[var(--zaq-color-accent)] focus:ring-2 focus:ring-[var(--zaq-color-accent-border)] outline-none transition-all placeholder:text-black/20"
                 />
                 <span class="font-mono text-[0.8rem] text-black/30 shrink-0">.md</span>
               </div>
@@ -1387,7 +1390,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 name="content"
                 rows="14"
                 placeholder="# My Document&#10;&#10;Start writing your Markdown here..."
-                class="w-full font-mono text-[0.82rem] px-4 py-3 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all placeholder:text-black/20 resize-none"
+                class="w-full font-mono text-[0.82rem] px-4 py-3 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[var(--zaq-color-accent)] focus:ring-2 focus:ring-[var(--zaq-color-accent-border)] outline-none transition-all placeholder:text-black/20 resize-none"
               ></textarea>
             </div>
           </div>
@@ -1410,7 +1413,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               <button
                 id="save-raw-file-button"
                 type="submit"
-                class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+                class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)] transition-all"
               >
                 Save File
               </button>
@@ -1438,9 +1441,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
       >
         <div class="px-6 pt-6 pb-4">
           <div class="flex items-center gap-3 mb-1">
-            <div class="w-9 h-9 rounded-xl bg-[#03b6d4]/10 flex items-center justify-center shrink-0">
+            <div class="w-9 h-9 rounded-xl zaq-bg-accent-soft flex items-center justify-center shrink-0">
               <svg
-                class="w-4.5 h-4.5 text-[#03b6d4]"
+                class="w-4.5 h-4.5 zaq-text-accent"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1474,7 +1477,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               type="text"
               name="name"
               value={@modal_name}
-              class="w-full font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all"
+              class="w-full font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[var(--zaq-color-accent)] focus:ring-2 focus:ring-[var(--zaq-color-accent-border)] outline-none transition-all"
             />
           </div>
           <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
@@ -1487,7 +1490,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </button>
             <button
               type="submit"
-              class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+              class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)] transition-all"
             >
               Rename
             </button>
@@ -1625,7 +1628,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               value={@modal_name}
               phx-hook="FocusAndSelect"
               placeholder="my-folder"
-              class="w-full font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[#03b6d4] focus:ring-2 focus:ring-[#03b6d4]/20 outline-none transition-all placeholder:text-black/20"
+              class="w-full font-mono text-[0.85rem] px-4 py-2.5 rounded-xl text-black border border-black/10 bg-[#fafafa] focus:border-[var(--zaq-color-accent)] focus:ring-2 focus:ring-[var(--zaq-color-accent-border)] outline-none transition-all placeholder:text-black/20"
             />
           </div>
           <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
@@ -1639,7 +1642,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             <button
               id="create-folder-button"
               type="submit"
-              class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+              class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)] transition-all"
             >
               Create
             </button>
@@ -1719,7 +1722,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             <button
               phx-click="move_navigate"
               phx-value-path="."
-              class="text-[#03b6d4] hover:underline"
+              class="zaq-text-accent hover:underline"
             >
               root
             </button>
@@ -1728,7 +1731,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               <button
                 phx-click="move_navigate"
                 phx-value-path={crumb.path}
-                class="text-[#03b6d4] hover:underline"
+                class="zaq-text-accent hover:underline"
               >
                 {crumb.name}
               </button>
@@ -1814,7 +1817,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </p>
             <p
               :if={@share_modal_is_folder}
-              class="font-mono text-[0.68rem] text-[#03b6d4] mt-0.5"
+              class="font-mono text-[0.68rem] zaq-text-accent mt-0.5"
             >
               Permissions will apply to all documents inside this folder
             </p>
@@ -1871,7 +1874,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               phx-click="toggle_public"
               class={[
                 "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                if(@share_modal_is_public, do: "bg-[#03b6d4]", else: "bg-black/20")
+                if(@share_modal_is_public, do: "bg-[var(--zaq-color-accent)]", else: "bg-black/20")
               ]}
               role="switch"
               aria-checked={to_string(@share_modal_is_public)}
@@ -1901,7 +1904,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   <div class="flex gap-1 mt-1">
                     <span
                       :for={right <- perm.access_rights}
-                      class="font-mono text-[0.65rem] px-1.5 py-0.5 rounded bg-[#03b6d4]/10 text-[#03b6d4]"
+                      class="font-mono text-[0.65rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent"
                     >
                       {right}
                     </span>
@@ -1934,7 +1937,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             <div class="space-y-3">
               <div
                 :for={{entry, idx} <- Enum.with_index(@share_modal_pending)}
-                class="px-3 py-3 rounded-xl border border-[#03b6d4]/30 bg-[#03b6d4]/5"
+                class="px-3 py-3 rounded-xl border border-[var(--zaq-color-accent)] zaq-bg-accent-faint"
               >
                 <div class="flex items-center justify-between mb-2">
                   <span class="font-mono text-[0.82rem] text-black/80 truncate">{entry.name}</span>
@@ -1960,7 +1963,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     class={[
                       "flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-all select-none text-[0.72rem] font-mono",
                       if(right in entry.access_rights,
-                        do: "border-[#03b6d4] bg-[#03b6d4]/10 text-[#03b6d4]",
+                        do: "border-[var(--zaq-color-accent)] zaq-bg-accent-soft zaq-text-accent",
                         else: "border-black/10 bg-white text-black/40 hover:border-black/20"
                       )
                     ]}
@@ -2009,7 +2012,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           </button>
           <button
             phx-click="confirm_share"
-            class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all disabled:opacity-40"
+            class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)] transition-all disabled:opacity-40"
             disabled={
               @share_modal_pending == [] and @share_modal_is_public == @share_modal_original_is_public
             }

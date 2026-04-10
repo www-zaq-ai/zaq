@@ -6,6 +6,58 @@
 // Usage in HEEx:
 //   <div id="ontology-tree" phx-hook="OntologyTree" data-tree={Jason.encode!(@tree_data)}></div>
 
+function cssVar(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function buildColorMap() {
+  return {
+    business: {
+      stroke: cssVar("--zaq-ontology-business-stroke", "rgba(246,173,55,0.3)"),
+      border: cssVar("--zaq-ontology-business-border", "rgba(246,173,55,0.25)"),
+      bg: cssVar("--zaq-ontology-business-bg", "rgba(246,173,55,0.12)"),
+      accent: cssVar("--zaq-ontology-business-accent", "#F6AD37"),
+      glow: cssVar("--zaq-ontology-business-glow", "rgba(246,173,55,0.12)")
+    },
+    division: {
+      stroke: cssVar("--zaq-ontology-division-stroke", "rgba(167,139,250,0.3)"),
+      border: cssVar("--zaq-ontology-division-border", "rgba(167,139,250,0.18)"),
+      bg: cssVar("--zaq-ontology-division-bg", "rgba(167,139,250,0.1)"),
+      accent: cssVar("--zaq-ontology-division-accent", "#A78BFA"),
+      glow: cssVar("--zaq-ontology-division-glow", "rgba(167,139,250,0.08)")
+    },
+    department: {
+      stroke: cssVar("--zaq-ontology-department-stroke", "rgba(96,165,250,0.25)"),
+      border: cssVar("--zaq-ontology-department-border", "rgba(96,165,250,0.18)"),
+      bg: cssVar("--zaq-ontology-department-bg", "rgba(96,165,250,0.1)"),
+      accent: cssVar("--zaq-ontology-department-accent", "#60A5FA"),
+      glow: cssVar("--zaq-ontology-department-glow", "rgba(96,165,250,0.08)")
+    },
+    team: {
+      stroke: cssVar("--zaq-ontology-team-stroke", "rgba(52,211,153,0.25)"),
+      border: cssVar("--zaq-ontology-team-border", "rgba(52,211,153,0.18)"),
+      bg: cssVar("--zaq-ontology-team-bg", "rgba(52,211,153,0.1)"),
+      accent: cssVar("--zaq-ontology-team-accent", "#34D399"),
+      glow: cssVar("--zaq-ontology-team-glow", "rgba(52,211,153,0.06)")
+    },
+    person: {
+      stroke: cssVar("--zaq-ontology-person-stroke", "rgba(244,114,182,0.2)"),
+      border: cssVar("--zaq-ontology-person-border", "rgba(244,114,182,0.14)"),
+      bg: cssVar("--zaq-ontology-person-bg", "rgba(244,114,182,0.1)"),
+      accent: cssVar("--zaq-ontology-person-accent", "#F472B6"),
+      glow: cssVar("--zaq-ontology-person-glow", "rgba(244,114,182,0.06)")
+    },
+    domain: {
+      stroke: cssVar("--zaq-ontology-domain-stroke", "rgba(251,146,60,0.2)"),
+      border: cssVar("--zaq-ontology-domain-border", "rgba(251,146,60,0.16)"),
+      bg: cssVar("--zaq-ontology-domain-bg", "rgba(251,146,60,0.1)"),
+      accent: cssVar("--zaq-ontology-domain-accent", "#FB923C"),
+      glow: cssVar("--zaq-ontology-domain-glow", "rgba(251,146,60,0.06)")
+    }
+  };
+}
+
 const OntologyTree = {
   mounted() {
     this.renderTree();
@@ -27,12 +79,24 @@ const OntologyTree = {
       return;
     }
 
+    const colorMap = buildColorMap();
+    const uiFont = cssVar("--zaq-font-ui", "'Outfit',system-ui,sans-serif");
+    const monoFont = cssVar("--zaq-font-mono", "'Space Mono',monospace");
+    const emptyTextColor = cssVar("--zaq-ontology-empty-text", "#5A6A80");
+    const emptyTitleColor = cssVar("--zaq-ontology-empty-title", "#A0AEC0");
+    const tooltipBg = cssVar("--zaq-ontology-tooltip-bg", "rgba(14,20,35,0.92)");
+    const tooltipBorder = cssVar("--zaq-ontology-tooltip-border", "rgba(255,255,255,0.08)");
+    const tooltipShadow = cssVar("--zaq-ontology-tooltip-shadow", "0 12px 40px rgba(0,0,0,0.5)");
+    const tooltipText = cssVar("--zaq-ontology-tooltip-text", "#A0AEC0");
+    const nodeBg = cssVar("--zaq-ontology-node-bg", "linear-gradient(145deg, rgba(22,30,50,0.9), rgba(14,20,35,0.9))");
+    const nodeTitleColor = cssVar("--zaq-ontology-node-title", "#EDF2F7");
+
     // If data is an array of businesses, wrap in a root node
     // If it's empty, show empty state
     if (Array.isArray(data) && data.length === 0) {
       this.el.innerHTML = `
-        <div style="text-align:center; padding:4rem 2rem; color:#5A6A80; font-family:'Outfit',system-ui,sans-serif;">
-          <p style="font-size:0.9rem; font-weight:600; color:#A0AEC0; margin-bottom:0.5rem;">No ontology data yet</p>
+        <div style="text-align:center; padding:4rem 2rem; color:${emptyTextColor}; font-family:${uiFont};">
+          <p style="font-size:0.9rem; font-weight:600; color:${emptyTitleColor}; margin-bottom:0.5rem;">No ontology data yet</p>
           <p style="font-size:0.75rem;">Use the Org Structure tab to add businesses, divisions, departments and teams</p>
         </div>
       `;
@@ -56,16 +120,16 @@ const OntologyTree = {
     const legend = document.createElement("div");
     legend.style.cssText = "display:flex; gap:0.875rem; flex-wrap:wrap; margin-bottom:1.5rem; justify-content:center;";
     const legendItems = [
-      { label: "Business", color: "#F6AD37" },
-      { label: "Division", color: "#A78BFA" },
-      { label: "Department", color: "#60A5FA" },
-      { label: "Team", color: "#34D399" },
-      { label: "Person", color: "#F472B6" },
-      { label: "Domain", color: "#FB923C" },
+      { label: "Business", color: colorMap.business.accent },
+      { label: "Division", color: colorMap.division.accent },
+      { label: "Department", color: colorMap.department.accent },
+      { label: "Team", color: colorMap.team.accent },
+      { label: "Person", color: colorMap.person.accent },
+      { label: "Domain", color: colorMap.domain.accent }
     ];
     legendItems.forEach(({ label, color }) => {
       const item = document.createElement("span");
-      item.style.cssText = `display:flex; align-items:center; gap:0.375rem; font-size:0.65rem; color:#A0AEC0; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; font-family:'Outfit',system-ui,sans-serif;`;
+      item.style.cssText = `display:flex; align-items:center; gap:0.375rem; font-size:0.65rem; color:${tooltipText}; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; font-family:${uiFont};`;
       const dot = document.createElement("span");
       dot.style.cssText = `width:7px; height:7px; border-radius:50%; background:${color}; box-shadow:0 0 6px ${color}40;`;
       item.appendChild(dot);
@@ -75,17 +139,7 @@ const OntologyTree = {
 
     // Tooltip
     const tooltip = document.createElement("div");
-    tooltip.style.cssText = "position:fixed; z-index:1000; background:rgba(14,20,35,0.92); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:0.75rem 1rem; font-size:0.72rem; color:#A0AEC0; max-width:280px; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity 0.2s,transform 0.2s; box-shadow:0 12px 40px rgba(0,0,0,0.5); line-height:1.55; font-family:'Outfit',system-ui,sans-serif;";
-
-    // Color map
-    const colorMap = {
-      business:   { stroke: "rgba(246,173,55,0.3)",   border: "rgba(246,173,55,0.25)",  bg: "rgba(246,173,55,0.12)", accent: "#F6AD37", glow: "rgba(246,173,55,0.12)" },
-      division:   { stroke: "rgba(167,139,250,0.3)",  border: "rgba(167,139,250,0.18)", bg: "rgba(167,139,250,0.1)", accent: "#A78BFA", glow: "rgba(167,139,250,0.08)" },
-      department: { stroke: "rgba(96,165,250,0.25)",   border: "rgba(96,165,250,0.18)",  bg: "rgba(96,165,250,0.1)",  accent: "#60A5FA", glow: "rgba(96,165,250,0.08)" },
-      team:       { stroke: "rgba(52,211,153,0.25)",   border: "rgba(52,211,153,0.18)",  bg: "rgba(52,211,153,0.1)",  accent: "#34D399", glow: "rgba(52,211,153,0.06)" },
-      person:     { stroke: "rgba(244,114,182,0.2)",   border: "rgba(244,114,182,0.14)", bg: "rgba(244,114,182,0.1)", accent: "#F472B6", glow: "rgba(244,114,182,0.06)" },
-      domain:     { stroke: "rgba(251,146,60,0.2)",    border: "rgba(251,146,60,0.16)",  bg: "rgba(251,146,60,0.1)",  accent: "#FB923C", glow: "rgba(251,146,60,0.06)" },
-    };
+    tooltip.style.cssText = `position:fixed; z-index:1000; background:${tooltipBg}; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid ${tooltipBorder}; border-radius:10px; padding:0.75rem 1rem; font-size:0.72rem; color:${tooltipText}; max-width:280px; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity 0.2s,transform 0.2s; box-shadow:${tooltipShadow}; line-height:1.55; font-family:${uiFont};`;
 
     let nodeIndex = 0;
 
@@ -100,7 +154,7 @@ const OntologyTree = {
 
       const node = document.createElement("div");
       node.style.cssText = `
-        background: linear-gradient(145deg, rgba(22,30,50,0.9), rgba(14,20,35,0.9));
+        background: ${nodeBg};
         border: 1px ${d.type === "domain" ? "dashed" : "solid"} ${colors.border};
         border-radius: 16px;
         padding: 0.875rem 1.25rem;
@@ -137,7 +191,7 @@ const OntologyTree = {
 
       // Badge
       const badge = document.createElement("div");
-      badge.style.cssText = `display:inline-block; font-size:0.52rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; padding:0.2rem 0.6rem; border-radius:999px; margin-bottom:0.4rem; background:${colors.bg}; color:${colors.accent}; font-family:'Outfit',system-ui,sans-serif;`;
+      badge.style.cssText = `display:inline-block; font-size:0.52rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; padding:0.2rem 0.6rem; border-radius:999px; margin-bottom:0.4rem; background:${colors.bg}; color:${colors.accent}; font-family:${uiFont};`;
       badge.textContent = d.type === "domain" ? "◇ domain" : d.type;
       node.appendChild(badge);
 
@@ -145,21 +199,21 @@ const OntologyTree = {
       const name = document.createElement("div");
       const fontSize = d.type === "business" ? "1.05rem" : (d.type === "person" || d.type === "domain") ? "0.78rem" : "0.85rem";
       const fontWeight = d.type === "business" ? "700" : "600";
-      const nameColor = d.type === "business" ? colors.accent : "#EDF2F7";
-      name.style.cssText = `font-weight:${fontWeight}; font-size:${fontSize}; line-height:1.3; letter-spacing:-0.01em; color:${nameColor}; font-family:'Outfit',system-ui,sans-serif;`;
+      const nameColor = d.type === "business" ? colors.accent : nodeTitleColor;
+      name.style.cssText = `font-weight:${fontWeight}; font-size:${fontSize}; line-height:1.3; letter-spacing:-0.01em; color:${nameColor}; font-family:${uiFont};`;
       name.textContent = d.name;
       node.appendChild(name);
 
       // Detail
       if (d.type === "person" && d.role) {
         const detail = document.createElement("div");
-        detail.style.cssText = "font-size:0.6rem; color:#5A6A80; margin-top:0.3rem; font-family:'Space Mono',monospace; font-weight:400; letter-spacing:0.02em;";
+        detail.style.cssText = `font-size:0.6rem; color:${emptyTextColor}; margin-top:0.3rem; font-family:${monoFont}; font-weight:400; letter-spacing:0.02em;`;
         detail.textContent = d.role;
         node.appendChild(detail);
       }
       if (d.type === "domain" && d.keywords && d.keywords.length > 0) {
         const detail = document.createElement("div");
-        detail.style.cssText = "font-size:0.6rem; color:#5A6A80; margin-top:0.3rem; font-family:'Space Mono',monospace; font-weight:400; letter-spacing:0.02em;";
+        detail.style.cssText = `font-size:0.6rem; color:${emptyTextColor}; margin-top:0.3rem; font-family:${monoFont}; font-weight:400; letter-spacing:0.02em;`;
         detail.textContent = d.keywords.length + " keywords";
         node.appendChild(detail);
       }
@@ -167,10 +221,10 @@ const OntologyTree = {
       // Tooltip for domains
       if (d.type === "domain") {
         node.addEventListener("mouseenter", (e) => {
-          let html = `<strong style="color:#EDF2F7; font-weight:600;">${d.name}</strong>`;
+          let html = `<strong style="color:${nodeTitleColor}; font-weight:600;">${d.name}</strong>`;
           if (d.description) html += `<br>${d.description}`;
           if (d.keywords && d.keywords.length) {
-            html += `<br><span style="display:inline-block; margin-top:0.35rem; font-family:'Space Mono',monospace; font-size:0.58rem; color:#FB923C; opacity:0.85;">${d.keywords.join(" · ")}</span>`;
+            html += `<br><span style="display:inline-block; margin-top:0.35rem; font-family:${monoFont}; font-size:0.58rem; color:${colorMap.domain.accent}; opacity:0.85;">${d.keywords.join(" · ")}</span>`;
           }
           tooltip.innerHTML = html;
           tooltip.style.opacity = "1";
@@ -313,7 +367,7 @@ const OntologyTree = {
           const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
           path.setAttribute("d", `M ${px} ${py} C ${px} ${midY}, ${cx} ${midY}, ${cx} ${cy}`);
           path.setAttribute("fill", "none");
-          path.setAttribute("stroke", colorMap[childType]?.stroke || "rgba(255,255,255,0.08)");
+          path.setAttribute("stroke", colorMap[childType]?.stroke || cssVar("--zaq-ontology-tooltip-border", "rgba(255,255,255,0.08)"));
           path.setAttribute("stroke-width", "1.5");
           path.setAttribute("filter", `url(#ont-glow-${childType})`);
           path.style.opacity = "0";

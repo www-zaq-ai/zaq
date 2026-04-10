@@ -40,6 +40,9 @@ jobs:
       - name: Check formatting
         run: mix format --check-formatted
 
+      - name: Run UI style guard
+        run: bash .github/scripts/style-guard.sh
+
   credo:
     name: Credo
     if: ${{ github.event_name == 'pull_request' }}

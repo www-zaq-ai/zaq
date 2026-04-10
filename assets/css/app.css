@@ -104,6 +104,169 @@
 
 /* This file is for your main application CSS */
 
+/* ZAQ semantic design tokens */
+:root {
+  --zaq-font-ui: "Outfit", system-ui, sans-serif;
+  --zaq-font-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --zaq-color-accent: #03b6d4;
+  --zaq-color-accent-hover: #029ab3;
+  --zaq-color-accent-soft: rgba(3, 182, 212, 0.1);
+  --zaq-color-accent-soft-strong: rgba(3, 182, 212, 0.16);
+  --zaq-color-accent-border: rgba(3, 182, 212, 0.2);
+  --zaq-color-ink: #2c3a50;
+  --zaq-color-ink-soft: #5c5a55;
+  --zaq-color-muted: #b8b5ae;
+  --zaq-color-disabled: #9e9b94;
+  --zaq-color-surface: #faf9f7;
+  --zaq-color-surface-border: #e8e6e1;
+  --zaq-color-surface-divider: #f0ede8;
+
+  --zaq-chart-tooltip-border: rgba(15, 23, 42, 0.18);
+  --zaq-chart-tooltip-bg: rgba(15, 23, 42, 0.95);
+  --zaq-chart-tooltip-shadow: 0 14px 30px rgba(15, 23, 42, 0.22);
+  --zaq-chart-tooltip-text: #e2e8f0;
+  --zaq-chart-tooltip-label: #cbd5e1;
+  --zaq-chart-tooltip-value: #f8fafc;
+
+  --zaq-ontology-empty-text: #5a6a80;
+  --zaq-ontology-empty-title: #a0aec0;
+  --zaq-ontology-tooltip-bg: rgba(14, 20, 35, 0.92);
+  --zaq-ontology-tooltip-border: rgba(255, 255, 255, 0.08);
+  --zaq-ontology-tooltip-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --zaq-ontology-tooltip-text: #a0aec0;
+  --zaq-ontology-node-bg: linear-gradient(145deg, rgba(22, 30, 50, 0.9), rgba(14, 20, 35, 0.9));
+  --zaq-ontology-node-title: #edf2f7;
+
+  --zaq-ontology-business-accent: #f6ad37;
+  --zaq-ontology-business-stroke: rgba(246, 173, 55, 0.3);
+  --zaq-ontology-business-border: rgba(246, 173, 55, 0.25);
+  --zaq-ontology-business-bg: rgba(246, 173, 55, 0.12);
+  --zaq-ontology-business-glow: rgba(246, 173, 55, 0.12);
+
+  --zaq-ontology-division-accent: #a78bfa;
+  --zaq-ontology-division-stroke: rgba(167, 139, 250, 0.3);
+  --zaq-ontology-division-border: rgba(167, 139, 250, 0.18);
+  --zaq-ontology-division-bg: rgba(167, 139, 250, 0.1);
+  --zaq-ontology-division-glow: rgba(167, 139, 250, 0.08);
+
+  --zaq-ontology-department-accent: #60a5fa;
+  --zaq-ontology-department-stroke: rgba(96, 165, 250, 0.25);
+  --zaq-ontology-department-border: rgba(96, 165, 250, 0.18);
+  --zaq-ontology-department-bg: rgba(96, 165, 250, 0.1);
+  --zaq-ontology-department-glow: rgba(96, 165, 250, 0.08);
+
+  --zaq-ontology-team-accent: #34d399;
+  --zaq-ontology-team-stroke: rgba(52, 211, 153, 0.25);
+  --zaq-ontology-team-border: rgba(52, 211, 153, 0.18);
+  --zaq-ontology-team-bg: rgba(52, 211, 153, 0.1);
+  --zaq-ontology-team-glow: rgba(52, 211, 153, 0.06);
+
+  --zaq-ontology-person-accent: #f472b6;
+  --zaq-ontology-person-stroke: rgba(244, 114, 182, 0.2);
+  --zaq-ontology-person-border: rgba(244, 114, 182, 0.14);
+  --zaq-ontology-person-bg: rgba(244, 114, 182, 0.1);
+  --zaq-ontology-person-glow: rgba(244, 114, 182, 0.06);
+
+  --zaq-ontology-domain-accent: #fb923c;
+  --zaq-ontology-domain-stroke: rgba(251, 146, 60, 0.2);
+  --zaq-ontology-domain-border: rgba(251, 146, 60, 0.16);
+  --zaq-ontology-domain-bg: rgba(251, 146, 60, 0.1);
+  --zaq-ontology-domain-glow: rgba(251, 146, 60, 0.06);
+}
+
+.zaq-bg-user-bubble { background: var(--zaq-color-ink); }
+.zaq-text-muted { color: var(--zaq-color-muted); }
+.zaq-text-ink { color: var(--zaq-color-ink); }
+.zaq-text-ink-soft { color: var(--zaq-color-ink-soft); }
+.zaq-text-accent { color: var(--zaq-color-accent); }
+
+.zaq-bg-ink { background: var(--zaq-color-ink); }
+.zaq-bg-accent { background: var(--zaq-color-accent); }
+.zaq-bg-accent-hover { background: var(--zaq-color-accent-hover); }
+.zaq-bg-accent-soft { background: var(--zaq-color-accent-soft); }
+.zaq-bg-accent-soft-strong { background: var(--zaq-color-accent-soft-strong); }
+.zaq-bg-accent-faint { background: color-mix(in srgb, var(--zaq-color-accent) 5%, transparent); }
+.zaq-bg-ink-soft { background: color-mix(in srgb, var(--zaq-color-ink) 10%, transparent); }
+.zaq-border-accent { border-color: var(--zaq-color-accent); }
+.zaq-border-accent-soft { border-color: var(--zaq-color-accent-border); }
+.zaq-border-ink-soft { border-color: color-mix(in srgb, var(--zaq-color-ink) 12%, transparent); }
+
+.zaq-card-border-soft { border-color: var(--zaq-color-surface-border); }
+.zaq-divider-top-soft { border-top: 1px solid var(--zaq-color-surface-divider); }
+.zaq-confidence-track { background: var(--zaq-color-surface-border); }
+
+.zaq-source-card {
+  background: var(--zaq-color-surface);
+  border-color: var(--zaq-color-surface-border);
+  color: var(--zaq-color-ink-soft);
+}
+
+.zaq-source-card:hover {
+  border-color: var(--zaq-color-accent-border);
+  background: color-mix(in srgb, var(--zaq-color-accent) 6%, var(--zaq-color-surface));
+}
+
+.zaq-source-card-icon { color: var(--zaq-color-accent); }
+.zaq-source-card-icon-muted { color: var(--zaq-color-disabled); }
+
+.zaq-accent-chip {
+  background: var(--zaq-color-accent-soft);
+  border-color: var(--zaq-color-accent-border);
+  color: var(--zaq-color-accent);
+}
+
+.zaq-accent-chip-strong {
+  background: var(--zaq-color-accent-soft-strong);
+  color: var(--zaq-color-accent);
+}
+
+.zaq-chart-tooltip {
+  position: fixed;
+  z-index: 1200;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  border-radius: 10px;
+  border: 1px solid var(--zaq-chart-tooltip-border);
+  background: var(--zaq-chart-tooltip-bg);
+  box-shadow: var(--zaq-chart-tooltip-shadow);
+  color: var(--zaq-chart-tooltip-text);
+  padding: 8px 10px;
+  min-width: 120px;
+  max-width: 220px;
+  font-family: var(--zaq-font-mono);
+}
+
+.zaq-chart-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.zaq-chart-tooltip-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--zaq-color-accent);
+}
+
+.zaq-chart-tooltip-label {
+  font-size: 11px;
+  color: var(--zaq-chart-tooltip-label);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.zaq-chart-tooltip-value {
+  font-size: 12px;
+  color: var(--zaq-chart-tooltip-value);
+  font-weight: 700;
+}
+
 /* ── Markdown rendered content ── */
 .md-content {
   font-size: 0.9rem;
