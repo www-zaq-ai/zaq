@@ -1,5 +1,84 @@
 # Changelog
 
+## [0.7.0](https://github.com/www-zaq-ai/zaq/compare/v0.6.4...v0.7.0) (2026-04-10)
+
+
+### Features
+
+* **bo:** add conversation history page with person/sender resolution and backfill ([d09ce21](https://github.com/www-zaq-ai/zaq/commit/d09ce217af24931d0214a746611156ba87242d2c))
+* **channels:** delete all custom Mattermost code and redirect references to jido_chat_mattermost ([5cb4a4b](https://github.com/www-zaq-ai/zaq/commit/5cb4a4b2c6c754dab95db8bab1f325110073ebb4))
+* **channels:** delete Router and remove dispatch_question path ([835f228](https://github.com/www-zaq-ai/zaq/commit/835f22882bfec7c1a9f0372dad8a2a3c79a40dd5))
+* **channels:** introduce ChatBridge, ChatBridgeServer, and Conversations.persist_from_incoming ([ec0a9c6](https://github.com/www-zaq-ai/zaq/commit/ec0a9c607a1da5736c453cda75fb6fb00ced53a6))
+* **channels:** move SMTP config into channel settings ([800e5e7](https://github.com/www-zaq-ai/zaq/commit/800e5e7c12d1306171afb48398be95a6d97e5c3c))
+* **channels:** wire ChatBridgeServer into Channels.Supervisor with DB-driven adapter loading ([11528f5](https://github.com/www-zaq-ai/zaq/commit/11528f514aae2117dcb0b5dd2930bd9ccd6b394e))
+* **chat:** Support mardown content from LLM, Support line level source references ([ba1d270](https://github.com/www-zaq-ai/zaq/commit/ba1d270bac61e8a20cee9e01686fe7565bb4228b))
+* **chunk:** dispatch :after_embedding_reset hook from reset_table/1 ([8f3312d](https://github.com/www-zaq-ai/zaq/commit/8f3312df5ab0daf68dde63c35c4fe4e466d468c5))
+* **communication:** add incoming email through IMAP configuration form and wire it to the channel's supervisor ([9e55700](https://github.com/www-zaq-ai/zaq/commit/9e5570033e7b8d5b4192b345996f4db0d771c35b))
+* **communication:** IMAP email receiver architecture ([0cc71d7](https://github.com/www-zaq-ai/zaq/commit/0cc71d7bf6414b12e9df2eb4c227b89ed6e596d2))
+* define Zaq.Engine.Messages.Incoming as canonical internal message struct ([807e612](https://github.com/www-zaq-ai/zaq/commit/807e6124ab474c874d27dabb7fdf9e19e397d0d8))
+* **deps:** add jido_chat and jido_chat_mattermost dependencies ([446d44b](https://github.com/www-zaq-ai/zaq/commit/446d44b794cbdc184fee6e88bb9393bd6a453d5a))
+* **e2e:** add observability endpoints for agent validation ([7d6ae94](https://github.com/www-zaq-ai/zaq/commit/7d6ae94c2e1763a4bcab31dbed820482fe2af5d4))
+* **email:** add the implementation for an email:imap adapter to receive emails ([a2ea511](https://github.com/www-zaq-ai/zaq/commit/a2ea511b2f92cdacce20b1d71ab2f6c0a311e3b6))
+* **file:** Move preview as in-place popin instead of separate tab ([f43482a](https://github.com/www-zaq-ai/zaq/commit/f43482a467be661a61072015066c28bb9656377b))
+* **ingestion:** public tag UI — access column, share modal toggle, grid/list view polish, job filters, sticky header ([7895c2c](https://github.com/www-zaq-ai/zaq/commit/7895c2c420228d1d55ac27266a23d970677e7af7))
+* **license:** remove slack/email/rag/multi-tenant features and add knowledge update and document update ([378f11a](https://github.com/www-zaq-ai/zaq/commit/378f11abed5625bf74cd8c59fe0d69d142dc209f))
+* **llm:** add Anthropic provider support alongside OpenAI ([dce864b](https://github.com/www-zaq-ai/zaq/commit/dce864bf919e338e36206069f0f5c964ea22548a))
+* **people:** add teams with searchable multi-assign and badge removal ([b93fedc](https://github.com/www-zaq-ai/zaq/commit/b93fedcc26e32e57c32a7406a3808f0f7655f5ef))
+* **people:** identity resolution, team management, merge with team union, and e2e coverage ([eb20582](https://github.com/www-zaq-ai/zaq/commit/eb2058208f0ea46138e36709bc756ec7d4f8064e))
+* **people:** port People CRUD from license_manager into zaq OSS ([cbe0fc9](https://github.com/www-zaq-ai/zaq/commit/cbe0fc993fc93625cf418e6d56d670781a580400))
+* **pipeline:** include retrieved chunks in :after_pipeline_complete hook payload ([82691e1](https://github.com/www-zaq-ai/zaq/commit/82691e129e87433d5b9ec2d318de67863ad3f2b5))
+* **rbac:** Person/Team Document Permissions ([26a2df6](https://github.com/www-zaq-ai/zaq/commit/26a2df6137580d4d751a25db25a398d7e0235f29))
+* **title_generator:** add Anthropic provider support ([169daf0](https://github.com/www-zaq-ai/zaq/commit/169daf0ae11a54333dc3564d05972607eafe4072))
+
+
+### Bug Fixes
+
+* **agent:** normalize LLM chain errors across shared runner ([5e74904](https://github.com/www-zaq-ai/zaq/commit/5e74904ce2b8fc18dc20b31601cfd272ec0be12b))
+* **channels:** safe map access for is_dm and add open_dm_channel to identity plug stubs ([6e08ee9](https://github.com/www-zaq-ai/zaq/commit/6e08ee9b9a137a62b1915bf57afb6eaf665bc9e8))
+* **channels:** scope nostrum to dev/prod, drop adapter compat shim, and fix Credo nesting in register_handlers ([d571e33](https://github.com/www-zaq-ai/zaq/commit/d571e33976f47cbb6566e485bdd0814e00642152))
+* **chat:** use requestSubmit() for form submission ([8566380](https://github.com/www-zaq-ai/zaq/commit/8566380be45004e81720593b44b2af9b41bc640d))
+* **confidence:** graceful degradation if logprobs are not returned ([91caf25](https://github.com/www-zaq-ai/zaq/commit/91caf253a6ed3141b495a1f76459166d0639d898))
+* credo and code review fixes for race, docs and memory leaks ([782804a](https://github.com/www-zaq-ai/zaq/commit/782804a2f9266447659da22620916d2d3409c66e))
+* **credo:** resolve all ex_slop strict credo issues — rescue swallowing, identity cases, [@doc](https://github.com/doc) false on public fns, narrator docs, and obvious comments ([773ee4b](https://github.com/www-zaq-ai/zaq/commit/773ee4bacdeb104a4ec01df481fd24f885f5c90f))
+* **discord:** wire Discord bridge — fix module loading, integer IDs, mention detection, and Nostrum test isolation ([0ae7a1d](https://github.com/www-zaq-ai/zaq/commit/0ae7a1d42d4a0397caeb948d4d3ab5a5663ce110))
+* **docs:** resolve mix docs warnings for hidden modules, undefined refs, and missing Point.t() type ([bd56578](https://github.com/www-zaq-ai/zaq/commit/bd5657866cdce99c97bc197def17a72a395e7ce0))
+* **document_chunker:** enforce token limits with title overhead, fix deep bold/italic/bold-numbered heading regex, ([9092b5a](https://github.com/www-zaq-ai/zaq/commit/9092b5ae327da60ee0f33d638dbf84dd8d1b144a))
+* **e2e:** e2e tests adapted to new token based styles ([5fb79e0](https://github.com/www-zaq-ai/zaq/commit/5fb79e0dbcfc98e28cfee5072c18b9fe51eb1fa1))
+* **e2e:** isolate build artifacts for E2E compile config ([f8dcf49](https://github.com/www-zaq-ai/zaq/commit/f8dcf4952efc8626aea52c5f9766cc5a6194dcb5))
+* **email:** Incoming to Pipeline to Outgoing flow as proper reply in mailclient with live config refresh ([8dba950](https://github.com/www-zaq-ai/zaq/commit/8dba95049599a8d149892613f0da3e5858deefe5))
+* **encprytion:** enforce a unique code path to handle strict encryption with clean UI errors ([b473ce4](https://github.com/www-zaq-ai/zaq/commit/b473ce476e67ace7312df80ff683166772241058))
+* **ingestion, docs:** migration for ingest chunk jobs, moduledoc to new ingest chunk worker ([9461bbf](https://github.com/www-zaq-ai/zaq/commit/9461bbfc58e4fe9e2645a37ed6f00bcaf0cdc819))
+* **ingestion, retrieval:** hybrid search limit, better error handling and additional tests ([4a58592](https://github.com/www-zaq-ai/zaq/commit/4a58592e072bf293116c739a0c8e8730ef218bd0))
+* **ingestion,ui:** use source prefix conditions for folder visibility and add dismiss buttons, image icon, and ([44556bc](https://github.com/www-zaq-ai/zaq/commit/44556bccda9bd1fc3f0616b1035273189f61eac5))
+* **ingestion:** dedicated queue for chunks embedding and ingestion ([5ac68f1](https://github.com/www-zaq-ai/zaq/commit/5ac68f15ba0a0cf677ca9c7cd6eb9712b993103c))
+* **ingestion:** document processor compatible with atom and string keys ([05071ec](https://github.com/www-zaq-ai/zaq/commit/05071ec1cdb7a5716a13c48b45162b89b57f30a0))
+* **ingestion:** fix visibility on smaller laptop screen size ([918ad0d](https://github.com/www-zaq-ai/zaq/commit/918ad0d97e2f8b9b2a6d02bf139331f3551765bd))
+* **ingestion:** keep inline ingestion synchronous ([4e09669](https://github.com/www-zaq-ai/zaq/commit/4e0966965097114b1ab1270bfbb72a0fa6923fe3))
+* **ingestion:** resolve multiple file bugs — sidecar visibility, jpeg support, upload errors/removal, accented ([e0d7f81](https://github.com/www-zaq-ai/zaq/commit/e0d7f816417843d517fc0743ac43b6ffa9da805f))
+* **jido_chat:** zaq check the dm channel and set it up correctly in the person channel field ([051da6d](https://github.com/www-zaq-ai/zaq/commit/051da6de593b95c5c33ab70546f30b3663ddb16a))
+* **notifications:** switch email delivery platform to email:smtp ([04c78a9](https://github.com/www-zaq-ai/zaq/commit/04c78a92156d0345ea1de8ed56bb029722db26cc))
+* **people:** add people and add channel forms fixed ([f218f75](https://github.com/www-zaq-ai/zaq/commit/f218f7554c710a71f646cf3f3a93bb02e87a46ad))
+* **people:** canonicalize email:imap platform and auto-link email channel on person find-or-create ([fd34818](https://github.com/www-zaq-ai/zaq/commit/fd348188ddfcb511cbe746e67cb67aa8ba3488d1))
+* **people:** centralize email channel auto-linking and prefer real names over email-seeded ones ([e208f2e](https://github.com/www-zaq-ai/zaq/commit/e208f2ec61085ee6d604737e67fcfff9093c9424))
+* **people:** resolve email:imap sender to existing person via email normalizer and resolve mix ex_dna ([b6c2773](https://github.com/www-zaq-ai/zaq/commit/b6c2773898b51c984546d0e3ca18f5804df7e6c6))
+* **prompt:** replace the answering_prompt to support permission ([77f092c](https://github.com/www-zaq-ai/zaq/commit/77f092c82ad44fff132557c551bd9e7b183bee40))
+* **rbac:** persist folder permissions, add person document list, fix credo/ex_dna/test warnings ([6642222](https://github.com/www-zaq-ai/zaq/commit/66422227d1749480046b921386a25063a1ce9b29))
+* **retrieval:** properly handle errors when unexpected response is returned by an LLM provider ([4e8958e](https://github.com/www-zaq-ai/zaq/commit/4e8958e8f52cd064e211e2175886d7770e59074d))
+* **security:** properly wire up missing encryption key errors into system config forms ([e12bb2d](https://github.com/www-zaq-ai/zaq/commit/e12bb2da438df1ca54956f4f549afc9fa56f24a9))
+* **system_config:** resolve provider path using selected model id instead of first active model ([6aaa938](https://github.com/www-zaq-ai/zaq/commit/6aaa938793fb1b53e5eb00c641354ef0556454b0))
+* **system_config:** restore searchable model dropdown on LLM config form ([93b586d](https://github.com/www-zaq-ai/zaq/commit/93b586dbead6a02454c8a68b486d2504efe0fcc8))
+* tests on notification imap live, docs for insecure email html content, db checks on save only ([eb72465](https://github.com/www-zaq-ai/zaq/commit/eb72465305649224b74ef58d61bb2de78a4b746b))
+* **ui:** display correct values in validation error messages ([9f9fc0a](https://github.com/www-zaq-ai/zaq/commit/9f9fc0a658f6009dd8b35c08f3a06ba1e3dca874))
+* **ui:** update global font to Roboto ([bf3e747](https://github.com/www-zaq-ai/zaq/commit/bf3e7477725d234794a76e27795643e9c8067848))
+
+
+### Performance Improvements
+
+* **bo-accounts:** use aggregate user and role counts ([ccf60b7](https://github.com/www-zaq-ai/zaq/commit/ccf60b7332c7dcee923b757618d0f4164fefba32))
+* **bo-ingestion:** merge job updates incrementally ([428e119](https://github.com/www-zaq-ai/zaq/commit/428e119d886b15ed1f79bb6164ee825017141c5e))
+* **frontend:** tighten hook scheduling and remove inline hover js ([46f3a2e](https://github.com/www-zaq-ai/zaq/commit/46f3a2e93948d64fa14f43d21ab03e63fa0322a1))
+* **ingestion:** optimize chunk storage and hybrid search limits ([571555c](https://github.com/www-zaq-ai/zaq/commit/571555c5b29415636792bc882c038bd84909a571))
+
 ## [0.6.4](https://github.com/www-zaq-ai/zaq/compare/v0.6.3...v0.6.4) (2026-03-28)
 
 
