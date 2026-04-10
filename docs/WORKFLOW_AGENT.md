@@ -90,7 +90,6 @@ or directly in Playwright `beforeEach` hooks via the E2E controller.
 |---|---|
 | `ingestion.spec.js` | File upload, processing pipeline, job status |
 | `system_config.spec.js` | LLM, embedding, SMTP config via BO |
-| `telemetry_preview.spec.js` | Telemetry dashboard rendering and charts |
 | `knowledge_ops_lead.spec.js` | Knowledge base operations |
 
 ### When to skip E2E

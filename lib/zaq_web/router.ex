@@ -54,7 +54,6 @@ defmodule ZaqWeb.Router do
 
     live_session :bo, on_mount: {ZaqWeb.Live.BO.AuthHook, :default} do
       live "/dashboard", Live.BO.DashboardLive
-      live "/dashboard/telemetry-preview", Live.BO.TelemetryPreviewLive
       live "/dashboard/llm-performance", Live.BO.LLMPerformanceLive
       live "/dashboard/conversations-metrics", Live.BO.ConversationsMetricsLive
       live "/dashboard/knowledge-base-metrics", Live.BO.KnowledgeBaseMetricsLive

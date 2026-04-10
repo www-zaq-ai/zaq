@@ -63,7 +63,6 @@ npm run test:headed       # bootstrap + headed browser (visual debugging)
 |---|---|
 | `ingestion.spec.js` | File upload, processing pipeline, job status |
 | `system_config.spec.js` | LLM, embedding, SMTP config via BO |
-| `telemetry_preview.spec.js` | Telemetry dashboard rendering and charts |
 | `knowledge_ops_lead.spec.js` | Knowledge base operations |
 
 #### ProcessorState — Controlled Failure Injection

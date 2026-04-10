@@ -5,19 +5,6 @@
   current_path={@current_path}
   features_version={@features_version}
 >
-  <%!-- <div class="mb-4 flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-4 md:flex-row md:items-center md:justify-between">
-    <p class="font-mono text-[0.7rem] text-black/45">
-      Review telemetry widgets and interactions before wiring production data.
-    </p>
-    <.link
-      id="dashboard-telemetry-preview-link"
-      navigate={~p"/bo/dashboard/telemetry-preview"}
-      class="inline-flex items-center gap-2 self-start rounded-lg border border-[#03b6d4]/30 bg-[#03b6d4]/10 px-3 py-1.5 font-mono text-[0.72rem] font-bold text-[#03b6d4] transition-colors hover:bg-[#03b6d4]/20"
-    >
-      Open telemetry preview <span class="text-[0.8rem]">-&gt;</span>
-    </.link>
-  </div> --%>
-
   <div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <div :for={metric <- @metric_cards} class="space-y-2">
       <.link
