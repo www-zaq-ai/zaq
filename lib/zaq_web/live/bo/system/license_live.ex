@@ -19,32 +19,18 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
       icon: "knowledge_gap"
     },
     %{
-      key: "slack_integration",
-      name: "Slack Integration",
+      key: "knowledge_update",
+      name: "Knowledge Update",
       description:
-        "Connect ZAQ to your Slack workspace. Your team can ask questions and get cited answers directly in channels.",
-      icon: "slack"
+        "Automatically refresh and update your knowledge base as source documents change, keeping answers accurate over time.",
+      icon: "knowledge_update"
     },
     %{
-      key: "email_channel",
-      name: "Email Channel",
+      key: "document_update",
+      name: "Document Update",
       description:
-        "Process incoming emails and route them through ZAQ's AI engine for automated triage and response drafting.",
-      icon: "email"
-    },
-    %{
-      key: "advanced_rag",
-      name: "Advanced RAG Pipeline",
-      description:
-        "Enhanced retrieval-augmented generation with hybrid search, re-ranking, and multi-hop reasoning.",
-      icon: "rag"
-    },
-    %{
-      key: "multi_tenant",
-      name: "Multi-Tenant Sessions",
-      description:
-        "Isolate knowledge access per team or department with fine-grained session and permission controls.",
-      icon: "sessions"
+        "Track document revisions and propagate changes through the knowledge pipeline automatically on every update.",
+      icon: "document_update"
     }
   ]
 
@@ -178,8 +164,10 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
       stroke-width="1.8"
       viewBox="0 0 24 24"
     >
-      <circle cx="12" cy="5" r="3" /><circle cx="5" cy="19" r="3" /><circle cx="19" cy="19" r="3" />
-      <path d="M12 8v3M9.5 16.5L7 17M14.5 16.5L17 17" />
+      <circle cx="12" cy="12" r="3" /><path d="M12 2v4" /><path d="M12 18v4" />
+      <path d="M4.93 4.93l2.83 2.83" /><path d="M16.24 16.24l2.83 2.83" />
+      <path d="M2 12h4" /><path d="M18 12h4" />
+      <path d="M4.93 19.07l2.83-2.83" /><path d="M16.24 7.76l2.83-2.83" />
     </svg>
     """
   end
@@ -187,97 +175,60 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
   defp feature_icon_for(%{icon: "knowledge_gap"} = assigns) do
     ~H"""
     <svg
-      class={[
-        "w-[18px] h-[18px]",
-        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
-      ]}
+      class={["w-[18px] h-[18px]", if(@active, do: "text-[#03b6d4]", else: "text-black/40")]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
       viewBox="0 0 24 24"
+      stroke-linecap="round"
+      stroke-linejoin="round"
     >
-      <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line
-        x1="12"
-        y1="17"
-        x2="12.01"
-        y2="17"
-      />
+      <line x1="12" y1="3" x2="12" y2="21" />
+      <path d="M12 3 L4 5 L4 21 L12 21" />
+      <path d="M12 3 L20 5 L20 21 L12 21" stroke-dasharray="3 2" />
+      <line x1="6" y1="9" x2="10" y2="9" />
+      <line x1="6" y1="12" x2="10" y2="12" />
+      <path d="M15 8 Q15 6 16.5 6 Q18 6 18 8 Q18 10 16.5 10.5" />
+      <circle cx="16.5" cy="13" r="0.6" fill="currentColor" stroke="none" />
+      <line x1="16.5" y1="1" x2="16.5" y2="4" />
+      <polyline points="15,3 16.5,4.5 18,3" />
     </svg>
     """
   end
 
-  defp feature_icon_for(%{icon: "slack"} = assigns) do
+  defp feature_icon_for(%{icon: "knowledge_update"} = assigns) do
     ~H"""
     <svg
-      class={[
-        "w-[18px] h-[18px]",
-        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
-      ]}
+      class={["w-[18px] h-[18px]", if(@active, do: "text-[#03b6d4]", else: "text-black/40")]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
       viewBox="0 0 24 24"
+      stroke-linecap="round"
+      stroke-linejoin="round"
     >
-      <path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z" />
-      <path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" />
-      <path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z" />
-      <path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z" />
-      <path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z" />
-      <path d="M14 20.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5z" />
-      <path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z" />
+      <path d="M23 4v6h-6" />
+      <path d="M1 20v-6h6" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+      <path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
     </svg>
     """
   end
 
-  defp feature_icon_for(%{icon: "email"} = assigns) do
+  defp feature_icon_for(%{icon: "document_update"} = assigns) do
     ~H"""
     <svg
-      class={[
-        "w-[18px] h-[18px]",
-        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
-      ]}
+      class={["w-[18px] h-[18px]", if(@active, do: "text-[#03b6d4]", else: "text-black/40")]}
       fill="none"
       stroke="currentColor"
       stroke-width="1.8"
       viewBox="0 0 24 24"
+      stroke-linecap="round"
+      stroke-linejoin="round"
     >
-      <rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-    </svg>
-    """
-  end
-
-  defp feature_icon_for(%{icon: "rag"} = assigns) do
-    ~H"""
-    <svg
-      class={[
-        "w-[18px] h-[18px]",
-        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
-      ]}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      <polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" />
-    </svg>
-    """
-  end
-
-  defp feature_icon_for(%{icon: "sessions"} = assigns) do
-    ~H"""
-    <svg
-      class={[
-        "w-[18px] h-[18px]",
-        if(Map.get(assigns, :active, false), do: "text-[#03b6d4]", else: "text-black/40")
-      ]}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <path d="M10 13l-1 4 4-1 5-5-3-3-5 5z" />
     </svg>
     """
   end
