@@ -245,11 +245,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def file_browser_header(assigns) do
     ~H"""
-    <div class="flex items-center justify-between mb-3">
-      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mr-auto">
         File Browser
       </p>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         <button
           id="new-folder-button"
           phx-click="show_new_folder_modal"
@@ -439,8 +439,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def file_list_view(assigns) do
     ~H"""
-    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[45vh] overflow-y-scroll">
-      <table class="w-full">
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[45vh] overflow-y-scroll overflow-x-auto">
+      <table class="w-full min-w-[700px] xl:min-w-0">
         <thead>
           <tr class="border-b border-black/[0.06] bg-[#fafafa] sticky top-0 z-10">
             <th class="w-6 px-2 py-2 xl:px-3 xl:py-3.5">
@@ -463,7 +463,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-28 whitespace-nowrap">
               Access
             </th>
-            <th class="hidden xl:table-cell text-right font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 whitespace-nowrap">
+            <th class="text-right font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 whitespace-nowrap">
               Modified
             </th>
           </tr>
@@ -768,7 +768,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   </span>
                 <% end %>
               </td>
-              <td class="hidden xl:table-cell font-mono text-[0.78rem] text-black/40 px-2 py-2 xl:px-4 xl:py-3 text-right whitespace-nowrap">
+              <td class="font-mono text-[0.78rem] text-black/40 px-2 py-2 xl:px-4 xl:py-3 text-right whitespace-nowrap">
                 {format_datetime(entry.modified_at)}
               </td>
             </tr>

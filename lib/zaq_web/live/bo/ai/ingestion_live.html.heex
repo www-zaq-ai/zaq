@@ -34,9 +34,9 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-3 gap-6">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <%!-- =============== LEFT: File Browser + Upload =============== --%>
-    <div class="col-span-2 space-y-6">
+    <div class="lg:col-span-2 space-y-6 min-w-0">
       <.volume_selector
         :if={map_size(@volumes) > 1}
         volumes={@volumes}
