@@ -1438,7 +1438,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             name="channel[dm_channel_id]"
             value={Ecto.Changeset.get_field(@modal_changeset, :dm_channel_id)}
             phx-debounce="300"
-            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/40"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="Mattermost DM channel ID"
           />
         </div>

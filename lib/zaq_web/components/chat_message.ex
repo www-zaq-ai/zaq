@@ -96,7 +96,7 @@ defmodule ZaqWeb.Components.ChatMessage do
               phx-update={@msg_id && "ignore"}
               class={[
                 "text-[0.85rem] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4",
-                if(@is_error, do: "text-red-600", else: "text-[#2c2b28]")
+                if(@is_error, do: "text-red-600", else: "zaq-text-ink")
               ]}
             >
               {Phoenix.HTML.raw(@rendered_content)}

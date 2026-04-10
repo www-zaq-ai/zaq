@@ -304,7 +304,7 @@
 .md-content h3 { font-size: 1.1rem; }
 .md-content h4 { font-size: 0.95rem; }
 .md-content p { margin-top: 0; margin-bottom: 1em; }
-.md-content a { color: #03b6d4; text-decoration: none; }
+.md-content a { color: var(--zaq-color-accent); text-decoration: none; }
 .md-content a:hover { text-decoration: underline; }
 .md-content strong { font-weight: 600; }
 .md-content em { font-style: italic; }
@@ -312,7 +312,7 @@
 .md-content ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 1em; }
 .md-content li { margin-bottom: 0.25em; }
 .md-content blockquote {
-  border-left: 3px solid #03b6d4;
+  border-left: 3px solid var(--zaq-color-accent);
   padding-left: 1em;
   margin: 1em 0;
   color: rgba(0,0,0,0.5);

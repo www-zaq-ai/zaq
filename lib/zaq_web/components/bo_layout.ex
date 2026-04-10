@@ -168,7 +168,7 @@ defmodule ZaqWeb.Components.BOLayout do
 
                 /* Active section highlight when collapsed */
                 #bo-sidebar.collapsed .active-section-wrap {
-                  background: rgba(3, 182, 212, 0.12);
+                  background: var(--zaq-color-accent-soft);
                   border-left: 2px solid var(--zaq-color-accent);
                   border-radius: 6px;
                 }
