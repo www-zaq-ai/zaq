@@ -11,7 +11,23 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubNodeRouter do
+    def call(:channels, Zaq.Channels.Router, :send_typing, [provider, channel_id]) do
+      send(:pipeline_test_pid, {:typing_called, provider, channel_id})
+      Process.get(:typing_router_result, :ok)
+    end
+
     def call(_role, module, function, args), do: apply(module, function, args)
+  end
+
+  defmodule StubIdentityPlug do
+    def call(incoming, _opts), do: incoming
+  end
+
+  defmodule SpyIdentityPlug do
+    def call(incoming, _opts) do
+      send(:pipeline_test_pid, :identity_called)
+      incoming
+    end
   end
 
   defmodule StubPromptGuard do
@@ -100,6 +116,7 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   @base_opts [
+    identity_plug: StubIdentityPlug,
     hooks: StubHooks,
     node_router: StubNodeRouter,
     prompt_guard: StubPromptGuard,
@@ -113,6 +130,7 @@ defmodule Zaq.Agent.PipelineTest do
     # Registered name is auto-unregistered when the test process exits,
     # so no explicit cleanup is needed.
     Process.register(self(), :pipeline_test_pid)
+    Process.delete(:typing_router_result)
     :ok
   end
 
@@ -194,6 +212,54 @@ defmodule Zaq.Agent.PipelineTest do
 
       assert result.metadata.answer == "The answer is 42."
       assert result.metadata.confidence_score == 0.9
+      assert result.metadata.error == false
+    end
+  end
+
+  describe "run/2 typing dispatch" do
+    test "dispatches typing via router before continuing" do
+      result =
+        Pipeline.run(
+          @incoming,
+          Keyword.put(@base_opts, :identity_plug, SpyIdentityPlug)
+        )
+
+      assert_receive {:typing_called, :test, "test"}, 1000
+      assert_receive :identity_called, 1000
+      assert %Outgoing{} = result
+      assert result.metadata.error == false
+    end
+
+    test "ignores unsupported typing error and still returns successful outgoing" do
+      Process.put(:typing_router_result, {:error, :unsupported})
+
+      result = Pipeline.run(@incoming, @base_opts)
+
+      assert_receive {:typing_called, :test, "test"}, 1000
+      assert %Outgoing{} = result
+      assert result.body == "The answer is 42."
+      assert result.metadata.error == false
+    end
+
+    test "ignores channel config typing error and still returns successful outgoing" do
+      Process.put(:typing_router_result, {:error, {:channel_not_configured, :test}})
+
+      result = Pipeline.run(@incoming, @base_opts)
+
+      assert_receive {:typing_called, :test, "test"}, 1000
+      assert %Outgoing{} = result
+      assert result.body == "The answer is 42."
+      assert result.metadata.error == false
+    end
+
+    test "ignores generic typing error and still returns successful outgoing" do
+      Process.put(:typing_router_result, {:error, :timeout})
+
+      result = Pipeline.run(@incoming, @base_opts)
+
+      assert_receive {:typing_called, :test, "test"}, 1000
+      assert %Outgoing{} = result
+      assert result.body == "The answer is 42."
       assert result.metadata.error == false
     end
   end

@@ -60,7 +60,7 @@ defmodule Zaq.Agent.Pipeline do
 
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
-    incoming = identity_plug_mod(opts).call(incoming, opts)
+    incoming = pre_do_run(incoming, opts)
     person_id = incoming.person_id
 
     team_ids =
@@ -72,6 +72,17 @@ defmodule Zaq.Agent.Pipeline do
     opts = Keyword.merge(opts, person_id: person_id, team_ids: team_ids)
     result = do_run(incoming.content, opts)
     Outgoing.from_pipeline_result(incoming, result)
+  end
+
+  @spec pre_do_run(Incoming.t(), keyword()) :: Incoming.t()
+  defp pre_do_run(incoming, opts) do
+    # Send the start typing event through the router for automatic routing
+    node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
+      incoming.provider,
+      incoming.channel_id
+    ])
+
+    identity_plug_mod(opts).call(incoming, opts)
   end
 
   @spec do_run(String.t(), keyword()) :: map()
