@@ -36,3 +36,9 @@ defmodule Zaq.People.IdentityPlugTest.StubRouterStringKeys do
 
   def open_dm_channel(_platform, _author_id), do: {:error, :not_supported}
 end
+
+defmodule Zaq.People.IdentityPlugTest.StubRouterDmOk do
+  @moduledoc false
+  def fetch_profile(_platform, _author_id), do: {:error, :not_found}
+  def open_dm_channel(_platform, _author_id), do: {:ok, "DM_BACKFILLED"}
+end

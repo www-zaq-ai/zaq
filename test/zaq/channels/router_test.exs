@@ -75,6 +75,15 @@ defmodule Zaq.Channels.RouterTest do
     end
   end
 
+  defmodule DmOpenBridge do
+    def send_reply(_outgoing, _connection_details), do: :ok
+
+    def open_dm_channel(author_id, details) do
+      send(self(), {:open_dm_channel, author_id, details})
+      {:ok, "DM_CH_ROUTER_1"}
+    end
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -363,6 +372,58 @@ defmodule Zaq.Channels.RouterTest do
       assert_received {:remove_reaction, "mattermost", "chan-1", "msg-1", "+1", details}
       assert is_binary(details.url)
       assert is_binary(details.token)
+    end
+  end
+
+  describe "open_dm_channel/2" do
+    test "returns no_bridge when provider is not configured" do
+      assert {:error, {:no_bridge, "unknown_dm_provider"}} =
+               Router.open_dm_channel("unknown_dm_provider", "user-1")
+    end
+
+    test "returns unsupported when bridge lacks open_dm_channel/2" do
+      # StubBridge from setup does not export open_dm_channel/2
+      insert_config(:mattermost)
+
+      assert {:error, :unsupported} = Router.open_dm_channel(:mattermost, "user-1")
+    end
+
+    test "delegates to bridge and returns dm channel id" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: DmOpenBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      insert_config(:mattermost)
+
+      assert {:ok, "DM_CH_ROUTER_1"} = Router.open_dm_channel(:mattermost, "user-1")
+      assert_received {:open_dm_channel, "user-1", details}
+      assert details.provider == :mattermost
+      assert is_binary(details.url)
+      assert is_binary(details.token)
+    end
+  end
+
+  describe "fetch_profile/2 web shortcut" do
+    test "returns synthetic web user profile without hitting a bridge" do
+      assert {:ok, %{id: "web-user-1", name: "Web User"}} =
+               Router.fetch_profile("web", "web-user-1")
+    end
+  end
+
+  describe "list_mailboxes/2 error paths" do
+    test "returns no_bridge when provider is not configured" do
+      assert {:error, {:no_bridge, "missing_mailbox_provider"}} =
+               Router.list_mailboxes("missing_mailbox_provider", %{url: "imap.example.com"})
+    end
+
+    test "returns unsupported when bridge does not implement list_mailboxes/2" do
+      # FailingBridge from this module does not export list_mailboxes/2
+      assert {:error, :unsupported} =
+               Router.list_mailboxes(:failing_platform, %{url: "imap.example.com"})
     end
   end
 

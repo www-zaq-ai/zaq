@@ -147,6 +147,19 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def listener_child_specs(_bridge_id, _opts), do: {:error, :listener_boot_failed}
   end
 
+  defmodule StubAdapterOpenDmChannel do
+    def open_dm_channel(bot_user_id, author_id, opts) do
+      send(self(), {:open_dm_channel, bot_user_id, author_id, opts})
+      {:ok, %{"id" => "DM_CH_BRIDGE_1"}}
+    end
+  end
+
+  defmodule StubAdapterOpenDmChannelNoId do
+    def open_dm_channel(_bot_user_id, _author_id, _opts) do
+      {:ok, %{}}
+    end
+  end
+
   defmodule StubListenerAdapter do
     def transform_incoming(%{"type" => "message", "text" => text}) do
       {:ok,
@@ -1281,6 +1294,209 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "returns missing_connection_details when required connection fields are absent" do
       assert {:error, :missing_connection_details} = JidoChatBridge.fetch_profile("author-1", %{})
+    end
+  end
+
+  describe "open_dm_channel/2" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+      :ok
+    end
+
+    test "returns missing_connection_details when url/token/bot_user_id are absent" do
+      assert {:error, :missing_connection_details} =
+               JidoChatBridge.open_dm_channel("user-1", %{})
+    end
+
+    test "returns missing_connection_details when bot_user_id is not a binary" do
+      assert {:error, :missing_connection_details} =
+               JidoChatBridge.open_dm_channel("user-1", %{
+                 url: "https://mm.example.com",
+                 token: "tok",
+                 bot_user_id: nil
+               })
+    end
+
+    test "returns unsupported when adapter has no open_dm_channel/3" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterNoOutboundFns}
+      })
+
+      assert {:error, :unsupported} =
+               JidoChatBridge.open_dm_channel("user-1", %{
+                 url: "https://mm.example.com",
+                 token: "tok",
+                 bot_user_id: "bot-1"
+               })
+    end
+
+    test "returns missing_channel_id when adapter response has no id" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterOpenDmChannelNoId
+        }
+      })
+
+      assert {:error, :missing_channel_id} =
+               JidoChatBridge.open_dm_channel("user-1", %{
+                 url: "https://mm.example.com",
+                 token: "tok",
+                 bot_user_id: "bot-1"
+               })
+    end
+
+    test "returns {:ok, channel_id} on success" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterOpenDmChannel
+        }
+      })
+
+      assert {:ok, "DM_CH_BRIDGE_1"} =
+               JidoChatBridge.open_dm_channel("user-1", %{
+                 url: "https://mm.example.com",
+                 token: "tok",
+                 bot_user_id: "bot-1",
+                 provider: "mattermost"
+               })
+
+      assert_received {:open_dm_channel, "bot-1", "user-1", opts}
+      assert opts[:url] == "https://mm.example.com"
+      assert opts[:token] == "tok"
+    end
+
+    test "returns unsupported_provider for unknown provider" do
+      assert {:error, {:unsupported_provider, "no-such-provider"}} =
+               JidoChatBridge.open_dm_channel("user-1", %{
+                 url: "https://mm.example.com",
+                 token: "tok",
+                 bot_user_id: "bot-1",
+                 provider: "no-such-provider"
+               })
+    end
+  end
+
+  describe "to_internal/2 is_dm flag" do
+    test "sets is_dm: true when channel_meta.is_dm is true" do
+      incoming = %ChatIncoming{
+        text: "dm message",
+        external_room_id: "dm-room-1",
+        external_thread_id: nil,
+        external_message_id: "dm-msg-1",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{is_dm: true}
+      }
+
+      msg = JidoChatBridge.to_internal(incoming, :mattermost)
+      assert msg.is_dm == true
+    end
+
+    test "sets is_dm: false when channel_meta is nil" do
+      incoming = %ChatIncoming{
+        text: "non-dm",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-1",
+        author: nil,
+        metadata: %{}
+      }
+
+      msg = JidoChatBridge.to_internal(incoming, :mattermost)
+      assert msg.is_dm == false
+    end
+
+    test "sets is_dm: false when channel_meta.is_dm is false" do
+      incoming = %ChatIncoming{
+        text: "channel message",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-2",
+        author: nil,
+        metadata: %{},
+        channel_meta: %{is_dm: false}
+      }
+
+      msg = JidoChatBridge.to_internal(incoming, :mattermost)
+      assert msg.is_dm == false
+    end
+  end
+
+  describe "register_handlers/3 skipped paths" do
+    @config %{
+      provider: "mattermost",
+      url: "https://mm.example.com",
+      token: "tok",
+      settings: %{"jido_chat" => %{"message_patterns" => ["deploy"]}}
+    }
+
+    test "mention event that is a thread reply is silently skipped" do
+      # A @mention on a thread reply hits handle_mention_event, which checks
+      # thread_reply? and returns :ok without processing — pipeline must not run.
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubListenerAdapter})
+        |> JidoChatBridge.register_handlers(@config)
+
+      mention_reply = %ChatIncoming{
+        text: "@zaq thread reply",
+        external_room_id: "chan-1",
+        external_thread_id: "root-post-id",
+        external_message_id: "reply-1",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: true,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:chan-1:root-post-id",
+                 mention_reply,
+                 []
+               )
+
+      refute_received {:pipeline_run, _, _}
+    end
+
+    test "channel pattern matching a DM message is silently skipped" do
+      # handle_channel_message_event guards against DM messages; the pattern
+      # handler fires but is_dm: true causes it to return without processing.
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubListenerAdapter})
+        |> JidoChatBridge.register_handlers(@config)
+
+      dm_with_pattern = %ChatIncoming{
+        text: "deploy from dm",
+        external_room_id: "dm-1",
+        external_thread_id: nil,
+        external_message_id: "dm-deploy-1",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: false,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: true}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:dm-1:dm-1",
+                 dm_with_pattern,
+                 []
+               )
+
+      # on_new_message (all-match) fires because is_dm: true, but "deploy"
+      # pattern is in handle_channel_message_event which skips DM.
+      # Pipeline runs from on_new_message DM handler, not the channel pattern.
+      # The key assertion is that handle_channel_message_event does NOT trigger
+      # a second pipeline run.
+      assert_received {:pipeline_run, "deploy from dm", _opts}
+      refute_received {:pipeline_run, _, _}
     end
   end
 
