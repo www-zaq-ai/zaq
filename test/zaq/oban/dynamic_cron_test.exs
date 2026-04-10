@@ -3,6 +3,7 @@ defmodule Zaq.Oban.DynamicCronTest do
 
   import ExUnit.CaptureLog
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Oban.Job
   alias Zaq.Oban.DynamicCron
   alias Zaq.Repo
@@ -329,7 +330,7 @@ defmodule Zaq.Oban.DynamicCronTest do
 
       leader_conf = %{conf | name: oban_name, peer: {LeaderPeer, []}}
 
-      :ok = Ecto.Adapters.SQL.Sandbox.checkout(Zaq.Repo)
+      :ok = Sandbox.checkout(Zaq.Repo)
 
       pid = start_plugin(leader_conf, [])
       {:noreply, updated} = DynamicCron.handle_info(:evaluate, state(pid))
@@ -360,7 +361,7 @@ defmodule Zaq.Oban.DynamicCronTest do
 
       start_supervised!({Oban, oban_opts})
 
-      :ok = Ecto.Adapters.SQL.Sandbox.checkout(Zaq.Repo)
+      :ok = Sandbox.checkout(Zaq.Repo)
 
       dynamic_conf = Oban.config(oban_name)
       assert Oban.Peer.leader?(dynamic_conf)
