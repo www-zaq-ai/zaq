@@ -358,7 +358,7 @@ test.describe("People", () => {
 
     // Assign team from detail panel
     await pickSearchableSelect(page, 'form[phx-change="assign_team_select"]', teamName)
-    await expect(page.locator('.bg-\\[\\#2c3a50\\]\\/8').filter({ hasText: teamName })).toBeVisible()
+    await expect(teamBadge(page, teamName)).toBeVisible()
 
     // Filter by team — person should appear in the list
     await page.locator(SEL.filterName).clear()
@@ -388,7 +388,7 @@ test.describe("People", () => {
     await page.locator(`${teamSelectForm} [data-select-create]`).click()
 
     // Team badge appears on the person
-    await expect(page.locator('.bg-\\[\\#2c3a50\\]\\/8').filter({ hasText: teamName })).toBeVisible()
+    await expect(teamBadge(page, teamName)).toBeVisible()
   })
 
   test("merging persons unions their teams onto the survivor", async ({ page }) => {
@@ -417,14 +417,14 @@ test.describe("People", () => {
     await page.locator(`${teamSelectForm} [data-select-trigger]`).click()
     await page.locator(`${teamSelectForm} [data-select-search]`).fill(teamA)
     await page.locator(`${teamSelectForm} [data-select-create]`).click()
-    await expect(page.locator('.bg-\\[\\#2c3a50\\]\\/8').filter({ hasText: teamA })).toBeVisible()
+    await expect(teamBadge(page, teamA)).toBeVisible()
 
     // Assign teamB to loser
     await page.getByRole('paragraph').filter({ hasText: loserName }).first().click()
     await page.locator(`${teamSelectForm} [data-select-trigger]`).click()
     await page.locator(`${teamSelectForm} [data-select-search]`).fill(teamB)
     await page.locator(`${teamSelectForm} [data-select-create]`).click()
-    await expect(page.locator('.bg-\\[\\#2c3a50\\]\\/8').filter({ hasText: teamB })).toBeVisible()
+    await expect(teamBadge(page, teamB)).toBeVisible()
 
     // Merge loser into survivor
     await page.getByRole('paragraph').filter({ hasText: survivorName }).first().click()
@@ -440,8 +440,8 @@ test.describe("People", () => {
 
     // Survivor should now carry both teams (detail panel already open)
     await page.getByRole('paragraph').filter({ hasText: survivorName }).first().click()
-    await expect(page.locator('.bg-\\[\\#2c3a50\\]\\/8').filter({ hasText: teamA })).toBeVisible()
-    await expect(page.locator('.bg-\\[\\#2c3a50\\]\\/8').filter({ hasText: teamB })).toBeVisible()
+    await expect(teamBadge(page, teamA)).toBeVisible()
+    await expect(teamBadge(page, teamB)).toBeVisible()
   })
 })
 
@@ -451,4 +451,8 @@ async function pickSearchableSelect(page, containerSel, optionLabel) {
   await page.locator(`${containerSel} [data-select-trigger]`).click()
   await page.locator(`${containerSel} [data-select-search]`).fill(optionLabel)
   await page.locator(`${containerSel} [data-select-option="${optionLabel}"]`).click()
+}
+
+function teamBadge(page, teamName) {
+  return page.locator('[data-testid^="person-team-badge-"]').filter({ hasText: teamName })
 }

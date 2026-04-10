@@ -1019,6 +1019,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             <span
               :for={tid <- @selected_person.team_ids}
               :if={Map.has_key?(teams_map, tid)}
+              data-testid={"person-team-badge-#{tid}"}
               class="inline-flex items-center gap-1 font-mono text-[0.68rem] pl-2 pr-1 py-0.5 rounded-full zaq-bg-ink-soft zaq-text-ink-soft border zaq-border-ink-soft"
             >
               {teams_map[tid].name}
