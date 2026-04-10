@@ -7,7 +7,7 @@ on:
 
 jobs:
   e2e:
-    name: E2E QA
+    name: User Journeys QA
     runs-on: ubuntu-latest
     permissions:
       contents: read
