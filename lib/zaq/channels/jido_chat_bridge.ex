@@ -254,7 +254,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       author_id: incoming.author && incoming.author.user_id,
       author_name: incoming.author && incoming.author.user_name,
       provider: provider,
-      is_dm: (incoming.channel_meta && incoming.channel_meta.is_dm) == true,
+      is_dm: (incoming.channel_meta && Map.get(incoming.channel_meta, :is_dm)) == true,
       metadata: incoming.metadata || %{}
     }
   end

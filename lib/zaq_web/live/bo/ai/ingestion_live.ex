@@ -566,12 +566,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         filename = ensure_md_extension(filename)
         dest = Path.join(socket.assigns.current_dir, filename)
 
-        case ingestion_call(:upload_file, [socket.assigns.current_volume, dest, content]) do
+        volume = socket.assigns.current_volume
+
+        case ingestion_call(:upload_file, [volume, dest, content]) do
           {:ok, _} ->
+            ingestion_call(:track_upload, [volume, dest])
+
             {:noreply,
              socket
              |> assign(modal: nil, modal_error: nil, raw_filename: "", raw_content: "")
              |> load_entries()
+             |> load_jobs()
              |> put_flash(:info, "\"#{filename}\" saved.")}
 
           {:error, reason} ->

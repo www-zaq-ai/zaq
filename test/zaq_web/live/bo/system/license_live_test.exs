@@ -31,7 +31,8 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
       {:ok, _view, html} = live(conn, ~p"/bo/license")
       assert html =~ "Ontology Management"
       assert html =~ "Knowledge Gap Detection"
-      assert html =~ "Slack Integration"
+      assert html =~ "Knowledge Update"
+      assert html =~ "Document Update"
     end
 
     test "shows contact sales CTA", %{conn: conn} do
@@ -95,7 +96,8 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
     test "shows locked features for upgrade", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/license")
       assert html =~ "Available to Unlock"
-      assert html =~ "Slack Integration"
+      assert html =~ "Knowledge Update"
+      assert html =~ "Document Update"
       assert html =~ "Locked"
     end
 
@@ -110,10 +112,8 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
         [
           Zaq.Paid.Ontology,
           Zaq.Paid.KnowledgeGap,
-          Zaq.Paid.Slack,
-          Zaq.Paid.Email,
-          Zaq.Paid.Rag,
-          Zaq.Paid.Sessions
+          Zaq.Paid.KnowledgeUpdate,
+          Zaq.Paid.DocumentUpdate
         ]
       )
 
@@ -214,10 +214,8 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
     [
       "ontology",
       "knowledge_gap",
-      "slack_integration",
-      "email_channel",
-      "advanced_rag",
-      "multi_tenant"
+      "knowledge_update",
+      "document_update"
     ]
     |> Enum.map(fn name ->
       %{
