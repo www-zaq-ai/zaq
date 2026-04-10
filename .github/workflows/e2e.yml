@@ -1,11 +1,6 @@
 name: E2E
 
 on:
-  push:
-    branches-ignore:
-      - main
-      - release
-      - "release/**"
   pull_request:
     branches:
       - main
