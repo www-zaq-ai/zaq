@@ -60,6 +60,14 @@
 
 ---
 
+## Testing Methodology
+
+- Use TDD for new context functions, LiveViews, and Oban workers: write failing tests first, then implement until they pass.
+- Tests are the specification — do not delete or weaken them to make them pass.
+- Integration tests hit a real database (sandbox); do not mock the DB.
+
+---
+
 ## Oban Workers
 
 - Make Oban workers and external side-effect operations idempotent so retries are safe.

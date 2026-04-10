@@ -4,6 +4,25 @@ defmodule Zaq.Ingestion.FolderSetting do
 
   A single row identifies a (volume_name, folder_path) pair and stores an
   array of tag strings that apply to all documents under that path.
+
+  ## Folder tags vs document tags
+
+  Folder-level tags (stored here) act as a **policy**: when a folder is marked
+  public, every document whose `source` starts with `volume_name/folder_path/`
+  inherits the `"public"` tag. This propagation happens at write time via
+  `Zaq.Ingestion.set_folder_public/2` and `unset_folder_public/2`.
+
+  Document-level tags (stored on `Zaq.Ingestion.Document`) record the actual
+  state per document. Use folder-level tags when you want a blanket policy; use
+  document-level tags (`add_document_tag/2`, `remove_document_tag/2`) when you
+  need per-document overrides.
+
+  ## Migration path for existing documents
+
+  Documents ingested before a folder-public setting is created are back-filled
+  by `set_folder_public/2`, which bulk-adds the `"public"` tag to all matching
+  documents in a single query. Re-ingesting a file under a public folder also
+  applies the folder's tags automatically during ingestion.
   """
 
   use Ecto.Schema

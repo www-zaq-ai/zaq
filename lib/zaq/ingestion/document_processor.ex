@@ -321,28 +321,26 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp create_image_alias_copy(image_path, alias_path) do
     case File.cp(image_path, alias_path) do
-      :ok -> {alias_path, fn -> File.rm(alias_path) end}
-      {:error, _} -> {image_path, fn -> :ok end}
+      :ok ->
+        {alias_path, fn -> File.rm(alias_path) end}
+
+      {:error, reason} ->
+        Logger.warning("Failed to create image alias copy at #{alias_path}: #{inspect(reason)}")
+        {image_path, fn -> :ok end}
     end
   end
 
   defp build_image_alias_path(image_path) do
     dir = Path.dirname(image_path)
     ext = Path.extname(image_path)
+    unique = System.unique_integer([:positive])
 
     normalized_stem =
       image_path
       |> Path.basename(ext)
       |> String.replace(~r/[^a-zA-Z0-9._\-]/, "_")
 
-    candidate = Path.join(dir, normalized_stem <> ext)
-
-    if File.exists?(candidate) do
-      unique = System.unique_integer([:positive])
-      Path.join(dir, "#{normalized_stem}__zaq_tmp_#{unique}#{ext}")
-    else
-      candidate
-    end
+    Path.join(dir, "#{normalized_stem}__zaq_tmp_#{unique}#{ext}")
   end
 
   defp image_description_output_path(file_path) do

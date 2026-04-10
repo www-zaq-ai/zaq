@@ -3,6 +3,8 @@ defmodule Zaq.Accounts.People do
   Context for managing people, their communication channels, and teams.
   """
 
+  require Logger
+
   import Ecto.Query
 
   alias Zaq.Accounts.Person
@@ -131,6 +133,7 @@ defmodule Zaq.Accounts.People do
     case match_person(attrs_with_platform) do
       {:ok, person} ->
         ensure_channel_linked(person, platform_str, attrs_with_platform)
+        # ensure_channel_linked is idempotent — safe to call again for the email channel
         maybe_link_email_channel(person, platform_str, attrs_with_platform)
         person = backfill_person(person, attrs_with_platform)
         {:ok, Repo.preload(person, channels: channels_ordered())}
@@ -211,7 +214,15 @@ defmodule Zaq.Accounts.People do
         |> Person.update_changeset(backfill)
         |> Repo.update()
 
-      maybe_link_email_channel(survivor)
+      case maybe_link_email_channel(survivor) do
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to link email channel after merge for person #{survivor.id}: #{inspect(reason)}"
+          )
+
+        _ ->
+          :ok
+      end
 
       survivor
     end)

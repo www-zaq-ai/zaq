@@ -141,7 +141,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     path
   end
 
-  defp with_image_to_text_stub(api_key, fun) when is_function(fun, 0) do
+  defp with_image_to_text_stub(api_key, fun) when is_function(fun, 0),
+    do: with_image_to_text_stub(api_key, Zaq.Ingestion.ImageToTextStepStub, fun)
+
+  defp with_image_to_text_stub(api_key, stub_module, fun) when is_function(fun, 0) do
     original_step_module = Application.get_env(:zaq, :image_to_text_step_module)
 
     changeset =
@@ -154,7 +157,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     {:ok, _} = Zaq.System.save_image_to_text_config(changeset)
 
     try do
-      Application.put_env(:zaq, :image_to_text_step_module, Zaq.Ingestion.ImageToTextStepStub)
+      Application.put_env(:zaq, :image_to_text_step_module, stub_module)
       fun.()
     after
       if is_nil(original_step_module) do
@@ -842,6 +845,46 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         refute File.exists?(sidecar_path)
         assert Document.get_by_source("missing-key.jpg") == nil
         assert Document.get_by_source("missing-key.md") == nil
+      end)
+    end
+
+    test "processes a jpeg file through image-to-text", %{tmp_dir: tmp_dir} do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      with_image_to_text_stub("test-api-key", fn ->
+        path = create_test_md_file(tmp_dir, "photo.jpeg", "not-a-real-jpeg")
+
+        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
+        assert doc.source == "photo.jpeg"
+        assert doc.content =~ "[Image: photo.jpeg]"
+      end)
+    end
+
+    test "processes an image with an accented filename via ascii alias", %{tmp_dir: tmp_dir} do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      with_image_to_text_stub("test-api-key", fn ->
+        path = create_test_md_file(tmp_dir, "résumé.png", "not-a-real-png")
+
+        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
+        assert doc.source == "résumé.png"
+        assert doc.content =~ "[Image: résumé.png]"
+        # Alias temp files must be cleaned up after processing
+        assert [] == Path.wildcard(Path.join(tmp_dir, "*__zaq_tmp_*"))
+      end)
+    end
+
+    test "strips null bytes from image description output", %{tmp_dir: tmp_dir} do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      with_image_to_text_stub("test-api-key", Zaq.Ingestion.NullByteImageToTextStepStub, fn ->
+        path = create_test_md_file(tmp_dir, "diagram.png", "bytes")
+
+        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
+        refute String.contains?(doc.content, <<0>>)
       end)
     end
   end

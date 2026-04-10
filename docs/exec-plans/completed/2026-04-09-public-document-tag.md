@@ -4,7 +4,7 @@
 
 **Date:** 2026-04-09
 **Author:** Jad
-**Status:** `active`
+**Status:** `completed`
 **Related debt:** —
 **PR(s):** —
 

@@ -269,15 +269,14 @@ defmodule Zaq.Ingestion do
 
   @doc "Adds a tag to a document. No-op if the tag is already present."
   def add_document_tag(doc_id, tag) do
-    doc = Repo.get!(Document, doc_id)
+    from(d in Document,
+      where: d.id == ^doc_id,
+      where: not fragment("? @> ARRAY[?]::varchar[]", d.tags, ^tag),
+      update: [set: [tags: fragment("array_append(?, ?)", d.tags, ^tag)]]
+    )
+    |> Repo.update_all([])
 
-    if tag in doc.tags do
-      {:ok, doc}
-    else
-      doc
-      |> Ecto.Changeset.change(tags: [tag | doc.tags])
-      |> Repo.update()
-    end
+    {:ok, Repo.get!(Document, doc_id)}
   end
 
   @doc "Removes a tag from a document. No-op if the tag is not present."
@@ -297,21 +296,23 @@ defmodule Zaq.Ingestion do
   """
   def set_folder_public(volume_name, folder_path) do
     {:ok, _} =
-      FolderSetting.upsert(%{
-        volume_name: volume_name,
-        folder_path: folder_path,
-        tags: ["public"]
-      })
+      Repo.transaction(fn ->
+        {:ok, _} =
+          FolderSetting.upsert(%{
+            volume_name: volume_name,
+            folder_path: folder_path,
+            tags: ["public"]
+          })
 
-    prefix = "#{volume_name}/#{folder_path}"
+        prefix = "#{volume_name}/#{folder_path}"
 
-    docs =
-      from(d in Document, where: like(d.source, ^"#{prefix}/%"))
-      |> Repo.all()
-
-    for doc <- docs, "public" not in doc.tags do
-      Repo.update!(Ecto.Changeset.change(doc, tags: ["public" | doc.tags]))
-    end
+        from(d in Document,
+          where: like(d.source, ^"#{prefix}/%"),
+          where: not fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
+          update: [set: [tags: fragment("array_append(?, ?)", d.tags, "public")]]
+        )
+        |> Repo.update_all([])
+      end)
 
     :ok
   end
@@ -322,17 +323,19 @@ defmodule Zaq.Ingestion do
   """
   def unset_folder_public(volume_name, folder_path) do
     {:ok, _} =
-      FolderSetting.upsert(%{volume_name: volume_name, folder_path: folder_path, tags: []})
+      Repo.transaction(fn ->
+        {:ok, _} =
+          FolderSetting.upsert(%{volume_name: volume_name, folder_path: folder_path, tags: []})
 
-    prefix = "#{volume_name}/#{folder_path}"
+        prefix = "#{volume_name}/#{folder_path}"
 
-    docs =
-      from(d in Document, where: like(d.source, ^"#{prefix}/%"))
-      |> Repo.all()
-
-    for doc <- docs, "public" in doc.tags do
-      Repo.update!(Ecto.Changeset.change(doc, tags: List.delete(doc.tags, "public")))
-    end
+        from(d in Document,
+          where: like(d.source, ^"#{prefix}/%"),
+          where: fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
+          update: [set: [tags: fragment("array_remove(?, ?)", d.tags, "public")]]
+        )
+        |> Repo.update_all([])
+      end)
 
     :ok
   end
