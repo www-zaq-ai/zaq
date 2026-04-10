@@ -292,7 +292,8 @@ defmodule Zaq.Ingestion do
 
   @doc """
   Marks a folder public: persists the flag in `folder_settings` and adds the
-  `"public"` tag to every document whose source starts with `volume/folder_path/`.
+  `"public"` tag to every document whose source starts with any known prefix
+  for the folder (covers both volume-prefixed and legacy sources).
   """
   def set_folder_public(volume_name, folder_path) do
     {:ok, _} =
@@ -304,10 +305,13 @@ defmodule Zaq.Ingestion do
             tags: ["public"]
           })
 
-        prefix = "#{volume_name}/#{folder_path}"
+        conditions =
+          Document.source_prefix_conditions(
+            SourcePath.source_candidates(volume_name, folder_path)
+          )
 
         from(d in Document,
-          where: like(d.source, ^"#{prefix}/%"),
+          where: ^conditions,
           where: not fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
           update: [set: [tags: fragment("array_append(?, ?)", d.tags, "public")]]
         )
@@ -327,10 +331,13 @@ defmodule Zaq.Ingestion do
         {:ok, _} =
           FolderSetting.upsert(%{volume_name: volume_name, folder_path: folder_path, tags: []})
 
-        prefix = "#{volume_name}/#{folder_path}"
+        conditions =
+          Document.source_prefix_conditions(
+            SourcePath.source_candidates(volume_name, folder_path)
+          )
 
         from(d in Document,
-          where: like(d.source, ^"#{prefix}/%"),
+          where: ^conditions,
           where: fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
           update: [set: [tags: fragment("array_remove(?, ?)", d.tags, "public")]]
         )

@@ -484,7 +484,23 @@ defmodule ZaqWeb.Components.BOLayout do
             >
               <path d="M5 13l4 4L19 7" />
             </svg>
-            <span>{Phoenix.Flash.get(@flash, :info)}</span>
+            <span class="flex-1">{Phoenix.Flash.get(@flash, :info)}</span>
+            <button
+              phx-click="lv:clear-flash"
+              phx-value-key="info"
+              class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
+              aria-label="Dismiss"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           <div
             :if={Phoenix.Flash.get(@flash, :error)}
@@ -499,7 +515,23 @@ defmodule ZaqWeb.Components.BOLayout do
             >
               <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
             </svg>
-            <span>{Phoenix.Flash.get(@flash, :error)}</span>
+            <span class="flex-1">{Phoenix.Flash.get(@flash, :error)}</span>
+            <button
+              phx-click="lv:clear-flash"
+              phx-value-key="error"
+              class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
+              aria-label="Dismiss"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           {render_slot(@inner_block)}
         </div>

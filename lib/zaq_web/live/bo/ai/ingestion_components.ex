@@ -94,6 +94,44 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             XLSX
           </text>
         </svg>
+      <% @ext in [".png", ".jpg", ".jpeg"] -> %>
+        <svg
+          class={@class}
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 32 32"
+          fill="none"
+        >
+          <path
+            d="M25.6 0H6.4C2.86538 0 0 2.86538 0 6.4V25.6C0 29.1346 2.86538 32 6.4 32H25.6C29.1346 32 32 29.1346 32 25.6V6.4C32 2.86538 29.1346 0 25.6 0Z"
+            fill="url(#paint0_linear_103_1789)"
+          />
+          <path
+            d="M5.9577 24.8845C5.42578 25.9483 6.19937 27.2 7.38878 27.2H18.2111C19.4005 27.2 20.1741 25.9483 19.6422 24.8845L14.231 14.0622C13.6414 12.8829 11.9585 12.8829 11.3688 14.0622L5.9577 24.8845Z"
+            fill="white"
+          />
+          <path
+            d="M15.5577 24.8845C15.0258 25.9483 15.7994 27.2 16.9888 27.2H24.6111C25.8005 27.2 26.5741 25.9483 26.0422 24.8845L22.231 17.2622C21.6414 16.0829 19.9585 16.0829 19.3688 17.2622L15.5577 24.8845Z"
+            fill="white"
+            fill-opacity="0.6"
+          />
+          <path
+            d="M24.0002 11.2C25.7675 11.2 27.2002 9.76726 27.2002 7.99995C27.2002 6.23264 25.7675 4.79995 24.0002 4.79995C22.2329 4.79995 20.8002 6.23264 20.8002 7.99995C20.8002 9.76726 22.2329 11.2 24.0002 11.2Z"
+            fill="white"
+          />
+          <defs>
+            <linearGradient
+              id="paint0_linear_103_1789"
+              x1="16"
+              y1="0"
+              x2="16"
+              y2="32"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop stop-color="#00E676" />
+              <stop offset="1" stop-color="#00C853" />
+            </linearGradient>
+          </defs>
+        </svg>
       <% @ext == ".csv" -> %>
         <svg class={@class} viewBox="0 0 80 100" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path
@@ -241,7 +279,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           :if={MapSet.size(@selected) > 0}
           id="bulk-delete-button"
           phx-click="show_delete_confirmation"
-          class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors flex items-center gap-1"
+          class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors flex items-center gap-1 cursor-pointer"
         >
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -485,7 +523,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       phx-click="move_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors cursor-pointer"
                       title="Move to…"
                     >
                       <svg
@@ -511,7 +549,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       phx-click="rename_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors cursor-pointer"
                       title="Rename"
                     >
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -532,7 +570,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       phx-click="share_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+                      class="p-1.5 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors cursor-pointer"
                       title="Share with roles"
                     >
                       <svg
@@ -553,7 +591,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       phx-click="delete_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-red-500/10 rounded-lg text-black/30 hover:text-red-500 transition-colors"
+                      class="p-1.5 hover:bg-red-500/10 rounded-lg text-black/30 hover:text-red-500 transition-colors cursor-pointer"
                       title="Delete"
                     >
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -860,7 +898,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               phx-click="move_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
-              class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+              class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors cursor-pointer"
               title="Move to…"
             >
               <svg
@@ -882,7 +920,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               phx-click="rename_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
-              class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+              class="p-1 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors cursor-pointer"
               title="Rename"
             >
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -903,7 +941,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               phx-click="share_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
-              class="p-1 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors"
+              class="p-1 hover:bg-[#03b6d4]/10 rounded-lg text-black/30 hover:text-[#03b6d4] transition-colors cursor-pointer"
               title="Share with roles"
             >
               <svg
@@ -924,7 +962,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               phx-click="delete_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
-              class="p-1 hover:bg-red-500/10 rounded-lg text-black/30 hover:text-red-500 transition-colors"
+              class="p-1 hover:bg-red-500/10 rounded-lg text-black/30 hover:text-red-500 transition-colors cursor-pointer"
               title="Delete"
             >
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1783,7 +1821,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           </div>
           <button
             phx-click="close_modal"
-            class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors"
+            class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors cursor-pointer"
           >
             <svg
               class="w-4 h-4"
