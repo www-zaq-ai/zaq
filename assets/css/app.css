@@ -104,10 +104,26 @@
 
 /* This file is for your main application CSS */
 
+@font-face {
+  font-family: "ZAQ Sans";
+  src: url("../fonts/Roboto/Roboto-VariableFont_wdth,wght.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "ZAQ Sans";
+  src: url("../fonts/Roboto/Roboto-Italic-VariableFont_wdth,wght.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* ZAQ semantic design tokens */
 :root {
   --zaq-font-ui: "Outfit", system-ui, sans-serif;
-  --zaq-font-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --zaq-font-primary: "ZAQ Sans", "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   --zaq-color-accent: #03b6d4;
   --zaq-color-accent-hover: #029ab3;
@@ -181,6 +197,8 @@
 .zaq-text-ink-soft { color: var(--zaq-color-ink-soft); }
 .zaq-text-accent { color: var(--zaq-color-accent); }
 
+.font-mono { font-family: var(--zaq-font-primary); }
+
 .zaq-bg-ink { background: var(--zaq-color-ink); }
 .zaq-bg-accent { background: var(--zaq-color-accent); }
 .zaq-bg-accent-hover { background: var(--zaq-color-accent-hover); }
@@ -236,7 +254,7 @@
   padding: 8px 10px;
   min-width: 120px;
   max-width: 220px;
-  font-family: var(--zaq-font-mono);
+  font-family: var(--zaq-font-primary);
 }
 
 .zaq-chart-tooltip-header {

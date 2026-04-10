@@ -81,7 +81,7 @@ const OntologyTree = {
 
     const colorMap = buildColorMap();
     const uiFont = cssVar("--zaq-font-ui", "'Outfit',system-ui,sans-serif");
-    const monoFont = cssVar("--zaq-font-mono", "'Space Mono',monospace");
+    const monoFont = cssVar("--zaq-font-primary", "'ZAQ Sans','Roboto',system-ui,sans-serif");
     const emptyTextColor = cssVar("--zaq-ontology-empty-text", "#5A6A80");
     const emptyTitleColor = cssVar("--zaq-ontology-empty-title", "#A0AEC0");
     const tooltipBg = cssVar("--zaq-ontology-tooltip-bg", "rgba(14,20,35,0.92)");

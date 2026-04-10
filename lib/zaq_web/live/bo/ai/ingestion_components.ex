@@ -425,7 +425,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           </svg>
         </button>
       </div>
-      <span class="font-mono text-[0.68rem] text-black/25 ml-1">{length(@entries)} item(s)</span>
+      <span class="font-mono text-[0.68rem] text-black/40 ml-1">{length(@entries)} item(s)</span>
     </div>
     """
   end
@@ -1143,7 +1143,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 browse <.live_file_input upload={@uploads.files} class="hidden" />
               </label>
             </p>
-            <p class="font-mono text-[0.65rem] text-black/25">
+            <p class="font-mono text-[0.65rem] text-black/40">
               .md .txt .pdf .docx .xlsx .csv .png .jpg .jpeg — max 20 MB
             </p>
           </div>
@@ -1268,7 +1268,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             </span>
           </div>
 
-          <div class="font-mono text-[0.68rem] text-black/40 space-y-0.5">
+          <div class="font-mono text-[0.68rem] text-black/60 space-y-0.5">
             <p>Mode: {job.mode}</p>
             <p>Started: {format_datetime(job.started_at)}</p>
             <p :if={job.completed_at}>Completed: {format_datetime(job.completed_at)}</p>

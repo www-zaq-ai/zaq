@@ -142,7 +142,7 @@ defmodule ZaqWeb.Components.BOLayout do
                   background: color-mix(in srgb, var(--zaq-color-ink) 80%, black);
                   color: white;
                   font-size: 0.72rem;
-                  font-family: var(--zaq-font-mono);
+                  font-family: var(--zaq-font-primary);
                   padding: 4px 10px;
                   border-radius: 6px;
                   white-space: nowrap;
