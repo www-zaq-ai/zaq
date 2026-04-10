@@ -57,6 +57,15 @@ defmodule Zaq.Channels.RouterTest do
     def send_reply(_outgoing, _connection_details), do: {:error, :delivery_failed}
   end
 
+  defmodule NoTypingBridge do
+    def send_reply(_outgoing, _connection_details), do: :ok
+  end
+
+  defmodule ErrorTypingBridge do
+    def send_reply(_outgoing, _connection_details), do: :ok
+    def send_typing(_config, _channel_id, _details), do: {:error, :typing_failed}
+  end
+
   defmodule TestConnectionBridge do
     def send_reply(_outgoing, _connection_details), do: :ok
 
@@ -205,6 +214,31 @@ defmodule Zaq.Channels.RouterTest do
     test "returns configuration error when provider has no enabled config" do
       assert {:error, {:channel_not_configured, :failing_platform}} =
                Router.send_typing(:failing_platform, "chan-1")
+    end
+
+    test "returns :ok when bridge does not implement send_typing/3" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: NoTypingBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert :ok = Router.send_typing(:mattermost, "chan-1")
+      refute_received {:send_typing, _, _, _}
+    end
+
+    test "propagates bridge send_typing/3 errors" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: ErrorTypingBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:error, :typing_failed} = Router.send_typing(:mattermost, "chan-1")
     end
   end
 

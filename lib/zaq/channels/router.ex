@@ -55,7 +55,8 @@ defmodule Zaq.Channels.Router do
   @spec send_typing(atom() | String.t(), String.t()) :: :ok | {:error, term()}
   def send_typing(provider, channel_id) when is_binary(channel_id) do
     with {:ok, bridge} <- resolve_bridge(provider),
-         {:ok, config} <- fetch_channel_config(provider) do
+         {:ok, config} <- fetch_channel_config(provider),
+         true <- bridge_supports?(bridge, :send_typing, 3) || :ok do
       bridge.send_typing(config, channel_id, fetch_connection_details(provider))
     end
   end
