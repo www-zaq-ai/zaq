@@ -283,5 +283,30 @@ defmodule Zaq.Engine.Conversations.SchemasTest do
       # When share_token already set on the struct, no change should be put
       refute get_change(cs, :share_token)
     end
+
+    test "keeps existing truthy non-binary token value" do
+      cs =
+        ConversationShare.changeset(
+          %ConversationShare{share_token: 123},
+          %{conversation_id: @valid_conv_id, permission: "read"}
+        )
+
+      assert cs.valid?
+      refute get_change(cs, :share_token)
+      assert get_field(cs, :share_token) == 123
+    end
+
+    test "generates token when existing token field is false" do
+      cs =
+        ConversationShare.changeset(
+          %ConversationShare{share_token: false},
+          %{conversation_id: @valid_conv_id, permission: "read"}
+        )
+
+      assert cs.valid?
+      token = get_change(cs, :share_token)
+      assert is_binary(token)
+      assert byte_size(token) > 0
+    end
   end
 end
