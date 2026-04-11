@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/www-zaq-ai/zaq/compare/v0.7.0...v0.7.1) (2026-04-11)
+
+
+### Bug Fixes
+
+* **conversation:** Send typing event to Channels router when retrieval pipeline is activated ([d6dac82](https://github.com/www-zaq-ai/zaq/commit/d6dac820b6898452817d66788c762a9fa5176732))
+
 ## [0.7.0](https://github.com/www-zaq-ai/zaq/compare/v0.6.4...v0.7.0) (2026-04-10)
 
 
