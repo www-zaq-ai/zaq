@@ -4,6 +4,27 @@ defmodule Zaq.Embedding.ClientTest do
   alias Zaq.Embedding.Client
   alias Zaq.System
   alias Zaq.System.EmbeddingConfig
+  alias Zaq.TestSupport.OpenAIStub
+
+  defmodule RealHTTPStub do
+    import Plug.Conn
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      conn =
+        Enum.reduce(Keyword.get(opts, :headers, []), conn, fn {k, v}, acc ->
+          put_resp_header(acc, k, v)
+        end)
+
+      status = Keyword.get(opts, :status, 200)
+      body = Keyword.get(opts, :body, %{})
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(status, Jason.encode!(body))
+    end
+  end
 
   setup do
     changeset =
@@ -29,6 +50,20 @@ defmodule Zaq.Embedding.ClientTest do
 
     test "reads dimension from config" do
       assert Client.dimension() == 1536
+    end
+
+    test "reads api_key from config" do
+      changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          endpoint: "http://localhost",
+          api_key: "sk-test-key",
+          model: "test-model",
+          dimension: 1536
+        })
+
+      {:ok, _} = System.save_embedding_config(changeset)
+
+      assert Client.api_key() == "sk-test-key"
     end
   end
 
@@ -153,6 +188,118 @@ defmodule Zaq.Embedding.ClientTest do
       assert {:error, {:rate_limited, 60, %{status: 429}}} = Client.embed("test")
     end
 
+    test "defaults to 60 seconds when retry-after is invalid" do
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", "not-a-date")
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, 60, %{status: 429}}} = Client.embed("test")
+    end
+
+    test "returns 0 delay when retry-after HTTP-date is in the past" do
+      retry_after =
+        DateTime.utc_now()
+        |> DateTime.add(-30, :second)
+        |> Calendar.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", retry_after)
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, 0, %{status: 429}}} = Client.embed("test")
+    end
+
+    test "prioritizes retry-after over x-ratelimit-reset" do
+      reset_at = DateTime.utc_now() |> DateTime.to_unix() |> Kernel.+(300)
+
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", "7")
+        |> Plug.Conn.put_resp_header("x-ratelimit-reset", Integer.to_string(reset_at))
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, 7, %{status: 429}}} = Client.embed("test")
+    end
+
+    test "defaults to 60 seconds when retry-after parses as :bad_date" do
+      Req.Test.stub(Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", "Sun, 06 Nov 94 08:49:37 GMT")
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"error" => "rate limited"})
+      end)
+
+      assert {:error, {:rate_limited, 60, %{status: 429}}} = Client.embed("test")
+    end
+
+    test "returns HTTP request failed when transport fails" do
+      prev_req_opts = Application.get_env(:zaq, Client, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Client, prev_req_opts)
+      end)
+
+      Application.put_env(:zaq, Client, req_options: [])
+
+      changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          endpoint: unavailable_local_url(),
+          api_key: "",
+          model: "test-model",
+          dimension: 1536
+        })
+
+      {:ok, _} = System.save_embedding_config(changeset)
+
+      assert {:error, "HTTP request failed:" <> _} = Client.embed("test")
+    end
+
+    test "handles rate-limit headers from real HTTP response map" do
+      prev_req_opts = Application.get_env(:zaq, Client, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Client, prev_req_opts)
+      end)
+
+      Application.put_env(:zaq, Client, req_options: [])
+
+      {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+      {:ok, port} = :inet.port(socket)
+      :ok = :gen_tcp.close(socket)
+
+      child_spec =
+        {Bandit,
+         plug:
+           {RealHTTPStub,
+            status: 429, headers: [{"retry-after", "9"}], body: %{"error" => "rate limited"}},
+         scheme: :http,
+         port: port}
+
+      start_supervised!(child_spec)
+
+      endpoint = "http://127.0.0.1:#{port}"
+
+      changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          endpoint: endpoint,
+          api_key: "",
+          model: "test-model",
+          dimension: 1536
+        })
+
+      {:ok, _} = System.save_embedding_config(changeset)
+
+      assert {:error, {:rate_limited, 9, %{status: 429}}} = Client.embed("test")
+    end
+
     test "skips authorization header when api_key is empty" do
       Req.Test.stub(Client, fn conn ->
         auth_header = Plug.Conn.get_req_header(conn, "authorization")
@@ -188,5 +335,12 @@ defmodule Zaq.Embedding.ClientTest do
 
       assert {:ok, [0.1]} = Client.embed("test")
     end
+  end
+
+  defp unavailable_local_url do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    "http://127.0.0.1:#{port}"
   end
 end
