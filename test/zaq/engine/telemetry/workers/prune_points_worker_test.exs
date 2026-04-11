@@ -7,9 +7,12 @@ defmodule Zaq.Engine.Telemetry.Workers.PrunePointsWorkerTest do
   alias Zaq.Engine.Telemetry.Workers.PrunePointsWorker
   alias Zaq.Repo
   alias Zaq.System
+  alias Zaq.System.Config
 
   setup do
     Repo.delete_all(Point)
+    Repo.delete_all(from c in Config, where: c.key == "telemetry.raw_retention_days")
+
     :ok
   end
 
@@ -39,6 +42,24 @@ defmodule Zaq.Engine.Telemetry.Workers.PrunePointsWorkerTest do
     insert_point(fresh)
 
     assert {:ok, _} = System.set_config("telemetry.raw_retention_days", "nope")
+    assert :ok = PrunePointsWorker.perform(%{})
+
+    refute Repo.exists?(from p in Point, where: p.occurred_at == ^old)
+    assert Repo.exists?(from p in Point, where: p.occurred_at == ^fresh)
+  end
+
+  test "perform/1 uses default 60-day retention when config is missing" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    old = DateTime.add(now, -70, :day)
+    fresh = DateTime.add(now, -30, :day)
+
+    insert_point(old)
+    insert_point(fresh)
+
+    Repo.delete_all(from c in Config, where: c.key == "telemetry.raw_retention_days")
+    assert is_nil(System.get_config("telemetry.raw_retention_days"))
+
     assert :ok = PrunePointsWorker.perform(%{})
 
     refute Repo.exists?(from p in Point, where: p.occurred_at == ^old)
