@@ -4,7 +4,7 @@ defmodule Zaq.Ingestion.Actions.EmbedChunksTest do
   import Mox
 
   alias Zaq.Ingestion.Actions.EmbedChunks
-  alias Zaq.Ingestion.{Chunk, Document}
+  alias Zaq.Ingestion.{Chunk, Document, IngestJob}
   alias Zaq.Repo
   alias Zaq.System.EmbeddingConfig
 
@@ -37,6 +37,16 @@ defmodule Zaq.Ingestion.Actions.EmbedChunksTest do
     |> Document.changeset(%{
       source: "embed-test-#{System.unique_integer([:positive])}.md",
       content: "# Test"
+    })
+    |> Repo.insert!()
+  end
+
+  defp create_job do
+    %IngestJob{}
+    |> IngestJob.changeset(%{
+      file_path: "/tmp/embed-test-#{System.unique_integer([:positive])}.md",
+      status: "processing",
+      mode: "async"
     })
     |> Repo.insert!()
   end
@@ -119,6 +129,56 @@ defmodule Zaq.Ingestion.Actions.EmbedChunksTest do
       assert {:ok, result} = EmbedChunks.run(%{document_id: doc.id, indexed_payloads: []}, %{})
       assert result.ingested_count == 0
       assert result.failed_count == 0
+    end
+
+    test "updates job progress counters after each chunk when job_id is in context" do
+      doc = create_document()
+      job = create_job()
+      payloads = [make_payload("a", 0), make_payload("b", 1), make_payload("c", 2)]
+
+      stub(Zaq.DocumentProcessorMock, :store_chunk_with_metadata, fn chunk, _doc_id, idx ->
+        Chunk.create(%{document_id: doc.id, content: chunk.content, chunk_index: idx})
+      end)
+
+      Application.put_env(:zaq, :document_processor, Zaq.DocumentProcessorMock)
+
+      assert {:ok, %{ingested_count: 3, failed_count: 0}} =
+               EmbedChunks.run(
+                 %{document_id: doc.id, indexed_payloads: payloads},
+                 %{job_id: job.id}
+               )
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.total_chunks == 3
+      assert updated.ingested_chunks == 3
+      assert updated.failed_chunks == 0
+    end
+
+    test "increments failed_chunks when a chunk fails" do
+      doc = create_document()
+      job = create_job()
+      payloads = [make_payload("ok", 0), make_payload("bad", 1)]
+
+      stub(Zaq.DocumentProcessorMock, :store_chunk_with_metadata, fn chunk, _doc_id, idx ->
+        if idx == 0 do
+          Chunk.create(%{document_id: doc.id, content: chunk.content, chunk_index: idx})
+        else
+          {:error, "embedding failed"}
+        end
+      end)
+
+      Application.put_env(:zaq, :document_processor, Zaq.DocumentProcessorMock)
+
+      assert {:ok, _} =
+               EmbedChunks.run(
+                 %{document_id: doc.id, indexed_payloads: payloads},
+                 %{job_id: job.id}
+               )
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.total_chunks == 2
+      assert updated.ingested_chunks == 1
+      assert updated.failed_chunks == 1
     end
   end
 end

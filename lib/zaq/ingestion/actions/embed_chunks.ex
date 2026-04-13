@@ -25,22 +25,27 @@ defmodule Zaq.Ingestion.Actions.EmbedChunks do
       ]
     ]
 
-  alias Zaq.Ingestion.{Chunk, DocumentChunker}
+  alias Zaq.Ingestion.{Chunk, DocumentChunker, JobLifecycle}
 
   require Logger
 
   @impl true
-  def run(%{document_id: document_id, indexed_payloads: indexed_payloads}, _context) do
+  def run(%{document_id: document_id, indexed_payloads: indexed_payloads}, context) do
     processor = Application.get_env(:zaq, :document_processor, Zaq.Ingestion.DocumentProcessor)
+    job_id = Map.get(context, :job_id)
+    total = length(indexed_payloads)
 
     if not is_nil(document_id), do: Chunk.delete_by_document(document_id)
+    if not is_nil(job_id) and total > 0, do: JobLifecycle.set_total_chunks!(job_id, total)
 
     results =
       indexed_payloads
       |> Task.async_stream(
         fn {payload, index} ->
           chunk = payload_to_chunk(payload)
-          {index, processor.store_chunk_with_metadata(chunk, document_id, index)}
+          result = processor.store_chunk_with_metadata(chunk, document_id, index)
+          maybe_track_chunk_progress(job_id, result)
+          {index, result}
         end,
         timeout: :infinity,
         max_concurrency: System.schedulers_online(),
@@ -69,6 +74,14 @@ defmodule Zaq.Ingestion.Actions.EmbedChunks do
        failed_count: failed_count
      }}
   end
+
+  defp maybe_track_chunk_progress(nil, _result), do: :ok
+
+  defp maybe_track_chunk_progress(job_id, {:ok, _}),
+    do: JobLifecycle.increment_chunk_progress!(job_id, :ingested)
+
+  defp maybe_track_chunk_progress(job_id, _),
+    do: JobLifecycle.increment_chunk_progress!(job_id, :failed)
 
   defp payload_to_chunk(payload) do
     struct(DocumentChunker.Chunk, %{

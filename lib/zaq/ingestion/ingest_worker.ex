@@ -19,10 +19,11 @@ defmodule Zaq.Ingestion.IngestWorker do
   alias Zaq.Repo
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"job_id" => job_id}}) do
+  def perform(%Oban.Job{args: %{"job_id" => job_id} = args}) do
     job = Repo.get!(IngestJob, job_id)
+    upload_only = Map.get(args, "upload_only", false)
 
-    case Agent.run(job) do
+    case Agent.run(job, upload_only: upload_only) do
       {:ok, _updated_job} -> :ok
       {:error, _updated_job} -> {:cancel, :failed}
     end

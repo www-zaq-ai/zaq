@@ -659,6 +659,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         case ingestion_call(:upload_file, [volume, dest, binary]) do
           {:ok, _full_path} ->
             ingestion_call(:track_upload, [volume, dest])
+            ingestion_call(:ingest_file, [dest, :async, volume, [upload_only: true]])
             {:ok, dest}
 
           error ->
@@ -837,7 +838,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp sort_jobs_desc(jobs), do: Enum.sort_by(jobs, & &1.inserted_at, {:desc, DateTime})
 
   defp maybe_refresh_entries_after_job(socket, %{status: status})
-       when status in ["completed", "completed_with_errors", "failed"] do
+       when status in ["completed", "completed_with_errors", "failed", "converted"] do
     load_entries(socket)
   end
 

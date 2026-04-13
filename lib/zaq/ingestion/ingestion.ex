@@ -27,21 +27,30 @@ defmodule Zaq.Ingestion do
 
   # --- Ingestion triggers ---
 
-  def ingest_file(path, mode \\ :async, volume_name \\ nil) do
+  def ingest_file(path, mode \\ :async, volume_name \\ nil, opts \\ []) do
     with {:ok, job} <- create_job(path, mode, volume_name) do
-      case mode do
-        :async ->
-          %{"job_id" => job.id}
-          |> IngestWorker.new()
-          |> Oban.insert()
-
-          {:ok, job}
-
-        :inline ->
-          IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
-          {:ok, Repo.get!(IngestJob, job.id)}
-      end
+      upload_only = Keyword.get(opts, :upload_only, false)
+      dispatch_ingest_job(job, mode, upload_only)
     end
+  end
+
+  defp dispatch_ingest_job(job, :async, upload_only) do
+    base_args = %{"job_id" => job.id}
+    args = if upload_only, do: Map.put(base_args, "upload_only", true), else: base_args
+
+    args
+    |> IngestWorker.new()
+    |> Oban.insert()
+
+    {:ok, job}
+  end
+
+  defp dispatch_ingest_job(job, :inline, upload_only) do
+    IngestWorker.perform(%Oban.Job{
+      args: %{"job_id" => job.id, "upload_only" => upload_only}
+    })
+
+    {:ok, Repo.get!(IngestJob, job.id)}
   end
 
   def ingest_folder(path, mode \\ :async, volume_name \\ nil) do

@@ -98,9 +98,10 @@ defmodule Zaq.Ingestion.Agent do
   # Finalisation
   # ---------------------------------------------------------------------------
 
-  defp finalize_success(job, _result, :upload_only, _telemetry_dims) do
+  defp finalize_success(job, result, :upload_only, _telemetry_dims) do
     Logger.info("[Ingestion.Agent] job=#{job.id} converted — awaiting ingestion trigger")
-    {:ok, JobLifecycle.mark_converted!(job)}
+    attrs = if doc_id = Map.get(result, :document_id), do: %{document_id: doc_id}, else: %{}
+    {:ok, JobLifecycle.mark_converted!(job, attrs)}
   end
 
   defp finalize_success(job, result, _mode, telemetry_dims) do

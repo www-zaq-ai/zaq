@@ -12,6 +12,8 @@ defmodule Zaq.Ingestion.IngestJob do
   @statuses ~w(pending processing converted completed completed_with_errors failed)
   @modes ~w(inline async)
 
+  @type t :: %__MODULE__{}
+
   schema "ingest_jobs" do
     field :file_path, :string
     field :status, :string, default: "pending"

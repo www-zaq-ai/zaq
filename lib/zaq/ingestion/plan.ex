@@ -9,11 +9,11 @@ defmodule Zaq.Ingestion.Plan do
   Three execution modes are supported, each backed by a tailored action list
   for use with `Jido.Exec.Chain.chain/3`:
 
-  | Mode              | Actions                                      | Entry status → Exit status     |
-  |-------------------|----------------------------------------------|-------------------------------|
-  | `:full`           | all five                                      | `processing` → `completed`    |
-  | `:upload_only`    | `UploadFile`, `ConvertToMarkdown`             | `processing` → `converted`    |
-  | `:from_converted` | `ChunkDocument`, `EmbedChunks`, `AddToRag`   | `processing` → `completed`    |
+  | Mode              | Actions                                              | Entry status → Exit status  |
+  |-------------------|------------------------------------------------------|------------------------------|
+  | `:full`           | all five                                              | `processing` → `completed`  |
+  | `:upload_only`    | `UploadFile`, `ConvertToMarkdown`, `RegisterSidecar` | `processing` → `converted`  |
+  | `:from_converted` | `ChunkDocument`, `EmbedChunks`, `AddToRag`           | `processing` → `completed`  |
 
   `Zaq.Ingestion.Agent` selects the mode automatically based on whether a `.md`
   sidecar already exists on disk, then calls `chain/0` to get the action list.
@@ -26,6 +26,7 @@ defmodule Zaq.Ingestion.Plan do
     ChunkDocument,
     ConvertToMarkdown,
     EmbedChunks,
+    RegisterSidecar,
     UploadFile
   }
 
@@ -52,6 +53,6 @@ defmodule Zaq.Ingestion.Plan do
   """
   @spec chain(:full | :upload_only | :from_converted) :: [module()]
   def chain(:full), do: [UploadFile, ConvertToMarkdown, ChunkDocument, EmbedChunks, AddToRag]
-  def chain(:upload_only), do: [UploadFile, ConvertToMarkdown]
+  def chain(:upload_only), do: [UploadFile, ConvertToMarkdown, RegisterSidecar]
   def chain(:from_converted), do: [ChunkDocument, EmbedChunks, AddToRag]
 end
