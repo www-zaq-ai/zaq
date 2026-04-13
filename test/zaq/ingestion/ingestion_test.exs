@@ -5,7 +5,7 @@ defmodule Zaq.IngestionTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer, IngestChunkJob, IngestJob}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer, IngestJob}
   alias Zaq.Repo
   alias Zaq.System.EmbeddingConfig
 
@@ -19,6 +19,16 @@ defmodule Zaq.IngestionTest do
 
     {:ok, _} = Zaq.System.save_embedding_config(changeset)
     Mox.set_mox_global()
+    stub(Zaq.DocumentProcessorMock, :read_as_markdown, fn path -> File.read(path) end)
+
+    original_processor = Application.get_env(:zaq, :document_processor)
+
+    on_exit(fn ->
+      if is_nil(original_processor),
+        do: Application.delete_env(:zaq, :document_processor),
+        else: Application.put_env(:zaq, :document_processor, original_processor)
+    end)
+
     :ok
   end
 
@@ -92,10 +102,7 @@ defmodule Zaq.IngestionTest do
 
   describe "ingest_file/2" do
     test "creates a job and enqueues worker in async mode" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 2, document_id: nil}}
-      end)
-
+      # Async mode just enqueues — no pipeline runs synchronously.
       assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :async)
       assert job.status == "pending"
       assert job.mode == "async"
@@ -103,13 +110,23 @@ defmodule Zaq.IngestionTest do
     end
 
     test "creates a job and processes inline" do
+      # Create a real file in the base documents path so UploadFile can find it.
+      base = FileExplorer.base_path() |> Path.expand()
+      unique = System.unique_integer([:positive])
+      rel_path = "inline_test_#{unique}.md"
+      abs_path = Path.join(base, rel_path)
+      File.write!(abs_path, "# Hello")
+      on_exit(fn -> File.rm(abs_path) end)
+
       Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 3, document_id: nil}}
+      expect(Zaq.DocumentProcessorMock, :prepare_file_chunks, fn _path ->
+        {:ok, %{id: nil}, []}
       end)
 
-      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline)
+      Application.put_env(:zaq, :document_processor, Zaq.DocumentProcessorMock)
+
+      assert {:ok, job} = Ingestion.ingest_file(rel_path, :inline)
       job_id = job.id
       assert job.status == "completed"
       assert job.mode == "inline"
@@ -133,9 +150,11 @@ defmodule Zaq.IngestionTest do
         _ = FileExplorer.delete_directory(folder)
       end)
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 2, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      expect(Zaq.DocumentProcessorMock, :prepare_file_chunks, 2, fn _path ->
+        {:ok, %{id: nil}, []}
       end)
+
+      Application.put_env(:zaq, :document_processor, Zaq.DocumentProcessorMock)
 
       assert {:ok, jobs} = Ingestion.ingest_folder(folder, :inline)
       assert length(jobs) == 2
@@ -196,10 +215,7 @@ defmodule Zaq.IngestionTest do
       job = create_job(%{status: "failed", error: "something broke"})
       Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
+      # retry_job enqueues async — no pipeline runs synchronously.
       assert {:ok, retried} = Ingestion.retry_job(job.id)
       job_id = job.id
       assert retried.status == "pending"
@@ -212,57 +228,21 @@ defmodule Zaq.IngestionTest do
       assert {:error, :not_failed} = Ingestion.retry_job(job.id)
     end
 
-    test "retries a completed_with_errors job by enqueueing failed chunks only" do
+    test "retries a completed_with_errors job by re-enqueueing it" do
       doc = create_document_with_chunks("retry-source.md", 0)
 
       job =
         create_job(%{
           status: "completed_with_errors",
-          error: "2 chunks failed after retries",
+          error: "2 chunks failed",
           document_id: doc.id,
           failed_chunks: 2,
           failed_chunk_indices: [2, 5]
         })
 
-      %IngestChunkJob{}
-      |> IngestChunkJob.changeset(%{
-        ingest_job_id: job.id,
-        document_id: doc.id,
-        chunk_index: 2,
-        chunk_payload: %{"content" => "chunk two", "metadata" => %{}},
-        status: "failed_final"
-      })
-      |> Repo.insert!()
-
-      %IngestChunkJob{}
-      |> IngestChunkJob.changeset(%{
-        ingest_job_id: job.id,
-        document_id: doc.id,
-        chunk_index: 5,
-        chunk_payload: %{"content" => "chunk five", "metadata" => %{}},
-        status: "failed_final"
-      })
-      |> Repo.insert!()
-
-      original_processor = Application.get_env(:zaq, :document_processor)
-
-      on_exit(fn ->
-        if is_nil(original_processor) do
-          Application.delete_env(:zaq, :document_processor)
-        else
-          Application.put_env(:zaq, :document_processor, original_processor)
-        end
-      end)
-
-      Application.put_env(:zaq, :document_processor, RetryChunkProcessor)
-
       assert {:ok, retried} = Ingestion.retry_job(job.id)
       assert retried.status == "pending"
       assert retried.error == nil
-
-      updated = Repo.get!(IngestJob, job.id)
-      assert updated.status in ["processing", "completed"]
-      assert updated.failed_chunk_indices == []
     end
 
     test "returns error if job not found" do
@@ -294,20 +274,40 @@ defmodule Zaq.IngestionTest do
 
   describe "ingest_file/3 (volume-aware)" do
     test "stores volume_name on the created job" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      # Configure a "docs" volume pointing at the base documents path.
+      base_dir = FileExplorer.base_path() |> Path.expand()
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original || [], volumes: %{"docs" => base_dir})
+      )
+
+      on_exit(fn ->
+        if is_nil(original),
+          do: Application.delete_env(:zaq, Zaq.Ingestion),
+          else: Application.put_env(:zaq, Zaq.Ingestion, original)
       end)
 
-      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline, "docs")
+      unique = System.unique_integer([:positive])
+      rel = "vol_inline_#{unique}.md"
+      File.write!(Path.join(base_dir, rel), "# Test")
+      on_exit(fn -> File.rm(Path.join(base_dir, rel)) end)
+
+      expect(Zaq.DocumentProcessorMock, :prepare_file_chunks, fn _path ->
+        {:ok, %{id: nil}, []}
+      end)
+
+      Application.put_env(:zaq, :document_processor, Zaq.DocumentProcessorMock)
+
+      assert {:ok, job} = Ingestion.ingest_file(rel, :inline, "docs")
       assert job.volume_name == "docs"
     end
 
     test "nil volume_name when not provided (backward compat)" do
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline)
+      # Async mode — pipeline does not run inline, just check the job field.
+      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :async)
       assert job.volume_name == nil
     end
   end
@@ -940,9 +940,11 @@ defmodule Zaq.IngestionTest do
 
       on_exit(fn -> _ = FileExplorer.delete_directory(folder) end)
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 1, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      expect(Zaq.DocumentProcessorMock, :prepare_file_chunks, 1, fn _path ->
+        {:ok, %{id: nil}, []}
       end)
+
+      Application.put_env(:zaq, :document_processor, Zaq.DocumentProcessorMock)
 
       assert {:ok, jobs} = Ingestion.ingest_folder(folder, :inline, "docs")
       assert Enum.all?(jobs, &(&1.volume_name == "docs"))

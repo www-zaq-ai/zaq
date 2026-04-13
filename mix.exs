@@ -102,6 +102,10 @@ defmodule Zaq.MixProject do
       {:jido_chat, github: "agentjido/jido_chat", branch: "main"},
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
       {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
+      {:jido, "~> 2.2.0"},
+      {:jido_action, "~> 2.2.1"},
+      {:jido_signal, "~> 2.1.1"},
+      {:abacus, "~> 2.2.0", override: true},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
       # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
       {:ex_dna, "~> 1.2.2", only: [:dev, :test], runtime: false},

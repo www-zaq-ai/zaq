@@ -204,6 +204,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   def status_color("completed"), do: "bg-emerald-100 text-emerald-700"
   def status_color("completed_with_errors"), do: "bg-orange-100 text-orange-700"
   def status_color("failed"), do: "bg-red-100 text-red-600"
+  def status_color("converted"), do: "bg-sky-100 text-sky-600"
   def status_color(_), do: "bg-black/5 text-black/30"
 
   # ── Volume Selector ───────────────────────────────────────────────────────
@@ -641,6 +642,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-red-100 text-red-600 w-fit whitespace-nowrap">
                         failed
                       </span>
+                    <% status.job_status == "converted" -> %>
+                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-sky-100 text-sky-600 w-fit whitespace-nowrap">
+                        converted
+                      </span>
                     <% status.stale? -> %>
                       <div class="flex flex-col gap-0.5">
                         <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap">
@@ -778,7 +783,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               class="border-b border-black/[0.04] last:border-0 zaq-bg-accent-faint"
             >
               <td></td>
-              <td class="px-4 py-1.5 overflow-hidden max-w-0" colspan="4">
+              <td class="px-4 py-1.5 overflow-hidden max-w-0" colspan="5">
                 <button
                   type="button"
                   phx-click="open_preview"
@@ -1043,6 +1048,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 <% status.job_status == "failed" -> %>
                   <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-red-100 text-red-600 mt-1">
                     failed
+                  </span>
+                <% status.job_status == "converted" -> %>
+                  <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-sky-100 text-sky-600 mt-1">
+                    converted
                   </span>
                 <% status.stale? -> %>
                   <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 mt-1">

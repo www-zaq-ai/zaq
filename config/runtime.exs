@@ -103,8 +103,6 @@ if config_env() == :prod do
     repo: Zaq.Repo,
     queues: [
       ingestion: String.to_integer(System.get_env("OBAN_INGESTION_CONCURRENCY", "3")),
-      ingestion_chunks:
-        String.to_integer(System.get_env("OBAN_INGESTION_CHUNKS_CONCURRENCY", "6")),
       conversations: String.to_integer(System.get_env("OBAN_CONVERSATIONS_CONCURRENCY", "5")),
       telemetry: String.to_integer(System.get_env("OBAN_TELEMETRY_CONCURRENCY", "5")),
       telemetry_remote:

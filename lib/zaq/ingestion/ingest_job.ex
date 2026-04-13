@@ -9,8 +9,10 @@ defmodule Zaq.Ingestion.IngestJob do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(pending processing completed completed_with_errors failed)
+  @statuses ~w(pending processing converted completed completed_with_errors failed)
   @modes ~w(inline async)
+
+  @type t :: %__MODULE__{}
 
   schema "ingest_jobs" do
     field :file_path, :string

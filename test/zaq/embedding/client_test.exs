@@ -4,7 +4,6 @@ defmodule Zaq.Embedding.ClientTest do
   alias Zaq.Embedding.Client
   alias Zaq.System
   alias Zaq.System.EmbeddingConfig
-  alias Zaq.TestSupport.OpenAIStub
 
   defmodule RealHTTPStub do
     import Plug.Conn
