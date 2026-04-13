@@ -13,23 +13,36 @@ and a Python-based pre-processing pipeline for PDF, DOCX, XLSX, and image files.
 
 ```
 File path
-  → Zaq.Ingestion.ingest_file/5             ← creates IngestJob, queues Oban worker
-  → IngestWorker.perform/1                  ← document-level orchestrator
-      → [Python.Pipeline.run/1]             ← optional: PDF/DOCX/XLSX → clean Markdown
-      → DocumentProcessor.prepare_file_chunks/3
-          → File.read/1                     ← read file content
-          → Document.upsert/1               ← upsert document record
-          → DocumentChunker.parse_layout/2  ← detect sections (headings, tables, figures)
-          → DocumentChunker.chunk_sections/1 ← split into token-bounded chunks
-          → persist ingest_chunk_jobs rows  ← one persisted child job per chunk
-      → enqueue IngestChunkWorker jobs      ← queue: :ingestion_chunks
-  → IngestChunkWorker.perform/1             ← chunk-level processor
-      → store_chunk_with_metadata/5         ← for each chunk:
+  → Zaq.Ingestion.ingest_file/3             ← creates IngestJob, queues Oban worker
+  → IngestWorker.perform/1                  ← thin Oban entry point
+      → Agent.run/1                         ← Jido.Exec.Chain orchestrator
+          → Plan.chain(mode)                ← selects actions for mode
+              :full          → [UploadFile, ConvertToMarkdown, ChunkDocument, EmbedChunks, AddToRag]
+              :upload_only   → [UploadFile, ConvertToMarkdown]
+              :from_converted → [ChunkDocument, EmbedChunks, AddToRag]
+
+  → UploadFile                              ← validates file exists, resolves volume path
+  → ConvertToMarkdown                       ← calls DocumentProcessor.read_as_markdown/1
+      → [Python.Pipeline.run/1]            ← optional: PDF/DOCX/XLSX → clean Markdown
+      → reuses sidecar .md if already exists
+  → ChunkDocument                           ← calls DocumentProcessor.prepare_file_chunks/1
+      → File.read/1                         ← read file content
+      → Document.upsert/1                   ← upsert document record
+      → DocumentChunker.parse_layout/2      ← detect sections (headings, tables, figures)
+      → DocumentChunker.chunk_sections/1    ← split into token-bounded chunks
+  → EmbedChunks                             ← clears old chunks, embeds concurrently per chunk
+      → store_chunk_with_metadata/3         ← for each chunk:
           → ChunkTitle.ask/1                ← LLM generates descriptive title
           → EmbeddingClient.embed/1         ← generate vector embedding
           → Chunk.changeset + Repo.insert   ← store to DB with PGVector halfvec
-      → updates parent IngestJob counters   ← ingested_chunks/total_chunks/failed_chunks
+  → AddToRag                                ← validates counts, emits telemetry
 ```
+
+### Execution Modes
+
+- **`:full`** — default; runs all five actions end-to-end.
+- **`:upload_only`** — stops after `ConvertToMarkdown`, sets job status to `converted`. Used when chunking/embedding is deferred.
+- **`:from_converted`** — auto-detected when a `.md` sidecar already exists; skips `UploadFile` and `ConvertToMarkdown`, resumes from `ChunkDocument`.
 
 ---
 
@@ -70,19 +83,28 @@ File path
 ### Oban Worker (`Zaq.Ingestion.IngestWorker`)
 - Queue: `:ingestion`, max 3 attempts, 5s × attempt backoff
 - Unique jobs per args within 120s window (prevents duplicate ingestion)
-- Job lifecycle: `pending → processing → completed | completed_with_errors | failed`
-- Broadcasts `{:job_updated, job}` on every state transition via PubSub
+- Delegates ALL orchestration to `Zaq.Ingestion.Agent.run/1` — thin shell
+- Agent failures are **non-retryable**: returns `{:cancel, :failed}` so Oban discards the job immediately; "failed" badge persists in the UI until manually retried
+- Infrastructure exceptions (DB connection, etc.) are not caught — they surface as Oban exceptions and trigger normal backoff retries
+- Job lifecycle: `pending → processing → converted | completed | completed_with_errors | failed`
 - `DocumentProcessor` is injectable: `Application.get_env(:zaq, :document_processor)`
 
-### Oban Worker (`Zaq.Ingestion.IngestChunkWorker`)
-- Queue: `:ingestion_chunks`, max 5 attempts, unique per `{job_id, chunk_job_id}` args window
-- Processes one persisted chunk payload per job (`ingest_chunk_jobs`)
-- On success: marks chunk `completed` and recomputes parent `IngestJob` counters
-- On failure: marks chunk `pending` for retry; on final attempt marks `failed_final`
-- On rate limit (`429`): snoozes retry delay using headers (`retry-after`, `ratelimit-reset`, `x-ratelimit-reset`), defaults to 60s
-- Parent job is terminal only when all chunk jobs are terminal:
-  - `completed` when all chunks succeeded
-  - `completed_with_errors` when at least one chunk is `failed_final`
+### Jido Pipeline Agent (`Zaq.Ingestion.Agent`)
+- Plain module (not `use Jido.Agent`) — uses `Jido.Exec.Chain` for sequential action execution
+- `run/1` — runs the full pipeline for a `IngestJob`; auto-detects mode from sidecar presence
+- `run/2` — accepts `upload_only: true` to stop at `converted` status
+- Each action's result map is merged into params so downstream actions see accumulated state
+- `max_retries: 0` passed to `Chain.chain/3` — Oban handles retries, not Jido
+
+### Jido Plan (`Zaq.Ingestion.Plan`)
+- `chain/1` — returns the ordered action list for a given mode (`:full`, `:upload_only`, `:from_converted`)
+
+### Jido Actions (`Zaq.Ingestion.Actions.*`)
+- `UploadFile` — validates file exists, resolves volume path; returns `%{file_path: resolved}`
+- `ConvertToMarkdown` — calls `processor.read_as_markdown/1`; reuses sidecar if present; returns `%{md_path, md_content, converted}`
+- `ChunkDocument` — delegates to `processor.prepare_file_chunks/1`; returns `%{document_id, indexed_payloads}`
+- `EmbedChunks` — clears old chunks, calls `store_chunk_with_metadata` concurrently; returns `%{ingested_count, failed_count}`
+- `AddToRag` — validates counts, emits telemetry; returns `%{ingested_count, failed_count}`
 
 ### Job Lifecycle (`Zaq.Ingestion.JobLifecycle`)
 - Internal helper for all `IngestJob` state transitions + PubSub broadcast
@@ -188,14 +210,10 @@ File path
 
 **`Zaq.Ingestion.IngestJob`**
 - Fields: `file_path`, `status`, `mode`, `error`, `started_at`, `completed_at`, `chunks_count`, `total_chunks`, `ingested_chunks`, `failed_chunks`, `failed_chunk_indices`, `document_id`, `volume_name`
-- Statuses: `pending | processing | completed | completed_with_errors | failed`
+- Statuses: `pending | processing | converted | completed | completed_with_errors | failed`
+  - `converted` — file uploaded and converted to Markdown; chunking/embedding deferred (upload_only mode)
 - Modes: `async | inline`
 - Primary key: UUID (`:binary_id`)
-
-**`Zaq.Ingestion.IngestChunkJob`**
-- Fields: `ingest_job_id`, `document_id`, `chunk_index`, `chunk_payload`, `status`, `attempts`, `error`
-- Statuses: `pending | processing | completed | failed_final`
-- Purpose: persisted chunk-level retries and resumable ingestion after restarts
 
 **`Zaq.Ingestion.Permission`**
 - Schema: `document_permissions`
@@ -212,8 +230,8 @@ File path
 - Mockable in tests via `req_options: [plug: {Req.Test, Zaq.Embedding.Client}]`
 
 ### Document Processor Behaviour (`Zaq.DocumentProcessorBehaviour`)
-- Single callback: `process_single_file/1`
-- Allows swapping processor implementations without touching `IngestWorker`
+- Callbacks: `process_single_file/1`, `read_as_markdown/1`, `prepare_file_chunks/1`, `store_chunk_with_metadata/3`
+- Allows swapping processor implementations (e.g., `DocumentProcessorMock` in tests, `E2E.DocumentProcessorFake` in E2E) without touching the pipeline actions
 
 ---
 
@@ -221,6 +239,12 @@ File path
 
 ```
 lib/zaq/ingestion/
+├── actions/
+│   ├── upload_file.ex            # Action: validate file exists, resolve volume path
+│   ├── convert_to_markdown.ex    # Action: call read_as_markdown; reuse sidecar if present
+│   ├── chunk_document.ex         # Action: call prepare_file_chunks; returns indexed payloads
+│   ├── embed_chunks.ex           # Action: clear old chunks, embed concurrently per chunk
+│   └── add_to_rag.ex             # Action: validate counts, emit telemetry
 ├── python/
 │   ├── pipeline.ex               # PDF → clean Markdown orchestrator
 │   ├── runner.ex                 # Base wrapper for Python script execution
@@ -232,21 +256,22 @@ lib/zaq/ingestion/
 │       ├── inject_descriptions.ex # Inject image descriptions into Markdown
 │       ├── pdf_to_md.ex          # PDF → Markdown with image extraction
 │       └── xlsx_to_md.ex         # XLSX → Markdown conversion
+├── agent.ex                      # Jido pipeline orchestrator (plain module + Exec.Chain)
 ├── chunk.ex                      # Ecto schema for chunks with PGVector halfvec embedding
 ├── delete_service.ex             # File + document deletion with sidecar handling
 ├── directory_snapshot.ex         # Combines FS entries with DB state for LiveView
 ├── document.ex                   # Ecto schema for ingested documents
 ├── document_chunker.ex           # Layout-aware Markdown → sections → chunks
-├── document_processor.ex         # Full pipeline: read, chunk, embed, store, search
+├── document_processor.ex         # DocumentProcessor implementation (read, chunk, embed, search)
+├── document_processor_behaviour.ex # Behaviour: process_single_file, read_as_markdown, prepare_file_chunks, store_chunk_with_metadata
 ├── file_explorer.ex              # Multi-volume filesystem utilities
-├── ingest_chunk_job.ex           # Ecto schema for persisted child chunk jobs
-├── ingest_chunk_worker.ex        # Oban worker for chunk-level processing/retries
 ├── ingest_job.ex                 # Ecto schema for ingestion job tracking
-├── ingest_worker.ex              # Oban worker for async job processing
+├── ingest_worker.ex              # Oban worker (thin shell → Agent.run)
 ├── ingestion.ex                  # Public API: trigger, query, retry, cancel, delete, rename, permissions
 ├── job_lifecycle.ex              # IngestJob state transitions + PubSub broadcast
 ├── oban_telemetry.ex             # Oban telemetry setup
 ├── permission.ex                 # Ecto schema for person/team document access permissions
+├── plan.ex                       # Jido.Plan: returns action lists per execution mode
 ├── rename_service.ex             # File rename with DB source update + rollback
 ├── sidecar.ex                    # Sidecar companion Markdown metadata helpers
 ├── source_path.ex                # Path ↔ document source normalization helpers
@@ -254,9 +279,6 @@ lib/zaq/ingestion/
 
 lib/zaq/embedding/
 └── client.ex                     # Generic OpenAI-compatible embedding HTTP client
-
-lib/zaq/ingestion/
-└── document_processor_behaviour.ex  # Behaviour contract (Zaq.DocumentProcessorBehaviour) for document processor implementations
 ```
 
 ---
@@ -270,19 +292,18 @@ config :zaq, Zaq.Ingestion,
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  queues: [ingestion: 3, ingestion_chunks: 6]
+  queues: [ingestion: 3]
 ```
 
 Runtime env vars used in `config/runtime.exs`:
 
-- `OBAN_INGESTION_CONCURRENCY` (default `3`) — number of document-level ingestion jobs processed in parallel.
-- `OBAN_INGESTION_CHUNKS_CONCURRENCY` (default `6`) — number of chunk child-jobs processed in parallel.
+- `OBAN_INGESTION_CONCURRENCY` (default `3`) — number of document-level ingestion jobs processed in parallel. Each job runs the full Jido pipeline (UploadFile → ConvertToMarkdown → ChunkDocument → EmbedChunks → AddToRag).
 
 Impact:
 
-- Lower `OBAN_INGESTION_CHUNKS_CONCURRENCY` reduces concurrent embedding/title generation pressure on LLM endpoints and DB writes.
-- Higher values improve throughput, but can increase rate-limits and downstream load.
-- Setting it to `1` serializes chunk worker execution per node.
+- Lower concurrency reduces pressure on LLM embedding endpoints and DB writes.
+- Higher values improve throughput but can increase rate-limits and downstream load.
+- Setting it to `1` serializes all ingestion jobs.
 
 Back Office System Config (`/bo/system-config`) now owns model-related settings:
 
@@ -322,6 +343,10 @@ All variables above are optional overrides; only change them if your deployment 
 - **Sidecar Markdown pattern** — binary files (`.pdf`, `.docx`, etc.) store their converted `.md` as a linked sidecar document; renames/deletes cascade to the sidecar
 - **Volume-prefixed sources** — document sources are prefixed with volume name (`"documents/path/to/file.md"`) in multi-volume mode for namespace isolation
 - **JobLifecycle extracted** — all IngestJob state transitions go through `JobLifecycle` to ensure PubSub broadcast is never missed
+- **Jido pipeline, not per-chunk Oban jobs** — replaced `IngestChunkWorker` + `IngestChunkJob` with a `Jido.Exec.Chain` of 5 discrete actions; per-chunk persistence was a workaround for missing checkpointing — Jido handles sequential execution natively
+- **Agent failures are non-retryable** — `IngestWorker` returns `{:cancel, :failed}` so Oban never auto-retries; the user retries manually via the "Retry" button; this keeps "failed" status stable in the UI
+- **`max_retries: 0` in Chain** — Oban handles all retry logic; Jido actions each run once; if one fails, the error propagates immediately to `finalize_error`
+- **`converted` status** — `upload_only: true` mode stops after `ConvertToMarkdown`, leaving the file ready for a subsequent chunking/embedding pass without re-uploading
 - **HTML parsing not implemented** — `DocumentChunker.parse_layout/2` raises on `:html` format
 
 ---

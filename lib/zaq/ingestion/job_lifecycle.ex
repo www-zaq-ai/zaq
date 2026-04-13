@@ -66,6 +66,11 @@ defmodule Zaq.Ingestion.JobLifecycle do
     transition!(job, attrs)
   end
 
+  @spec mark_converted!(IngestJob.t()) :: IngestJob.t()
+  def mark_converted!(%IngestJob{} = job) do
+    transition!(job, %{status: "converted"})
+  end
+
   @spec mark_pending_retry!(IngestJob.t(), String.t()) :: IngestJob.t()
   def mark_pending_retry!(%IngestJob{} = job, error_message) when is_binary(error_message) do
     transition!(job, %{status: "pending", error: error_message})

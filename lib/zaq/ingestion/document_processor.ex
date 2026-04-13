@@ -201,9 +201,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp sanitize_utf8(<<c::utf8, rest::binary>>, acc), do: sanitize_utf8(rest, [<<c::utf8>> | acc])
   defp sanitize_utf8(<<_::8, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
 
-  # Reads a file and returns its content as a markdown string,
-  # converting non-markdown formats as needed.
-  defp read_as_markdown(file_path) do
+  @doc """
+  Reads a file and returns its content as a markdown string.
+  Converts non-markdown formats (PDF, DOCX, XLSX, images) via the Python pipeline,
+  writing a `.md` sidecar as a side effect. Returns the sidecar content if it already
+  exists, skipping conversion.
+  """
+  def read_as_markdown(file_path) do
     case Path.extname(file_path) |> String.downcase() do
       ".pdf" ->
         md_path = Path.rootname(file_path) <> ".md"

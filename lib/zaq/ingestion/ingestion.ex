@@ -382,17 +382,9 @@ defmodule Zaq.Ingestion do
   def retry_job(id) do
     with %IngestJob{} = job <- Repo.get(IngestJob, id),
          :ok <- ensure_retryable(job),
-         original_status = job.status,
          {:ok, updated_job} <-
            JobLifecycle.transition(job, %{status: "pending", error: nil, completed_at: nil}) do
-      retry_args =
-        if original_status == "completed_with_errors" do
-          %{"job_id" => updated_job.id, "retry_failed_chunks" => true}
-        else
-          %{"job_id" => updated_job.id}
-        end
-
-      retry_args
+      %{"job_id" => updated_job.id}
       |> IngestWorker.new()
       |> Oban.insert()
 
