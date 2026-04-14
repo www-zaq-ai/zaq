@@ -31,6 +31,14 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     "radar"
   ]
 
+  @negative_feedback_reasons [
+    "Not factually correct",
+    "Too slow",
+    "Outdated information",
+    "Did not follow my request",
+    "Missing information in knowledge base"
+  ]
+
   @spec load_dashboard(map()) :: map()
   def load_dashboard(filters) do
     normalized = normalize_filters(filters)
@@ -156,6 +164,16 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         :weighted_per_label
       )
 
+    {feedback_negative_rate_weighted, feedback_negative_rate_weights} =
+      ratio_points(
+        local_rows,
+        "feedback.negative.count",
+        "qa.message.count",
+        labels.labels,
+        fn ratio -> Float.round(ratio * 100, 2) end,
+        :weighted_per_label
+      )
+
     response_time_points = metric_points(local_rows, "qa.answer.latency_ms", labels.labels)
 
     confidence_axes =
@@ -169,6 +187,9 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
 
     messages_by_channel =
       metric_distribution_by_dimension(local_rows, "qa.message.count", "channel_type")
+
+    feedback_negative_reasons_axes =
+      reason_distribution_axes(local_rows, @negative_feedback_reasons)
 
     telemetry_config = Zaq.System.get_telemetry_config()
     no_answer_alert_threshold = telemetry_config.no_answer_alert_threshold_percent * 1.0
@@ -227,6 +248,24 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         meta: %{threshold_percent: no_answer_alert_threshold, weights: no_answer_weights}
       },
       %{
+        id: "feedback_negative_rate",
+        kind: :time_series,
+        title: "Negative feedback over total questions (%)",
+        labels: labels.labels,
+        series: [
+          %{
+            key: "feedback_negative_rate",
+            name: "Negative feedback rate",
+            values: feedback_negative_rate_weighted
+          }
+        ],
+        summary: %{
+          labels: labels.labels,
+          values: %{"feedback_negative_rate" => feedback_negative_rate_weighted}
+        },
+        meta: %{weights: feedback_negative_rate_weights}
+      },
+      %{
         id: "average_response_time",
         kind: :time_series,
         title: "Average response time (ms)",
@@ -244,6 +283,15 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           values: %{"average_response_time" => response_time_points}
         },
         meta: %{sla_ms: response_sla_ms}
+      },
+      %{
+        id: "feedback_negative_reasons",
+        kind: :radar,
+        title: "Negative feedback reasons distribution",
+        labels: [],
+        series: [],
+        summary: %{axes: feedback_negative_reasons_axes},
+        meta: %{range: normalized.range}
       }
     ]
 
@@ -256,7 +304,9 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       messages_per_channel_chart: chart!(charts, "messages_per_channel"),
       answer_confidence_distribution_chart: chart!(charts, "answer_confidence_distribution"),
       no_answer_rate_chart: chart!(charts, "no_answer_rate"),
-      average_response_time_chart: chart!(charts, "average_response_time")
+      feedback_negative_rate_chart: chart!(charts, "feedback_negative_rate"),
+      average_response_time_chart: chart!(charts, "average_response_time"),
+      feedback_negative_reasons_chart: chart!(charts, "feedback_negative_reasons")
     }
   end
 
@@ -815,6 +865,46 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     Enum.map(buckets, fn {label, key} ->
       value = sum_metric(rows, key)
       %{label: label, value: to_percent(value, total)}
+    end)
+  end
+
+  defp reason_distribution_axes(rows, canonical_reasons) do
+    reason_totals =
+      rows
+      |> Enum.filter(&(&1.metric_key == "feedback.negative.reason.count"))
+      |> Enum.reduce(%{}, fn row, acc ->
+        label =
+          row
+          |> Map.get(:dimensions, %{})
+          |> Map.get("feedback_reason", "")
+          |> to_string()
+
+        normalized_label = canonical_reason_label(label)
+
+        if is_nil(normalized_label) do
+          acc
+        else
+          Map.update(acc, normalized_label, row.value_sum, &(&1 + row.value_sum))
+        end
+      end)
+
+    total = reason_totals |> Map.values() |> Enum.sum()
+
+    Enum.map(canonical_reasons, fn reason ->
+      %{label: reason, value: to_percent(Map.get(reason_totals, reason, 0.0), total)}
+    end)
+  end
+
+  defp canonical_reason_label(label) do
+    normalized =
+      label
+      |> String.trim()
+      |> String.downcase()
+
+    Enum.find(@negative_feedback_reasons, fn reason ->
+      reason
+      |> String.downcase()
+      |> Kernel.==(normalized)
     end)
   end
 

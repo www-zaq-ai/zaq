@@ -21,7 +21,9 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLiveTest do
     assert has_element?(view, "#conversations-metrics-messages-per-channel-chart")
     assert has_element?(view, "#conversations-metrics-confidence-distribution-chart")
     assert has_element?(view, "#conversations-metrics-no-answer-rate-chart")
+    assert has_element?(view, "#conversations-metrics-feedback-negative-rate-chart")
     assert has_element?(view, "#conversations-metrics-average-response-time-chart")
+    assert has_element?(view, "#conversations-metrics-feedback-reasons-chart")
   end
 
   test "set_range updates selected range", %{conn: conn} do

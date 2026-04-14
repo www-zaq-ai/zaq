@@ -59,15 +59,27 @@
       />
 
       <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
-        id="conversations-metrics-no-answer-rate-chart"
-        chart={@no_answer_rate_chart}
+        id="conversations-metrics-average-response-time-chart"
+        chart={@average_response_time_chart}
       />
     </section>
 
     <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
       <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
-        id="conversations-metrics-average-response-time-chart"
-        chart={@average_response_time_chart}
+        id="conversations-metrics-feedback-negative-rate-chart"
+        chart={@feedback_negative_rate_chart}
+      />
+
+      <ZaqWeb.Components.BOTelemetryComponents.radar_chart
+        id="conversations-metrics-feedback-reasons-chart"
+        chart={@feedback_negative_reasons_chart}
+      />
+    </section>
+
+    <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
+        id="conversations-metrics-no-answer-rate-chart"
+        chart={@no_answer_rate_chart}
       />
 
       <ZaqWeb.Components.BOTelemetryComponents.radar_chart
