@@ -254,8 +254,18 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
       rater_attrs =
         if current_user,
-          do: %{user_id: current_user.id, rating: 1, comment: full_comment},
-          else: %{channel_user_id: "bo_anonymous", rating: 1, comment: full_comment}
+          do: %{
+            user_id: current_user.id,
+            rating: 1,
+            comment: full_comment,
+            feedback_reasons: reasons
+          },
+          else: %{
+            channel_user_id: "bo_anonymous",
+            rating: 1,
+            comment: full_comment,
+            feedback_reasons: reasons
+          }
 
       NodeRouter.call(
         :engine,

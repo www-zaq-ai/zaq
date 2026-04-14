@@ -283,6 +283,16 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     )
 
     insert_rollup("qa.no_answer.count", now, 3.0, 3)
+    insert_rollup("feedback.negative.count", now, 3.0, 3)
+
+    insert_rollup("feedback.negative.reason.count", now, 2.0, 2,
+      dimensions: %{"feedback_reason" => "Too slow"}
+    )
+
+    insert_rollup("feedback.negative.reason.count", now, 1.0, 1,
+      dimensions: %{"feedback_reason" => "Outdated information"}
+    )
+
     insert_rollup("qa.answer.latency_ms", now, 1_200.0, 3)
     insert_rollup("qa.answer.confidence.bucket.gt_90", now, 3.0, 3)
     insert_rollup("qa.answer.confidence.bucket.between_80_90", now, 2.0, 2)
@@ -294,7 +304,9 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert payload.messages_per_channel_chart.id == "messages_per_channel"
     assert payload.answer_confidence_distribution_chart.id == "answer_confidence_distribution"
     assert payload.no_answer_rate_chart.id == "no_answer_rate"
+    assert payload.feedback_negative_rate_chart.id == "feedback_negative_rate"
     assert payload.average_response_time_chart.id == "average_response_time"
+    assert payload.feedback_negative_reasons_chart.id == "feedback_negative_reasons"
 
     assert get_in(payload.messages_received_chart, [:summary, :values, "messages"]) |> List.last() ==
              30.0
@@ -310,6 +322,13 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert get_in(payload.no_answer_rate_chart, [:summary, :baseline, :label]) ==
              "Alert threshold"
 
+    assert get_in(payload.feedback_negative_rate_chart, [
+             :summary,
+             :values,
+             "feedback_negative_rate"
+           ])
+           |> Enum.max() == 10.0
+
     assert get_in(payload.average_response_time_chart, [:summary, :baseline, :values])
            |> Enum.uniq() == [1500.0]
 
@@ -321,6 +340,14 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
              %{label: "70-80", value: 16.67},
              %{label: "50-70", value: 0.0},
              %{label: "Below 50", value: 0.0}
+           ]
+
+    assert get_in(payload.feedback_negative_reasons_chart, [:summary, :axes]) == [
+             %{label: "Not factually correct", value: 0.0},
+             %{label: "Too slow", value: 66.67},
+             %{label: "Outdated information", value: 33.33},
+             %{label: "Did not follow my request", value: 0.0},
+             %{label: "Missing information in knowledge base", value: 0.0}
            ]
   end
 

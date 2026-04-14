@@ -50,8 +50,18 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
     no_answer_rate_chart =
       Map.get(telemetry, :no_answer_rate_chart, default_no_answer_rate_chart())
 
+    feedback_negative_rate_chart =
+      Map.get(telemetry, :feedback_negative_rate_chart, default_feedback_negative_rate_chart())
+
     average_response_time_chart =
       Map.get(telemetry, :average_response_time_chart, default_average_response_time_chart())
+
+    feedback_negative_reasons_chart =
+      Map.get(
+        telemetry,
+        :feedback_negative_reasons_chart,
+        default_feedback_negative_reasons_chart()
+      )
 
     socket
     |> assign(:telemetry, telemetry)
@@ -59,7 +69,9 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
     |> assign(:messages_per_channel_chart, messages_per_channel_chart)
     |> assign(:answer_confidence_distribution_chart, answer_confidence_distribution_chart)
     |> assign(:no_answer_rate_chart, no_answer_rate_chart)
+    |> assign(:feedback_negative_rate_chart, feedback_negative_rate_chart)
     |> assign(:average_response_time_chart, average_response_time_chart)
+    |> assign(:feedback_negative_reasons_chart, feedback_negative_reasons_chart)
   end
 
   defp load_conversations_metrics_data(filters) do
@@ -81,14 +93,54 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
         default_messages_per_channel_chart(),
         default_answer_confidence_distribution_chart(),
         default_no_answer_rate_chart(labels),
+        default_feedback_negative_rate_chart(labels),
+        default_feedback_negative_reasons_chart(),
         default_average_response_time_chart(labels)
       ],
       messages_received_chart: default_messages_received_chart(labels),
       messages_per_channel_chart: default_messages_per_channel_chart(),
       answer_confidence_distribution_chart: default_answer_confidence_distribution_chart(),
       no_answer_rate_chart: default_no_answer_rate_chart(labels),
+      feedback_negative_rate_chart: default_feedback_negative_rate_chart(labels),
+      feedback_negative_reasons_chart: default_feedback_negative_reasons_chart(),
       average_response_time_chart: default_average_response_time_chart(labels)
     }
+  end
+
+  defp default_feedback_negative_rate_chart(labels \\ labels_for_range("7d")) do
+    zeroes = Enum.map(labels, fn _ -> 0.0 end)
+
+    DashboardChart.new(%{
+      id: "feedback_negative_rate",
+      kind: :time_series,
+      title: "Negative feedback over total questions (%)",
+      labels: labels,
+      series: [
+        %{key: "feedback_negative_rate", name: "Negative feedback rate", values: zeroes}
+      ],
+      summary: %{labels: labels, values: %{"feedback_negative_rate" => zeroes}},
+      meta: %{}
+    })
+  end
+
+  defp default_feedback_negative_reasons_chart do
+    DashboardChart.new(%{
+      id: "feedback_negative_reasons",
+      kind: :radar,
+      title: "Negative feedback reasons distribution",
+      labels: [],
+      series: [],
+      summary: %{
+        axes: [
+          %{label: "Not factually correct", value: 0.0},
+          %{label: "Too slow", value: 0.0},
+          %{label: "Outdated information", value: 0.0},
+          %{label: "Did not follow my request", value: 0.0},
+          %{label: "Missing information in knowledge base", value: 0.0}
+        ]
+      },
+      meta: %{}
+    })
   end
 
   defp default_messages_received_chart(labels \\ labels_for_range("7d")) do
