@@ -14,10 +14,9 @@ defmodule Zaq.Engine.Telemetry.Workers.PrunePointsWorker do
   @impl Oban.Worker
   def perform(_job) do
     retention_days =
-      case System.get_config("telemetry.raw_retention_days") do
-        nil -> 60
-        value -> parse_int(value, 60)
-      end
+      "telemetry.raw_retention_days"
+      |> System.get_config()
+      |> parse_int(60)
 
     cutoff = DateTime.add(DateTime.utc_now(), -retention_days, :day)
 
@@ -27,7 +26,7 @@ defmodule Zaq.Engine.Telemetry.Workers.PrunePointsWorker do
     :ok
   end
 
-  defp parse_int(value, _default) when is_integer(value), do: value
+  defp parse_int(nil, default), do: default
 
   defp parse_int(value, default) when is_binary(value) do
     case Integer.parse(value) do
@@ -35,6 +34,4 @@ defmodule Zaq.Engine.Telemetry.Workers.PrunePointsWorker do
       :error -> default
     end
   end
-
-  defp parse_int(_value, default), do: default
 end

@@ -66,6 +66,38 @@ defmodule Zaq.Engine.Telemetry.Workers.PrunePointsWorkerTest do
     assert Repo.exists?(from p in Point, where: p.occurred_at == ^fresh)
   end
 
+  test "perform/1 parses integer prefixes from string configs" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    old = DateTime.add(now, -40, :day)
+    fresh = DateTime.add(now, -10, :day)
+
+    insert_point(old)
+    insert_point(fresh)
+
+    assert {:ok, _} = System.set_config("telemetry.raw_retention_days", "30days")
+    assert :ok = PrunePointsWorker.perform(%{})
+
+    refute Repo.exists?(from p in Point, where: p.occurred_at == ^old)
+    assert Repo.exists?(from p in Point, where: p.occurred_at == ^fresh)
+  end
+
+  test "perform/1 accepts zero-day retention from string config" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    old = DateTime.add(now, -1, :day)
+    future = DateTime.add(now, 1, :day)
+
+    insert_point(old)
+    insert_point(future)
+
+    assert {:ok, _} = System.set_config("telemetry.raw_retention_days", "0")
+    assert :ok = PrunePointsWorker.perform(%{})
+
+    refute Repo.exists?(from p in Point, where: p.occurred_at == ^old)
+    assert Repo.exists?(from p in Point, where: p.occurred_at == ^future)
+  end
+
   defp insert_point(occurred_at) do
     Repo.insert!(%Point{
       metric_key: "qa.message.count",
