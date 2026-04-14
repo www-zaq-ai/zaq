@@ -404,16 +404,7 @@ defmodule Zaq.Engine.Conversations do
   end
 
   @doc "Updates an existing rating."
-  def update_rating(%MessageRating{} = rating, attrs) do
-    update_rating(rating, attrs, %{}, nil)
-  end
-
-  @doc "Updates an existing rating with telemetry context."
-  def update_rating(%MessageRating{} = rating, attrs, telemetry_attrs) do
-    update_rating(rating, attrs, telemetry_attrs, nil)
-  end
-
-  def update_rating(%MessageRating{} = rating, attrs, telemetry_attrs, occurred_at) do
+  def update_rating(%MessageRating{} = rating, attrs, telemetry_attrs \\ %{}, occurred_at \\ nil) do
     rating
     |> MessageRating.changeset(attrs)
     |> Repo.update()

@@ -452,7 +452,7 @@
           </div>
           <div class="px-6 pb-4">
             <div class="flex flex-wrap gap-2 mb-4">
-              <%= for reason <- ["Not factually correct", "Too slow", "Outdated information", "Did not follow my request", "Missing information in knowledge base"] do %>
+              <%= for reason <- Zaq.Engine.Telemetry.FeedbackReasons.list() do %>
                 <button
                   phx-click="toggle_feedback_reason"
                   phx-value-reason={reason}

@@ -18,7 +18,7 @@ Business producers (Conversations, Ingestion workers)
       → Repo.insert_all(Point)
 
 AggregateRollupsWorker (Oban, queue: :telemetry)
-  → reads cursor telemetry.rollup_cursor
+  → reads cursor telemetry.rollup_point_id_cursor
   → groups raw points into 10-minute buckets
   → upserts Rollup rows
   → advances cursor
@@ -56,7 +56,8 @@ DashboardData.load_dashboard/1
 - `list_local_rollups_since/2` — rollup rows after a cursor for push sync.
 - `upsert_benchmark_rollups/1` — stores benchmark rows with `source="benchmark"`.
 - `telemetry_enabled?/0`, `benchmark_opt_in?/0`, `capture_infra_metrics?/0` — feature flags.
-- `get_cursor/1`, `put_cursor/2` — read/write named cursors from `system_configs`.
+- `get_cursor/1`, `put_cursor/2` — read/write datetime cursors from `system_configs`.
+- `get_cursor_id/1`, `put_cursor_id/2` — read/write integer cursors from `system_configs`.
 - `organization_profile/0` — returns org cohort dimensions for benchmark cohorting.
 - `dimension_key/1` — deterministic sorted key from a dimensions map.
 
@@ -78,7 +79,7 @@ DashboardData.load_dashboard/1
 ### Telemetry Workers
 
 - **`AggregateRollupsWorker`** — queue: `:telemetry`, max 5 attempts. Groups raw points
-  into 10-minute buckets; cursor: `telemetry.rollup_cursor`; batch: 5,000 points.
+  into 10-minute buckets; cursor: `telemetry.rollup_point_id_cursor`; batch: 5,000 points.
 - **`PushRollupsWorker`** — queue: `:telemetry_remote`, max 5 attempts. Pushes local
   rollups to remote benchmark API; cursor: `telemetry.push_cursor`. Only runs when
   benchmark sync is enabled.
@@ -176,7 +177,7 @@ System Config keys (managed at `/bo/system-config`):
 | `telemetry.org_size` | `"unknown"` | Organisation size for benchmark cohorting |
 | `telemetry.geography` | `"unknown"` | Geography dimension for benchmark cohorting |
 | `telemetry.industry` | `"unknown"` | Industry dimension for benchmark cohorting |
-| `telemetry.rollup_cursor` | — | Cursor for AggregateRollupsWorker |
+| `telemetry.rollup_point_id_cursor` | — | Cursor for AggregateRollupsWorker |
 | `telemetry.push_cursor` | — | Cursor for PushRollupsWorker |
 | `telemetry.pull_cursor` | — | Cursor for PullBenchmarksWorker |
 | `telemetry.no_answer_alert_threshold_percent` | — | Alert threshold for conversations dashboard |

@@ -2,7 +2,7 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker do
   @moduledoc """
   Aggregates raw telemetry points into rollup buckets.
 
-  The worker uses a cursor (`telemetry.rollup_cursor`) to process points once.
+  The worker uses a cursor (`telemetry.rollup_point_id_cursor`) to process points once.
   """
 
   use Oban.Worker, queue: :telemetry, max_attempts: 5

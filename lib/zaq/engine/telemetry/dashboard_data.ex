@@ -17,6 +17,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
   import Ecto.Query
 
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
+  alias Zaq.Engine.Telemetry.FeedbackReasons
   alias Zaq.Engine.Telemetry.Rollup
   alias Zaq.Repo
 
@@ -29,14 +30,6 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     "status_grid",
     "progress",
     "radar"
-  ]
-
-  @negative_feedback_reasons [
-    "Not factually correct",
-    "Too slow",
-    "Outdated information",
-    "Did not follow my request",
-    "Missing information in knowledge base"
   ]
 
   @spec load_dashboard(map()) :: map()
@@ -189,7 +182,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       metric_distribution_by_dimension(local_rows, "qa.message.count", "channel_type")
 
     feedback_negative_reasons_axes =
-      reason_distribution_axes(local_rows, @negative_feedback_reasons)
+      reason_distribution_axes(local_rows, FeedbackReasons.list())
 
     telemetry_config = Zaq.System.get_telemetry_config()
     no_answer_alert_threshold = telemetry_config.no_answer_alert_threshold_percent * 1.0
@@ -901,7 +894,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       |> String.trim()
       |> String.downcase()
 
-    Enum.find(@negative_feedback_reasons, fn reason ->
+    Enum.find(FeedbackReasons.list(), fn reason ->
       reason
       |> String.downcase()
       |> Kernel.==(normalized)

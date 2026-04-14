@@ -3,6 +3,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
 
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
+  alias Zaq.Engine.Telemetry.FeedbackReasons
   alias Zaq.NodeRouter
   alias ZaqWeb.Helpers.MetricsHelpers
 
@@ -131,13 +132,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
       labels: [],
       series: [],
       summary: %{
-        axes: [
-          %{label: "Not factually correct", value: 0.0},
-          %{label: "Too slow", value: 0.0},
-          %{label: "Outdated information", value: 0.0},
-          %{label: "Did not follow my request", value: 0.0},
-          %{label: "Missing information in knowledge base", value: 0.0}
-        ]
+        axes: Enum.map(FeedbackReasons.list(), &%{label: &1, value: 0.0})
       },
       meta: %{}
     })
