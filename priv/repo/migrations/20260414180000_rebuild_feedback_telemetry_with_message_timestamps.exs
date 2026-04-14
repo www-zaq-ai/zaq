@@ -1,27 +1,11 @@
 defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
   use Ecto.Migration
 
-  @feedback_metric_keys [
-    "feedback.negative.count",
-    "feedback.negative.reason.count"
-  ]
-
-  @canonical_reasons [
-    "Not factually correct",
-    "Too slow",
-    "Outdated information",
-    "Did not follow my request",
-    "Missing information in knowledge base"
-  ]
-
   @migration_node "migration:20260414180000"
 
   def up do
-    feedback_metric_keys_sql = enum_sql(@feedback_metric_keys)
-    reasons_sql = enum_sql(@canonical_reasons)
-
     execute(
-      "DELETE FROM telemetry_points WHERE source = 'local' AND metric_key IN (#{feedback_metric_keys_sql})"
+      "DELETE FROM telemetry_points WHERE source = 'local' AND metric_key IN ('feedback.negative.count', 'feedback.negative.reason.count')"
     )
 
     execute("""
@@ -72,7 +56,15 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
       NOW() AS inserted_at
     FROM message_ratings mr
     INNER JOIN messages m ON m.id = mr.message_id
-    CROSS JOIN LATERAL UNNEST(ARRAY[#{reasons_sql}]) AS reason
+    CROSS JOIN LATERAL UNNEST(
+      ARRAY[
+        'Not factually correct',
+        'Too slow',
+        'Outdated information',
+        'Did not follow my request',
+        'Missing information in knowledge base'
+      ]
+    ) AS reason
     WHERE mr.rating <= 2
       AND m.role = 'assistant'
       AND m.inserted_at IS NOT NULL
@@ -193,15 +185,11 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
       value = EXCLUDED.value,
       updated_at = EXCLUDED.updated_at
     """)
+
+    execute("DELETE FROM system_configs WHERE key = 'telemetry.rollup_cursor'")
   end
 
   def down do
     raise "Irreversible migration"
-  end
-
-  defp enum_sql(values) do
-    values
-    |> Enum.map(&"'#{String.replace(&1, "'", "''")}'")
-    |> Enum.join(", ")
   end
 end

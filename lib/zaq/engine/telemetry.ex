@@ -29,7 +29,7 @@ defmodule Zaq.Engine.Telemetry do
             |
             v
   AggregateRollupsWorker (Oban)
-    - reads cursor telemetry.rollup_cursor
+    - reads cursor telemetry.rollup_point_id_cursor
     - groups into 10m buckets
     - upserts rollups
     - advances cursor
