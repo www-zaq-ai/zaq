@@ -529,7 +529,7 @@ defmodule Zaq.Engine.Conversations do
 
     case msg.role do
       "user" ->
-        Telemetry.record("qa.message.count", 1, base)
+        :ok
 
       "assistant" ->
         Telemetry.record("qa.answer.count", 1, base)

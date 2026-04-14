@@ -1,10 +1,17 @@
 defmodule Zaq.Agent.PipelineTest do
   use Zaq.DataCase, async: false
 
+  import Ecto.Query
+
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.Pipeline
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
+  alias Zaq.Engine.Telemetry.Buffer
+  alias Zaq.Engine.Telemetry.Point
+  alias Zaq.Repo
+
+  alias Ecto.Adapters.SQL.Sandbox
 
   # ---------------------------------------------------------------------------
   # Stubs — injected via opts; no DB or LLM required
@@ -131,6 +138,14 @@ defmodule Zaq.Agent.PipelineTest do
     # so no explicit cleanup is needed.
     Process.register(self(), :pipeline_test_pid)
     Process.delete(:typing_router_result)
+
+    if pid = Process.whereis(Buffer) do
+      Sandbox.allow(Repo, self(), pid)
+      Buffer.flush()
+    end
+
+    Repo.delete_all(Point)
+
     :ok
   end
 
@@ -261,6 +276,48 @@ defmodule Zaq.Agent.PipelineTest do
       assert %Outgoing{} = result
       assert result.body == "The answer is 42."
       assert result.metadata.error == false
+    end
+  end
+
+  describe "run/2 telemetry" do
+    test "records message telemetry for successful answers" do
+      _result = Pipeline.run(@incoming, @base_opts)
+
+      assert :ok = Buffer.flush()
+
+      assert Repo.aggregate(
+               from(p in Point, where: p.metric_key == "qa.message.count"),
+               :sum,
+               :value
+             ) ==
+               1.0
+
+      assert Repo.aggregate(
+               from(p in Point, where: p.metric_key == "qa.no_answer.count"),
+               :sum,
+               :value
+             ) in [nil, 0.0]
+    end
+
+    test "records message and no-answer telemetry in no-results path" do
+      opts = Keyword.put(@base_opts, :retrieval, StubNoResultsRetrieval)
+
+      _result = Pipeline.run(@incoming, opts)
+
+      assert :ok = Buffer.flush()
+
+      assert Repo.aggregate(
+               from(p in Point, where: p.metric_key == "qa.message.count"),
+               :sum,
+               :value
+             ) ==
+               1.0
+
+      assert Repo.aggregate(
+               from(p in Point, where: p.metric_key == "qa.no_answer.count"),
+               :sum,
+               :value
+             ) == 1.0
     end
   end
 end

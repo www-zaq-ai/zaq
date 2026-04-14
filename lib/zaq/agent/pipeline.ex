@@ -93,6 +93,7 @@ defmodule Zaq.Agent.Pipeline do
     hooks = hooks_mod(opts)
 
     with {:ok, clean_msg} <- prompt_guard(opts).validate(content),
+         :ok <- record_message_telemetry(opts),
          {:ok, retrieval_payload} <-
            hooks.dispatch_sync(:retrieval, %{content: clean_msg}, ctx),
          :ok <- on_status.(:retrieving, "ZAQ is searching your knowledge base…"),
@@ -296,6 +297,10 @@ defmodule Zaq.Agent.Pipeline do
 
   defp record_no_answer_telemetry(opts) do
     Telemetry.record("qa.no_answer.count", 1, telemetry_dimensions(opts))
+  end
+
+  defp record_message_telemetry(opts) do
+    Telemetry.record("qa.message.count", 1, telemetry_dimensions(opts))
   end
 
   defp result_from_answering(%Result{} = result, answer, confidence_score) do

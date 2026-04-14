@@ -14,17 +14,22 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
     "Missing information in knowledge base"
   ]
 
+  @migration_node "migration:20260414180000"
+
   def up do
-    metric_keys_sql = enum_sql(@feedback_metric_keys)
+    feedback_metric_keys_sql = enum_sql(@feedback_metric_keys)
     reasons_sql = enum_sql(@canonical_reasons)
 
     execute(
-      "DELETE FROM telemetry_rollups WHERE source = 'local' AND metric_key IN (#{metric_keys_sql})"
+      "DELETE FROM telemetry_points WHERE source = 'local' AND metric_key IN (#{feedback_metric_keys_sql})"
     )
 
-    execute(
-      "DELETE FROM telemetry_points WHERE source = 'local' AND metric_key IN (#{metric_keys_sql})"
-    )
+    execute("""
+    DELETE FROM telemetry_points
+    WHERE source = 'local'
+      AND metric_key = 'qa.message.count'
+      AND COALESCE(dimensions->>'channel_type', '') <> 'api'
+    """)
 
     execute("""
     INSERT INTO telemetry_points (metric_key, occurred_at, value, dimensions, dimension_key, source, node, inserted_at)
@@ -39,7 +44,7 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
       'channel_user_id=' || COALESCE(mr.channel_user_id, 'bo_user') ||
         '|user_id=' || COALESCE(mr.user_id::text, 'anonymous') AS dimension_key,
       'local' AS source,
-      NULL::text AS node,
+      '#{@migration_node}' AS node,
       NOW() AS inserted_at
     FROM message_ratings mr
     INNER JOIN messages m ON m.id = mr.message_id
@@ -63,7 +68,7 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
         '|feedback_reason=' || reason ||
         '|user_id=' || COALESCE(mr.user_id::text, 'anonymous') AS dimension_key,
       'local' AS source,
-      NULL::text AS node,
+      '#{@migration_node}' AS node,
       NOW() AS inserted_at
     FROM message_ratings mr
     INNER JOIN messages m ON m.id = mr.message_id
@@ -73,6 +78,65 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
       AND m.inserted_at IS NOT NULL
       AND POSITION(LOWER(reason) IN LOWER(COALESCE(mr.comment, ''))) > 0
     """)
+
+    execute("""
+    INSERT INTO telemetry_points (metric_key, occurred_at, value, dimensions, dimension_key, source, node, inserted_at)
+    SELECT
+      'qa.message.count' AS metric_key,
+      m.inserted_at AS occurred_at,
+      1.0 AS value,
+      jsonb_build_object(
+        'channel_config_id', COALESCE(c.channel_config_id::text, 'unknown'),
+        'channel_type', COALESCE(c.channel_type, 'unknown'),
+        'role', 'user'
+      ) AS dimensions,
+      'channel_config_id=' || COALESCE(c.channel_config_id::text, 'unknown') ||
+        '|channel_type=' || COALESCE(c.channel_type, 'unknown') ||
+        '|role=user' AS dimension_key,
+      'local' AS source,
+      '#{@migration_node}' AS node,
+      NOW() AS inserted_at
+    FROM messages m
+    INNER JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.role = 'user'
+      AND m.inserted_at IS NOT NULL
+    """)
+
+    execute("""
+    WITH qa_totals AS (
+      SELECT
+        to_timestamp(FLOOR(EXTRACT(EPOCH FROM occurred_at) / 600) * 600)::timestamp AS bucket_start,
+        COALESCE(dimensions->>'channel_type', 'unknown') AS channel_type,
+        COALESCE(dimensions->>'channel_config_id', 'unknown') AS channel_config_id,
+        SUM(CASE WHEN metric_key = 'qa.message.count' THEN value ELSE 0 END) AS message_total,
+        SUM(CASE WHEN metric_key = 'qa.no_answer.count' THEN value ELSE 0 END) AS no_answer_total
+      FROM telemetry_points
+      WHERE source = 'local'
+        AND metric_key IN ('qa.message.count', 'qa.no_answer.count')
+      GROUP BY
+        to_timestamp(FLOOR(EXTRACT(EPOCH FROM occurred_at) / 600) * 600)::timestamp,
+        COALESCE(dimensions->>'channel_type', 'unknown'),
+        COALESCE(dimensions->>'channel_config_id', 'unknown')
+    )
+    INSERT INTO telemetry_points (metric_key, occurred_at, value, dimensions, dimension_key, source, node, inserted_at)
+    SELECT
+      'qa.message.count' AS metric_key,
+      bucket_start AS occurred_at,
+      (no_answer_total - message_total) AS value,
+      jsonb_build_object(
+        'channel_config_id', channel_config_id,
+        'channel_type', channel_type,
+        'role', 'user'
+      ) AS dimensions,
+      'channel_config_id=' || channel_config_id || '|channel_type=' || channel_type || '|role=user' AS dimension_key,
+      'local' AS source,
+      '#{@migration_node}' AS node,
+      NOW() AS inserted_at
+    FROM qa_totals
+    WHERE no_answer_total > message_total
+    """)
+
+    execute("DELETE FROM telemetry_rollups WHERE source = 'local'")
 
     execute("""
     INSERT INTO telemetry_rollups (
@@ -108,7 +172,6 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
       NOW() AS updated_at
     FROM telemetry_points
     WHERE source = 'local'
-      AND metric_key IN (#{metric_keys_sql})
     GROUP BY
       metric_key,
       to_timestamp(FLOOR(EXTRACT(EPOCH FROM occurred_at) / 600) * 600)::timestamp,
@@ -133,17 +196,7 @@ defmodule Zaq.Repo.Migrations.RebuildFeedbackTelemetryWithMessageTimestamps do
   end
 
   def down do
-    metric_keys_sql = enum_sql(@feedback_metric_keys)
-
-    execute(
-      "DELETE FROM telemetry_rollups WHERE source = 'local' AND metric_key IN (#{metric_keys_sql})"
-    )
-
-    execute(
-      "DELETE FROM telemetry_points WHERE source = 'local' AND metric_key IN (#{metric_keys_sql})"
-    )
-
-    execute("DELETE FROM system_configs WHERE key = 'telemetry.rollup_point_id_cursor'")
+    raise "Irreversible migration"
   end
 
   defp enum_sql(values) do
