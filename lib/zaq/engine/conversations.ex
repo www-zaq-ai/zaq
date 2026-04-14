@@ -379,7 +379,7 @@ defmodule Zaq.Engine.Conversations do
     |> MessageRating.changeset(attrs)
     |> Repo.insert()
     |> tap(fn
-      {:ok, rating} -> maybe_record_rating_telemetry(rating)
+      {:ok, rating} -> maybe_record_rating_telemetry(rating, rater_attrs, message.inserted_at)
       _ -> :ok
     end)
   end
@@ -405,11 +405,20 @@ defmodule Zaq.Engine.Conversations do
 
   @doc "Updates an existing rating."
   def update_rating(%MessageRating{} = rating, attrs) do
+    update_rating(rating, attrs, %{}, nil)
+  end
+
+  @doc "Updates an existing rating with telemetry context."
+  def update_rating(%MessageRating{} = rating, attrs, telemetry_attrs) do
+    update_rating(rating, attrs, telemetry_attrs, nil)
+  end
+
+  def update_rating(%MessageRating{} = rating, attrs, telemetry_attrs, occurred_at) do
     rating
     |> MessageRating.changeset(attrs)
     |> Repo.update()
     |> tap(fn
-      {:ok, updated} -> maybe_record_rating_telemetry(updated)
+      {:ok, updated} -> maybe_record_rating_telemetry(updated, telemetry_attrs, occurred_at)
       _ -> :ok
     end)
   end
@@ -430,8 +439,16 @@ defmodule Zaq.Engine.Conversations do
 
       message ->
         case get_rating(message, rater_attrs) do
-          nil -> rate_message(message, rater_attrs)
-          existing -> update_rating(existing, Map.take(rater_attrs, [:rating, :comment]))
+          nil ->
+            rate_message(message, rater_attrs)
+
+          existing ->
+            update_rating(
+              existing,
+              Map.take(rater_attrs, [:rating, :comment]),
+              rater_attrs,
+              message.inserted_at
+            )
         end
         |> tap(fn
           {:ok, rating} ->
@@ -524,11 +541,21 @@ defmodule Zaq.Engine.Conversations do
     :ok
   end
 
-  defp maybe_record_rating_telemetry(%MessageRating{} = rating) do
-    Telemetry.record_feedback(rating.rating, %{
-      channel_user_id: rating.channel_user_id || "bo_user",
-      user_id: to_string(rating.user_id || "anonymous")
-    })
+  defp maybe_record_rating_telemetry(%MessageRating{} = rating, attrs, occurred_at) do
+    feedback_reasons =
+      attrs
+      |> Map.get(:feedback_reasons, [])
+      |> List.wrap()
+
+    Telemetry.record_feedback(
+      rating.rating,
+      %{
+        channel_user_id: rating.channel_user_id || "bo_user",
+        user_id: to_string(rating.user_id || "anonymous"),
+        feedback_reasons: feedback_reasons
+      },
+      occurred_at: occurred_at
+    )
   end
 
   # Fires async so it never blocks the message-storage path.

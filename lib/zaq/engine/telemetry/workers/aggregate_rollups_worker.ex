@@ -13,18 +13,18 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker do
   alias Zaq.Engine.Telemetry.{Point, Rollup}
   alias Zaq.Repo
 
-  @cursor_key "telemetry.rollup_cursor"
+  @cursor_key "telemetry.rollup_point_id_cursor"
   @batch_size 5_000
   @bucket_seconds 600
 
   @impl Oban.Worker
   def perform(_job) do
-    cursor = Telemetry.get_cursor(@cursor_key) || DateTime.add(DateTime.utc_now(), -90, :day)
+    cursor_id = Telemetry.get_cursor_id(@cursor_key)
 
     points =
       from(p in Point,
-        where: p.occurred_at > ^cursor,
-        order_by: [asc: p.occurred_at],
+        where: p.id > ^cursor_id,
+        order_by: [asc: p.id],
         limit: @batch_size
       )
       |> Repo.all()
@@ -40,7 +40,7 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker do
 
         points
         |> List.last()
-        |> then(&Telemetry.put_cursor(@cursor_key, &1.occurred_at))
+        |> then(&Telemetry.put_cursor_id(@cursor_key, &1.id))
 
         :ok
     end

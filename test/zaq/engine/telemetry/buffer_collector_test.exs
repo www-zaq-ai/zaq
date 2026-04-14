@@ -56,6 +56,45 @@ defmodule Zaq.Engine.Telemetry.BufferCollectorTest do
     assert point.source == "local"
   end
 
+  test "record_feedback/3 records negative reason points with canonical dimensions and occurred_at" do
+    occurred_at = DateTime.utc_now() |> DateTime.add(-2, :day) |> DateTime.truncate(:microsecond)
+
+    assert :ok =
+             Telemetry.record_feedback(
+               1,
+               %{
+                 user_id: "42",
+                 feedback_reasons: ["Too slow", "Outdated information"]
+               },
+               occurred_at: occurred_at
+             )
+
+    assert :ok = Buffer.flush()
+
+    assert Repo.exists?(
+             from(p in Point,
+               where: p.metric_key == "feedback.negative.count",
+               where: p.occurred_at == ^occurred_at
+             )
+           )
+
+    assert Repo.exists?(
+             from(p in Point,
+               where: p.metric_key == "feedback.negative.reason.count",
+               where: fragment("?->>?", p.dimensions, "feedback_reason") == "Too slow"
+             )
+           )
+
+    assert Repo.exists?(
+             from(p in Point,
+               where: p.metric_key == "feedback.negative.reason.count",
+               where:
+                 fragment("?->>?", p.dimensions, "feedback_reason") ==
+                   "Outdated information"
+             )
+           )
+  end
+
   test "buffer flushes queued points on graceful shutdown" do
     name = {:global, {:telemetry_buffer_test, System.unique_integer([:positive])}}
 

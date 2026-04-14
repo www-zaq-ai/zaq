@@ -7,14 +7,16 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorkerTest do
   alias Zaq.Engine.Telemetry.{Point, Rollup}
   alias Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker
   alias Zaq.Repo
+  alias Zaq.System.Config
 
   setup do
     Repo.delete_all(Point)
     Repo.delete_all(Rollup)
+    Repo.delete_all(from c in Config, where: c.key == "telemetry.rollup_point_id_cursor")
     :ok
   end
 
-  test "perform/1 aggregates points into 10m rollups and advances cursor" do
+  test "perform/1 aggregates points into 10m rollups and advances point-id cursor" do
     {t1, t2} = same_bucket_times()
 
     insert_point("qa.answer.latency_ms", t1, 100.0)
@@ -31,8 +33,9 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorkerTest do
     assert rollup.last_value == 200.0
     assert rollup.last_at == t2
 
-    assert %DateTime{} = cursor = Telemetry.get_cursor("telemetry.rollup_cursor")
-    assert DateTime.compare(cursor, t2) == :eq
+    assert cursor_id = Telemetry.get_cursor_id("telemetry.rollup_point_id_cursor")
+    assert is_integer(cursor_id)
+    assert cursor_id > 0
   end
 
   test "perform/1 upserts into existing rollup bucket" do
@@ -52,6 +55,28 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorkerTest do
     assert rollup.value_max == 250.0
     assert rollup.last_value == 250.0
     assert rollup.last_at == t2
+  end
+
+  test "perform/1 aggregates late inserted backdated points" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    recent = DateTime.add(now, -10, :minute)
+    backdated = DateTime.add(now, -3, :day)
+
+    insert_point("feedback.negative.count", recent, 1.0)
+    assert :ok = AggregateRollupsWorker.perform(%{})
+
+    insert_point("feedback.negative.count", backdated, 1.0)
+    assert :ok = AggregateRollupsWorker.perform(%{})
+
+    rollups =
+      from(r in Rollup,
+        where: r.metric_key == "feedback.negative.count",
+        order_by: [asc: r.bucket_start]
+      )
+      |> Repo.all()
+
+    assert length(rollups) == 2
+    assert Enum.sum(Enum.map(rollups, & &1.value_sum)) == 2.0
   end
 
   defp insert_point(metric_key, occurred_at, value) do

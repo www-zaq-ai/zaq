@@ -102,7 +102,7 @@ defmodule Zaq.Engine.Telemetry do
         metric_key: metric_key,
         value: value,
         dimensions: normalize_dimensions(dimensions),
-        occurred_at: DateTime.utc_now(),
+        occurred_at: normalize_occurred_at(Keyword.get(opts, :occurred_at)),
         source: "local"
       })
     else
@@ -111,18 +111,69 @@ defmodule Zaq.Engine.Telemetry do
   end
 
   @doc "Records user feedback telemetry based on a rating value."
-  @spec record_feedback(integer(), map()) :: :ok
-  def record_feedback(rating, dimensions \\ %{}) do
-    base = normalize_dimensions(dimensions)
+  @spec record_feedback(integer(), map(), keyword()) :: :ok
+  def record_feedback(rating, dimensions \\ %{}, opts \\ []) do
+    reasons = extract_feedback_reasons(dimensions)
 
-    record("feedback.rating", rating, base)
+    base =
+      dimensions
+      |> Map.drop([:feedback_reasons, "feedback_reasons"])
+      |> normalize_dimensions()
+
+    record("feedback.rating", rating, base, opts)
 
     if rating <= 2 do
-      record("feedback.negative.count", 1, base)
+      record("feedback.negative.count", 1, base, opts)
+
+      Enum.each(reasons, fn reason ->
+        record(
+          "feedback.negative.reason.count",
+          1,
+          Map.put(base, "feedback_reason", reason),
+          opts
+        )
+      end)
     end
 
     :ok
   end
+
+  defp extract_feedback_reasons(dimensions) when is_map(dimensions) do
+    dimensions
+    |> Map.get(:feedback_reasons, Map.get(dimensions, "feedback_reasons", []))
+    |> normalize_feedback_reasons()
+  end
+
+  defp extract_feedback_reasons(_), do: []
+
+  defp normalize_feedback_reasons(reasons) when is_list(reasons) do
+    reasons
+    |> Enum.map(&normalize_feedback_reason/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_feedback_reasons(reasons) when is_binary(reasons) do
+    reasons
+    |> String.split(",", trim: true)
+    |> normalize_feedback_reasons()
+  end
+
+  defp normalize_feedback_reasons(_), do: []
+
+  defp normalize_feedback_reason(reason) when is_binary(reason) do
+    reason
+    |> String.trim()
+    |> case do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_feedback_reason(reason) when is_atom(reason),
+    do: normalize_feedback_reason(Atom.to_string(reason))
+
+  defp normalize_feedback_reason(_), do: nil
 
   @doc "Returns a standardized dashboard payload for the provided filters."
   @spec load_dashboard(map()) :: map()
@@ -322,6 +373,20 @@ defmodule Zaq.Engine.Telemetry do
     System.set_config(name, DateTime.to_iso8601(cursor))
   end
 
+  @doc "Reads telemetry integer cursor from system configs."
+  @spec get_cursor_id(String.t()) :: non_neg_integer()
+  def get_cursor_id(name) do
+    name
+    |> System.get_config()
+    |> parse_int(0)
+  end
+
+  @doc "Persists telemetry integer cursor in system configs."
+  @spec put_cursor_id(String.t(), non_neg_integer()) :: {:ok, term()} | {:error, term()}
+  def put_cursor_id(name, cursor_id) when is_integer(cursor_id) and cursor_id >= 0 do
+    System.set_config(name, Integer.to_string(cursor_id))
+  end
+
   @doc "Returns profile dimensions used for benchmark cohorting."
   @spec organization_profile() :: map()
   def organization_profile do
@@ -392,6 +457,9 @@ defmodule Zaq.Engine.Telemetry do
   end
 
   defp normalize_dimensions(_), do: %{}
+
+  defp normalize_occurred_at(%DateTime{} = occurred_at), do: occurred_at
+  defp normalize_occurred_at(_), do: DateTime.utc_now()
 
   defp normalize_dim_value(value) when is_binary(value), do: value
   defp normalize_dim_value(value) when is_atom(value), do: Atom.to_string(value)
