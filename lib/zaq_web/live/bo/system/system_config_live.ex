@@ -16,11 +16,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:current_path, "/bo/system-config")
      |> assign(:page_title, "System Configuration")
      |> assign(:active_tab, :telemetry)
-     |> assign(:llm_providers, llm_provider_options())
-     |> assign(:image_to_text_providers, image_to_text_provider_options())
+     |> assign(:ai_credential_modal, false)
+     |> assign(:ai_credential_action, :new)
+     |> assign(:ai_credential_id, nil)
      |> assign(:embedding_unlock_modal, false)
      |> assign(:embedding_save_confirm_modal, false)
      |> assign(:pending_embedding_params, nil)
+     |> load_ai_credential_form()
+     |> load_ai_credentials()
      |> load_telemetry_form()
      |> load_llm_form()
      |> load_embedding_form()
@@ -28,7 +31,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(telemetry llm embedding image_to_text) do
+      when tab in ~w(telemetry llm embedding image_to_text ai_credentials) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -76,15 +79,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── LLM ───────────────────────────────────────────────────────────────
 
   def handle_event("validate_llm", %{"llm_config" => params}, socket) do
-    provider_id = params["provider"] || "custom"
+    credential_id = params["credential_id"]
+    provider_id = provider_from_credential_id(credential_id)
     model_id = params["model"]
-    previous_provider = socket.assigns.llm_form[:provider].value
+    previous_provider = provider_from_credential_id(socket.assigns.llm_form[:credential_id].value)
     previous_model = socket.assigns.llm_form[:model].value
 
     params =
       if provider_id != previous_provider do
         params
-        |> Map.put("endpoint", llm_provider_endpoint(provider_id))
         |> Map.put("path", llm_provider_path(provider_id, model_id))
       else
         params
@@ -102,17 +105,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         socket.assigns.llm_capabilities
       end
 
-    api_key_value =
-      case params["api_key"] do
-        v when v not in [nil, ""] -> v
-        _ -> socket.assigns.llm_api_key_value
-      end
-
     {:noreply,
      socket
      |> assign(:llm_model_options, llm_model_options(provider_id))
      |> assign(:llm_capabilities, capabilities)
-     |> assign(:llm_api_key_value, api_key_value)
      |> assign(:llm_form, to_form(changeset, as: :llm_config))}
   end
 
@@ -129,7 +125,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:error, %Ecto.Changeset{} = cs} ->
         {:noreply,
          socket
-         |> assign(:llm_api_key_value, params["api_key"] || socket.assigns.llm_api_key_value)
          |> assign(:llm_form, to_form(Map.put(cs, :action, :validate), as: :llm_config))}
     end
   end
@@ -149,12 +144,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      socket
      |> assign(:embedding_locked, false)
      |> assign(:embedding_unlock_modal, false)
-     |> assign(:embedding_providers, embedding_provider_options())}
+     |> assign(:embedding_credential_options, credential_options())}
   end
 
   def handle_event("validate_embedding", %{"embedding_config" => params}, socket) do
-    provider_id = params["provider"] || "custom"
-    previous_provider = socket.assigns.embedding_form[:provider].value
+    provider_id = provider_from_credential_id(params["credential_id"])
+
+    previous_provider =
+      provider_from_credential_id(socket.assigns.embedding_form[:credential_id].value)
+
     previous_model = socket.assigns.embedding_form[:model].value
 
     params = adjust_embedding_params(params, provider_id, previous_provider, previous_model)
@@ -167,14 +165,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     model_changed =
       embedding_model_changed?(params, socket.assigns.saved_model, socket.assigns.saved_dimension)
 
-    api_key_value =
-      resolve_embedding_api_key(params["api_key"], socket.assigns.embedding_api_key_value)
-
     {:noreply,
      socket
      |> assign(:embedding_model_options, embedding_model_options(provider_id))
      |> assign(:model_changed, model_changed)
-     |> assign(:embedding_api_key_value, api_key_value)
      |> assign(:embedding_form, to_form(changeset, as: :embedding_config))}
   end
 
@@ -209,32 +203,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── Image to Text ──────────────────────────────────────────────────────
 
   def handle_event("validate_image_to_text", %{"image_to_text_config" => params}, socket) do
-    provider_id = params["provider"] || "custom"
-    previous_provider = socket.assigns.image_to_text_form[:provider].value
-
-    params =
-      if provider_id != previous_provider do
-        Map.put(params, "endpoint", image_to_text_provider_endpoint(provider_id))
-      else
-        params
-      end
+    provider_id = provider_from_credential_id(params["credential_id"])
 
     changeset =
       System.get_image_to_text_config()
       |> ImageToTextConfig.changeset(params)
       |> Map.put(:action, :validate)
 
-    # Preserve whatever the user has typed in the API key field
-    api_key_value =
-      case params["api_key"] do
-        v when v not in [nil, ""] -> v
-        _ -> socket.assigns.image_to_text_api_key_value
-      end
-
     {:noreply,
      socket
      |> assign(:image_to_text_model_options, image_to_text_model_options(provider_id))
-     |> assign(:image_to_text_api_key_value, api_key_value)
      |> assign(:image_to_text_form, to_form(changeset, as: :image_to_text_config))}
   end
 
@@ -254,10 +232,89 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          |> assign(
            :image_to_text_form,
            to_form(Map.put(cs, :action, :validate), as: :image_to_text_config)
-         )
-         |> assign(
-           :image_to_text_api_key_value,
-           params["api_key"] || socket.assigns.image_to_text_api_key_value
+         )}
+    end
+  end
+
+  # ── AI Credentials ─────────────────────────────────────────────────────
+
+  def handle_event("new_ai_credential", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:ai_credential_action, :new)
+     |> assign(:ai_credential_id, nil)
+     |> assign(:ai_credential_modal, true)
+     |> load_ai_credential_form()}
+  end
+
+  def handle_event("edit_ai_credential", %{"id" => id}, socket) do
+    credential = System.get_ai_provider_credential!(id)
+
+    {:noreply,
+     socket
+     |> assign(:ai_credential_action, :edit)
+     |> assign(:ai_credential_id, credential.id)
+     |> assign(:ai_credential_modal, true)
+     |> assign(
+       :ai_credential_form,
+       credential
+       |> System.change_ai_provider_credential(%{})
+       |> to_form(as: :ai_credential)
+     )}
+  end
+
+  def handle_event("close_ai_credential_modal", _params, socket) do
+    {:noreply, assign(socket, :ai_credential_modal, false)}
+  end
+
+  def handle_event("validate_ai_credential", %{"ai_credential" => params}, socket) do
+    previous_provider = socket.assigns.ai_credential_form[:provider].value
+
+    params =
+      if params["provider"] != previous_provider do
+        Map.put(params, "endpoint", provider_endpoint(params["provider"]))
+      else
+        params
+      end
+
+    changeset =
+      socket.assigns.ai_credential_action
+      |> ai_credential_for_action(socket.assigns.ai_credential_id)
+      |> System.change_ai_provider_credential(params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :ai_credential_form, to_form(changeset, as: :ai_credential))}
+  end
+
+  def handle_event("save_ai_credential", %{"ai_credential" => params}, socket) do
+    result =
+      case socket.assigns.ai_credential_action do
+        :edit ->
+          socket.assigns.ai_credential_id
+          |> System.get_ai_provider_credential!()
+          |> System.update_ai_provider_credential(params)
+
+        _ ->
+          System.create_ai_provider_credential(params)
+      end
+
+    case result do
+      {:ok, _credential} ->
+        {:noreply,
+         socket
+         |> assign(:ai_credential_modal, false)
+         |> load_ai_credentials()
+         |> load_llm_form()
+         |> load_embedding_form()
+         |> load_image_to_text_form()
+         |> put_flash(:info, "AI credential saved.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         assign(
+           socket,
+           :ai_credential_form,
+           to_form(Map.put(changeset, :action, :validate), as: :ai_credential)
          )}
     end
   end
@@ -281,10 +338,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          |> assign(
            :embedding_form,
            to_form(Map.put(cs, :action, :validate), as: :embedding_config)
-         )
-         |> assign(
-           :embedding_api_key_value,
-           params["api_key"] || socket.assigns.embedding_api_key_value
          )}
     end
   end
@@ -294,29 +347,35 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     assign(socket, :telemetry_form, to_form(changeset, as: :telemetry_config))
   end
 
+  defp load_ai_credentials(socket) do
+    assign(socket, :ai_credentials, System.list_ai_provider_credentials())
+  end
+
+  defp load_ai_credential_form(socket) do
+    changeset = System.change_ai_provider_credential(%Zaq.System.AIProviderCredential{}, %{})
+    assign(socket, :ai_credential_form, to_form(changeset, as: :ai_credential))
+  end
+
   defp load_llm_form(socket) do
     cfg = System.get_llm_config()
-    provider_id = cfg.provider || "custom"
-    changeset = LLMConfig.changeset(%LLMConfig{cfg | api_key: ""}, %{})
+    provider_id = provider_from_credential_id(cfg.credential_id)
+    changeset = LLMConfig.changeset(cfg, %{})
 
     socket
+    |> assign(:llm_credential_options, credential_options())
     |> assign(:llm_model_options, llm_model_options(provider_id))
     |> assign(:llm_capabilities, llm_model_capabilities(provider_id, cfg.model))
-    |> assign(:llm_api_key_value, cfg.api_key || "")
     |> assign(:llm_form, to_form(changeset, as: :llm_config))
   end
 
   defp load_embedding_form(socket) do
     cfg = System.get_embedding_config()
-    provider_id = cfg.provider || "custom"
-    changeset = EmbeddingConfig.changeset(%EmbeddingConfig{cfg | api_key: ""}, %{})
-
-    providers = embedding_provider_options_for_model(cfg.model)
+    provider_id = provider_from_credential_id(cfg.credential_id)
+    changeset = EmbeddingConfig.changeset(cfg, %{})
 
     socket
-    |> assign(:embedding_providers, providers)
+    |> assign(:embedding_credential_options, credential_options())
     |> assign(:embedding_model_options, embedding_model_options(provider_id))
-    |> assign(:embedding_api_key_value, cfg.api_key || "")
     |> assign(:embedding_form, to_form(changeset, as: :embedding_config))
     |> assign(:embedding_locked, true)
     |> assign(:embedding_ready, System.embedding_ready?())
@@ -327,12 +386,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp load_image_to_text_form(socket) do
     cfg = System.get_image_to_text_config()
-    provider_id = cfg.provider || "custom"
-    changeset = ImageToTextConfig.changeset(%ImageToTextConfig{cfg | api_key: ""}, %{})
+    provider_id = provider_from_credential_id(cfg.credential_id)
+    changeset = ImageToTextConfig.changeset(cfg, %{})
 
     socket
+    |> assign(:image_to_text_credential_options, credential_options())
     |> assign(:image_to_text_model_options, image_to_text_model_options(provider_id))
-    |> assign(:image_to_text_api_key_value, cfg.api_key || "")
     |> assign(:image_to_text_form, to_form(changeset, as: :image_to_text_config))
   end
 
@@ -422,19 +481,33 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ArgumentError -> []
   end
 
+  # ── Credential helpers ──────────────────────────────────────────────────
+
+  defp credential_options do
+    System.list_ai_provider_credentials()
+    |> Enum.map(&{&1.name, Integer.to_string(&1.id)})
+  end
+
+  defp provider_from_credential_id(credential_id) when credential_id in [nil, ""], do: "custom"
+
+  defp provider_from_credential_id(credential_id) do
+    case System.get_ai_provider_credential!(credential_id) do
+      %{provider: provider} when is_binary(provider) -> provider
+      _ -> "custom"
+    end
+  rescue
+    Ecto.NoResultsError -> "custom"
+  end
+
+  defp ai_credential_for_action(:edit, id), do: System.get_ai_provider_credential!(id)
+  defp ai_credential_for_action(_, _), do: %Zaq.System.AIProviderCredential{}
+
   # ── LLM-specific helpers ───────────────────────────────────────────────
 
-  defp llm_provider_options, do: provider_options(fn _ -> true end)
   defp llm_model_options(provider_id), do: model_options(provider_id, fn _ -> true end)
-  defp llm_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
   defp llm_provider_path(provider_id, model_id), do: provider_path(provider_id, model_id)
 
   # ── Embedding-specific helpers ─────────────────────────────────────────
-
-  defp embedding_provider_options, do: provider_options(&embedding_model?/1)
-
-  defp embedding_provider_options_for_model(model_id),
-    do: provider_options(fn m -> m.id == model_id end)
 
   defp embedding_model_options(provider_id), do: model_options(provider_id, &embedding_model?/1)
   defp embedding_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
@@ -496,17 +569,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          params["dimension"] != to_string(saved_dimension))
   end
 
-  defp resolve_embedding_api_key(v, _current) when v not in [nil, ""], do: v
-  defp resolve_embedding_api_key(_v, current), do: current
-
   # ── Image-to-Text-specific helpers ────────────────────────────────────
-
-  defp image_to_text_provider_options, do: provider_options(&image_input_model?/1)
 
   defp image_to_text_model_options(provider_id),
     do: model_options(provider_id, &image_input_model?/1)
-
-  defp image_to_text_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
 
   defp image_input_model?(m) do
     input = (m.modalities && m.modalities.input) || []
@@ -662,10 +728,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── LLM Panel ─────────────────────────────────────────────────────────
 
   attr :form, :any, required: true
-  attr :providers, :list, required: true
+  attr :credential_options, :list, required: true
   attr :model_options, :list, required: true
   attr :capabilities, :map, required: true
-  attr :api_key_value, :string, default: ""
 
   defp llm_panel(assigns) do
     ~H"""
@@ -688,16 +753,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Provider
+                AI Credential
               </label>
               <.searchable_select
-                id="llm-provider-select"
-                name="llm_config[provider]"
-                value={@form[:provider].value}
-                options={@providers}
-                placeholder="Search providers..."
-                empty_label="Custom"
+                id="llm-credential-select"
+                name="llm_config[credential_id]"
+                value={to_string(@form[:credential_id].value || "")}
+                options={@credential_options}
+                placeholder="Search credentials..."
+                empty_label="Select a credential..."
               />
+              <p
+                :for={{msg, opts} <- @form[:credential_id].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {translate_error({msg, opts})}
+              </p>
             </div>
             <div>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
@@ -729,106 +800,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 {translate_error({msg, opts})}
               </p>
             </div>
-          </div>
-          <div>
-            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-              Endpoint
-            </label>
-            <input
-              type="text"
-              name="llm_config[endpoint]"
-              value={@form[:endpoint].value}
-              required
-              phx-debounce="400"
-              placeholder="http://localhost:11434/v1"
-              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-            />
-            <p
-              :for={{msg, opts} <- @form[:endpoint].errors}
-              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-            >
-              {translate_error({msg, opts})}
-            </p>
-          </div>
-          <div>
-            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-              API Key
-            </label>
-            <div class="relative">
-              <input
-                type="text"
-                name="llm_config[api_key]"
-                value={@api_key_value}
-                placeholder="Enter API key"
-                autocomplete="off"
-                style="-webkit-text-security: disc;"
-                phx-debounce="blur"
-                id="llm-api-key-input"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-10 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-              />
-              <button
-                type="button"
-                id="llm-api-key-show"
-                phx-click={
-                  JS.remove_attribute("style", to: "#llm-api-key-input")
-                  |> JS.add_class("hidden", to: "#llm-api-key-show")
-                  |> JS.remove_class("hidden", to: "#llm-api-key-hide")
-                }
-                class="absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                  stroke="currentColor"
-                  class="w-4 h-4"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
-                  /><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                id="llm-api-key-hide"
-                phx-click={
-                  JS.set_attribute({"style", "-webkit-text-security: disc;"},
-                    to: "#llm-api-key-input"
-                  )
-                  |> JS.remove_class("hidden", to: "#llm-api-key-show")
-                  |> JS.add_class("hidden", to: "#llm-api-key-hide")
-                }
-                class="hidden absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                  stroke="currentColor"
-                  class="w-4 h-4"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
-                  />
-                </svg>
-              </button>
-            </div>
-            <p
-              :for={{msg, opts} <- @form[:api_key].errors}
-              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-            >
-              {translate_error({msg, opts})}
-            </p>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
@@ -999,9 +970,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── Embedding Panel ───────────────────────────────────────────────────
 
   attr :form, :any, required: true
-  attr :providers, :list, required: true
+  attr :credential_options, :list, required: true
   attr :model_options, :list, required: true
-  attr :api_key_value, :string, default: ""
   attr :locked, :boolean, default: false
   attr :unlock_modal, :boolean, default: false
   attr :model_changed, :boolean, default: false
@@ -1086,17 +1056,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
             <div>
               <div class="h-7 flex items-center mb-2">
                 <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider">
-                  Provider
+                  AI Credential
                 </label>
               </div>
               <.searchable_select
-                id="embedding-provider-select"
-                name="embedding_config[provider]"
-                value={@form[:provider].value}
-                options={@providers}
-                placeholder="Search providers..."
-                empty_label="Custom"
+                id="embedding-credential-select"
+                name="embedding_config[credential_id]"
+                value={to_string(@form[:credential_id].value || "")}
+                options={@credential_options}
+                placeholder="Search credentials..."
+                empty_label="Select a credential..."
               />
+              <p
+                :for={{msg, opts} <- @form[:credential_id].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {translate_error({msg, opts})}
+              </p>
             </div>
             <div>
               <div class="h-7 flex items-center justify-between mb-2">
@@ -1152,106 +1128,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 {translate_error({msg, opts})}
               </p>
             </div>
-          </div>
-          <div>
-            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-              Endpoint
-            </label>
-            <input
-              type="text"
-              name="embedding_config[endpoint]"
-              value={@form[:endpoint].value}
-              required
-              phx-debounce="400"
-              placeholder="http://localhost:11434/v1"
-              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-            />
-            <p
-              :for={{msg, opts} <- @form[:endpoint].errors}
-              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-            >
-              {translate_error({msg, opts})}
-            </p>
-          </div>
-          <div>
-            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-              API Key
-            </label>
-            <div class="relative">
-              <input
-                type="text"
-                name="embedding_config[api_key]"
-                value={@api_key_value}
-                placeholder="Enter API key"
-                autocomplete="off"
-                style="-webkit-text-security: disc;"
-                phx-debounce="blur"
-                id="embedding-api-key-input"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-10 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-              />
-              <button
-                type="button"
-                id="embedding-api-key-show"
-                phx-click={
-                  JS.remove_attribute("style", to: "#embedding-api-key-input")
-                  |> JS.add_class("hidden", to: "#embedding-api-key-show")
-                  |> JS.remove_class("hidden", to: "#embedding-api-key-hide")
-                }
-                class="absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                  stroke="currentColor"
-                  class="w-4 h-4"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
-                  /><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                id="embedding-api-key-hide"
-                phx-click={
-                  JS.set_attribute({"style", "-webkit-text-security: disc;"},
-                    to: "#embedding-api-key-input"
-                  )
-                  |> JS.remove_class("hidden", to: "#embedding-api-key-show")
-                  |> JS.add_class("hidden", to: "#embedding-api-key-hide")
-                }
-                class="hidden absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke-width="1.5"
-                  stroke="currentColor"
-                  class="w-4 h-4"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
-                  />
-                </svg>
-              </button>
-            </div>
-            <p
-              :for={{msg, opts} <- @form[:api_key].errors}
-              class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-            >
-              {translate_error({msg, opts})}
-            </p>
           </div>
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
@@ -1352,9 +1228,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── Image to Text Panel ───────────────────────────────────────────────
 
   attr :form, :any, required: true
-  attr :providers, :list, required: true
+  attr :credential_options, :list, required: true
   attr :model_options, :list, required: true
-  attr :api_key_value, :string, default: ""
 
   defp image_to_text_panel(assigns) do
     ~H"""
@@ -1376,16 +1251,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Provider
+                AI Credential
               </label>
               <.searchable_select
-                id="image-to-text-provider-select"
-                name="image_to_text_config[provider]"
-                value={@form[:provider].value}
-                options={@providers}
-                placeholder="Search providers..."
-                empty_label="Custom"
+                id="image-to-text-credential-select"
+                name="image_to_text_config[credential_id]"
+                value={to_string(@form[:credential_id].value || "")}
+                options={@credential_options}
+                placeholder="Search credentials..."
+                empty_label="Select a credential..."
               />
+              <p
+                :for={{msg, opts} <- @form[:credential_id].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {translate_error({msg, opts})}
+              </p>
             </div>
             <div>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
@@ -1417,17 +1298,146 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               </p>
             </div>
           </div>
+          <div class="pt-2">
+            <button
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+            >
+              Save Image to Text Settings
+            </button>
+          </div>
+        </.form>
+      </div>
+    </div>
+    """
+  end
+
+  # ── AI Credentials Panel ───────────────────────────────────────────────
+
+  attr :credentials, :list, required: true
+  attr :form, :any, required: true
+  attr :modal, :boolean, required: true
+  attr :action, :atom, required: true
+
+  defp ai_credentials_panel(assigns) do
+    ~H"""
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa] flex items-center justify-between">
+        <div>
+          <h2 class="font-mono text-[0.95rem] font-bold text-black">AI Credentials</h2>
+          <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+            Reusable AI provider credentials used by LLM, Embedding, and Image to Text.
+          </p>
+        </div>
+        <button
+          type="button"
+          phx-click="new_ai_credential"
+          class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+        >
+          + New credential
+        </button>
+      </div>
+
+      <div :if={@credentials == []} class="px-8 py-10 text-center">
+        <p class="font-mono text-[0.85rem] text-black/50">No AI credentials configured yet.</p>
+      </div>
+
+      <div :if={@credentials != []} class="divide-y divide-black/[0.06]">
+        <button
+          :for={credential <- @credentials}
+          type="button"
+          phx-click="edit_ai_credential"
+          phx-value-id={credential.id}
+          class="w-full text-left px-8 py-4 hover:bg-black/[0.02] transition-all"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="font-mono text-[0.82rem] font-semibold text-black">{credential.name}</p>
+              <p class="font-mono text-[0.7rem] text-black/50 mt-0.5">
+                {credential.provider}
+              </p>
+              <p :if={credential.description} class="font-mono text-[0.7rem] text-black/35 mt-0.5">
+                {credential.description}
+              </p>
+            </div>
+            <span class={[
+              "font-mono text-[0.64rem] px-2 py-1 rounded border",
+              if(credential.sovereign,
+                do: "text-emerald-700 bg-emerald-50 border-emerald-200",
+                else: "text-black/60 bg-black/[0.03] border-black/10"
+              )
+            ]}>
+              {if credential.sovereign, do: "Sovereign", else: "Non-sovereign"}
+            </span>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <div
+      :if={@modal}
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+    >
+      <div class="bg-white rounded-2xl shadow-xl border border-black/[0.08] w-full max-w-2xl mx-4 p-6">
+        <h3 class="font-mono text-[0.95rem] font-bold text-black mb-4">
+          {if @action == :edit, do: "Edit AI Credential", else: "New AI Credential"}
+        </h3>
+
+        <.form
+          id="ai-credential-form"
+          for={@form}
+          phx-change="validate_ai_credential"
+          phx-submit="save_ai_credential"
+          class="space-y-4"
+        >
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Name
+              </label>
+              <input
+                type="text"
+                name="ai_credential[name]"
+                value={@form[:name].value}
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+              />
+              <p
+                :for={{msg, opts} <- @form[:name].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {translate_error({msg, opts})}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Provider
+              </label>
+              <.searchable_select
+                id="ai-credential-provider-select"
+                name="ai_credential[provider]"
+                value={@form[:provider].value}
+                options={provider_options(fn _ -> true end)}
+                placeholder="Search providers..."
+                empty_label="Select a provider..."
+              />
+              <p
+                :for={{msg, opts} <- @form[:provider].errors}
+                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+              >
+                {translate_error({msg, opts})}
+              </p>
+            </div>
+          </div>
+
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-              Endpoint
+              Endpoint URL
             </label>
             <input
               type="text"
-              name="image_to_text_config[endpoint]"
+              name="ai_credential[endpoint]"
               value={@form[:endpoint].value}
-              phx-debounce="400"
-              placeholder="http://localhost:11434/v1"
-              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
             />
             <p
               :for={{msg, opts} <- @form[:endpoint].errors}
@@ -1436,6 +1446,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               {translate_error({msg, opts})}
             </p>
           </div>
+
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               API Key
@@ -1443,22 +1454,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
             <div class="relative">
               <input
                 type="text"
-                name="image_to_text_config[api_key]"
-                value={@api_key_value}
-                placeholder="Enter API key"
+                id="ai-credential-api-key-input"
+                name="ai_credential[api_key]"
+                value={@form[:api_key].value}
                 autocomplete="off"
                 style="-webkit-text-security: disc;"
-                phx-debounce="blur"
-                id="image-to-text-api-key-input"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-10 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 pr-10 bg-[#fafafa]"
               />
               <button
                 type="button"
-                id="image-to-text-api-key-show"
+                id="ai-credential-api-key-show"
                 phx-click={
-                  JS.remove_attribute("style", to: "#image-to-text-api-key-input")
-                  |> JS.add_class("hidden", to: "#image-to-text-api-key-show")
-                  |> JS.remove_class("hidden", to: "#image-to-text-api-key-hide")
+                  JS.remove_attribute("style", to: "#ai-credential-api-key-input")
+                  |> JS.add_class("hidden", to: "#ai-credential-api-key-show")
+                  |> JS.remove_class("hidden", to: "#ai-credential-api-key-hide")
                 }
                 class="absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
               >
@@ -1483,13 +1492,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               </button>
               <button
                 type="button"
-                id="image-to-text-api-key-hide"
+                id="ai-credential-api-key-hide"
                 phx-click={
                   JS.set_attribute({"style", "-webkit-text-security: disc;"},
-                    to: "#image-to-text-api-key-input"
+                    to: "#ai-credential-api-key-input"
                   )
-                  |> JS.remove_class("hidden", to: "#image-to-text-api-key-show")
-                  |> JS.add_class("hidden", to: "#image-to-text-api-key-hide")
+                  |> JS.remove_class("hidden", to: "#ai-credential-api-key-show")
+                  |> JS.add_class("hidden", to: "#ai-credential-api-key-hide")
                 }
                 class="hidden absolute inset-y-0 right-0 flex items-center px-3 text-black/30 hover:text-black/60 transition-colors"
               >
@@ -1516,12 +1525,51 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               {translate_error({msg, opts})}
             </p>
           </div>
-          <div class="pt-2">
+
+          <div>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input
+                type="hidden"
+                name="ai_credential[sovereign]"
+                value="false"
+              />
+              <input
+                type="checkbox"
+                name="ai_credential[sovereign]"
+                value="true"
+                checked={@form[:sovereign].value in [true, "true"]}
+                class="sr-only peer"
+              />
+              <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm relative">
+              </div>
+              <span class="font-mono text-[0.78rem] text-black/70">Sovereign credential</span>
+            </label>
+          </div>
+
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Description
+            </label>
+            <textarea
+              name="ai_credential[description]"
+              rows="3"
+              class="w-full font-mono text-[0.84rem] text-black border border-black/10 rounded-xl px-4 py-3 bg-[#fafafa]"
+            >{@form[:description].value}</textarea>
+          </div>
+
+          <div class="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              phx-click="close_ai_credential_modal"
+              class="font-mono text-[0.8rem] px-4 py-2 rounded-lg border border-black/10 text-black/60 hover:bg-black/[0.04]"
+            >
+              Cancel
+            </button>
             <button
               type="submit"
-              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+              class="font-mono text-[0.8rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3]"
             >
-              Save Image to Text Settings
+              Save credential
             </button>
           </div>
         </.form>

@@ -5,6 +5,7 @@ defmodule Zaq.System.ImageToTextConfig do
   import Ecto.Changeset
 
   embedded_schema do
+    field :credential_id, :integer
     field :provider, :string, default: "custom"
     field :endpoint, :string, default: "http://localhost:11434/v1"
     field :api_key, :string, default: ""
@@ -13,7 +14,7 @@ defmodule Zaq.System.ImageToTextConfig do
 
   def changeset(config, attrs) do
     config
-    |> cast(attrs, [:provider, :endpoint, :api_key, :model])
-    |> validate_required([:endpoint, :model])
+    |> cast(attrs, [:credential_id, :provider, :endpoint, :api_key, :model])
+    |> validate_required([:credential_id, :model])
   end
 end

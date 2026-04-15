@@ -10,6 +10,7 @@ defmodule Zaq.System do
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
+  alias Zaq.System.AIProviderCredential
   alias Zaq.System.Config
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
@@ -25,9 +26,12 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_fields ~w(provider endpoint api_key model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
-  @embedding_fields ~w(provider endpoint api_key model dimension chunk_min_tokens chunk_max_tokens)
-  @image_to_text_fields ~w(provider endpoint api_key model)
+  @llm_read_fields ~w(credential_id provider endpoint api_key model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
+  @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
+  @embedding_read_fields ~w(credential_id provider endpoint api_key model dimension chunk_min_tokens chunk_max_tokens)
+  @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
+  @image_to_text_read_fields ~w(credential_id provider endpoint api_key model)
+  @image_to_text_write_fields ~w(credential_id model)
 
   # ── Generic key/value ─────────────────────────────────────────────────
 
@@ -95,41 +99,37 @@ defmodule Zaq.System do
 
   @doc "Loads LLM configuration from DB as `%LLMConfig{}`."
   def get_llm_config do
-    keys = Enum.map(@llm_fields, &"llm.#{&1}")
+    keys = Enum.map(@llm_read_fields, &"llm.#{&1}")
     rows = Repo.all(from c in Config, where: c.key in ^keys)
     raw = Map.new(rows, fn row -> {String.replace_prefix(row.key, "llm.", ""), row.value} end)
     build_llm_config(raw)
   end
 
   defp build_llm_config(raw) do
-    %LLMConfig{
-      provider: raw["provider"] || "custom",
-      endpoint: raw["endpoint"] || "http://localhost:11434/v1",
-      api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
-      model: raw["model"] || "llama-3.3-70b-instruct",
-      temperature: parse_float(raw["temperature"], 0.0),
-      top_p: parse_float(raw["top_p"], 0.9),
-      path: raw["path"] || "/chat/completions",
-      supports_logprobs: parse_bool(raw["supports_logprobs"], true),
-      supports_json_mode: parse_bool(raw["supports_json_mode"], true),
-      max_context_window: parse_int(raw["max_context_window"], 5_000),
-      distance_threshold: parse_float(raw["distance_threshold"], 1.2)
-    }
+    config =
+      %LLMConfig{
+        credential_id: parse_int(raw["credential_id"], nil),
+        provider: raw["provider"] || "custom",
+        endpoint: raw["endpoint"] || "http://localhost:11434/v1",
+        api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+        model: raw["model"] || "llama-3.3-70b-instruct",
+        temperature: parse_float(raw["temperature"], 0.0),
+        top_p: parse_float(raw["top_p"], 0.9),
+        path: raw["path"] || "/chat/completions",
+        supports_logprobs: parse_bool(raw["supports_logprobs"], true),
+        supports_json_mode: parse_bool(raw["supports_json_mode"], true),
+        max_context_window: parse_int(raw["max_context_window"], 5_000),
+        distance_threshold: parse_float(raw["distance_threshold"], 1.2)
+      }
+
+    merge_connection_fields_from_credential(config)
   end
 
   @doc "Persists LLM settings from a validated `%LLMConfig{}` changeset."
   def save_llm_config(%Ecto.Changeset{valid?: true} = changeset) do
     config = Ecto.Changeset.apply_changes(changeset)
-    api_key = Map.get(config, :api_key)
-
-    case encrypt_secret_field(changeset, :api_key, api_key) do
-      {:ok, encrypted_api_key} ->
-        persist_config_values(@llm_fields, "llm", config, encrypted_api_key)
-        {:ok, get_llm_config()}
-
-      {:error, %Ecto.Changeset{} = failed_changeset} ->
-        {:error, failed_changeset}
-    end
+    persist_config_values(@llm_write_fields, "llm", config, :skip)
+    {:ok, get_llm_config()}
   end
 
   def save_llm_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
@@ -138,7 +138,7 @@ defmodule Zaq.System do
 
   @doc "Loads Embedding configuration from DB as `%EmbeddingConfig{}`."
   def get_embedding_config do
-    keys = Enum.map(@embedding_fields, &"embedding.#{&1}")
+    keys = Enum.map(@embedding_read_fields, &"embedding.#{&1}")
     rows = Repo.all(from c in Config, where: c.key in ^keys)
 
     raw =
@@ -148,15 +148,19 @@ defmodule Zaq.System do
   end
 
   defp build_embedding_config(raw) do
-    %EmbeddingConfig{
-      provider: raw["provider"] || "custom",
-      endpoint: raw["endpoint"] || "http://localhost:11434/v1",
-      api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
-      model: raw["model"] || "bge-multilingual-gemma2",
-      dimension: parse_int(raw["dimension"], 3584),
-      chunk_min_tokens: parse_int(raw["chunk_min_tokens"], 400),
-      chunk_max_tokens: parse_int(raw["chunk_max_tokens"], 900)
-    }
+    config =
+      %EmbeddingConfig{
+        credential_id: parse_int(raw["credential_id"], nil),
+        provider: raw["provider"] || "custom",
+        endpoint: raw["endpoint"] || "http://localhost:11434/v1",
+        api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+        model: raw["model"] || "bge-multilingual-gemma2",
+        dimension: parse_int(raw["dimension"], 3584),
+        chunk_min_tokens: parse_int(raw["chunk_min_tokens"], 400),
+        chunk_max_tokens: parse_int(raw["chunk_max_tokens"], 900)
+      }
+
+    merge_connection_fields_from_credential(config)
   end
 
   @doc "Returns true when the chunks table exists in the database."
@@ -167,17 +171,11 @@ defmodule Zaq.System do
     new_config = Ecto.Changeset.apply_changes(changeset)
     saved_model = get_config("embedding.model")
 
-    case encrypt_secret_field(changeset, :api_key, Map.get(new_config, :api_key)) do
-      {:ok, encrypted_api_key} ->
-        multi = build_embedding_multi(new_config, encrypted_api_key, saved_model)
+    multi = build_embedding_multi(new_config, :skip, saved_model)
 
-        case Repo.transaction(multi) do
-          {:ok, _} -> {:ok, get_embedding_config()}
-          {:error, _step, reason, _changes} -> {:error, reason}
-        end
-
-      {:error, %Ecto.Changeset{} = failed_changeset} ->
-        {:error, failed_changeset}
+    case Repo.transaction(multi) do
+      {:ok, _} -> {:ok, get_embedding_config()}
+      {:error, _step, reason, _changes} -> {:error, reason}
     end
   end
 
@@ -187,7 +185,7 @@ defmodule Zaq.System do
 
   @doc "Loads Image-to-Text configuration from DB as `%ImageToTextConfig{}`."
   def get_image_to_text_config do
-    keys = Enum.map(@image_to_text_fields, &"image_to_text.#{&1}")
+    keys = Enum.map(@image_to_text_read_fields, &"image_to_text.#{&1}")
     rows = Repo.all(from c in Config, where: c.key in ^keys)
 
     raw =
@@ -195,31 +193,118 @@ defmodule Zaq.System do
         {String.replace_prefix(row.key, "image_to_text.", ""), row.value}
       end)
 
-    %ImageToTextConfig{
-      provider: raw["provider"] || "custom",
-      endpoint: raw["endpoint"] || "http://localhost:11434/v1",
-      api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
-      model: raw["model"] || "pixtral-12b-2409"
-    }
+    config =
+      %ImageToTextConfig{
+        credential_id: parse_int(raw["credential_id"], nil),
+        provider: raw["provider"] || "custom",
+        endpoint: raw["endpoint"] || "http://localhost:11434/v1",
+        api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+        model: raw["model"] || "pixtral-12b-2409"
+      }
+
+    merge_connection_fields_from_credential(config)
   end
 
   @doc "Persists Image-to-Text settings from a validated `%ImageToTextConfig{}` changeset."
   def save_image_to_text_config(%Ecto.Changeset{valid?: true} = changeset) do
     config = Ecto.Changeset.apply_changes(changeset)
-    api_key = Map.get(config, :api_key)
+    persist_config_values(@image_to_text_write_fields, "image_to_text", config, :skip)
+    {:ok, get_image_to_text_config()}
+  end
 
-    case encrypt_secret_field(changeset, :api_key, api_key) do
+  def save_image_to_text_config(%Ecto.Changeset{valid?: false} = changeset),
+    do: {:error, changeset}
+
+  # ── AI Provider Credentials ────────────────────────────────────────────
+
+  @doc "Lists all AI provider credentials."
+  def list_ai_provider_credentials do
+    AIProviderCredential
+    |> order_by([c], asc: c.name)
+    |> Repo.all()
+  end
+
+  @doc "Gets an AI provider credential by id, raising if not found."
+  def get_ai_provider_credential!(id), do: Repo.get!(AIProviderCredential, id)
+
+  @doc "Returns a changeset for AI provider credentials."
+  def change_ai_provider_credential(%AIProviderCredential{} = credential, attrs \\ %{}) do
+    AIProviderCredential.changeset(credential, attrs)
+  end
+
+  @doc "Creates an AI provider credential."
+  def create_ai_provider_credential(attrs \\ %{}) do
+    %AIProviderCredential{}
+    |> AIProviderCredential.changeset(attrs)
+    |> save_ai_provider_credential(:insert)
+  end
+
+  @doc "Updates an AI provider credential."
+  def update_ai_provider_credential(%AIProviderCredential{} = credential, attrs) do
+    attrs = maybe_drop_blank_api_key(attrs)
+
+    credential
+    |> AIProviderCredential.changeset(attrs)
+    |> save_ai_provider_credential(:update)
+  end
+
+  @doc "Deletes an AI provider credential."
+  def delete_ai_provider_credential(%AIProviderCredential{} = credential),
+    do: Repo.delete(credential)
+
+  defp save_ai_provider_credential(%Ecto.Changeset{} = changeset, operation) do
+    case encrypt_secret_field(changeset, :api_key, Ecto.Changeset.get_change(changeset, :api_key)) do
+      {:ok, :skip} ->
+        persist_ai_provider_credential(changeset, operation)
+
       {:ok, encrypted_api_key} ->
-        persist_config_values(@image_to_text_fields, "image_to_text", config, encrypted_api_key)
-        {:ok, get_image_to_text_config()}
+        changeset
+        |> Ecto.Changeset.put_change(:api_key, encrypted_api_key)
+        |> persist_ai_provider_credential(operation)
 
       {:error, %Ecto.Changeset{} = failed_changeset} ->
         {:error, failed_changeset}
     end
   end
 
-  def save_image_to_text_config(%Ecto.Changeset{valid?: false} = changeset),
-    do: {:error, changeset}
+  defp persist_ai_provider_credential(changeset, :insert), do: Repo.insert(changeset)
+  defp persist_ai_provider_credential(changeset, :update), do: Repo.update(changeset)
+
+  defp maybe_drop_blank_api_key(attrs) when is_map(attrs) do
+    attrs
+    |> Map.drop(blank_api_key_attr_keys(attrs))
+  end
+
+  defp blank_api_key_attr_keys(attrs) do
+    []
+    |> maybe_add_blank_key(attrs, :api_key)
+    |> maybe_add_blank_key(attrs, "api_key")
+  end
+
+  defp maybe_add_blank_key(keys, attrs, key) do
+    if Map.get(attrs, key) == "" do
+      [key | keys]
+    else
+      keys
+    end
+  end
+
+  defp merge_connection_fields_from_credential(%{credential_id: nil} = config), do: config
+
+  defp merge_connection_fields_from_credential(config) do
+    case Repo.get(AIProviderCredential, config.credential_id) do
+      %AIProviderCredential{} = credential ->
+        %{
+          config
+          | provider: credential.provider,
+            endpoint: credential.endpoint,
+            api_key: credential.api_key || ""
+        }
+
+      _ ->
+        config
+    end
+  end
 
   defp persist_embedding_field("api_key", value), do: set_config("embedding.api_key", value)
 
@@ -240,7 +325,7 @@ defmodule Zaq.System do
     do: Map.get(config, String.to_existing_atom(field))
 
   defp build_embedding_multi(new_config, encrypted_api_key, saved_model) do
-    @embedding_fields
+    @embedding_write_fields
     |> Enum.reject(&(&1 == "api_key" and encrypted_api_key == :skip))
     |> Enum.reduce(Ecto.Multi.new(), fn field, multi ->
       value = encrypted_field_value(field, new_config, encrypted_api_key)

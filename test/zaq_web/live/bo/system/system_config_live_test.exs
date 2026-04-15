@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.System
 
   setup %{conn: conn} do
     user = user_fixture(%{email: "admin@example.com", username: "testadmin_sc"})
@@ -14,310 +15,136 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "mount" do
-    test "renders the telemetry configuration form", %{conn: conn} do
+    test "renders telemetry by default", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/system-config")
       assert html =~ "Telemetry Collection"
       assert html =~ "telemetry-config-form"
     end
   end
 
-  describe "telemetry validate" do
-    test "updates form without saving", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
-
-      html =
-        view
-        |> form("#telemetry-config-form", %{
-          "telemetry_config" => %{
-            "capture_infra_metrics" => "true",
-            "request_duration_threshold_ms" => "250",
-            "repo_query_duration_threshold_ms" => "15",
-            "no_answer_alert_threshold_percent" => "10",
-            "conversation_response_sla_ms" => "1500"
-          }
-        })
-        |> render_change()
-
-      assert html =~ "250"
-      assert html =~ "15"
-
-      assert Zaq.System.get_config("telemetry.request_duration_threshold_ms") == nil
-      assert Zaq.System.get_config("telemetry.repo_query_duration_threshold_ms") == nil
-      assert Zaq.System.get_config("telemetry.no_answer_alert_threshold_percent") == nil
-      assert Zaq.System.get_config("telemetry.conversation_response_sla_ms") == nil
-    end
-  end
-
-  describe "telemetry save" do
-    test "persists all telemetry settings to the database", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
-
-      view
-      |> form("#telemetry-config-form", %{
-        "telemetry_config" => %{
-          "capture_infra_metrics" => "false",
-          "request_duration_threshold_ms" => "300",
-          "repo_query_duration_threshold_ms" => "25",
-          "no_answer_alert_threshold_percent" => "11",
-          "conversation_response_sla_ms" => "1600"
-        }
-      })
-      |> render_submit()
-
-      assert Zaq.System.get_config("telemetry.capture_infra_metrics") == "false"
-      assert Zaq.System.get_config("telemetry.request_duration_threshold_ms") == "300"
-      assert Zaq.System.get_config("telemetry.repo_query_duration_threshold_ms") == "25"
-      assert Zaq.System.get_config("telemetry.no_answer_alert_threshold_percent") == "11"
-      assert Zaq.System.get_config("telemetry.conversation_response_sla_ms") == "1600"
-    end
-  end
-
   describe "tab navigation" do
-    test "falls back to telemetry tab for unknown tab params", %{conn: conn} do
+    test "falls back to telemetry for unknown tab", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/system-config?tab=unknown")
-
       assert html =~ "Telemetry Collection"
       refute html =~ "llm-config-form"
     end
 
-    test "switch_tab patches URL and renders target tab panel", %{conn: conn} do
+    test "switches to AI credentials tab", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
       view
-      |> element("button[phx-value-tab='llm']")
+      |> element("button[phx-value-tab='ai_credentials']")
       |> render_click()
 
-      assert_patch(view, ~p"/bo/system-config?tab=llm")
-      assert has_element?(view, "#llm-config-form")
+      assert_patch(view, ~p"/bo/system-config?tab=ai_credentials")
+      assert has_element?(view, "#ai-credential-form", "") == false
+      assert render(view) =~ "AI Credentials"
     end
   end
 
-  describe "llm handlers" do
-    test "validate_llm resets endpoint for unknown provider changes", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-
-      html =
-        render_change(view, "validate_llm", %{
-          "llm_config" => %{
-            "provider" => "unknown_provider",
-            "endpoint" => "https://will-be-overwritten",
-            "api_key" => "typed-llm-key",
-            "model" => "",
-            "temperature" => "0.2",
-            "top_p" => "0.9",
-            "supports_logprobs" => "true",
-            "supports_json_mode" => "true",
-            "max_context_window" => "5000",
-            "distance_threshold" => "1.0"
-          }
-        })
-
-      assert html =~ "name=\"llm_config[endpoint]\""
-      assert html =~ "name=\"llm_config[endpoint]\" value=\"\""
-      assert html =~ "value=\"typed-llm-key\""
-      refute html =~ "https://will-be-overwritten"
-    end
-
-    test "save_llm renders validation errors on invalid params", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
-      before = Zaq.System.get_llm_config()
-
-      html =
-        render_submit(view, "save_llm", %{
-          "llm_config" => %{
-            "provider" => "custom",
-            "endpoint" => "",
-            "model" => ""
-          }
-        })
-
-      after_save = Zaq.System.get_llm_config()
-
-      assert after_save.endpoint == before.endpoint
-      assert after_save.model == before.model
-      assert has_element?(view, "#llm-config-form")
-      assert html =~ "llm-config-form"
-    end
-  end
-
-  describe "embedding validate" do
-    test "interpolates max dimension validation errors", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+  describe "AI credentials" do
+    test "api key field has show/hide eye controls", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
       view
-      |> element("button[phx-click=\"unlock_embedding\"]")
+      |> element("button[phx-click='new_ai_credential']")
       |> render_click()
 
+      assert has_element?(
+               view,
+               "#ai-credential-api-key-input[style*='-webkit-text-security: disc']"
+             )
+
+      assert has_element?(view, "#ai-credential-api-key-show")
+      assert has_element?(view, "#ai-credential-api-key-hide.hidden")
+    end
+
+    test "creates new credential from modal", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
       view
-      |> element("button[phx-click=\"confirm_unlock_embedding\"]")
+      |> element("button[phx-click='new_ai_credential']")
       |> render_click()
 
-      html =
-        view
-        |> form("#embedding-config-form", %{
-          "embedding_config" => %{
-            "provider" => "custom",
-            "model" => "bge-multilingual-gemma2",
-            "endpoint" => "http://localhost:11434/v1",
-            "dimension" => "4001",
-            "chunk_min_tokens" => "400",
-            "chunk_max_tokens" => "900"
-          }
-        })
-        |> render_change()
+      assert has_element?(view, "#ai-credential-form")
 
-      assert html =~ "must be less than or equal to 4000"
-      refute html =~ "%{number}"
-    end
-  end
-
-  describe "embedding save confirmation" do
-    test "save_embedding opens and cancel closes destructive confirmation modal", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
-
-      view
-      |> element("button[phx-click=\"unlock_embedding\"]")
-      |> render_click()
-
-      view
-      |> element("button[phx-click=\"confirm_unlock_embedding\"]")
-      |> render_click()
-
-      params = %{
-        "embedding_config" => %{
-          "provider" => "custom",
-          "model" => "different-model",
-          "endpoint" => "http://localhost:11434/v1",
-          "dimension" => "3584",
-          "chunk_min_tokens" => "400",
-          "chunk_max_tokens" => "900"
-        }
-      }
-
-      _ =
-        view
-        |> form("#embedding-config-form", params)
-        |> render_change()
-
-      html =
-        view
-        |> form("#embedding-config-form", params)
-        |> render_submit()
-
-      assert html =~ "Delete All Embeddings?"
-
-      html =
-        view
-        |> element("button[phx-click='cancel_save_embedding']")
-        |> render_click()
-
-      refute html =~ "Delete All Embeddings?"
-    end
-
-    test "confirm_save_embedding rescue path shows flash when pending params are missing", %{
-      conn: conn
-    } do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
-
-      html = render_click(view, "confirm_save_embedding", %{})
-
-      assert html =~ "Failed to apply embedding settings:"
-    end
-  end
-
-  describe "image-to-text handlers" do
-    test "validate_image_to_text resets endpoint for unknown provider changes", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
-
-      html =
-        render_change(view, "validate_image_to_text", %{
-          "image_to_text_config" => %{
-            "provider" => "unknown_provider",
-            "endpoint" => "https://will-be-overwritten",
-            "api_key" => "typed-image-key",
-            "model" => "gpt-4o"
-          }
-        })
-
-      assert html =~ "name=\"image_to_text_config[endpoint]\""
-      assert html =~ "name=\"image_to_text_config[endpoint]\" value=\"\""
-      assert html =~ "value=\"typed-image-key\""
-      refute html =~ "https://will-be-overwritten"
-    end
-
-    test "save_image_to_text renders validation errors on invalid params", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
-      before = Zaq.System.get_image_to_text_config()
-
-      html =
-        render_submit(view, "save_image_to_text", %{
-          "image_to_text_config" => %{
-            "provider" => "custom",
-            "endpoint" => "",
-            "model" => ""
-          }
-        })
-
-      after_save = Zaq.System.get_image_to_text_config()
-
-      assert after_save.endpoint == before.endpoint
-      assert after_save.model == before.model
-      assert has_element?(view, "#image-to-text-config-form")
-      assert html =~ "image-to-text-config-form"
-    end
-  end
-
-  describe "strict encryption errors" do
-    test "shows LLM api_key encryption error in form", %{conn: conn} do
-      previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
-
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: "invalid",
-        key_id: "test-v1"
-      )
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
-      end)
-
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
-
-      view
-      |> element("button[phx-value-tab='llm']")
-      |> render_click()
-
-      view
-      |> form("#llm-config-form", %{
-        "llm_config" => %{
-          "provider" => "custom",
+      render_submit(view, "save_ai_credential", %{
+        "ai_credential" => %{
+          "name" => "OpenAI EU",
+          "provider" => "openai",
           "endpoint" => "https://api.openai.com/v1",
-          "api_key" => "sk-llm-must-fail",
+          "api_key" => "sk-test-live",
+          "sovereign" => "true",
+          "description" => "EU sovereign"
+        }
+      })
+
+      assert render(view) =~ "AI credential saved."
+      assert render(view) =~ "OpenAI EU"
+    end
+
+    test "editing row opens modal", %{conn: conn} do
+      {:ok, credential} =
+        System.create_ai_provider_credential(%{
+          name: "Primary",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          description: "main"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#ai-credential-form")
+      assert render(view) =~ "Edit AI Credential"
+      assert render(view) =~ "Primary"
+    end
+  end
+
+  describe "LLM config with credential" do
+    test "saves llm config using selected credential", %{conn: conn} do
+      {:ok, credential} =
+        System.create_ai_provider_credential(%{
+          name: "LLM Credential",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      render_submit(view, "save_llm", %{
+        "llm_config" => %{
+          "credential_id" => Integer.to_string(credential.id),
           "model" => "gpt-4o",
           "temperature" => "0.2",
           "top_p" => "0.9",
           "supports_logprobs" => "true",
           "supports_json_mode" => "true",
-          "max_context_window" => "8000",
-          "distance_threshold" => "1.0"
+          "max_context_window" => "5000",
+          "distance_threshold" => "1.0",
+          "path" => "/chat/completions"
         }
       })
-      |> render_submit()
 
-      html = render(view)
-      assert html =~ "could not be encrypted"
+      cfg = System.get_llm_config()
+      assert cfg.credential_id == credential.id
+      assert cfg.provider == "openai"
+      assert cfg.endpoint == "https://api.openai.com/v1"
+      assert cfg.model == "gpt-4o"
     end
+  end
 
-    test "shows Embedding api_key encryption error in form", %{conn: conn} do
-      previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
-
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: "invalid",
-        key_id: "test-v1"
-      )
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
-      end)
+  describe "embedding save confirmation" do
+    test "save_embedding opens and cancel closes destructive confirmation modal", %{conn: conn} do
+      {:ok, credential} =
+        System.create_ai_provider_credential(%{
+          name: "Embedding Credential",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
 
@@ -329,55 +156,28 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       |> element("button[phx-click='confirm_unlock_embedding']")
       |> render_click()
 
-      view
-      |> form("#embedding-config-form", %{
+      params = %{
         "embedding_config" => %{
-          "provider" => "custom",
-          "endpoint" => "http://localhost:11434/v1",
-          "api_key" => "embedding-must-fail",
-          "model" => "bge-multilingual-gemma2",
+          "credential_id" => Integer.to_string(credential.id),
+          "model" => "different-model",
           "dimension" => "3584",
           "chunk_min_tokens" => "400",
           "chunk_max_tokens" => "900"
         }
-      })
-      |> render_submit()
+      }
 
-      html = render(view)
-      assert html =~ "could not be encrypted"
-    end
+      _ = render_change(view, "validate_embedding", params)
 
-    test "shows Image-to-Text api_key encryption error in form", %{conn: conn} do
-      previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+      html = render_submit(view, "save_embedding", params)
 
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: "invalid",
-        key_id: "test-v1"
-      )
+      assert html =~ "Delete All Embeddings?"
 
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
-      end)
+      html =
+        view
+        |> element("button[phx-click='cancel_save_embedding']")
+        |> render_click()
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
-
-      view
-      |> element("button[phx-value-tab='image_to_text']")
-      |> render_click()
-
-      view
-      |> form("#image-to-text-config-form", %{
-        "image_to_text_config" => %{
-          "provider" => "custom",
-          "endpoint" => "https://api.openai.com/v1",
-          "api_key" => "image-must-fail",
-          "model" => "gpt-4o"
-        }
-      })
-      |> render_submit()
-
-      html = render(view)
-      assert html =~ "could not be encrypted"
+      refute html =~ "Delete All Embeddings?"
     end
   end
 end

@@ -66,6 +66,19 @@
           >
             Image to Text
           </button>
+          <button
+            phx-click="switch_tab"
+            phx-value-tab="ai_credentials"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :ai_credentials,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            AI Credentials
+          </button>
         </nav>
       </div>
     </div>
@@ -76,17 +89,15 @@
       <.llm_panel
         :if={@active_tab == :llm}
         form={@llm_form}
-        providers={@llm_providers}
+        credential_options={@llm_credential_options}
         model_options={@llm_model_options}
         capabilities={@llm_capabilities}
-        api_key_value={@llm_api_key_value}
       />
       <.embedding_panel
         :if={@active_tab == :embedding}
         form={@embedding_form}
-        providers={@embedding_providers}
+        credential_options={@embedding_credential_options}
         model_options={@embedding_model_options}
-        api_key_value={@embedding_api_key_value}
         locked={@embedding_locked}
         unlock_modal={@embedding_unlock_modal}
         model_changed={@model_changed}
@@ -95,9 +106,15 @@
       <.image_to_text_panel
         :if={@active_tab == :image_to_text}
         form={@image_to_text_form}
-        providers={@image_to_text_providers}
+        credential_options={@image_to_text_credential_options}
         model_options={@image_to_text_model_options}
-        api_key_value={@image_to_text_api_key_value}
+      />
+      <.ai_credentials_panel
+        :if={@active_tab == :ai_credentials}
+        credentials={@ai_credentials}
+        form={@ai_credential_form}
+        modal={@ai_credential_modal}
+        action={@ai_credential_action}
       />
     </div>
   </div>

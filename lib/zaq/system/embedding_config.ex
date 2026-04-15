@@ -7,6 +7,7 @@ defmodule Zaq.System.EmbeddingConfig do
   alias Zaq.System.ChangesetHelpers
 
   embedded_schema do
+    field :credential_id, :integer
     field :provider, :string, default: "custom"
     field :endpoint, :string, default: "http://localhost:11434/v1"
     field :api_key, :string, default: ""
@@ -19,6 +20,7 @@ defmodule Zaq.System.EmbeddingConfig do
   def changeset(config, attrs) do
     config
     |> cast(attrs, [
+      :credential_id,
       :provider,
       :endpoint,
       :api_key,
@@ -27,7 +29,7 @@ defmodule Zaq.System.EmbeddingConfig do
       :chunk_min_tokens,
       :chunk_max_tokens
     ])
-    |> validate_required([:endpoint, :model, :dimension])
+    |> validate_required([:credential_id, :model, :dimension])
     |> validate_number(:dimension, greater_than: 0, less_than_or_equal_to: 4000)
     |> validate_number(:chunk_min_tokens, greater_than: 0)
     |> validate_number(:chunk_max_tokens, greater_than: 0)

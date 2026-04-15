@@ -8,6 +8,24 @@ defmodule Zaq.SystemTest do
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
 
+  defp credential_fixture(attrs \\ %{}) do
+    unique = :erlang.unique_integer([:positive])
+
+    params =
+      Map.merge(
+        %{
+          name: "Credential #{unique}",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          sovereign: false
+        },
+        attrs
+      )
+
+    {:ok, credential} = System.create_ai_provider_credential(params)
+    credential
+  end
+
   describe "get_config/1 and set_config/2" do
     test "returns nil for unknown key" do
       assert is_nil(System.get_config("nonexistent.key"))
@@ -63,87 +81,44 @@ defmodule Zaq.SystemTest do
   end
 
   describe "save_llm_config/1" do
-    setup do
-      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
-
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: Base.encode64(:crypto.strong_rand_bytes(32)),
-        key_id: "test-v1"
-      )
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret)
-      end)
-
-      :ok
-    end
-
     test "persists valid changeset to DB" do
+      credential = credential_fixture()
+
       changeset =
         LLMConfig.changeset(%LLMConfig{}, %{
+          credential_id: credential.id,
           model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1",
           temperature: "0.5"
         })
 
       assert {:ok, saved} = System.save_llm_config(changeset)
       assert saved.model == "gpt-4o"
+      assert saved.credential_id == credential.id
+      assert saved.provider == "openai"
+      assert saved.endpoint == "https://api.openai.com/v1"
       assert System.get_config("llm.model") == "gpt-4o"
-      assert System.get_config("llm.endpoint") == "https://api.openai.com/v1"
+      assert System.get_config("llm.credential_id") == Integer.to_string(credential.id)
     end
 
-    test "stores api_key encrypted in DB" do
-      changeset =
-        LLMConfig.changeset(%LLMConfig{}, %{
-          model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1",
-          api_key: "sk-secret-llm-key"
-        })
+    test "returns merged connection fields from selected credential" do
+      credential =
+        credential_fixture(%{provider: "anthropic", endpoint: "https://api.anthropic.com/v1"})
 
-      assert {:ok, _} = System.save_llm_config(changeset)
+      System.set_config("llm.credential_id", credential.id)
+      System.set_config("llm.model", "claude-sonnet-4-20250514")
 
-      stored = System.get_config("llm.api_key")
-      assert String.starts_with?(stored, "enc:")
-      assert System.get_llm_config().api_key == "sk-secret-llm-key"
-    end
+      config = System.get_llm_config()
 
-    test "returns changeset error when api_key encryption key is invalid" do
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: "invalid",
-        key_id: "test-v1"
-      )
-
-      changeset =
-        LLMConfig.changeset(%LLMConfig{}, %{
-          model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1",
-          api_key: "sk-llm-must-fail"
-        })
-
-      assert {:error, %Ecto.Changeset{} = failed_changeset} = System.save_llm_config(changeset)
-      assert hd(errors_on(failed_changeset).api_key) =~ "could not be encrypted"
-      assert System.get_config("llm.api_key") == nil
-    end
-
-    test "does not overwrite api_key when value is blank" do
-      System.set_config("llm.api_key", "enc:v1:some:existing:key")
-
-      changeset =
-        LLMConfig.changeset(%LLMConfig{}, %{
-          model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1",
-          api_key: ""
-        })
-
-      assert {:ok, _} = System.save_llm_config(changeset)
-      assert System.get_config("llm.api_key") == "enc:v1:some:existing:key"
+      assert config.credential_id == credential.id
+      assert config.provider == "anthropic"
+      assert config.endpoint == "https://api.anthropic.com/v1"
     end
 
     test "returns error for invalid changeset" do
       changeset =
         LLMConfig.changeset(%LLMConfig{}, %{
+          credential_id: nil,
           model: "",
-          endpoint: "",
           temperature: "5.0"
         })
 
@@ -181,26 +156,13 @@ defmodule Zaq.SystemTest do
   end
 
   describe "save_embedding_config/1" do
-    setup do
-      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
-
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: Base.encode64(:crypto.strong_rand_bytes(32)),
-        key_id: "test-v1"
-      )
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret)
-      end)
-
-      :ok
-    end
-
     test "persists valid changeset to DB" do
+      credential = credential_fixture()
+
       changeset =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
           model: "bge-multilingual-gemma2",
-          endpoint: "http://localhost:11434/v1",
           dimension: "768",
           chunk_min_tokens: "400",
           chunk_max_tokens: "900"
@@ -208,52 +170,34 @@ defmodule Zaq.SystemTest do
 
       assert {:ok, saved} = System.save_embedding_config(changeset)
       assert saved.model == "bge-multilingual-gemma2"
+      assert saved.credential_id == credential.id
+      assert saved.provider == "openai"
+      assert saved.endpoint == "https://api.openai.com/v1"
       assert System.get_config("embedding.model") == "bge-multilingual-gemma2"
       assert System.get_config("embedding.dimension") == "768"
+      assert System.get_config("embedding.credential_id") == Integer.to_string(credential.id)
     end
 
-    test "stores api_key encrypted in DB" do
-      changeset =
-        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-          model: "bge-multilingual-gemma2",
-          endpoint: "http://localhost:11434/v1",
-          dimension: "768",
-          api_key: "test-embedding-key"
-        })
+    test "returns merged connection fields from selected credential" do
+      credential =
+        credential_fixture(%{provider: "openai", endpoint: "https://proxy.example.com/v1"})
 
-      assert {:ok, _} = System.save_embedding_config(changeset)
+      System.set_config("embedding.credential_id", credential.id)
+      System.set_config("embedding.model", "text-embedding-3-large")
+      System.set_config("embedding.dimension", "3072")
 
-      stored = System.get_config("embedding.api_key")
-      assert String.starts_with?(stored, "enc:")
-      assert System.get_embedding_config().api_key == "test-embedding-key"
-    end
+      config = System.get_embedding_config()
 
-    test "returns changeset error when embedding api_key encryption key is invalid" do
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: "invalid",
-        key_id: "test-v1"
-      )
-
-      changeset =
-        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-          model: "bge-multilingual-gemma2",
-          endpoint: "http://localhost:11434/v1",
-          dimension: "768",
-          api_key: "embedding-must-fail"
-        })
-
-      assert {:error, %Ecto.Changeset{} = failed_changeset} =
-               System.save_embedding_config(changeset)
-
-      assert hd(errors_on(failed_changeset).api_key) =~ "could not be encrypted"
-      assert System.get_config("embedding.api_key") == nil
+      assert config.credential_id == credential.id
+      assert config.provider == "openai"
+      assert config.endpoint == "https://proxy.example.com/v1"
     end
 
     test "returns error for invalid changeset" do
       changeset =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: nil,
           model: "",
-          endpoint: "",
           dimension: "0"
         })
 
@@ -277,10 +221,13 @@ defmodule Zaq.SystemTest do
     end
 
     test "creates chunks table when embedding model is first configured" do
+      credential = credential_fixture()
+
       refute Chunk.table_exists?()
 
       changeset =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
           model: "bge-multilingual-gemma2",
           dimension: "768"
         })
@@ -290,8 +237,11 @@ defmodule Zaq.SystemTest do
     end
 
     test "does not reset chunks table when model is unchanged" do
+      credential = credential_fixture()
+
       changeset =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
           model: "bge-multilingual-gemma2",
           dimension: "768"
         })
@@ -302,6 +252,7 @@ defmodule Zaq.SystemTest do
       # Second save with same model — table not dropped/reset
       changeset2 =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
           model: "bge-multilingual-gemma2",
           dimension: "768",
           chunk_min_tokens: "500"
@@ -313,8 +264,11 @@ defmodule Zaq.SystemTest do
     end
 
     test "drops and recreates chunks table when model changes" do
+      credential = credential_fixture()
+
       changeset_a =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
           model: "bge-multilingual-gemma2",
           dimension: "768"
         })
@@ -325,6 +279,7 @@ defmodule Zaq.SystemTest do
 
       changeset_b =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
           model: "text-embedding-ada-002",
           dimension: "1536"
         })
@@ -372,88 +327,43 @@ defmodule Zaq.SystemTest do
   end
 
   describe "save_image_to_text_config/1" do
-    setup do
-      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
-
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: Base.encode64(:crypto.strong_rand_bytes(32)),
-        key_id: "test-v1"
-      )
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret)
-      end)
-
-      :ok
-    end
-
     test "persists valid changeset to DB" do
+      credential = credential_fixture()
+
       changeset =
         ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
-          model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1"
+          credential_id: credential.id,
+          model: "gpt-4o"
         })
 
       assert {:ok, saved} = System.save_image_to_text_config(changeset)
       assert saved.model == "gpt-4o"
+      assert saved.credential_id == credential.id
+      assert saved.provider == "openai"
+      assert saved.endpoint == "https://api.openai.com/v1"
       assert System.get_config("image_to_text.model") == "gpt-4o"
-      assert System.get_config("image_to_text.endpoint") == "https://api.openai.com/v1"
+      assert System.get_config("image_to_text.credential_id") == Integer.to_string(credential.id)
     end
 
-    test "stores api_key encrypted in DB" do
-      changeset =
-        ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
-          model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1",
-          api_key: "sk-image-key"
-        })
+    test "returns merged connection fields from selected credential" do
+      credential =
+        credential_fixture(%{provider: "openai", endpoint: "https://vision.example.com/v1"})
 
-      assert {:ok, _} = System.save_image_to_text_config(changeset)
+      System.set_config("image_to_text.credential_id", credential.id)
+      System.set_config("image_to_text.model", "gpt-4o")
 
-      stored = System.get_config("image_to_text.api_key")
-      assert String.starts_with?(stored, "enc:")
-      assert System.get_image_to_text_config().api_key == "sk-image-key"
-    end
+      config = System.get_image_to_text_config()
 
-    test "returns changeset error when image-to-text api_key encryption key is invalid" do
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: "invalid",
-        key_id: "test-v1"
-      )
-
-      changeset =
-        ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
-          model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1",
-          api_key: "image-must-fail"
-        })
-
-      assert {:error, %Ecto.Changeset{} = failed_changeset} =
-               System.save_image_to_text_config(changeset)
-
-      assert hd(errors_on(failed_changeset).api_key) =~ "could not be encrypted"
-      assert System.get_config("image_to_text.api_key") == nil
-    end
-
-    test "does not overwrite api_key when value is blank" do
-      System.set_config("image_to_text.api_key", "enc:v1:some:existing:key")
-
-      changeset =
-        ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
-          model: "gpt-4o",
-          endpoint: "https://api.openai.com/v1",
-          api_key: ""
-        })
-
-      assert {:ok, _} = System.save_image_to_text_config(changeset)
-      assert System.get_config("image_to_text.api_key") == "enc:v1:some:existing:key"
+      assert config.credential_id == credential.id
+      assert config.provider == "openai"
+      assert config.endpoint == "https://vision.example.com/v1"
     end
 
     test "returns error for invalid changeset" do
       # Start from a struct with nil required fields so validate_required fires
       changeset =
         ImageToTextConfig.changeset(
-          struct(ImageToTextConfig, %{model: nil, endpoint: nil}),
+          struct(ImageToTextConfig, %{credential_id: nil, model: nil}),
           %{}
         )
 
