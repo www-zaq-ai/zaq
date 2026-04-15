@@ -69,6 +69,18 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
       assert {:error, :missing_logprobs_content} =
                LogprobsAnalyzer.calculate_confidence([%{"token" => "x"}, %{}])
     end
+
+    test "accepts atom-keyed logprob entries" do
+      logprobs_content = [
+        %{token: "x", logprob: -0.2},
+        %{token: "y", logprob: -0.4}
+      ]
+
+      assert {:ok, confidence} = LogprobsAnalyzer.calculate_confidence(logprobs_content)
+      assert is_float(confidence)
+      assert confidence > 0.0
+      assert confidence < 1.0
+    end
   end
 
   describe "confidence_from_metadata_or_nil/2" do
@@ -85,6 +97,19 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
       assert is_float(score)
       assert score > 0.0
       assert score < 1.0
+    end
+
+    test "confidence_from_metadata returns tagged tuple directly" do
+      metadata = %{
+        "logprobs" => %{
+          "content" => [
+            %{"token" => "x", "logprob" => -0.2}
+          ]
+        }
+      }
+
+      assert {:ok, score} = LogprobsAnalyzer.confidence_from_metadata(metadata)
+      assert is_float(score)
     end
 
     test "reads atom-keyed metadata for backward compatibility" do
@@ -105,6 +130,30 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
     test "returns nil when metadata is missing logprobs" do
       assert LogprobsAnalyzer.confidence_from_metadata_or_nil(%{}) == nil
       assert LogprobsAnalyzer.confidence_from_metadata_or_nil(nil) == nil
+    end
+
+    test "returns score from confidence_from_metadata_or_nil for valid metadata" do
+      metadata = %{logprobs: %{content: [%{token: "x", logprob: -0.2}]}}
+      assert is_float(LogprobsAnalyzer.confidence_from_metadata_or_nil(metadata, true))
+    end
+
+    test "reads logprobs content from list-shaped metadata value" do
+      metadata = %{
+        "logprobs" => [
+          %{"token" => "x", "logprob" => -0.2},
+          %{token: "y", logprob: -0.4}
+        ]
+      }
+
+      assert {:ok, score} = LogprobsAnalyzer.confidence_from_metadata(metadata, true)
+      assert is_float(score)
+      assert score > 0.0
+      assert score < 1.0
+    end
+
+    test "returns nil for invalid metadata shapes" do
+      assert LogprobsAnalyzer.confidence_from_metadata_or_nil("not-a-map") == nil
+      assert LogprobsAnalyzer.confidence_from_metadata_or_nil(%{logprobs: "invalid"}) == nil
     end
   end
 
@@ -136,6 +185,46 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
     test "returns empty list for invalid input" do
       assert LogprobsAnalyzer.token_confidences(nil) == []
       assert LogprobsAnalyzer.token_confidences(%{}) == []
+    end
+
+    test "ignores invalid token entries inside list" do
+      assert LogprobsAnalyzer.token_confidences([%{"token" => "x"}, %{foo: :bar}]) == []
+    end
+
+    test "supports atom-keyed token entries and alternatives" do
+      logprobs_content = [
+        %{
+          token: "Hello",
+          logprob: -0.3,
+          top_logprobs: [
+            %{token: "Hi", logprob: -0.8},
+            %{"token" => "Hey", "logprob" => -1.1}
+          ]
+        }
+      ]
+
+      [result] = LogprobsAnalyzer.token_confidences(logprobs_content)
+      assert result.token == "Hello"
+      assert is_float(result.confidence)
+      assert Enum.map(result.alternatives, & &1.token) == ["Hi", "Hey"]
+    end
+
+    test "ignores invalid top_logprobs shape" do
+      logprobs_content = [
+        %{"token" => "Hello", "logprob" => -0.3, "top_logprobs" => %{"bad" => true}}
+      ]
+
+      [result] = LogprobsAnalyzer.token_confidences(logprobs_content)
+      assert result.alternatives == []
+    end
+
+    test "ignores invalid alternative entries in top_logprobs list" do
+      logprobs_content = [
+        %{"token" => "Hello", "logprob" => -0.3, "top_logprobs" => [%{"token" => "NoProb"}]}
+      ]
+
+      [result] = LogprobsAnalyzer.token_confidences(logprobs_content)
+      assert result.alternatives == []
     end
   end
 end

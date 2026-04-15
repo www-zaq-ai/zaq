@@ -7,6 +7,7 @@ defmodule Zaq.SystemTest do
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
+  alias Zaq.Engine.Telemetry.Collector
 
   defp credential_fixture(attrs \\ %{}) do
     unique = :erlang.unique_integer([:positive])
@@ -77,6 +78,27 @@ defmodule Zaq.SystemTest do
       assert config.top_p == 0.8
       assert config.max_context_window == 8000
       assert config.distance_threshold == 1.0
+    end
+
+    test "keeps stored fallback connection fields when credential no longer exists" do
+      System.set_config("llm.credential_id", 999_999)
+      System.set_config("llm.provider", "fallback-provider")
+      System.set_config("llm.endpoint", "https://fallback-llm.example/v1")
+      System.set_config("llm.api_key", "")
+
+      config = System.get_llm_config()
+      assert config.credential_id == 999_999
+      assert config.provider == "fallback-provider"
+      assert config.endpoint == "https://fallback-llm.example/v1"
+    end
+
+    test "falls back to defaults for blank and invalid float values" do
+      System.set_config("llm.temperature", "")
+      System.set_config("llm.top_p", "not-a-number")
+
+      config = System.get_llm_config()
+      assert config.temperature == 0.0
+      assert config.top_p == 0.9
     end
   end
 
@@ -152,6 +174,18 @@ defmodule Zaq.SystemTest do
       assert config.dimension == 1536
       assert config.chunk_min_tokens == 300
       assert config.chunk_max_tokens == 700
+    end
+
+    test "keeps stored fallback connection fields when credential no longer exists" do
+      System.set_config("embedding.credential_id", 999_998)
+      System.set_config("embedding.provider", "fallback-provider")
+      System.set_config("embedding.endpoint", "https://fallback-embedding.example/v1")
+      System.set_config("embedding.api_key", "")
+
+      config = System.get_embedding_config()
+      assert config.credential_id == 999_998
+      assert config.provider == "fallback-provider"
+      assert config.endpoint == "https://fallback-embedding.example/v1"
     end
   end
 
@@ -324,6 +358,18 @@ defmodule Zaq.SystemTest do
       assert config.model == "gpt-4o"
       assert config.endpoint == "https://api.openai.com/v1"
     end
+
+    test "keeps stored fallback connection fields when credential no longer exists" do
+      System.set_config("image_to_text.credential_id", 999_997)
+      System.set_config("image_to_text.provider", "fallback-provider")
+      System.set_config("image_to_text.endpoint", "https://fallback-vision.example/v1")
+      System.set_config("image_to_text.api_key", "")
+
+      config = System.get_image_to_text_config()
+      assert config.credential_id == 999_997
+      assert config.provider == "fallback-provider"
+      assert config.endpoint == "https://fallback-vision.example/v1"
+    end
   end
 
   describe "save_image_to_text_config/1" do
@@ -434,6 +480,30 @@ defmodule Zaq.SystemTest do
         })
 
       assert {:error, %Ecto.Changeset{valid?: false}} = System.save_telemetry_config(changeset)
+    end
+
+    test "reloads collector policy when collector process exists" do
+      collector_pid = Process.whereis(Collector) || start_supervised!(Collector)
+      assert is_pid(collector_pid)
+
+      changeset =
+        TelemetryConfig.changeset(%TelemetryConfig{}, %{
+          capture_infra_metrics: true,
+          request_duration_threshold_ms: 123,
+          repo_query_duration_threshold_ms: 45,
+          no_answer_alert_threshold_percent: 9,
+          conversation_response_sla_ms: 987
+        })
+
+      assert {:ok, _} = System.save_telemetry_config(changeset)
+
+      :sys.get_state(collector_pid)
+
+      assert :persistent_term.get({Collector, :policy}) == %{
+               capture_infra_metrics: true,
+               request_duration_threshold_ms: 123,
+               repo_query_duration_threshold_ms: 45
+             }
     end
   end
 end
