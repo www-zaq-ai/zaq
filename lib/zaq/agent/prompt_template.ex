@@ -10,6 +10,7 @@ defmodule Zaq.Agent.PromptTemplate do
     * `"retrieval"` — query rewriting / retrieval agent
     * `"answering"` — response formulation agent
     * `"chunk_title"` — chunk title generation during ingestion
+    * `"image_to_text"` — vision model prompt for image description during PDF ingestion
 
   ## Placeholders
 

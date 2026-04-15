@@ -46,6 +46,7 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToText do
     args = if opts[:api_key], do: args ++ ["--api-key", opts[:api_key]], else: args
     args = if opts[:endpoint], do: args ++ ["--api-url", opts[:endpoint]], else: args
     args = if opts[:model], do: args ++ ["--model", opts[:model]], else: args
+    args = if opts[:prompt], do: args ++ ["--prompt", opts[:prompt]], else: args
     args
   end
 end

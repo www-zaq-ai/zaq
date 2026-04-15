@@ -15,6 +15,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
 
   require Logger
 
+  alias Zaq.Agent.PromptTemplate
   alias Zaq.Ingestion.SourcePath
 
   alias Zaq.Ingestion.Python.Steps.{
@@ -51,7 +52,13 @@ defmodule Zaq.Ingestion.Python.Pipeline do
         with {:ok, _} <- PdfToMd.run(pipeline_pdf_path, md_path, images_dir),
              {:ok, _} <- ImageDedup.run(images_folder),
              {:ok, _} <- CleanMd.run(md_path, images_folder),
-             {:ok, _} <- maybe_image_to_text(api_key, images_folder, descriptions_json),
+             {:ok, _} <-
+               maybe_image_to_text(
+                 api_key,
+                 images_folder,
+                 descriptions_json,
+                 resolve_image_to_text_prompt()
+               ),
              {:ok, _} <- maybe_inject_descriptions(api_key, md_path, descriptions_json) do
           {:ok, md_path}
         end
@@ -85,13 +92,22 @@ defmodule Zaq.Ingestion.Python.Pipeline do
     if key && key != "", do: key, else: nil
   end
 
-  defp maybe_image_to_text(nil, _folder, _output) do
+  defp maybe_image_to_text(nil, _folder, _output, _prompt) do
     Logger.warning("[Pipeline] No Scaleway API key — skipping image descriptions")
     {:ok, :skipped}
   end
 
-  defp maybe_image_to_text(api_key, images_folder, descriptions_json) do
-    ImageToText.run(images_folder, descriptions_json, api_key)
+  defp maybe_image_to_text(api_key, images_folder, descriptions_json, prompt) do
+    opts = [api_key: api_key]
+    opts = if prompt, do: Keyword.put(opts, :prompt, prompt), else: opts
+    ImageToText.run(images_folder, descriptions_json, opts)
+  end
+
+  defp resolve_image_to_text_prompt do
+    case PromptTemplate.get_active("image_to_text") do
+      {:ok, body} -> body
+      {:error, :not_found} -> nil
+    end
   end
 
   defp maybe_inject_descriptions(nil, _md_path, _descriptions_json) do
