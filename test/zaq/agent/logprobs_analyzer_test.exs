@@ -72,6 +72,36 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
   end
 
   describe "confidence_from_metadata_or_nil/2" do
+    test "reads string-keyed metadata produced by current LangChain" do
+      metadata = %{
+        "logprobs" => %{
+          "content" => [
+            %{"token" => "x", "logprob" => -0.2}
+          ]
+        }
+      }
+
+      assert {:ok, score} = LogprobsAnalyzer.confidence_from_metadata(metadata, true)
+      assert is_float(score)
+      assert score > 0.0
+      assert score < 1.0
+    end
+
+    test "reads atom-keyed metadata for backward compatibility" do
+      metadata = %{
+        logprobs: %{
+          content: [
+            %{token: "x", logprob: -0.2}
+          ]
+        }
+      }
+
+      assert {:ok, score} = LogprobsAnalyzer.confidence_from_metadata(metadata, true)
+      assert is_float(score)
+      assert score > 0.0
+      assert score < 1.0
+    end
+
     test "returns nil when metadata is missing logprobs" do
       assert LogprobsAnalyzer.confidence_from_metadata_or_nil(%{}) == nil
       assert LogprobsAnalyzer.confidence_from_metadata_or_nil(nil) == nil

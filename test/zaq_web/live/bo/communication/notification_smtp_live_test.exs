@@ -247,6 +247,313 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert render(view) =~ "Email is not configured or disabled."
   end
 
+  test "validate with safe defaults shows no smtp warnings", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    view
+    |> element("#smtp-config-form")
+    |> render_change(%{
+      "email_config" => %{
+        "enabled" => "false",
+        "relay" => "smtp.example.com",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "from_email" => "noreply@example.com",
+        "from_name" => "ZAQ"
+      }
+    })
+
+    refute has_element?(view, "#smtp-security-warnings")
+  end
+
+  test "validate can show selective warning only", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    view
+    |> element("#smtp-config-form")
+    |> render_change(%{
+      "email_config" => %{
+        "enabled" => "false",
+        "relay" => "smtp.example.com",
+        "port" => "587",
+        "transport_mode" => "ssl",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "from_email" => "noreply@example.com",
+        "from_name" => "ZAQ"
+      }
+    })
+
+    assert has_element?(view, "#smtp-warning-ssl-port")
+    refute has_element?(view, "#smtp-warning-tls-never")
+    refute has_element?(view, "#smtp-warning-verify-none")
+  end
+
+  test "test_connection without recipient param returns required error", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    view
+    |> element("#test-email-form")
+    |> render_submit(%{})
+
+    assert render(view) =~ "Enter a recipient email to send a test."
+  end
+
+  test "test_connection direct event with missing params hits fallback handler", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    render_submit(view, "test_connection", %{})
+
+    assert {:error, "Enter a recipient email to send a test."} = current_test_status(view)
+  end
+
+  test "test_connection keeps raw recipient value while validating trimmed version", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    view
+    |> element("#test-email-form")
+    |> render_submit(%{"recipient" => "  invalid  "})
+
+    html = render(view)
+    assert html =~ "Recipient must be a valid email address."
+    assert html =~ "value=\"  invalid  \""
+  end
+
+  test "test_connection reports missing encryption key while decrypting password", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "smtp.example.com",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "username" => "mailer@example.com",
+        "password" => "enc:test-v1:AAAA:AAAA:AAAA",
+        "from_email" => "noreply@example.com",
+        "from_name" => "ZAQ"
+      }
+    })
+
+    with_secret_config([encryption_key: nil, key_id: "test-v1"], fn ->
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+      send(view.pid, {:send_test, "user@example.com"})
+      _ = :sys.get_state(view.pid)
+
+      assert render(view) =~ "missing_encryption_key"
+    end)
+  end
+
+  test "test_connection reports invalid encryption key while decrypting password", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "smtp.example.com",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "username" => "mailer@example.com",
+        "password" => "enc:test-v1:AAAA:AAAA:AAAA",
+        "from_email" => "noreply@example.com",
+        "from_name" => "ZAQ"
+      }
+    })
+
+    with_secret_config([encryption_key: "bad-key", key_id: "test-v1"], fn ->
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+      send(view.pid, {:send_test, "user@example.com"})
+      _ = :sys.get_state(view.pid)
+
+      assert render(view) =~ "invalid_encryption_key"
+    end)
+  end
+
+  test "test_connection reports invalid ciphertext while decrypting password", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "smtp.example.com",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "username" => "mailer@example.com",
+        "password" => "enc:test-v1:not-b64:not-b64:not-b64",
+        "from_email" => "noreply@example.com",
+        "from_name" => "ZAQ"
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert render(view) =~ "invalid_ciphertext"
+  end
+
+  test "test_connection surfaces unknown key id details", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "smtp.example.com",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "username" => "mailer@example.com",
+        "password" => "enc:test-v1:AAAA:AAAA:AAAA",
+        "from_email" => "noreply@example.com",
+        "from_name" => "ZAQ"
+      }
+    })
+
+    with_secret_config(
+      [
+        encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        key_id: "test-v2"
+      ],
+      fn ->
+        {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+        send(view.pid, {:send_test, "user@example.com"})
+        _ = :sys.get_state(view.pid)
+
+        assert render(view) =~ "unknown_key_id"
+      end
+    )
+  end
+
+  test "test_connection attempts delivery with username omitted (auth never)", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "127.0.0.1",
+        "port" => "2525",
+        "transport_mode" => "starttls",
+        "tls" => "never",
+        "tls_verify" => "verify_peer",
+        "ca_cert_path" => "",
+        "username" => "",
+        "password" => nil,
+        "from_email" => "sender@example.com",
+        "from_name" => "Sender"
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert {:error, _reason} = current_test_status(view)
+  end
+
+  test "test_connection attempts delivery with verify_none tls options", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "localhost",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "if_available",
+        "tls_verify" => "verify_none",
+        "ca_cert_path" => nil,
+        "username" => "mailer@example.com",
+        "password" => nil,
+        "from_email" => "sender@example.com",
+        "from_name" => "Sender"
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert {:error, _reason} = current_test_status(view)
+  end
+
+  test "test_connection attempts delivery with required tls and custom ca path", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "localhost",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "always",
+        "tls_verify" => "verify_peer",
+        "ca_cert_path" => "/tmp/custom-ca.pem",
+        "username" => "mailer@example.com",
+        "password" => "",
+        "from_email" => "sender@example.com",
+        "from_name" => "Sender"
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert {:error, _reason} = current_test_status(view)
+  end
+
+  test "test_connection attempts delivery with ssl transport", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "localhost",
+        "port" => "465",
+        "transport_mode" => "ssl",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "ca_cert_path" => nil,
+        "username" => "mailer@example.com",
+        "password" => "",
+        "from_email" => "sender@example.com",
+        "from_name" => "Sender"
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert {:error, _reason} = current_test_status(view)
+  end
+
+  test "test_connection attempts delivery with unknown tls mode fallback", %{conn: conn} do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings: %{
+        "relay" => "localhost",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "weird_mode",
+        "tls_verify" => "verify_peer",
+        "ca_cert_path" => nil,
+        "username" => "mailer@example.com",
+        "password" => "",
+        "from_email" => "sender@example.com",
+        "from_name" => "Sender"
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert {:error, _reason} = current_test_status(view)
+  end
+
   defp with_secret_config(config, fun) do
     previous = Application.get_env(:zaq, Zaq.System.SecretConfig)
 
@@ -257,6 +564,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     after
       Application.put_env(:zaq, Zaq.System.SecretConfig, previous)
     end
+  end
+
+  defp current_test_status(view) do
+    state = :sys.get_state(view.pid)
+
+    assigns =
+      case state do
+        %{socket: %{assigns: assigns}} -> assigns
+        %{socket: socket} -> socket.assigns
+        %{assigns: assigns} -> assigns
+      end
+
+    Map.fetch!(assigns, :test_status)
   end
 
   defp insert_smtp_channel(attrs) do
