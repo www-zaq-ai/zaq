@@ -35,7 +35,11 @@ defmodule Zaq.Ingestion.Python.Pipeline do
     api_key = resolve_api_key(opts)
     md_path = opts[:output] || Path.rootname(original_pdf_path) <> ".md"
     base = opts[:base] || resolve_volume_base(original_pdf_path)
-    images_dir = opts[:images_dir] || Path.join(base, "images")
+
+    images_dir =
+      opts[:images_dir] ||
+        Path.join(System.tmp_dir!(), "zaq_images_#{System.unique_integer([:positive])}")
+
     {pipeline_pdf_path, cleanup_pdf_alias} = prepare_pdf_input(original_pdf_path)
 
     pdf_name = Path.basename(pipeline_pdf_path, ".pdf")
@@ -57,11 +61,12 @@ defmodule Zaq.Ingestion.Python.Pipeline do
 
     case result do
       {:ok, md_path} ->
-        cleanup_images(images_dir, images_folder)
+        File.rm_rf!(images_dir)
         {:ok, md_path}
 
       {:error, reason} ->
         move_to_debug(base, images_folder, pdf_name)
+        File.rm_rf!(images_dir)
         {:error, reason}
     end
   end
@@ -99,17 +104,6 @@ defmodule Zaq.Ingestion.Python.Pipeline do
     else
       Logger.info("[Pipeline] No descriptions.json found — skipping injection")
       {:ok, :skipped}
-    end
-  end
-
-  defp cleanup_images(images_dir, images_folder) do
-    if File.dir?(images_folder) do
-      File.rm_rf!(images_folder)
-      Logger.info("[Pipeline] Cleaned up images folder: #{images_folder}")
-    end
-
-    if File.dir?(images_dir) and File.ls!(images_dir) == [] do
-      File.rmdir(images_dir)
     end
   end
 
