@@ -2,8 +2,7 @@ defmodule Zaq.Agent.LLMTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.LLM
-  alias Zaq.System
-  alias Zaq.System.LLMConfig
+  alias Zaq.SystemConfigFixtures
 
   defp seed_llm(attrs) do
     params =
@@ -19,8 +18,7 @@ defmodule Zaq.Agent.LLMTest do
         attrs
       )
 
-    changeset = LLMConfig.changeset(%LLMConfig{}, params)
-    {:ok, _} = System.save_llm_config(changeset)
+    SystemConfigFixtures.seed_llm_config(params)
     :ok
   end
 

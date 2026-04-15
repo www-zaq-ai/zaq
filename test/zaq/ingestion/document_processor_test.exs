@@ -8,7 +8,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor}
   alias Zaq.Repo
-  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig}
+  alias Zaq.SystemConfigFixtures
 
   import Ecto.Query
   @moduletag capture_log: true
@@ -16,14 +16,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   setup :verify_on_exit!
 
   setup do
-    changeset =
-      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-        endpoint: "http://localhost:11434/v1",
-        model: "test-model",
-        dimension: "1536"
-      })
-
-    {:ok, _} = Zaq.System.save_embedding_config(changeset)
+    SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
     :ok
   end
 
@@ -147,14 +140,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   defp with_image_to_text_stub(api_key, stub_module, fun) when is_function(fun, 0) do
     original_step_module = Application.get_env(:zaq, :image_to_text_step_module)
 
-    changeset =
-      ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
-        endpoint: "http://localhost:11434/v1",
-        model: "test-model",
-        api_key: api_key
-      })
-
-    {:ok, _} = Zaq.System.save_image_to_text_config(changeset)
+    SystemConfigFixtures.seed_image_to_text_config(%{model: "test-model", api_key: api_key})
 
     try do
       Application.put_env(:zaq, :image_to_text_step_module, stub_module)

@@ -7,7 +7,7 @@ alias Zaq.Engine.Telemetry
 alias Zaq.Engine.Telemetry.Rollup
 alias Zaq.Ingestion.{Chunk, Document, IngestJob}
 alias Zaq.Repo
-alias Zaq.System.EmbeddingConfig
+alias Zaq.SystemConfigFixtures
 
 documents_root = Path.expand("tmp/e2e_documents")
 
@@ -43,14 +43,11 @@ File.write!(
 
 IO.puts("[e2e-bootstrap] Ensuring embedding config and chunks table")
 
-embedding_changeset =
-  EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-    endpoint: System.get_env("EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
-    model: System.get_env("EMBEDDING_MODEL", "bge-multilingual-gemma2"),
-    dimension: System.get_env("EMBEDDING_DIMENSION", "3584")
-  })
-
-{:ok, _} = Zaq.System.save_embedding_config(embedding_changeset)
+SystemConfigFixtures.seed_embedding_config(%{
+  endpoint: System.get_env("EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
+  model: System.get_env("EMBEDDING_MODEL", "bge-multilingual-gemma2"),
+  dimension: System.get_env("EMBEDDING_DIMENSION", "3584")
+})
 
 IO.puts("[e2e-bootstrap] Cleaning ingestion tables")
 Repo.delete_all(Chunk)

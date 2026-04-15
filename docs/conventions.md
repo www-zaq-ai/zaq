@@ -55,7 +55,7 @@
 - All sensitive values (API keys, tokens, passwords) must be encrypted before persistence.
 - Use `Zaq.Types.EncryptedString.encrypt/1` in the write path.
 - Never persist plaintext sensitive values — no fallback allowed.
-- Current sensitive fields: `llm.api_key`, `embedding.api_key`, `image_to_text.api_key`, `email.password`, `channel_configs.token`.
+- Current sensitive fields: `ai_provider_credentials.api_key`, `email.password`, `channel_configs.token`.
 - See `docs/services/system-config.md` for the full secret persistence checklist.
 
 ---

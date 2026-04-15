@@ -4,17 +4,10 @@ defmodule Zaq.Ingestion.AccessControlTest do
   alias Zaq.Accounts.{People, Team}
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
-  alias Zaq.System.EmbeddingConfig
+  alias Zaq.SystemConfigFixtures
 
   setup do
-    changeset =
-      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-        endpoint: "http://localhost:11434/v1",
-        model: "test-model",
-        dimension: "1536"
-      })
-
-    {:ok, _} = Zaq.System.save_embedding_config(changeset)
+    SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
     :ok
   end
 

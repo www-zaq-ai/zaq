@@ -3,7 +3,7 @@ defmodule Zaq.TestSupport.OpenAIStub do
 
   import Plug.Conn
 
-  alias Zaq.System.LLMConfig
+  alias Zaq.SystemConfigFixtures
 
   def init(opts), do: opts
 
@@ -58,10 +58,9 @@ defmodule Zaq.TestSupport.OpenAIStub do
     params =
       llm_config(endpoint, overrides)
       |> Map.new()
-      |> Map.merge(%{provider: "custom", max_context_window: 5000, distance_threshold: 1.2})
+      |> Map.merge(%{max_context_window: 5000, distance_threshold: 1.2})
 
-    changeset = LLMConfig.changeset(%LLMConfig{}, params)
-    {:ok, _} = Zaq.System.save_llm_config(changeset)
+    SystemConfigFixtures.seed_llm_config(params)
     :ok
   end
 

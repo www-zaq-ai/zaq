@@ -2,9 +2,7 @@ defmodule Zaq.Embedding.ClientTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Embedding.Client
-  alias Zaq.System
-  alias Zaq.System.EmbeddingConfig
-  alias Zaq.TestSupport.OpenAIStub
+  alias Zaq.SystemConfigFixtures
 
   defmodule RealHTTPStub do
     import Plug.Conn
@@ -27,15 +25,12 @@ defmodule Zaq.Embedding.ClientTest do
   end
 
   setup do
-    changeset =
-      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-        endpoint: "http://localhost",
-        api_key: "",
-        model: "test-model",
-        dimension: 1536
-      })
+    SystemConfigFixtures.seed_embedding_config(%{
+      endpoint: "http://localhost",
+      model: "test-model",
+      dimension: 1536
+    })
 
-    {:ok, _} = System.save_embedding_config(changeset)
     :ok
   end
 
@@ -53,15 +48,12 @@ defmodule Zaq.Embedding.ClientTest do
     end
 
     test "reads api_key from config" do
-      changeset =
-        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-          endpoint: "http://localhost",
-          api_key: "sk-test-key",
-          model: "test-model",
-          dimension: 1536
-        })
-
-      {:ok, _} = System.save_embedding_config(changeset)
+      SystemConfigFixtures.seed_embedding_config(%{
+        endpoint: "http://localhost",
+        api_key: "sk-test-key",
+        model: "test-model",
+        dimension: 1536
+      })
 
       assert Client.api_key() == "sk-test-key"
     end
@@ -249,15 +241,12 @@ defmodule Zaq.Embedding.ClientTest do
 
       Application.put_env(:zaq, Client, req_options: [])
 
-      changeset =
-        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-          endpoint: unavailable_local_url(),
-          api_key: "",
-          model: "test-model",
-          dimension: 1536
-        })
-
-      {:ok, _} = System.save_embedding_config(changeset)
+      SystemConfigFixtures.seed_embedding_config(%{
+        endpoint: unavailable_local_url(),
+        api_key: "",
+        model: "test-model",
+        dimension: 1536
+      })
 
       assert {:error, "HTTP request failed:" <> _} = Client.embed("test")
     end
@@ -287,15 +276,12 @@ defmodule Zaq.Embedding.ClientTest do
 
       endpoint = "http://127.0.0.1:#{port}"
 
-      changeset =
-        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-          endpoint: endpoint,
-          api_key: "",
-          model: "test-model",
-          dimension: 1536
-        })
-
-      {:ok, _} = System.save_embedding_config(changeset)
+      SystemConfigFixtures.seed_embedding_config(%{
+        endpoint: endpoint,
+        api_key: "",
+        model: "test-model",
+        dimension: 1536
+      })
 
       assert {:error, {:rate_limited, 9, %{status: 429}}} = Client.embed("test")
     end
@@ -314,15 +300,12 @@ defmodule Zaq.Embedding.ClientTest do
     end
 
     test "includes authorization header when api_key is set" do
-      changeset =
-        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-          endpoint: "http://localhost",
-          api_key: "sk-test-key",
-          model: "test-model",
-          dimension: 1536
-        })
-
-      {:ok, _} = System.save_embedding_config(changeset)
+      SystemConfigFixtures.seed_embedding_config(%{
+        endpoint: "http://localhost",
+        api_key: "sk-test-key",
+        model: "test-model",
+        dimension: 1536
+      })
 
       Req.Test.stub(Client, fn conn ->
         [auth] = Plug.Conn.get_req_header(conn, "authorization")

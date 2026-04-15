@@ -14,6 +14,7 @@ persisted in `system_configs`.
 
 ### LLM Keys
 
+- `llm.credential_id` (required for new saves)
 - `llm.provider`
 - `llm.endpoint`
 - `llm.api_key`
@@ -27,6 +28,7 @@ persisted in `system_configs`.
 
 ### Embedding Keys
 
+- `embedding.credential_id` (required for new saves)
 - `embedding.provider`
 - `embedding.endpoint`
 - `embedding.api_key`
@@ -37,6 +39,7 @@ persisted in `system_configs`.
 
 ### Image-to-Text Keys
 
+- `image_to_text.credential_id` (required for new saves)
 - `image_to_text.provider`
 - `image_to_text.endpoint`
 - `image_to_text.api_key`
@@ -44,6 +47,9 @@ persisted in `system_configs`.
 
 These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
 `IMAGE_TO_TEXT_*` environment variables.
+
+`provider` / `endpoint` / `api_key` keys are kept as read-only compatibility
+fallback for installations created before AI credentials.
 
 ## Secret Persistence Standard (Strict, Global)
 
@@ -58,9 +64,7 @@ There is no fallback to plaintext persistence.
 
 ### Current sensitive fields
 
-- `llm.api_key`
-- `embedding.api_key`
-- `image_to_text.api_key`
+- `ai_provider_credentials.api_key`
 - `email.password`
 - `channel_configs.token`
 

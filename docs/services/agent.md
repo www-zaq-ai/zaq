@@ -171,6 +171,7 @@ lib/zaq/agent/
 
 LLM keys stored in System Config:
 
+- `llm.credential_id`
 - `llm.provider`
 - `llm.endpoint`
 - `llm.api_key`
@@ -181,6 +182,9 @@ LLM keys stored in System Config:
 - `llm.supports_json_mode`
 - `llm.max_context_window`
 - `llm.distance_threshold`
+
+`llm.provider`, `llm.endpoint`, and `llm.api_key` are retained for read-only
+backward compatibility. New writes must use `llm.credential_id`.
 
 ---
 

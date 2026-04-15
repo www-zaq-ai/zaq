@@ -7,7 +7,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob, IngestWorker}
   alias Zaq.Repo
-  alias Zaq.System.EmbeddingConfig
+  alias Zaq.SystemConfigFixtures
 
   defmodule ChunkPipelineProcessor do
     alias Zaq.Ingestion.{Chunk, DocumentChunker}
@@ -47,14 +47,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   end
 
   setup do
-    changeset =
-      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-        endpoint: "http://localhost:11434/v1",
-        model: "test-model",
-        dimension: "1536"
-      })
-
-    {:ok, _} = Zaq.System.save_embedding_config(changeset)
+    SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
     Mox.set_mox_global()
     :ok
   end

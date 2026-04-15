@@ -11,17 +11,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, IngestJob}
   alias Zaq.Repo
-  alias Zaq.System.EmbeddingConfig
+  alias Zaq.SystemConfigFixtures
 
   setup do
-    changeset =
-      EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
-        endpoint: "http://localhost:11434/v1",
-        model: "test-model",
-        dimension: "1536"
-      })
-
-    {:ok, _} = Zaq.System.save_embedding_config(changeset)
+    SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
     :ok
   end
 
