@@ -90,7 +90,7 @@ defmodule Zaq.MixProject do
       {:ex_doc, "~> 0.40", only: [:dev, :docs], runtime: false},
       {:excoveralls, "~> 0.18.5", only: :test},
       {:pgvector, "~> 0.3.1"},
-      {:langchain, github: "Geeks-Solutions/langchain", branch: "main"},
+      {:langchain, "~> 0.8"},
       {:mox, "~> 1.2", only: :test},
       {:oban, "~> 2.20.3"},
       {:fresh, "~> 0.4.4"},
