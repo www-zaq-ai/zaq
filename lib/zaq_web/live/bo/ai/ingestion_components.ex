@@ -778,7 +778,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               class="border-b border-black/[0.04] last:border-0 zaq-bg-accent-faint"
             >
               <td></td>
-              <td class="px-4 py-1.5 overflow-hidden max-w-0" colspan="4">
+              <td class="px-4 py-1.5 overflow-hidden max-w-0" colspan="5">
                 <button
                   type="button"
                   phx-click="open_preview"
