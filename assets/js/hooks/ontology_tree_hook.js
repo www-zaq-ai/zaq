@@ -201,6 +201,20 @@ const OntologyTree = {
       const fontWeight = d.type === "business" ? "700" : "600";
       const nameColor = d.type === "business" ? colors.accent : nodeTitleColor;
       name.style.cssText = `font-weight:${fontWeight}; font-size:${fontSize}; line-height:1.3; letter-spacing:-0.01em; color:${nameColor}; font-family:${uiFont};`;
+      // Avatar circle for person nodes (appended before name)
+      if (d.type === "person") {
+        const initials = (d.name || "?")
+          .split(" ")
+          .slice(0, 2)
+          .map((w) => w[0] || "")
+          .join("")
+          .toUpperCase();
+        const avatar = document.createElement("div");
+        avatar.style.cssText = `width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg, ${colors.accent}30, ${colors.accent}18); border:1.5px solid ${colors.accent}50; display:flex; align-items:center; justify-content:center; margin:0 auto 0.4rem; font-size:0.65rem; font-weight:700; color:${colors.accent}; font-family:${uiFont}; letter-spacing:0.03em;`;
+        avatar.textContent = initials;
+        node.appendChild(avatar);
+      }
+
       name.textContent = d.name;
       node.appendChild(name);
 
@@ -226,6 +240,27 @@ const OntologyTree = {
           if (d.keywords && d.keywords.length) {
             html += `<br><span style="display:inline-block; margin-top:0.35rem; font-family:${monoFont}; font-size:0.58rem; color:${colorMap.domain.accent}; opacity:0.85;">${d.keywords.join(" · ")}</span>`;
           }
+          tooltip.innerHTML = html;
+          tooltip.style.opacity = "1";
+          tooltip.style.transform = "translateY(0)";
+        });
+        node.addEventListener("mousemove", (e) => {
+          tooltip.style.left = e.clientX + 14 + "px";
+          tooltip.style.top = e.clientY + 14 + "px";
+        });
+        node.addEventListener("mouseleave", () => {
+          tooltip.style.opacity = "0";
+          tooltip.style.transform = "translateY(4px)";
+        });
+      }
+
+      // Tooltip for people
+      if (d.type === "person") {
+        node.addEventListener("mouseenter", (e) => {
+          const statusColor = d.status === "inactive" ? "#F87171" : "#34D399";
+          let html = `<strong style="color:${nodeTitleColor}; font-weight:600;">${d.name}</strong>`;
+          if (d.role) html += `<br><span style="font-family:${monoFont}; font-size:0.62rem; color:${colorMap.person.accent};">${d.role}</span>`;
+          html += `<br><span style="display:inline-flex; align-items:center; gap:0.3rem; margin-top:0.25rem; font-size:0.58rem; color:${statusColor};">● ${d.status || "active"}</span>`;
           tooltip.innerHTML = html;
           tooltip.style.opacity = "1";
           tooltip.style.transform = "translateY(0)";
