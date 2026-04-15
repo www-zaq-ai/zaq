@@ -20,6 +20,7 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
         logprobs_content
         |> Enum.flat_map(fn
           %{"logprob" => logprob} when is_number(logprob) -> [logprob_to_prob(logprob)]
+          %{logprob: logprob} when is_number(logprob) -> [logprob_to_prob(logprob)]
           _ -> []
         end)
 
@@ -37,7 +38,7 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
   @spec confidence_from_metadata(term(), boolean()) ::
           {:ok, float()} | {:error, confidence_error()}
   def confidence_from_metadata(metadata, round \\ false) do
-    logprobs_content = get_in(metadata || %{}, [:logprobs, "content"])
+    logprobs_content = extract_logprobs_content(metadata)
     calculate_confidence(logprobs_content, round)
   end
 
@@ -52,6 +53,21 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
   defp maybe_round(value, true), do: Float.round(value, 2)
   defp maybe_round(value, false), do: value
 
+  defp extract_logprobs_content(metadata) when is_map(metadata) do
+    metadata
+    |> extract_logprobs()
+    |> case do
+      %{} = logprobs -> Map.get(logprobs, :content) || Map.get(logprobs, "content")
+      logprobs when is_list(logprobs) -> logprobs
+      _ -> nil
+    end
+  end
+
+  defp extract_logprobs_content(_), do: nil
+
+  defp extract_logprobs(metadata),
+    do: Map.get(metadata, :logprobs) || Map.get(metadata, "logprobs")
+
   # Get per-token confidence with tokens
   @spec token_confidences(term()) :: list()
   def token_confidences(logprobs_content) when not is_list(logprobs_content), do: []
@@ -61,9 +77,18 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
       %{"logprob" => logprob} = item when is_number(logprob) ->
         [
           %{
-            token: item["token"],
+            token: item["token"] || item[:token],
             confidence: logprob_to_prob(logprob),
-            alternatives: parse_alternatives(item["top_logprobs"])
+            alternatives: parse_alternatives(item["top_logprobs"] || item[:top_logprobs])
+          }
+        ]
+
+      %{logprob: logprob} = item when is_number(logprob) ->
+        [
+          %{
+            token: item[:token] || item["token"],
+            confidence: logprob_to_prob(logprob),
+            alternatives: parse_alternatives(item[:top_logprobs] || item["top_logprobs"])
           }
         ]
 
@@ -77,7 +102,10 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
   defp parse_alternatives(alternatives) do
     Enum.flat_map(alternatives, fn
       %{"logprob" => logprob} = alt when is_number(logprob) ->
-        [%{token: alt["token"], confidence: logprob_to_prob(logprob)}]
+        [%{token: alt["token"] || alt[:token], confidence: logprob_to_prob(logprob)}]
+
+      %{logprob: logprob} = alt when is_number(logprob) ->
+        [%{token: alt[:token] || alt["token"], confidence: logprob_to_prob(logprob)}]
 
       _ ->
         []
