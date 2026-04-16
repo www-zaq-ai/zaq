@@ -187,7 +187,10 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.getByText(name).click()
+    await page.locator(SEL.filterName).fill(name)
+    const personRow = page.getByText(name).first()
+    await expect(personRow).toBeVisible()
+    await personRow.click()
     await page.locator(SEL.addChannelButton).click()
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
 

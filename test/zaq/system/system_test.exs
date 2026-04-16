@@ -3,6 +3,7 @@ defmodule Zaq.SystemTest do
 
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
+  alias Zaq.System
   alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig, TelemetryConfig}
 
   defp credential_fixture(attrs \\ %{}) do
