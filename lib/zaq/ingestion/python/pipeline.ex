@@ -68,6 +68,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
 
     case result do
       {:ok, md_path} ->
+        strip_local_image_refs(md_path)
         File.rm_rf!(images_dir)
         {:ok, md_path}
 
@@ -120,6 +121,24 @@ defmodule Zaq.Ingestion.Python.Pipeline do
     else
       Logger.info("[Pipeline] No descriptions.json found — skipping injection")
       {:ok, :skipped}
+    end
+  end
+
+  # Removes markdown image references pointing to local absolute paths (e.g. /tmp/...).
+  # These are left behind when the image-to-text step is skipped (no API key).
+  # Keeping them causes 404s in the preview because Phoenix does not serve /tmp.
+  defp strip_local_image_refs(md_path) do
+    case File.read(md_path) do
+      {:ok, content} ->
+        stripped = Regex.replace(~r/!\[[^\]]*\]\(\/[^)]+\)\n?/, content, "")
+
+        if stripped != content do
+          File.write!(md_path, stripped)
+          Logger.info("[Pipeline] Stripped local image references from #{md_path}")
+        end
+
+      {:error, reason} ->
+        Logger.warning("[Pipeline] Could not strip image refs from #{md_path}: #{inspect(reason)}")
     end
   end
 
