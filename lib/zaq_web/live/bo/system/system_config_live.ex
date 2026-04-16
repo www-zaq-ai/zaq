@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:page_title, "System Configuration")
      |> assign(:active_tab, :telemetry)
      |> assign(:ai_credential_modal, false)
+     |> assign(:ai_credential_delete_confirm_modal, false)
      |> assign(:ai_credential_action, :new)
      |> assign(:ai_credential_id, nil)
      |> assign(:embedding_unlock_modal, false)
@@ -264,7 +265,47 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("close_ai_credential_modal", _params, socket) do
-    {:noreply, assign(socket, :ai_credential_modal, false)}
+    {:noreply,
+     socket
+     |> assign(:ai_credential_modal, false)
+     |> assign(:ai_credential_delete_confirm_modal, false)}
+  end
+
+  def handle_event("open_delete_ai_credential_confirm", _params, socket) do
+    {:noreply, assign(socket, :ai_credential_delete_confirm_modal, true)}
+  end
+
+  def handle_event("cancel_delete_ai_credential", _params, socket) do
+    {:noreply, assign(socket, :ai_credential_delete_confirm_modal, false)}
+  end
+
+  def handle_event("confirm_delete_ai_credential", _params, socket) do
+    result =
+      socket.assigns.ai_credential_id
+      |> System.get_ai_provider_credential!()
+      |> System.delete_ai_provider_credential()
+
+    case result do
+      {:ok, _credential} ->
+        {:noreply,
+         socket
+         |> assign(:ai_credential_delete_confirm_modal, false)
+         |> assign(:ai_credential_modal, false)
+         |> load_ai_credentials()
+         |> load_llm_form()
+         |> load_embedding_form()
+         |> load_image_to_text_form()
+         |> put_flash(:info, "AI credential deleted.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         socket
+         |> assign(:ai_credential_delete_confirm_modal, false)
+         |> assign(
+           :ai_credential_form,
+           to_form(Map.put(changeset, :action, :validate), as: :ai_credential)
+         )}
+    end
   end
 
   def handle_event("validate_ai_credential", %{"ai_credential" => params}, socket) do
@@ -490,14 +531,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp provider_from_credential_id(credential_id) when credential_id in [nil, ""], do: "custom"
 
-  defp provider_from_credential_id(credential_id) do
-    case System.get_ai_provider_credential!(credential_id) do
+  defp provider_from_credential_id(credential_id) when is_binary(credential_id) do
+    case Integer.parse(credential_id) do
+      {id, ""} -> provider_from_credential_id(id)
+      _ -> "custom"
+    end
+  end
+
+  defp provider_from_credential_id(credential_id) when is_integer(credential_id) do
+    case System.get_ai_provider_credential(credential_id) do
       %{provider: provider} when is_binary(provider) -> provider
       _ -> "custom"
     end
-  rescue
-    Ecto.NoResultsError -> "custom"
   end
+
+  defp provider_from_credential_id(_), do: "custom"
 
   defp ai_credential_for_action(:edit, id), do: System.get_ai_provider_credential!(id)
   defp ai_credential_for_action(_, _), do: %Zaq.System.AIProviderCredential{}
@@ -1317,6 +1365,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   attr :credentials, :list, required: true
   attr :form, :any, required: true
   attr :modal, :boolean, required: true
+  attr :delete_confirm_modal, :boolean, default: false
   attr :action, :atom, required: true
 
   defp ai_credentials_panel(assigns) do
@@ -1390,6 +1439,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           phx-submit="save_ai_credential"
           class="space-y-4"
         >
+          <p
+            :for={{msg, opts} <- Keyword.get_values(@form.errors, :base)}
+            class="font-mono text-[0.72rem] text-red-500 bg-red-50 border border-red-100 rounded-xl px-3 py-2"
+          >
+            {translate_error({msg, opts})}
+          </p>
+
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
@@ -1557,22 +1613,44 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
             >{@form[:description].value}</textarea>
           </div>
 
-          <div class="flex justify-end gap-3 pt-2">
+          <div class="flex items-center justify-between gap-3 pt-2">
             <button
+              :if={@action == :edit}
               type="button"
-              phx-click="close_ai_credential_modal"
-              class="font-mono text-[0.8rem] px-4 py-2 rounded-lg border border-black/10 text-black/60 hover:bg-black/[0.04]"
+              phx-click="open_delete_ai_credential_confirm"
+              class="font-mono text-[0.8rem] px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
             >
-              Cancel
+              Delete credential
             </button>
-            <button
-              type="submit"
-              class="font-mono text-[0.8rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3]"
-            >
-              Save credential
-            </button>
+
+            <div class="ml-auto flex items-center gap-3">
+              <button
+                type="button"
+                phx-click="close_ai_credential_modal"
+                class="font-mono text-[0.8rem] px-4 py-2 rounded-lg border border-black/10 text-black/60 hover:bg-black/[0.04]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="font-mono text-[0.8rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3]"
+              >
+                Save credential
+              </button>
+            </div>
           </div>
         </.form>
+
+        <ZaqWeb.Components.BOModal.confirm_dialog
+          :if={@delete_confirm_modal}
+          id="ai-credential-delete-confirm"
+          cancel_event="cancel_delete_ai_credential"
+          confirm_event="confirm_delete_ai_credential"
+          title="Delete AI Credential?"
+          message="This action removes the credential. Deletion is blocked if the credential is currently in use."
+          confirm_label="Delete"
+          cancel_label="Cancel"
+        />
       </div>
     </div>
     """

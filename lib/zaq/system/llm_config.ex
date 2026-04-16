@@ -1,5 +1,18 @@
 defmodule Zaq.System.LLMConfig do
-  @moduledoc "Embedded schema for validating LLM configuration."
+  @moduledoc """
+  Embedded schema for validating LLM configuration.
+
+  Connection fields (provider, endpoint, api_key) are typically sourced from
+  an associated AIProviderCredential at runtime via merge_connection_fields_from_credential/1.
+  Only credential_id and model-specific settings are persisted.
+
+  Validates:
+  - credential_id is required (refers to AIProviderCredential)
+  - temperature in 0.0..2.0
+  - top_p in 0.0..1.0
+  - max_context_window > 0
+  - distance_threshold > 0.0
+  """
 
   use Ecto.Schema
   import Ecto.Changeset
@@ -23,9 +36,6 @@ defmodule Zaq.System.LLMConfig do
     config
     |> cast(attrs, [
       :credential_id,
-      :provider,
-      :endpoint,
-      :api_key,
       :model,
       :temperature,
       :top_p,

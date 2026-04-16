@@ -21,9 +21,6 @@ defmodule Zaq.System.EmbeddingConfig do
     config
     |> cast(attrs, [
       :credential_id,
-      :provider,
-      :endpoint,
-      :api_key,
       :model,
       :dimension,
       :chunk_min_tokens,

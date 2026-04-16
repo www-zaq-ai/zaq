@@ -14,7 +14,7 @@ defmodule Zaq.System.ImageToTextConfig do
 
   def changeset(config, attrs) do
     config
-    |> cast(attrs, [:credential_id, :provider, :endpoint, :api_key, :model])
+    |> cast(attrs, [:credential_id, :model])
     |> validate_required([:credential_id, :model])
   end
 end

@@ -174,6 +174,64 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert render(view) =~ "Edit AI Credential"
       assert render(view) =~ "Primary"
     end
+
+    test "deletes an unused credential from edit modal with confirmation", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "Disposable",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element("button[phx-click='open_delete_ai_credential_confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#ai-credential-delete-confirm")
+
+      view
+      |> element("button[phx-click='confirm_delete_ai_credential']")
+      |> render_click()
+
+      assert render(view) =~ "AI credential deleted."
+      refute render(view) =~ "Disposable"
+    end
+
+    test "cannot delete credential currently in use", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "In Use",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      System.set_config("llm.credential_id", credential.id)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element("button[phx-click='open_delete_ai_credential_confirm']")
+      |> render_click()
+
+      view
+      |> element("button[phx-click='confirm_delete_ai_credential']")
+      |> render_click()
+
+      assert render(view) =~ "cannot delete credential currently used by system configuration"
+
+      id = credential.id
+      assert %Zaq.System.AIProviderCredential{id: ^id} = System.get_ai_provider_credential!(id)
+    end
   end
 
   describe "LLM config with credential" do

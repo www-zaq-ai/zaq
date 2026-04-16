@@ -14,10 +14,7 @@ persisted in `system_configs`.
 
 ### LLM Keys
 
-- `llm.credential_id` (required for new saves)
-- `llm.provider`
-- `llm.endpoint`
-- `llm.api_key`
+- `llm.credential_id`
 - `llm.model`
 - `llm.temperature`
 - `llm.top_p`
@@ -28,10 +25,7 @@ persisted in `system_configs`.
 
 ### Embedding Keys
 
-- `embedding.credential_id` (required for new saves)
-- `embedding.provider`
-- `embedding.endpoint`
-- `embedding.api_key`
+- `embedding.credential_id`
 - `embedding.model`
 - `embedding.dimension`
 - `embedding.chunk_min_tokens`
@@ -39,17 +33,14 @@ persisted in `system_configs`.
 
 ### Image-to-Text Keys
 
-- `image_to_text.credential_id` (required for new saves)
-- `image_to_text.provider`
-- `image_to_text.endpoint`
-- `image_to_text.api_key`
+- `image_to_text.credential_id`
 - `image_to_text.model`
 
 These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
 `IMAGE_TO_TEXT_*` environment variables.
 
-`provider` / `endpoint` / `api_key` keys are kept as read-only compatibility
-fallback for installations created before AI credentials.
+Connection fields (`provider`, `endpoint`, `api_key`) are sourced from
+`ai_provider_credentials` referenced by each `*.credential_id`.
 
 ## Secret Persistence Standard (Strict, Global)
 

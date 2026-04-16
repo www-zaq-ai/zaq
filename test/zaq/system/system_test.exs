@@ -5,24 +5,7 @@ defmodule Zaq.SystemTest do
   alias Zaq.Ingestion.Chunk
   alias Zaq.System
   alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig, TelemetryConfig}
-
-  defp credential_fixture(attrs \\ %{}) do
-    unique = :erlang.unique_integer([:positive])
-
-    params =
-      Map.merge(
-        %{
-          name: "Credential #{unique}",
-          provider: "openai",
-          endpoint: "https://api.openai.com/v1",
-          sovereign: false
-        },
-        attrs
-      )
-
-    {:ok, credential} = System.create_ai_provider_credential(params)
-    credential
-  end
+  alias Zaq.SystemConfigFixtures
 
   describe "get_config/1 and set_config/2" do
     test "returns nil for unknown key" do
@@ -61,8 +44,14 @@ defmodule Zaq.SystemTest do
     end
 
     test "returns stored values from DB" do
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
       System.set_config("llm.model", "gpt-4o")
-      System.set_config("llm.endpoint", "https://api.openai.com/v1")
+      System.set_config("llm.credential_id", credential.id)
       System.set_config("llm.temperature", "0.7")
       System.set_config("llm.top_p", "0.8")
       System.set_config("llm.max_context_window", "8000")
@@ -77,16 +66,13 @@ defmodule Zaq.SystemTest do
       assert config.distance_threshold == 1.0
     end
 
-    test "keeps stored fallback connection fields when credential no longer exists" do
+    test "falls back to defaults when credential no longer exists" do
       System.set_config("llm.credential_id", 999_999)
-      System.set_config("llm.provider", "fallback-provider")
-      System.set_config("llm.endpoint", "https://fallback-llm.example/v1")
-      System.set_config("llm.api_key", "")
 
       config = System.get_llm_config()
       assert config.credential_id == 999_999
-      assert config.provider == "fallback-provider"
-      assert config.endpoint == "https://fallback-llm.example/v1"
+      assert config.provider == "custom"
+      assert config.endpoint == "http://localhost:11434/v1"
     end
 
     test "falls back to defaults for blank and invalid float values" do
@@ -101,7 +87,11 @@ defmodule Zaq.SystemTest do
 
   describe "save_llm_config/1" do
     test "persists valid changeset to DB" do
-      credential = credential_fixture()
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
 
       changeset =
         LLMConfig.changeset(%LLMConfig{}, %{
@@ -121,7 +111,10 @@ defmodule Zaq.SystemTest do
 
     test "returns merged connection fields from selected credential" do
       credential =
-        credential_fixture(%{provider: "anthropic", endpoint: "https://api.anthropic.com/v1"})
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "anthropic",
+          endpoint: "https://api.anthropic.com/v1"
+        })
 
       System.set_config("llm.credential_id", credential.id)
       System.set_config("llm.model", "claude-sonnet-4-20250514")
@@ -159,8 +152,14 @@ defmodule Zaq.SystemTest do
     end
 
     test "returns stored values from DB" do
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
       System.set_config("embedding.model", "text-embedding-ada-002")
-      System.set_config("embedding.endpoint", "https://api.openai.com/v1")
+      System.set_config("embedding.credential_id", credential.id)
       System.set_config("embedding.dimension", "1536")
       System.set_config("embedding.chunk_min_tokens", "300")
       System.set_config("embedding.chunk_max_tokens", "700")
@@ -173,22 +172,23 @@ defmodule Zaq.SystemTest do
       assert config.chunk_max_tokens == 700
     end
 
-    test "keeps stored fallback connection fields when credential no longer exists" do
+    test "falls back to defaults when credential no longer exists" do
       System.set_config("embedding.credential_id", 999_998)
-      System.set_config("embedding.provider", "fallback-provider")
-      System.set_config("embedding.endpoint", "https://fallback-embedding.example/v1")
-      System.set_config("embedding.api_key", "")
 
       config = System.get_embedding_config()
       assert config.credential_id == 999_998
-      assert config.provider == "fallback-provider"
-      assert config.endpoint == "https://fallback-embedding.example/v1"
+      assert config.provider == "custom"
+      assert config.endpoint == "http://localhost:11434/v1"
     end
   end
 
   describe "save_embedding_config/1" do
     test "persists valid changeset to DB" do
-      credential = credential_fixture()
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
 
       changeset =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
@@ -211,7 +211,10 @@ defmodule Zaq.SystemTest do
 
     test "returns merged connection fields from selected credential" do
       credential =
-        credential_fixture(%{provider: "openai", endpoint: "https://proxy.example.com/v1"})
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://proxy.example.com/v1"
+        })
 
       System.set_config("embedding.credential_id", credential.id)
       System.set_config("embedding.model", "text-embedding-3-large")
@@ -252,7 +255,11 @@ defmodule Zaq.SystemTest do
     end
 
     test "creates chunks table when embedding model is first configured" do
-      credential = credential_fixture()
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
 
       refute Chunk.table_exists?()
 
@@ -268,7 +275,7 @@ defmodule Zaq.SystemTest do
     end
 
     test "does not reset chunks table when model is unchanged" do
-      credential = credential_fixture()
+      credential = SystemConfigFixtures.ai_credential_fixture()
 
       changeset =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
@@ -295,7 +302,7 @@ defmodule Zaq.SystemTest do
     end
 
     test "drops and recreates chunks table when model changes" do
-      credential = credential_fixture()
+      credential = SystemConfigFixtures.ai_credential_fixture()
 
       changeset_a =
         EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
@@ -348,30 +355,37 @@ defmodule Zaq.SystemTest do
     end
 
     test "returns stored values from DB" do
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
       System.set_config("image_to_text.model", "gpt-4o")
-      System.set_config("image_to_text.endpoint", "https://api.openai.com/v1")
+      System.set_config("image_to_text.credential_id", credential.id)
 
       config = System.get_image_to_text_config()
       assert config.model == "gpt-4o"
       assert config.endpoint == "https://api.openai.com/v1"
     end
 
-    test "keeps stored fallback connection fields when credential no longer exists" do
+    test "falls back to defaults when credential no longer exists" do
       System.set_config("image_to_text.credential_id", 999_997)
-      System.set_config("image_to_text.provider", "fallback-provider")
-      System.set_config("image_to_text.endpoint", "https://fallback-vision.example/v1")
-      System.set_config("image_to_text.api_key", "")
 
       config = System.get_image_to_text_config()
       assert config.credential_id == 999_997
-      assert config.provider == "fallback-provider"
-      assert config.endpoint == "https://fallback-vision.example/v1"
+      assert config.provider == "custom"
+      assert config.endpoint == "http://localhost:11434/v1"
     end
   end
 
   describe "save_image_to_text_config/1" do
     test "persists valid changeset to DB" do
-      credential = credential_fixture()
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
 
       changeset =
         ImageToTextConfig.changeset(%ImageToTextConfig{}, %{
@@ -390,7 +404,10 @@ defmodule Zaq.SystemTest do
 
     test "returns merged connection fields from selected credential" do
       credential =
-        credential_fixture(%{provider: "openai", endpoint: "https://vision.example.com/v1"})
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://vision.example.com/v1"
+        })
 
       System.set_config("image_to_text.credential_id", credential.id)
       System.set_config("image_to_text.model", "gpt-4o")

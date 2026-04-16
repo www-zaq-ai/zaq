@@ -144,4 +144,25 @@ defmodule Zaq.System.AIProviderCredentialTest do
     assert loaded.api_key == "first-secret-string"
     assert loaded.endpoint == "https://api.openai.com/v3"
   end
+
+  test "cannot delete credential currently used by system configuration" do
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: "In Use Credential",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1"
+             })
+
+    System.set_config("llm.credential_id", credential.id)
+
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             System.delete_ai_provider_credential(credential)
+
+    assert "cannot delete credential currently used by system configuration" in errors_on(
+             changeset
+           ).base
+
+    id = credential.id
+    assert %AIProviderCredential{id: ^id} = System.get_ai_provider_credential!(id)
+  end
 end

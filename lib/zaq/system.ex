@@ -26,11 +26,11 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_read_fields ~w(credential_id provider endpoint api_key model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
+  @llm_read_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
   @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
-  @embedding_read_fields ~w(credential_id provider endpoint api_key model dimension chunk_min_tokens chunk_max_tokens)
+  @embedding_read_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
-  @image_to_text_read_fields ~w(credential_id provider endpoint api_key model)
+  @image_to_text_read_fields ~w(credential_id model)
   @image_to_text_write_fields ~w(credential_id model)
 
   # ── Generic key/value ─────────────────────────────────────────────────
@@ -109,9 +109,9 @@ defmodule Zaq.System do
     config =
       %LLMConfig{
         credential_id: parse_int(raw["credential_id"], nil),
-        provider: raw["provider"] || "custom",
-        endpoint: raw["endpoint"] || "http://localhost:11434/v1",
-        api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+        provider: "custom",
+        endpoint: "http://localhost:11434/v1",
+        api_key: "",
         model: raw["model"] || "llama-3.3-70b-instruct",
         temperature: parse_float(raw["temperature"], 0.0),
         top_p: parse_float(raw["top_p"], 0.9),
@@ -151,9 +151,9 @@ defmodule Zaq.System do
     config =
       %EmbeddingConfig{
         credential_id: parse_int(raw["credential_id"], nil),
-        provider: raw["provider"] || "custom",
-        endpoint: raw["endpoint"] || "http://localhost:11434/v1",
-        api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+        provider: "custom",
+        endpoint: "http://localhost:11434/v1",
+        api_key: "",
         model: raw["model"] || "bge-multilingual-gemma2",
         dimension: parse_int(raw["dimension"], 3584),
         chunk_min_tokens: parse_int(raw["chunk_min_tokens"], 400),
@@ -196,9 +196,9 @@ defmodule Zaq.System do
     config =
       %ImageToTextConfig{
         credential_id: parse_int(raw["credential_id"], nil),
-        provider: raw["provider"] || "custom",
-        endpoint: raw["endpoint"] || "http://localhost:11434/v1",
-        api_key: EncryptedString.decrypt!(raw["api_key"]) || "",
+        provider: "custom",
+        endpoint: "http://localhost:11434/v1",
+        api_key: "",
         model: raw["model"] || "pixtral-12b-2409"
       }
 
@@ -227,6 +227,9 @@ defmodule Zaq.System do
   @doc "Gets an AI provider credential by id, raising if not found."
   def get_ai_provider_credential!(id), do: Repo.get!(AIProviderCredential, id)
 
+  @doc "Gets an AI provider credential by id, returning `nil` when not found."
+  def get_ai_provider_credential(id), do: Repo.get(AIProviderCredential, id)
+
   @doc "Returns a changeset for AI provider credentials."
   def change_ai_provider_credential(%AIProviderCredential{} = credential, attrs \\ %{}) do
     AIProviderCredential.changeset(credential, attrs)
@@ -248,9 +251,21 @@ defmodule Zaq.System do
     |> save_ai_provider_credential(:update)
   end
 
-  @doc "Deletes an AI provider credential."
-  def delete_ai_provider_credential(%AIProviderCredential{} = credential),
-    do: Repo.delete(credential)
+  @doc "Deletes an AI provider credential unless referenced by system configs."
+  def delete_ai_provider_credential(%AIProviderCredential{} = credential) do
+    case credential_usage_keys(credential.id) do
+      [] ->
+        Repo.delete(credential)
+
+      _in_use_keys ->
+        {:error,
+         Ecto.Changeset.add_error(
+           Ecto.Changeset.change(credential),
+           :base,
+           "cannot delete credential currently used by system configuration"
+         )}
+    end
+  end
 
   defp save_ai_provider_credential(%Ecto.Changeset{} = changeset, operation) do
     case encrypt_secret_field(changeset, :api_key, Ecto.Changeset.get_change(changeset, :api_key)) do
@@ -306,7 +321,12 @@ defmodule Zaq.System do
     end
   end
 
-  defp persist_embedding_field("api_key", value), do: set_config("embedding.api_key", value)
+  defp credential_usage_keys(id) do
+    id_value = to_string(id)
+
+    ["llm.credential_id", "embedding.credential_id", "image_to_text.credential_id"]
+    |> Enum.filter(fn key -> get_config(key) == id_value end)
+  end
 
   defp persist_embedding_field(field, value), do: set_config("embedding.#{field}", value)
 
@@ -326,7 +346,6 @@ defmodule Zaq.System do
 
   defp build_embedding_multi(new_config, encrypted_api_key, saved_model) do
     @embedding_write_fields
-    |> Enum.reject(&(&1 == "api_key" and encrypted_api_key == :skip))
     |> Enum.reduce(Ecto.Multi.new(), fn field, multi ->
       value = encrypted_field_value(field, new_config, encrypted_api_key)
 
