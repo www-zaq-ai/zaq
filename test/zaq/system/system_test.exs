@@ -1,13 +1,9 @@
 defmodule Zaq.SystemTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.Chunk
-  alias Zaq.System
-  alias Zaq.System.EmbeddingConfig
-  alias Zaq.System.ImageToTextConfig
-  alias Zaq.System.LLMConfig
-  alias Zaq.System.TelemetryConfig
   alias Zaq.Engine.Telemetry.Collector
+  alias Zaq.Ingestion.Chunk
+  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig, TelemetryConfig}
 
   defp credential_fixture(attrs \\ %{}) do
     unique = :erlang.unique_integer([:positive])
