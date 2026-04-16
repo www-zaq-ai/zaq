@@ -28,21 +28,22 @@ defmodule Zaq.Ingestion.Python.Runner do
 
     Logger.info("[Python.Runner] Starting: #{script_name} #{Enum.join(args, " ")}")
 
-    try do
-      port =
-        Port.open({:spawn_executable, python}, [
-          :binary,
-          :exit_status,
-          {:line, 16_384},
-          {:args, [script_path | args]},
-          :stderr_to_stdout
-        ])
+    case System.find_executable(python) do
+      nil ->
+        Logger.error("[Python.Runner] Python executable not found: #{python}")
+        {:error, %{exit_code: :enoent, output: "python executable not found: #{python}"}}
 
-      collect_output(port, _partial = "", _lines = [])
-    rescue
-      e in ErlangError ->
-        Logger.error("[Python.Runner] Failed to start: #{inspect(e.original)}")
-        {:error, %{exit_code: :enoent, output: "could not start python: #{inspect(e.original)}"}}
+      resolved ->
+        port =
+          Port.open({:spawn_executable, resolved}, [
+            :binary,
+            :exit_status,
+            {:line, 16_384},
+            {:args, [script_path | args]},
+            :stderr_to_stdout
+          ])
+
+        collect_output(port, _partial = "", _lines = [])
     end
   end
 
