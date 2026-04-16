@@ -1,6 +1,8 @@
 defmodule Zaq.Ingestion.Python.RunnerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   @moduletag capture_log: true
 
   alias Zaq.Ingestion.Python.Runner
@@ -131,6 +133,102 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
         result = Runner.run("__nonexistent_test_script__.py", [])
         assert {:error, %{exit_code: code, output: _}} = result
         assert is_integer(code)
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # run/2 — default args
+  # ---------------------------------------------------------------------------
+
+  describe "run/2 default args" do
+    test "accepts a single argument (uses [] default for args)" do
+      # Calling run/1 must not raise — the second arg defaults to [].
+      if System.find_executable(Runner.python_executable()) != nil do
+        result = Runner.run("__nonexistent_default_args_test__.py")
+        assert match?({:error, _}, result)
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # collect_output — :noeol (partial line) reassembly
+  # ---------------------------------------------------------------------------
+
+  describe "collect_output :noeol reassembly" do
+    setup do
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "zaq_runner_noeol_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      on_exit(fn -> File.rm_rf!(tmp_dir) end)
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "reassembles a line longer than the Port {:line, N} buffer", %{tmp_dir: tmp_dir} do
+      # A line of 20 000 chars exceeds the {:line, 16_384} buffer, so the Port
+      # delivers it as {:noeol, chunk} + ... + {:eol, last_chunk}.  The helper
+      # must stitch them back into one complete line.
+      script = Path.join(tmp_dir, "long_line.sh")
+      File.write!(script, "#!/bin/sh\nprintf '%20000s' | tr ' ' 'x'\necho ''")
+      File.chmod!(script, 0o755)
+
+      assert {:ok, output} = run_via_port(script, [])
+      assert String.length(output) >= 20_000
+      assert String.contains?(output, String.duplicate("x", 100))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # log_line prefix routing — exercised via Runner.run/2 with a real script
+  # ---------------------------------------------------------------------------
+
+  describe "log_line/1 prefix routing" do
+    setup do
+      python = Runner.python_executable()
+
+      if System.find_executable(python) == nil do
+        :ok
+      else
+        scripts_dir = Runner.scripts_dir()
+        File.mkdir_p!(scripts_dir)
+
+        name = "test_log_prefixes_#{System.unique_integer([:positive])}.py"
+        path = Path.join(scripts_dir, name)
+
+        File.write!(path, """
+        print("\\u2717 something failed")
+        print("\\u26a0 something warned")
+        print("normal info line")
+        """)
+
+        on_exit(fn -> File.rm(path) end)
+        {:ok, script_name: name}
+      end
+    end
+
+    test "logs ✗-prefixed lines at error level", context do
+      if Map.has_key?(context, :script_name) do
+        log = capture_log(fn -> Runner.run(context.script_name, []) end)
+        assert log =~ "[error]"
+        assert log =~ "✗ something failed"
+      end
+    end
+
+    test "logs ⚠-prefixed lines at warning level", context do
+      if Map.has_key?(context, :script_name) do
+        log = capture_log(fn -> Runner.run(context.script_name, []) end)
+        assert log =~ "[warning]"
+        assert log =~ "⚠ something warned"
+      end
+    end
+
+    test "runs successfully and returns {:ok, output} for a clean script", context do
+      # Covers the log_line/1 default (info) clause — the logger level in test
+      # is :warning so info messages are filtered, but the clause is still
+      # executed and the script exits 0.
+      if Map.has_key?(context, :script_name) do
+        assert {:ok, _output} = Runner.run(context.script_name, [])
       end
     end
   end
