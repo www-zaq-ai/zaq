@@ -28,24 +28,11 @@ defmodule Zaq.ReleaseTest do
     assert [_] = Release.migrate()
   end
 
-  # This test is causing flaky tests as order execution is not guaranteed
-  # test "rollback/2 executes down migrator path" do
-  #   latest_version = latest_migration_version()
-
-  #   assert {:ok, _migrations, _apps} = Release.rollback(Zaq.Repo, latest_version)
-  # end
-
-  # defp latest_migration_version do
-  #   "priv/repo/migrations/*.exs"
-  #   |> Path.wildcard()
-  #   |> Enum.reject(&(Path.basename(&1) == ".formatter.exs"))
-  #   |> Enum.map(fn path ->
-  #     path
-  #     |> Path.basename(".exs")
-  #     |> String.split("_", parts: 2)
-  #     |> List.first()
-  #     |> String.to_integer()
-  #   end)
-  #   |> Enum.max()
-  # end
+  test "rollback/2 executes down migrator path and returns ok tuple" do
+    # Pass a far-future version so Ecto finds no applied migrations to reverse —
+    # the DB schema is untouched, but Application.ensure_all_started/1 and
+    # Ecto.Migrator.with_repo/2 are both executed, covering both lines.
+    future_version = 99_999_999_999_999
+    assert {:ok, _, _} = Release.rollback(Zaq.Repo, future_version)
+  end
 end
