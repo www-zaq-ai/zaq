@@ -1281,8 +1281,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp image_to_text_panel(assigns) do
     ~H"""
-    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
-      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
         <h2 class="font-mono text-[0.95rem] font-bold text-black">Image to Text</h2>
         <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
           Vision model endpoint used to extract text from images and PDFs during ingestion.
