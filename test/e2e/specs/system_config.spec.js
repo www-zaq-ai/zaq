@@ -76,6 +76,16 @@ async function createAiCredential(page, overrides = {}) {
   return credential
 }
 
+async function clearHiddenSelectValue(page, selector) {
+  const input = page.locator(selector)
+  await expect(input).toHaveCount(1)
+  await input.evaluate((el) => {
+    el.value = ""
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+    el.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+}
+
 test.describe("System Config", () => {
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page)
@@ -199,7 +209,10 @@ test.describe("System Config", () => {
       await page.locator(SEL.tabLLM).click()
       await pickSearchableSelect(page, "#llm-credential-select", credential.name)
 
-      await page.locator('#llm-credential-select input[name="llm_config[credential_id]"]').fill("")
+      await clearHiddenSelectValue(
+        page,
+        '#llm-credential-select input[name="llm_config[credential_id]"]'
+      )
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
     })
@@ -472,9 +485,10 @@ test.describe("System Config", () => {
       await page.locator(SEL.tabEmbedding).click()
       await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
 
-      await page
-        .locator('#embedding-credential-select input[name="embedding_config[credential_id]"]')
-        .fill("")
+      await clearHiddenSelectValue(
+        page,
+        '#embedding-credential-select input[name="embedding_config[credential_id]"]'
+      )
 
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
@@ -595,9 +609,10 @@ test.describe("System Config", () => {
       await page.locator(SEL.tabImageToText).click()
       await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
 
-      await page
-        .locator('#image-to-text-credential-select input[name="image_to_text_config[credential_id]"]')
-        .fill("")
+      await clearHiddenSelectValue(
+        page,
+        '#image-to-text-credential-select input[name="image_to_text_config[credential_id]"]'
+      )
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).not.toBeVisible()
@@ -641,8 +656,15 @@ test.describe("System Config", () => {
 
     test("create credential shows success and renders in list", async ({ page }) => {
       const credential = await createAiCredential(page, { provider: "Custom" })
-      await expect(page.getByText(credential.name)).toBeVisible()
-      await expect(page.getByText("Non-sovereign")).toBeVisible()
+
+      const row =
+        page
+          .locator('button[phx-click="edit_ai_credential"]')
+          .filter({ hasText: credential.name })
+          .first()
+
+      await expect(row).toBeVisible()
+      await expect(row).toContainText("Non-sovereign")
     })
 
     test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {

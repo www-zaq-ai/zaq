@@ -29,12 +29,19 @@ async function addRawMarkdown(page, fileNameWithoutExt, content) {
 }
 
 async function selectFileRow(page, fileName) {
-  const row = page.locator("tr", { hasText: fileName });
+  const row = fileRow(page, fileName);
   await expect(row).toBeVisible();
 
   const checkbox = row.locator('input[type="checkbox"]').first();
   await checkbox.check();
   await expect(checkbox).toBeChecked();
+}
+
+function fileRow(page, fileName) {
+  return page
+    .locator("tr")
+    .filter({ has: page.locator(`button[phx-click=\"open_preview\"][title=\"${fileName}\"]`) })
+    .first();
 }
 
 async function ingestSelectedInline(page) {
@@ -136,7 +143,11 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await page.locator("#create-folder-button").click();
     await expect(page.locator("#new-folder-modal")).toBeHidden();
 
-    await page.getByRole("button", { name: folderName }).first().click();
+    await page
+      .locator('table button[phx-click="navigate"]')
+      .filter({ hasText: folderName })
+      .first()
+      .click();
     await expect(page.locator("main")).toContainText(folderName);
 
     await addRawMarkdown(page, fileBase, "# Hygiene v1\n\nInitial content for stale check.");
@@ -144,12 +155,16 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await ingestSelectedInline(page);
     // Wait for the PubSub handle_info cycle: job_updated → load_entries → doc.updated_at = T1.
     // Only after this is the document recorded in the DB with its ingested timestamp.
-    await expect(page.locator("tr", { hasText: fileName })).toContainText("ingested");
+    await expect(fileRow(page, fileName)).toContainText("ingested");
 
     await gotoBackOfficeLive(page, "/bo/ingestion");
-    await page.getByRole("button", { name: folderName }).first().click();
+    await page
+      .locator('table button[phx-click="navigate"]')
+      .filter({ hasText: folderName })
+      .first()
+      .click();
     // Wait for the navigate event to be processed and the file row to appear.
-    await expect(page.locator("tr", { hasText: fileName })).toBeVisible();
+    await expect(fileRow(page, fileName)).toBeVisible();
 
     // Wait long enough so the file system mtime of v2 is strictly greater than doc.updated_at (T1).
     await page.waitForTimeout(5000);
@@ -159,7 +174,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await addRawMarkdown(page, fileBase, "# Hygiene v2\n\nUpdated content should mark file stale.");
 
     // Modal is hidden = diff applied = stale badge already in the DOM.
-    await expect(page.locator("tr", { hasText: fileName })).toContainText("stale");
+    await expect(fileRow(page, fileName)).toContainText("stale");
 
     await page.goto(previewPath(`${folderName}/${fileName}`));
     await expect(page.locator("body")).toContainText("Updated content should mark file stale");
