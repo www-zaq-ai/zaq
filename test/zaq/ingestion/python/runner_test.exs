@@ -193,17 +193,30 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
         scripts_dir = Runner.scripts_dir()
         File.mkdir_p!(scripts_dir)
 
-        name = "test_log_prefixes_#{System.unique_integer([:positive])}.py"
-        path = Path.join(scripts_dir, name)
+        id = System.unique_integer([:positive])
 
-        File.write!(path, """
+        prefix_name = "test_log_prefixes_#{id}.py"
+        prefix_path = Path.join(scripts_dir, prefix_name)
+
+        File.write!(prefix_path, """
         print("\\u2717 something failed")
         print("\\u26a0 something warned")
         print("normal info line")
         """)
 
-        on_exit(fn -> File.rm(path) end)
-        {:ok, script_name: name}
+        long_name = "test_long_line_#{id}.py"
+        long_path = Path.join(scripts_dir, long_name)
+
+        File.write!(long_path, """
+        print("x" * 20000)
+        """)
+
+        on_exit(fn ->
+          File.rm(prefix_path)
+          File.rm(long_path)
+        end)
+
+        {:ok, script_name: prefix_name, long_script_name: long_name}
       end
     end
 
@@ -229,6 +242,17 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
       # executed and the script exits 0.
       if Map.has_key?(context, :script_name) do
         assert {:ok, _output} = Runner.run(context.script_name, [])
+      end
+    end
+
+    test "reassembles :noeol chunks in Runner.collect_output via a long-line script",
+         context do
+      # A 20 000-char line exceeds the {:line, 16_384} Port buffer, so Port
+      # delivers it as one or more {:noeol, chunk} messages then {:eol, tail}.
+      # This covers the :noeol branch inside Runner's collect_output/3.
+      if Map.has_key?(context, :long_script_name) do
+        assert {:ok, output} = Runner.run(context.long_script_name, [])
+        assert String.length(output) >= 20_000
       end
     end
   end
