@@ -9,11 +9,13 @@ const SEL = {
   tabLLM: '[phx-value-tab="llm"]',
   tabEmbedding: '[phx-value-tab="embedding"]',
   tabImageToText: '[phx-value-tab="image_to_text"]',
+  tabAICredentials: '[phx-value-tab="ai_credentials"]',
 
   llmForm: "#llm-config-form",
   embeddingForm: "#embedding-config-form",
   imageToTextForm: "#image-to-text-config-form",
   telemetryForm: "#telemetry-config-form",
+  aiCredentialForm: "#ai-credential-form",
 
   unlockTrigger: '[phx-click="unlock_embedding"]',
   cancelUnlock: '[phx-click="cancel_unlock_embedding"]',
@@ -32,6 +34,46 @@ async function differentDimension(page) {
   const current = parseInt(raw, 10) || 3584
   // Use an alternating pair so re-runs always differ from the DB
   return current === 512 ? 768 : 512
+}
+
+async function pickSearchableSelect(page, containerSel, optionLabel) {
+  await page.locator(`${containerSel} [data-select-trigger]`).click()
+  await page.locator(`${containerSel} [data-select-search]`).fill(optionLabel)
+  await page.locator(`${containerSel} [data-select-option="${optionLabel}"]`).click()
+}
+
+async function createAiCredential(page, overrides = {}) {
+  const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`
+  const credential = {
+    name: overrides.name || `E2E Credential ${unique}`,
+    provider: overrides.provider || "Custom",
+    endpoint: overrides.endpoint || "http://localhost:11434/v1",
+    apiKey: overrides.apiKey || `e2e-key-${unique}`,
+    sovereign: overrides.sovereign || false,
+    description: overrides.description || "E2E credential",
+  }
+
+  await page.locator(SEL.tabAICredentials).click()
+  await expect(page).toHaveURL(/tab=ai_credentials/)
+  await page.locator('[phx-click="new_ai_credential"]').click()
+  await expect(page.locator(SEL.aiCredentialForm)).toBeVisible()
+
+  await page.locator('input[name="ai_credential[name]"]').fill(credential.name)
+  await pickSearchableSelect(page, "#ai-credential-provider-select", credential.provider)
+  await page.locator('input[name="ai_credential[endpoint]"]').fill(credential.endpoint)
+  await page.locator("#ai-credential-api-key-input").fill(credential.apiKey)
+
+  if (credential.sovereign) {
+    await page.locator('label:has(input[name="ai_credential[sovereign]"][type="checkbox"])').click()
+  }
+
+  await page.locator('textarea[name="ai_credential[description]"]').fill(credential.description)
+  await page.locator(SEL.aiCredentialForm).getByRole("button", { name: "Save credential" }).click()
+
+  await expect(page.getByText("AI credential saved.")).toBeVisible()
+  await expect(page.locator(SEL.aiCredentialForm)).not.toBeVisible()
+
+  return credential
 }
 
 test.describe("System Config", () => {
@@ -69,6 +111,12 @@ test.describe("System Config", () => {
       await expect(page).toHaveURL(/tab=image_to_text/)
     })
 
+    test("switching to AI Credentials shows credentials panel and updates URL", async ({ page }) => {
+      await page.locator(SEL.tabAICredentials).click()
+      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
+      await expect(page).toHaveURL(/tab=ai_credentials/)
+    })
+
     test("direct URL ?tab=llm loads LLM tab", async ({ page }) => {
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
       await expect(page.locator(SEL.llmForm)).toBeVisible()
@@ -84,6 +132,11 @@ test.describe("System Config", () => {
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
     })
 
+    test("direct URL ?tab=ai_credentials loads AI Credentials tab", async ({ page }) => {
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=ai_credentials`)
+      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
+    })
+
     test("unknown ?tab value falls back to Telemetry", async ({ page }) => {
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=nonexistent`)
       await expect(page.locator(SEL.telemetryForm)).toBeVisible()
@@ -94,36 +147,34 @@ test.describe("System Config", () => {
 
   test.describe("LLM tab", () => {
     test.beforeEach(async ({ page }) => {
+      const credential = await createAiCredential(page)
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
+      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
     })
 
     test("renders all required form fields", async ({ page }) => {
-      await expect(page.locator('input[name="llm_config[endpoint]"]')).toBeVisible()
-      await expect(page.locator("#llm-api-key-input")).toBeVisible()
+      await expect(page.locator("#llm-credential-select [data-select-trigger]")).toBeVisible()
+
+      const llmModelText = page.locator('input[type="text"][name="llm_config[model]"]')
+      const llmModelSelect = page.locator("#llm-model-select [data-select-trigger]")
+      expect((await llmModelText.isVisible()) || (await llmModelSelect.isVisible())).toBe(true)
+
       await expect(page.locator('input[name="llm_config[temperature]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[top_p]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[max_context_window]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[distance_threshold]"]')).toBeVisible()
     })
 
-    test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
-      const input = page.locator("#llm-api-key-input")
-      const showBtn = page.locator("#llm-api-key-show")
-      const hideBtn = page.locator("#llm-api-key-hide")
+    test("credential selector opens and accepts option filtering", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabLLM).click()
+      await expect(page.locator(SEL.llmForm)).toBeVisible()
 
-      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
-      await expect(hideBtn).toHaveClass(/hidden/)
-
-      await showBtn.click()
-      await expect(input).not.toHaveAttribute("style", /-webkit-text-security/)
-      await expect(showBtn).toHaveClass(/hidden/)
-      await expect(hideBtn).not.toHaveClass(/hidden/)
-
-      await hideBtn.click()
-      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
-      await expect(hideBtn).toHaveClass(/hidden/)
-      await expect(showBtn).not.toHaveClass(/hidden/)
+      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      await expect(page.locator("#llm-credential-select [data-select-label]")).toContainText(
+        credential.name
+      )
     })
 
     // NOTE: top_p default is 0.9 but the HTML input has step="0.05" (min=0.01), making 0.9 an
@@ -131,6 +182,10 @@ test.describe("System Config", () => {
     // This is a real UI bug — the default can never be saved without first adjusting top_p.
     // Tests that save must set top_p to a valid step value first.
     test("successful save shows flash message (requires valid top_p step value)", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabLLM).click()
+      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+
       // Set top_p to 0.91 — the nearest valid value on the step grid (0.01 + n×0.05)
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
@@ -139,9 +194,12 @@ test.describe("System Config", () => {
 
     // ── Validation: required fields ──────────────────────────────────────
 
-    test("clearing endpoint blocks save (required field)", async ({ page }) => {
-      await page.locator('input[name="llm_config[endpoint]"]').fill("")
-      await page.locator('input[name="llm_config[endpoint]"]').press("Tab")
+    test("clearing credential blocks save (required field)", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabLLM).click()
+      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+
+      await page.locator('#llm-credential-select input[name="llm_config[credential_id]"]').fill("")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
     })
@@ -242,11 +300,11 @@ test.describe("System Config", () => {
 
     // ── API key persistence ───────────────────────────────────────────────
 
-    test("changing api key saves and persists after page reload", async ({ page }) => {
-      const newKey = `e2e-llm-key-${Date.now()}`
-      const keyInput = page.locator("#llm-api-key-input")
+    test("changing credential saves and persists after page reload", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabLLM).click()
+      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
 
-      await keyInput.fill(newKey)
       // Set top_p to a valid step value before saving (see NOTE above)
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
@@ -255,8 +313,9 @@ test.describe("System Config", () => {
       // Full reload — triggers mount → load_llm_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
       await expect(page.locator(SEL.llmForm)).toBeVisible()
-
-      await expect(keyInput).toHaveValue(newKey)
+      await expect(page.locator("#llm-credential-select [data-select-label]")).toContainText(
+        credential.name
+      )
     })
   })
 
@@ -264,33 +323,28 @@ test.describe("System Config", () => {
 
   test.describe("Embedding tab", () => {
     test.beforeEach(async ({ page }) => {
+      const credential = await createAiCredential(page)
       await page.locator(SEL.tabEmbedding).click()
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
     })
 
     test("renders all required form fields", async ({ page }) => {
-      await expect(page.locator('input[name="embedding_config[endpoint]"]')).toBeVisible()
-      await expect(page.locator("#embedding-api-key-input")).toBeVisible()
+      await expect(page.locator("#embedding-credential-select [data-select-trigger]")).toBeVisible()
       await expect(page.locator('input[name="embedding_config[dimension]"]')).toBeVisible()
       await expect(page.locator('input[name="embedding_config[chunk_min_tokens]"]')).toBeVisible()
       await expect(page.locator('input[name="embedding_config[chunk_max_tokens]"]')).toBeVisible()
     })
 
-    test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
-      const input = page.locator("#embedding-api-key-input")
-      const showBtn = page.locator("#embedding-api-key-show")
-      const hideBtn = page.locator("#embedding-api-key-hide")
+    test("credential selector opens and accepts option filtering", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabEmbedding).click()
+      await expect(page.locator(SEL.embeddingForm)).toBeVisible()
 
-      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
-      await expect(hideBtn).toHaveClass(/hidden/)
-
-      await showBtn.click()
-      await expect(input).not.toHaveAttribute("style", /-webkit-text-security/)
-      await expect(showBtn).toHaveClass(/hidden/)
-      await expect(hideBtn).not.toHaveClass(/hidden/)
-
-      await hideBtn.click()
-      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
+      await expect(page.locator("#embedding-credential-select [data-select-label]")).toContainText(
+        credential.name
+      )
     })
 
     // ── Lock / Unlock ─────────────────────────────────────────────────────
@@ -413,9 +467,15 @@ test.describe("System Config", () => {
 
     // ── Validation: required & numeric ───────────────────────────────────
 
-    test("clearing endpoint blocks save (required field)", async ({ page }) => {
-      await page.locator('input[name="embedding_config[endpoint]"]').fill("")
-      await page.locator('input[name="embedding_config[endpoint]"]').press("Tab")
+    test("clearing credential blocks save (required field)", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabEmbedding).click()
+      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
+
+      await page
+        .locator('#embedding-credential-select input[name="embedding_config[credential_id]"]')
+        .fill("")
+
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
     })
@@ -475,19 +535,20 @@ test.describe("System Config", () => {
 
     // ── API key persistence ───────────────────────────────────────────────
 
-    test("changing api key saves and persists after page reload", async ({ page }) => {
-      const newKey = `e2e-test-key-${Date.now()}`
-      const keyInput = page.locator("#embedding-api-key-input")
+    test("changing credential saves and persists after page reload", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabEmbedding).click()
+      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
 
-      await keyInput.fill(newKey)
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
 
       // Full reload — triggers mount → load_embedding_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
-
-      await expect(keyInput).toHaveValue(newKey)
+      await expect(
+        page.locator("#embedding-credential-select [data-select-label]")
+      ).toContainText(credential.name)
     })
   })
 
@@ -495,59 +556,51 @@ test.describe("System Config", () => {
 
   test.describe("Image to Text tab", () => {
     test.beforeEach(async ({ page }) => {
+      const credential = await createAiCredential(page)
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
     })
 
-    test("renders endpoint and api key fields", async ({ page }) => {
-      await expect(page.locator('input[name="image_to_text_config[endpoint]"]')).toBeVisible()
-      await expect(page.locator("#image-to-text-api-key-input")).toBeVisible()
+    test("renders credential and model fields", async ({ page }) => {
+      await expect(page.locator("#image-to-text-credential-select [data-select-trigger]")).toBeVisible()
+
+      const textInput = page.locator('input[type="text"][name="image_to_text_config[model]"]')
+      const dropdown = page.locator("#image-to-text-model-select [data-select-trigger]")
+      expect((await textInput.isVisible()) || (await dropdown.isVisible())).toBe(true)
     })
 
-    test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
-      const input = page.locator("#image-to-text-api-key-input")
-      const showBtn = page.locator("#image-to-text-api-key-show")
-      const hideBtn = page.locator("#image-to-text-api-key-hide")
+    test("credential selector opens and accepts option filtering", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabImageToText).click()
+      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
 
-      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
-      await expect(hideBtn).toHaveClass(/hidden/)
-
-      await showBtn.click()
-      await expect(input).not.toHaveAttribute("style", /-webkit-text-security/)
-      await expect(showBtn).toHaveClass(/hidden/)
-      await expect(hideBtn).not.toHaveClass(/hidden/)
-
-      await hideBtn.click()
-      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+      await expect(
+        page.locator("#image-to-text-credential-select [data-select-label]")
+      ).toContainText(credential.name)
     })
 
     test("successful save shows flash message", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabImageToText).click()
+      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
     })
 
-    // NOTE: Ecto's cast/4 treats "" as blank for string fields and silently resets to the field
-    // default. This means clearing endpoint or model to "" never triggers validate_required.
-    // These tests verify the UI response is idempotent (form stays on page, no unintended redirect).
-    test("clearing endpoint and saving keeps the form (no redirect / error state)", async ({ page }) => {
-      const endpointInput = page.locator('input[name="image_to_text_config[endpoint]"]')
-      await endpointInput.fill("")
-      await endpointInput.press("Tab")
-      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
-      // Form should remain visible — no redirect or crash
-      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
-    })
+    test("clearing credential blocks save (required field)", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabImageToText).click()
+      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
 
-    test("clearing model (text input) and saving keeps the form (no redirect / error state)", async ({ page }) => {
-      // Model is a text input only when model_options == [] (custom provider)
-      const modelInput = page.locator('input[name="image_to_text_config[model]"]')
-      if (await modelInput.isVisible()) {
-        await modelInput.fill("")
-        await modelInput.press("Tab")
-        await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
-        // Form should remain visible — no redirect or crash
-        await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
-      }
+      await page
+        .locator('#image-to-text-credential-select input[name="image_to_text_config[credential_id]"]')
+        .fill("")
+
+      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
+      await expect(page.getByText("Image-to-Text settings saved.")).not.toBeVisible()
     })
 
     test("either model text input or model dropdown is present", async ({ page }) => {
@@ -560,19 +613,70 @@ test.describe("System Config", () => {
 
     // ── API key persistence ───────────────────────────────────────────────
 
-    test("changing api key saves and persists after page reload", async ({ page }) => {
-      const newKey = `e2e-itt-key-${Date.now()}`
-      const keyInput = page.locator("#image-to-text-api-key-input")
+    test("changing credential saves and persists after page reload", async ({ page }) => {
+      const credential = await createAiCredential(page)
+      await page.locator(SEL.tabImageToText).click()
+      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
 
-      await keyInput.fill(newKey)
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
 
       // Full reload — triggers mount → load_image_to_text_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=image_to_text`)
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+      await expect(
+        page.locator("#image-to-text-credential-select [data-select-label]")
+      ).toContainText(credential.name)
+    })
+  })
 
-      await expect(keyInput).toHaveValue(newKey)
+  // ── AI Credentials tab ─────────────────────────────────────────────────
+
+  test.describe("AI Credentials tab", () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator(SEL.tabAICredentials).click()
+      await expect(page).toHaveURL(/tab=ai_credentials/)
+      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
+    })
+
+    test("create credential shows success and renders in list", async ({ page }) => {
+      const credential = await createAiCredential(page, { provider: "Custom" })
+      await expect(page.getByText(credential.name)).toBeVisible()
+      await expect(page.getByText("Non-sovereign")).toBeVisible()
+    })
+
+    test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
+      await page.locator('[phx-click="new_ai_credential"]').click()
+      await expect(page.locator(SEL.aiCredentialForm)).toBeVisible()
+
+      const input = page.locator("#ai-credential-api-key-input")
+      const showBtn = page.locator("#ai-credential-api-key-show")
+      const hideBtn = page.locator("#ai-credential-api-key-hide")
+
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await expect(hideBtn).toHaveClass(/hidden/)
+
+      await showBtn.click()
+      await expect(input).not.toHaveAttribute("style", /-webkit-text-security/)
+      await expect(showBtn).toHaveClass(/hidden/)
+      await expect(hideBtn).not.toHaveClass(/hidden/)
+
+      await hideBtn.click()
+      await expect(input).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await expect(hideBtn).toHaveClass(/hidden/)
+      await expect(showBtn).not.toHaveClass(/hidden/)
+    })
+
+    test("new credential can be selected in LLM form and saved", async ({ page }) => {
+      const credential = await createAiCredential(page, { provider: "Custom" })
+
+      await page.locator(SEL.tabLLM).click()
+      await expect(page.locator(SEL.llmForm)).toBeVisible()
+
+      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).toBeVisible()
     })
   })
 })
