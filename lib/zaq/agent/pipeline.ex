@@ -259,7 +259,7 @@ defmodule Zaq.Agent.Pipeline do
 
     answer_opts = [
       history: history,
-      content: content,
+      question: content,
       telemetry_dimensions: telemetry_dimensions(opts)
     ]
 

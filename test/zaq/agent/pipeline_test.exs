@@ -118,6 +118,27 @@ defmodule Zaq.Agent.PipelineTest do
     def clean_answer(answer), do: answer
   end
 
+  # Sends the opts received by ask/2 to the test process for inspection.
+  defmodule SpyAnswering do
+    def ask(_prompt, opts) do
+      send(:pipeline_test_pid, {:answering_opts, opts})
+
+      {:ok,
+       %Result{
+         answer: "spy answer",
+         confidence_score: 0.9,
+         latency_ms: 50,
+         prompt_tokens: 5,
+         completion_tokens: 3,
+         total_tokens: 8
+       }}
+    end
+
+    def normalize_result(%Result{} = result), do: {:ok, result}
+    def no_answer?(_answer), do: false
+    def clean_answer(answer), do: answer
+  end
+
   # ---------------------------------------------------------------------------
   # Setup
   # ---------------------------------------------------------------------------
@@ -276,6 +297,44 @@ defmodule Zaq.Agent.PipelineTest do
       assert %Outgoing{} = result
       assert result.body == "The answer is 42."
       assert result.metadata.error == false
+    end
+  end
+
+  describe "do_answering passes current question to Answering.ask" do
+    # Regression for: pipeline renamed :question to :content in answer_opts but
+    # Answering.ask still reads Keyword.get(opts, :question). With history present,
+    # question was nil so maybe_add_user_message was skipped — the LangChain chain
+    # ended with the last bot message and the LLM replied to the previous message
+    # instead of the current one.
+
+    test "question key in answering opts equals incoming content (no history)" do
+      opts = Keyword.put(@base_opts, :answering, SpyAnswering)
+
+      incoming = %Incoming{content: "What is the answer?", channel_id: "ch", provider: :test}
+      Pipeline.run(incoming, opts)
+
+      assert_receive {:answering_opts, answering_opts}, 1000
+      assert Keyword.get(answering_opts, :question) == "What is the answer?"
+    end
+
+    test "question key in answering opts equals incoming content when history is present" do
+      history = %{
+        "2026-01-01T00:00:00Z_1_user" => %{"body" => "previous question", "type" => "user"},
+        "2026-01-01T00:00:00Z_2_bot" => %{"body" => "previous answer", "type" => "bot"}
+      }
+
+      opts =
+        @base_opts
+        |> Keyword.put(:answering, SpyAnswering)
+        |> Keyword.put(:history, history)
+
+      incoming = %Incoming{content: "follow-up question", channel_id: "ch", provider: :test}
+      Pipeline.run(incoming, opts)
+
+      assert_receive {:answering_opts, answering_opts}, 1000
+      # Before the fix, this was nil — the LLM received no current user message
+      # and replied to the last history bot message instead of the new question.
+      assert Keyword.get(answering_opts, :question) == "follow-up question"
     end
   end
 
