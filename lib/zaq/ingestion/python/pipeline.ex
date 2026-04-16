@@ -127,7 +127,8 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   # Removes markdown image references pointing to local absolute paths (e.g. /tmp/...).
   # These are left behind when the image-to-text step is skipped (no API key).
   # Keeping them causes 404s in the preview because Phoenix does not serve /tmp.
-  defp strip_local_image_refs(md_path) do
+  @doc false
+  def strip_local_image_refs(md_path) do
     case File.read(md_path) do
       {:ok, content} ->
         stripped = Regex.replace(~r/!\[[^\]]*\]\(\/[^)]+\)\n?/, content, "")
@@ -137,8 +138,14 @@ defmodule Zaq.Ingestion.Python.Pipeline do
           Logger.info("[Pipeline] Stripped local image references from #{md_path}")
         end
 
+        :ok
+
       {:error, reason} ->
-        Logger.warning("[Pipeline] Could not strip image refs from #{md_path}: #{inspect(reason)}")
+        Logger.warning(
+          "[Pipeline] Could not strip image refs from #{md_path}: #{inspect(reason)}"
+        )
+
+        :ok
     end
   end
 
