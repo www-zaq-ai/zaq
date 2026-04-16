@@ -34,6 +34,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   def run(pdf_path, opts \\ []) do
     original_pdf_path = pdf_path
     api_key = resolve_api_key(opts)
+    image_to_text_opts = resolve_image_to_text_opts(opts)
     md_path = opts[:output] || Path.rootname(original_pdf_path) <> ".md"
     base = opts[:base] || resolve_volume_base(original_pdf_path)
 
@@ -57,7 +58,8 @@ defmodule Zaq.Ingestion.Python.Pipeline do
                  api_key,
                  images_folder,
                  descriptions_json,
-                 resolve_image_to_text_prompt()
+                 resolve_image_to_text_prompt(),
+                 image_to_text_opts
                ),
              {:ok, _} <- maybe_inject_descriptions(api_key, md_path, descriptions_json) do
           {:ok, md_path}
@@ -93,15 +95,28 @@ defmodule Zaq.Ingestion.Python.Pipeline do
     if key && key != "", do: key, else: nil
   end
 
-  defp maybe_image_to_text(nil, _folder, _output, _prompt) do
-    Logger.warning("[Pipeline] No Scaleway API key — skipping image descriptions")
+  defp maybe_image_to_text(nil, _folder, _output, _prompt, _extra_opts) do
+    Logger.warning("[Pipeline] No API key — skipping image descriptions")
     {:ok, :skipped}
   end
 
-  defp maybe_image_to_text(api_key, images_folder, descriptions_json, prompt) do
-    opts = [api_key: api_key]
-    opts = if prompt, do: Keyword.put(opts, :prompt, prompt), else: opts
+  defp maybe_image_to_text(api_key, images_folder, descriptions_json, prompt, extra_opts) do
+    opts =
+      extra_opts
+      |> Keyword.put(:api_key, api_key)
+      |> then(fn o -> if prompt, do: Keyword.put(o, :prompt, prompt), else: o end)
+
     ImageToText.run(images_folder, descriptions_json, opts)
+  end
+
+  defp resolve_image_to_text_opts(opts) do
+    cfg = Zaq.System.get_image_to_text_config()
+
+    [
+      endpoint: opts[:endpoint] || cfg.endpoint,
+      model: opts[:model] || cfg.model
+    ]
+    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
   end
 
   defp resolve_image_to_text_prompt do
