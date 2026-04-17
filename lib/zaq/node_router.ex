@@ -60,6 +60,7 @@ defmodule Zaq.NodeRouter do
   @spec dispatch(Event.t(), map()) :: Event.t()
   def dispatch(%Event{next_hop: %EventHop{destination: role}} = event, runtime)
       when is_map(runtime) do
+    event = append_current_hop(event)
     supervisor = Map.fetch!(@supervisor_map, role)
     api_module = Map.fetch!(@role_api_map, role)
     action = action_for(event)
@@ -172,6 +173,16 @@ defmodule Zaq.NodeRouter do
 
   defp unwrap_call_response(%Event{response: {:error, {:rpc_failed, _, _}} = error}), do: error
   defp unwrap_call_response(%Event{response: response}), do: response
+
+  defp append_current_hop(%Event{next_hop: %EventHop{} = next_hop, hops: hops} = event)
+       when is_list(hops) do
+    case List.last(hops) do
+      ^next_hop -> event
+      _ -> %{event | hops: hops ++ [next_hop]}
+    end
+  end
+
+  defp append_current_hop(%Event{} = event), do: event
 end
 
 defmodule Zaq.NodeRouter.Behaviour do

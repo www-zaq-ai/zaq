@@ -25,6 +25,7 @@
 - Never nest multiple modules in the same file — causes cyclic dependencies and compilation errors.
 - For channel bridges, keep ingress callback names generic (`from_listener/3`) and transport-agnostic.
 - Channel adapters own transport runtime specs and listener construction; bridges must not build adapter-specific listener specs.
+- Channel bridge modules must implement `Zaq.Channels.Bridge`; `to_internal/2` and `send_reply/2` are required callbacks.
 
 ---
 

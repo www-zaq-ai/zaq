@@ -9,8 +9,11 @@ defmodule Zaq.Channels.EmailBridge do
   `to_internal/2` is a stub for future inbound email parsing.
   """
 
+  @behaviour Zaq.Channels.Bridge
+
   require Logger
 
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.{Router, Supervisor}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -70,7 +73,7 @@ defmodule Zaq.Channels.EmailBridge do
     connection = sink_opts |> Enum.into(%{}) |> Map.put(:config, config)
 
     with %Incoming{} = incoming <- to_internal(payload, connection),
-         outgoing <- run_pipeline(incoming),
+         %Outgoing{} = outgoing <- run_pipeline(incoming),
          :ok <- deliver_outgoing(outgoing),
          :ok <- persist_from_incoming(incoming, outgoing.metadata) do
       :ok
@@ -207,7 +210,7 @@ defmodule Zaq.Channels.EmailBridge do
           opts: [action: :run_pipeline, pipeline_opts: []]
         )
 
-      case NodeRouter.dispatch(event).response do
+      case node_router_module().dispatch(event).response do
         %Outgoing{} = outgoing -> outgoing
         {:error, _reason} = error -> error
         other -> {:error, {:invalid_pipeline_response, other}}
@@ -222,7 +225,7 @@ defmodule Zaq.Channels.EmailBridge do
 
     if module == Router do
       event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
-      NodeRouter.dispatch(event).response
+      node_router_module().dispatch(event).response
     else
       module.deliver(outgoing)
     end
@@ -231,19 +234,13 @@ defmodule Zaq.Channels.EmailBridge do
   defp persist_from_incoming(%Incoming{} = incoming, metadata) when is_map(metadata) do
     module = conversations_module()
 
-    if module == Zaq.Engine.Conversations do
-      event =
-        Event.new(
-          %{incoming: incoming, metadata: metadata},
-          :engine,
-          actor: actor_from_incoming(incoming),
-          opts: [action: :persist_from_incoming]
-        )
-
-      NodeRouter.dispatch(event).response
-    else
-      module.persist_from_incoming(incoming, metadata)
-    end
+    Bridge.persist_from_incoming(
+      incoming,
+      metadata,
+      module,
+      actor_from_incoming(incoming),
+      node_router_module()
+    )
   end
 
   defp actor_from_incoming(%Incoming{} = incoming) do
@@ -259,10 +256,15 @@ defmodule Zaq.Channels.EmailBridge do
   defp conversations_module,
     do: Application.get_env(:zaq, :email_bridge_conversations_module, Zaq.Engine.Conversations)
 
+  defp node_router_module,
+    do: Application.get_env(:zaq, :email_bridge_node_router_module, NodeRouter)
+
   # Handles both atom and string-keyed metadata (Oban args arrive as string keys).
-  defp get_meta(metadata, string_key, atom_key) do
+  defp get_meta(metadata, string_key, atom_key) when is_map(metadata) do
     Map.get(metadata, atom_key) || Map.get(metadata, string_key)
   end
+
+  defp get_meta(_metadata, _string_key, _atom_key), do: nil
 
   defp resolve_subject(metadata, reply?) when is_map(metadata) do
     subject =
@@ -288,8 +290,6 @@ defmodule Zaq.Channels.EmailBridge do
       String.trim(outgoing.in_reply_to) != ""
   end
 
-  defp reply_subject(nil), do: "Re: Notification from ZAQ"
-
   defp reply_subject(subject) when is_binary(subject) do
     trimmed = String.trim(subject)
 
@@ -299,8 +299,6 @@ defmodule Zaq.Channels.EmailBridge do
       true -> "Re: " <> trimmed
     end
   end
-
-  defp reply_subject(_), do: "Re: Notification from ZAQ"
 
   defp reply_headers(%Outgoing{} = outgoing) do
     email_meta = get_meta(outgoing.metadata, "email", :email) || %{}

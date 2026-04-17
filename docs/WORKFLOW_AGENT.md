@@ -38,8 +38,9 @@ Work through the plan steps one at a time:
 1. Read the relevant source files using `mcp__serena__get_symbols_overview` before editing.
 2. Implement the change.
 3. Write or update unit tests covering the change.
-4. Run `mix test` — fix all failures before moving to the next step.
-5. Update the plan's steps checklist and decisions log as you go.
+4. Target at least 90% coverage for new development in the changed scope (unit/integration as appropriate).
+5. Run `mix test` — fix all failures before moving to the next step.
+6. Update the plan's steps checklist and decisions log as you go.
 
 ### Rules during implementation
 - One PR per step when possible — keep PRs small and focused.
@@ -55,7 +56,8 @@ Work through the plan steps one at a time:
 ### Unit validation
 1. Run `mix precommit` — fix everything it reports. Never skip or replace it.
 2. Run the full unit test suite: `mix test`.
-3. Review your own diff — check for dead code, debug statements, and convention violations.
+3. If coverage for new development is below 90%, document the exception in the PR with rationale and a follow-up plan.
+4. Review your own diff — check for dead code, debug statements, and convention violations.
 
 ### E2E validation
 Run E2E tests when your change touches any of these areas:

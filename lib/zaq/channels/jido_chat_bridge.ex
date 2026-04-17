@@ -12,11 +12,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   All external module calls are configurable via Application env for testability.
   """
 
+  @behaviour Zaq.Channels.Bridge
+
   require Logger
 
   alias Jido.Chat
   alias Jido.Chat.Thread
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel, Router, Supervisor}
+  alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Router, Supervisor}
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.{Event, NodeRouter}
@@ -325,7 +327,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     msg = to_internal(incoming, thread.adapter_name)
 
     with {:ok, role_ids} <- resolve_roles(msg),
-         outgoing <- run_pipeline(msg, role_ids: role_ids),
+         %Outgoing{} = outgoing <- run_pipeline(msg, role_ids: role_ids),
          :ok <- deliver_outgoing(outgoing) do
       :telemetry.execute([:zaq, :chat_bridge, :message, :processed], %{count: 1}, %{
         provider: msg.provider
@@ -521,7 +523,7 @@ defmodule Zaq.Channels.JidoChatBridge do
           opts: [action: :run_pipeline, pipeline_opts: opts]
         )
 
-      case NodeRouter.dispatch(event).response do
+      case node_router_module().dispatch(event).response do
         %Outgoing{} = outgoing -> outgoing
         {:error, _reason} = error -> error
         other -> {:error, {:invalid_pipeline_response, other}}
@@ -536,7 +538,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     if module == Router do
       event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
-      NodeRouter.dispatch(event).response
+      node_router_module().dispatch(event).response
     else
       module.deliver(outgoing)
     end
@@ -545,19 +547,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp persist_from_incoming(msg, metadata) do
     module = conversations_module()
 
-    if module == Zaq.Engine.Conversations do
-      event =
-        Event.new(
-          %{incoming: msg, metadata: metadata},
-          :engine,
-          actor: actor_from_incoming(msg),
-          opts: [action: :persist_from_incoming]
-        )
-
-      NodeRouter.dispatch(event).response
-    else
-      module.persist_from_incoming(msg, metadata)
-    end
+    Bridge.persist_from_incoming(
+      msg,
+      metadata,
+      module,
+      actor_from_incoming(msg),
+      node_router_module()
+    )
   end
 
   defp actor_from_incoming(%Incoming{} = incoming) do
@@ -586,6 +582,10 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp permissions_module do
     Application.get_env(:zaq, :chat_bridge_permissions_module, Zaq.Accounts.Permissions)
+  end
+
+  defp node_router_module do
+    Application.get_env(:zaq, :chat_bridge_node_router_module, NodeRouter)
   end
 
   defp resolve_adapter_for_provider(provider) do
