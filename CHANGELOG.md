@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.7.2](https://github.com/www-zaq-ai/zaq/compare/v0.7.1...v0.7.2) (2026-04-17)
+
+
+### Bug Fixes
+
+* **assets:** fix ontology_tree hook ([a501646](https://github.com/www-zaq-ai/zaq/commit/a501646c4dc04a3d58609c220472fc67f87de2ab))
+* **bo-metrics:** add negative feedback charts and reorder layout ([d38ad1d](https://github.com/www-zaq-ai/zaq/commit/d38ad1df1923f7d97102137087fcad0803cd161d))
+* **credentials:** complete migration from old providers config, enable safe deletion of credentials ([1d7d3f7](https://github.com/www-zaq-ai/zaq/commit/1d7d3f7ad9991328e19eb39ee316231808d6a8df))
+* **ingestion:** add coverage for noeol reassembly, log_line prefix routing, and default args ([eda1277](https://github.com/www-zaq-ai/zaq/commit/eda127733e6f516a4fe03870f0d6454a6f55c661))
+* **ingestion:** add regression guard for strip_local_image_refs stripping /tmp paths from markdown ([3a22c52](https://github.com/www-zaq-ai/zaq/commit/3a22c52e0898368386b94931c7c9fa7c08473cc2))
+* **ingestion:** pass endpoint and model opts from system config into image-to-text pipeline ([5f9dc4f](https://github.com/www-zaq-ai/zaq/commit/5f9dc4fd7d38839ddc5294dfe2e32c167a1071cc))
+* **ingestion:** replace stale System.cmd helper with Port-based tests covering exit codes, args, ([98e6684](https://github.com/www-zaq-ai/zaq/commit/98e6684107ab7b26fac4f5182762dbad009d175f))
+* **ingestion:** rescue ErlangError from Port.open when python executable is missing in CI ([184a038](https://github.com/www-zaq-ai/zaq/commit/184a038ca32a741026e56fa2da690cf965bbba89))
+* **ingestion:** strip local image refs from markdown before deleting tmp images ([9d905bf](https://github.com/www-zaq-ai/zaq/commit/9d905bfb93dd5dda5227b7ac83a1037d98d37193))
+* **ingestion:** switch Port.open options to correct atom/tuple syntax for stderr_to_stdout and args ([e1495c0](https://github.com/www-zaq-ai/zaq/commit/e1495c043e10afa20572468fa25a1703ddace1fd))
+* **ingestion:** use tmp dir for pipeline images and fix preview colspan ([3b0df61](https://github.com/www-zaq-ai/zaq/commit/3b0df61c4a6646b92706057ff297a6f8d6d9ed83))
+* **logprobs:** adjust logprobs extraction on newest langchain deps ([e09d21e](https://github.com/www-zaq-ai/zaq/commit/e09d21e16d3119ec7a824bbc34635d6253f71d15))
+* **pipeline:** restore :question key in answer_opts so Answering.ask receives the current user message ([b383560](https://github.com/www-zaq-ai/zaq/commit/b383560ddb42b5e2780a5d447384cbf2287f6458))
+* **telemetry:** align cursor docs and centralize feedback reasons ([a9a15b8](https://github.com/www-zaq-ai/zaq/commit/a9a15b8b76af21b818baf937a10733f0eaa6d3da))
+* **telemetry:** process rollups by point cursor ([d8209f1](https://github.com/www-zaq-ai/zaq/commit/d8209f1f84c43d1c1c1c4767c56be0220f86a233))
+* **telemetry:** rebuild feedback metrics by message time ([09584fb](https://github.com/www-zaq-ai/zaq/commit/09584fbb0acb17c1bf1893d35b7f35d8694ca079))
+* **telemetry:** repair qa message/no-answer parity and rollup rebuild ([6cab13c](https://github.com/www-zaq-ai/zaq/commit/6cab13c8efa13105802be4391202e2a8ca91249c))
+* **ui:** remove overflow-hidden from image-to-text panel, round top corners on header ([82cf85a](https://github.com/www-zaq-ai/zaq/commit/82cf85a046ab78cedcd57966d05fb4b5d45b24d3))
+
 ## [0.7.1](https://github.com/www-zaq-ai/zaq/compare/v0.7.0...v0.7.1) (2026-04-11)
 
 
