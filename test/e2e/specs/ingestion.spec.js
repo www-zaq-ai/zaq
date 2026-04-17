@@ -314,4 +314,45 @@ test.describe("Ingestion", () => {
 
     await expect(rowAfterReset.locator("span", { hasText: "failed" })).not.toBeVisible()
   })
+
+  // ── Duplicate filename deduplication ──────────────────────────────────────
+  //
+  // Uploading a file whose name already exists must NOT overwrite the original.
+  // The second upload must appear as `stem(1).ext` in the file browser.
+
+  test("uploading duplicate filename creates stem(1).ext instead of overwriting", async ({
+    page,
+  }) => {
+    const baseName = `e2e-dedup-${Date.now()}`
+    const pdfFilename = `${baseName}.pdf`
+    const dedupFilename = `${baseName}(1).pdf`
+
+    await gotoBackOfficeLive(page, INGESTION_PATH)
+
+    const tempPdfPath = path.join(os.tmpdir(), pdfFilename)
+    fs.writeFileSync(tempPdfPath, minimalPdfBuffer())
+
+    // ── First upload ─────────────────────────────────────────────────────────
+
+    const chooser1 = page.waitForEvent("filechooser")
+    await page.locator(SEL.uploadBrowseTrigger).click()
+    const fc1 = await chooser1
+    await fc1.setFiles(tempPdfPath)
+    await page.locator(SEL.uploadSubmitButton).click()
+    await expect(page.getByText(/file\(s\) uploaded\./)).toBeVisible()
+    await expect(fileRow(page, pdfFilename)).toBeVisible()
+
+    // ── Second upload of the same file ───────────────────────────────────────
+
+    const chooser2 = page.waitForEvent("filechooser")
+    await page.locator(SEL.uploadBrowseTrigger).click()
+    const fc2 = await chooser2
+    await fc2.setFiles(tempPdfPath)
+    await page.locator(SEL.uploadSubmitButton).click()
+    await expect(page.getByText(/file\(s\) uploaded\./)).toBeVisible()
+
+    // Original must still exist and the deduplicated name must appear.
+    await expect(fileRow(page, pdfFilename)).toBeVisible()
+    await expect(fileRow(page, dedupFilename)).toBeVisible()
+  })
 })

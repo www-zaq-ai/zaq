@@ -568,7 +568,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
         volume = socket.assigns.current_volume
 
-        case ingestion_call(:upload_file, [volume, dest, content]) do
+        case ingestion_call(:save_file, [volume, dest, content]) do
           {:ok, actual_dest} ->
             ingestion_call(:track_upload, [volume, actual_dest])
 
