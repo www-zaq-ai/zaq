@@ -642,6 +642,32 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert File.exists?(Path.join(tmp_dir, "upload.txt"))
   end
 
+  test "duplicate upload uses OS-style deduplication", %{conn: conn, tmp_dir: tmp_dir} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    upload1 =
+      file_input(view, "#upload-form", :files, [
+        %{name: "report.txt", content: "original", type: "text/plain"}
+      ])
+
+    assert render_upload(upload1, "report.txt")
+    view |> form("#upload-form") |> render_submit()
+
+    assert File.exists?(Path.join(tmp_dir, "report.txt"))
+
+    upload2 =
+      file_input(view, "#upload-form", :files, [
+        %{name: "report.txt", content: "duplicate", type: "text/plain"}
+      ])
+
+    assert render_upload(upload2, "report.txt")
+    view |> form("#upload-form") |> render_submit()
+
+    assert File.read!(Path.join(tmp_dir, "report.txt")) == "original"
+    assert File.exists?(Path.join(tmp_dir, "report(1).txt"))
+    assert File.read!(Path.join(tmp_dir, "report(1).txt")) == "duplicate"
+  end
+
   test "uploads png and jpg files", %{conn: conn, tmp_dir: tmp_dir} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 

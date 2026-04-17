@@ -503,4 +503,93 @@ defmodule Zaq.Ingestion.FileExplorerTest do
                FileExplorer.create_directory("docs", "../../escape")
     end
   end
+
+  # ──────────────────────────────────────────────────────────────────
+  # upload_unique — OS-style filename deduplication
+  # ──────────────────────────────────────────────────────────────────
+
+  describe "upload_unique/2 (single-volume deduplication)" do
+    test "no collision — returns original path unchanged" do
+      assert {:ok, full_path} = FileExplorer.upload_unique("new.txt", "content")
+      assert String.ends_with?(full_path, "new.txt")
+      assert File.read!(full_path) == "content"
+    end
+
+    test "one collision — second upload becomes file(1).ext" do
+      {:ok, _} = FileExplorer.upload("x.pdf", "original")
+      assert {:ok, full_path} = FileExplorer.upload_unique("x.pdf", "dupe")
+      assert String.ends_with?(full_path, "x(1).pdf")
+      assert File.read!(full_path) == "dupe"
+      assert File.read!(Path.join(@test_base, "x.pdf")) == "original"
+    end
+
+    test "two collisions — third upload becomes file(2).ext" do
+      {:ok, _} = FileExplorer.upload("x.pdf", "v1")
+      {:ok, _} = FileExplorer.upload_unique("x.pdf", "v2")
+      assert {:ok, full_path} = FileExplorer.upload_unique("x.pdf", "v3")
+      assert String.ends_with?(full_path, "x(2).pdf")
+    end
+
+    test "file with no extension — suffix appended to full name" do
+      {:ok, _} = FileExplorer.upload("README", "original")
+      assert {:ok, full_path} = FileExplorer.upload_unique("README", "dupe")
+      assert String.ends_with?(full_path, "README(1)")
+    end
+
+    test "hidden file — suffix appended after dot-name" do
+      {:ok, _} = FileExplorer.upload(".gitignore", "original")
+      assert {:ok, full_path} = FileExplorer.upload_unique(".gitignore", "dupe")
+      assert String.ends_with?(full_path, ".gitignore(1)")
+    end
+
+    test "already-suffixed upload strips existing (n) before finding next slot" do
+      {:ok, _} = FileExplorer.upload("x.pdf", "v1")
+      {:ok, _} = FileExplorer.upload_unique("x.pdf", "v2")
+      assert {:ok, full_path} = FileExplorer.upload_unique("x(1).pdf", "v3")
+      assert String.ends_with?(full_path, "x(2).pdf")
+    end
+
+    test "multiple dots — suffix inserted before last extension" do
+      {:ok, _} = FileExplorer.upload("archive.tar.gz", "v1")
+      assert {:ok, full_path} = FileExplorer.upload_unique("archive.tar.gz", "v2")
+      assert String.ends_with?(full_path, "archive.tar(1).gz")
+    end
+
+    test "rejects traversal" do
+      assert {:error, :path_traversal} = FileExplorer.upload_unique("../../evil.txt", "bad")
+    end
+  end
+
+  describe "upload_unique/3 (volume-aware deduplication)" do
+    setup do
+      vol = Path.join(@test_base, "vol_unique")
+      File.mkdir_p!(vol)
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      %{vol: vol}
+    end
+
+    test "no collision — returns original path", %{vol: vol} do
+      assert {:ok, full_path} = FileExplorer.upload_unique("docs", "new.txt", "content")
+      assert full_path == Path.join(Path.expand(vol), "new.txt")
+    end
+
+    test "one collision — returns file(1).ext", %{vol: vol} do
+      {:ok, _} = FileExplorer.upload("docs", "x.pdf", "original")
+      assert {:ok, full_path} = FileExplorer.upload_unique("docs", "x.pdf", "dupe")
+      assert full_path == Path.join(Path.expand(vol), "x(1).pdf")
+      assert File.read!(full_path) == "dupe"
+    end
+
+    test "rejects unknown volume" do
+      assert {:error, :unknown_volume} =
+               FileExplorer.upload_unique("unknown_vol", "file.txt", "data")
+    end
+
+    test "rejects path traversal" do
+      assert {:error, :path_traversal} =
+               FileExplorer.upload_unique("docs", "../../evil.txt", "bad")
+    end
+  end
 end

@@ -569,8 +569,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         volume = socket.assigns.current_volume
 
         case ingestion_call(:upload_file, [volume, dest, content]) do
-          {:ok, _} ->
-            ingestion_call(:track_upload, [volume, dest])
+          {:ok, actual_dest} ->
+            ingestion_call(:track_upload, [volume, actual_dest])
 
             {:noreply,
              socket
@@ -657,9 +657,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         dest = Path.join(socket.assigns.current_dir, entry.client_name)
 
         case ingestion_call(:upload_file, [volume, dest, binary]) do
-          {:ok, _full_path} ->
-            ingestion_call(:track_upload, [volume, dest])
-            {:ok, dest}
+          {:ok, actual_dest} ->
+            ingestion_call(:track_upload, [volume, actual_dest])
+            {:ok, actual_dest}
 
           error ->
             error
