@@ -1,6 +1,6 @@
-defmodule Zaq.Ingestion.Api do
+defmodule Zaq.Bo.Api do
   @moduledoc """
-  Ingestion role boundary module used by `Zaq.NodeRouter.dispatch/1`.
+  Back Office role boundary module used by `Zaq.NodeRouter.dispatch/1`.
   """
 
   @behaviour Zaq.InternalBoundaries

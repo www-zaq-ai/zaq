@@ -281,6 +281,34 @@ defmodule Zaq.NodeRouterTest do
       assert result.hops == nil
     end
 
+    test "returns invalid_event when next_hop is nil" do
+      event = %Event{
+        request: %{module: String, function: :upcase, args: ["hello"]},
+        next_hop: nil,
+        opts: [action: :invoke],
+        trace_id: Ecto.UUID.generate(),
+        hops: []
+      }
+
+      result = NodeRouter.dispatch(event)
+
+      assert result.response == {:error, {:invalid_event, :missing_or_invalid_next_hop}}
+    end
+
+    test "returns invalid_event when next_hop has invalid shape" do
+      event = %Event{
+        request: %{module: String, function: :upcase, args: ["hello"]},
+        next_hop: %{destination: :bo},
+        opts: [action: :invoke],
+        trace_id: Ecto.UUID.generate(),
+        hops: []
+      }
+
+      result = NodeRouter.dispatch(event)
+
+      assert result.response == {:error, {:invalid_event, :missing_or_invalid_next_hop}}
+    end
+
     test "find_node/1 delegates to default runtime" do
       assert NodeRouter.find_node(ZaqWeb.Endpoint) == node()
     end

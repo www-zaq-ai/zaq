@@ -7,6 +7,14 @@ defmodule Zaq.InternalBoundaries do
 
   alias Zaq.Event
 
+  @doc """
+  Handles an event routed to this role.
+
+  ## Parameters
+    - event: The event to handle
+    - action: The action to perform (e.g., :invoke, :run_pipeline)
+    - params: Reserved for future use. Currently always nil.
+  """
   @callback handle_event(Event.t(), atom(), map() | nil) :: Event.t()
 
   @doc """
@@ -23,5 +31,18 @@ defmodule Zaq.InternalBoundaries do
 
   def invoke_request(%Event{} = event) do
     %{event | response: {:error, {:invalid_request, event.request}}}
+  end
+
+  @doc """
+  Shared default role boundary handler.
+
+  Handles `:invoke` through `invoke_request/1` and returns
+  `{:error, {:unsupported_action, action}}` for all other actions.
+  """
+  @spec default_handle_event(Event.t(), atom()) :: Event.t()
+  def default_handle_event(%Event{} = event, :invoke), do: invoke_request(event)
+
+  def default_handle_event(%Event{} = event, action) do
+    %{event | response: {:error, {:unsupported_action, action}}}
   end
 end

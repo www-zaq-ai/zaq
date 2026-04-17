@@ -40,7 +40,7 @@ defmodule Zaq.NodeRouter do
     ingestion: Zaq.Ingestion.Api,
     channels: Zaq.Channels.Api,
     engine: Zaq.Engine.Api,
-    bo: Zaq.Channels.Api
+    bo: Zaq.Bo.Api
   }
 
   @doc """
@@ -81,6 +81,10 @@ defmodule Zaq.NodeRouter do
           %{event | response: {:error, {:invalid_event_response, target, other}}}
       end
     end
+  end
+
+  def dispatch(%Event{} = event, _runtime) do
+    %{event | response: {:error, {:invalid_event, :missing_or_invalid_next_hop}}}
   end
 
   @doc """
@@ -186,6 +190,10 @@ defmodule Zaq.NodeRouter do
 end
 
 defmodule Zaq.NodeRouter.Behaviour do
-  @moduledoc false
+  @moduledoc """
+  Behaviour for NodeRouter implementations.
+
+  Used for testing and alternative routing strategies.
+  """
   @callback find_node(supervisor :: atom()) :: node() | nil
 end

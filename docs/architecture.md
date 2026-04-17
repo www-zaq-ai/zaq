@@ -82,6 +82,7 @@ Role mapping:
 - `:ingestion` → `Zaq.Ingestion.*`
 - `:engine` → `Zaq.Engine.*`, `Zaq.Engine.Conversations.*`
 - `:channels` → `Zaq.Channels.*`
+- `:bo` → `Zaq.Bo.*`, `ZaqWeb.*`
 
 ---
 
