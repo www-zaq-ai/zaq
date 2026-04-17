@@ -34,8 +34,10 @@
 - LiveViews, controllers, plugs, and workers orchestrate and delegate — they do not own business logic.
 - BO modules in `lib/zaq_web/` must not access persistence or integrations directly.
 - Cross-context calls use public context functions, not internal helpers.
-- Cross-service BO calls always go through `NodeRouter.call/4`.
-- BO channel configuration flows must call `Zaq.Channels.Router` APIs via `NodeRouter.call/4`; they must not call bridge or adapter modules directly.
+- Cross-service BO calls always go through `NodeRouter`.
+- Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}` for new work.
+- `NodeRouter.call/4` is deprecated and temporary compatibility only.
+- BO channel configuration flows must call `Zaq.Channels.Router` APIs via `NodeRouter` (`dispatch/1` preferred); they must not call bridge or adapter modules directly.
 
 ---
 
@@ -112,7 +114,8 @@
 
 - When data crosses a service boundary, define a canonical struct with `@enforce_keys`.
 - Adapter-specific envelopes must never leak inward — always map to the canonical struct first.
-- Example: `Zaq.Engine.Messages.Incoming` / `Outgoing` are the only structs that flow between adapters and the rest of ZAQ.
+- Cross-node routing should use `%Zaq.Event{}` as the envelope.
+- Example: `Zaq.Engine.Messages.Incoming` / `Outgoing` are canonical message payloads and are carried as `event.request` / `event.response`.
 
 ### State transitions belong in their own module
 
@@ -174,6 +177,6 @@
 
 - Module: `lib/zaq/engine/conversations.ex`
 - Schemas: `lib/zaq/engine/conversations/` (Conversation, Message, MessageRating, ConversationShare)
-- All BO calls MUST go through `NodeRouter.call(:engine, Zaq.Engine.Conversations, ...)`
+- All BO calls MUST go through `NodeRouter` when targeting `Zaq.Engine.Conversations` across services
 - `users` table uses integer PKs — FK fields in conversation schemas use `type: :integer`
 - Anonymous channel users identified by `channel_user_id + channel_type` (no `user_id`)

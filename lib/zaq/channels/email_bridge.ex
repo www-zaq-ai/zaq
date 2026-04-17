@@ -14,7 +14,7 @@ defmodule Zaq.Channels.EmailBridge do
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.{Router, Supervisor}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.NodeRouter
+  alias Zaq.{Event, NodeRouter}
   alias Zaq.Utils.EmailUtils
 
   @doc "Converts an email adapter payload to the internal `%Incoming{}` format."
@@ -199,7 +199,19 @@ defmodule Zaq.Channels.EmailBridge do
     module = pipeline_module()
 
     if module == Zaq.Agent.Pipeline do
-      NodeRouter.call(:agent, module, :run, [msg, []])
+      event =
+        Event.new(
+          msg,
+          :agent,
+          actor: actor_from_incoming(msg),
+          opts: [action: :run_pipeline, pipeline_opts: []]
+        )
+
+      case NodeRouter.dispatch(event).response do
+        %Outgoing{} = outgoing -> outgoing
+        {:error, _reason} = error -> error
+        other -> {:error, {:invalid_pipeline_response, other}}
+      end
     else
       module.run(msg, [])
     end
@@ -209,7 +221,8 @@ defmodule Zaq.Channels.EmailBridge do
     module = router_module()
 
     if module == Router do
-      NodeRouter.call(:channels, module, :deliver, [outgoing])
+      event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
+      NodeRouter.dispatch(event).response
     else
       module.deliver(outgoing)
     end
@@ -219,10 +232,22 @@ defmodule Zaq.Channels.EmailBridge do
     module = conversations_module()
 
     if module == Zaq.Engine.Conversations do
-      NodeRouter.call(:engine, module, :persist_from_incoming, [incoming, metadata])
+      event =
+        Event.new(
+          %{incoming: incoming, metadata: metadata},
+          :engine,
+          actor: actor_from_incoming(incoming),
+          opts: [action: :persist_from_incoming]
+        )
+
+      NodeRouter.dispatch(event).response
     else
       module.persist_from_incoming(incoming, metadata)
     end
+  end
+
+  defp actor_from_incoming(%Incoming{} = incoming) do
+    %{id: incoming.author_id, name: incoming.author_name, provider: incoming.provider}
   end
 
   defp pipeline_module,

@@ -7,7 +7,7 @@ The Channels service provides transport and runtime infrastructure for communica
 - **Ingestion channels** ingest external documents (Google Drive, SharePoint, etc.).
 - **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
 
-All channel delivery flows through canonical message structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types.
+All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For cross-node routing, payloads are wrapped in `%Zaq.Event{}`.
 
 ---
 
@@ -36,6 +36,8 @@ All channel delivery flows through canonical message structs (`Incoming` / `Outg
 
 Canonical struct for all inbound messages crossing the adapter boundary. Every adapter must map its transport-specific payload to this struct before passing a message to any ZAQ component.
 
+When routed across nodes, this payload is carried in `%Zaq.Event.request`.
+
 ```elixir
 @enforce_keys [:content, :channel_id, :provider]
 
@@ -54,6 +56,8 @@ defstruct [
 ### `Zaq.Engine.Messages.Outgoing`
 
 Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered via `Zaq.Channels.Router.deliver/1`.
+
+When routed across nodes, this payload is typically returned in `%Zaq.Event.response`.
 
 ```elixir
 @enforce_keys [:body, :channel_id, :provider]
@@ -177,6 +181,7 @@ All cross-service calls are overridable via Application env:
 | `:pipeline_hooks_module` | `Zaq.Hooks` |
 
 When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
+Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}`. `NodeRouter.call/4` remains temporary compatibility and is deprecated.
 
 ---
 

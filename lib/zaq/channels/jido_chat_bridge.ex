@@ -19,7 +19,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel, Router, Supervisor}
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.NodeRouter
+  alias Zaq.{Event, NodeRouter}
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -513,7 +513,19 @@ defmodule Zaq.Channels.JidoChatBridge do
     module = pipeline_module()
 
     if module == Zaq.Agent.Pipeline do
-      NodeRouter.call(:agent, module, :run, [msg, opts])
+      event =
+        Event.new(
+          msg,
+          :agent,
+          actor: actor_from_incoming(msg),
+          opts: [action: :run_pipeline, pipeline_opts: opts]
+        )
+
+      case NodeRouter.dispatch(event).response do
+        %Outgoing{} = outgoing -> outgoing
+        {:error, _reason} = error -> error
+        other -> {:error, {:invalid_pipeline_response, other}}
+      end
     else
       module.run(msg, opts)
     end
@@ -523,7 +535,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     module = router_module()
 
     if module == Router do
-      NodeRouter.call(:channels, module, :deliver, [outgoing])
+      event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
+      NodeRouter.dispatch(event).response
     else
       module.deliver(outgoing)
     end
@@ -533,10 +546,22 @@ defmodule Zaq.Channels.JidoChatBridge do
     module = conversations_module()
 
     if module == Zaq.Engine.Conversations do
-      NodeRouter.call(:engine, module, :persist_from_incoming, [msg, metadata])
+      event =
+        Event.new(
+          %{incoming: msg, metadata: metadata},
+          :engine,
+          actor: actor_from_incoming(msg),
+          opts: [action: :persist_from_incoming]
+        )
+
+      NodeRouter.dispatch(event).response
     else
       module.persist_from_incoming(msg, metadata)
     end
+  end
+
+  defp actor_from_incoming(%Incoming{} = incoming) do
+    %{id: incoming.author_id, name: incoming.author_name, provider: incoming.provider}
   end
 
   defp hooks_module do

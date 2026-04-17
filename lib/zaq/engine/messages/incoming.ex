@@ -1,10 +1,12 @@
 defmodule Zaq.Engine.Messages.Incoming do
   @moduledoc """
-  Canonical internal message struct for all inbound messages crossing the adapter boundary.
+  Canonical inbound message payload struct.
 
   Every channel adapter (Mattermost, Slack, HTTP, etc.) must map its transport-specific
   payload to this struct before passing a message to any ZAQ component (Pipeline, Bridge,
   Conversations, etc.). Nothing inside ZAQ should depend on adapter-specific envelope types.
+
+  For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
   """
 
   @enforce_keys [:content, :channel_id, :provider]

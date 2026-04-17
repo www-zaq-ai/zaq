@@ -1,7 +1,7 @@
 defmodule Zaq.NodeRouterTest do
   use ExUnit.Case, async: true
 
-  alias Zaq.NodeRouter
+  alias Zaq.{Event, EventHop, NodeRouter}
 
   describe "supervisor_map/0" do
     test "returns a map of all expected roles" do
@@ -91,8 +91,11 @@ defmodule Zaq.NodeRouterTest do
         node_list_fn: fn -> [:remote@host] end,
         whereis_fn: fn _ -> nil end,
         rpc_call_fn: fn
-          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] -> spawn(fn -> :ok end)
-          :remote@host, String, :upcase, ["hello"] -> "HELLO FROM REMOTE"
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [event, :invoke, nil] ->
+            %{event | response: "HELLO FROM REMOTE"}
         end
       }
 
@@ -105,8 +108,11 @@ defmodule Zaq.NodeRouterTest do
         node_list_fn: fn -> [:remote@host] end,
         whereis_fn: fn _ -> nil end,
         rpc_call_fn: fn
-          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] -> spawn(fn -> :ok end)
-          :remote@host, String, :upcase, ["hello"] -> {:badrpc, :timeout}
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [_event, :invoke, nil] ->
+            {:badrpc, :timeout}
         end
       }
 
@@ -118,6 +124,83 @@ defmodule Zaq.NodeRouterTest do
       assert_raise KeyError, fn ->
         NodeRouter.call(:unknown, String, :upcase, ["hello"])
       end
+    end
+  end
+
+  describe "dispatch/1" do
+    test "dispatches invoke events locally" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
+          opts: [action: :invoke]
+        )
+
+      result = NodeRouter.dispatch(event)
+      assert %Event{} = result
+      assert result.response == "HELLO"
+    end
+
+    test "dispatches invoke events remotely and returns routed event" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :agent,
+          opts: [action: :invoke]
+        )
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{} = routed, :invoke, nil] ->
+            %{routed | response: "HELLO FROM REMOTE"}
+        end
+      }
+
+      result = NodeRouter.dispatch(event, runtime)
+      assert %Event{} = result
+      assert result.response == "HELLO FROM REMOTE"
+    end
+
+    test "wraps remote badrpc failures in the event response" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :agent,
+          opts: [action: :invoke]
+        )
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{}, :invoke, nil] ->
+            {:badrpc, :timeout}
+        end
+      }
+
+      result = NodeRouter.dispatch(event, runtime)
+
+      assert %Event{} = result
+
+      assert result.response == {:error, {:rpc_failed, :remote@host, :timeout}}
+    end
+
+    test "returns an event for async hops as well" do
+      event = %Event{
+        request: %{module: String, function: :upcase, args: ["hello"]},
+        next_hop: %EventHop{destination: :bo, type: :async, timestamp: DateTime.utc_now()},
+        opts: [action: :invoke],
+        trace_id: Ecto.UUID.generate()
+      }
+
+      result = NodeRouter.dispatch(event)
+
+      assert %Event{} = result
+      assert result.response == "HELLO"
     end
   end
 end

@@ -18,7 +18,7 @@ The Engine runs under the `:engine` role. The top-level `Zaq.Engine.Supervisor` 
 Telemetry is a separate concern — see `docs/services/telemetry.md`.
 
 **Important**: BO LiveViews must never call `Zaq.Engine.Conversations` directly. All calls
-from BO go through `Zaq.NodeRouter.call(:engine, Zaq.Engine.Conversations, ...)`.
+from BO go through `Zaq.NodeRouter` (prefer `dispatch/1`; `call/4` is deprecated compatibility).
 
 ---
 
@@ -99,7 +99,7 @@ Adapter inbound path:
 
 ### Conversations Context (`Zaq.Engine.Conversations`)
 - Public API for the full conversation/message/rating/share lifecycle.
-- Access via `NodeRouter.call(:engine, Zaq.Engine.Conversations, ...)` from BO.
+- Access via `NodeRouter` from BO (`dispatch/1` preferred; `call/4` deprecated).
 - Dispatches `Zaq.Hooks` `:feedback_provided` event after a rating is saved.
 
 **Key functions:**
@@ -141,12 +141,14 @@ Adapter inbound path:
 - Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person_id`, `:metadata`.
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
+- When crossing nodes, this payload is carried in `%Zaq.Event.request`.
 
 ### Messages — Outgoing (`Zaq.Engine.Messages.Outgoing`)
 - Canonical struct for all outbound messages.
 - Enforce keys: `:body`, `:channel_id`, `:provider`.
 - `from_pipeline_result/2` — builds an `%Outgoing{}` from an `%Incoming{}` and a pipeline
   result map; copies routing fields and stores result map in `metadata`.
+- When crossing nodes, this payload is typically returned in `%Zaq.Event.response`.
 
 ### Notifications Context (`Zaq.Engine.Notifications`)
 - Single exit point for all outbound communication from ZAQ.
@@ -311,7 +313,7 @@ Oban queues used by the Engine:
 ## Key Design Decisions
 
 - **NodeRouter for cross-node calls** — BO LiveViews never call `Conversations` directly;
-  all calls are routed via `NodeRouter.call(:engine, Zaq.Engine.Conversations, ...)`.
+  all calls are routed via `NodeRouter` (prefer `dispatch/1`).
 - **Notification payload stored in DB** — `DispatchWorker` Oban args carry only `log_id`;
   subject/body is read from `NotificationLog` at execution time, preventing payload loss
   across Oban restarts.

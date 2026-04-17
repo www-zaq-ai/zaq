@@ -4,7 +4,7 @@
 
 - Keep domain and business rules in `lib/zaq/` contexts/domain modules.
 - LiveViews, controllers, plugs, and workers orchestrate and delegate — never own business logic.
-- BO modules in `lib/zaq_web/` must not access persistence or integrations directly — call context APIs and use `NodeRouter.call/4` for cross-service boundaries.
+- BO modules in `lib/zaq_web/` must not access persistence or integrations directly — call context APIs and use `NodeRouter` for cross-service boundaries (`dispatch/1` preferred; `call/4` deprecated compatibility).
 - Treat context internals as private implementation details. Cross-context calls use public context functions, not internal helpers.
 - Keep module responsibilities cohesive. If a module owns unrelated concerns (querying + formatting + transport), split it.
 - For bridge/adapter domains, enforce: bridge orchestrates, adapter implements transport mechanics.

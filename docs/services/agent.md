@@ -12,8 +12,9 @@ LLM configuration is centralized in `Zaq.Agent.LLM` — no other module reads
 provider details directly.
 
 **Important**: Agent modules must never be called directly from BO LiveViews.
-All calls from BO go through `Zaq.NodeRouter.call(:agent, ...)` so they work
-correctly in both single-node and multi-node deployments.
+All calls from BO go through `Zaq.NodeRouter` so they work correctly in both
+single-node and multi-node deployments. New routing should use
+`NodeRouter.dispatch/1` with `%Zaq.Event{next_hop: %Zaq.EventHop{destination: :agent}}`.
 
 ---
 
@@ -24,13 +25,16 @@ User question (BO Chat / Channel)
   → Pipeline.run/2                          ← unified entrypoint for all channels
       → PromptGuard.validate/1              ← blocks prompt injection (runs on BO node)
       → Hooks.dispatch_sync(:retrieval, ...)
-      → NodeRouter.call(:agent, Retrieval)  ← routed to agent node
+      → NodeRouter.dispatch(%Zaq.Event{...destination: :agent...})
+          (action: :invoke / :run_pipeline)
+                                         ← routed to agent node
           → Retrieval.ask/2                 ← LLM rewrites question into search queries (JSON)
       → Hooks.dispatch_async(:retrieval_complete, ...)
       → Hooks.dispatch_sync(:answering, ...)
-      → NodeRouter.call(:ingestion, DocumentProcessor.query_extraction)
-          → hybrid search, returns ranked chunks
-      → NodeRouter.call(:agent, Answering)  ← routed to agent node
+      → NodeRouter.dispatch(%Zaq.Event{...destination: :ingestion...})
+           → hybrid search, returns ranked chunks
+      → NodeRouter.dispatch(%Zaq.Event{...destination: :agent...})
+                                         ← routed to agent node
           → Answering.ask/2                 ← LLM formulates answer from context
       → PromptGuard.output_safe?/1          ← checks for system prompt leakage
       → Hooks.dispatch_async(:answer_generated, ...)
@@ -195,7 +199,7 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 - **Prompt templates in DB** — editable at runtime without deploys; agents raise if missing
 - **ChunkTitle is injectable** — `Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)` allows test mocking
 - **Confidence is optional** — gracefully skipped when `supports_logprobs?` is false
-- **NodeRouter for cross-node calls** — BO never calls agent modules directly; always via `NodeRouter.call(:agent, ...)`
+- **NodeRouter for cross-node calls** — BO never calls agent modules directly; prefer `NodeRouter.dispatch/1` (`call/4` is deprecated compatibility)
 - **Answering.Result struct** — canonical shape shared across channels; `normalize_result/1` converts legacy maps
 
 ---

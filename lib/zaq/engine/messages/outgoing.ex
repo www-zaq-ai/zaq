@@ -1,6 +1,6 @@
 defmodule Zaq.Engine.Messages.Outgoing do
   @moduledoc """
-  Canonical internal struct for all outbound messages crossing the adapter boundary.
+  Canonical outbound message payload struct.
 
   Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center.
   Delivered via `Zaq.Channels.Router.deliver/1`, which resolves the correct bridge
@@ -8,6 +8,8 @@ defmodule Zaq.Engine.Messages.Outgoing do
 
   Nothing inside ZAQ should depend on adapter-specific envelope types — all outbound
   delivery flows through this struct.
+
+  For cross-node routing, this struct is typically carried in `%Zaq.Event.response`.
   """
 
   alias Zaq.Engine.Messages.Incoming

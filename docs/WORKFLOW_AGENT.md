@@ -43,7 +43,7 @@ Work through the plan steps one at a time:
 
 ### Rules during implementation
 - One PR per step when possible — keep PRs small and focused.
-- Never call Agent, Ingestion, Engine, or Channel modules directly from BO — always use `NodeRouter.call/4`.
+- Never call Agent, Ingestion, Engine, or Channel modules directly from BO — always use `NodeRouter` (`dispatch/1` preferred; `call/4` deprecated compatibility).
 - Never persist sensitive values without encrypting first — see `docs/services/system-config.md`.
 - Never bypass Ecto changesets for data mutations.
 - If you discover something unexpected, add it to the decisions log before continuing.
