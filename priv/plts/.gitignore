@@ -1,0 +1,9 @@
+# Ignore all PLT artifacts in this directory.
+# PLTs are OTP/Elixir version-specific binary caches — never commit them.
+# They're rebuilt locally via `mix dialyzer --plt` and cached in CI.
+*.plt
+*.plt.hash
+
+# But keep this .gitignore file itself tracked, so the directory exists
+# in the repo and `mix dialyzer` has somewhere to write.
+!.gitignore
