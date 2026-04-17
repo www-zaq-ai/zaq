@@ -305,6 +305,35 @@ defmodule Zaq.IngestionTest do
     end
   end
 
+  describe "save_file/3" do
+    test "writes content and returns ok with the full path" do
+      volume = "default"
+      path = "save_file_new_#{System.unique_integer([:positive])}.md"
+      root = FileExplorer.list_volumes()[volume]
+
+      assert {:ok, full_path} = Ingestion.save_file(volume, path, "# content")
+      assert File.exists?(full_path)
+      assert File.read!(full_path) == "# content"
+      assert full_path == Path.join(root, path)
+
+      on_exit(fn -> File.rm(full_path) end)
+    end
+
+    test "overwrites an existing file without deduplicating" do
+      volume = "default"
+      path = "save_file_overwrite_#{System.unique_integer([:positive])}.md"
+      root = FileExplorer.list_volumes()[volume]
+      full_path = Path.join(root, path)
+
+      assert {:ok, ^full_path} = Ingestion.save_file(volume, path, "# v1")
+      assert {:ok, ^full_path} = Ingestion.save_file(volume, path, "# v2")
+      assert File.read!(full_path) == "# v2"
+      refute File.exists?(Path.join(root, String.replace(path, ".md", "(1).md")))
+
+      on_exit(fn -> File.rm(full_path) end)
+    end
+  end
+
   describe "track_upload/2" do
     test "creates a document record with volume-prefixed source" do
       volume = "default"

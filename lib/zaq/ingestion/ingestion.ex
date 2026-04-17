@@ -103,6 +103,9 @@ defmodule Zaq.Ingestion do
   def upload_file(volume_name, path, content),
     do: FileExplorer.upload_unique(volume_name, path, content)
 
+  def save_file(volume_name, path, content),
+    do: FileExplorer.upload(volume_name, path, content)
+
   def file_info(volume_name, path), do: FileExplorer.file_info(volume_name, path)
 
   def directory_snapshot(volume_name, current_dir, current_user) do
