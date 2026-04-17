@@ -17,7 +17,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias Zaq.RuntimeDeps
   alias ZaqWeb.Live.BO.PreviewHelpers
 
-  import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
+  import ZaqWeb.Helpers.DateFormat,
+    only: [
+      format_time: 1,
+      format_date: 1,
+      inject_date_separators: 1,
+      inject_relative_date_separators: 1
+    ]
 
   require Logger
 

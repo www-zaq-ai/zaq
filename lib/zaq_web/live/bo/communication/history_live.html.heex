@@ -269,12 +269,12 @@
 
           <%!-- Started --%>
           <td class="font-mono text-sm text-black/40 px-4 py-4">
-            {Calendar.strftime(conv.inserted_at, "%Y-%m-%d %H:%M")}
+            {format_datetime(conv.inserted_at)}
           </td>
 
           <%!-- Last updated --%>
           <td class="font-mono text-sm text-black/40 px-4 py-4">
-            {Calendar.strftime(conv.updated_at, "%Y-%m-%d %H:%M")}
+            {format_datetime(conv.updated_at)}
           </td>
 
           <%!-- Actions --%>

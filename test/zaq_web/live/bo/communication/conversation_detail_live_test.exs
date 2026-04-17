@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Engine.Conversations
+  alias ZaqWeb.Helpers.DateFormat
 
   setup %{conn: conn} do
     user = user_fixture()
@@ -50,6 +51,13 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       {conv, _} = create_conv_with_messages(user.id)
       {:ok, _view, html} = live(conn, ~p"/bo/conversations/#{conv.id}")
       assert html =~ "History"
+    end
+
+    test "date separator is rendered for messages from today", %{conn: conn, user: user} do
+      {conv, _} = create_conv_with_messages(user.id)
+      {:ok, _view, html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+      today_label = DateFormat.format_date(Date.utc_today())
+      assert html =~ today_label
     end
 
     test "redirects on unknown conversation id", %{conn: conn} do

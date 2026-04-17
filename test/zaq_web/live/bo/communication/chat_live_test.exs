@@ -12,6 +12,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
+  alias ZaqWeb.Helpers.DateFormat
 
   defmodule NodeRouterFake do
     def call(role, mod, fun, args) do
@@ -576,6 +577,46 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
     assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
+  end
+
+  test "date separator appears in message list after loading a conversation", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Date test question"})
+
+    {:ok, _} =
+      Conversations.add_message(conv, %{role: "assistant", content: "Date test answer"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    today_label = DateFormat.format_date(Date.utc_today())
+    assert_eventually(fn -> render(view) =~ today_label end)
+  end
+
+  test "Today label appears in sidebar when conversations exist from today", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, _conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo",
+        title: "Sidebar label test"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    assert render(view) =~ "Today"
   end
 
   test "pipeline branch retrieval blocked shape returns fallback error", %{conn: conn} do

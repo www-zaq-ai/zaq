@@ -66,51 +66,64 @@
       style="background-color: #f7f6f3;"
     >
       <div class="max-w-3xl mx-auto px-6 py-6 space-y-5">
-        <%= for msg <- @messages do %>
-          <%= if msg.role == "user" do %>
-            <ZaqWeb.Components.ChatMessage.user_bubble
-              content={msg.content}
-              timestamp={msg.inserted_at}
-            />
-          <% else %>
-            <% existing_rating = List.first(msg.ratings || []) %>
-            <ZaqWeb.Components.ChatMessage.assistant_bubble
-              content={msg.content}
-              timestamp={msg.inserted_at}
-              confidence={msg.confidence_score}
-              sources={msg.sources || []}
-              source_click_event="open_preview_modal"
-            >
-              <:actions>
-                <button
-                  :for={rating_val <- 1..5}
-                  phx-click="rate_message"
-                  phx-value-id={msg.id}
-                  phx-value-rating={rating_val}
-                  class={[
-                    "w-5 h-5 rounded font-mono text-[0.65rem] border transition-all",
-                    if(existing_rating && existing_rating.rating == rating_val,
-                      do: "border-[#03b6d4] bg-[#03b6d4]/10 text-[#03b6d4]",
-                      else:
-                        "border-black/10 hover:border-[#03b6d4] hover:text-[#03b6d4] hover:bg-[#03b6d4]/5 text-black/40"
-                    )
-                  ]}
-                  title={"Rate #{rating_val}"}
-                >
-                  {rating_val}
-                </button>
-              </:actions>
-            </ZaqWeb.Components.ChatMessage.assistant_bubble>
-            <%!-- Feedback comment (from chat negative feedback) --%>
-            <div
-              :if={existing_rating && existing_rating.comment not in [nil, ""]}
-              class="ml-10 -mt-2 px-3 py-2 rounded-lg border"
-              style="background:#fff7ed; border-color:#fed7aa;"
-            >
-              <p class="font-mono text-[0.68rem]" style="color:#c2410c;">
-                <span class="font-bold">Feedback:</span> {existing_rating.comment}
-              </p>
+        <%= for item <- inject_date_separators(@messages, :inserted_at) do %>
+          <%= if Map.get(item, :type) == :date_separator do %>
+            <div class="flex items-center gap-3 my-1">
+              <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
+              <span
+                class="font-mono text-[0.62rem] uppercase tracking-widest"
+                style="color:#b8b5ae;"
+              >
+                {format_date(item.date)}
+              </span>
+              <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
             </div>
+          <% else %>
+            <%= if item.role == "user" do %>
+              <ZaqWeb.Components.ChatMessage.user_bubble
+                content={item.content}
+                timestamp={item.inserted_at}
+              />
+            <% else %>
+              <% existing_rating = List.first(item.ratings || []) %>
+              <ZaqWeb.Components.ChatMessage.assistant_bubble
+                content={item.content}
+                timestamp={item.inserted_at}
+                confidence={item.confidence_score}
+                sources={item.sources || []}
+                source_click_event="open_preview_modal"
+              >
+                <:actions>
+                  <button
+                    :for={rating_val <- 1..5}
+                    phx-click="rate_message"
+                    phx-value-id={item.id}
+                    phx-value-rating={rating_val}
+                    class={[
+                      "w-5 h-5 rounded font-mono text-[0.65rem] border transition-all",
+                      if(existing_rating && existing_rating.rating == rating_val,
+                        do: "border-[#03b6d4] bg-[#03b6d4]/10 text-[#03b6d4]",
+                        else:
+                          "border-black/10 hover:border-[#03b6d4] hover:text-[#03b6d4] hover:bg-[#03b6d4]/5 text-black/40"
+                      )
+                    ]}
+                    title={"Rate #{rating_val}"}
+                  >
+                    {rating_val}
+                  </button>
+                </:actions>
+              </ZaqWeb.Components.ChatMessage.assistant_bubble>
+              <%!-- Feedback comment (from chat negative feedback) --%>
+              <div
+                :if={existing_rating && existing_rating.comment not in [nil, ""]}
+                class="ml-10 -mt-2 px-3 py-2 rounded-lg border"
+                style="background:#fff7ed; border-color:#fed7aa;"
+              >
+                <p class="font-mono text-[0.68rem]" style="color:#c2410c;">
+                  <span class="font-bold">Feedback:</span> {existing_rating.comment}
+                </p>
+              </div>
+            <% end %>
           <% end %>
         <% end %>
 
