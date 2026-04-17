@@ -161,6 +161,38 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
+  Like `upload/2` but deduplicates the destination using OS-style suffixes.
+  If `filename` already exists, writes to `stem(1).ext`, `stem(2).ext`, etc.
+  Returns `{:ok, actual_full_path}`.
+  """
+  def upload_unique(filename, binary) do
+    with {:ok, full_path} <- resolve_path(filename),
+         :ok <- full_path |> Path.dirname() |> File.mkdir_p() do
+      unique = deduplicate_path(full_path)
+
+      case File.write(unique, binary) do
+        :ok -> {:ok, unique}
+        error -> error
+      end
+    end
+  end
+
+  @doc """
+  Volume-aware variant of `upload_unique/2`.
+  """
+  def upload_unique(volume_name, filename, binary) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, filename),
+         :ok <- full_path |> Path.dirname() |> File.mkdir_p() do
+      unique = deduplicate_path(full_path)
+
+      case File.write(unique, binary) do
+        :ok -> {:ok, unique}
+        error -> error
+      end
+    end
+  end
+
+  @doc """
   Deletes a single file relative to base path.
   """
   def delete(relative_path) do
@@ -255,6 +287,24 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   # ── Private helpers ──────────────────────────────────────────────
+
+  defp deduplicate_path(path) do
+    if File.exists?(path) do
+      dir = Path.dirname(path)
+      ext = Path.extname(path)
+      stem = path |> Path.basename(ext) |> strip_suffix()
+      find_free_path(dir, stem, ext, 1)
+    else
+      path
+    end
+  end
+
+  defp strip_suffix(base), do: Regex.replace(~r/\(\d+\)$/, base, "")
+
+  defp find_free_path(dir, stem, ext, n) do
+    candidate = Path.join(dir, "#{stem}(#{n})#{ext}")
+    if File.exists?(candidate), do: find_free_path(dir, stem, ext, n + 1), else: candidate
+  end
 
   defp recursive_size(path) do
     case File.ls(path) do
