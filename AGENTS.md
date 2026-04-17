@@ -51,6 +51,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 - **Read the relevant doc first** before starting any task.
 - **Never push directly to `main`** — all changes go through a PR.
 - **Run `mix precommit`** before every commit. Never replace it with ad-hoc checks.
+- **Target at least 90% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
 - **All cross-service BO calls go through `NodeRouter.call/4`** — never direct module calls.
 - **Check `docs/exec-plans/active/`** before starting any complex or multi-step task.
 - **All related operations must be concurrent in a single message** — never split related reads/writes across messages.

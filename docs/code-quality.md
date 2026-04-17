@@ -46,6 +46,7 @@
 
 - Run `mix precommit` before every commit — never replace it with ad-hoc checks.
 - `mix credo --strict` for code standards on bugfixes.
+- Target at least 90% test coverage for new development (unit/integration as appropriate). If an exception is needed, document rationale and a follow-up plan in the PR.
 - Custom linters enforce: structured logging, naming conventions for schemas and types, file size limits, and platform-specific reliability requirements.
 - Linter error messages are written to inject remediation instructions into agent context.
 - Architectural layer rules (Types → Config → Repo → Service → Runtime → UI) are enforced mechanically via structural tests.

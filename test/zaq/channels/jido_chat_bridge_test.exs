@@ -61,6 +61,34 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def persist_from_incoming(_msg, _result), do: :ok
   end
 
+  defmodule StubNodeRouter do
+    alias Zaq.Engine.Messages.Outgoing
+
+    def dispatch(event) do
+      response =
+        case event.opts[:action] do
+          :run_pipeline ->
+            %Outgoing{
+              body: "stub from node router",
+              channel_id: event.request.channel_id,
+              provider: event.request.provider,
+              metadata: %{answer: "stub"}
+            }
+
+          :deliver_outgoing ->
+            :ok
+
+          :persist_from_incoming ->
+            :ok
+
+          _ ->
+            {:error, :unsupported}
+        end
+
+      %{event | response: response}
+    end
+  end
+
   defmodule StubAdapterOutbound do
     def start_typing(channel_id, opts) do
       send(self(), {:start_typing, channel_id, opts})
@@ -208,6 +236,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     Application.put_env(:zaq, :chat_bridge_conversations_module, StubConversations)
     Application.put_env(:zaq, :chat_bridge_accounts_module, StubAccounts)
     Application.put_env(:zaq, :chat_bridge_permissions_module, StubPermissions)
+    Application.delete_env(:zaq, :chat_bridge_node_router_module)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :pipeline_hooks_module)
@@ -216,6 +245,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.delete_env(:zaq, :chat_bridge_conversations_module)
       Application.delete_env(:zaq, :chat_bridge_accounts_module)
       Application.delete_env(:zaq, :chat_bridge_permissions_module)
+      Application.delete_env(:zaq, :chat_bridge_node_router_module)
     end)
 
     :ok
@@ -389,6 +419,24 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       assert {:error, :timeout} = JidoChatBridge.handle_from_listener(@config, incoming, [])
+    end
+
+    test "uses NodeRouter dispatch path when bridge modules are defaults" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
+
+      incoming = %ChatIncoming{
+        text: "node-router",
+        external_room_id: "room1",
+        external_thread_id: nil,
+        external_message_id: "msg1",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
     end
 
     test "uses incoming channel adapter when present, even if unsupported" do

@@ -10,6 +10,8 @@ defmodule Zaq.Channels.WebBridge do
   update the UI without direct process sends.
   """
 
+  @behaviour Zaq.Channels.Bridge
+
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
 
   @doc """

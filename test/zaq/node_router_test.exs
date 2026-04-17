@@ -94,7 +94,7 @@ defmodule Zaq.NodeRouterTest do
           :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
             spawn(fn -> :ok end)
 
-          :remote@host, Zaq.Agent.Api, :handle_event, [event, :invoke, nil] ->
+          :remote@host, Zaq.Agent.Api, :handle_event, [event, :invoke, _api_opts] ->
             %{event | response: "HELLO FROM REMOTE"}
         end
       }
@@ -111,7 +111,7 @@ defmodule Zaq.NodeRouterTest do
           :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
             spawn(fn -> :ok end)
 
-          :remote@host, Zaq.Agent.Api, :handle_event, [_event, :invoke, nil] ->
+          :remote@host, Zaq.Agent.Api, :handle_event, [_event, :invoke, _api_opts] ->
             {:badrpc, :timeout}
         end
       }
@@ -137,6 +137,7 @@ defmodule Zaq.NodeRouterTest do
       result = NodeRouter.dispatch(event)
       assert %Event{} = result
       assert result.response == "HELLO"
+      assert result.hops == [result.next_hop]
     end
 
     test "dispatches invoke events remotely and returns routed event" do
@@ -153,7 +154,7 @@ defmodule Zaq.NodeRouterTest do
           :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
             spawn(fn -> :ok end)
 
-          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{} = routed, :invoke, nil] ->
+          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{} = routed, :invoke, _api_opts] ->
             %{routed | response: "HELLO FROM REMOTE"}
         end
       }
@@ -161,6 +162,28 @@ defmodule Zaq.NodeRouterTest do
       result = NodeRouter.dispatch(event, runtime)
       assert %Event{} = result
       assert result.response == "HELLO FROM REMOTE"
+      assert result.hops == [result.next_hop]
+    end
+
+    test "returns invalid_event_response when remote handler does not return event" do
+      event = Event.new(%{module: String, function: :upcase, args: ["hello"]}, :agent)
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [_event, :invoke, _api_opts] ->
+            :not_an_event
+        end
+      }
+
+      result = NodeRouter.dispatch(event, runtime)
+
+      assert result.response == {:error, {:invalid_event_response, :remote@host, :not_an_event}}
     end
 
     test "wraps remote badrpc failures in the event response" do
@@ -177,7 +200,7 @@ defmodule Zaq.NodeRouterTest do
           :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
             spawn(fn -> :ok end)
 
-          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{}, :invoke, nil] ->
+          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{}, :invoke, _api_opts] ->
             {:badrpc, :timeout}
         end
       }
@@ -187,6 +210,7 @@ defmodule Zaq.NodeRouterTest do
       assert %Event{} = result
 
       assert result.response == {:error, {:rpc_failed, :remote@host, :timeout}}
+      assert result.hops == [result.next_hop]
     end
 
     test "returns an event for async hops as well" do
@@ -201,6 +225,64 @@ defmodule Zaq.NodeRouterTest do
 
       assert %Event{} = result
       assert result.response == "HELLO"
+      assert result.hops == [result.next_hop]
+    end
+
+    test "does not duplicate last hop when dispatching same event twice" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
+          opts: [action: :invoke]
+        )
+
+      first = NodeRouter.dispatch(event)
+      second = NodeRouter.dispatch(first)
+
+      assert length(second.hops) == 1
+      assert second.hops == [second.next_hop]
+    end
+
+    test "normalizes non-atom action in opts to invoke" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
+          opts: [action: "bad"]
+        )
+
+      result = NodeRouter.dispatch(event)
+
+      assert result.response == "HELLO"
+    end
+
+    test "normalizes non-list opts to invoke via fallback" do
+      event = %Event{
+        request: %{module: String, function: :upcase, args: ["hello"]},
+        next_hop: %EventHop{destination: :bo, type: :sync, timestamp: DateTime.utc_now()},
+        opts: %{action: :invoke},
+        trace_id: Ecto.UUID.generate(),
+        hops: []
+      }
+
+      result = NodeRouter.dispatch(event)
+
+      assert result.response == "HELLO"
+    end
+
+    test "append_current_hop ignores invalid hop list shape" do
+      event = %Event{
+        request: %{module: String, function: :upcase, args: ["hello"]},
+        next_hop: %EventHop{destination: :bo, type: :sync, timestamp: DateTime.utc_now()},
+        opts: [action: :invoke],
+        trace_id: Ecto.UUID.generate(),
+        hops: nil
+      }
+
+      result = NodeRouter.dispatch(event)
+
+      assert result.response == "HELLO"
+      assert result.hops == nil
+    end
+
+    test "find_node/1 delegates to default runtime" do
+      assert NodeRouter.find_node(ZaqWeb.Endpoint) == node()
     end
   end
 end

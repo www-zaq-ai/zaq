@@ -16,6 +16,7 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | Module | File | Role |
 |---|---|---|
 | `Zaq.Channels.Router` | `lib/zaq/channels/router.ex` | Stateless outbound router — public entrypoint |
+| `Zaq.Channels.Bridge` | `lib/zaq/channels/bridge.ex` | Bridge behaviour + shared helpers |
 | `Zaq.Channels.JidoChatBridge` | `lib/zaq/channels/jido_chat_bridge.ex` | Provider bridge for jido_chat adapters |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder |
 | `Zaq.Channels.EmailBridge` | `lib/zaq/channels/email_bridge.ex` | Bridge for email (SMTP) delivery |
@@ -112,6 +113,26 @@ config :zaq, :channels, %{
 The string `"email:smtp"` is mapped to the `:email` key before lookup. For `:web`, connection details are always `%{}` — delivery is via PubSub only.
 
 `sync_config_runtime/2` calls `bridge.start_runtime/1` or `bridge.stop_runtime/1` on the bridge if the function is exported. This is how the Supervisor delegates lifecycle to the bridge.
+
+---
+
+## Bridge Behaviour
+
+All channel bridge modules must implement `Zaq.Channels.Bridge`.
+
+Required callbacks:
+
+- `to_internal/2` — maps adapter payload to canonical `%Incoming{}`
+- `send_reply/2` — delivers canonical `%Outgoing{}` through the transport
+
+Optional callbacks cover runtime/lifecycle and provider extras (`start_runtime/1`,
+`stop_runtime/1`, typing/reaction callbacks, profile/DM helpers, etc.).
+
+Shared helper:
+
+- `Zaq.Channels.Bridge.persist_from_incoming/4` centralizes persistence routing.
+  It dispatches via `%Zaq.Event{}` when using `Zaq.Engine.Conversations`, and
+  falls back to direct module calls for test overrides.
 
 ---
 
