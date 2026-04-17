@@ -8,6 +8,8 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   alias Zaq.NodeRouter
   alias ZaqWeb.Live.BO.PreviewHelpers
 
+  import ZaqWeb.Helpers.DateFormat, only: [format_date: 1, inject_date_separators: 2]
+
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     conversation =

@@ -15,6 +15,7 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
   use ZaqWeb, :live_view
 
   import ZaqWeb.Components.SearchableSelect
+  import ZaqWeb.Helpers.DateFormat, only: [format_datetime: 1]
 
   alias Zaq.Accounts.People
   alias Zaq.NodeRouter

@@ -70,37 +70,55 @@
           <div :if={@conversations == []} class="px-4 py-6 text-center">
             <p class="font-mono text-[0.68rem]" style="color:#c8c5be;">No conversations yet.</p>
           </div>
-          <button
-            :for={conv <- @conversations}
-            phx-click="load_conversation"
-            phx-value-id={conv.id}
-            class={[
-              "w-full text-left block px-4 py-3 border-b border-[#f0ede8] transition-colors group",
-              if(@current_conversation_id == conv.id,
-                do: "bg-[#f0f9fb]",
-                else: "hover:bg-[#faf9f7]"
-              )
-            ]}
-          >
-            <p class={[
-              "font-mono text-[0.75rem] truncate leading-snug transition-colors",
-              if(@current_conversation_id == conv.id,
-                do: "text-[#03b6d4]",
-                else: "text-[#2c2b28] group-hover:text-[#03b6d4]"
-              )
-            ]}>
-              {conv.title || "(untitled)"}
-            </p>
-            <div class="flex items-center gap-1.5 mt-0.5">
-              <span class="font-mono text-[0.6rem]" style="color:#b8b5ae;">
-                {conv.channel_type}
-              </span>
-              <span style="color:#d1cfc9;">·</span>
-              <span class="font-mono text-[0.6rem]" style="color:#b8b5ae;">
-                {format_time(conv.inserted_at)}
-              </span>
-            </div>
-          </button>
+          <%= for item <- inject_relative_date_separators(@conversations) do %>
+            <%= if Map.get(item, :type) == :date_separator do %>
+              <div class="px-4 pt-3 pb-1">
+                <span
+                  class="font-mono text-[0.58rem] uppercase tracking-widest"
+                  style={
+                    case item.label do
+                      "Today" -> "color:#03b6d4;"
+                      "Yesterday" -> "color:#7ecfdf;"
+                      _ -> "color:#c8c5be;"
+                    end
+                  }
+                >
+                  {item.label}
+                </span>
+              </div>
+            <% else %>
+              <button
+                phx-click="load_conversation"
+                phx-value-id={item.id}
+                class={[
+                  "w-full text-left block px-4 py-3 border-b border-[#f0ede8] transition-colors group",
+                  if(@current_conversation_id == item.id,
+                    do: "bg-[#f0f9fb]",
+                    else: "hover:bg-[#faf9f7]"
+                  )
+                ]}
+              >
+                <p class={[
+                  "font-mono text-[0.75rem] truncate leading-snug transition-colors",
+                  if(@current_conversation_id == item.id,
+                    do: "text-[#03b6d4]",
+                    else: "text-[#2c2b28] group-hover:text-[#03b6d4]"
+                  )
+                ]}>
+                  {item.title || "(untitled)"}
+                </p>
+                <div class="flex items-center gap-1.5 mt-0.5">
+                  <span class="font-mono text-[0.6rem]" style="color:#b8b5ae;">
+                    {item.channel_type}
+                  </span>
+                  <span style="color:#d1cfc9;">·</span>
+                  <span class="font-mono text-[0.6rem]" style="color:#b8b5ae;">
+                    {format_time(item.inserted_at)}
+                  </span>
+                </div>
+              </button>
+            <% end %>
+          <% end %>
         </div>
       </aside>
 
@@ -138,126 +156,141 @@
           style="background-color: #f7f6f3;"
         >
           <div class="max-w-3xl mx-auto px-6 py-6 space-y-5">
-            <%= for msg <- @messages do %>
-              <%= if msg.role == :user do %>
-                <ZaqWeb.Components.ChatMessage.user_bubble
-                  content={msg.body}
-                  timestamp={msg.timestamp}
-                >
-                  <:actions>
-                    <button
-                      phx-click="copy_message"
-                      phx-value-text={msg.body}
-                      class="p-1 rounded transition-all"
-                      style="color: #b8b5ae;"
-                      title="Copy"
-                    >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                    </button>
-                  </:actions>
-                </ZaqWeb.Components.ChatMessage.user_bubble>
+            <%= for item <- inject_date_separators(@messages) do %>
+              <%= if Map.get(item, :type) == :date_separator do %>
+                <div class="flex items-center gap-3 my-1">
+                  <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
+                  <span
+                    class="font-mono text-[0.62rem] uppercase tracking-widest"
+                    style="color:#b8b5ae;"
+                  >
+                    {format_date(item.date)}
+                  </span>
+                  <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
+                </div>
               <% else %>
-                <ZaqWeb.Components.ChatMessage.assistant_bubble
-                  content={msg.body}
-                  timestamp={msg.timestamp}
-                  msg_id={if Map.get(msg, :live, false), do: msg.id, else: nil}
-                  confidence={msg.confidence}
-                  sources={Map.get(msg, :sources, [])}
-                  is_error={Map.get(msg, :error, false)}
-                  source_click_event="open_preview_modal"
-                >
-                  <:actions>
-                    <button
-                      phx-click="copy_message"
-                      phx-value-text={msg.body}
-                      class="p-1.5 rounded-lg transition-all hover:bg-[#eeece8]"
-                      style="color:#b8b5ae;"
-                      title="Copy"
-                    >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                <%= if item.role == :user do %>
+                  <ZaqWeb.Components.ChatMessage.user_bubble
+                    content={item.body}
+                    timestamp={item.timestamp}
+                  >
+                    <:actions>
+                      <button
+                        phx-click="copy_message"
+                        phx-value-text={item.body}
+                        class="p-1 rounded transition-all"
+                        style="color: #b8b5ae;"
+                        title="Copy"
                       >
-                        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                    </button>
-                    <button
-                      phx-click="feedback"
-                      phx-value-id={msg.id}
-                      phx-value-type="positive"
-                      class={[
-                        "p-1.5 rounded-lg transition-all",
-                        if(msg[:feedback] == :positive,
-                          do: "bg-emerald-50 text-emerald-500",
-                          else: "hover:bg-[#eeece8]"
-                        )
-                      ]}
-                      style={if msg[:feedback] != :positive, do: "color:#b8b5ae;", else: ""}
-                      title="Good response"
-                    >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1">
+                          </path>
+                        </svg>
+                      </button>
+                    </:actions>
+                  </ZaqWeb.Components.ChatMessage.user_bubble>
+                <% else %>
+                  <ZaqWeb.Components.ChatMessage.assistant_bubble
+                    content={item.body}
+                    timestamp={item.timestamp}
+                    msg_id={if Map.get(item, :live, false), do: item.id, else: nil}
+                    confidence={item.confidence}
+                    sources={Map.get(item, :sources, [])}
+                    is_error={Map.get(item, :error, false)}
+                    source_click_event="open_preview_modal"
+                  >
+                    <:actions>
+                      <button
+                        phx-click="copy_message"
+                        phx-value-text={item.body}
+                        class="p-1.5 rounded-lg transition-all hover:bg-[#eeece8]"
+                        style="color:#b8b5ae;"
+                        title="Copy"
                       >
-                        <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
-                        </path>
-                      </svg>
-                    </button>
-                    <button
-                      phx-click="feedback"
-                      phx-value-id={msg.id}
-                      phx-value-type="negative"
-                      class={[
-                        "p-1.5 rounded-lg transition-all",
-                        if(msg[:feedback] == :negative,
-                          do: "bg-red-50 text-red-400",
-                          else: "hover:bg-[#eeece8]"
-                        )
-                      ]}
-                      style={if msg[:feedback] != :negative, do: "color:#b8b5ae;", else: ""}
-                      title="Poor response"
-                    >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1">
+                          </path>
+                        </svg>
+                      </button>
+                      <button
+                        phx-click="feedback"
+                        phx-value-id={item.id}
+                        phx-value-type="positive"
+                        class={[
+                          "p-1.5 rounded-lg transition-all",
+                          if(item[:feedback] == :positive,
+                            do: "bg-emerald-50 text-emerald-500",
+                            else: "hover:bg-[#eeece8]"
+                          )
+                        ]}
+                        style={if item[:feedback] != :positive, do: "color:#b8b5ae;", else: ""}
+                        title="Good response"
                       >
-                        <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17">
-                        </path>
-                      </svg>
-                    </button>
-                  </:actions>
-                </ZaqWeb.Components.ChatMessage.assistant_bubble>
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
+                          </path>
+                        </svg>
+                      </button>
+                      <button
+                        phx-click="feedback"
+                        phx-value-id={item.id}
+                        phx-value-type="negative"
+                        class={[
+                          "p-1.5 rounded-lg transition-all",
+                          if(item[:feedback] == :negative,
+                            do: "bg-red-50 text-red-400",
+                            else: "hover:bg-[#eeece8]"
+                          )
+                        ]}
+                        style={if item[:feedback] != :negative, do: "color:#b8b5ae;", else: ""}
+                        title="Poor response"
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17">
+                          </path>
+                        </svg>
+                      </button>
+                    </:actions>
+                  </ZaqWeb.Components.ChatMessage.assistant_bubble>
+                <% end %>
               <% end %>
             <% end %>
 
