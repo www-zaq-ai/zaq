@@ -12,7 +12,7 @@
 
 ## Goal
 
-Deliver the first phase of issue #270 by enabling BO-managed standalone AI agents that execute through a single standard runtime agent (`Zaq.Agent.Factory`) with runtime parameters passed on `ask/2`. Done means agents can be created/edited in BO, selected explicitly from BO chat, and executed on the Agent node through a single Agent API entrypoint that routes either to unchanged `Pipeline.run/2` (no explicit selection) or to `Zaq.Agent.Executor` (explicit selection).
+Deliver the first phase of issue #270 by enabling BO-managed standalone AI agents that execute through a single standard runtime agent (`Zaq.Agent.Factory`) with runtime parameters passed on `ask/2`. Done means agents can be created/edited in BO, selected explicitly from BO chat, and executed on the Agent node through a single Agent API entrypoint that routes either to unchanged `Pipeline.run/2` (no explicit selection) or to `Zaq.Agent.Executor` (explicit selection), with one long-lived Jido agent server per configured agent id.
 
 ---
 
@@ -64,6 +64,12 @@ Use a single event entrypoint on the Agent role and keep routing decisions on th
 - map config into runtime params,
 - invoke `Zaq.Agent.Factory.ask/2`.
 
+Custom agents are wired as long-lived Jido processes under `Zaq.Agent.Supervisor` through `Jido.AgentServer`:
+- one server per configured agent id,
+- stable server naming derived from configured agent id,
+- routing in `Zaq.Agent.Executor` resolves target server directly from selected id,
+- execution remains asynchronous in runtime tasks while preserving single-flight semantics per configured agent instance.
+
 Selection intent is transported in `event.assigns` (not action name, not request mutation), with `%Zaq.Event{request: %Incoming{...}}` preserved as canonical message payload.
 
 ---
@@ -88,22 +94,28 @@ completable in a single PR. Check off as you go.
   - Ensure runtime declarations drive behavior for all selected custom agents.
   - Add focused unit tests for runtime overrides and invalid declarations.
 
-- [ ] Step 4: Add `Zaq.Agent.Executor` and route through a single Agent API entrypoint
-  - Implement `Zaq.Agent.Executor` to load + validate + map + execute selected agents through `Factory.ask/2`.
+- [ ] Step 4: Add AgentServer wiring and naming strategy for custom agents
+  - Start custom-agent servers under `Zaq.Agent.Supervisor` via `Jido.AgentServer`.
+  - Register one long-lived server per configured agent id.
+  - Implement deterministic server naming keyed by configured agent id for straightforward executor routing.
+  - Add supervision/runtime tests for start, lookup, and restart behavior.
+
+- [ ] Step 5: Add `Zaq.Agent.Executor` and route through a single Agent API entrypoint
+  - Implement `Zaq.Agent.Executor` to load + validate + map + execute selected agents through `Factory.ask/2` targeting the configured agent server.
   - Keep `Zaq.Agent.Api` thin: branch by `event.assigns["agent_selection"]` and delegate to `Executor` or unchanged `Pipeline`.
   - Keep a single Agent API action/entrypoint for BO chat and related flows.
 
-- [ ] Step 5: Add BO Agents management UI
+- [ ] Step 6: Add BO Agents management UI
   - Add `/bo/agents` LiveView for list/filter/create/edit (people-directory style split view).
   - Add sidebar entry under AI section in BO layout and route in `router.ex`.
   - Reuse provider/model capability UX patterns from system config screens.
 
-- [ ] Step 6: Integrate BO chat explicit agent selection
+- [ ] Step 7: Integrate BO chat explicit agent selection
   - Add agent dropdown in chat top bar, on the same row as Clear chat and to its left.
   - Include explicit selection in event assigns when sending requests.
   - Do not decide execution path in BO; Agent node decides via API routing.
 
-- [ ] Step 7: Validation and documentation
+- [ ] Step 8: Validation and documentation
   - Add/extend unit and LiveView tests for schema validation, registry constraints, Agent API routing, executor behavior, and chat selection flow.
   - Run `mix test` through implementation and `mix precommit` before final PR.
   - Update docs (`docs/services/agent.md`, `docs/architecture.md`, and related references) to reflect event contract and execution path.
@@ -124,6 +136,8 @@ Record decisions made during implementation. Future agents need this context.
 | Tool registry is code-configured whitelist | Matches issue scope and avoids runtime action declaration complexity in phase 1 | 2026-04-18 |
 | Use `LLMDB` capabilities for both UI and backend validation | Single source of truth for model capabilities and consistent enforcement | 2026-04-18 |
 | Chat dropdown placement is left of Clear chat on same top bar row | Explicit product requirement from issue planning discussion | 2026-04-18 |
+| Use one long-lived AgentServer per configured agent id | Keeps routing straightforward and isolates runtime state per configured agent definition | 2026-04-18 |
+| Name/lookup custom-agent servers by configured agent id | Allows `Zaq.Agent.Executor` to route directly without extra discovery indirection | 2026-04-18 |
 
 ---
 
