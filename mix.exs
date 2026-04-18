@@ -107,7 +107,9 @@ defmodule Zaq.MixProject do
       {:ex_dna, "~> 1.2.2", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:mailroom, "~> 0.7.1"},
-      {:lingua, "~> 0.3.6"}
+      {:lingua, "~> 0.3.6"},
+      {:jido_action, "~> 2.0"},
+      {:jido_ai, "~> 2.1"}
     ]
   end
 
