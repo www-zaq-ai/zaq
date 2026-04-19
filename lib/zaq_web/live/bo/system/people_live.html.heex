@@ -7,8 +7,12 @@
 >
   <.delete_confirm_bar :if={@confirm_delete} confirm_delete={@confirm_delete} />
 
-  <div class="flex gap-6 min-h-[70vh]">
-    <div class={if @selected_person, do: "w-1/3 flex-shrink-0", else: "w-full"}>
+  <ZaqWeb.Components.MasterDetailLayout.master_detail
+    show_detail={not is_nil(@selected_person)}
+    master_id="people-master-pane"
+    detail_id="people-detail-pane"
+  >
+    <:master>
       <div class="bg-white rounded-xl border border-black/10">
         <.tabs_nav active_tab={@active_tab} />
         <.people_tab
@@ -27,15 +31,17 @@
         />
         <.teams_tab :if={@active_tab == :teams} teams={@teams} />
       </div>
-    </div>
-    <.person_detail
-      :if={@selected_person}
-      selected_person={@selected_person}
-      person_channels={@person_channels}
-      person_documents={@person_documents}
-      teams={@teams}
-    />
-  </div>
+    </:master>
+
+    <:detail>
+      <.person_detail
+        selected_person={@selected_person}
+        person_channels={@person_channels}
+        person_documents={@person_documents}
+        teams={@teams}
+      />
+    </:detail>
+  </ZaqWeb.Components.MasterDetailLayout.master_detail>
 
   <.people_modal
     :if={@modal}

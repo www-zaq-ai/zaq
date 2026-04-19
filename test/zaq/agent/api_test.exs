@@ -13,6 +13,13 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  defmodule StubExecutor do
+    def run(%Incoming{} = incoming, opts) do
+      send(self(), {:executor_called, incoming, opts})
+      %Outgoing{body: "selected", channel_id: incoming.channel_id, provider: incoming.provider}
+    end
+  end
+
   test "handles run_pipeline action" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
@@ -34,6 +41,37 @@ defmodule Zaq.Agent.ApiTest do
     result = Api.handle_event(event, :run_pipeline, nil)
 
     assert result.response == {:error, {:invalid_request, %{bad: true}}}
+  end
+
+  test "delegates to executor when event has explicit agent selection" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [history: %{"x" => 1}, telemetry_dimensions: %{channel_type: "bo"}]
+        ]
+      )
+
+    event =
+      %{event | assigns: %{"agent_selection" => %{"agent_id" => "42", "source" => "bo_explicit"}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "selected"
+
+    assert_received {:executor_called, ^incoming,
+                     [
+                       agent_id: "42",
+                       history: %{"x" => 1},
+                       telemetry_dimensions: %{channel_type: "bo"}
+                     ]}
+
+    refute_received {:pipeline_called, _, _}
   end
 
   test "delegates invoke to shared internal boundaries helper" do

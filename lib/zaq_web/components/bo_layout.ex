@@ -823,6 +823,21 @@ defmodule ZaqWeb.Components.BOLayout do
   defp nav_sections(current_path, features_version) do
     [
       %{
+        id: "section-ai",
+        label: "AI",
+        icon: "ai",
+        active: ai_section_active?(current_path),
+        open: ai_section_active?(current_path),
+        items: [
+          %{
+            href: ~p"/bo/agents",
+            icon: "conversations",
+            label: "Agents",
+            active: current_path == "/bo/agents"
+          }
+        ]
+      },
+      %{
         id: "section-data",
         label: "Data",
         icon: "ai",
@@ -888,6 +903,10 @@ defmodule ZaqWeb.Components.BOLayout do
       String.starts_with?(current_path, "/bo/people") or
       String.starts_with?(current_path, "/bo/ontology") or
       current_path == "/bo/knowledge-gap"
+  end
+
+  defp ai_section_active?(current_path) do
+    current_path == "/bo/agents"
   end
 
   defp communication_section_active?(current_path) do

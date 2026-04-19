@@ -79,38 +79,38 @@ Selection intent is transported in `event.assigns` (not action name, not request
 Break the work into small, independently completable steps. Each step should be
 completable in a single PR. Check off as you go.
 
-- [ ] Step 1: Add Agent configuration domain under `Zaq.Agent`
+- [x] Step 1: Add Agent configuration domain under `Zaq.Agent`
   - Add schema/context for BO-managed agent declarations (name, description, job, credential/model, tool keys, conversation toggle, strategy, advanced options, active state).
   - Add migration(s) and indexes for listing/filtering.
   - Keep sovereign flag inferred from provider credential (no duplicated persisted source of truth).
 
-- [ ] Step 2: Add code-defined tools registry with capability-aware validation
+- [x] Step 2: Add code-defined tools registry with capability-aware validation
   - Add `Zaq.Agent.Tools.Registry` as code-level whitelist for allowed tools.
   - Expose descriptors usable by BO forms and runtime validation.
   - Enforce tool/model compatibility using `LLMDB` capabilities (same source used by BO model listing).
 
-- [ ] Step 3: Upgrade `Zaq.Agent.Factory` as standard runtime agent
+- [x] Step 3: Upgrade `Zaq.Agent.Factory` as standard runtime agent
   - Extend `Factory.ask/2` to accept runtime declarations (job/system prompt, model/provider context, enabled tools, strategy, advanced options).
   - Ensure runtime declarations drive behavior for all selected custom agents.
   - Add focused unit tests for runtime overrides and invalid declarations.
 
-- [ ] Step 4: Add AgentServer wiring and naming strategy for custom agents
+- [x] Step 4: Add AgentServer wiring and naming strategy for custom agents
   - Start custom-agent servers under `Zaq.Agent.Supervisor` via `Jido.AgentServer`.
   - Register one long-lived server per configured agent id.
   - Implement deterministic server naming keyed by configured agent id for straightforward executor routing.
   - Add supervision/runtime tests for start, lookup, and restart behavior.
 
-- [ ] Step 5: Add `Zaq.Agent.Executor` and route through a single Agent API entrypoint
+- [x] Step 5: Add `Zaq.Agent.Executor` and route through a single Agent API entrypoint
   - Implement `Zaq.Agent.Executor` to load + validate + map + execute selected agents through `Factory.ask/2` targeting the configured agent server.
   - Keep `Zaq.Agent.Api` thin: branch by `event.assigns["agent_selection"]` and delegate to `Executor` or unchanged `Pipeline`.
   - Keep a single Agent API action/entrypoint for BO chat and related flows.
 
-- [ ] Step 6: Add BO Agents management UI
+- [x] Step 6: Add BO Agents management UI
   - Add `/bo/agents` LiveView for list/filter/create/edit (people-directory style split view).
   - Add sidebar entry under AI section in BO layout and route in `router.ex`.
   - Reuse provider/model capability UX patterns from system config screens.
 
-- [ ] Step 7: Integrate BO chat explicit agent selection
+- [x] Step 7: Integrate BO chat explicit agent selection
   - Add agent dropdown in chat top bar, on the same row as Clear chat and to its left.
   - Include explicit selection in event assigns when sending requests.
   - Do not decide execution path in BO; Agent node decides via API routing.

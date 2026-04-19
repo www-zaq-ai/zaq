@@ -15,7 +15,11 @@ defmodule Zaq.Agent.Supervisor do
 
   @impl true
   def init(_opts) do
-    children = []
+    children = [
+      {Jido, name: Zaq.Agent.Jido, otp_app: :zaq},
+      {DynamicSupervisor, strategy: :one_for_one, name: Zaq.Agent.AgentServerSupervisor},
+      {Zaq.Agent.ServerManager, []}
+    ]
 
     Supervisor.init(children, strategy: :one_for_one)
   end

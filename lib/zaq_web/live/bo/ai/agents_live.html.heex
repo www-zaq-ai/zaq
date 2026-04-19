@@ -1,0 +1,392 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title="Agents"
+  current_path={@current_path}
+  features_version={@features_version}
+>
+  <div class="mx-auto max-w-[1500px] space-y-5">
+    <section class="rounded-xl border border-[#e6e2db] bg-white px-5 py-4">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h1 class="font-mono text-[0.9rem] uppercase tracking-widest text-[#3e3b36]">
+            AI Agents
+          </h1>
+          <p class="mt-1 font-mono text-[0.7rem] text-[#8e8a82]">
+            Manage BO-defined agents and choose which ones can be selected in chat.
+          </p>
+        </div>
+        <button
+          id="new-agent-button"
+          phx-click="new_agent"
+          class="rounded-lg bg-[#03b6d4] px-3 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-white hover:bg-[#0198b1] transition-colors"
+        >
+          New Agent
+        </button>
+      </div>
+
+      <form
+        id="agent-filters-form"
+        phx-change="filter"
+        class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4"
+      >
+        <input
+          type="text"
+          name="filters[name]"
+          value={@filters["name"]}
+          placeholder="Filter by name"
+          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+        />
+        <input
+          type="text"
+          name="filters[model]"
+          value={@filters["model"]}
+          placeholder="Filter by model"
+          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+        />
+        <select
+          name="filters[conversation_enabled]"
+          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+        >
+          <option value="all" selected={@filters["conversation_enabled"] == "all"}>
+            All chat modes
+          </option>
+          <option value="enabled" selected={@filters["conversation_enabled"] == "enabled"}>
+            Chat enabled
+          </option>
+          <option value="disabled" selected={@filters["conversation_enabled"] == "disabled"}>
+            Chat disabled
+          </option>
+        </select>
+        <select
+          name="filters[active]"
+          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+        >
+          <option value="all" selected={@filters["active"] == "all"}>All states</option>
+          <option value="active" selected={@filters["active"] == "active"}>Active</option>
+          <option value="inactive" selected={@filters["active"] == "inactive"}>Inactive</option>
+        </select>
+      </form>
+    </section>
+
+    <ZaqWeb.Components.MasterDetailLayout.master_detail
+      show_detail={@mode in [:new, :edit]}
+      master_id="agents-master-pane"
+      detail_id="agents-detail-pane"
+    >
+      <:master>
+        <section class="rounded-xl border border-[#e6e2db] bg-white overflow-hidden">
+          <div class="flex items-center justify-between border-b border-[#efece6] px-4 py-3">
+            <h2 class="font-mono text-[0.72rem] uppercase tracking-widest text-[#7e7a73]">
+              Agents ({@total_agents})
+            </h2>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full">
+              <thead class="bg-[#faf8f5]">
+                <tr>
+                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
+                    Name
+                  </th>
+                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
+                    Model
+                  </th>
+                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
+                    Chat
+                  </th>
+                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
+                    State
+                  </th>
+                  <th class="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :if={@agents == []}>
+                  <td
+                    colspan="5"
+                    class="px-4 py-8 text-center font-mono text-[0.7rem] text-[#a6a298]"
+                  >
+                    No agents found.
+                  </td>
+                </tr>
+                <tr
+                  :for={agent <- @agents}
+                  id={"agent-row-#{agent.id}"}
+                  phx-click="select_agent"
+                  phx-value-id={agent.id}
+                  class={[
+                    "border-t border-[#f0ede8] cursor-pointer",
+                    if(@selected_agent_id == agent.id,
+                      do: "bg-[#f0f9fb]",
+                      else: "hover:bg-[#faf8f5]"
+                    )
+                  ]}
+                >
+                  <td class="px-4 py-3">
+                    <div class="text-left">
+                      <p class="font-mono text-[0.75rem] text-[#3e3b36]">{agent.name}</p>
+                      <p class="mt-0.5 font-mono text-[0.65rem] text-[#9d988f] line-clamp-1">
+                        {agent.description || "No description"}
+                      </p>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 font-mono text-[0.7rem] text-[#6e6a63]">{agent.model}</td>
+                  <td class="px-4 py-3">
+                    <span class={[
+                      "rounded-md px-2 py-1 font-mono text-[0.62rem] uppercase tracking-wider",
+                      if(agent.conversation_enabled,
+                        do: "bg-[#e8f9fd] text-[#0290a8]",
+                        else: "bg-[#f3f1ed] text-[#8d887f]"
+                      )
+                    ]}>
+                      {if agent.conversation_enabled, do: "Enabled", else: "Disabled"}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3">
+                    <span class={[
+                      "rounded-md px-2 py-1 font-mono text-[0.62rem] uppercase tracking-wider",
+                      if(agent.active,
+                        do: "bg-[#eaf8ef] text-[#2e8a4f]",
+                        else: "bg-[#f7eceb] text-[#a35246]"
+                      )
+                    ]}>
+                      {if agent.active, do: "Active", else: "Inactive"}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <button
+                      phx-click="delete_agent"
+                      phx-value-id={agent.id}
+                      onclick="event.stopPropagation()"
+                      data-confirm="Delete this agent?"
+                      class="rounded-md px-2 py-1 font-mono text-[0.65rem] text-[#af5a4b] hover:bg-[#fdeeed]"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </:master>
+
+      <:detail>
+        <section class="rounded-xl border border-[#e6e2db] bg-white p-4">
+          <h2 class="font-mono text-[0.72rem] uppercase tracking-widest text-[#7e7a73]">
+            {if @mode == :new, do: "Create Agent", else: "Edit Agent"}
+          </h2>
+
+          <.form
+            for={@form}
+            id="configured-agent-form"
+            phx-change="validate"
+            phx-submit="save"
+            class="mt-4 space-y-4"
+          >
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  name="configured_agent[name]"
+                  value={@form[:name].value}
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                />
+              </div>
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Strategy
+                </label>
+                <select
+                  name="configured_agent[strategy]"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                >
+                  <option value="react" selected={@form[:strategy].value == "react"}>
+                    react
+                  </option>
+                  <option value="cot" selected={@form[:strategy].value == "cot"}>cot</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                Description
+              </label>
+              <input
+                type="text"
+                name="configured_agent[description]"
+                value={@form[:description].value || ""}
+                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+              />
+            </div>
+
+            <div>
+              <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                Job Prompt
+              </label>
+              <textarea
+                name="configured_agent[job]"
+                rows="4"
+                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+              >{@form[:job].value}</textarea>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Credential
+                </label>
+                <select
+                  name="configured_agent[credential_id]"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                >
+                  <option value="">Select credential</option>
+                  <option
+                    :for={credential <- @credentials}
+                    value={credential.id}
+                    selected={to_string(@form[:credential_id].value) == to_string(credential.id)}
+                  >
+                    {credential.name} ({credential.provider})
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Model
+                </label>
+                <.searchable_select
+                  :if={@model_options != []}
+                  id="configured-agent-model-select"
+                  name="configured_agent[model]"
+                  value={@form[:model].value}
+                  options={@model_options}
+                  placeholder="Search models..."
+                  empty_label="Select a model..."
+                  compact={true}
+                />
+                <input
+                  :if={@model_options == []}
+                  type="text"
+                  name="configured_agent[model]"
+                  value={@form[:model].value || ""}
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-2">
+                Enabled Tools
+              </label>
+              <input type="hidden" name="configured_agent[enabled_tool_keys][]" value="" />
+              <div
+                :if={@tools == []}
+                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+              >
+                No tools are currently registered in code.
+              </div>
+              <div :if={@tools != []} class="space-y-2">
+                <label
+                  :for={tool <- @tools}
+                  class="flex cursor-pointer items-start gap-2 rounded-lg border border-[#efece6] p-2 hover:bg-[#faf8f5]"
+                >
+                  <input
+                    type="checkbox"
+                    name="configured_agent[enabled_tool_keys][]"
+                    value={tool.key}
+                    checked={tool.key in (@form[:enabled_tool_keys].value || [])}
+                    class="mt-0.5"
+                  />
+                  <span>
+                    <span class="block font-mono text-[0.72rem] text-[#3e3b36]">
+                      {tool.label}
+                    </span>
+                    <span class="block font-mono text-[0.64rem] text-[#8f8a82]">
+                      {tool.description}
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                Advanced Options (JSON)
+              </label>
+              <textarea
+                name="configured_agent[advanced_options_json]"
+                rows="5"
+                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.7rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+              >{@advanced_options_json}</textarea>
+              <p
+                :if={@advanced_options_error}
+                class="mt-1 font-mono text-[0.64rem] text-[#af5a4b]"
+              >
+                {@advanced_options_error}
+              </p>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label class="flex items-center gap-2 rounded-lg border border-[#efece6] p-2">
+                <input type="hidden" name="configured_agent[conversation_enabled]" value="false" />
+                <input
+                  type="checkbox"
+                  name="configured_agent[conversation_enabled]"
+                  value="true"
+                  checked={@form[:conversation_enabled].value in [true, "true"]}
+                />
+                <span class="font-mono text-[0.7rem] text-[#3e3b36]">Conversation enabled</span>
+              </label>
+              <label class="flex items-center gap-2 rounded-lg border border-[#efece6] p-2">
+                <input type="hidden" name="configured_agent[active]" value="false" />
+                <input
+                  type="checkbox"
+                  name="configured_agent[active]"
+                  value="true"
+                  checked={@form[:active].value in [true, "true"]}
+                />
+                <span class="font-mono text-[0.7rem] text-[#3e3b36]">Active</span>
+              </label>
+            </div>
+
+            <div
+              :if={@changeset.errors != []}
+              class="rounded-lg border border-[#f3d9d5] bg-[#fff6f4] px-3 py-2"
+            >
+              <p
+                :for={{field, {message, _}} <- @changeset.errors}
+                class="font-mono text-[0.64rem] text-[#a35246]"
+              >
+                {field}: {message}
+              </p>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                id="save-agent-button"
+                type="submit"
+                class="rounded-lg bg-[#03b6d4] px-4 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-white hover:bg-[#0198b1] transition-colors"
+              >
+                {if @mode == :new, do: "Create Agent", else: "Save Agent"}
+              </button>
+
+              <button
+                id="cancel-agent-button"
+                type="button"
+                phx-click="cancel_agent_form"
+                class="rounded-lg border border-[#e6e2db] bg-white px-4 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-[#6e6a63] hover:bg-[#faf8f5] transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </.form>
+        </section>
+      </:detail>
+    </ZaqWeb.Components.MasterDetailLayout.master_detail>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

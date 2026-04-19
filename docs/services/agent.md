@@ -5,8 +5,12 @@
 The Agent service is the AI layer of ZAQ. It handles query rewriting, response formulation,
 confidence scoring, prompt security, and chunk title generation during ingestion.
 
-All agent modules are stateless — they are plain modules with no GenServers.
-The `Zaq.Agent.Supervisor` exists but currently starts no children.
+Core pipeline modules remain stateless, but configured agents are now runtime-managed.
+`Zaq.Agent.Supervisor` starts:
+- `DynamicSupervisor` (`Zaq.Agent.AgentServerSupervisor`)
+- `Zaq.Agent.ServerManager`
+
+`ServerManager` maintains one long-lived `Jido.AgentServer` per configured agent id.
 
 LLM configuration is centralized in `Zaq.Agent.LLM` — no other module reads
 provider details directly.
@@ -57,6 +61,29 @@ User question (BO Chat / Channel)
 - All sub-modules are injectable via opts for testing (`:hooks`, `:node_router`, `:retrieval`, `:document_processor`, `:answering`, `:prompt_guard`, `:prompt_template`)
 - `on_status` opt: 2-arity `fn(stage, message) :: :ok` callback for LiveView progress updates
 - `telemetry_dimensions` opt: map of extra dimensions forwarded to telemetry metrics
+
+### Agent API + Executor
+- `Zaq.Agent.Api` is the role boundary entrypoint used by `NodeRouter.dispatch/1`
+- `:run_pipeline` stays a single entrypoint and branches on event metadata:
+  - no `event.assigns["agent_selection"]` -> `Pipeline.run/2`
+  - explicit `event.assigns["agent_selection"]["agent_id"]` -> `Zaq.Agent.Executor.run/2`
+- `Zaq.Agent.Executor` loads and validates selected configured agent, ensures server presence, and executes through `Zaq.Agent.Factory`
+
+### Configured Agents (`Zaq.Agent` context)
+- Schema: `Zaq.Agent.ConfiguredAgent` (`configured_agents` table)
+- BO CRUD route: `/bo/agents`
+- Chat selector route: `/bo/chat` top bar dropdown
+- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+
+### Tool Registry (`Zaq.Agent.Tools.Registry`)
+- Code-defined allowlist of tool keys and modules
+- Runtime validation of selected tools
+- Capability check via `LLMDB` (`capabilities[:tools]`)
+
+### Runtime Factory (`Zaq.Agent.Factory`)
+- Standard runtime agent for all configured agents
+- Supports per-request runtime tool/module selection and LLM options
+- Supports runtime server configuration via system-prompt signal
 
 ### LLM Configuration (`Zaq.Agent.LLM`)
 - Centralized config reader for all agent modules
@@ -147,12 +174,15 @@ User question (BO Chat / Channel)
 
 ```
 lib/zaq/agent/
+├── configured_agent.ex          # Ecto schema for BO-managed configured agents
+├── executor.ex                  # Selected-agent execution path
 ├── answering/
 │   └── result.ex               # Canonical answer result struct
 ├── answering.ex                # Response formulation via LLM
 ├── chunk_title.ex              # LLM-generated chunk titles for ingestion
 ├── chunk_title_behaviour.ex    # Behaviour for ChunkTitle (allows mocking)
 ├── citation_normalizer.ex      # Rewrites [[source:...]] markers to numbered refs
+├── factory.ex                  # Runtime-configured standard Jido agent
 ├── history.ex                  # Conversation history map helpers
 ├── llm.ex                      # Centralized LLM config reader
 ├── llm_runner.ex               # Low-level LangChain LLMChain wrapper
@@ -161,7 +191,10 @@ lib/zaq/agent/
 ├── prompt_guard.ex             # Prompt injection + leakage protection
 ├── prompt_template.ex          # Ecto schema + context for DB-stored prompts
 ├── retrieval.ex                # Query rewriting agent
-├── supervisor.ex               # Placeholder supervisor (no children yet)
+├── server_manager.ex           # Ensures one AgentServer per configured agent id
+├── supervisor.ex               # Agent role supervisor with dynamic AgentServer tree
+├── tools/
+│   └── registry.ex             # Code-defined tool allowlist and capability checks
 └── token_estimator.ex          # Word-based token count heuristic
 ```
 

@@ -69,6 +69,7 @@ defmodule ZaqWeb.Router do
       live "/system-config", Live.BO.System.SystemConfigLive
       live "/ai-diagnostics", Live.BO.AI.AIDiagnosticsLive
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive
+      live "/agents", Live.BO.AI.AgentsLive
       live "/ingestion", Live.BO.AI.IngestionLive
       live "/ontology", Live.BO.AI.OntologyLive
       live "/knowledge-gap", Live.BO.AI.KnowledgeGapLive
