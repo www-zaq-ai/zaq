@@ -2,17 +2,20 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   @moduledoc """
   Back-office chat.
 
-  Full-size chat interface that delegates to `Zaq.Agent.Pipeline.run/2`
-  with live status callbacks. Agent and Ingestion calls are routed via
-  Zaq.NodeRouter so they work whether services run locally or on a peer node.
+  Full-size chat interface with live status callbacks.
+
+  Requests are sent through `Zaq.NodeRouter.dispatch/1` so execution is
+  decided on the Agent node (`Pipeline` by default, or explicit selected
+  configured agent when present in event assigns).
   """
 
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
-  alias Zaq.Agent.{CitationNormalizer, History, Pipeline}
+  alias Zaq.Agent.{CitationNormalizer, History}
   alias Zaq.Channels.{Router, WebBridge}
-  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
   alias ZaqWeb.Live.BO.PreviewHelpers
@@ -65,6 +68,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:preview, nil)
      |> assign(:conversations, conversations)
      |> assign(:current_conversation_id, nil)
+     |> assign(:available_agents, list_chat_agents())
+     |> assign(:selected_agent_id, "")
      |> assign(:suggested_questions, [
        "What is ZAQ and what does it do?",
        "Which integrations does ZAQ support?",
@@ -111,7 +116,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           request_id,
           trimmed,
           socket.assigns.history,
-          socket.assigns.current_user
+          socket.assigns.current_user,
+          socket.assigns.selected_agent_id
         )
       end)
 
@@ -123,6 +129,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("update_input", %{"message" => value}, socket) do
     {:noreply, assign(socket, :input_value, value)}
+  end
+
+  def handle_event("select_agent", %{"agent_id" => agent_id}, socket) do
+    {:noreply, assign(socket, :selected_agent_id, agent_id || "")}
   end
 
   def handle_event("load_conversation", %{"id" => id}, socket) do
@@ -378,7 +388,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   # ── Async pipeline runner (runs inside Task) ───────────────────────
 
-  defp run_pipeline_async(session_id, request_id, user_msg, history, current_user) do
+  defp run_pipeline_async(
+         session_id,
+         request_id,
+         user_msg,
+         history,
+         current_user,
+         selected_agent_id
+       ) do
     incoming = %Incoming{
       content: user_msg,
       channel_id: "bo",
@@ -391,20 +408,74 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     # This is a deliberate policy decision, not a nil shortcut.
     bo_user_without_person = is_nil(Map.get(current_user, :person_id))
 
-    outgoing =
-      Pipeline.run(incoming,
-        history: history,
-        skip_permissions: bo_user_without_person,
-        telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
-        on_status: WebBridge.on_status_callback(session_id, request_id),
-        node_router: node_router()
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_opts: [
+            history: history,
+            skip_permissions: bo_user_without_person,
+            telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
+            on_status: WebBridge.on_status_callback(session_id, request_id),
+            node_router: node_router()
+          ]
+        ]
       )
+      |> maybe_put_agent_selection(selected_agent_id)
+
+    outgoing = build_outgoing_from_event(node_router().dispatch(event), incoming)
 
     Router.deliver(outgoing)
   end
 
+  defp maybe_put_agent_selection(%Event{} = event, selected_agent_id) do
+    case selected_agent_id do
+      id when id in [nil, ""] ->
+        event
+
+      id ->
+        selection = %{"agent_id" => id, "source" => "bo_explicit"}
+        %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
+    end
+  end
+
+  defp build_outgoing_from_event(%Event{response: %Outgoing{} = outgoing}, _incoming),
+    do: outgoing
+
+  defp build_outgoing_from_event(%Event{response: {:error, reason}}, incoming) do
+    Outgoing.from_pipeline_result(incoming, %{
+      answer: "Sorry, something went wrong. Please try again.",
+      confidence_score: nil,
+      latency_ms: nil,
+      prompt_tokens: nil,
+      completion_tokens: nil,
+      total_tokens: nil,
+      error: true,
+      reason: inspect(reason),
+      sources: []
+    })
+  end
+
+  defp build_outgoing_from_event(_event, incoming) do
+    Outgoing.from_pipeline_result(incoming, %{
+      answer: "Sorry, something went wrong. Please try again.",
+      confidence_score: nil,
+      latency_ms: nil,
+      prompt_tokens: nil,
+      completion_tokens: nil,
+      total_tokens: nil,
+      error: true,
+      sources: []
+    })
+  end
+
   defp node_router do
     RuntimeDeps.chat_live_node_router()
+  end
+
+  defp list_chat_agents do
+    Zaq.Agent.list_active_agents()
+    |> Enum.map(fn agent -> %{id: to_string(agent.id), name: agent.name} end)
   end
 
   defp persist_chat_conversation(

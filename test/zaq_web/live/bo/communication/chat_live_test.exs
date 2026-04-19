@@ -4,17 +4,41 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   import Mox
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
+  import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
   alias Zaq.Agent.{Answering, Retrieval}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Outgoing
+  alias Zaq.Event
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
   alias ZaqWeb.Helpers.DateFormat
 
   defmodule NodeRouterFake do
+    def dispatch(event) do
+      state = :persistent_term.get(__MODULE__, %{})
+      handler = Map.get(state, :dispatch)
+
+      log = :persistent_term.get({__MODULE__, :dispatches}, [])
+      :persistent_term.put({__MODULE__, :dispatches}, [event | log])
+
+      cond do
+        is_function(handler, 1) ->
+          handler.(event)
+
+        is_function(handler, 0) ->
+          handler.()
+
+        true ->
+          Zaq.NodeRouter.dispatch(event, %{
+            current_node_fn: fn -> node() end,
+            node_list_fn: fn -> [] end
+          })
+      end
+    end
+
     def call(role, mod, fun, args) do
       state = :persistent_term.get(__MODULE__, %{})
       handler = Map.get(state, {role, mod, fun})
@@ -42,8 +66,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :persistent_term.get({__MODULE__, :calls}, []) |> Enum.reverse()
     end
 
+    def dispatches do
+      :persistent_term.get({__MODULE__, :dispatches}, []) |> Enum.reverse()
+    end
+
+    def put_dispatch(response_or_fun) do
+      state = :persistent_term.get(__MODULE__, %{})
+
+      handler =
+        if is_function(response_or_fun), do: response_or_fun, else: fn -> response_or_fun end
+
+      :persistent_term.put(__MODULE__, Map.put(state, :dispatch, handler))
+    end
+
     def reset_calls do
       :persistent_term.put({__MODULE__, :calls}, [])
+      :persistent_term.put({__MODULE__, :dispatches}, [])
     end
   end
 
@@ -81,6 +119,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       Application.delete_env(:zaq, :chat_live_node_router_module)
       :persistent_term.erase(NodeRouterFake)
       :persistent_term.erase({NodeRouterFake, :calls})
+      :persistent_term.erase({NodeRouterFake, :dispatches})
     end)
 
     %{conn: conn, user: user}
@@ -113,6 +152,66 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     view |> element("#chat-form") |> render_submit(%{"message" => "   "})
     assert render(view) == initial
+  end
+
+  test "chat agent selector lists active agents even when conversation is disabled", %{
+    conn: conn
+  } do
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Chat Selector Agent #{:erlang.unique_integer([:positive])}",
+        description: "test",
+        job: "You are a test agent",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    caller = self()
+
+    NodeRouterFake.put_dispatch(fn %Event{} = event ->
+      send(caller, {:chat_dispatch_event, event})
+
+      incoming = event.request
+
+      %{
+        event
+        | response: %Outgoing{
+            body: "ok",
+            channel_id: incoming.channel_id,
+            provider: incoming.provider
+          }
+      }
+    end)
+
+    {:ok, view, html} = live(conn, ~p"/bo/chat")
+
+    assert html =~ "Default pipeline"
+    assert html =~ configured_agent.name
+
+    view
+    |> form("#chat-agent-select-form", %{"agent_id" => to_string(configured_agent.id)})
+    |> render_change()
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "Hello"})
+
+    assert_receive {:chat_dispatch_event, %Event{} = dispatched_event}, 1_000
+
+    assert dispatched_event.assigns["agent_selection"] == %{
+             "agent_id" => to_string(configured_agent.id),
+             "source" => "bo_explicit"
+           }
   end
 
   test "copy_message pushes clipboard event", %{conn: conn} do

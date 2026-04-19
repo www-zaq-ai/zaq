@@ -125,7 +125,36 @@
       <%!-- ── Chat column ─────────────────────────────────────────── --%>
       <div class="flex flex-col flex-1 overflow-hidden min-w-0">
         <%!-- Top bar --%>
-        <div class="flex-shrink-0 flex items-center justify-end px-6 py-2.5 border-b border-[#e8e6e1] bg-white">
+        <div class="flex-shrink-0 flex items-center justify-end gap-3 px-6 py-2.5 border-b border-[#e8e6e1] bg-white">
+          <form
+            phx-change="select_agent"
+            id="chat-agent-select-form"
+            class="flex items-center gap-2"
+          >
+            <label
+              for="chat-agent-select"
+              class="font-mono text-[0.68rem] uppercase tracking-widest text-[#9e9b94]"
+            >
+              Agent
+            </label>
+            <select
+              id="chat-agent-select"
+              name="agent_id"
+              class="min-w-52 rounded-lg border border-[#e8e6e1] bg-white px-2.5 py-1.5 font-mono text-[0.72rem] text-[#3b3935] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+            >
+              <option value="" selected={@selected_agent_id in [nil, ""]}>
+                Default pipeline
+              </option>
+              <option
+                :for={agent <- @available_agents}
+                value={agent.id}
+                selected={@selected_agent_id == agent.id}
+              >
+                {agent.name}
+              </option>
+            </select>
+          </form>
+
           <button
             id="clear-chat-button"
             phx-click="clear_chat"

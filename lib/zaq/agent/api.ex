@@ -5,6 +5,7 @@ defmodule Zaq.Agent.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  alias Zaq.Agent.Executor
   alias Zaq.Agent.Pipeline
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -16,7 +17,21 @@ defmodule Zaq.Agent.Api do
       %Incoming{} = incoming ->
         pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
         pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
-        outgoing = pipeline_module.run(incoming, pipeline_opts)
+        executor_module = Keyword.get(event.opts, :executor_module, Executor)
+
+        outgoing =
+          case selected_agent_id(event.assigns) do
+            nil ->
+              pipeline_module.run(incoming, pipeline_opts)
+
+            selected_id ->
+              executor_module.run(incoming,
+                agent_id: selected_id,
+                history: Keyword.get(pipeline_opts, :history, %{}),
+                telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{})
+              )
+          end
+
         %{event | response: outgoing}
 
       other ->
@@ -30,4 +45,14 @@ defmodule Zaq.Agent.Api do
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
+
+  defp selected_agent_id(assigns) when is_map(assigns) do
+    case Map.get(assigns, "agent_selection") do
+      %{"agent_id" => id} when id not in [nil, ""] -> id
+      %{agent_id: id} when id not in [nil, ""] -> id
+      _ -> nil
+    end
+  end
+
+  defp selected_agent_id(_), do: nil
 end

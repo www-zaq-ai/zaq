@@ -91,7 +91,7 @@ Role mapping:
 | Service | Supervisor | Responsibility |
 |---|---|---|
 | `engine` | `Zaq.Engine.Supervisor` | Orchestration, conversations, notifications, telemetry, adapter lifecycle |
-| `agent` | `Zaq.Agent.Supervisor` | RAG pipeline, LLM calls, query rewriting, answering, prompt security |
+| `agent` | `Zaq.Agent.Supervisor` | RAG pipeline, configured-agent runtime, LLM calls, query rewriting, answering, prompt security |
 | `ingestion` | `Zaq.Ingestion.Supervisor` | Document processing, chunking, embedding, Oban jobs, Python pipeline |
 | `channels` | `Zaq.Channels.Supervisor` | Channel configs, PendingQuestions, Mattermost adapter |
 | `bo` | `ZaqWeb.Endpoint` | Back Office LiveView UI, API controllers |
@@ -149,6 +149,14 @@ Key agent modules:
 - `Zaq.Agent.LLM` / <code>Zaq.Agent.LLMRunner</code> — centralized LLM config and execution
 - `Zaq.Agent.History` — conversation history management
 - <code>Zaq.Agent.CitationNormalizer</code> — normalizes citations in answers
+
+Configured-agent execution path:
+- BO chat always dispatches to agent role with `action: :run_pipeline`
+- Optional explicit selection is carried in `event.assigns["agent_selection"]`
+- On the agent node, `Zaq.Agent.Api` decides:
+  - no selection -> `Zaq.Agent.Pipeline.run/2`
+  - explicit selection -> `Zaq.Agent.Executor.run/2`
+- `Zaq.Agent.Executor` routes to a deterministic `Jido.AgentServer` name derived from configured agent id
 
 ---
 
