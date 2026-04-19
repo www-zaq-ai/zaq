@@ -123,13 +123,17 @@ defmodule Zaq.Agent.ServerManager do
           configured_agent.credential ||
             Zaq.System.get_ai_provider_credential(configured_agent.credential_id)
 
-        provider_opts =
-          []
-          |> Keyword.put(:model, configured_agent.model)
-          |> maybe_put(:base_url, credential && credential.endpoint)
-          |> maybe_put(:api_key, credential && credential.api_key)
+        if needs_inline_model_shape?(configured_agent, runtime_provider) do
+          {:ok, %{provider: runtime_provider, id: configured_agent.model}}
+        else
+          provider_opts =
+            []
+            |> Keyword.put(:model, configured_agent.model)
+            |> maybe_put(:base_url, credential && credential.endpoint)
+            |> maybe_put(:api_key, credential && credential.api_key)
 
-        {:ok, {runtime_provider, provider_opts}}
+          {:ok, {runtime_provider, provider_opts}}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -171,6 +175,10 @@ defmodule Zaq.Agent.ServerManager do
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp needs_inline_model_shape?(%ConfiguredAgent{} = configured_agent, runtime_provider) do
+    Agent.provider_for_agent(configured_agent) != Atom.to_string(runtime_provider)
+  end
 
   defp parse_int_id(id) when is_integer(id), do: id
 

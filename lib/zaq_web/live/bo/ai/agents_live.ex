@@ -12,7 +12,14 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    filters = %{"name" => "", "model" => "", "conversation_enabled" => "all", "active" => "all"}
+    filters = %{
+      "name" => "",
+      "model" => "",
+      "conversation_enabled" => "all",
+      "active" => "all",
+      "sovereign" => "all"
+    }
+
     credentials = System.list_ai_provider_credentials()
     tools = Registry.tools()
 
@@ -27,6 +34,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:mode, :idle)
       |> assign(:selected_agent_id, nil)
       |> assign(:model_options, [])
+      |> assign(:selected_model_supports_tools, nil)
       |> assign(:advanced_options_json, "{}")
       |> assign(:advanced_options_error, nil)
       |> refresh_agents()
@@ -207,6 +215,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   defp assign_changeset(socket, %Changeset{} = changeset) do
     socket
     |> assign(:changeset, changeset)
+    |> assign(:selected_model_supports_tools, selected_model_supports_tools(changeset))
     |> assign(:form, to_form(changeset, as: :configured_agent))
   end
 
@@ -243,7 +252,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       "name" => Map.get(filters, "name", ""),
       "model" => Map.get(filters, "model", ""),
       "conversation_enabled" => Map.get(filters, "conversation_enabled", "all"),
-      "active" => Map.get(filters, "active", "all")
+      "active" => Map.get(filters, "active", "all"),
+      "sovereign" => Map.get(filters, "sovereign", "all")
     }
   end
 
@@ -326,4 +336,19 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   defp pretty_json(_), do: "{}"
+
+  defp selected_model_supports_tools(%Changeset{} = changeset) do
+    credential_id = Changeset.get_field(changeset, :credential_id)
+    model_id = Changeset.get_field(changeset, :model)
+
+    with true <- is_integer(credential_id),
+         true <- is_binary(model_id),
+         true <- model_id != "",
+         %{provider: provider_id} when is_binary(provider_id) <-
+           System.get_ai_provider_credential(credential_id) do
+      Registry.model_supports_tools?(provider_id, model_id)
+    else
+      _ -> nil
+    end
+  end
 end

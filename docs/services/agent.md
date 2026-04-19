@@ -85,6 +85,14 @@ User question (BO Chat / Channel)
 - Supports per-request runtime tool/module selection and LLM options
 - Supports runtime server configuration via system-prompt signal
 
+### Jido Observability Logger (`Zaq.Agent.JidoObservabilityLogger`)
+- Attaches to Jido AI telemetry events (`request`, `llm`, `tool`, `tool.execute`) on the agent node
+- Writes level-aware console logs:
+  - `info`: compact lifecycle summaries
+  - `debug`: sanitized payload details
+  - `warning/error`: timeout and failure paths
+- Config (`:zaq, :jido_observability_logger`): `enabled`, `include_llm_deltas`, `max_payload_chars`
+
 ### LLM Configuration (`Zaq.Agent.LLM`)
 - Centralized config reader for all agent modules
 - Supports any OpenAI-compatible endpoint (Scaleway, OpenAI, Ollama, vLLM, LocalAI, llama.cpp)
@@ -184,6 +192,7 @@ lib/zaq/agent/
 ├── citation_normalizer.ex      # Rewrites [[source:...]] markers to numbered refs
 ├── factory.ex                  # Runtime-configured standard Jido agent
 ├── history.ex                  # Conversation history map helpers
+├── jido_observability_logger.ex # Console logger for Jido AI telemetry events
 ├── llm.ex                      # Centralized LLM config reader
 ├── llm_runner.ex               # Low-level LangChain LLMChain wrapper
 ├── logprobs_analyzer.ex        # Confidence scoring from logprobs

@@ -10,7 +10,6 @@ defmodule Zaq.Agent.Factory do
   use Jido.AI.Agent,
     name: "agent_factory",
     description: "Runtime-configured standard ZAQ agent",
-    model: :fast,
     request_policy: :reject,
     tools: []
 
