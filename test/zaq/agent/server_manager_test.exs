@@ -35,6 +35,10 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:via, Registry, {registry, key}} = server_ref
     assert registry == Jido.registry_name(Zaq.Agent.Jido)
     assert key == Agent.agent_server_id(configured_agent.id)
+
+    assert {:ok, status} = Jido.AgentServer.status(server_ref)
+    assert {:openai, opts} = status.raw_state.model
+    assert Keyword.get(opts, :model) == "gpt-4.1-mini"
   end
 
   test "ensure_server supports catalog-only provider via openai runtime fallback" do
@@ -62,5 +66,8 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent)
     assert {:via, Registry, {_registry, _key}} = server_ref
+
+    assert {:ok, status} = Jido.AgentServer.status(server_ref)
+    assert status.raw_state.model == %{provider: :openai, id: "deepseek/deepseek-r1-0528"}
   end
 end

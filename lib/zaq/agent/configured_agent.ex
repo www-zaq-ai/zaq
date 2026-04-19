@@ -9,6 +9,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
   alias Zaq.System.AIProviderCredential
 
   @strategies ~w(react cot)
+  @type t :: %__MODULE__{}
 
   schema "configured_agents" do
     field :name, :string

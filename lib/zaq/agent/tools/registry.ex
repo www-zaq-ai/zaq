@@ -13,8 +13,50 @@ defmodule Zaq.Agent.Tools.Registry do
           required(:module) => module()
         }
 
-  # Keep this list explicit and small until tools are implemented.
-  @tools []
+  @tools [
+    %{
+      key: "files.read_file",
+      label: "Read file",
+      description: "Read file contents from a path",
+      module: Jido.Tools.Files.ReadFile
+    },
+    %{
+      key: "files.write_file",
+      label: "Write file",
+      description: "Write content to a file path",
+      module: Jido.Tools.Files.WriteFile
+    },
+    %{
+      key: "files.copy_file",
+      label: "Copy file",
+      description: "Copy a file to another path",
+      module: Jido.Tools.Files.CopyFile
+    },
+    %{
+      key: "files.move_file",
+      label: "Move file",
+      description: "Move or rename a file path",
+      module: Jido.Tools.Files.MoveFile
+    },
+    %{
+      key: "files.delete_file",
+      label: "Delete file",
+      description: "Delete a file or directory path",
+      module: Jido.Tools.Files.DeleteFile
+    },
+    %{
+      key: "files.make_directory",
+      label: "Make directory",
+      description: "Create a directory path",
+      module: Jido.Tools.Files.MakeDirectory
+    },
+    %{
+      key: "files.list_directory",
+      label: "List directory",
+      description: "List entries in a directory path",
+      module: Jido.Tools.Files.ListDirectory
+    }
+  ]
 
   @spec tools() :: [descriptor()]
   def tools, do: @tools
@@ -52,16 +94,15 @@ defmodule Zaq.Agent.Tools.Registry do
   @doc """
   Returns model tool-calling support from LLMDB.
 
-  - `true`  => supports tools
-  - `false` => explicitly does not support tools
-  - `nil`   => unknown (provider/model not found)
+  Tool support is explicit: unknown/missing provider or model is treated as not
+  supporting tools.
   """
-  @spec model_supports_tools?(String.t() | nil, String.t() | nil) :: boolean() | nil
+  @spec model_supports_tools?(String.t() | nil, String.t() | nil) :: boolean()
   def model_supports_tools?(provider_id, model_id)
 
   def model_supports_tools?(provider_id, model_id)
       when provider_id in [nil, "", "custom"] or model_id in [nil, ""] do
-    nil
+    false
   end
 
   def model_supports_tools?(provider_id, model_id)
@@ -74,13 +115,13 @@ defmodule Zaq.Agent.Tools.Registry do
           true -> true
           false -> false
           tools when is_map(tools) -> map_size(tools) > 0
-          _ -> nil
+          _ -> false
         end
 
       _ ->
-        nil
+        false
     end
   rescue
-    ArgumentError -> nil
+    ArgumentError -> false
   end
 end

@@ -28,7 +28,7 @@
       <form
         id="agent-filters-form"
         phx-change="filter"
-        class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4"
+        class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-5"
       >
         <input
           type="text"
@@ -66,6 +66,18 @@
           <option value="active" selected={@filters["active"] == "active"}>Active</option>
           <option value="inactive" selected={@filters["active"] == "inactive"}>Inactive</option>
         </select>
+        <select
+          name="filters[sovereign]"
+          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+        >
+          <option value="all" selected={@filters["sovereign"] == "all"}>All sovereignty</option>
+          <option value="sovereign" selected={@filters["sovereign"] == "sovereign"}>
+            Sovereign
+          </option>
+          <option value="non_sovereign" selected={@filters["sovereign"] == "non_sovereign"}>
+            Non-sovereign
+          </option>
+        </select>
       </form>
     </section>
 
@@ -93,6 +105,9 @@
                     Model
                   </th>
                   <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
+                    Credential
+                  </th>
+                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
                     Chat
                   </th>
                   <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
@@ -104,7 +119,7 @@
               <tbody>
                 <tr :if={@agents == []}>
                   <td
-                    colspan="5"
+                    colspan="6"
                     class="px-4 py-8 text-center font-mono text-[0.7rem] text-[#a6a298]"
                   >
                     No agents found.
@@ -132,6 +147,24 @@
                     </div>
                   </td>
                   <td class="px-4 py-3 font-mono text-[0.7rem] text-[#6e6a63]">{agent.model}</td>
+                  <td class="px-4 py-3">
+                    <div class="flex flex-col gap-1">
+                      <span class="font-mono text-[0.68rem] text-[#6e6a63]">
+                        {(agent.credential && agent.credential.provider) || "-"}
+                      </span>
+                      <span class={[
+                        "inline-flex w-fit rounded-md px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wider",
+                        if(agent.credential && agent.credential.sovereign,
+                          do: "bg-[#e6f4ff] text-[#2a74b8]",
+                          else: "bg-[#f3f1ed] text-[#8d887f]"
+                        )
+                      ]}>
+                        {if agent.credential && agent.credential.sovereign,
+                          do: "Sovereign",
+                          else: "Standard"}
+                      </span>
+                    </div>
+                  </td>
                   <td class="px-4 py-3">
                     <span class={[
                       "rounded-md px-2 py-1 font-mono text-[0.62rem] uppercase tracking-wider",
@@ -283,6 +316,12 @@
               <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-2">
                 Enabled Tools
               </label>
+              <div
+                :if={@selected_model_supports_tools == false}
+                class="mb-2 rounded-lg border border-[#f3d9d5] bg-[#fff6f4] px-3 py-2 font-mono text-[0.64rem] text-[#a35246]"
+              >
+                Selected model does not support tool calling. Update the model before enabling tools.
+              </div>
               <input type="hidden" name="configured_agent[enabled_tool_keys][]" value="" />
               <div
                 :if={@tools == []}

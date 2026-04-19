@@ -229,6 +229,7 @@ defmodule Zaq.Agent do
     model = Map.get(filters, "model", "")
     conversation = Map.get(filters, "conversation_enabled", "all")
     active = Map.get(filters, "active", "all")
+    sovereign = Map.get(filters, "sovereign", "all")
 
     ConfiguredAgent
     |> order_by([a], asc: a.name)
@@ -236,6 +237,7 @@ defmodule Zaq.Agent do
     |> maybe_filter_model(model)
     |> maybe_filter_conversation(conversation)
     |> maybe_filter_active(active)
+    |> maybe_filter_sovereign(sovereign)
   end
 
   defp maybe_filter_name(query, ""), do: query
@@ -263,6 +265,22 @@ defmodule Zaq.Agent do
   defp maybe_filter_active(query, "active"), do: from(a in query, where: a.active == true)
   defp maybe_filter_active(query, "inactive"), do: from(a in query, where: a.active == false)
   defp maybe_filter_active(query, _), do: query
+
+  defp maybe_filter_sovereign(query, "sovereign") do
+    from(a in query,
+      join: c in assoc(a, :credential),
+      where: c.sovereign == true
+    )
+  end
+
+  defp maybe_filter_sovereign(query, "non_sovereign") do
+    from(a in query,
+      join: c in assoc(a, :credential),
+      where: c.sovereign == false
+    )
+  end
+
+  defp maybe_filter_sovereign(query, _), do: query
 
   defp parse_id(id) when is_integer(id), do: {:ok, id}
 
