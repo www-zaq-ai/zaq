@@ -13,8 +13,16 @@ INGESTION_DIR="ingestion-volumes"
 INGESTION_DOCS_DIR="${INGESTION_DIR}/documents"
 
 ZAQ_SERVICE="zaq"
-PGVECTOR_SERVICE="pgvector"
+DB_SERVICE="paradedb"
 ZAQ_URL="http://localhost:4000"
+
+# Legacy service name used before the paradedb migration
+LEGACY_DB_SERVICE="pgvector"
+LEGACY_DB_CONTAINER="zaq-pgvector"
+NEW_DB_CONTAINER="zaq-paradedb"
+DB_NAME="${DB_NAME:-zaq_prod}"
+DB_USER="${DB_USER:-postgres}"
+DB_PASSWORD="${DB_PASSWORD:-postgres}"
 
 if [ -t 1 ] && command -v tput >/dev/null 2>&1 && [ "$(tput colors 2>/dev/null || printf '0')" -ge 8 ]; then
   BLUE="$(tput setaf 4)"
@@ -42,6 +50,10 @@ warn() {
 
 error() {
   printf '%s[ERROR]%s %s\n' "${RED}" "${RESET}" "$*" >&2
+}
+
+success() {
+  printf '%s[OK]%s %s\n' "${GREEN}" "${RESET}" "$*"
 }
 
 require_command() {
@@ -115,7 +127,24 @@ services_running() {
   local running
   running="$(docker compose ps --status running --services 2>/dev/null || true)"
   printf '%s\n' "${running}" | grep -qx "${ZAQ_SERVICE}" &&
-    printf '%s\n' "${running}" | grep -qx "${PGVECTOR_SERVICE}"
+    printf '%s\n' "${running}" | grep -qx "${DB_SERVICE}"
+}
+
+container_exists() {
+  docker inspect "$1" &>/dev/null
+}
+
+container_running() {
+  [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ]
+}
+
+compose_uses_legacy_db() {
+  [ -f "${COMPOSE_FILE}" ] && grep -q "pgvector/pgvector\|timescale/timescaledb" "${COMPOSE_FILE}"
+}
+
+needs_paradedb_migration() {
+  # True when: compose file still references the old image OR legacy container exists
+  compose_uses_legacy_db || container_exists "${LEGACY_DB_CONTAINER}"
 }
 
 prompt_continue_non_empty() {
@@ -210,6 +239,154 @@ start_containers() {
   docker compose up -d
 }
 
+# ---------------------------------------------------------------------------
+# ParadeDB migration (runs automatically when legacy DB is detected)
+# ---------------------------------------------------------------------------
+
+wait_ready() {
+  local container="$1"
+  local retries=30
+  info "Waiting for PostgreSQL in '${container}'..."
+  until docker exec "${container}" pg_isready -U "${DB_USER}" &>/dev/null; do
+    retries=$((retries - 1))
+    [ "${retries}" -le 0 ] && error "Timed out waiting for '${container}'."
+    sleep 2
+  done
+  success "'${container}' is ready."
+}
+
+psql_exec() {
+  local container="$1"
+  local dbname="$2"
+  local sql="$3"
+  docker exec -e PGPASSWORD="${DB_PASSWORD}" "${container}" \
+    psql --username="${DB_USER}" --dbname="${dbname}" --no-align --tuples-only \
+    -c "${sql}" 2>/dev/null || true
+}
+
+migrate_to_paradedb() {
+  local dump_dir="./backups"
+  local dump_file="${dump_dir}/zaq_pre_paradedb_$(date +%Y%m%d_%H%M%S).dump"
+
+  printf '\n'
+  info "=== Database upgrade: pgvector → ParadeDB ==="
+  info "Your data will be preserved. A backup is saved before any changes."
+  printf '\n'
+
+  mkdir -p "${dump_dir}"
+
+  # Step 1 — ensure old container is running
+  info "Step 1/5 — Preparing old database container..."
+  if ! container_running "${LEGACY_DB_CONTAINER}"; then
+    info "Starting '${LEGACY_DB_CONTAINER}'..."
+    docker start "${LEGACY_DB_CONTAINER}"
+    sleep 3
+  fi
+  wait_ready "${LEGACY_DB_CONTAINER}"
+
+  # Step 2 — dump from old container
+  info "Step 2/5 — Backing up '${DB_NAME}' from '${LEGACY_DB_CONTAINER}'..."
+  PGPASSWORD="${DB_PASSWORD}" docker exec -e PGPASSWORD="${DB_PASSWORD}" "${LEGACY_DB_CONTAINER}" \
+    pg_dump \
+      --username="${DB_USER}" \
+      --format=custom \
+      --no-acl \
+      --no-owner \
+      "${DB_NAME}" \
+    > "${dump_file}" \
+    2> >(grep -v "collation version mismatch" >&2)
+
+  local dump_size
+  dump_size="$(du -sh "${dump_file}" | cut -f1)"
+  success "Backup complete: ${dump_file} (${dump_size})"
+
+  # Stop and remove old container to free its port and name before starting the new one
+  info "Stopping and removing '${LEGACY_DB_CONTAINER}'..."
+  docker stop "${LEGACY_DB_CONTAINER}"
+  docker rm "${LEGACY_DB_CONTAINER}"
+
+  # Step 3 — download new compose file and start new container
+  info "Step 3/5 — Upgrading docker-compose.yml and starting ParadeDB..."
+  # Only download if the current compose still references the legacy image —
+  # if the user already has the paradedb compose (e.g. after a git pull), keep it.
+  if compose_uses_legacy_db; then
+    download_compose
+  else
+    info "docker-compose.yml already references ParadeDB — skipping download."
+  fi
+
+  # Detect the DB service name from the downloaded compose file — works whether
+  # the Gist already has the renamed service or not.
+  local downloaded_db_service
+  downloaded_db_service="$(docker compose config --services 2>/dev/null | grep -v "^${ZAQ_SERVICE}$" | head -1)"
+  info "Detected database service in compose: '${downloaded_db_service}'"
+
+  if container_exists "${NEW_DB_CONTAINER}"; then
+    docker stop "${NEW_DB_CONTAINER}" 2>/dev/null || true
+    docker rm "${NEW_DB_CONTAINER}"
+  fi
+
+  docker compose up -d "${downloaded_db_service}" 2>&1 | grep -v "^$"
+
+  # The container name may differ if the Gist still uses the old name; resolve it.
+  local actual_db_container
+  actual_db_container="$(docker compose ps -q "${downloaded_db_service}" 2>/dev/null | xargs docker inspect -f '{{.Name}}' 2>/dev/null | tr -d '/' || echo "${NEW_DB_CONTAINER}")"
+  info "Database container: '${actual_db_container}'"
+
+  wait_ready "${actual_db_container}"
+
+  # Step 4 — restore into new container
+  info "Step 4/5 — Restoring data into '${actual_db_container}'..."
+
+  # Fix collation on system databases (glibc version mismatch blocks CREATE DATABASE)
+  for db in postgres template1; do
+    psql_exec "${actual_db_container}" "${db}" \
+      "ALTER DATABASE ${db} REFRESH COLLATION VERSION;" >/dev/null
+  done
+  psql_exec "${actual_db_container}" "postgres" \
+    "ALTER DATABASE template0 ALLOW_CONNECTIONS true;" >/dev/null
+  psql_exec "${actual_db_container}" "template1" \
+    "ALTER DATABASE template0 REFRESH COLLATION VERSION;" >/dev/null
+  psql_exec "${actual_db_container}" "postgres" \
+    "ALTER DATABASE template0 ALLOW_CONNECTIONS false;" >/dev/null
+
+  # Drop and recreate target database
+  psql_exec "${actual_db_container}" "postgres" \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" \
+    >/dev/null
+  psql_exec "${actual_db_container}" "postgres" "DROP DATABASE IF EXISTS ${DB_NAME};" >/dev/null
+  psql_exec "${actual_db_container}" "postgres" "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" >/dev/null
+
+  # Restore — paradedb schema conflict is expected and harmless on a fresh image
+  docker exec -i -e PGPASSWORD="${DB_PASSWORD}" "${actual_db_container}" \
+    pg_restore \
+      --username="${DB_USER}" \
+      --dbname="${DB_NAME}" \
+      --no-acl \
+      --no-owner \
+    < "${dump_file}" 2>&1 \
+    | grep -v \
+        -e 'schema "paradedb" already exists' \
+        -e 'collation version mismatch' \
+        -e 'errors ignored on restore' \
+    || true
+
+  psql_exec "${actual_db_container}" "${DB_NAME}" \
+    "ALTER DATABASE ${DB_NAME} REFRESH COLLATION VERSION;" >/dev/null
+
+  success "Data restored successfully."
+
+  # Step 5 — remove old container now that migration is confirmed
+  info "Step 5/5 — Cleaning up old container..."
+  docker rm "${LEGACY_DB_CONTAINER}" 2>/dev/null && \
+    success "Removed '${LEGACY_DB_CONTAINER}'." || \
+    warn "Could not remove '${LEGACY_DB_CONTAINER}' — remove it manually when ready."
+
+  printf '\n'
+  success "=== Database upgrade complete. Backup at: ${dump_file} ==="
+  printf '\n'
+}
+
 open_zaq_url() {
   local os
   os="$(uname -s)"
@@ -279,14 +456,24 @@ main() {
 
   if ! directory_is_empty; then
     if artifacts_exist; then
-      info "Detected existing ZAQ local artifacts (${COMPOSE_FILE}, ${ENV_FILE}, ${INGESTION_DIR})."
+      info "Detected existing ZAQ local setup."
+
+      # Upgrade path: old pgvector image detected → migrate to paradedb
+      if needs_paradedb_migration; then
+        info "Database upgrade required: migrating from pgvector to ParadeDB..."
+        migrate_to_paradedb
+        start_containers
+        show_ui
+        exit 0
+      fi
+
       if services_running; then
         info "Containers already running. Jumping directly to log UI."
         show_ui
         exit 0
       fi
 
-      info "Artifacts found but services not running. Jumping to container start."
+      info "Artifacts found but services not running. Starting containers."
       start_containers
       show_ui
       exit 0

@@ -1,15 +1,15 @@
 services:
-  pgvector:
+  paradedb:
     image: paradedb/paradedb:latest
-    container_name: zaq-pgvector
+    container_name: zaq-paradedb
     environment:
       POSTGRES_DB: zaq_prod
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5431:5432"
+      - "5433:5432"
     volumes:
-      - pgdata:/var/lib/postgresql
+      - paradedb_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d zaq_prod"]
       interval: 5s
@@ -22,7 +22,7 @@ services:
       dockerfile: Dockerfile
     container_name: zaq-app
     depends_on:
-      pgvector:
+      paradedb:
         condition: service_healthy
     ports:
       - "4000:4000"
@@ -30,7 +30,7 @@ services:
       PHX_SERVER: "true"
       PORT: "4000"
       PHX_HOST: "localhost"
-      DATABASE_URL: "${DATABASE_URL:-ecto://postgres:postgres@pgvector:5432/zaq_prod}"
+      DATABASE_URL: "${DATABASE_URL:-ecto://postgres:postgres@paradedb:5432/zaq_prod}"
       SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
       # LLM, Embedding, Image-to-Text, and Ingestion settings are configured
       # via the back-office UI at /bo/system-config (persisted in the database).
@@ -44,4 +44,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  pgdata:
+  paradedb_data:

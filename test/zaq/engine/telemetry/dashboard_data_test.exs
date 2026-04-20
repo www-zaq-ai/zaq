@@ -354,7 +354,12 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
   test "load_conversations_metrics/1 includes weights in no_answer_rate chart meta and computes per-label weighted rates" do
     # Anchor to midday so both today chunks are safely within the same calendar day
     # regardless of when the test runs (avoids -2h crossing midnight near 00:00 UTC).
-    today = DateTime.utc_now() |> DateTime.truncate(:microsecond) |> Map.put(:hour, 12) |> Map.put(:minute, 0) |> Map.put(:second, 0)
+    today =
+      DateTime.utc_now()
+      |> DateTime.truncate(:microsecond)
+      |> Map.put(:hour, 12)
+      |> Map.put(:minute, 0)
+      |> Map.put(:second, 0)
 
     SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
 
