@@ -161,7 +161,7 @@ templates = [
     Keep it concise and append [[source:<exact retrieved_data.source value>]] when data is present.
     For model prior knowledge (not in retrieved_data), append [[memory:llm-general-knowledge]].
 
-    USER QUESTION: <%= @question %>
+    USER QUESTION: <%= @content %>
     retrieved_data = <%= @retrieved_data %>
     """
   },
