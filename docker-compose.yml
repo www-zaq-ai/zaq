@@ -9,7 +9,7 @@ services:
     ports:
       - "5431:5432"
     volumes:
-      - paradedb_data:/var/lib/postgresql
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d zaq_prod"]
       interval: 5s
@@ -44,4 +44,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  paradedb_data:
+  pgdata:
