@@ -6,7 +6,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
 
+  alias Ecto.Changeset
   alias Zaq.Accounts
+  alias ZaqWeb.Live.BO.AI.AgentsLive
 
   setup :verify_on_exit!
 
@@ -310,5 +312,462 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert render(view) =~ "Agent created"
     assert render(view) =~ agent_name
     assert Enum.any?(Zaq.Agent.list_agents(), &(&1.name == agent_name))
+  end
+
+  test "shows validation error for invalid advanced options json", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "",
+        "description" => "",
+        "job" => "",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{not-json",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_change()
+
+    html = render(view)
+    assert html =~ "advanced options must be valid JSON"
+  end
+
+  test "save with invalid advanced options json keeps form in validation state", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "Broken JSON Save",
+        "description" => "",
+        "job" => "You are a helper",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{broken",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    html = render(view)
+    assert html =~ "advanced options must be valid JSON"
+    refute html =~ "Agent created"
+  end
+
+  test "shows validation error when advanced options is not a json object", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "",
+        "description" => "",
+        "job" => "",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "[1,2,3]",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_change()
+
+    html = render(view)
+    assert html =~ "advanced options must be a JSON object"
+  end
+
+  test "edits and deletes an existing agent", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    name = "Editable Agent #{System.unique_integer([:positive])}"
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: name,
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "#{name} Updated",
+        "description" => "after",
+        "job" => "You are v2",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "true",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Agent updated"
+    assert render(view) =~ "#{name} Updated"
+
+    render_click(element(view, ~s(button[phx-click="delete_agent"][phx-value-id="#{agent.id}"])))
+
+    assert render(view) =~ "Agent deleted"
+    refute Enum.any?(Zaq.Agent.list_agents(), &(&1.id == agent.id))
+  end
+
+  test "save fails for duplicate name on create and update", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{
+        name: "Duplicate Name Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1"
+      })
+
+    existing_name = "Duplicate Agent #{System.unique_integer([:positive])}"
+
+    {:ok, existing} =
+      Zaq.Agent.create_agent(%{
+        name: existing_name,
+        description: "",
+        job: "existing",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, to_update} =
+      Zaq.Agent.create_agent(%{
+        name: "Updatable Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "update",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => existing_name,
+        "description" => "",
+        "job" => "new",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "has already been taken"
+
+    view
+    |> element("#agent-row-#{to_update.id}")
+    |> render_click()
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => existing.name,
+        "description" => "",
+        "job" => "changed",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "has already been taken"
+  end
+
+  test "deleting a non-selected row keeps current edit form open", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, selected_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Selected Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "selected",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, other_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Other Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "other",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{selected_agent.id}")
+    |> render_click()
+
+    render_click(
+      element(view, ~s(button[phx-click="delete_agent"][phx-value-id="#{other_agent.id}"]))
+    )
+
+    assert has_element?(view, "#configured-agent-form")
+    assert render(view) =~ selected_agent.name
+    assert render(view) =~ "Agent deleted"
+  end
+
+  test "validation accepts empty advanced options and non-list tool keys", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    html =
+      render_change(view, "validate", %{
+        "configured_agent" => %{
+          "name" => "Inline Tool Key",
+          "description" => "",
+          "job" => "Job",
+          "model" => "gpt-4.1-mini",
+          "credential_id" => to_string(credential.id),
+          "strategy" => "react",
+          "enabled_tool_keys" => "files.read_file",
+          "advanced_options_json" => "",
+          "conversation_enabled" => "false",
+          "active" => "true"
+        }
+      })
+
+    refute html =~ "advanced options must be valid JSON"
+  end
+
+  test "validation with invalid credential ids keeps model options empty", %{conn: conn} do
+    ai_credential_fixture(%{
+      provider: "provider_not_found_zaq",
+      endpoint: "https://example.com/v1"
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{
+        "name" => "",
+        "description" => "",
+        "job" => "",
+        "model" => "",
+        "credential_id" => "abc",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    refute has_element?(view, "#configured-agent-model-select")
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{
+        "name" => "",
+        "description" => "",
+        "job" => "",
+        "model" => "",
+        "credential_id" => "999999999",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    refute has_element?(view, "#configured-agent-model-select")
+  end
+
+  test "validation keeps model options empty for missing and blank credential ids", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{
+        "name" => "",
+        "description" => "",
+        "job" => "",
+        "model" => "",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    refute has_element?(view, "#configured-agent-model-select")
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{
+        "name" => "",
+        "description" => "",
+        "job" => "",
+        "model" => "",
+        "credential_id" => "",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    refute has_element?(view, "#configured-agent-model-select")
+  end
+
+  test "validation handles provider ids unknown to existing atoms", %{conn: conn} do
+    unknown_provider_credential =
+      ai_credential_fixture(%{
+        provider: "provider_not_found_zaq",
+        endpoint: "https://example.com/v1"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{
+        "name" => "",
+        "description" => "",
+        "job" => "",
+        "model" => "",
+        "credential_id" => to_string(unknown_provider_credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    refute has_element?(view, "#configured-agent-model-select")
+  end
+
+  test "validation accepts unsupported tool-key shape as empty selection", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    html =
+      render_change(view, "validate", %{
+        "configured_agent" => %{
+          "name" => "Tool Shape",
+          "description" => "",
+          "job" => "Job",
+          "model" => "gpt-4.1-mini",
+          "credential_id" => to_string(credential.id),
+          "strategy" => "react",
+          "enabled_tool_keys" => 123,
+          "advanced_options_json" => "{}",
+          "conversation_enabled" => "false",
+          "active" => "true"
+        }
+      })
+
+    assert html =~ "Tool Shape"
+  end
+
+  test "validate handles non-binary advanced options payloads in raw event calls" do
+    {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    {:noreply, socket} =
+      AgentsLive.handle_event(
+        "validate",
+        %{
+          "configured_agent" => %{
+            "name" => "Raw Payload",
+            "description" => "",
+            "job" => "",
+            "model" => "",
+            "strategy" => "react",
+            "enabled_tool_keys" => 123,
+            "advanced_options_json" => %{},
+            "conversation_enabled" => "false",
+            "active" => "true"
+          }
+        },
+        socket
+      )
+
+    assert socket.assigns.advanced_options_error == "advanced options must be valid JSON"
+    assert Changeset.get_field(socket.assigns.changeset, :enabled_tool_keys) == []
   end
 end

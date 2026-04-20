@@ -12,10 +12,15 @@ defmodule Zaq.Agent.Executor do
 
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
-    with {:ok, configured_agent} <- load_selected_agent(opts),
-         {:ok, server_id} <- ServerManager.ensure_server(configured_agent),
-         {:ok, request} <- Factory.ask_with_config(server_id, incoming.content, configured_agent),
-         {:ok, answer} <- Factory.await(request, timeout: 45_000) do
+    agent_module = Keyword.get(opts, :agent_module, Agent)
+    server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
+    factory_module = Keyword.get(opts, :factory_module, Factory)
+
+    with {:ok, configured_agent} <- load_selected_agent(opts, agent_module),
+         {:ok, server_id} <- server_manager_module.ensure_server(configured_agent),
+         {:ok, request} <-
+           factory_module.ask_with_config(server_id, incoming.content, configured_agent),
+         {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
       Outgoing.from_pipeline_result(incoming, success_result(answer, configured_agent))
     else
       {:error, reason} ->
@@ -24,10 +29,10 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp load_selected_agent(opts) do
+  defp load_selected_agent(opts, agent_module) do
     case Keyword.get(opts, :agent_id) do
       nil -> {:error, :missing_agent_selection}
-      agent_id -> Agent.get_active_agent(agent_id)
+      agent_id -> agent_module.get_active_agent(agent_id)
     end
   end
 

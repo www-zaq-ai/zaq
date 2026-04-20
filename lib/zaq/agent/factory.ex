@@ -13,12 +13,9 @@ defmodule Zaq.Agent.Factory do
     request_policy: :reject,
     tools: []
 
-  alias Jido.Signal
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
-
-  @source "/zaq/agent/factory"
 
   def strategy_opts do
     super()
@@ -27,22 +24,17 @@ defmodule Zaq.Agent.Factory do
 
   @spec configure_server(GenServer.server(), ConfiguredAgent.t()) :: :ok | {:error, term()}
   def configure_server(server, %ConfiguredAgent{} = configured_agent) do
-    signal =
-      Signal.new!(
-        "ai.react.set_system_prompt",
-        %{system_prompt: configured_agent.job},
-        source: @source
-      )
-
-    Jido.AgentServer.cast(server, signal)
+    case Jido.AI.set_system_prompt(server, configured_agent.job, timeout: 5_000) do
+      {:ok, _agent} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @spec ask_with_config(GenServer.server(), String.t(), ConfiguredAgent.t(), keyword()) ::
           {:ok, Jido.AI.Request.Handle.t()} | {:error, term()}
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
       when is_binary(query) do
-    with :ok <- configure_server(server, configured_agent),
-         {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
+    with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
       ask_opts =
         opts
         |> Keyword.put(:tools, tools)

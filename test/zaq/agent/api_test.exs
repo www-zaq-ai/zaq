@@ -74,6 +74,60 @@ defmodule Zaq.Agent.ApiTest do
     refute_received {:pipeline_called, _, _}
   end
 
+  test "delegates to executor when agent selection map uses atom key" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: []
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{agent_id: 7}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "selected"
+
+    assert_received {:executor_called, ^incoming,
+                     [agent_id: 7, history: %{}, telemetry_dimensions: %{}]}
+  end
+
+  test "falls back to pipeline when selection is empty or assigns are malformed" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event_empty_selection =
+      Event.new(incoming, :agent,
+        opts: [action: :run_pipeline, pipeline_module: StubPipeline, pipeline_opts: [foo: :bar]]
+      )
+
+    event_empty_selection =
+      %{event_empty_selection | assigns: %{"agent_selection" => %{"agent_id" => ""}}}
+
+    result_1 = Api.handle_event(event_empty_selection, :run_pipeline, nil)
+
+    assert %Outgoing{} = result_1.response
+    assert result_1.response.body == "ok"
+    assert_received {:pipeline_called, ^incoming, [foo: :bar]}
+
+    event_bad_assigns =
+      Event.new(incoming, :agent,
+        opts: [action: :run_pipeline, pipeline_module: StubPipeline, pipeline_opts: []]
+      )
+
+    event_bad_assigns = %{event_bad_assigns | assigns: :not_a_map}
+    result_2 = Api.handle_event(event_bad_assigns, :run_pipeline, nil)
+
+    assert %Outgoing{} = result_2.response
+    assert result_2.response.body == "ok"
+    assert_received {:pipeline_called, ^incoming, []}
+  end
+
   test "delegates invoke to shared internal boundaries helper" do
     event = Event.new(%{module: String, function: :upcase, args: ["hi"]}, :agent)
 

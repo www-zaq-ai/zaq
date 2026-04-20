@@ -109,7 +109,7 @@ defmodule Zaq.MixProject do
       {:mailroom, "~> 0.7.1"},
       {:lingua, "~> 0.3.6"},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
-      {:jido_ai, "~> 2.1"}
+      {:jido_ai, github: "agentjido/jido_ai", branch: "main"}
     ]
   end
 

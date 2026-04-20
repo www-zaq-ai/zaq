@@ -112,8 +112,6 @@ defmodule Zaq.Agent.Tools.Registry do
     case LLMDB.model(provider_atom, model_id) do
       {:ok, %{capabilities: capabilities}} ->
         case Map.get(capabilities || %{}, :tools) do
-          true -> true
-          false -> false
           tools when is_map(tools) -> map_size(tools) > 0
           _ -> false
         end
