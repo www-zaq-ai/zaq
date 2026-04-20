@@ -1,12 +1,17 @@
 const { defineConfig, devices } = require("@playwright/test");
 
+// Retries are deliberately 0. Do NOT bump this to mask flakes — the plan
+// `docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md` explicitly forbids
+// hiding real races behind retries.
 module.exports = defineConfig({
   testDir: "./specs",
+  globalSetup: require.resolve("./support/global-setup"),
   fullyParallel: false,
   workers: 1,
+  retries: 0,
   timeout: 120_000,
   expect: {
-    timeout: 15_000,
+    timeout: process.env.CI ? 20_000 : 15_000,
   },
   reporter: process.env.CI
     ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]]

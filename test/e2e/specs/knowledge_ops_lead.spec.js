@@ -1,5 +1,12 @@
-const { test, expect } = require("@playwright/test");
-const { gotoBackOfficeLive, loginToBackOffice } = require("../support/bo");
+const { test, expect, request: apiRequest } = require("@playwright/test");
+const {
+  gotoBackOfficeLive,
+  loginToBackOffice,
+  resetE2EState,
+  touchE2EFile,
+  dismissFlash,
+  waitForLiveViewSettled,
+} = require("../support/bo");
 
 const PROMPT_VARIANT_MARKER = "E2E_PROMPT_VARIANT_B";
 
@@ -57,6 +64,12 @@ async function askQuestion(page, question) {
   await gotoBackOfficeLive(page, "/bo/chat");
   await expect(page.locator("#chat-form")).toBeVisible();
   await page.locator("#clear-chat-button").click();
+
+  // Wait for the clear to settle server-side before typing the next question.
+  // Without this, the fill() below can race with a pending phx-click-loading
+  // cycle and the message buffer is repopulated with the stale conversation.
+  await waitForLiveViewSettled(page);
+
   await page.locator("#chat-input").fill(question);
   await page.locator("#chat-form button[type='submit']").click();
 }
@@ -87,6 +100,12 @@ async function resetAnsweringPromptTemplate(page) {
 }
 
 test.describe("Knowledge Ops Lead journeys", () => {
+  test.beforeAll(async () => {
+    const req = await apiRequest.newContext();
+    await resetE2EState(req);
+    await req.dispose();
+  });
+
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page);
     await resetAnsweringPromptTemplate(page);
@@ -130,7 +149,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await expect(modal).toContainText(queryToken);
   });
 
-  test("Journey 2: maintain hierarchy and stale-document hygiene", async ({ page }) => {
+  test("Journey 2: maintain hierarchy and stale-document hygiene", async ({ page, request }) => {
     const folderName = uniqueId("e2e-folder");
     const fileBase = uniqueId("e2e-hygiene");
     const fileName = `${fileBase}.md`;
@@ -166,14 +185,23 @@ test.describe("Knowledge Ops Lead journeys", () => {
     // Wait for the navigate event to be processed and the file row to appear.
     await expect(fileRow(page, fileName)).toBeVisible();
 
-    // Wait long enough so the file system mtime of v2 is strictly greater than doc.updated_at (T1).
-    await page.waitForTimeout(5000);
-
-    // Overwrite the file — save_raw_content calls load_entries → load_ingestion_status,
-    // so the stale badge is computed and sent in the same diff that closes the modal.
+    // Overwrite the file first. save_raw_content calls File.write! which stamps
+    // mtime = now — this may or may not exceed doc.updated_at depending on
+    // filesystem granularity, so we bump mtime explicitly after the write.
     await addRawMarkdown(page, fileBase, "# Hygiene v2\n\nUpdated content should mark file stale.");
 
-    // Modal is hidden = diff applied = stale badge already in the DOM.
+    // Now bump mtime to guarantee it's strictly greater than doc.updated_at (T1).
+    // Must happen AFTER the write — File.write resets mtime to now and would
+    // clobber a pre-write bump.
+    await touchE2EFile(request, `${folderName}/${fileName}`);
+
+    // Re-enter the folder so load_entries runs again and picks up the bumped mtime.
+    await gotoBackOfficeLive(page, "/bo/ingestion");
+    await page
+      .locator('table button[phx-click="navigate"]')
+      .filter({ hasText: folderName })
+      .first()
+      .click();
     await expect(fileRow(page, fileName)).toContainText("stale");
 
     await page.goto(previewPath(`${folderName}/${fileName}`));

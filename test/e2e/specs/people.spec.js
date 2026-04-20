@@ -1,5 +1,9 @@
-const { test, expect } = require("@playwright/test")
-const { gotoBackOfficeLive, loginToBackOffice } = require("../support/bo")
+const { test, expect, request: apiRequest } = require("@playwright/test")
+const {
+  gotoBackOfficeLive,
+  loginToBackOffice,
+  resetE2EState,
+} = require("../support/bo")
 
 const PEOPLE_PATH = "/bo/people"
 
@@ -44,6 +48,12 @@ const SEL = {
 }
 
 test.describe("People", () => {
+  test.beforeAll(async () => {
+    const req = await apiRequest.newContext()
+    await resetE2EState(req)
+    await req.dispose()
+  })
+
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page)
     await gotoBackOfficeLive(page, PEOPLE_PATH)

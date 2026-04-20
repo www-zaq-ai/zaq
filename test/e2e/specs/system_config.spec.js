@@ -1,5 +1,21 @@
-const { test, expect } = require("@playwright/test")
-const { gotoBackOfficeLive, loginToBackOffice } = require("../support/bo")
+const { test, expect, request: apiRequest } = require("@playwright/test")
+const {
+  gotoBackOfficeLive,
+  loginToBackOffice,
+  resetE2EState,
+  dismissFlash,
+} = require("../support/bo")
+
+// At least one of the two locators becomes visible. Use in place of
+// `(await a.isVisible()) || (await b.isVisible())`, which is a point-in-time
+// check and returns false if neither has had time to render yet.
+async function expectEitherVisible(a, b, options = {}) {
+  const timeout = options.timeout || 10_000
+  await Promise.race([
+    a.first().waitFor({ state: "visible", timeout }),
+    b.first().waitFor({ state: "visible", timeout }),
+  ])
+}
 
 const CONFIG_PATH = "/bo/system-config"
 
@@ -87,6 +103,12 @@ async function clearHiddenSelectValue(page, selector) {
 }
 
 test.describe("System Config", () => {
+  test.beforeAll(async () => {
+    const req = await apiRequest.newContext()
+    await resetE2EState(req)
+    await req.dispose()
+  })
+
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page)
     await gotoBackOfficeLive(page, CONFIG_PATH)
@@ -168,7 +190,7 @@ test.describe("System Config", () => {
 
       const llmModelText = page.locator('input[type="text"][name="llm_config[model]"]')
       const llmModelSelect = page.locator("#llm-model-select [data-select-trigger]")
-      expect((await llmModelText.isVisible()) || (await llmModelSelect.isVisible())).toBe(true)
+      await expectEitherVisible(llmModelText, llmModelSelect)
 
       await expect(page.locator('input[name="llm_config[temperature]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[top_p]"]')).toBeVisible()
@@ -200,6 +222,7 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      await dismissFlash(page)
     })
 
     // ── Validation: required fields ──────────────────────────────────────
@@ -322,6 +345,7 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      await dismissFlash(page)
 
       // Full reload — triggers mount → load_llm_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
@@ -419,6 +443,7 @@ test.describe("System Config", () => {
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+      await dismissFlash(page)
     })
 
     // ── Destructive save flow ─────────────────────────────────────────────
@@ -476,6 +501,7 @@ test.describe("System Config", () => {
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+      await dismissFlash(page)
     })
 
     // ── Validation: required & numeric ───────────────────────────────────
@@ -556,6 +582,7 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+      await dismissFlash(page)
 
       // Full reload — triggers mount → load_embedding_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
@@ -581,7 +608,7 @@ test.describe("System Config", () => {
 
       const textInput = page.locator('input[type="text"][name="image_to_text_config[model]"]')
       const dropdown = page.locator("#image-to-text-model-select [data-select-trigger]")
-      expect((await textInput.isVisible()) || (await dropdown.isVisible())).toBe(true)
+      await expectEitherVisible(textInput, dropdown)
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
@@ -602,6 +629,7 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
+      await dismissFlash(page)
     })
 
     test("clearing credential blocks save (required field)", async ({ page }) => {
@@ -621,9 +649,7 @@ test.describe("System Config", () => {
     test("either model text input or model dropdown is present", async ({ page }) => {
       const textInput = page.locator('input[name="image_to_text_config[model]"]')
       const dropdown = page.locator("#image-to-text-model-select")
-      const inputVisible = await textInput.isVisible()
-      const dropdownVisible = await dropdown.isVisible()
-      expect(inputVisible || dropdownVisible).toBe(true)
+      await expectEitherVisible(textInput, dropdown)
     })
 
     // ── API key persistence ───────────────────────────────────────────────
@@ -635,6 +661,7 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
+      await dismissFlash(page)
 
       // Full reload — triggers mount → load_image_to_text_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=image_to_text`)
@@ -699,6 +726,7 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      await dismissFlash(page)
     })
   })
 })
