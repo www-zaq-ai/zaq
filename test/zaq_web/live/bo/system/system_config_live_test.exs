@@ -1035,5 +1035,247 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "could not be encrypted"
       assert html =~ "ai-credential-form"
     end
+
+    test "cancel_delete_ai_credential closes the confirm modal", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "To Cancel Delete",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element("button[phx-click='open_delete_ai_credential_confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#ai-credential-delete-confirm")
+
+      view
+      |> element("button[phx-click='cancel_delete_ai_credential']")
+      |> render_click()
+
+      refute has_element?(view, "#ai-credential-delete-confirm")
+    end
+  end
+
+  describe "LLM fusion weight controls" do
+    test "validate_llm adjusts bm25_weight when vector_weight changes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => "",
+            "model" => "test-model",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => "0.5",
+            "fusion_vector_weight" => "0.7"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+    end
+
+    test "validate_llm passes params unchanged when no weight changes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => "",
+            "model" => "test-model",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => "0.5",
+            "fusion_vector_weight" => "0.5"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+    end
+
+    test "validate_llm handles non-numeric fusion weight gracefully", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => "",
+            "model" => "test-model",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => "notanumber",
+            "fusion_vector_weight" => "0.5"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+    end
+
+    test "save_llm shows error when fusion weights sum is below minimum", %{conn: conn} do
+      {:ok, credential} =
+        System.create_ai_provider_credential(%{
+          name: "LLM Fusion Weights",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_submit(view, "save_llm", %{
+          "llm_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "gpt-4o",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => "0.04",
+            "fusion_vector_weight" => "0.05"
+          }
+        })
+
+      assert html =~ "combined fusion weights must sum to at least 0.1"
+    end
+
+    test "validate_llm uses custom path when switching to no-credential", %{conn: conn} do
+      _credential = seed_llm_config(%{model: "switchable-for-custom"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => "",
+            "model" => "switchable-for-custom",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => "0.5",
+            "fusion_vector_weight" => "0.5"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+    end
+
+    test "validate_llm handles non-integer credential_id string as custom", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => "not-a-number",
+            "model" => "test-model",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => "0.5",
+            "fusion_vector_weight" => "0.5"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+    end
+  end
+
+  describe "embedding dimension detection" do
+    test "validate_embedding with custom provider sets no dimension", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      view |> element("button[phx-click='unlock_embedding']") |> render_click()
+      view |> element("button[phx-click='confirm_unlock_embedding']") |> render_click()
+
+      html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => "",
+            "model" => "text-embedding-3-small",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      assert html =~ "embedding-config-form"
+    end
+
+    test "validate_embedding with unknown provider handles ArgumentError", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "Unknown Provider Embedding",
+          provider: "totally-unknown-provider",
+          endpoint: "https://unknown.example/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      view |> element("button[phx-click='unlock_embedding']") |> render_click()
+      view |> element("button[phx-click='confirm_unlock_embedding']") |> render_click()
+
+      html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "some-model",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      assert html =~ "embedding-config-form"
+    end
+  end
+
+  describe "image-to-text form validation" do
+    test "save_image_to_text with invalid params renders form errors", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+
+      html =
+        render_submit(view, "save_image_to_text", %{
+          "image_to_text_config" => %{
+            "credential_id" => "",
+            "model" => ""
+          }
+        })
+
+      assert html =~ "image-to-text-config-form"
+      refute html =~ "Image-to-Text settings saved."
+    end
   end
 end
