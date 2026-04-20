@@ -352,16 +352,18 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
   end
 
   test "load_conversations_metrics/1 includes weights in no_answer_rate chart meta and computes per-label weighted rates" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    # Anchor to midday so both today chunks are safely within the same calendar day
+    # regardless of when the test runs (avoids -2h crossing midnight near 00:00 UTC).
+    today = DateTime.utc_now() |> DateTime.truncate(:microsecond) |> Map.put(:hour, 12) |> Map.put(:minute, 0) |> Map.put(:second, 0)
 
     SystemConfig.set_config("telemetry.no_answer_alert_threshold_percent", "10")
 
     # Simulate scenario:
     # - Yesterday: 1 question, 1 no-answer (100%)
     # - Today, split across two chunks: 10 questions, 5 no-answers (50%)
-    yesterday = DateTime.add(now, -1, :day)
-    today_chunk_1 = now
-    today_chunk_2 = DateTime.add(now, -2, :hour)
+    yesterday = DateTime.add(today, -1, :day)
+    today_chunk_1 = today
+    today_chunk_2 = %{today | hour: 10}
 
     insert_rollup("qa.message.count", yesterday, 1.0, 1)
     insert_rollup("qa.no_answer.count", yesterday, 1.0, 1)

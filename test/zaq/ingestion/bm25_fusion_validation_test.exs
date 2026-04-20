@@ -3,15 +3,15 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   Integration tests that validate the BM25 + vector RRF fusion pipeline against
   the content in `test/fixtures/bm25_fusion_validation.md`.
 
-  Requires PostgreSQL 17+ with `pg_textsearch`. Run with:
+  Requires PostgreSQL with `pg_search` (ParadeDB). Run with:
 
       mix test --include integration test/zaq/ingestion/bm25_fusion_validation_test.exs
 
   Structure:
-    §1  Language detection (LanguageDetector.detect/1 — no DB, no pg_textsearch)
-    §2  BM25 index routing (requires pg_textsearch)
-    §3  Fusion ranking smoke test (requires pg_textsearch)
-    §4  query_extraction/2 end-to-end (requires pg_textsearch)
+    §1  Language detection (LanguageDetector.detect/1 — no DB, no pg_search)
+    §2  BM25 index routing (requires pg_search)
+    §3  Fusion ranking smoke test (requires pg_search)
+    §4  query_extraction/2 end-to-end (requires pg_search)
 
   Note: BM25/fusion tests insert chunks directly (bypass process_single_file)
   to avoid the chunk-title LLM stub replacing section path labels.
