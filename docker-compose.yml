@@ -1,12 +1,12 @@
 services:
   pgvector:
-    image: pgvector/pgvector:pg18
+    image: paradedb/paradedb:latest
     container_name: zaq-pgvector
     environment:
       POSTGRES_DB: zaq_prod
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports: 
+    ports:
       - "5431:5432"
     volumes:
       - pgdata:/var/lib/postgresql

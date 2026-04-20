@@ -28,12 +28,13 @@ defmodule Zaq.Ingestion.Chunk do
     field :section_path, {:array, :string}, default: []
     field :metadata, :map, default: %{}
     field :embedding, Pgvector.Ecto.HalfVector
+    field :language, :string
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields ~w(document_id content chunk_index)a
-  @optional_fields ~w(section_path metadata embedding)a
+  @optional_fields ~w(section_path metadata embedding language)a
 
   def changeset(chunk, attrs) do
     chunk
@@ -137,6 +138,7 @@ defmodule Zaq.Ingestion.Chunk do
         chunk_index integer NOT NULL,
         section_path text[] DEFAULT '{}',
         metadata jsonb DEFAULT '{}',
+        language varchar(32),
         inserted_at timestamp(0) NOT NULL,
         updated_at timestamp(0) NOT NULL
       )
@@ -171,10 +173,16 @@ defmodule Zaq.Ingestion.Chunk do
 
     EctoSQL.query!(
       Repo,
+      "CREATE EXTENSION IF NOT EXISTS pg_search",
+      []
+    )
+
+    EctoSQL.query!(
+      Repo,
       """
-      CREATE INDEX IF NOT EXISTS chunks_content_tsvector_idx
-      ON chunks
-      USING gin (to_tsvector('english', content))
+      CREATE INDEX IF NOT EXISTS chunks_bm25_idx
+      ON chunks USING bm25(id, content)
+      WITH (key_field='id')
       """,
       []
     )

@@ -6,22 +6,23 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   embedding generation via `Zaq.Embedding.Client`, and storage using
   the `Zaq.Ingestion.Chunk` Ecto schema.
 
-  Also exposes hybrid search (full-text + vector with RRF fusion),
-  similarity search, and token-limited query extraction for the
-  answering agent.
+  Exposes BM25+vector hybrid search via parallel `Task.async` with Elixir-side
+  RRF fusion, and token-limited query extraction for the answering agent.
 
   ## Configuration (read from `config :zaq, Zaq.Ingestion`)
 
     * `:max_context_window` - token limit for query extraction (default `5_000`)
     * `:distance_threshold` - vector distance cutoff (default `0.75`)
     * `:hybrid_search_limit` - max rows per search leg (default `20`)
+    * `:use_bm25` - enable BM25+vector hybrid path (default `true`)
   """
 
   import Ecto.Query
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, Sidecar, SourcePath}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker}
+  alias Zaq.Ingestion.{LanguageDetector, Sidecar, SourcePath}
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, XlsxToMd}
   alias Zaq.Repo
@@ -60,6 +61,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> Keyword.get(:hybrid_search_limit, 20)
   end
 
+  defp use_bm25? do
+    Application.get_env(:zaq, Zaq.Ingestion, [])
+    |> Keyword.get(:use_bm25, true)
+  end
+
   defp chunk_processing_concurrency do
     default = System.schedulers_online()
 
@@ -67,12 +73,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> Keyword.get(:chunk_processing_concurrency, default)
     |> normalize_concurrency(default)
   end
-
-  defp hybrid_candidate_limit(limit) when is_integer(limit) and limit > 0 do
-    limit
-  end
-
-  defp hybrid_candidate_limit(_), do: hybrid_search_limit()
 
   defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_concurrency(_value, default), do: default
@@ -665,13 +665,19 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding) do
+    language =
+      if use_bm25?() do
+        LanguageDetector.detect(chunk.content)
+      end
+
     attrs = %{
       document_id: document_id,
       content: chunk.content,
       chunk_index: index,
       section_path: chunk.section_path,
       metadata: build_metadata(chunk, document_id, index),
-      embedding: Pgvector.HalfVector.new(embedding)
+      embedding: Pgvector.HalfVector.new(embedding),
+      language: language
     }
 
     %Chunk{}
@@ -744,11 +750,27 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     team_ids = Keyword.get(access_opts, :team_ids, [])
     skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
 
-    with {:ok, ss} <- similarity_search_group_by(query),
-         sections = build_query_sections(ss),
+    with {:ok, grouped} <- retrieve(query),
+         sections = build_query_sections(grouped),
          {:ok, data} <- fetch_sections_with_source(sections) do
       filtered = apply_permission_filter(data, skip_permissions, person_id, team_ids)
       {:ok, limit_to_context_window(filtered)}
+    end
+  end
+
+  defp retrieve(query) do
+    if use_bm25?() do
+      limit = hybrid_search_limit()
+
+      bm25_task = Task.async(fn -> bm25_search_group_by(query, limit) end)
+      vector_task = Task.async(fn -> similarity_search_group_by(query) end)
+
+      with {:ok, bm25} <- Task.await(bm25_task, 30_000),
+           {:ok, vector} <- Task.await(vector_task, 30_000) do
+        rrf_merge(bm25, vector)
+      end
+    else
+      similarity_search_group_by(query)
     end
   end
 
@@ -757,12 +779,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> Enum.flat_map(fn {doc_id, paths} ->
       Enum.flat_map(paths, fn
         {_path, []} -> []
-        {path, [first | _]} -> [{doc_id, path, first.vector_distance}]
+        {path, [first | _]} -> [{doc_id, path, score_of(first)}]
       end)
     end)
-    |> List.keysort(2)
+    |> List.keysort(2, :desc)
     |> Enum.uniq_by(fn {doc_id, path, _} -> {doc_id, path} end)
   end
+
+  defp score_of(%{rrf_score: s}), do: s
+  defp score_of(%{vector_distance: d}), do: -d
 
   defp limit_to_context_window(data) do
     {answer, _} =
@@ -807,6 +832,125 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # BM25 search (pg_textsearch partial index per language)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  BM25 full-text search grouped by document and section path.
+
+  Returns `{:ok, %{doc_id => %{section_path => [%{document_id, section_path, bm25_score}]}}}`.
+  Mirrors the output shape of `similarity_search_group_by/1` so both legs can
+  be fed into `rrf_merge/2` without transformation.
+  """
+  def bm25_search_group_by(query_text, limit) do
+    language = LanguageDetector.detect_query(query_text)
+
+    results =
+      from(c in Chunk,
+        where: c.language == ^language,
+        where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
+        order_by: [desc: fragment("paradedb.score(?)", c.id)],
+        limit: ^limit,
+        select: %{
+          document_id: c.document_id,
+          section_path: c.section_path,
+          bm25_score: fragment("paradedb.score(?)", c.id)
+        }
+      )
+      |> Repo.all()
+
+    grouped =
+      results
+      |> Enum.group_by(& &1.document_id)
+      |> Map.new(fn {doc_id, items} ->
+        {doc_id, Enum.group_by(items, & &1.section_path)}
+      end)
+
+    {:ok, grouped}
+  end
+
+  # ---------------------------------------------------------------------------
+  # RRF merge (Elixir-side fusion of BM25 and vector legs)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Fuses BM25 and vector grouped maps using weighted Reciprocal Rank Fusion.
+
+  Each leg is ranked independently (rank 1..N by score). Sections missing from
+  a leg contribute 0 from that leg.
+
+  Score: `bm25_w * 1/(k + bm25_rank) + vector_w * 1/(k + vector_rank)`
+
+  Returns `{:ok, %{doc_id => %{section_path => [%{document_id, section_path, rrf_score}]}}}`.
+  """
+  def rrf_merge(bm25_grouped, vector_grouped) do
+    {bm25_w, vector_w} = fusion_weights()
+    k = @rrf_k
+
+    bm25_ranked = rank_grouped(bm25_grouped, :bm25_score, :desc)
+    vector_ranked = rank_grouped(vector_grouped, :vector_distance, :desc)
+
+    all_keys =
+      (Map.keys(bm25_ranked) ++ Map.keys(vector_ranked))
+      |> Enum.uniq()
+
+    merged =
+      Map.new(all_keys, fn {doc_id, section_path} ->
+        bm25_rank = Map.get(bm25_ranked, {doc_id, section_path})
+        vector_rank = Map.get(vector_ranked, {doc_id, section_path})
+
+        bm25_contrib = if bm25_rank, do: bm25_w * (1 / (k + bm25_rank)), else: 0.0
+        vector_contrib = if vector_rank, do: vector_w * (1 / (k + vector_rank)), else: 0.0
+        rrf_score = bm25_contrib + vector_contrib
+
+        item = %{document_id: doc_id, section_path: section_path, rrf_score: rrf_score}
+        {{doc_id, section_path}, item}
+      end)
+
+    grouped =
+      merged
+      |> Enum.group_by(fn {{doc_id, _path}, _item} -> doc_id end)
+      |> Map.new(fn {doc_id, entries} ->
+        by_path =
+          Map.new(entries, fn {{_doc_id, section_path}, item} ->
+            {section_path, [item]}
+          end)
+
+        {doc_id, by_path}
+      end)
+
+    {:ok, grouped}
+  end
+
+  defp fusion_weights do
+    cfg = Zaq.System.get_llm_config()
+    {cfg.fusion_bm25_weight, cfg.fusion_vector_weight}
+  end
+
+  defp rank_grouped(grouped, score_key, order) do
+    grouped
+    |> extract_sections(score_key)
+    |> sort_sections(order)
+    |> Enum.with_index(1)
+    |> Map.new(fn {{doc_id, section_path, _score}, rank} -> {{doc_id, section_path}, rank} end)
+  end
+
+  defp extract_sections(grouped, score_key) do
+    Enum.flat_map(grouped, fn {doc_id, paths} ->
+      Enum.flat_map(paths, &extract_section(doc_id, &1, score_key))
+    end)
+  end
+
+  defp extract_section(_doc_id, {_path, []}, _score_key), do: []
+
+  defp extract_section(doc_id, {section_path, [first | _]}, score_key) do
+    [{doc_id, section_path, Map.get(first, score_key, 0.0)}]
+  end
+
+  defp sort_sections(sections, :asc), do: Enum.sort_by(sections, &elem(&1, 2), :asc)
+  defp sort_sections(sections, :desc), do: Enum.sort_by(sections, &elem(&1, 2), :desc)
+
   defp fetch_sections_with_source([]), do: {:ok, []}
 
   defp fetch_sections_with_source(sections) do
@@ -841,145 +985,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       |> Enum.sort_by(& &1["distance"])
 
     {:ok, results}
-  end
-
-  # ---------------------------------------------------------------------------
-  # Hybrid search (full-text + vector with RRF fusion)
-  # ---------------------------------------------------------------------------
-
-  @doc """
-  Performs hybrid search combining full-text search and vector similarity
-  using Reciprocal Rank Fusion (RRF).
-
-  Returns `{:ok, results}` where each result is a map with keys:
-  `:chunk`, `:source`, `:rrf_score`, `:text_rank`, `:vector_distance`.
-  """
-  def hybrid_search(query_text, limit \\ nil) do
-    limit = limit || hybrid_search_limit()
-    candidate_limit = hybrid_candidate_limit(limit)
-
-    with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
-      embedding_vector = Pgvector.HalfVector.new(embedding)
-      k = @rrf_k
-
-      results =
-        Chunk
-        |> join(:inner, [c], d in Document, on: c.document_id == d.id)
-        |> where(
-          [c, _d],
-          fragment(
-            """
-            c0.id IN (
-              SELECT id FROM (
-                SELECT id,
-                       ROW_NUMBER() OVER (
-                         ORDER BY ts_rank(to_tsvector('english', content),
-                                          plainto_tsquery('english', ?)) DESC
-                       ) AS rn
-                FROM chunks
-                WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ?)
-                LIMIT ?
-              ) ts
-              UNION
-              SELECT id FROM (SELECT id FROM chunks ORDER BY embedding <-> ? LIMIT ?) vs
-            )
-            """,
-            ^query_text,
-            ^query_text,
-            ^candidate_limit,
-            ^embedding_vector,
-            ^candidate_limit
-          )
-        )
-        |> select([c, d], %{
-          chunk: c,
-          source: d.source,
-          rrf_score:
-            fragment(
-              """
-              COALESCE(1.0 / (? + (
-                SELECT rn FROM (
-                  SELECT id,
-                         ROW_NUMBER() OVER (
-                           ORDER BY ts_rank(to_tsvector('english', content),
-                                            plainto_tsquery('english', ?)) DESC
-                         ) AS rn
-                  FROM chunks
-                  WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ?)
-                  LIMIT ?
-                ) ts WHERE ts.id = c0.id
-              )), 0)
-              +
-              COALESCE(1.0 / (? + (
-                SELECT rn FROM (
-                  SELECT id,
-                         ROW_NUMBER() OVER (ORDER BY embedding <-> ?) AS rn
-                  FROM chunks
-                  ORDER BY embedding <-> ?
-                  LIMIT ?
-                ) vs WHERE vs.id = c0.id
-              )), 0)
-              """,
-              ^k,
-              ^query_text,
-              ^query_text,
-              ^candidate_limit,
-              ^k,
-              ^embedding_vector,
-              ^embedding_vector,
-              ^candidate_limit
-            ),
-          text_rank:
-            fragment(
-              "ts_rank(to_tsvector('english', ?), plainto_tsquery('english', ?))",
-              c.content,
-              ^query_text
-            ),
-          vector_distance: fragment("? <-> ?", c.embedding, ^embedding_vector)
-        })
-        |> order_by(
-          [c, _d],
-          desc:
-            fragment(
-              """
-              COALESCE(1.0 / (? + (
-                SELECT rn FROM (
-                  SELECT id,
-                         ROW_NUMBER() OVER (
-                           ORDER BY ts_rank(to_tsvector('english', content),
-                                            plainto_tsquery('english', ?)) DESC
-                         ) AS rn
-                  FROM chunks
-                  WHERE to_tsvector('english', content) @@ plainto_tsquery('english', ?)
-                  LIMIT ?
-                ) ts WHERE ts.id = c0.id
-              )), 0)
-              +
-              COALESCE(1.0 / (? + (
-                SELECT rn FROM (
-                  SELECT id,
-                         ROW_NUMBER() OVER (ORDER BY embedding <-> ?) AS rn
-                  FROM chunks
-                  ORDER BY embedding <-> ?
-                  LIMIT ?
-                ) vs WHERE vs.id = c0.id
-              )), 0)
-              """,
-              ^k,
-              ^query_text,
-              ^query_text,
-              ^candidate_limit,
-              ^k,
-              ^embedding_vector,
-              ^embedding_vector,
-              ^candidate_limit
-            )
-        )
-        |> limit(^limit)
-        |> Repo.all()
-
-      {:ok, results}
-    end
   end
 
   # ---------------------------------------------------------------------------
@@ -1021,35 +1026,52 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Returns the count of unique chunks matching via hybrid search
-  (text + vector union).
+  Returns the count of unique chunks matching via BM25+vector union search.
+  Falls back to tsvector+vector when BM25 is disabled (`use_bm25: false`).
   """
   def similarity_search_count(query_text) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
+      limit = hybrid_search_limit()
 
-      text_ids =
-        from(c in Chunk,
-          where:
-            fragment(
-              "to_tsvector('english', ?) @@ plainto_tsquery('english', ?)",
-              c.content,
-              ^query_text
-            ),
-          select: %{id: c.id},
-          limit: 20
-        )
+      fts_ids =
+        if use_bm25?() do
+          language = LanguageDetector.detect_query(query_text)
+
+          from(c in Chunk,
+            where: c.language == ^language,
+            where:
+              fragment(
+                "? @@@ paradedb.parse('content'::text, ?::text)",
+                c,
+                ^query_text
+              ),
+            select: %{id: c.id},
+            limit: ^limit
+          )
+        else
+          from(c in Chunk,
+            where:
+              fragment(
+                "to_tsvector('english', ?) @@ plainto_tsquery('english', ?)",
+                c.content,
+                ^query_text
+              ),
+            select: %{id: c.id},
+            limit: ^limit
+          )
+        end
 
       vector_ids =
         from(c in Chunk,
           order_by: fragment("? <-> ?", c.embedding, ^embedding_vector),
           select: %{id: c.id},
-          limit: 20
+          limit: ^limit
         )
 
       combined =
         from(
-          c in subquery(union_all(text_ids, ^vector_ids)),
+          c in subquery(union_all(fts_ids, ^vector_ids)),
           select: count(c.id, :distinct)
         )
 
