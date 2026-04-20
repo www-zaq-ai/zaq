@@ -7,15 +7,10 @@ on:
 
 jobs:
   e2e:
-    name: User Journeys QA (${{ matrix.shard }})
+    name: User Journeys QA
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ["1/2", "2/2"]
 
     services:
       postgres:
@@ -103,14 +98,14 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: npx --prefix test/e2e playwright install-deps chromium
 
-      - name: Run E2E suite (shard ${{ matrix.shard }})
-        run: npm --prefix test/e2e run test -- --shard=${{ matrix.shard }}
+      - name: Run full E2E suite
+        run: npm --prefix test/e2e run test
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-artifacts-${{ strategy.job-index }}
+          name: playwright-artifacts
           path: |
             test/e2e/playwright-report
             test/e2e/test-results
