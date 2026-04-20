@@ -1,6 +1,6 @@
 services:
   paradedb:
-    image: paradedb/paradedb:latest
+    image: paradedb/paradedb:0.23.0
     container_name: zaq-paradedb
     environment:
       POSTGRES_DB: zaq_prod

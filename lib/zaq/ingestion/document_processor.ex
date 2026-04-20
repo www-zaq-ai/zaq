@@ -14,7 +14,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     * `:max_context_window` - token limit for query extraction (default `5_000`)
     * `:distance_threshold` - vector distance cutoff (default `0.75`)
     * `:hybrid_search_limit` - max rows per search leg (default `20`)
-    * `:use_bm25` - enable BM25+vector hybrid path (default `true`)
   """
 
   import Ecto.Query
@@ -59,11 +58,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp hybrid_search_limit do
     Application.get_env(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:hybrid_search_limit, 20)
-  end
-
-  defp use_bm25? do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:use_bm25, true)
   end
 
   defp chunk_processing_concurrency do
@@ -665,10 +659,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding) do
-    language =
-      if use_bm25?() do
-        LanguageDetector.detect(chunk.content)
-      end
+    language = LanguageDetector.detect(chunk.content)
 
     attrs = %{
       document_id: document_id,
@@ -759,18 +750,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp retrieve(query) do
-    if use_bm25?() do
-      limit = hybrid_search_limit()
+    limit = hybrid_search_limit()
 
-      bm25_task = Task.async(fn -> bm25_search_group_by(query, limit) end)
-      vector_task = Task.async(fn -> similarity_search_group_by(query) end)
+    bm25_task = Task.async(fn -> bm25_search_group_by(query, limit) end)
+    vector_task = Task.async(fn -> similarity_search_group_by(query) end)
 
-      with {:ok, bm25} <- Task.await(bm25_task, 30_000),
-           {:ok, vector} <- Task.await(vector_task, 30_000) do
-        rrf_merge(bm25, vector)
-      end
-    else
-      similarity_search_group_by(query)
+    with {:ok, bm25} <- Task.await(bm25_task, 30_000),
+         {:ok, vector} <- Task.await(vector_task, 30_000) do
+      rrf_merge(bm25, vector)
     end
   end
 
@@ -1034,7 +1021,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   @doc """
   Returns the count of unique chunks matching via BM25+vector union search.
-  Falls back to tsvector+vector when BM25 is disabled (`use_bm25: false`).
   """
   def similarity_search_count(query_text) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
@@ -1061,29 +1047,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp fts_count_query(query_text, limit) do
-    if use_bm25?() do
-      language = LanguageDetector.detect_query(query_text)
+    language = LanguageDetector.detect_query(query_text)
 
-      base =
-        from(c in Chunk,
-          where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
-          select: %{id: c.id},
-          limit: ^limit
-        )
-
-      if language == "simple", do: base, else: from(c in base, where: c.language == ^language)
-    else
+    base =
       from(c in Chunk,
-        where:
-          fragment(
-            "to_tsvector('english', ?) @@ plainto_tsquery('english', ?)",
-            c.content,
-            ^query_text
-          ),
+        where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
         select: %{id: c.id},
         limit: ^limit
       )
-    end
+
+    if language == "simple", do: base, else: from(c in base, where: c.language == ^language)
   end
 
   # ---------------------------------------------------------------------------

@@ -39,9 +39,6 @@ config :zaq, Zaq.Embedding.Client,
   dimension: 1536,
   req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
-# BM25 requires pg_textsearch (PostgreSQL 17+) — disabled in test environment
-config :zaq, Zaq.Ingestion, use_bm25: false
-
 # --MOX--
 config :zaq,
   chunk_title_module: Zaq.Agent.ChunkTitleMock,

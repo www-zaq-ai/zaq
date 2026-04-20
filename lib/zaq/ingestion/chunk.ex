@@ -171,19 +171,17 @@ defmodule Zaq.Ingestion.Chunk do
       []
     )
 
-    if use_bm25?() do
-      EctoSQL.query!(Repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
+    EctoSQL.query!(Repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
-      EctoSQL.query!(
-        Repo,
-        """
-        CREATE INDEX IF NOT EXISTS chunks_bm25_idx
-        ON chunks USING bm25(id, content)
-        WITH (key_field='id')
-        """,
-        []
-      )
-    end
+    EctoSQL.query!(
+      Repo,
+      """
+      CREATE INDEX IF NOT EXISTS chunks_bm25_idx
+      ON chunks USING bm25(id, content)
+      WITH (key_field='id')
+      """,
+      []
+    )
 
     :ok
   end
@@ -203,10 +201,5 @@ defmodule Zaq.Ingestion.Chunk do
     drop_table()
     create_table(new_dimension)
     Hooks.dispatch_async(:embedding_reset, %{new_dimension: new_dimension}, %{})
-  end
-
-  defp use_bm25? do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
-    |> Keyword.get(:use_bm25, true)
   end
 end

@@ -8,31 +8,12 @@ defmodule Zaq.Ingestion.LanguageDetector do
   Rules:
   - Fewer than 20 whitespace-separated tokens → "simple"
   - Confidence below 0.8 → "simple"
-  - Detected language has no pg_search config → "simple"
+  - No match or unexpected response → "simple"
   """
 
   @confidence_threshold 0.8
   @min_token_count 20
   @min_query_token_count 3
-
-  @pg_configs %{
-    english: "english",
-    french: "french",
-    german: "german",
-    spanish: "spanish",
-    portuguese: "portuguese",
-    italian: "italian",
-    dutch: "dutch",
-    russian: "russian",
-    arabic: "arabic",
-    turkish: "turkish",
-    swedish: "swedish",
-    norwegian: "norwegian",
-    danish: "danish",
-    finnish: "finnish",
-    hungarian: "hungarian",
-    romanian: "romanian"
-  }
 
   @doc """
   Detects the language of a chunk's `text` and returns the pg_search config name,
@@ -68,7 +49,7 @@ defmodule Zaq.Ingestion.LanguageDetector do
   end
 
   defp detect_with_confidence(text) do
-    case Lingua.detect(text, compute_language_confidence_values: true) do
+    case lingua_module().detect(text, compute_language_confidence_values: true) do
       {:ok, :no_match} ->
         "simple"
 
@@ -76,16 +57,20 @@ defmodule Zaq.Ingestion.LanguageDetector do
         [{lang, confidence} | _] = Enum.sort_by(scores, &elem(&1, 1), :desc)
 
         if confidence >= @confidence_threshold do
-          Map.get(@pg_configs, lang, "simple")
+          Atom.to_string(lang)
         else
           "simple"
         end
 
       {:ok, lang} when is_atom(lang) ->
-        Map.get(@pg_configs, lang, "simple")
+        Atom.to_string(lang)
 
       _ ->
         "simple"
     end
+  end
+
+  defp lingua_module do
+    Application.get_env(:zaq, :lingua_module, Lingua)
   end
 end
