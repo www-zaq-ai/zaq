@@ -12,6 +12,7 @@ defmodule Zaq.System.LLMConfig do
   - top_p in 0.0..1.0
   - max_context_window > 0
   - distance_threshold > 0.0
+  - fusion_bm25_weight and fusion_vector_weight each in 0.0..1.0; sum ≥ 0.1
   """
 
   use Ecto.Schema
@@ -62,5 +63,17 @@ defmodule Zaq.System.LLMConfig do
       greater_than_or_equal_to: 0.0,
       less_than_or_equal_to: 1.0
     )
+    |> validate_fusion_weight_sum()
+  end
+
+  defp validate_fusion_weight_sum(changeset) do
+    bm25 = get_field(changeset, :fusion_bm25_weight)
+    vector = get_field(changeset, :fusion_vector_weight)
+
+    if is_float(bm25) and is_float(vector) and bm25 + vector < 0.1 do
+      add_error(changeset, :fusion_bm25_weight, "combined fusion weights must sum to at least 0.1")
+    else
+      changeset
+    end
   end
 end

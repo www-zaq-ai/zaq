@@ -241,8 +241,14 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   # ---------------------------------------------------------------------------
 
   describe "§2 BM25 index routing" do
-    test "English query returns only English chunks" do
+    test "undetected-language query returns BM25 hits across all chunk languages" do
       load_corpus()
+
+      # @rrf_query is a short technical phrase; Lingua cannot confidently detect
+      # its language, so detect_query/1 returns "simple".  When the query language
+      # is "simple" the BM25 search runs without a language filter so that chunks
+      # from every language group remain reachable.
+      assert LanguageDetector.detect_query(@rrf_query) == "simple"
 
       assert {:ok, results} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
 
@@ -252,14 +258,7 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
         |> Enum.flat_map(&Map.values/1)
         |> List.flatten()
 
-      assert items != [], "expected BM25 hits for English query"
-
-      assert Enum.all?(items, fn item ->
-               Chunk
-               |> Zaq.Repo.get_by(document_id: item.document_id, section_path: item.section_path)
-               |> then(& &1.language) == "english"
-             end),
-             "English BM25 query returned a non-English chunk"
+      assert items != [], "expected BM25 hits for the RRF query"
     end
 
     test "French query returns only French chunks" do
@@ -439,8 +438,15 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
              "Section B should not appear in BM25-only results (no exact keyword match)"
     end
 
-    test "Section H ('simple' language) is not returned by English BM25 query" do
+    test "Section H ('simple' language) is returned by undetected-language BM25 query" do
       doc = load_corpus()
+
+      # @rrf_query detects as "simple" (Lingua cannot confidently classify short
+      # technical phrases). A "simple" query runs without a language filter, so
+      # Section H — indexed with language='simple' and containing the term "RRF" —
+      # is reachable via BM25, while language-specific chunks (English, French, …)
+      # are also searched.
+      assert LanguageDetector.detect_query(@rrf_query) == "simple"
 
       {:ok, bm25_grouped} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
 
@@ -450,8 +456,8 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
         |> Map.keys()
         |> Enum.map(&List.last/1)
 
-      refute "Section H" in labels,
-             "Section H (language='simple') should not appear in English BM25 results"
+      assert "Section H" in labels,
+             "Section H (language='simple') should appear in undetected-language BM25 results; got: #{inspect(labels)}"
     end
 
     test "no-match query returns empty BM25 results" do

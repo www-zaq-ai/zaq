@@ -1512,7 +1512,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end
 
     @tag :integration
-    test "English query targets chunks_bm25_english_idx" do
+    test "English query searches via single BM25 index with language filter" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
@@ -1534,7 +1534,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end
 
     @tag :integration
-    test "unknown language query falls back to chunks_bm25_simple_idx" do
+    test "unknown language query falls back to simple language filter" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
