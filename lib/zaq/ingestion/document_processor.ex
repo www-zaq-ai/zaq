@@ -831,9 +831,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   be fed into `rrf_merge/2` without transformation.
   """
   def bm25_search_group_by(query_text, limit) do
-    language = LanguageDetector.detect_query(query_text)
-
-    base_query =
+    query =
       from(c in Chunk,
         where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
         order_by: [desc: fragment("paradedb.score(?)", c.id)],
@@ -844,13 +842,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           bm25_score: fragment("paradedb.score(?)", c.id)
         }
       )
-
-    query =
-      if language == "simple" do
-        base_query
-      else
-        from(c in base_query, where: c.language == ^language)
-      end
 
     results = Repo.all(query)
 
@@ -1047,16 +1038,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp fts_count_query(query_text, limit) do
-    language = LanguageDetector.detect_query(query_text)
-
-    base =
-      from(c in Chunk,
-        where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
-        select: %{id: c.id},
-        limit: ^limit
-      )
-
-    if language == "simple", do: base, else: from(c in base, where: c.language == ^language)
+    from(c in Chunk,
+      where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
+      select: %{id: c.id},
+      limit: ^limit
+    )
   end
 
   # ---------------------------------------------------------------------------

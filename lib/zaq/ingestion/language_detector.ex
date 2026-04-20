@@ -2,7 +2,7 @@ defmodule Zaq.Ingestion.LanguageDetector do
   @moduledoc """
   Detects the natural language of a text chunk using the Lingua NIF.
 
-  Returns a language identifier for BM25 search configuration (e.g. "english", "french") or
+  Returns a language identifier for chunk indexing (e.g. "english", "french") or
   "simple" when the language cannot be determined with sufficient confidence.
 
   Rules:
@@ -13,7 +13,6 @@ defmodule Zaq.Ingestion.LanguageDetector do
 
   @confidence_threshold 0.8
   @min_token_count 20
-  @min_query_token_count 3
 
   @doc """
   Detects the language of a chunk's `text` and returns the pg_search config name,
@@ -25,23 +24,6 @@ defmodule Zaq.Ingestion.LanguageDetector do
     token_count = text |> String.split() |> length()
 
     if token_count < @min_token_count do
-      "simple"
-    else
-      detect_with_confidence(text)
-    end
-  end
-
-  @doc """
-  Detects the language of a search query.
-  Uses a lower token threshold (3) since queries are typically short.
-  Falls back to "simple" so short or undetected queries match content indexed
-  without a language-specific tokenizer.
-  """
-  @spec detect_query(String.t()) :: String.t()
-  def detect_query(text) when is_binary(text) do
-    token_count = text |> String.split() |> length()
-
-    if token_count < @min_query_token_count do
       "simple"
     else
       detect_with_confidence(text)

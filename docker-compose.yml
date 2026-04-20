@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5433:5432"
+      - "5431:5432"
     volumes:
       - paradedb_data:/var/lib/postgresql
     healthcheck:
