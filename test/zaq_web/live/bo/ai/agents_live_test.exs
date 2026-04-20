@@ -54,18 +54,60 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert render(view) =~ "Create Agent"
   end
 
-  test "shows file tools from registry in the form", %{conn: conn} do
+  test "shows unselected tools in searchable add-tools modal", %{conn: conn} do
     _credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
 
     {:ok, view, _html} = live(conn, ~p"/bo/agents")
 
     render_click(element(view, "#new-agent-button"))
+    render_click(element(view, "#add-tools-button"))
 
     html = render(view)
+    assert html =~ "Add tools"
     assert html =~ "Read file"
     assert html =~ "Write file"
     assert html =~ "List directory"
+  end
+
+  test "list hides delete button and shows status dot in name", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, active_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Active Dot Agent #{:erlang.unique_integer([:positive])}",
+        description: "",
+        job: "test",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, inactive_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Inactive Dot Agent #{:erlang.unique_integer([:positive])}",
+        description: "",
+        job: "test",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: false,
+        advanced_options: %{}
+      })
+
+    {:ok, view, html} = live(conn, ~p"/bo/agents")
+
+    refute html =~ "Delete"
+    assert has_element?(view, "#agent-row-#{active_agent.id} span.bg-emerald-500")
+    assert has_element?(view, "#agent-row-#{inactive_agent.id} span.bg-red-500")
+    assert html =~ "Conversation"
   end
 
   test "shows unsupported-tools indication when selected model has no tool support", %{conn: conn} do
@@ -89,7 +131,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "model" => "not-a-real-model",
         "credential_id" => to_string(credential.id),
         "strategy" => "react",
-        "enabled_tool_keys" => ["files.read_file"],
+        "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
         "conversation_enabled" => "false",
         "active" => "true"
@@ -99,7 +141,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     html = render(view)
     assert html =~ "Selected model does not support tool calling"
-    assert html =~ "enabled_tool_keys: selected model does not support tool calling"
   end
 
   test "clicking a row opens edit form", %{conn: conn} do
@@ -224,7 +265,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     refute html =~ standard_name
   end
 
-  test "cancel button closes form without persisting changes", %{conn: conn} do
+  test "top-right close button closes form without persisting changes", %{conn: conn} do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
 
@@ -243,13 +284,12 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
-        "conversation_enabled" => "true",
         "active" => "true"
       }
     )
     |> render_change()
 
-    render_click(element(view, "#cancel-agent-button"))
+    render_click(element(view, "#close-agent-detail"))
 
     refute has_element?(view, "#configured-agent-form")
     refute Enum.any?(Zaq.Agent.list_agents(), &(&1.name == "Transient Agent"))
@@ -303,7 +343,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
-        "conversation_enabled" => "true",
         "active" => "true"
       }
     )
@@ -314,7 +353,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert Enum.any?(Zaq.Agent.list_agents(), &(&1.name == agent_name))
   end
 
-  test "shows validation error for invalid advanced options json", %{conn: conn} do
+  test "does not show field validation errors on change before save", %{conn: conn} do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
 
@@ -339,7 +378,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_change()
 
     html = render(view)
-    assert html =~ "advanced options must be valid JSON"
+    refute html =~ "advanced options must be valid JSON"
   end
 
   test "save with invalid advanced options json keeps form in validation state", %{conn: conn} do
@@ -371,7 +410,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     refute html =~ "Agent created"
   end
 
-  test "shows validation error when advanced options is not a json object", %{conn: conn} do
+  test "does not show object-shape advanced options error on change before save", %{conn: conn} do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
 
@@ -396,10 +435,10 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_change()
 
     html = render(view)
-    assert html =~ "advanced options must be a JSON object"
+    refute html =~ "advanced options must be a JSON object"
   end
 
-  test "edits and deletes an existing agent", %{conn: conn} do
+  test "edits an existing agent", %{conn: conn} do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
 
@@ -436,7 +475,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
-        "conversation_enabled" => "true",
         "active" => "true"
       }
     )
@@ -444,11 +482,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     assert render(view) =~ "Agent updated"
     assert render(view) =~ "#{name} Updated"
-
-    render_click(element(view, ~s(button[phx-click="delete_agent"][phx-value-id="#{agent.id}"])))
-
-    assert render(view) =~ "Agent deleted"
-    refute Enum.any?(Zaq.Agent.list_agents(), &(&1.id == agent.id))
   end
 
   test "save fails for duplicate name on create and update", %{conn: conn} do
@@ -534,53 +567,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_submit()
 
     assert render(view) =~ "has already been taken"
-  end
-
-  test "deleting a non-selected row keeps current edit form open", %{conn: conn} do
-    credential =
-      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
-
-    {:ok, selected_agent} =
-      Zaq.Agent.create_agent(%{
-        name: "Selected Agent #{System.unique_integer([:positive])}",
-        description: "",
-        job: "selected",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: [],
-        conversation_enabled: false,
-        active: true,
-        advanced_options: %{}
-      })
-
-    {:ok, other_agent} =
-      Zaq.Agent.create_agent(%{
-        name: "Other Agent #{System.unique_integer([:positive])}",
-        description: "",
-        job: "other",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: [],
-        conversation_enabled: false,
-        active: true,
-        advanced_options: %{}
-      })
-
-    {:ok, view, _html} = live(conn, ~p"/bo/agents")
-
-    view
-    |> element("#agent-row-#{selected_agent.id}")
-    |> render_click()
-
-    render_click(
-      element(view, ~s(button[phx-click="delete_agent"][phx-value-id="#{other_agent.id}"]))
-    )
-
-    assert has_element?(view, "#configured-agent-form")
-    assert render(view) =~ selected_agent.name
-    assert render(view) =~ "Agent deleted"
   end
 
   test "validation accepts empty advanced options and non-list tool keys", %{conn: conn} do
@@ -745,7 +731,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Tool Shape"
   end
 
-  test "validate handles non-binary advanced options payloads in raw event calls" do
+  test "validate handles non-binary advanced options payloads in raw event calls without surfacing error" do
     {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
 
     {:noreply, socket} =
@@ -767,7 +753,44 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         socket
       )
 
-    assert socket.assigns.advanced_options_error == "advanced options must be valid JSON"
+    assert socket.assigns.advanced_options_error == nil
     assert Changeset.get_field(socket.assigns.changeset, :enabled_tool_keys) == []
+  end
+
+  test "tools modal lists enabled tools and allows removing from modal", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Modal Tool Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "tool modal",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: ["files.read_file"],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    render_click(element(view, "#add-tools-button"))
+
+    html = render(view)
+    assert html =~ "Enabled tools"
+    assert html =~ "Read file"
+
+    view
+    |> element("#agent-tools-picker-modal button[phx-click=\"remove_tool\"]")
+    |> render_click()
+
+    refute has_element?(view, ~s([data-selected-tool-key="files.read_file"]))
   end
 end
