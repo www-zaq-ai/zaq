@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
   alias Zaq.Agent.Tools.Registry
 
-  test "tools returns expected file tool descriptors" do
+  test "tools returns expected whitelisted tool descriptors" do
     keys = Registry.tools() |> Enum.map(& &1.key)
 
     assert keys == [
@@ -13,7 +13,22 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "files.move_file",
              "files.delete_file",
              "files.make_directory",
-             "files.list_directory"
+             "files.list_directory",
+             "basic.sleep",
+             "basic.log",
+             "basic.todo",
+             "basic.random_sleep",
+             "basic.increment",
+             "basic.decrement",
+             "basic.noop",
+             "basic.inspect",
+             "basic.today",
+             "arithmetic.add",
+             "arithmetic.subtract",
+             "arithmetic.multiply",
+             "arithmetic.divide",
+             "arithmetic.square",
+             "advanced.lua_eval"
            ]
   end
 
@@ -31,7 +46,22 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "files.move_file",
              "files.delete_file",
              "files.make_directory",
-             "files.list_directory"
+             "files.list_directory",
+             "basic.sleep",
+             "basic.log",
+             "basic.todo",
+             "basic.random_sleep",
+             "basic.increment",
+             "basic.decrement",
+             "basic.noop",
+             "basic.inspect",
+             "basic.today",
+             "arithmetic.add",
+             "arithmetic.subtract",
+             "arithmetic.multiply",
+             "arithmetic.divide",
+             "arithmetic.square",
+             "advanced.lua_eval"
            ]
   end
 
@@ -39,11 +69,20 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert {:ok, modules} =
              Registry.resolve_modules([
                "files.write_file",
+               "basic.log",
+               "arithmetic.add",
+               "advanced.lua_eval",
                "files.read_file",
                "files.read_file"
              ])
 
-    assert modules == [Jido.Tools.Files.WriteFile, Jido.Tools.Files.ReadFile]
+    assert modules == [
+             Jido.Tools.Files.WriteFile,
+             Jido.Tools.Basic.Log,
+             Jido.Tools.Arithmetic.Add,
+             Jido.Tools.LuaEval,
+             Jido.Tools.Files.ReadFile
+           ]
   end
 
   test "resolve_modules returns unknown tool keys" do

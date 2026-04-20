@@ -55,6 +55,96 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "List directory",
       description: "List entries in a directory path",
       module: Jido.Tools.Files.ListDirectory
+    },
+    %{
+      key: "basic.sleep",
+      label: "Sleep",
+      description: "Pause execution for a duration",
+      module: Jido.Tools.Basic.Sleep
+    },
+    %{
+      key: "basic.log",
+      label: "Log",
+      description: "Write a log message",
+      module: Jido.Tools.Basic.Log
+    },
+    %{
+      key: "basic.todo",
+      label: "Todo",
+      description: "Record a TODO note",
+      module: Jido.Tools.Basic.Todo
+    },
+    %{
+      key: "basic.random_sleep",
+      label: "Random sleep",
+      description: "Pause for a random duration",
+      module: Jido.Tools.Basic.RandomSleep
+    },
+    %{
+      key: "basic.increment",
+      label: "Increment",
+      description: "Increment a numeric value",
+      module: Jido.Tools.Basic.Increment
+    },
+    %{
+      key: "basic.decrement",
+      label: "Decrement",
+      description: "Decrement a numeric value",
+      module: Jido.Tools.Basic.Decrement
+    },
+    %{
+      key: "basic.noop",
+      label: "Noop",
+      description: "No operation",
+      module: Jido.Tools.Basic.Noop
+    },
+    %{
+      key: "basic.inspect",
+      label: "Inspect",
+      description: "Inspect and print a value",
+      module: Jido.Tools.Basic.Inspect
+    },
+    %{
+      key: "basic.today",
+      label: "Today",
+      description: "Get current date",
+      module: Jido.Tools.Basic.Today
+    },
+    %{
+      key: "arithmetic.add",
+      label: "Add",
+      description: "Add two numbers",
+      module: Jido.Tools.Arithmetic.Add
+    },
+    %{
+      key: "arithmetic.subtract",
+      label: "Subtract",
+      description: "Subtract two numbers",
+      module: Jido.Tools.Arithmetic.Subtract
+    },
+    %{
+      key: "arithmetic.multiply",
+      label: "Multiply",
+      description: "Multiply two numbers",
+      module: Jido.Tools.Arithmetic.Multiply
+    },
+    %{
+      key: "arithmetic.divide",
+      label: "Divide",
+      description: "Divide two numbers",
+      module: Jido.Tools.Arithmetic.Divide
+    },
+    %{
+      key: "arithmetic.square",
+      label: "Square",
+      description: "Square a number",
+      module: Jido.Tools.Arithmetic.Square
+    },
+    %{
+      key: "advanced.lua_eval",
+      label: "Lua eval",
+      description: "Evaluate Lua code in a sandbox",
+      module: Jido.Tools.LuaEval
     }
   ]
 
