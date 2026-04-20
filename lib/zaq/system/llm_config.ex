@@ -71,7 +71,11 @@ defmodule Zaq.System.LLMConfig do
     vector = get_field(changeset, :fusion_vector_weight)
 
     if is_float(bm25) and is_float(vector) and bm25 + vector < 0.1 do
-      add_error(changeset, :fusion_bm25_weight, "combined fusion weights must sum to at least 0.1")
+      add_error(
+        changeset,
+        :fusion_bm25_weight,
+        "combined fusion weights must sum to at least 0.1"
+      )
     else
       changeset
     end

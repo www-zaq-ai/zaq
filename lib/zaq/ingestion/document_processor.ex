@@ -1041,37 +1041,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       limit = hybrid_search_limit()
 
-      fts_ids =
-        if use_bm25?() do
-          language = LanguageDetector.detect_query(query_text)
-
-          base =
-            from(c in Chunk,
-              where:
-                fragment(
-                  "? @@@ paradedb.parse('content'::text, ?::text)",
-                  c,
-                  ^query_text
-                ),
-              select: %{id: c.id},
-              limit: ^limit
-            )
-
-          if language == "simple",
-            do: base,
-            else: from(c in base, where: c.language == ^language)
-        else
-          from(c in Chunk,
-            where:
-              fragment(
-                "to_tsvector('english', ?) @@ plainto_tsquery('english', ?)",
-                c.content,
-                ^query_text
-              ),
-            select: %{id: c.id},
-            limit: ^limit
-          )
-        end
+      fts_ids = fts_count_query(query_text, limit)
 
       vector_ids =
         from(c in Chunk,
@@ -1087,6 +1057,32 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         )
 
       {:ok, Repo.one(combined)}
+    end
+  end
+
+  defp fts_count_query(query_text, limit) do
+    if use_bm25?() do
+      language = LanguageDetector.detect_query(query_text)
+
+      base =
+        from(c in Chunk,
+          where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
+          select: %{id: c.id},
+          limit: ^limit
+        )
+
+      if language == "simple", do: base, else: from(c in base, where: c.language == ^language)
+    else
+      from(c in Chunk,
+        where:
+          fragment(
+            "to_tsvector('english', ?) @@ plainto_tsquery('english', ?)",
+            c.content,
+            ^query_text
+          ),
+        select: %{id: c.id},
+        limit: ^limit
+      )
     end
   end
 
