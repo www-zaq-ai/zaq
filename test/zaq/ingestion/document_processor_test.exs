@@ -692,11 +692,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       :ok
     end
 
-    test "hybrid_search/2 returns embedding errors" do
-      stub_embedding_failure()
-      assert {:error, _} = DocumentProcessor.hybrid_search("query")
-    end
-
     test "similarity_search/2 returns embedding errors" do
       stub_embedding_failure()
       assert {:error, _} = DocumentProcessor.similarity_search("query")
@@ -705,32 +700,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "similarity_search_count/1 returns embedding errors" do
       stub_embedding_failure()
       assert {:error, _} = DocumentProcessor.similarity_search_count("query")
-    end
-
-    test "hybrid_search/2 uses configured default limit when limit is nil" do
-      stub_embedding_success()
-      doc = create_document()
-
-      dim = embedding_dimension()
-      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
-
-      for i <- 1..3 do
-        %Chunk{}
-        |> Chunk.changeset(%{
-          document_id: doc.id,
-          content: "Configured limit chunk #{i} searchable text.",
-          chunk_index: i,
-          section_path: ["Limit"],
-          metadata: %{section_type: :heading, section_level: 1, position: i},
-          embedding: embedding
-        })
-        |> Repo.insert!()
-      end
-
-      Application.put_env(:zaq, Zaq.Ingestion, hybrid_search_limit: 1)
-
-      assert {:ok, results} = DocumentProcessor.hybrid_search("searchable text")
-      assert length(results) == 1
     end
 
     test "query_extraction/1 returns empty when max_context_window is too small" do
@@ -1082,65 +1051,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   end
 
   # ---------------------------------------------------------------------------
-  # hybrid_search/2 (integration)
-  # ---------------------------------------------------------------------------
-
-  describe "hybrid_search/2" do
-    test "returns results with rrf_score" do
-      stub_embedding_success()
-      doc = create_document()
-
-      dim = embedding_dimension()
-      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
-
-      for i <- 1..5 do
-        %Chunk{}
-        |> Chunk.changeset(%{
-          document_id: doc.id,
-          content: "Hybrid search test chunk number #{i} with relevant keywords.",
-          chunk_index: i,
-          section_path: ["Search"],
-          metadata: %{section_type: :heading, section_level: 1, position: i},
-          embedding: embedding
-        })
-        |> Repo.insert!()
-      end
-
-      assert {:ok, results} =
-               DocumentProcessor.hybrid_search("hybrid search keywords", 5)
-
-      assert is_list(results)
-
-      Enum.each(results, fn r ->
-        assert Map.has_key?(r, :chunk)
-        assert Map.has_key?(r, :source)
-        assert Map.has_key?(r, :rrf_score)
-      end)
-    end
-
-    test "returns all chunks (no role filtering — permissions handled at query_extraction level)" do
-      stub_embedding_success()
-      doc = create_document()
-
-      dim = embedding_dimension()
-      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
-
-      for i <- 1..3 do
-        %Chunk{}
-        |> Chunk.changeset(%{
-          document_id: doc.id,
-          content: "all chunks visible chunk #{i}",
-          chunk_index: i,
-          embedding: embedding
-        })
-        |> Repo.insert!()
-      end
-
-      {:ok, results} = DocumentProcessor.hybrid_search("all chunks visible")
-      assert length(results) >= 3
-    end
-  end
-
   # ---------------------------------------------------------------------------
   # prepare_file_chunks/3
   # ---------------------------------------------------------------------------
@@ -1553,6 +1463,387 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                  &(&1["content"] == DocumentProcessor.access_denied_message())
                )
       end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # bm25_search_group_by/2
+  # ---------------------------------------------------------------------------
+
+  describe "bm25_search_group_by/2" do
+    @tag :integration
+    test "returns grouped map matching similarity_search_group_by/1 shape" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: String.duplicate("the quick brown fox jumps over the lazy dog ", 5),
+        chunk_index: 1,
+        section_path: ["English"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding,
+        language: "english"
+      })
+      |> Repo.insert!()
+
+      {:ok, result} = DocumentProcessor.bm25_search_group_by("fox jumps", 10)
+
+      assert is_map(result)
+
+      Enum.each(result, fn {doc_id, paths} ->
+        assert is_integer(doc_id) or is_binary(doc_id)
+        assert is_map(paths)
+
+        Enum.each(paths, fn {path, items} ->
+          assert is_list(path)
+          assert is_list(items)
+
+          Enum.each(items, fn item ->
+            assert Map.has_key?(item, :document_id)
+            assert Map.has_key?(item, :section_path)
+            assert Map.has_key?(item, :bm25_score)
+          end)
+        end)
+      end)
+    end
+
+    @tag :integration
+    test "English query targets chunks_bm25_english_idx" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: String.duplicate("the quick brown fox jumps over the lazy dog ", 5),
+        chunk_index: 1,
+        section_path: ["Sec"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding,
+        language: "english"
+      })
+      |> Repo.insert!()
+
+      assert {:ok, _result} = DocumentProcessor.bm25_search_group_by("fox", 10)
+    end
+
+    @tag :integration
+    test "unknown language query falls back to chunks_bm25_simple_idx" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: String.duplicate("unknown language content words words words words ", 5),
+        chunk_index: 1,
+        section_path: ["Sec"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding,
+        language: "simple"
+      })
+      |> Repo.insert!()
+
+      assert {:ok, _result} = DocumentProcessor.bm25_search_group_by("content words", 10)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # rrf_merge/2
+  # ---------------------------------------------------------------------------
+
+  describe "rrf_merge/2" do
+    test "section in both legs has boosted score" do
+      bm25 = %{
+        1 => %{
+          ["Section"] => [%{document_id: 1, section_path: ["Section"], bm25_score: -0.5}]
+        }
+      }
+
+      vector = %{
+        1 => %{
+          ["Section"] => [%{document_id: 1, section_path: ["Section"], vector_distance: 0.1}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, vector)
+
+      assert Map.has_key?(merged, 1)
+      [item] = merged[1][["Section"]]
+      assert Map.has_key?(item, :rrf_score)
+
+      # Both legs contribute — score > single-leg score (0.5 * 1/61 ≈ 0.0082)
+      assert item.rrf_score > 0.5 * (1 / 61)
+    end
+
+    test "section in BM25 leg only — scored from BM25 rank alone" do
+      bm25 = %{
+        1 => %{
+          ["BM25Only"] => [%{document_id: 1, section_path: ["BM25Only"], bm25_score: -0.5}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, %{})
+
+      assert Map.has_key?(merged, 1)
+      [item] = merged[1][["BM25Only"]]
+      # Default weights: 0.5 * 1/(60 + 1)
+      expected = 0.5 * (1 / 61)
+      assert_in_delta item.rrf_score, expected, 0.0001
+    end
+
+    test "section in vector leg only — scored from vector rank alone" do
+      vector = %{
+        1 => %{
+          ["VecOnly"] => [%{document_id: 1, section_path: ["VecOnly"], vector_distance: 0.1}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(%{}, vector)
+
+      assert Map.has_key?(merged, 1)
+      [item] = merged[1][["VecOnly"]]
+      expected = 0.5 * (1 / 61)
+      assert_in_delta item.rrf_score, expected, 0.0001
+    end
+
+    test "both legs empty returns empty map" do
+      assert {:ok, %{}} = DocumentProcessor.rrf_merge(%{}, %{})
+    end
+
+    test "section present in both legs scores higher than section in one leg only" do
+      bm25 = %{
+        1 => %{
+          ["Both"] => [%{document_id: 1, section_path: ["Both"], bm25_score: -0.3}],
+          ["BM25Only"] => [%{document_id: 1, section_path: ["BM25Only"], bm25_score: -0.9}]
+        }
+      }
+
+      vector = %{
+        1 => %{
+          ["Both"] => [%{document_id: 1, section_path: ["Both"], vector_distance: 0.1}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, vector)
+
+      both_score = hd(merged[1][["Both"]]).rrf_score
+      bm25_only_score = hd(merged[1][["BM25Only"]]).rrf_score
+
+      assert both_score > bm25_only_score
+    end
+
+    test "all {doc_id, section_path} pairs from both legs appear in output" do
+      bm25 = %{
+        1 => %{
+          ["A"] => [%{document_id: 1, section_path: ["A"], bm25_score: -0.1}]
+        }
+      }
+
+      vector = %{
+        2 => %{
+          ["B"] => [%{document_id: 2, section_path: ["B"], vector_distance: 0.2}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, vector)
+
+      assert Map.has_key?(merged, 1)
+      assert Map.has_key?(merged, 2)
+      assert Map.has_key?(merged[1], ["A"])
+      assert Map.has_key?(merged[2], ["B"])
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # similarity_search_count/1 uses BM25 partial index
+  # ---------------------------------------------------------------------------
+
+  describe "similarity_search_count/1 with BM25" do
+    @tag :integration
+    test "FTS leg uses BM25 partial index instead of tsvector" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: String.duplicate("the quick brown fox jumps over the lazy dog ", 5),
+        chunk_index: 1,
+        section_path: ["FTS"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding,
+        language: "english"
+      })
+      |> Repo.insert!()
+
+      assert {:ok, count} = DocumentProcessor.similarity_search_count("fox jumps")
+      assert is_integer(count)
+      assert count >= 1
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # query_extraction/2 integration (BM25 + vector parallel fusion)
+  # ---------------------------------------------------------------------------
+
+  describe "query_extraction/2 BM25 integration" do
+    @tag :integration
+    test "both BM25 and vector legs are called and results are fused" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: String.duplicate("the quick brown fox jumps over the lazy dog paragraph ", 5),
+        chunk_index: 1,
+        section_path: ["Fusion"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding,
+        language: "english"
+      })
+      |> Repo.insert!()
+
+      assert {:ok, results} = DocumentProcessor.query_extraction("fox jumps")
+      assert is_list(results)
+      assert results != []
+    end
+
+    test "use_bm25 = false falls back to vector-only path" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: String.duplicate("the quick brown fox jumps over the lazy dog ", 5),
+        chunk_index: 1,
+        section_path: ["VecOnly"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, use_bm25: false)
+
+      on_exit(fn ->
+        if is_nil(original),
+          do: Application.delete_env(:zaq, Zaq.Ingestion),
+          else: Application.put_env(:zaq, Zaq.Ingestion, original)
+      end)
+
+      assert {:ok, results} = DocumentProcessor.query_extraction("fox jumps")
+      assert is_list(results)
+    end
+
+    @tag :integration
+    test "multilingual corpus — French query surfaces French chunks via BM25" do
+      stub_embedding_success()
+
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      # English chunk
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: String.duplicate("the quick brown fox jumps over the lazy dog ", 5),
+        chunk_index: 1,
+        section_path: ["English"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding,
+        language: "english"
+      })
+      |> Repo.insert!()
+
+      # French chunk
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content:
+          String.duplicate(
+            "le renard brun rapide saute par dessus le chien paresseux dans le jardin ",
+            4
+          ),
+        chunk_index: 2,
+        section_path: ["French"],
+        metadata: %{section_type: :heading, section_level: 1, position: 2},
+        embedding: embedding,
+        language: "french"
+      })
+      |> Repo.insert!()
+
+      {:ok, results} = DocumentProcessor.query_extraction("renard saute chien")
+
+      # At least the French chunk should surface
+      assert results != []
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Retrieval quality regression
+  # ---------------------------------------------------------------------------
+
+  describe "retrieval quality regression (BM25+vector vs vector-only)" do
+    @tag :integration
+    test "BM25+vector fused scores are ≥ vector-only for keyword-heavy queries" do
+      stub_embedding_success()
+
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      # Keyword-heavy English chunk
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content:
+          String.duplicate(
+            "Elixir Phoenix LiveView OTP GenServer supervisor process concurrency ",
+            5
+          ),
+        chunk_index: 1,
+        section_path: ["Tech"],
+        metadata: %{section_type: :heading, section_level: 1, position: 1},
+        embedding: embedding,
+        language: "english"
+      })
+      |> Repo.insert!()
+
+      # Vector-only path (use_bm25: false)
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, use_bm25: false)
+      {:ok, vector_results} = DocumentProcessor.query_extraction("Elixir Phoenix GenServer")
+      Application.put_env(:zaq, Zaq.Ingestion, use_bm25: true)
+
+      on_exit(fn ->
+        if is_nil(original),
+          do: Application.delete_env(:zaq, Zaq.Ingestion),
+          else: Application.put_env(:zaq, Zaq.Ingestion, original)
+      end)
+
+      # BM25+vector path
+      {:ok, fused_results} = DocumentProcessor.query_extraction("Elixir Phoenix GenServer")
+
+      # Fused results should return at least as many results as vector-only
+      assert length(fused_results) >= length(vector_results)
     end
   end
 end

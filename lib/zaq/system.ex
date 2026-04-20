@@ -26,8 +26,8 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_read_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
-  @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold)
+  @llm_read_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold fusion_bm25_weight fusion_vector_weight)
+  @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold fusion_bm25_weight fusion_vector_weight)
   @embedding_read_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @image_to_text_read_fields ~w(credential_id model)
@@ -119,7 +119,9 @@ defmodule Zaq.System do
         supports_logprobs: parse_bool(raw["supports_logprobs"], true),
         supports_json_mode: parse_bool(raw["supports_json_mode"], true),
         max_context_window: parse_int(raw["max_context_window"], 5_000),
-        distance_threshold: parse_float(raw["distance_threshold"], 1.2)
+        distance_threshold: parse_float(raw["distance_threshold"], 1.2),
+        fusion_bm25_weight: parse_float(raw["fusion_bm25_weight"], 0.5),
+        fusion_vector_weight: parse_float(raw["fusion_vector_weight"], 0.5)
       }
 
     merge_connection_fields_from_credential(config)
