@@ -17,12 +17,14 @@ defmodule Zaq.E2E.Reset do
   # same fixtures rather than duplicating payload strings.
 
   alias Zaq.Accounts
+  alias Zaq.E2E.DocumentProcessorFake
+  alias Zaq.E2E.ProcessorState
   alias Zaq.Engine.Conversations
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob}
   alias Zaq.Repo
-  alias Zaq.SystemConfigFixtures
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.Config, as: SystemConfig
+  alias Zaq.SystemConfigFixtures
 
   @documents_root "tmp/e2e_documents"
 
@@ -45,7 +47,7 @@ defmodule Zaq.E2E.Reset do
 
   @doc "Run the full reset. Returns :ok on success, or raises on failure."
   def run do
-    Zaq.E2E.ProcessorState.reset()
+    ProcessorState.reset()
 
     reset_filesystem!()
     reset_ingestion_tables!()
@@ -118,7 +120,7 @@ defmodule Zaq.E2E.Reset do
 
     (Path.wildcard(Path.join(root, "**/*.md")) ++ Path.wildcard(Path.join(root, "**/*.txt")))
     |> Enum.each(fn source_path ->
-      {:ok, _document} = Zaq.E2E.DocumentProcessorFake.process_single_file(source_path)
+      {:ok, _document} = DocumentProcessorFake.process_single_file(source_path)
     end)
   end
 
