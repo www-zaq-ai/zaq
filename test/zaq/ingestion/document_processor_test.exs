@@ -842,6 +842,30 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         refute String.contains?(doc.content, <<0>>)
       end)
     end
+
+    test "processes file containing non-UTF8 bytes", %{tmp_dir: tmp_dir} do
+      # Exercises the sanitize_utf8/1 path that strips non-valid UTF-8 bytes
+      content = "# Title\n\nSome content with non-utf8: " <> <<0xFF>> <> " more text."
+      path = create_test_md_file(tmp_dir, "non_utf8.md", content)
+
+      assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
+      refute String.contains?(doc.content, <<0xFF>>)
+    end
+
+    test "returns error when image-to-text output is not a map", %{tmp_dir: tmp_dir} do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      with_image_to_text_stub(
+        "test-api-key",
+        Zaq.Ingestion.NonMapPayloadImageToTextStepStub,
+        fn ->
+          path = create_test_md_file(tmp_dir, "test.png", "bytes")
+          assert {:error, reason} = DocumentProcessor.process_single_file(path)
+          assert String.contains?(reason, "missing description")
+        end
+      )
+    end
   end
 
   # ---------------------------------------------------------------------------
