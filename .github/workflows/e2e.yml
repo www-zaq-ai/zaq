@@ -7,10 +7,15 @@ on:
 
 jobs:
   e2e:
-    name: User Journeys QA
+    name: User Journeys QA (${{ matrix.shard }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
 
     services:
       postgres:
@@ -63,28 +68,49 @@ jobs:
             ${{ runner.os }}-mix-e2e-
             ${{ runner.os }}-mix-
 
+      - name: Restore asset build cache
+        id: assets-cache
+        uses: actions/cache@v4
+        with:
+          path: priv/static
+          key: ${{ runner.os }}-assets-${{ hashFiles('assets/**') }}
+
       - name: Install Elixir dependencies
         run: mix deps.get
 
-      - name: Prepare frontend assets
-        run: |
-          mix assets.setup
-          mix assets.build
+      - name: Install asset tooling
+        run: mix assets.setup
+
+      - name: Build frontend assets
+        if: steps.assets-cache.outputs.cache-hit != 'true'
+        run: mix assets.build
 
       - name: Install E2E dependencies
         run: npm ci --prefix test/e2e
 
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ hashFiles('test/e2e/package-lock.json') }}
+
       - name: Install Playwright browser
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         run: npx --prefix test/e2e playwright install --with-deps chromium
 
-      - name: Run full E2E suite
-        run: npm --prefix test/e2e run test
+      - name: Install Playwright system deps (cached browser)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx --prefix test/e2e playwright install-deps chromium
+
+      - name: Run E2E suite (shard ${{ matrix.shard }})
+        run: npm --prefix test/e2e run test -- --shard=${{ matrix.shard }}
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-artifacts
+          name: playwright-artifacts-${{ strategy.job-index }}
           path: |
             test/e2e/playwright-report
             test/e2e/test-results
