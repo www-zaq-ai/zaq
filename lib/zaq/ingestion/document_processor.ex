@@ -833,7 +833,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   # ---------------------------------------------------------------------------
-  # BM25 search (pg_textsearch partial index per language)
+  # BM25 search (pg_search single index with language filtering)
   # ---------------------------------------------------------------------------
 
   @doc """
@@ -846,9 +846,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   def bm25_search_group_by(query_text, limit) do
     language = LanguageDetector.detect_query(query_text)
 
-    results =
+    base_query =
       from(c in Chunk,
-        where: c.language == ^language,
         where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
         order_by: [desc: fragment("paradedb.score(?)", c.id)],
         limit: ^limit,
@@ -858,7 +857,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           bm25_score: fragment("paradedb.score(?)", c.id)
         }
       )
-      |> Repo.all()
+
+    query =
+      if language == "simple" do
+        base_query
+      else
+        from(c in base_query, where: c.language == ^language)
+      end
+
+    results = Repo.all(query)
 
     grouped =
       results
@@ -889,7 +896,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     k = @rrf_k
 
     bm25_ranked = rank_grouped(bm25_grouped, :bm25_score, :desc)
-    vector_ranked = rank_grouped(vector_grouped, :vector_distance, :desc)
+    vector_ranked = rank_grouped(vector_grouped, :vector_distance, :asc)
 
     all_keys =
       (Map.keys(bm25_ranked) ++ Map.keys(vector_ranked))
@@ -1038,17 +1045,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         if use_bm25?() do
           language = LanguageDetector.detect_query(query_text)
 
-          from(c in Chunk,
-            where: c.language == ^language,
-            where:
-              fragment(
-                "? @@@ paradedb.parse('content'::text, ?::text)",
-                c,
-                ^query_text
-              ),
-            select: %{id: c.id},
-            limit: ^limit
-          )
+          base =
+            from(c in Chunk,
+              where:
+                fragment(
+                  "? @@@ paradedb.parse('content'::text, ?::text)",
+                  c,
+                  ^query_text
+                ),
+              select: %{id: c.id},
+              limit: ^limit
+            )
+
+          if language == "simple",
+            do: base,
+            else: from(c in base, where: c.language == ^language)
         else
           from(c in Chunk,
             where:
