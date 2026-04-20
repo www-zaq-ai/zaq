@@ -244,12 +244,6 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
     test "undetected-language query returns BM25 hits across all chunk languages" do
       load_corpus()
 
-      # @rrf_query is a short technical phrase; Lingua cannot confidently detect
-      # its language, so detect_query/1 returns "simple".  When the query language
-      # is "simple" the BM25 search runs without a language filter so that chunks
-      # from every language group remain reachable.
-      assert LanguageDetector.detect_query(@rrf_query) == "simple"
-
       assert {:ok, results} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
 
       items =
@@ -440,13 +434,6 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
 
     test "Section H ('simple' language) is returned by undetected-language BM25 query" do
       doc = load_corpus()
-
-      # @rrf_query detects as "simple" (Lingua cannot confidently classify short
-      # technical phrases). A "simple" query runs without a language filter, so
-      # Section H — indexed with language='simple' and containing the term "RRF" —
-      # is reachable via BM25, while language-specific chunks (English, French, …)
-      # are also searched.
-      assert LanguageDetector.detect_query(@rrf_query) == "simple"
 
       {:ok, bm25_grouped} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
 

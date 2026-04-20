@@ -1536,47 +1536,35 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end
 
     @tag :integration
-    test "English query searches via single BM25 index with language filter" do
+    test "returns results for chunks with any stored language" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
       embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
 
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: doc.id,
-        content: String.duplicate("the quick brown fox jumps over the lazy dog ", 5),
-        chunk_index: 1,
-        section_path: ["Sec"],
-        metadata: %{section_type: :heading, section_level: 1, position: 1},
-        embedding: embedding,
-        language: "english"
-      })
-      |> Repo.insert!()
+      for {content, language, index} <- [
+            {String.duplicate("the quick brown fox jumps over the lazy dog ", 5), "english", 1},
+            {String.duplicate("unknown language content words words words words ", 5), "simple",
+             2}
+          ] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          content: content,
+          chunk_index: index,
+          section_path: ["Sec#{index}"],
+          metadata: %{section_type: :heading, section_level: 1, position: index},
+          embedding: embedding,
+          language: language
+        })
+        |> Repo.insert!()
+      end
 
-      assert {:ok, _result} = DocumentProcessor.bm25_search_group_by("fox", 10)
-    end
+      assert {:ok, results} = DocumentProcessor.bm25_search_group_by("fox", 10)
+      assert map_size(results) >= 1
 
-    @tag :integration
-    test "unknown language query falls back to simple language filter" do
-      stub_embedding_success()
-      doc = create_document()
-      dim = embedding_dimension()
-      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
-
-      %Chunk{}
-      |> Chunk.changeset(%{
-        document_id: doc.id,
-        content: String.duplicate("unknown language content words words words words ", 5),
-        chunk_index: 1,
-        section_path: ["Sec"],
-        metadata: %{section_type: :heading, section_level: 1, position: 1},
-        embedding: embedding,
-        language: "simple"
-      })
-      |> Repo.insert!()
-
-      assert {:ok, _result} = DocumentProcessor.bm25_search_group_by("content words", 10)
+      assert {:ok, results2} = DocumentProcessor.bm25_search_group_by("content words", 10)
+      assert map_size(results2) >= 1
     end
   end
 

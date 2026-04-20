@@ -104,24 +104,6 @@ defmodule Zaq.Ingestion.LanguageDetectorTest do
     end
   end
 
-  describe "detect_query/1" do
-    test "returns 'simple' for queries with fewer than 3 tokens" do
-      assert LanguageDetector.detect_query("hello") == "simple"
-      assert LanguageDetector.detect_query("two words") == "simple"
-      assert LanguageDetector.detect_query("") == "simple"
-    end
-
-    test "calls detect_with_confidence for queries with 3+ tokens" do
-      with_lingua_stub(LinguaAtomStub, fn ->
-        assert LanguageDetector.detect_query("what is the weather") == "english"
-      end)
-    end
-
-    test "returns 'simple' for low-confidence query text" do
-      assert LanguageDetector.detect_query("a b c d e") == "simple"
-    end
-  end
-
   describe "detect_with_confidence/1 edge cases" do
     test "returns 'simple' when Lingua returns :no_match" do
       with_lingua_stub(LinguaNoMatchStub, fn ->
