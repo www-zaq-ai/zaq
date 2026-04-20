@@ -1846,4 +1846,262 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert length(fused_results) >= length(vector_results)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # rrf_merge/2 — positive BM25 scores (pg_search / ParadeDB)
+  # ---------------------------------------------------------------------------
+
+  describe "rrf_merge/2 with positive BM25 scores (ParadeDB)" do
+    test "higher positive BM25 score ranks first" do
+      bm25 = %{
+        1 => %{
+          ["High"] => [%{document_id: 1, section_path: ["High"], bm25_score: 9.5}],
+          ["Low"] => [%{document_id: 1, section_path: ["Low"], bm25_score: 1.0}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, %{})
+
+      high_score = hd(merged[1][["High"]]).rrf_score
+      low_score = hd(merged[1][["Low"]]).rrf_score
+
+      # Rank 1 (high score) produces 1/(60+1); rank 2 (low score) produces 1/(60+2)
+      assert high_score > low_score
+    end
+
+    test "both legs with positive BM25 score score higher than vector-only" do
+      bm25 = %{
+        1 => %{
+          ["Sec"] => [%{document_id: 1, section_path: ["Sec"], bm25_score: 5.0}]
+        }
+      }
+
+      vector = %{
+        1 => %{
+          ["Sec"] => [%{document_id: 1, section_path: ["Sec"], vector_distance: 0.15}]
+        }
+      }
+
+      {:ok, both} = DocumentProcessor.rrf_merge(bm25, vector)
+      {:ok, vec_only} = DocumentProcessor.rrf_merge(%{}, vector)
+
+      both_score = hd(both[1][["Sec"]]).rrf_score
+      vec_score = hd(vec_only[1][["Sec"]]).rrf_score
+
+      assert both_score > vec_score
+    end
+
+    test "multiple sections ranked correctly when BM25 scores are positive" do
+      bm25 = %{
+        1 => %{
+          ["A"] => [%{document_id: 1, section_path: ["A"], bm25_score: 10.0}],
+          ["B"] => [%{document_id: 1, section_path: ["B"], bm25_score: 5.0}],
+          ["C"] => [%{document_id: 1, section_path: ["C"], bm25_score: 1.0}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, %{})
+
+      score_a = hd(merged[1][["A"]]).rrf_score
+      score_b = hd(merged[1][["B"]]).rrf_score
+      score_c = hd(merged[1][["C"]]).rrf_score
+
+      assert score_a > score_b
+      assert score_b > score_c
+    end
+
+    test "section missing bm25_score key defaults to 0.0 in ranking" do
+      # When score_key is missing, Map.get returns 0.0 — section lands at bottom of rank
+      bm25 = %{
+        1 => %{
+          ["NoScore"] => [%{document_id: 1, section_path: ["NoScore"]}],
+          ["Scored"] => [%{document_id: 1, section_path: ["Scored"], bm25_score: 2.0}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, %{})
+
+      scored_score = hd(merged[1][["Scored"]]).rrf_score
+      no_score_score = hd(merged[1][["NoScore"]]).rrf_score
+
+      # "Scored" (bm25_score=2.0) ranks 1st; "NoScore" (0.0) ranks 2nd
+      assert scored_score > no_score_score
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # similarity_search_count/1 — use_bm25: false path
+  # ---------------------------------------------------------------------------
+
+  describe "similarity_search_count/1 with use_bm25: false" do
+    setup do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      on_exit(fn ->
+        if is_nil(original),
+          do: Application.delete_env(:zaq, Zaq.Ingestion),
+          else: Application.put_env(:zaq, Zaq.Ingestion, original)
+      end)
+
+      Application.put_env(:zaq, Zaq.Ingestion, use_bm25: false)
+      :ok
+    end
+
+    test "falls back to tsvector FTS and returns an integer count" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "searchable tsvector fallback content for the test",
+        chunk_index: 1,
+        section_path: [],
+        metadata: %{},
+        embedding: embedding
+      })
+      |> Repo.insert!()
+
+      assert {:ok, count} = DocumentProcessor.similarity_search_count("searchable tsvector")
+      assert is_integer(count)
+      assert count >= 0
+    end
+
+    test "returns embedding errors in use_bm25: false path" do
+      stub_embedding_failure()
+      assert {:error, _} = DocumentProcessor.similarity_search_count("any query")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # process_and_store_chunks_report/3 — empty retry_chunk_indices
+  # ---------------------------------------------------------------------------
+
+  describe "process_and_store_chunks_report/3 empty retry_chunk_indices" do
+    test "processes no chunks when retry_chunk_indices is empty list" do
+      stub_embedding_success()
+      stub_chunk_title_success()
+      doc = create_document()
+
+      content = "# Heading\n\n" <> String.duplicate("content ", 120)
+
+      assert {:ok, report} =
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id,
+                 reset_chunks: false,
+                 retry_chunk_indices: []
+               )
+
+      assert report.total_chunks >= 1
+      assert report.results == []
+      assert report.failed_chunks == 0
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # access_denied_message/0
+  # ---------------------------------------------------------------------------
+
+  describe "access_denied_message/0" do
+    test "returns a non-empty binary string" do
+      msg = DocumentProcessor.access_denied_message()
+      assert is_binary(msg)
+      assert msg != ""
+    end
+
+    test "returns consistent value across calls" do
+      assert DocumentProcessor.access_denied_message() ==
+               DocumentProcessor.access_denied_message()
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # CSV rows_to_markdown_table edge cases (via process_single_file)
+  # ---------------------------------------------------------------------------
+
+  describe "CSV markdown table generation edge cases" do
+    setup do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "zaq_csv_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "header-only CSV produces table with header row and separator but no data rows", %{
+      tmp_dir: tmp_dir
+    } do
+      csv_path = create_test_md_file(tmp_dir, "header_only.csv", "col_a,col_b\n")
+
+      assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(csv_path)
+      assert doc.content =~ "| col_a | col_b |"
+      assert doc.content =~ "| --- |"
+      # No data rows
+      refute doc.content =~ "| --- | --- |\n|"
+    end
+
+    test "empty CSV (no rows) produces empty document content", %{tmp_dir: tmp_dir} do
+      csv_path = create_test_md_file(tmp_dir, "empty.csv", "")
+
+      # Empty CSV means no rows → rows_to_markdown_table([]) returns ""
+      # Document.upsert stores content as-is; empty string may come back as nil from DB
+      assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(csv_path)
+      assert doc.content in [nil, ""]
+    end
+
+    test "CSV cells with pipe characters are rendered as-is in markdown", %{tmp_dir: tmp_dir} do
+      csv_path =
+        create_test_md_file(tmp_dir, "pipes.csv", "name,value\n\"a|b\",\"c|d\"\n")
+
+      assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(csv_path)
+      assert doc.content =~ "a|b"
+      assert doc.content =~ "c|d"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # build_image_markdown multi-line description (via process_single_file)
+  # ---------------------------------------------------------------------------
+
+  describe "build_image_markdown multi-line description" do
+    setup do
+      stub_embedding_success()
+      stub_chunk_title_success()
+
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "zaq_imgmd_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "each line of a multi-line image description is blockquoted", %{tmp_dir: tmp_dir} do
+      with_image_to_text_stub(
+        "test-api-key",
+        Zaq.Ingestion.MultiLineImageToTextStepStub,
+        fn ->
+          path = create_test_md_file(tmp_dir, "multi.png", "bytes")
+
+          assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
+
+          assert doc.content =~ "> **[Image: multi.png]**"
+          # Each line should be prefixed with "> "
+          lines = String.split(doc.content, "\n", trim: true)
+          content_lines = Enum.reject(lines, &(&1 == "> **[Image: multi.png]**"))
+
+          assert Enum.all?(content_lines, fn line ->
+                   String.starts_with?(line, ">") or line == ""
+                 end)
+        end
+      )
+    end
+  end
 end

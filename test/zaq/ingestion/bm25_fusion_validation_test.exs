@@ -22,7 +22,7 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   import Mox
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Zaq.Ingestion.{BM25IndexManager, Chunk, Document, DocumentProcessor, LanguageDetector}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentProcessor, LanguageDetector}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -168,7 +168,6 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   setup :verify_on_exit!
 
   setup do
-    BM25IndexManager.init()
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
 
     original_env = Application.get_env(:zaq, Zaq.Ingestion)
@@ -421,6 +420,92 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   end
 
   # ---------------------------------------------------------------------------
+  # §3b — Additional fusion edge cases
+  # ---------------------------------------------------------------------------
+
+  describe "§3b fusion edge cases" do
+    test "Section B (semantic paraphrase) is absent from BM25-only results" do
+      doc = load_corpus()
+
+      {:ok, bm25_grouped} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
+
+      bm25_labels =
+        bm25_grouped
+        |> Map.get(doc.id, %{})
+        |> Map.keys()
+        |> Enum.map(&List.last/1)
+
+      refute "Section B" in bm25_labels,
+             "Section B should not appear in BM25-only results (no exact keyword match)"
+    end
+
+    test "Section H ('simple' language) is not returned by English BM25 query" do
+      doc = load_corpus()
+
+      {:ok, bm25_grouped} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
+
+      labels =
+        bm25_grouped
+        |> Map.get(doc.id, %{})
+        |> Map.keys()
+        |> Enum.map(&List.last/1)
+
+      refute "Section H" in labels,
+             "Section H (language='simple') should not appear in English BM25 results"
+    end
+
+    test "no-match query returns empty BM25 results" do
+      load_corpus()
+
+      {:ok, results} =
+        DocumentProcessor.bm25_search_group_by("xkqzmwvp nonsense gibberish zzzqq", 20)
+
+      items = results |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten()
+      assert items == [], "expected no BM25 results for nonsense query, got: #{inspect(items)}"
+    end
+
+    test "rrf_merge/2 with empty BM25 returns vector-only results" do
+      load_corpus()
+
+      vector_grouped = %{
+        999 => %{
+          ["fake_section"] => [%{document_id: 999, section_path: ["fake_section"], distance: 0.1}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(%{}, vector_grouped)
+
+      assert Map.has_key?(merged, 999),
+             "rrf_merge with empty BM25 should still return vector results"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # §3c — similarity_search_count/1
+  # ---------------------------------------------------------------------------
+
+  describe "§3c similarity_search_count/1" do
+    test "returns a positive integer for a query with matching chunks" do
+      load_corpus()
+
+      assert {:ok, count} = DocumentProcessor.similarity_search_count(@rrf_query)
+
+      assert is_integer(count) and count > 0,
+             "expected count > 0 for '#{@rrf_query}', got: #{inspect(count)}"
+    end
+
+    test "returns a non-negative integer for a nonsense query (vector leg always contributes)" do
+      load_corpus()
+
+      assert {:ok, count} =
+               DocumentProcessor.similarity_search_count("xkqzmwvp nonsense gibberish zzzqq")
+
+      assert is_integer(count) and count >= 0,
+             "expected non-negative integer, got: #{inspect(count)}"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # §4 — query_extraction/2 end-to-end
   # ---------------------------------------------------------------------------
 
@@ -473,6 +558,29 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
                DocumentProcessor.query_extraction("دمج البحث المتجهي الترتيب التبادلي")
 
       assert is_list(results)
+    end
+
+    test "each result has non-nil content, source and numeric distance" do
+      load_corpus()
+
+      {:ok, results} = DocumentProcessor.query_extraction(@rrf_query)
+
+      Enum.each(results, fn r ->
+        assert is_binary(r["content"]) and r["content"] != ""
+        assert is_binary(r["source"]) and r["source"] != ""
+        assert is_number(r["distance"])
+      end)
+    end
+
+    test "query_extraction still returns results when use_bm25 is false (vector-only fallback)" do
+      load_corpus()
+
+      Application.put_env(:zaq, Zaq.Ingestion, use_bm25: false)
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, use_bm25: true) end)
+
+      assert {:ok, results} = DocumentProcessor.query_extraction(@rrf_query)
+      assert results != [], "vector-only fallback should still return results"
     end
   end
 end

@@ -88,10 +88,32 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     params =
       if provider_id != previous_provider do
-        params
-        |> Map.put("path", llm_provider_path(provider_id, model_id))
+        Map.put(params, "path", llm_provider_path(provider_id, model_id))
       else
         params
+      end
+
+    prev_bm25 = to_string(socket.assigns.llm_form[:fusion_bm25_weight].value)
+    prev_vector = to_string(socket.assigns.llm_form[:fusion_vector_weight].value)
+
+    params =
+      cond do
+        params["fusion_bm25_weight"] != prev_bm25 ->
+          w = clamp_weight(params["fusion_bm25_weight"])
+
+          params
+          |> Map.put("fusion_bm25_weight", w)
+          |> Map.put("fusion_vector_weight", Float.round(1.0 - w, 2))
+
+        params["fusion_vector_weight"] != prev_vector ->
+          w = clamp_weight(params["fusion_vector_weight"])
+
+          params
+          |> Map.put("fusion_vector_weight", w)
+          |> Map.put("fusion_bm25_weight", Float.round(1.0 - w, 2))
+
+        true ->
+          params
       end
 
     changeset =
@@ -555,6 +577,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp llm_model_options(provider_id), do: model_options(provider_id, fn _ -> true end)
   defp llm_provider_path(provider_id, model_id), do: provider_path(provider_id, model_id)
 
+  defp clamp_weight(val) when is_binary(val) do
+    case Float.parse(val) do
+      {f, _} -> f |> max(0.0) |> min(1.0) |> Float.round(2)
+      :error -> 0.5
+    end
+  end
+
+  defp clamp_weight(val) when is_float(val), do: val |> max(0.0) |> min(1.0) |> Float.round(2)
+  defp clamp_weight(_), do: 0.5
+
   # ── Embedding-specific helpers ─────────────────────────────────────────
 
   defp embedding_model_options(provider_id), do: model_options(provider_id, &embedding_model?/1)
@@ -1001,6 +1033,72 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               </p>
             </div>
           </div>
+          <details
+            id="llm-fusion-advanced"
+            phx-hook="DetailsKeepOpen"
+            class="border border-black/[0.08] rounded-xl overflow-hidden"
+          >
+            <summary class="cursor-pointer select-none px-4 py-3 font-mono text-[0.75rem] font-semibold text-black/50 uppercase tracking-wider hover:bg-black/[0.02] transition-colors list-none flex items-center gap-2">
+              <svg
+                class="w-3.5 h-3.5 transition-transform details-open:rotate-90"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+              Advanced — Hybrid Search Fusion Weights
+            </summary>
+            <div class="px-4 pb-4 pt-3 bg-black/[0.01] border-t border-black/[0.06] grid grid-cols-2 gap-4">
+              <div>
+                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                  BM25 Weight
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  name="llm_config[fusion_bm25_weight]"
+                  value={@form[:fusion_bm25_weight].value}
+                  phx-debounce="400"
+                  placeholder="0.5"
+                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+                />
+                <p
+                  :for={{msg, opts} <- @form[:fusion_bm25_weight].errors}
+                  class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+                >
+                  {translate_error({msg, opts})}
+                </p>
+              </div>
+              <div>
+                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                  Vector Weight
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  name="llm_config[fusion_vector_weight]"
+                  value={@form[:fusion_vector_weight].value}
+                  phx-debounce="400"
+                  placeholder="0.5"
+                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
+                />
+                <p
+                  :for={{msg, opts} <- @form[:fusion_vector_weight].errors}
+                  class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+                >
+                  {translate_error({msg, opts})}
+                </p>
+              </div>
+            </div>
+          </details>
           <div class="pt-2">
             <button
               type="submit"
