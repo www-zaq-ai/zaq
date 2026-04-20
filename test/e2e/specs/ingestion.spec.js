@@ -1,8 +1,14 @@
-const { test, expect } = require("@playwright/test")
+const { test, expect, request: apiRequest } = require("@playwright/test")
 const fs = require("fs")
 const os = require("os")
 const path = require("path")
-const { gotoBackOfficeLive, loginToBackOffice } = require("../support/bo")
+const {
+  gotoBackOfficeLive,
+  loginToBackOffice,
+  resetE2EState,
+  waitForLiveViewSettled,
+  dismissFlash,
+} = require("../support/bo")
 
 const INGESTION_PATH = "/bo/ingestion"
 const CONFIG_PATH = "/bo/system-config"
@@ -55,6 +61,7 @@ async function confirmDestructiveSave(page) {
   await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).toBeVisible()
   await page.locator(SEL.confirmSave).click()
   await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+  await dismissFlash(page)
 }
 
 // Find the file row in the browser table by filename (ARIA row name contains the filename).
@@ -64,18 +71,31 @@ function fileRow(page, filename) {
 }
 
 // Ensure the file is selected (check if already selected to avoid toggling off) then ingest.
+// Waits for the LiveView to quiesce before reading the checkbox state, otherwise a
+// pending PubSub re-render can stale the handle and flip the selection off.
 async function selectAndIngest(page, row) {
+  await waitForLiveViewSettled(page)
   const checkbox = row.getByRole("checkbox")
+  await expect(checkbox).toBeVisible()
   if (!(await checkbox.isChecked())) {
     await checkbox.click()
+    await expect(checkbox).toBeChecked()
   }
   await page.locator(SEL.ingestButton).click()
   await expect(page.getByText("Ingestion started.")).toBeVisible()
+  // Dismiss the "Ingestion started." toast so a later test does not match on it.
+  await dismissFlash(page)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 test.describe("Ingestion", () => {
+  test.beforeAll(async () => {
+    const req = await apiRequest.newContext()
+    await resetE2EState(req)
+    await req.dispose()
+  })
+
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page)
     // Reset processor state so no leftover fail count from a previous run affects this test.
@@ -96,10 +116,11 @@ test.describe("Ingestion", () => {
     await gotoBackOfficeLive(page, INGESTION_PATH)
 
     const warning = page.locator(SEL.warningHeading, { hasText: "Embedding not configured" })
-    const visible = await warning.isVisible({ timeout: 3_000 }).catch(() => false)
+    // After /e2e/reset re-seeds the default embedding config, the chunks table
+    // exists and the warning does NOT appear. This test is a guard for the
+    // truly-fresh-DB case; skip when the banner is absent after a generous wait.
+    const visible = await warning.isVisible({ timeout: 8_000 }).catch(() => false)
 
-    // The warning only appears on a fresh DB where the chunks table is absent.
-    // If embedding was already configured by a prior test run, skip gracefully.
     if (!visible) {
       test.skip()
     }
@@ -157,6 +178,7 @@ test.describe("Ingestion", () => {
     }
 
     await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+    await dismissFlash(page)
 
     // ── Step 2: Navigate to ingestion — no warning ────────────────────────────
 

@@ -3,7 +3,7 @@ defmodule ZaqWeb.E2EController do
 
   use ZaqWeb, :controller
 
-  alias Zaq.E2E.{LogCollector, ProcessorState}
+  alias Zaq.E2E.{LogCollector, ProcessorState, Reset}
   alias Zaq.Engine.Telemetry
 
   @e2e_enabled Application.compile_env(:zaq, :e2e, false)
@@ -28,6 +28,27 @@ defmodule ZaqWeb.E2EController do
   def reset(conn, _params) do
     ProcessorState.reset()
     json(conn, %{ok: true})
+  end
+
+  # POST /e2e/reset — describe-level teardown. Truncates mutable tables and
+  # re-seeds the deterministic fixtures bootstrap.exs creates.
+  def reset_all(conn, _params) do
+    :ok = Reset.run()
+    json(conn, %{ok: true})
+  end
+
+  # POST /e2e/ingestion/touch_file?path=knowledge/benefits.md
+  # Bumps the mtime of a file inside tmp/e2e_documents/ so stale detection
+  # fires without Playwright having to sleep for filesystem granularity.
+  def touch_file(conn, params) do
+    case Map.get(params, "path") do
+      path when is_binary(path) and path != "" ->
+        {:ok, absolute} = Reset.touch_file!(path)
+        json(conn, %{ok: true, path: absolute})
+
+      _ ->
+        conn |> put_status(:bad_request) |> json(%{error: "missing path"}) |> halt()
+    end
   end
 
   # GET /e2e/health
