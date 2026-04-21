@@ -161,7 +161,8 @@ defmodule Zaq.License.LoaderTest do
 
     log =
       capture_log(fn ->
-        assert {:error, {:decrypt_failed, "Elixir.LicenseManager.Paid.DecFail", :decryption_failed}} =
+        assert {:error,
+                {:decrypt_failed, "Elixir.LicenseManager.Paid.DecFail", :decryption_failed}} =
                  Loader.load(path)
       end)
 
