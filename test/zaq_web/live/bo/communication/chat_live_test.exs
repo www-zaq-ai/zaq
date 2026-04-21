@@ -846,6 +846,142 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
+  test "load_conversation with no messages renders only the welcome message", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.current_conversation_id == conv.id and
+        length(assigns.messages) == 1 and
+        hd(assigns.messages).welcome == true and
+        is_nil(Map.get(hd(assigns.messages), :db_id))
+    end)
+  end
+
+  test "load_conversation treats persisted welcome assistant (metadata flag) as welcome from DB",
+       %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, welcome_db} =
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "Hello from DB welcome!",
+        metadata: %{"welcome" => true}
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Follow-up"})
+    {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "Follow-up reply"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      first = hd(assigns.messages)
+
+      assigns.current_conversation_id == conv.id and
+        length(assigns.messages) == 3 and
+        first.welcome == true and
+        first.db_id == welcome_db.id and
+        first.body == "Hello from DB welcome!"
+    end)
+  end
+
+  test "load_conversation treats assistant with welcome body text as welcome from DB", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, welcome_db} =
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "Welcome to ZAQ Chat! Ask me anything about your knowledge base."
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      first = hd(assigns.messages)
+
+      assigns.current_conversation_id == conv.id and
+        length(assigns.messages) == 1 and
+        first.welcome == true and
+        first.db_id == welcome_db.id
+    end)
+  end
+
+  test "load_conversation normalizes various source entry formats in assistant messages", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Q"})
+
+    {:ok, _} =
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "Multi-source answer",
+        sources: [
+          %{"type" => "memory", "label" => "mem-with-idx", "index" => 7},
+          %{"type" => "document", "path" => "no-index.md"},
+          %{"type" => "memory", "label" => "mem-no-idx"},
+          %{"path" => "path-only.md"},
+          %{"invalid" => "data"}
+        ]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      bot = Enum.find(assigns.messages, &(&1.role == :bot and not Map.get(&1, :welcome, false)))
+
+      bot != nil and
+        bot.sources == [
+          %{"index" => 7, "type" => "memory", "label" => "mem-with-idx"},
+          %{"index" => 2, "type" => "document", "path" => "no-index.md"},
+          %{"index" => 3, "type" => "memory", "label" => "mem-no-idx"},
+          %{"index" => 4, "type" => "document", "path" => "path-only.md"}
+        ]
+    end)
+  end
+
   defp assert_eventually(fun, retries \\ 80)
 
   defp assert_eventually(fun, retries) when retries > 0 do
