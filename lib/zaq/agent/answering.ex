@@ -13,8 +13,9 @@ defmodule Zaq.Agent.Answering do
   require Logger
 
   alias Zaq.Agent.Answering.Result
-  alias Zaq.Agent.{History, LLM, LLMRunner, LogprobsAnalyzer}
+  alias Zaq.Agent.{History, LLM, LogprobsAnalyzer}
   alias Zaq.Engine.Telemetry
+  alias Zaq.RuntimeDeps
 
   @no_answer_signals [
     "i don't have",
@@ -65,7 +66,7 @@ defmodule Zaq.Agent.Answering do
 
     started_at = System.monotonic_time(:millisecond)
 
-    case LLMRunner.run(
+    case RuntimeDeps.llm_runner().run(
            llm_config: llm_config,
            system_prompt: system_prompt,
            history: history,
@@ -73,7 +74,7 @@ defmodule Zaq.Agent.Answering do
            error_prefix: "Failed to formulate response"
          ) do
       {:ok, updated_chain} ->
-        case LLMRunner.content_result(updated_chain) do
+        case RuntimeDeps.llm_runner().content_result(updated_chain) do
           {:ok, answer} ->
             latency_ms = System.monotonic_time(:millisecond) - started_at
 

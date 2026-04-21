@@ -11,8 +11,9 @@ defmodule Zaq.Agent.Retrieval do
 
   require Logger
 
-  alias Zaq.Agent.{History, LLM, LLMRunner}
+  alias Zaq.Agent.{History, LLM}
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.RuntimeDeps
 
   @doc """
   Rewrites a user question into structured search queries via LLM.
@@ -43,7 +44,7 @@ defmodule Zaq.Agent.Retrieval do
 
     Logger.info("Retrieval: Processing question with strict grounding")
 
-    case LLMRunner.run(
+    case RuntimeDeps.llm_runner().run(
            llm_config: llm_config,
            system_prompt: system_prompt,
            history: history,
@@ -51,7 +52,7 @@ defmodule Zaq.Agent.Retrieval do
            error_prefix: "Failed to process question"
          ) do
       {:ok, updated_chain} ->
-        case LLMRunner.content_result(updated_chain) do
+        case RuntimeDeps.llm_runner().content_result(updated_chain) do
           {:ok, content} ->
             decode_retrieval_content(content)
 
