@@ -492,6 +492,105 @@ defmodule Zaq.Engine.TelemetryTest do
     }
   end
 
+  test "dashboard_kpis/1 normalizes legacy day params and maps to range buckets" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_dashboard_rollup(
+      "ingestion.completed.count",
+      DateTime.add(now, -12 * 3_600, :second),
+      5.0,
+      1
+    )
+
+    insert_dashboard_rollup("qa.tokens.total", DateTime.add(now, -12 * 3_600, :second), 20.0, 2)
+
+    insert_dashboard_rollup(
+      "qa.answer.latency_ms",
+      DateTime.add(now, -12 * 3_600, :second),
+      200.0,
+      2
+    )
+
+    insert_dashboard_rollup(
+      "ingestion.completed.count",
+      DateTime.add(now, -3 * 86_400, :second),
+      7.0,
+      1
+    )
+
+    insert_dashboard_rollup("qa.tokens.total", DateTime.add(now, -3 * 86_400, :second), 30.0, 3)
+
+    insert_dashboard_rollup(
+      "qa.answer.latency_ms",
+      DateTime.add(now, -3 * 86_400, :second),
+      900.0,
+      3
+    )
+
+    insert_dashboard_rollup(
+      "ingestion.completed.count",
+      DateTime.add(now, -20 * 86_400, :second),
+      11.0,
+      1
+    )
+
+    insert_dashboard_rollup("qa.tokens.total", DateTime.add(now, -20 * 86_400, :second), 40.0, 4)
+
+    insert_dashboard_rollup(
+      "qa.answer.latency_ms",
+      DateTime.add(now, -20 * 86_400, :second),
+      2_000.0,
+      4
+    )
+
+    insert_dashboard_rollup(
+      "ingestion.completed.count",
+      DateTime.add(now, -60 * 86_400, :second),
+      13.0,
+      1
+    )
+
+    insert_dashboard_rollup("qa.tokens.total", DateTime.add(now, -60 * 86_400, :second), 50.0, 5)
+
+    insert_dashboard_rollup(
+      "qa.answer.latency_ms",
+      DateTime.add(now, -60 * 86_400, :second),
+      3_500.0,
+      5
+    )
+
+    # keyword list: normalize_days([days: 1]) -> 1 -> "24h"
+    day_1 = Telemetry.dashboard_kpis(days: 1)
+    assert day_1.documents_ingested_30d == 5.0
+    assert day_1.llm_api_calls_30d == 2
+    assert_in_delta day_1.qa_avg_response_ms_30d, 100.0, 0.0001
+
+    # map: normalize_days(%{days: 7}) -> 7 -> "7d"
+    day_7 = Telemetry.dashboard_kpis(%{days: 7})
+    assert day_7.documents_ingested_30d == 12.0
+    assert day_7.llm_api_calls_30d == 5
+    assert_in_delta day_7.qa_avg_response_ms_30d, 220.0, 0.0001
+
+    # default: invalid input falls back to 30 -> "30d"
+    default_range = Telemetry.dashboard_kpis("invalid")
+    default_explicit = Telemetry.dashboard_kpis(30)
+    assert default_range.documents_ingested_30d == default_explicit.documents_ingested_30d
+    assert default_range.llm_api_calls_30d == default_explicit.llm_api_calls_30d
+
+    assert_in_delta default_range.qa_avg_response_ms_30d,
+                    default_explicit.qa_avg_response_ms_30d,
+                    0.0001
+
+    assert default_explicit.documents_ingested_30d == 23.0
+    assert default_explicit.llm_api_calls_30d == 9
+
+    # integer > 30: normalize_days(120) -> 120 -> "90d"
+    day_90 = Telemetry.dashboard_kpis(120)
+    assert day_90.documents_ingested_30d == 36.0
+    assert day_90.llm_api_calls_30d == 14
+    assert_in_delta day_90.qa_avg_response_ms_30d, 471.428571, 0.01
+  end
+
   defp insert_point(metric_key, occurred_at, value) do
     Repo.insert!(%Point{
       metric_key: metric_key,
