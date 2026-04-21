@@ -8,6 +8,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
   alias Ecto.Changeset
   alias Zaq.Accounts
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
   alias ZaqWeb.Live.BO.AI.AgentsLive
 
   setup :verify_on_exit!
@@ -170,6 +173,89 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert has_element?(view, "#configured-agent-form")
     assert render(view) =~ "Edit Agent"
     assert render(view) =~ agent.name
+  end
+
+  test "edit form shows delete button", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Delete Button Agent #{:erlang.unique_integer([:positive])}",
+        description: "delete",
+        job: "Delete me",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    assert has_element?(view, "#delete-agent-button")
+  end
+
+  test "cannot delete agent when used in routing config and shows usage locations", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Delete Guard UI Agent #{:erlang.unique_integer([:positive])}",
+        description: "delete",
+        job: "Delete guarded",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, config} =
+      ChannelConfig.upsert_by_provider("mattermost", %{
+        name: "MM",
+        kind: "retrieval",
+        url: "https://mattermost.example.com",
+        token: "tok",
+        enabled: true,
+        settings: %{}
+      })
+
+    %RetrievalChannel{}
+    |> RetrievalChannel.changeset(%{
+      channel_config_id: config.id,
+      channel_id: "guard-chan",
+      channel_name: "Guard",
+      team_id: "team-1",
+      team_name: "Team",
+      active: true,
+      configured_agent_id: agent.id
+    })
+    |> Repo.insert!()
+
+    :ok = ZaqSystem.set_global_default_agent_id(agent.id)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    view
+    |> element("#delete-agent-button")
+    |> render_click()
+
+    assert render(view) =~ "retrieval channel"
+    assert render(view) =~ "global default"
   end
 
   test "lists credential provider and sovereign status", %{conn: conn} do

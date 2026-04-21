@@ -4,6 +4,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
+  alias Zaq.SystemConfigFixtures
 
   # ── Token encryption ────────────────────────────────────────────────────
 
@@ -291,6 +292,27 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert %{} == ChannelConfig.jido_chat_settings(%{})
   end
 
+  test "set_provider_default_agent_id/2 persists provider default agent id in settings" do
+    config = insert_channel_config(%{provider: "mattermost", settings: %{}})
+    agent = insert_configured_agent()
+
+    assert {:ok, updated} = ChannelConfig.set_provider_default_agent_id(config, agent.id)
+    assert ChannelConfig.get_provider_default_agent_id(updated) == agent.id
+
+    reloaded = Repo.get!(ChannelConfig, config.id)
+    assert ChannelConfig.get_provider_default_agent_id(reloaded) == agent.id
+  end
+
+  test "set_provider_default_agent_id/2 clears provider default agent id with nil" do
+    config = insert_channel_config(%{provider: "discord", settings: %{}})
+    agent = insert_configured_agent()
+
+    assert {:ok, updated} = ChannelConfig.set_provider_default_agent_id(config, agent.id)
+    assert {:ok, cleared} = ChannelConfig.set_provider_default_agent_id(updated, nil)
+
+    assert ChannelConfig.get_provider_default_agent_id(cleared) == nil
+  end
+
   defp insert_channel_config(attrs) do
     defaults = %{
       name: "Config",
@@ -304,5 +326,29 @@ defmodule Zaq.Channels.ChannelConfigTest do
     %ChannelConfig{}
     |> ChannelConfig.changeset(Map.merge(defaults, attrs))
     |> Repo.insert!()
+  end
+
+  defp insert_configured_agent do
+    credential =
+      SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Provider Default Agent #{System.unique_integer([:positive, :monotonic])}",
+        description: "",
+        job: "Route provider traffic",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: true,
+        advanced_options: %{}
+      })
+
+    agent
   end
 end

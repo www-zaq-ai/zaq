@@ -5,6 +5,8 @@ defmodule Zaq.Channels.EmailBridgeTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge
   alias Zaq.Engine.Notifications.EmailNotification
+  alias Zaq.Repo
+  alias Zaq.SystemConfigFixtures
 
   defmodule DynamicAdapterStub do
     def to_internal(payload, connection_details) do
@@ -186,6 +188,36 @@ defmodule Zaq.Channels.EmailBridgeTest do
     def dispatch(event), do: %{event | response: {:error, :pipeline_failed}}
   end
 
+  defmodule CapturingNodeRouterStub do
+    alias Zaq.Engine.Messages.Outgoing
+
+    def dispatch(event) do
+      response =
+        case event.opts[:action] do
+          :run_pipeline ->
+            send(self(), {:node_router_run_pipeline_event, event})
+
+            %Outgoing{
+              body: "captured",
+              channel_id: event.request.channel_id,
+              provider: :email,
+              metadata: %{answer: "captured"}
+            }
+
+          :deliver_outgoing ->
+            :ok
+
+          :persist_from_incoming ->
+            :ok
+
+          _ ->
+            {:error, :unsupported}
+        end
+
+      %{event | response: response}
+    end
+  end
+
   defp smtp_settings(overrides \\ %{}) do
     Map.merge(
       %{
@@ -358,6 +390,66 @@ defmodule Zaq.Channels.EmailBridgeTest do
         end)
 
       assert log =~ "Failed to process inbound message"
+    end
+
+    test "includes provider default agent selection in run_pipeline event assigns" do
+      Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      config = insert_imap_channel_config(%{})
+      provider_agent = insert_configured_agent(true)
+
+      assert {:ok, config} =
+               ChannelConfig.set_provider_default_agent_id(config, provider_agent.id)
+
+      payload = %{"body_text" => "hello"}
+      sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
+
+      assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
+      assert_received {:node_router_run_pipeline_event, event}
+
+      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
+      assert selected_id == provider_agent.id
+    end
+
+    test "falls back to global default agent selection when provider default is absent" do
+      Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      config = insert_imap_channel_config(%{})
+      global_agent = insert_configured_agent(true)
+      :ok = Zaq.System.set_global_default_agent_id(global_agent.id)
+
+      payload = %{"body_text" => "hello"}
+      sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
+
+      assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
+      assert_received {:node_router_run_pipeline_event, event}
+
+      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
+      assert selected_id == global_agent.id
+    end
+
+    test "keeps legacy pipeline path when no explicit or global selection is configured" do
+      Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      :ok = Zaq.System.set_global_default_agent_id(nil)
+
+      config =
+        insert_imap_channel_config(%{settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}})
+
+      payload = %{"body_text" => "hello"}
+      sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
+
+      assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
+      assert_received {:node_router_run_pipeline_event, event}
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
     end
   end
 
@@ -1130,5 +1222,47 @@ defmodule Zaq.Channels.EmailBridgeTest do
     pid
     |> :sys.get_state()
     |> Map.fetch!(:mailbox)
+  end
+
+  defp insert_imap_channel_config(attrs) do
+    upsert_smtp_channel()
+
+    defaults = %{
+      name: "Email IMAP",
+      provider: "email:imap",
+      kind: "retrieval",
+      url: "imap.example.com",
+      token: "imap-secret",
+      enabled: true,
+      settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+    }
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(Map.merge(defaults, attrs))
+    |> Repo.insert!()
+  end
+
+  defp insert_configured_agent(active) do
+    credential =
+      SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Email Bridge Agent #{System.unique_integer([:positive, :monotonic])}",
+        description: "",
+        job: "Route email traffic",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: active,
+        advanced_options: %{}
+      })
+
+    agent
   end
 end

@@ -29,6 +29,40 @@ defmodule Zaq.SystemTest do
     end
   end
 
+  describe "global default agent config" do
+    test "get_global_default_agent_id/0 returns nil when unset" do
+      assert System.get_global_default_agent_id() == nil
+    end
+
+    test "set_global_default_agent_id/1 persists and clears the value" do
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, agent} =
+        Zaq.Agent.create_agent(%{
+          name: "Global Default Agent #{:erlang.unique_integer([:positive, :monotonic])}",
+          description: "",
+          job: "Route globally",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{}
+        })
+
+      assert :ok = System.set_global_default_agent_id(agent.id)
+      assert System.get_global_default_agent_id() == agent.id
+
+      assert :ok = System.set_global_default_agent_id(nil)
+      assert System.get_global_default_agent_id() == nil
+    end
+  end
+
   # ── LLM ───────────────────────────────────────────────────────────────
 
   describe "get_llm_config/0" do

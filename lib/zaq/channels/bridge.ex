@@ -41,6 +41,7 @@ defmodule Zaq.Channels.Bridge do
   @callback fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
   @callback test_connection(map(), String.t()) :: {:ok, term()} | {:error, term()}
   @callback list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
+  @callback resolve_agent_selection(map(), Incoming.t(), keyword()) :: map() | nil
 
   @optional_callbacks start_runtime: 1,
                       stop_runtime: 1,
@@ -52,7 +53,8 @@ defmodule Zaq.Channels.Bridge do
                       open_dm_channel: 2,
                       fetch_profile: 2,
                       test_connection: 2,
-                      list_mailboxes: 2
+                      list_mailboxes: 2,
+                      resolve_agent_selection: 3
 
   @doc """
   Persists a processed incoming message and its metadata through the engine.

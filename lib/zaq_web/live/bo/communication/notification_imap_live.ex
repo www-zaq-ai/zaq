@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   require Logger
 
+  alias Zaq.Agent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.Router
@@ -17,6 +18,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   @impl true
   def mount(_params, _session, socket) do
     config = current_imap_config()
+    channel = ChannelConfig.get_any_by_provider(@imap_provider)
     changeset = ImapConfig.changeset(config, %{})
 
     {:ok,
@@ -25,6 +27,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
      |> assign(:page_title, "IMAP Configuration")
      |> assign(:form, to_form(changeset))
      |> assign(:imap_enabled, config.enabled)
+     |> assign(:agent_options, agent_options())
+     |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
+     |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
+     |> assign(:mailbox_assignment_targets, selected_mailboxes(config.selected_mailboxes))
      |> assign(:available_mailboxes, mailbox_options(config.selected_mailboxes, []))
      |> assign(:mailbox_status, :idle)
      |> assign(:save_status, :idle)}
@@ -47,6 +53,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     {:noreply,
      socket
      |> assign(:form, to_form(changeset))
+     |> assign(
+       :mailbox_assignment_targets,
+       selected_mailboxes(Ecto.Changeset.get_field(changeset, :selected_mailboxes, []))
+     )
      |> assign(
        :available_mailboxes,
        mailbox_options(
@@ -82,15 +92,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     config = current_imap_config()
     changeset = ImapConfig.changeset(config, params)
 
-    case persist_imap_config(changeset) do
+    case persist_imap_config(changeset, params) do
       {:ok, _updated_config} ->
         fresh = current_imap_config()
+        channel = ChannelConfig.get_any_by_provider(@imap_provider)
         fresh_changeset = ImapConfig.changeset(fresh, %{})
         sync_result = sync_runtime(@imap_provider)
 
         {:noreply,
          socket
          |> assign(:imap_enabled, fresh.enabled)
+         |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
+         |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
+         |> assign(:mailbox_assignment_targets, selected_mailboxes(fresh.selected_mailboxes))
          |> assign(:form, to_form(fresh_changeset))
          |> assign(
            :available_mailboxes,
@@ -118,15 +132,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     config = current_imap_config()
     changeset = ImapConfig.changeset(config, %{"enabled" => to_string(!config.enabled)})
 
-    case persist_imap_config(changeset) do
+    case persist_imap_config(changeset, %{}) do
       {:ok, _updated_config} ->
         fresh = current_imap_config()
+        channel = ChannelConfig.get_any_by_provider(@imap_provider)
         fresh_changeset = ImapConfig.changeset(fresh, %{})
         sync_result = sync_runtime(@imap_provider)
 
         {:noreply,
          socket
          |> assign(:imap_enabled, fresh.enabled)
+         |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
+         |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
+         |> assign(:mailbox_assignment_targets, selected_mailboxes(fresh.selected_mailboxes))
          |> assign(:form, to_form(fresh_changeset))
          |> assign(
            :available_mailboxes,
@@ -155,6 +173,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
         {:noreply,
          socket
          |> assign(:available_mailboxes, mailbox_options(selected, mailboxes))
+         |> assign(:mailbox_assignment_targets, selected_mailboxes(selected))
          |> assign(:mailbox_status, :ok)}
 
       {:error, reason} ->
@@ -196,8 +215,23 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     }
   end
 
-  defp persist_imap_config(%Ecto.Changeset{valid?: true} = changeset) do
+  defp persist_imap_config(%Ecto.Changeset{valid?: true} = changeset, raw_params) do
     config = Ecto.Changeset.apply_changes(changeset)
+    channel = ChannelConfig.get_any_by_provider(@imap_provider)
+    existing_settings = if(channel, do: channel.settings || %{}, else: %{})
+    provider_default = parse_optional_id(Map.get(raw_params, "provider_default_agent_id"))
+    mailbox_agents = parse_mailbox_agents(Map.get(raw_params, "mailbox_agent_ids", %{}))
+
+    routing_settings =
+      existing_settings
+      |> Map.get("routing", %{})
+      |> update_default_agent_id(provider_default)
+
+    imap_routing_settings =
+      existing_settings
+      |> get_in(["imap", "agent_routing"])
+      |> normalize_map()
+      |> update_mailbox_agents(mailbox_agents)
 
     attrs = %{
       name: "Email IMAP",
@@ -205,8 +239,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
       url: blank_to_nil(config.url),
       token: blank_to_nil(config.password),
       enabled: config.enabled,
-      settings: %{
-        "imap" => %{
+      settings:
+        existing_settings
+        |> Map.put("routing", routing_settings)
+        |> Map.put("imap", %{
           "port" => config.port,
           "ssl" => config.ssl,
           "ssl_depth" => config.ssl_depth,
@@ -215,15 +251,77 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
           "mark_as_read" => config.mark_as_read,
           "load_initial_unread" => config.load_initial_unread,
           "poll_interval" => config.poll_interval,
-          "idle_timeout" => config.idle_timeout
-        }
-      }
+          "idle_timeout" => config.idle_timeout,
+          "agent_routing" => imap_routing_settings
+        })
     }
 
     ChannelConfig.upsert_by_provider(@imap_provider, attrs)
   end
 
-  defp persist_imap_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
+  defp persist_imap_config(%Ecto.Changeset{valid?: false} = changeset, _raw_params),
+    do: {:error, changeset}
+
+  defp provider_default_agent_id(nil), do: nil
+
+  defp provider_default_agent_id(channel),
+    do: ChannelConfig.get_provider_default_agent_id(channel)
+
+  defp mailbox_agent_assignments(nil), do: %{}
+
+  defp mailbox_agent_assignments(channel) do
+    channel
+    |> Map.get(:settings, %{})
+    |> get_in(["imap", "agent_routing", "mailboxes"])
+    |> normalize_map()
+  end
+
+  defp agent_options do
+    Agent.list_active_agents()
+    |> Enum.map(fn agent -> {agent.name, agent.id} end)
+  end
+
+  defp parse_mailbox_agents(mailbox_agent_ids) when is_map(mailbox_agent_ids) do
+    mailbox_agent_ids
+    |> Enum.reduce(%{}, fn {mailbox, raw_id}, acc ->
+      mailbox_key = String.trim(to_string(mailbox || ""))
+
+      case {mailbox_key, parse_optional_id(raw_id)} do
+        {"", _} -> acc
+        {_, nil} -> acc
+        {key, id} -> Map.put(acc, key, id)
+      end
+    end)
+  end
+
+  defp parse_mailbox_agents(_), do: %{}
+
+  defp update_default_agent_id(routing, nil),
+    do: Map.delete(normalize_map(routing), "default_agent_id")
+
+  defp update_default_agent_id(routing, id),
+    do: Map.put(normalize_map(routing), "default_agent_id", id)
+
+  defp update_mailbox_agents(routing, mailbox_agents),
+    do: Map.put(normalize_map(routing), "mailboxes", mailbox_agents)
+
+  defp normalize_map(map) when is_map(map), do: map
+  defp normalize_map(_), do: %{}
+
+  defp parse_optional_id(nil), do: nil
+  defp parse_optional_id(""), do: nil
+  defp parse_optional_id(value) when is_integer(value), do: value
+
+  defp parse_optional_id(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {id, ""} -> id
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_id(_), do: nil
+
+  defp selected_mailboxes(value), do: ImapConfig.normalize_mailboxes(value)
 
   defp selected_mailboxes_string(settings) do
     settings

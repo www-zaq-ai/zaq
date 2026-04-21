@@ -5,10 +5,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat
   alias Jido.Chat.Author
   alias Jido.Chat.Incoming, as: ChatIncoming
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Repo
+  alias Zaq.SystemConfigFixtures
 
   # ── Stub modules ──────────────────────────────────────────────────────
 
@@ -74,6 +77,36 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
               channel_id: event.request.channel_id,
               provider: event.request.provider,
               metadata: %{answer: "stub"}
+            }
+
+          :deliver_outgoing ->
+            :ok
+
+          :persist_from_incoming ->
+            :ok
+
+          _ ->
+            {:error, :unsupported}
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule CapturingNodeRouter do
+    alias Zaq.Engine.Messages.Outgoing
+
+    def dispatch(event) do
+      response =
+        case event.opts[:action] do
+          :run_pipeline ->
+            send(self(), {:node_router_run_pipeline_event, event})
+
+            %Outgoing{
+              body: "captured",
+              channel_id: event.request.channel_id,
+              provider: event.request.provider,
+              metadata: %{answer: "captured"}
             }
 
           :deliver_outgoing ->
@@ -443,6 +476,130 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+    end
+
+    test "channel assignment wins over provider and global defaults in NodeRouter dispatch" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      channel_agent = insert_configured_agent(true)
+      provider_agent = insert_configured_agent(true)
+      global_agent = insert_configured_agent(true)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+        })
+
+      insert_retrieval_channel(config.id,
+        channel_id: "room-selected",
+        channel_name: "selected",
+        team_id: "team-1",
+        team_name: "Team",
+        configured_agent_id: channel_agent.id
+      )
+
+      :ok = Zaq.System.set_global_default_agent_id(global_agent.id)
+
+      incoming = %ChatIncoming{
+        text: "route me",
+        external_room_id: "room-selected",
+        external_thread_id: nil,
+        external_message_id: "msg-selected",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+      assert_received {:node_router_run_pipeline_event, event}
+
+      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
+      assert selected_id == channel_agent.id
+    end
+
+    test "falls back to provider default when channel assignment agent is inactive" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      inactive_channel_agent = insert_configured_agent(false)
+      provider_agent = insert_configured_agent(true)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+        })
+
+      insert_retrieval_channel(config.id,
+        channel_id: "room-fallback",
+        channel_name: "fallback",
+        team_id: "team-1",
+        team_name: "Team",
+        configured_agent_id: inactive_channel_agent.id
+      )
+
+      incoming = %ChatIncoming{
+        text: "route fallback",
+        external_room_id: "room-fallback",
+        external_thread_id: nil,
+        external_message_id: "msg-fallback",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+      assert_received {:node_router_run_pipeline_event, event}
+
+      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
+      assert selected_id == provider_agent.id
+    end
+
+    test "keeps legacy pipeline path when no explicit or global selection is configured" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      :ok = Zaq.System.set_global_default_agent_id(nil)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{}
+        })
+
+      incoming = %ChatIncoming{
+        text: "route legacy",
+        external_room_id: "room-legacy",
+        external_thread_id: nil,
+        external_message_id: "msg-legacy",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+      assert_received {:node_router_run_pipeline_event, event}
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
     end
 
     test "uses incoming channel adapter when present, even if unsupported" do
@@ -1601,5 +1758,53 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert :ok = JidoChatBridge.stop_runtime(config)
     end
+  end
+
+  defp insert_channel_config(attrs) do
+    defaults = %{
+      name: "Mattermost Config #{System.unique_integer([:positive])}",
+      provider: "mattermost",
+      kind: "retrieval",
+      url: "https://mattermost.example.com",
+      token: "test-token",
+      enabled: true,
+      settings: %{}
+    }
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(Map.merge(defaults, attrs))
+    |> Repo.insert!()
+  end
+
+  defp insert_retrieval_channel(config_id, attrs) do
+    defaults = %{channel_config_id: config_id, active: true}
+
+    %RetrievalChannel{}
+    |> RetrievalChannel.changeset(Map.merge(defaults, Map.new(attrs)))
+    |> Repo.insert!()
+  end
+
+  defp insert_configured_agent(active) do
+    credential =
+      SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Bridge Agent #{System.unique_integer([:positive, :monotonic])}",
+        description: "",
+        job: "Route bridge traffic",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: active,
+        advanced_options: %{}
+      })
+
+    agent
   end
 end

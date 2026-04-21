@@ -208,6 +208,29 @@
       Pick a public channel where users can <span class="text-black/60 font-bold">@zaq</span>
       to ask questions. ZAQ will only respond to messages that mention the bot in the selected channel.
     </p>
+
+    <div class="bg-white rounded-xl border border-black/10 p-4 mb-4">
+      <label class="font-mono text-[0.68rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+        Provider Default Agent
+      </label>
+      <form phx-change="set_provider_default_agent">
+        <input type="hidden" name="config_id" value={List.first(@configs).id} />
+        <select
+          id="provider-default-agent-select"
+          name="configured_agent_id"
+          class="w-full font-mono text-[0.8rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20"
+        >
+          <option value="" selected={is_nil(@provider_default_agent_id)}>No default agent</option>
+          <option
+            :for={{name, id} <- @agent_options}
+            value={id}
+            selected={to_string(@provider_default_agent_id || "") == to_string(id)}
+          >
+            {name}
+          </option>
+        </select>
+      </form>
+    </div>
     
 <!-- Currently Selected Channels -->
     <div :if={@retrieval_channels != []} class="space-y-2 mb-5">
@@ -252,6 +275,23 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <form phx-change="set_retrieval_channel_agent">
+            <input type="hidden" name="retrieval_channel_id" value={rc.id} />
+            <select
+              id={"retrieval-channel-agent-select-#{rc.id}"}
+              name="configured_agent_id"
+              class="font-mono text-[0.65rem] px-2 py-1.5 rounded-lg border border-black/10 text-black/60 bg-[#fafafa]"
+            >
+              <option value="" selected={is_nil(rc.configured_agent_id)}>Use fallback</option>
+              <option
+                :for={{name, id} <- @agent_options}
+                value={id}
+                selected={to_string(rc.configured_agent_id || "") == to_string(id)}
+              >
+                {name}
+              </option>
+            </select>
+          </form>
           <button
             id={"toggle-retrieval-channel-#{rc.id}"}
             phx-click="toggle_channel_active"

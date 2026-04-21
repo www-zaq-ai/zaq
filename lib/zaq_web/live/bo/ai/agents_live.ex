@@ -6,7 +6,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Ecto.Changeset
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
 
@@ -194,8 +193,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
     case Agent.delete_agent(agent) do
       {:ok, _deleted} ->
-        _ = ServerManager.stop_server(id)
-
         socket =
           socket
           |> put_flash(:info, "Agent deleted")
@@ -203,8 +200,15 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
         {:noreply, reset_form_after_delete(socket, String.to_integer(id))}
 
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete agent")}
+      {:error, %Changeset{} = changeset} ->
+        message =
+          changeset
+          |> Changeset.traverse_errors(fn {msg, _opts} -> msg end)
+          |> Map.get(:base, [])
+          |> List.first()
+          |> Kernel.||("Failed to delete agent")
+
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 

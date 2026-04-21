@@ -18,6 +18,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Jido.Chat
   alias Jido.Chat.Thread
+  alias Zaq.{Agent, System}
   alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Router, Supervisor}
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -41,6 +42,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   Subscribes to replies for a specific thread. Starts a dedicated runtime bridge
   for `{channel_id, thread_id}`.
   """
+  @impl true
   def subscribe_thread_reply(config, channel_id, thread_id)
       when is_binary(channel_id) and is_binary(thread_id) do
     bridge_id = thread_bridge_id(channel_id, thread_id)
@@ -60,6 +62,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   Unsubscribes from replies for a specific thread and stops the dedicated
   runtime bridge.
   """
+  @impl true
   def unsubscribe_thread_reply(config, channel_id, thread_id)
       when is_binary(channel_id) and is_binary(thread_id) do
     bridge_id = thread_bridge_id(channel_id, thread_id)
@@ -77,6 +80,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Starts runtime processes for a channel config."
+  @impl true
   def start_runtime(config) do
     bridge_id = default_bridge_id(config)
 
@@ -84,6 +88,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Stops runtime processes for a channel config."
+  @impl true
   def stop_runtime(config) do
     case Supervisor.stop_bridge_runtime(config, default_bridge_id(config)) do
       :ok -> :ok
@@ -93,6 +98,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Tests adapter connectivity by sending a test message."
+  @impl true
   def test_connection(config, channel_id) do
     with {:ok, adapter} <- adapter_for(config.provider) do
       adapter.send_message(channel_id, @test_message, url: config.url, token: config.token)
@@ -152,6 +158,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   instructions (used by the notification center for reply tracking).
   """
   @spec send_reply(Outgoing.t(), map()) :: :ok | {:error, term()}
+  @impl true
   def send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
     do_send_reply(outgoing, %{url: url, token: token})
   end
@@ -166,6 +173,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   @doc "Fetches a user's canonical profile from the platform API."
   @spec fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @impl true
   def fetch_profile(author_id, %{url: url, token: token, provider: provider})
       when is_binary(author_id) do
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
@@ -186,6 +194,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   def fetch_profile(_author_id, _connection_details), do: {:error, :missing_connection_details}
 
   @spec send_typing(map() | String.t() | atom(), String.t(), map()) :: :ok | {:error, term()}
+  @impl true
   def send_typing(%{provider: provider}, channel_id, details),
     do: send_typing(provider, channel_id, details)
 
@@ -203,6 +212,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   @spec add_reaction(map() | String.t() | atom(), String.t(), String.t(), String.t(), map()) ::
           :ok | {:error, term()}
 
+  @impl true
   def add_reaction(%{provider: provider}, channel_id, message_id, emoji, details),
     do: add_reaction(provider, channel_id, message_id, emoji, details)
 
@@ -221,6 +231,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   @spec remove_reaction(map() | String.t() | atom(), String.t(), String.t(), String.t(), map()) ::
           :ok | {:error, term()}
 
+  @impl true
   def remove_reaction(%{provider: provider}, channel_id, message_id, emoji, details),
     do: remove_reaction(provider, channel_id, message_id, emoji, details)
 
@@ -247,6 +258,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     do: {:error, :missing_connection_details}
 
   @doc "Converts a `Jido.Chat.Incoming` struct to the internal `Incoming` message format."
+  @impl true
   def to_internal(%Chat.Incoming{} = incoming, provider) do
     %Incoming{
       content: incoming.text,
@@ -268,6 +280,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   Returns `{:ok, dm_channel_id}` on success.
   """
   @spec open_dm_channel(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
+  @impl true
   def open_dm_channel(author_id, %{url: url, token: token, bot_user_id: bot_user_id} = details)
       when is_binary(author_id) and is_binary(bot_user_id) do
     provider = Map.get(details, :provider, "mattermost")
@@ -323,11 +336,13 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp handle_message_event(_config, _thread, %Chat.Incoming{author: %{is_me: true}}), do: :ok
 
-  defp handle_message_event(_config, thread, %Chat.Incoming{} = incoming) do
+  defp handle_message_event(config, thread, %Chat.Incoming{} = incoming) do
     msg = to_internal(incoming, thread.adapter_name)
+    agent_selection = resolve_agent_selection(config, msg, channel_id: msg.channel_id)
 
     with {:ok, role_ids} <- resolve_roles(msg),
-         %Outgoing{} = outgoing <- run_pipeline(msg, role_ids: role_ids),
+         %Outgoing{} = outgoing <-
+           run_pipeline(msg, role_ids: role_ids, agent_selection: agent_selection),
          :ok <- deliver_outgoing(outgoing) do
       :telemetry.execute([:zaq, :chat_bridge, :message, :processed], %{count: 1}, %{
         provider: msg.provider
@@ -513,6 +528,8 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp run_pipeline(msg, opts) do
     module = pipeline_module()
+    agent_selection = Keyword.get(opts, :agent_selection)
+    pipeline_opts = Keyword.delete(opts, :agent_selection)
 
     if module == Zaq.Agent.Pipeline do
       event =
@@ -520,8 +537,9 @@ defmodule Zaq.Channels.JidoChatBridge do
           msg,
           :agent,
           actor: actor_from_incoming(msg),
-          opts: [action: :run_pipeline, pipeline_opts: opts]
+          opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
         )
+        |> maybe_put_agent_selection(agent_selection)
 
       case node_router_module().dispatch(event).response do
         %Outgoing{} = outgoing -> outgoing
@@ -529,9 +547,67 @@ defmodule Zaq.Channels.JidoChatBridge do
         other -> {:error, {:invalid_pipeline_response, other}}
       end
     else
-      module.run(msg, opts)
+      module.run(msg, pipeline_opts)
     end
   end
+
+  defp maybe_put_agent_selection(%Event{} = event, nil), do: event
+
+  defp maybe_put_agent_selection(%Event{} = event, %{"agent_id" => _} = selection) do
+    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
+  end
+
+  defp maybe_put_agent_selection(%Event{} = event, _selection), do: event
+
+  @impl true
+  def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
+    channel_id = Keyword.get(opts, :channel_id)
+
+    candidates = [
+      {:channel_assignment, channel_assignment_agent_id(config, channel_id)},
+      {:provider_default, ChannelConfig.get_provider_default_agent_id(config)},
+      {:global_default, System.get_global_default_agent_id()}
+    ]
+
+    first_active_selection(candidates)
+  end
+
+  defp first_active_selection(candidates) do
+    Enum.find_value(candidates, fn {source, candidate_id} ->
+      with {:ok, id} <- normalize_id(candidate_id),
+           {:ok, _agent} <- Agent.get_active_agent(id) do
+        %{"agent_id" => id, "source" => Atom.to_string(source)}
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  defp channel_assignment_agent_id(config, channel_id) when is_binary(channel_id) do
+    case Map.get(config, :id) || Map.get(config, "id") do
+      id when is_integer(id) ->
+        case RetrievalChannel.get_by_config_and_channel(id, channel_id) do
+          %RetrievalChannel{configured_agent_id: configured_agent_id} -> configured_agent_id
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp channel_assignment_agent_id(_config, _channel_id), do: nil
+
+  defp normalize_id(id) when is_integer(id), do: {:ok, id}
+
+  defp normalize_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} -> {:ok, int}
+      _ -> :error
+    end
+  end
+
+  defp normalize_id(_), do: :error
 
   defp deliver_outgoing(outgoing) do
     module = router_module()

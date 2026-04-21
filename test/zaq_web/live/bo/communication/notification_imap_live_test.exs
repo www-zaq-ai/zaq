@@ -78,6 +78,69 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     assert has_element?(view, "button[phx-click='activate']")
   end
 
+  test "renders mailbox and provider agent routing controls", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    assert has_element?(view, "#imap-provider-default-agent-select")
+    assert has_element?(view, "#imap-mailbox-agent-assignments")
+  end
+
+  test "mailbox assignment controls track selected mailboxes only", %{conn: conn} do
+    Application.put_env(:zaq, :notification_imap_router_module, RouterStubOk)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :notification_imap_router_module)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    view
+    |> element("#imap-config-form")
+    |> render_change(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX"]
+      }
+    })
+
+    view |> element("#load-imap-mailboxes") |> render_click()
+
+    assert_eventually(fn ->
+      has_element?(view, "#imap-selected-mailboxes option[value='Support']")
+    end)
+
+    assert has_element?(view, "select[name='imap_config[mailbox_agent_ids][INBOX]']")
+    refute has_element?(view, "select[name='imap_config[mailbox_agent_ids][Support]']")
+
+    view
+    |> element("#imap-config-form")
+    |> render_change(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX", "Support"]
+      }
+    })
+
+    assert has_element?(view, "select[name='imap_config[mailbox_agent_ids][Support]']")
+
+    view
+    |> element("#imap-config-form")
+    |> render_change(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX"]
+      }
+    })
+
+    refute has_element?(view, "select[name='imap_config[mailbox_agent_ids][Support]']")
+  end
+
   test "save persists IMAP provider configuration", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
 

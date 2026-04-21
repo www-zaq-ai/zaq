@@ -5,6 +5,9 @@ defmodule Zaq.AgentTest do
 
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
 
   test "list, get, and id helpers" do
     credential =
@@ -306,6 +309,106 @@ defmodule Zaq.AgentTest do
     assert "selected provider cannot be used at runtime (provider_not_found)" in errors_on(
              changeset
            ).credential_id
+  end
+
+  test "delete_agent/1 blocks deletion when agent is referenced in routing config" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Delete Guard Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    {:ok, agent} =
+      Agent.create_agent(%{
+        name: "Delete Guard Agent #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, mattermost_config} =
+      ChannelConfig.upsert_by_provider("mattermost", %{
+        name: "MM",
+        kind: "retrieval",
+        url: "https://mattermost.example.com",
+        token: "tok",
+        enabled: true,
+        settings: %{"routing" => %{"default_agent_id" => agent.id}}
+      })
+
+    %RetrievalChannel{}
+    |> RetrievalChannel.changeset(%{
+      channel_config_id: mattermost_config.id,
+      channel_id: "chan-1",
+      channel_name: "General",
+      team_id: "team-1",
+      team_name: "Team",
+      active: true,
+      configured_agent_id: agent.id
+    })
+    |> Repo.insert!()
+
+    {:ok, _smtp_config} =
+      ChannelConfig.upsert_by_provider("email:smtp", %{
+        name: "SMTP",
+        kind: "retrieval",
+        enabled: true,
+        settings: %{"relay" => "", "port" => "587", "transport_mode" => "starttls"}
+      })
+
+    {:ok, _imap_config} =
+      ChannelConfig.upsert_by_provider("email:imap", %{
+        name: "IMAP",
+        kind: "retrieval",
+        enabled: true,
+        url: "imap.example.com",
+        token: "imap-token",
+        settings: %{
+          "imap" => %{
+            "selected_mailboxes" => ["INBOX"],
+            "agent_routing" => %{"mailboxes" => %{"INBOX" => agent.id}}
+          }
+        }
+      })
+
+    :ok = ZaqSystem.set_global_default_agent_id(agent.id)
+
+    assert {:error, changeset} = Agent.delete_agent(agent)
+
+    assert [message | _] = errors_on(changeset).base
+    assert message =~ "retrieval channel"
+    assert message =~ "provider default"
+    assert message =~ "imap mailbox"
+    assert message =~ "global default"
+  end
+
+  test "delete_agent/1 succeeds when agent is unreferenced" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Delete Free Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    {:ok, agent} =
+      Agent.create_agent(%{
+        name: "Delete Free Agent #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, _deleted} = Agent.delete_agent(agent)
+    assert Agent.get_agent(agent.id) == nil
   end
 
   test "tool capability validation is skipped when no tools are selected" do

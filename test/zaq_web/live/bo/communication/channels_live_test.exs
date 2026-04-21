@@ -111,6 +111,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute has_element?(view, "#config-form")
   end
 
+  test "renders agent routing controls for provider default and retrieval channels", %{conn: conn} do
+    config = insert_channel_config(%{})
+    retrieval = insert_retrieval_channel(config)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    assert has_element?(view, "#provider-default-agent-select")
+    assert has_element?(view, "#retrieval-channel-agent-select-#{retrieval.id}")
+  end
+
   test "toggles and deletes a config", %{conn: conn} do
     config = insert_channel_config(%{})
 

@@ -4,8 +4,9 @@ defmodule Zaq.Agent do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.{ConfiguredAgent, ServerManager}
   alias Zaq.Agent.Tools.Registry
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
@@ -95,7 +96,22 @@ defmodule Zaq.Agent do
   end
 
   @spec delete_agent(ConfiguredAgent.t()) :: {:ok, ConfiguredAgent.t()} | {:error, Changeset.t()}
-  def delete_agent(%ConfiguredAgent{} = agent), do: Repo.delete(agent)
+  def delete_agent(%ConfiguredAgent{} = agent) do
+    usage_locations = usage_locations_for_agent(agent.id)
+
+    if usage_locations == [] do
+      case Repo.delete(agent) do
+        {:ok, _deleted} = ok ->
+          _ = ServerManager.stop_server(agent.id)
+          ok
+
+        other ->
+          other
+      end
+    else
+      {:error, in_use_changeset(agent, usage_locations)}
+    end
+  end
 
   @spec change_agent(ConfiguredAgent.t(), map()) :: Changeset.t()
   def change_agent(%ConfiguredAgent{} = agent, attrs \\ %{}) do
@@ -223,6 +239,87 @@ defmodule Zaq.Agent do
   end
 
   defp runtime_provider_from_id(_), do: {:error, :invalid_provider}
+
+  defp usage_locations_for_agent(agent_id) do
+    retrieval_channel_usages(agent_id) ++
+      provider_default_usages(agent_id) ++
+      imap_mailbox_usages(agent_id) ++
+      global_default_usage(agent_id)
+  end
+
+  defp retrieval_channel_usages(agent_id) do
+    RetrievalChannel
+    |> join(:inner, [r], c in ChannelConfig, on: r.channel_config_id == c.id)
+    |> where([r], r.configured_agent_id == ^agent_id)
+    |> select([r, c], {c.provider, r.channel_name, r.channel_id})
+    |> Repo.all()
+    |> Enum.map(fn {provider, channel_name, channel_id} ->
+      "retrieval channel #{provider}:#{channel_name || channel_id}"
+    end)
+  end
+
+  defp provider_default_usages(agent_id) do
+    ChannelConfig
+    |> Repo.all()
+    |> Enum.filter(&(ChannelConfig.get_provider_default_agent_id(&1) == agent_id))
+    |> Enum.map(fn config -> "provider default #{config.provider}" end)
+  end
+
+  defp imap_mailbox_usages(agent_id) do
+    imap_mailbox_assignments()
+    |> imap_mailbox_usages_for_agent(agent_id)
+  end
+
+  defp imap_mailbox_assignments do
+    case ChannelConfig.get_any_by_provider("email:imap") do
+      %{settings: settings} when is_map(settings) ->
+        case get_in(settings, ["imap", "agent_routing", "mailboxes"]) do
+          mailboxes when is_map(mailboxes) -> mailboxes
+          _ -> %{}
+        end
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp imap_mailbox_usages_for_agent(mailboxes, agent_id) when is_map(mailboxes) do
+    mailboxes
+    |> Enum.filter(fn {_mailbox, assigned_id} -> parse_optional_id(assigned_id) == agent_id end)
+    |> Enum.map(fn {mailbox, _assigned_id} -> "imap mailbox #{mailbox}" end)
+  end
+
+  defp global_default_usage(agent_id) do
+    if System.get_global_default_agent_id() == agent_id do
+      ["global default channels.global_default_agent_id"]
+    else
+      []
+    end
+  end
+
+  defp in_use_changeset(%ConfiguredAgent{} = agent, usage_locations) do
+    message =
+      usage_locations
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.join(", ")
+      |> then(&"Agent is in use by: #{&1}")
+
+    agent
+    |> Changeset.change()
+    |> Changeset.add_error(:base, message)
+  end
+
+  defp parse_optional_id(value) when is_integer(value), do: value
+
+  defp parse_optional_id(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {id, ""} -> id
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_id(_), do: nil
 
   defp runtime_provider_from_atom(provider_atom) when is_atom(provider_atom) do
     case ReqLLM.provider(provider_atom) do

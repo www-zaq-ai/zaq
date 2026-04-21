@@ -23,11 +23,13 @@ defmodule Zaq.Channels.RetrievalChannel do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Repo
 
   schema "retrieval_channels" do
     belongs_to :channel_config, ChannelConfig
+    belongs_to :configured_agent, ConfiguredAgent
     field :channel_id, :string
     field :channel_name, :string
     field :team_id, :string
@@ -39,9 +41,18 @@ defmodule Zaq.Channels.RetrievalChannel do
 
   def changeset(retrieval_channel, attrs) do
     retrieval_channel
-    |> cast(attrs, [:channel_config_id, :channel_id, :channel_name, :team_id, :team_name, :active])
+    |> cast(attrs, [
+      :channel_config_id,
+      :channel_id,
+      :channel_name,
+      :team_id,
+      :team_name,
+      :active,
+      :configured_agent_id
+    ])
     |> validate_required([:channel_config_id, :channel_id, :channel_name, :team_id, :team_name])
     |> foreign_key_constraint(:channel_config_id)
+    |> foreign_key_constraint(:configured_agent_id)
     |> unique_constraint([:channel_config_id, :channel_id],
       message: "this channel is already configured"
     )

@@ -32,6 +32,7 @@ defmodule Zaq.System do
   @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @image_to_text_read_fields ~w(credential_id model)
   @image_to_text_write_fields ~w(credential_id model)
+  @global_default_agent_key "channels.global_default_agent_id"
 
   # ── Generic key/value ─────────────────────────────────────────────────
 
@@ -55,6 +56,23 @@ defmodule Zaq.System do
       on_conflict: [set: [value: string_value, updated_at: now]],
       conflict_target: :key
     )
+  end
+
+  @doc "Returns globally configured default agent id, or nil when unset."
+  @spec get_global_default_agent_id() :: integer() | nil
+  def get_global_default_agent_id do
+    @global_default_agent_key
+    |> get_config()
+    |> parse_optional_int(nil)
+  end
+
+  @doc "Sets or clears globally configured default agent id."
+  @spec set_global_default_agent_id(integer() | String.t() | nil) :: :ok | {:error, term()}
+  def set_global_default_agent_id(agent_id) do
+    case parse_optional_int(agent_id, nil) do
+      nil -> persist_global_default_agent_id("")
+      id -> persist_global_default_agent_id(id)
+    end
   end
 
   # ── Telemetry ─────────────────────────────────────────────────────────
@@ -411,6 +429,19 @@ defmodule Zaq.System do
 
   defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
 
+  defp parse_optional_int(nil, default), do: default
+  defp parse_optional_int("", default), do: default
+  defp parse_optional_int(value, _default) when is_integer(value), do: value
+
+  defp parse_optional_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> default
+    end
+  end
+
+  defp parse_optional_int(_value, default), do: default
+
   defp parse_float(nil, default), do: default
   defp parse_float("", default), do: default
 
@@ -434,5 +465,12 @@ defmodule Zaq.System do
     end
 
     :ok
+  end
+
+  defp persist_global_default_agent_id(value) do
+    case set_config(@global_default_agent_key, value) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 end

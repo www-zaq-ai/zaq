@@ -21,6 +21,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "Telemetry Collection"
       assert html =~ "telemetry-config-form"
     end
+
+    test "does not render global default agent selector in telemetry tab", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      refute has_element?(view, "#global-default-agent-select")
+    end
   end
 
   describe "tab navigation" do
@@ -42,6 +48,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert render(view) =~ "AI Credentials"
     end
 
+    test "switches to Global tab", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("button[phx-value-tab='global']")
+      |> render_click()
+
+      assert_patch(view, ~p"/bo/system-config?tab=global")
+      assert has_element?(view, "#global-default-agent-select")
+      assert render(view) =~ "Default Zaq Agent"
+    end
+
     test "renders each tab via URL param", %{conn: conn} do
       {:ok, _view, telemetry_html} = live(conn, ~p"/bo/system-config?tab=telemetry")
       assert telemetry_html =~ "telemetry-config-form"
@@ -57,6 +75,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, _view, ai_credentials_html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       assert ai_credentials_html =~ "AI Credentials"
+
+      {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
+      assert global_html =~ "Global Configuration"
+      assert global_html =~ "Default Zaq Agent"
     end
   end
 

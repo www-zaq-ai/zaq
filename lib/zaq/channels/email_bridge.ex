@@ -13,15 +13,16 @@ defmodule Zaq.Channels.EmailBridge do
 
   require Logger
 
-  alias Zaq.Channels.Bridge
+  alias Zaq.{Agent, System}
+  alias Zaq.Channels.{Bridge, ChannelConfig, Router, Supervisor}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
-  alias Zaq.Channels.{Router, Supervisor}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.{Event, NodeRouter}
   alias Zaq.Utils.EmailUtils
 
   @doc "Converts an email adapter payload to the internal `%Incoming{}` format."
   @spec to_internal(map(), map()) :: Incoming.t() | {:error, term()}
+  @impl true
   def to_internal(params, connection_details)
       when is_map(params) and is_map(connection_details) do
     with {:ok, adapter} <- resolve_adapter(connection_details) do
@@ -32,6 +33,7 @@ defmodule Zaq.Channels.EmailBridge do
   def to_internal(_params, _connection_details), do: {:error, :invalid_email_payload}
 
   @doc "Starts inbound email runtime processes for a channel config."
+  @impl true
   def start_runtime(config) do
     bridge_id = default_bridge_id(config)
     provider = Map.get(config, :provider) || Map.get(config, "provider")
@@ -59,6 +61,7 @@ defmodule Zaq.Channels.EmailBridge do
   end
 
   @doc "Stops IMAP runtime processes for an email:imap config."
+  @impl true
   def stop_runtime(config) do
     case Supervisor.stop_bridge_runtime(config, default_bridge_id(config)) do
       :ok -> :ok
@@ -73,7 +76,9 @@ defmodule Zaq.Channels.EmailBridge do
     connection = sink_opts |> Enum.into(%{}) |> Map.put(:config, config)
 
     with %Incoming{} = incoming <- to_internal(payload, connection),
-         %Outgoing{} = outgoing <- run_pipeline(incoming),
+         agent_selection =
+           resolve_agent_selection(config, incoming, mailbox: connection[:mailbox]),
+         %Outgoing{} = outgoing <- run_pipeline(incoming, agent_selection: agent_selection),
          :ok <- deliver_outgoing(outgoing),
          :ok <- persist_from_incoming(incoming, outgoing.metadata) do
       :ok
@@ -96,6 +101,7 @@ defmodule Zaq.Channels.EmailBridge do
 
   @doc "Lists available IMAP mailboxes through the configured email adapter."
   @spec list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
+  @impl true
   def list_mailboxes(config, _connection_details \\ %{}) when is_map(config) do
     provider = Map.get(config, :provider) || Map.get(config, "provider")
 
@@ -121,6 +127,7 @@ defmodule Zaq.Channels.EmailBridge do
   and `:html_body` / `"html_body"`). Falls back to a default subject if missing.
   """
   @spec send_reply(Outgoing.t(), map()) :: :ok | {:error, term()}
+  @impl true
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
     alias Zaq.Engine.Notifications.EmailNotification
 
@@ -198,8 +205,10 @@ defmodule Zaq.Channels.EmailBridge do
     ArgumentError -> :email
   end
 
-  defp run_pipeline(%Incoming{} = msg) do
+  defp run_pipeline(%Incoming{} = msg, opts) do
     module = pipeline_module()
+    agent_selection = Keyword.get(opts, :agent_selection)
+    pipeline_opts = Keyword.delete(opts, :agent_selection)
 
     if module == Zaq.Agent.Pipeline do
       event =
@@ -207,8 +216,9 @@ defmodule Zaq.Channels.EmailBridge do
           msg,
           :agent,
           actor: actor_from_incoming(msg),
-          opts: [action: :run_pipeline, pipeline_opts: []]
+          opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
         )
+        |> maybe_put_agent_selection(agent_selection)
 
       case node_router_module().dispatch(event).response do
         %Outgoing{} = outgoing -> outgoing
@@ -216,9 +226,76 @@ defmodule Zaq.Channels.EmailBridge do
         other -> {:error, {:invalid_pipeline_response, other}}
       end
     else
-      module.run(msg, [])
+      module.run(msg, pipeline_opts)
     end
   end
+
+  defp maybe_put_agent_selection(%Event{} = event, nil), do: event
+
+  defp maybe_put_agent_selection(%Event{} = event, %{"agent_id" => _} = selection) do
+    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
+  end
+
+  defp maybe_put_agent_selection(%Event{} = event, _selection), do: event
+
+  @impl true
+  def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
+    mailbox = Keyword.get(opts, :mailbox)
+
+    candidates = [
+      {:mailbox_assignment, mailbox_assignment_agent_id(config, mailbox)},
+      {:provider_default, ChannelConfig.get_provider_default_agent_id(config)},
+      {:global_default, System.get_global_default_agent_id()}
+    ]
+
+    first_active_selection(candidates)
+  end
+
+  defp first_active_selection(candidates) do
+    Enum.find_value(candidates, fn {source, candidate_id} ->
+      with {:ok, id} <- normalize_id(candidate_id),
+           {:ok, _agent} <- Agent.get_active_agent(id) do
+        %{"agent_id" => id, "source" => Atom.to_string(source)}
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  defp mailbox_assignment_agent_id(config, mailbox) do
+    mailbox = normalize_mailbox(mailbox)
+
+    with mailbox when is_binary(mailbox) <- mailbox,
+         settings when is_map(settings) <-
+           Map.get(config, :settings) || Map.get(config, "settings"),
+         imap when is_map(imap) <- Map.get(settings, "imap"),
+         routing when is_map(routing) <- Map.get(imap, "agent_routing"),
+         mailboxes when is_map(mailboxes) <- Map.get(routing, "mailboxes") do
+      Map.get(mailboxes, mailbox)
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_mailbox(mailbox) when is_binary(mailbox) do
+    case String.trim(mailbox) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_mailbox(_), do: nil
+
+  defp normalize_id(id) when is_integer(id), do: {:ok, id}
+
+  defp normalize_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} -> {:ok, int}
+      _ -> :error
+    end
+  end
+
+  defp normalize_id(_), do: :error
 
   defp deliver_outgoing(%Outgoing{} = outgoing) do
     module = router_module()

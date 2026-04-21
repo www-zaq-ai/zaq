@@ -223,6 +223,28 @@
           </div>
 
           <div class="space-y-3">
+            <div>
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+                Provider Default Agent
+              </label>
+              <select
+                id="imap-provider-default-agent-select"
+                name="imap_config[provider_default_agent_id]"
+                class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
+              >
+                <option value="" selected={is_nil(@provider_default_agent_id)}>
+                  No default agent
+                </option>
+                <option
+                  :for={{name, id} <- @agent_options}
+                  value={id}
+                  selected={to_string(@provider_default_agent_id || "") == to_string(id)}
+                >
+                  {name}
+                </option>
+              </select>
+            </div>
+
             <div class="flex items-center justify-between gap-3">
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block">
                 Selected Mailboxes
@@ -279,6 +301,40 @@
             >
               {elem(hd(@form[:selected_mailboxes].errors), 0)}
             </p>
+
+            <div id="imap-mailbox-agent-assignments" class="space-y-2 pt-1">
+              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-1">
+                Mailbox Agent Assignments
+              </label>
+              <div
+                :for={mailbox <- @mailbox_assignment_targets}
+                class="grid grid-cols-[1fr,1.2fr] gap-3 items-center"
+              >
+                <input type="hidden" name={"imap_config[mailbox_agent_ids][#{mailbox}]"} value="" />
+                <p class="font-mono text-[0.72rem] text-black/60">{mailbox}</p>
+                <select
+                  name={"imap_config[mailbox_agent_ids][#{mailbox}]"}
+                  class="w-full font-mono text-[0.78rem] text-black border border-black/10 rounded-lg h-9 px-2 bg-[#fafafa]"
+                >
+                  <option
+                    value=""
+                    selected={is_nil(Map.get(@mailbox_agent_assignments, mailbox))}
+                  >
+                    Use fallback
+                  </option>
+                  <option
+                    :for={{name, id} <- @agent_options}
+                    value={id}
+                    selected={
+                      to_string(Map.get(@mailbox_agent_assignments, mailbox) || "") ==
+                        to_string(id)
+                    }
+                  >
+                    {name}
+                  </option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <div class="grid grid-cols-2 gap-4">

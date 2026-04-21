@@ -290,4 +290,69 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
   end
+
+  @doc "Returns provider-level default configured agent id from settings."
+  def get_provider_default_agent_id(%__MODULE__{} = config) do
+    config
+    |> provider_routing_settings()
+    |> Map.get("default_agent_id")
+    |> parse_optional_id()
+  end
+
+  def get_provider_default_agent_id(%{settings: _settings} = config) do
+    config
+    |> provider_routing_settings()
+    |> Map.get("default_agent_id")
+    |> parse_optional_id()
+  end
+
+  def get_provider_default_agent_id(_), do: nil
+
+  @doc "Sets or clears provider-level default configured agent id in settings."
+  def set_provider_default_agent_id(%__MODULE__{} = config, agent_id) do
+    settings = config.settings || %{}
+    routing = provider_routing_settings(config)
+
+    updated_routing =
+      case parse_optional_id(agent_id) do
+        nil -> Map.delete(routing, "default_agent_id")
+        id -> Map.put(routing, "default_agent_id", id)
+      end
+
+    updated_settings =
+      if map_size(updated_routing) == 0 do
+        Map.delete(settings, "routing")
+      else
+        Map.put(settings, "routing", updated_routing)
+      end
+
+    config
+    |> changeset(%{settings: updated_settings})
+    |> Zaq.Repo.update()
+  end
+
+  defp provider_routing_settings(%__MODULE__{settings: settings}),
+    do: provider_routing_settings(%{settings: settings})
+
+  defp provider_routing_settings(%{settings: settings}) when is_map(settings) do
+    case Map.get(settings, "routing") do
+      %{} = routing -> routing
+      _ -> %{}
+    end
+  end
+
+  defp provider_routing_settings(_), do: %{}
+
+  defp parse_optional_id(nil), do: nil
+  defp parse_optional_id(""), do: nil
+  defp parse_optional_id(value) when is_integer(value), do: value
+
+  defp parse_optional_id(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {id, ""} -> id
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_id(_), do: nil
 end

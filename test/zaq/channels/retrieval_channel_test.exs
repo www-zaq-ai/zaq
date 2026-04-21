@@ -4,6 +4,7 @@ defmodule Zaq.Channels.RetrievalChannelTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Repo
+  alias Zaq.SystemConfigFixtures
 
   test "changeset/2 validates required fields" do
     changeset = RetrievalChannel.changeset(%RetrievalChannel{}, %{})
@@ -39,6 +40,45 @@ defmodule Zaq.Channels.RetrievalChannelTest do
 
     assert {:error, changeset} = Repo.insert(changeset)
     assert "this channel is already configured" in errors_on(changeset).channel_config_id
+  end
+
+  test "changeset/2 persists configured_agent_id when assigned" do
+    config = insert_channel_config(%{provider: "mattermost"})
+    agent = insert_configured_agent()
+
+    inserted =
+      %RetrievalChannel{}
+      |> RetrievalChannel.changeset(%{
+        channel_config_id: config.id,
+        channel_id: "channel-assigned",
+        channel_name: "Assigned",
+        team_id: "team-1",
+        team_name: "Team",
+        active: true,
+        configured_agent_id: agent.id
+      })
+      |> Repo.insert!()
+
+    assert Map.get(inserted, :configured_agent_id) == agent.id
+  end
+
+  test "changeset/2 enforces configured_agent_id foreign key" do
+    config = insert_channel_config(%{provider: "mattermost"})
+
+    changeset =
+      %RetrievalChannel{}
+      |> RetrievalChannel.changeset(%{
+        channel_config_id: config.id,
+        channel_id: "channel-invalid-agent",
+        channel_name: "Invalid",
+        team_id: "team-1",
+        team_name: "Team",
+        active: true,
+        configured_agent_id: -1
+      })
+
+    assert {:error, failed_changeset} = Repo.insert(changeset)
+    assert "does not exist" in errors_on(failed_changeset).configured_agent_id
   end
 
   test "list_active_by_config/1 returns only active channels" do
@@ -164,5 +204,29 @@ defmodule Zaq.Channels.RetrievalChannelTest do
     %RetrievalChannel{}
     |> RetrievalChannel.changeset(Map.merge(defaults, attrs))
     |> Repo.insert!()
+  end
+
+  defp insert_configured_agent do
+    credential =
+      SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Routing Agent #{System.unique_integer([:positive, :monotonic])}",
+        description: "",
+        job: "Route retrieval traffic",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: true,
+        advanced_options: %{}
+      })
+
+    agent
   end
 end

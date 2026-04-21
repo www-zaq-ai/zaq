@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
+  alias Zaq.Agent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.NodeRouter
@@ -67,6 +68,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:provider, provider)
      |> assign(:provider_label, label)
      |> assign(:configs, configs)
+     |> assign(:agent_options, agent_options())
+     |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
      # config modal
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
@@ -200,6 +203,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:form, nil)
          |> assign(:modal_errors, [])
          |> assign(:configs, configs)
+         |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
 
@@ -239,6 +243,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          socket
          |> assign(:confirm_delete, nil)
          |> assign(:configs, configs)
+         |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> put_flash(:info, "Channel config deleted.")}
     end
@@ -258,13 +263,63 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         config
       ])
 
+    configs = list_configs(socket.assigns.provider)
+    first_config = List.first(configs)
+
     {:noreply,
      socket
-     |> assign(:configs, list_configs(socket.assigns.provider))
+     |> assign(:configs, configs)
+     |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
      |> maybe_put_runtime_sync_flash(
        sync_result,
        "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
      )}
+  end
+
+  def handle_event(
+        "set_provider_default_agent",
+        %{"config_id" => config_id, "configured_agent_id" => raw_id},
+        socket
+      ) do
+    with {:ok, id} <- parse_id(config_id),
+         %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
+         {:ok, _updated} <-
+           ChannelConfig.set_provider_default_agent_id(config, parse_optional_id(raw_id)) do
+      configs = list_configs(socket.assigns.provider)
+      first_config = List.first(configs)
+
+      {:noreply,
+       socket
+       |> assign(:configs, configs)
+       |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+       |> put_flash(:info, "Provider default agent updated.")}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to update provider default agent.")}
+    end
+  end
+
+  def handle_event(
+        "set_retrieval_channel_agent",
+        %{"retrieval_channel_id" => id, "configured_agent_id" => raw_id},
+        socket
+      ) do
+    with {:ok, rc_id} <- parse_id(id),
+         %RetChannel{} = retrieval_channel <- Repo.get(RetChannel, rc_id),
+         {:ok, _updated} <-
+           retrieval_channel
+           |> RetChannel.changeset(%{configured_agent_id: parse_optional_id(raw_id)})
+           |> Repo.update() do
+      config = first_enabled_config(socket)
+
+      {:noreply,
+       socket
+       |> assign(:retrieval_channels, load_retrieval_channels(config))
+       |> put_flash(:info, "Channel agent assignment updated.")}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to update channel agent assignment.")}
+    end
   end
 
   # -------------------------------------------------------------------------
@@ -630,6 +685,40 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp load_retrieval_channels(%ChannelConfig{} = config) do
     RetChannel.list_by_config(config.id)
   end
+
+  defp provider_default_agent_id(nil), do: nil
+
+  defp provider_default_agent_id(%ChannelConfig{} = config),
+    do: ChannelConfig.get_provider_default_agent_id(config)
+
+  defp agent_options do
+    Agent.list_active_agents()
+    |> Enum.map(fn agent -> {agent.name, agent.id} end)
+  end
+
+  defp parse_id(value) when is_integer(value), do: {:ok, value}
+
+  defp parse_id(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {id, ""} -> {:ok, id}
+      _ -> :error
+    end
+  end
+
+  defp parse_id(_), do: :error
+
+  defp parse_optional_id(nil), do: nil
+  defp parse_optional_id(""), do: nil
+  defp parse_optional_id(value) when is_integer(value), do: value
+
+  defp parse_optional_id(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {id, ""} -> id
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_id(_), do: nil
 
   defp fetch_and_assign_channels(socket, cfg, team_id) do
     case mattermost_api().list_public_channels(cfg, team_id) do

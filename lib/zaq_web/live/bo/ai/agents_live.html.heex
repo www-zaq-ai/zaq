@@ -521,13 +521,25 @@
               </div>
             </div>
 
-            <button
-              id="save-agent-button"
-              type="submit"
-              class="rounded-lg bg-[#03b6d4] px-4 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-white hover:bg-[#0198b1] transition-colors"
-            >
-              {if @mode == :new, do: "Create Agent", else: "Save Agent"}
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                id="save-agent-button"
+                type="submit"
+                class="rounded-lg bg-[#03b6d4] px-4 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-white hover:bg-[#0198b1] transition-colors"
+              >
+                {if @mode == :new, do: "Create Agent", else: "Save Agent"}
+              </button>
+              <button
+                :if={@mode == :edit and is_integer(@selected_agent_id)}
+                id="delete-agent-button"
+                type="button"
+                phx-click="delete_agent"
+                phx-value-id={@selected_agent_id}
+                class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-red-700 hover:bg-red-100 transition-colors"
+              >
+                Delete Agent
+              </button>
+            </div>
           </.form>
         </section>
 
