@@ -134,6 +134,22 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     path
   end
 
+  defp with_pptx_to_md_stub(fun, stub_module \\ Zaq.Ingestion.PptxToMdStub)
+       when is_function(fun, 0) do
+    original = Application.get_env(:zaq, :pptx_to_md_module)
+
+    try do
+      Application.put_env(:zaq, :pptx_to_md_module, stub_module)
+      fun.()
+    after
+      if is_nil(original) do
+        Application.delete_env(:zaq, :pptx_to_md_module)
+      else
+        Application.put_env(:zaq, :pptx_to_md_module, original)
+      end
+    end
+  end
+
   defp with_image_to_text_stub(api_key, fun) when is_function(fun, 0),
     do: with_image_to_text_stub(api_key, Zaq.Ingestion.ImageToTextStepStub, fun)
 
@@ -1277,6 +1293,41 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "query_extraction/2 returns empty list when no matching sections exist" do
       stub_embedding_success()
       assert {:ok, []} = DocumentProcessor.query_extraction("no indexed content here")
+    end
+
+    test "converts pptx to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+      with_pptx_to_md_stub(fn ->
+        pptx_path = Path.join(tmp_dir, "deck.pptx")
+        File.write!(pptx_path, "fake-pptx-bytes")
+
+        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(pptx_path)
+        assert doc.source == "deck.pptx"
+        assert doc.content =~ "Converted PPTX content"
+      end)
+    end
+
+    test "returns error when pptx conversion fails and no sidecar exists", %{tmp_dir: tmp_dir} do
+      failing_stub = Module.concat(__MODULE__, FailingPptxStub)
+
+      unless Code.ensure_loaded?(failing_stub) do
+        Module.create(
+          failing_stub,
+          quote do
+            def run(_pptx_path, _md_path), do: {:error, %{exit_code: 1, output: "script failed"}}
+          end,
+          Macro.Env.location(__ENV__)
+        )
+      end
+
+      with_pptx_to_md_stub(
+        fn ->
+          pptx_path = Path.join(tmp_dir, "broken.pptx")
+          File.write!(pptx_path, "fake-pptx-bytes")
+
+          assert {:error, _reason} = DocumentProcessor.process_single_file(pptx_path)
+        end,
+        failing_stub
+      )
     end
   end
 

@@ -253,11 +253,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp convert_pptx(file_path, md_path) do
-    with {:ok, _} <- PptxToMd.run(file_path, md_path),
+    with {:ok, _} <- pptx_to_md_module().run(file_path, md_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] PPTX converted to markdown: #{md_path}")
       {:ok, sanitize_utf8(raw)}
     end
+  end
+
+  defp pptx_to_md_module do
+    Application.get_env(:zaq, :pptx_to_md_module, PptxToMd)
   end
 
   defp convert_xlsx(file_path, md_path) do
