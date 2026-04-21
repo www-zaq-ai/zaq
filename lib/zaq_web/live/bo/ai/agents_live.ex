@@ -21,6 +21,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     }
 
     credentials = System.list_ai_provider_credentials()
+    credentials_by_id = Map.new(credentials, &{&1.id, &1})
     tools = Registry.tools()
 
     socket =
@@ -28,11 +29,13 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:current_path, "/bo/agents")
       |> assign(:filters, filters)
       |> assign(:credentials, credentials)
+      |> assign(:credentials_by_id, credentials_by_id)
       |> assign(:tools, tools)
       |> assign(:page, 1)
       |> assign(:per_page, 20)
       |> assign(:mode, :idle)
       |> assign(:selected_agent_id, nil)
+      |> assign(:selected_agent, nil)
       |> assign(:model_options, [])
       |> assign(:selected_model_supports_tools, nil)
       |> assign(:advanced_options_json, "{}")
@@ -109,13 +112,18 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   def handle_event("select_agent", %{"id" => id}, socket) do
-    agent = Agent.get_agent!(id)
+    int_id = String.to_integer(id)
+
+    agent =
+      Enum.find(socket.assigns.agents, &(&1.id == int_id)) ||
+        Agent.get_agent!(int_id)
 
     {:noreply,
      socket
      |> assign(:mode, :edit)
      |> assign(:selected_agent_id, agent.id)
-     |> assign(:model_options, model_options_for_credential(agent.credential_id))
+     |> assign(:selected_agent, agent)
+     |> assign(:model_options, model_options_for_credential(agent.credential_id, socket))
      |> assign(:advanced_options_json, pretty_json(agent.advanced_options || %{}))
      |> assign(:advanced_options_error, nil)
      |> assign(:form_notice, nil)
@@ -136,7 +144,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
         {:noreply,
          socket
          |> assign_changeset(changeset)
-         |> assign(:model_options, model_options_from_attrs(parsed_attrs))
+         |> assign(:model_options, model_options_from_attrs(parsed_attrs, socket))
          |> assign(:advanced_options_json, Map.get(attrs, "advanced_options_json", "{}"))
          |> assign(:advanced_options_error, nil)
          |> assign(:form_notice, nil)}
@@ -150,7 +158,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
         {:noreply,
          socket
          |> assign_changeset(changeset)
-         |> assign(:model_options, model_options_from_attrs(parsed_attrs))
+         |> assign(:model_options, model_options_from_attrs(parsed_attrs, socket))
          |> assign(:advanced_options_json, Map.get(attrs, "advanced_options_json", "{}"))
          |> assign(:advanced_options_error, nil)
          |> assign(:form_notice, nil)}
@@ -174,7 +182,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
         {:noreply,
          socket
          |> assign_changeset(changeset)
-         |> assign(:model_options, model_options_from_attrs(parsed_attrs))
+         |> assign(:model_options, model_options_from_attrs(parsed_attrs, socket))
          |> assign(:advanced_options_json, Map.get(attrs, "advanced_options_json", "{}"))
          |> assign(:advanced_options_error, message)
          |> assign(:form_notice, nil)}
@@ -210,11 +218,12 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
              |> put_flash(:info, "Agent created")
              |> assign(:mode, :edit)
              |> assign(:selected_agent_id, agent.id)
+             |> assign(:selected_agent, agent)
              |> assign(:advanced_options_error, nil)
              |> assign(:form_notice, nil)
              |> assign(:advanced_options_json, pretty_json(agent.advanced_options || %{}))
              |> assign_changeset(Agent.change_agent(agent))
-             |> assign(:model_options, model_options_for_credential(agent.credential_id))
+             |> assign(:model_options, model_options_for_credential(agent.credential_id, socket))
              |> refresh_agents()}
 
           {:error, changeset} ->
@@ -231,11 +240,15 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
           {:ok, updated} ->
             {:noreply,
              socket
+             |> assign(:selected_agent, updated)
              |> assign(:advanced_options_error, nil)
              |> assign(:form_notice, "Agent updated")
              |> assign(:advanced_options_json, pretty_json(updated.advanced_options || %{}))
              |> assign_changeset(Agent.change_agent(updated))
-             |> assign(:model_options, model_options_for_credential(updated.credential_id))
+             |> assign(
+               :model_options,
+               model_options_for_credential(updated.credential_id, socket)
+             )
              |> refresh_agents()}
 
           {:error, changeset} ->
@@ -249,6 +262,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   defp current_form_agent(socket) do
     case socket.assigns do
+      %{mode: :edit, selected_agent: %ConfiguredAgent{} = agent} -> agent
       %{mode: :edit, selected_agent_id: id} when is_integer(id) -> Agent.get_agent!(id)
       _ -> %ConfiguredAgent{}
     end
@@ -261,9 +275,19 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
         per_page: socket.assigns.per_page
       )
 
+    selected_agent =
+      case socket.assigns.selected_agent_id do
+        id when is_integer(id) ->
+          Enum.find(agents, &(&1.id == id)) || socket.assigns.selected_agent
+
+        _ ->
+          nil
+      end
+
     socket
     |> assign(:agents, agents)
     |> assign(:total_agents, total)
+    |> assign(:selected_agent, selected_agent)
   end
 
   defp assign_new_changeset(socket) do
@@ -273,7 +297,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   defp assign_changeset(socket, %Changeset{} = changeset) do
     socket
     |> assign(:changeset, changeset)
-    |> assign(:selected_model_supports_tools, selected_model_supports_tools(changeset))
+    |> assign(:selected_model_supports_tools, selected_model_supports_tools(changeset, socket))
     |> assign(:form, to_form(changeset, as: :configured_agent))
   end
 
@@ -289,6 +313,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     socket
     |> assign(:mode, :new)
     |> assign(:selected_agent_id, nil)
+    |> assign(:selected_agent, nil)
     |> assign(:model_options, [])
     |> assign(:advanced_options_json, "{}")
     |> assign(:advanced_options_error, nil)
@@ -302,6 +327,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     socket
     |> assign(:mode, :idle)
     |> assign(:selected_agent_id, nil)
+    |> assign(:selected_agent, nil)
     |> assign(:model_options, [])
     |> assign(:advanced_options_json, "{}")
     |> assign(:advanced_options_error, nil)
@@ -382,24 +408,24 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   defp normalize_tool_keys(key) when is_binary(key) and key != "", do: [key]
   defp normalize_tool_keys(_), do: []
 
-  defp model_options_from_attrs(attrs) do
+  defp model_options_from_attrs(attrs, socket) do
     attrs
     |> Map.get("credential_id")
-    |> model_options_for_credential()
+    |> model_options_for_credential(socket)
   end
 
-  defp model_options_for_credential(nil), do: []
-  defp model_options_for_credential(""), do: []
+  defp model_options_for_credential(nil, _socket), do: []
+  defp model_options_for_credential("", _socket), do: []
 
-  defp model_options_for_credential(credential_id) when is_binary(credential_id) do
+  defp model_options_for_credential(credential_id, socket) when is_binary(credential_id) do
     case Integer.parse(credential_id) do
-      {int_id, ""} -> model_options_for_credential(int_id)
+      {int_id, ""} -> model_options_for_credential(int_id, socket)
       _ -> []
     end
   end
 
-  defp model_options_for_credential(credential_id) when is_integer(credential_id) do
-    case System.get_ai_provider_credential(credential_id) do
+  defp model_options_for_credential(credential_id, socket) when is_integer(credential_id) do
+    case credential_for_id(socket.assigns.credentials_by_id, credential_id) do
       %{provider: provider} when is_binary(provider) ->
         provider
         |> models_for_provider()
@@ -426,7 +452,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   defp pretty_json(_), do: "{}"
 
-  defp selected_model_supports_tools(%Changeset{} = changeset) do
+  defp selected_model_supports_tools(%Changeset{} = changeset, socket) do
     credential_id = Changeset.get_field(changeset, :credential_id)
     model_id = Changeset.get_field(changeset, :model)
 
@@ -434,11 +460,15 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
          true <- is_binary(model_id),
          true <- model_id != "",
          %{provider: provider_id} when is_binary(provider_id) <-
-           System.get_ai_provider_credential(credential_id) do
+           credential_for_id(socket.assigns.credentials_by_id, credential_id) do
       Registry.model_supports_tools?(provider_id, model_id)
     else
       _ -> nil
     end
+  end
+
+  defp credential_for_id(credentials_by_id, credential_id) when is_map(credentials_by_id) do
+    Map.get(credentials_by_id, credential_id) || System.get_ai_provider_credential(credential_id)
   end
 
   defp show_field_errors?(%Changeset{action: action}) when action in [:insert, :update], do: true

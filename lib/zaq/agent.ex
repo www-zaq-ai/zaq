@@ -8,6 +8,7 @@ defmodule Zaq.Agent do
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Repo
   alias Zaq.System
+  alias Zaq.System.AIProviderCredential
 
   @spec list_agents() :: [ConfiguredAgent.t()]
   def list_agents do
@@ -78,8 +79,7 @@ defmodule Zaq.Agent do
   def create_agent(attrs) do
     %ConfiguredAgent{}
     |> ConfiguredAgent.changeset(attrs)
-    |> validate_runtime_provider()
-    |> validate_tool_capability()
+    |> apply_runtime_validations()
     |> Repo.insert()
     |> preload_credential()
   end
@@ -89,8 +89,7 @@ defmodule Zaq.Agent do
   def update_agent(%ConfiguredAgent{} = agent, attrs) do
     agent
     |> ConfiguredAgent.changeset(attrs)
-    |> validate_runtime_provider()
-    |> validate_tool_capability()
+    |> apply_runtime_validations()
     |> Repo.update()
     |> preload_credential()
   end
@@ -102,8 +101,7 @@ defmodule Zaq.Agent do
   def change_agent(%ConfiguredAgent{} = agent, attrs \\ %{}) do
     agent
     |> ConfiguredAgent.changeset(attrs)
-    |> validate_runtime_provider()
-    |> validate_tool_capability()
+    |> apply_runtime_validations()
   end
 
   @spec provider_for_agent(ConfiguredAgent.t()) :: String.t() | nil
@@ -141,7 +139,15 @@ defmodule Zaq.Agent do
 
   defp preload_credential(other), do: other
 
-  defp validate_tool_capability(%Changeset{} = changeset) do
+  defp apply_runtime_validations(%Changeset{} = changeset) do
+    provider = provider_from_changeset(changeset)
+
+    changeset
+    |> validate_runtime_provider(provider)
+    |> validate_tool_capability(provider)
+  end
+
+  defp validate_tool_capability(%Changeset{} = changeset, provider) do
     keys = Changeset.get_field(changeset, :enabled_tool_keys) || []
 
     if keys == [] do
@@ -149,9 +155,9 @@ defmodule Zaq.Agent do
     else
       credential_id = Changeset.get_field(changeset, :credential_id)
       model = Changeset.get_field(changeset, :model)
-      provider = provider_from_credential_id(credential_id)
+      provider_id = provider || provider_from_credential_id(credential_id)
 
-      case Registry.model_supports_tools?(provider, model) do
+      case Registry.model_supports_tools?(provider_id, model) do
         false ->
           Changeset.add_error(
             changeset,
@@ -165,10 +171,8 @@ defmodule Zaq.Agent do
     end
   end
 
-  defp validate_runtime_provider(%Changeset{} = changeset) do
-    credential_id = Changeset.get_field(changeset, :credential_id)
-
-    case provider_from_credential_id(credential_id) do
+  defp validate_runtime_provider(%Changeset{} = changeset, provider) do
+    case provider do
       nil ->
         changeset
 
@@ -184,6 +188,22 @@ defmodule Zaq.Agent do
               "selected provider cannot be used at runtime (#{reason})"
             )
         end
+    end
+  end
+
+  defp provider_from_changeset(%Changeset{} = changeset) do
+    credential_id = Changeset.get_field(changeset, :credential_id)
+
+    case changeset.data do
+      %ConfiguredAgent{
+        credential_id: ^credential_id,
+        credential: %AIProviderCredential{provider: provider}
+      }
+      when is_binary(provider) ->
+        provider
+
+      _ ->
+        provider_from_credential_id(credential_id)
     end
   end
 

@@ -384,6 +384,43 @@ defmodule Zaq.AgentTest do
     assert "selected model does not support tool calling" in errors_on(changeset).enabled_tool_keys
   end
 
+  test "change_agent reuses preloaded credential without extra lookup query" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Agent Query Reuse Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    {:ok, agent} =
+      Agent.create_agent(%{
+        name: "Query Reuse Agent #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    attach_repo_query_telemetry(self())
+    _ = drain_repo_query_sources()
+
+    changeset =
+      Agent.change_agent(agent, %{
+        model: "not-a-real-model",
+        enabled_tool_keys: ["files.read_file"]
+      })
+
+    refute changeset.valid?
+
+    assert "selected model does not support tool calling" in errors_on(changeset).enabled_tool_keys
+
+    sources = drain_repo_query_sources()
+    refute Enum.any?(sources, &(&1 == "ai_provider_credentials"))
+  end
+
   test "delete_agent removes the record" do
     credential =
       ai_credential_fixture(%{
@@ -406,5 +443,31 @@ defmodule Zaq.AgentTest do
 
     assert {:ok, _deleted} = Agent.delete_agent(agent)
     assert Agent.get_agent(agent.id) == nil
+  end
+
+  defp attach_repo_query_telemetry(test_pid) do
+    ref = make_ref()
+    handler_id = {__MODULE__, :repo_query, ref}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:zaq, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:repo_query, metadata[:source]})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    :ok
+  end
+
+  defp drain_repo_query_sources(acc \\ []) do
+    receive do
+      {:repo_query, source} -> drain_repo_query_sources([source | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 end

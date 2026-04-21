@@ -31,6 +31,14 @@
 - Make Oban workers and external side-effect operations idempotent so retries are safe.
 - Do not probe data shapes speculatively — validate at boundaries or rely on typed SDKs.
 
+### BO LiveView Query Discipline
+
+- `handle_event("validate", ...)` must run from assign state only; no DB reads in validation loops.
+- Load reference datasets (credentials, static option lists, enums) once in `mount/3`; cache as both list and lookup map (`*_by_id`).
+- Keep selected edit entities in assigns (`:selected_*`) and reuse them across validate/save flows instead of refetching by id.
+- Context validation pipelines must resolve shared lookup dependencies once per operation and pass them through helper validations.
+- New BO pages must include query-budget regression tests for hot interactions (row select, validate, save) using repo telemetry (`[:zaq, :repo, :query]`).
+
 ---
 
 ## Technical Debt Controls

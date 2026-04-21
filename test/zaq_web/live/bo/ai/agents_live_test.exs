@@ -731,6 +731,85 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Tool Shape"
   end
 
+  test "selecting an already-listed row does not re-query configured_agents", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "No Requery Row #{System.unique_integer([:positive])}",
+        description: "",
+        job: "row",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    attach_repo_query_telemetry(self())
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    _ = drain_repo_query_sources()
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    sources = drain_repo_query_sources()
+    refute Enum.any?(sources, &(&1 == "configured_agents"))
+  end
+
+  test "edit-mode validate does not re-query credential or selected agent", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "No Requery Validate #{System.unique_integer([:positive])}",
+        description: "existing",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    attach_repo_query_telemetry(self())
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    _ = drain_repo_query_sources()
+
+    render_change(view, "validate", %{
+      "configured_agent" => %{
+        "name" => agent.name,
+        "description" => "updated",
+        "job" => agent.job,
+        "model" => agent.model,
+        "credential_id" => to_string(agent.credential_id),
+        "strategy" => agent.strategy,
+        "enabled_tool_keys" => [],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    sources = drain_repo_query_sources()
+    refute Enum.any?(sources, &(&1 == "ai_provider_credentials"))
+    refute Enum.any?(sources, &(&1 == "configured_agents"))
+  end
+
   test "validate handles non-binary advanced options payloads in raw event calls without surfacing error" do
     {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
 
@@ -792,5 +871,31 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_click()
 
     refute has_element?(view, ~s([data-selected-tool-key="files.read_file"]))
+  end
+
+  defp attach_repo_query_telemetry(test_pid) do
+    ref = make_ref()
+    handler_id = {__MODULE__, :repo_query, ref}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:zaq, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:repo_query, metadata[:source]})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    :ok
+  end
+
+  defp drain_repo_query_sources(acc \\ []) do
+    receive do
+      {:repo_query, source} -> drain_repo_query_sources([source | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 end
