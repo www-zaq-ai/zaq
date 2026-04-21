@@ -13,7 +13,7 @@ INGESTION_DIR="ingestion-volumes"
 INGESTION_DOCS_DIR="${INGESTION_DIR}/documents"
 
 ZAQ_SERVICE="zaq"
-PGVECTOR_SERVICE="pgvector"
+DB_SERVICE="paradedb"
 ZAQ_URL="http://localhost:4000"
 
 if [ -t 1 ] && command -v tput >/dev/null 2>&1 && [ "$(tput colors 2>/dev/null || printf '0')" -ge 8 ]; then
@@ -115,7 +115,7 @@ services_running() {
   local running
   running="$(docker compose ps --status running --services 2>/dev/null || true)"
   printf '%s\n' "${running}" | grep -qx "${ZAQ_SERVICE}" &&
-    printf '%s\n' "${running}" | grep -qx "${PGVECTOR_SERVICE}"
+    printf '%s\n' "${running}" | grep -qx "${DB_SERVICE}"
 }
 
 prompt_continue_non_empty() {
@@ -273,33 +273,85 @@ show_ui() {
   docker compose logs --tail=100 -f
 }
 
-main() {
+update() {
   check_os
   check_docker
 
-  if ! directory_is_empty; then
-    if artifacts_exist; then
-      info "Detected existing ZAQ local artifacts (${COMPOSE_FILE}, ${ENV_FILE}, ${INGESTION_DIR})."
-      if services_running; then
-        info "Containers already running. Jumping directly to log UI."
-        show_ui
-        exit 0
-      fi
-
-      info "Artifacts found but services not running. Jumping to container start."
-      start_containers
-      show_ui
-      exit 0
-    fi
-
-    prompt_continue_non_empty
+  if ! artifacts_exist; then
+    error "No ZAQ local setup found in the current directory. Run without arguments to set up first."
+    exit 1
   fi
 
-  prepare_directories
+  info "Downloading latest docker-compose.yml..."
   download_compose
-  generate_env_file
-  start_containers
+
+  info "Stopping existing containers..."
+  docker compose down
+  docker rm -f zaq-app zaq-paradedb >/dev/null 2>&1 || true
+
+  info "Pulling latest ZAQ images..."
+  docker compose pull
+
+  info "Starting containers with new images..."
+  docker compose up -d --remove-orphans
+
+  info "Update complete."
   show_ui
+}
+
+usage() {
+  printf 'Usage: %s [command]\n' "${SCRIPT_NAME}"
+  printf '\n'
+  printf 'Commands:\n'
+  printf '  (none)   Set up and start ZAQ (default)\n'
+  printf '  update   Pull latest images and restart containers\n'
+  printf '  help     Show this help message\n'
+}
+
+main() {
+  local cmd="${1:-}"
+
+  case "${cmd}" in
+    update)
+      update
+      ;;
+    help|--help|-h)
+      usage
+      ;;
+    "")
+      check_os
+      check_docker
+
+      if ! directory_is_empty; then
+        if artifacts_exist; then
+          info "Detected existing ZAQ local artifacts (${COMPOSE_FILE}, ${ENV_FILE}, ${INGESTION_DIR})."
+          if services_running; then
+            info "Containers already running. Jumping directly to log UI."
+            show_ui
+            exit 0
+          fi
+
+          info "Artifacts found but services not running. Jumping to container start."
+          start_containers
+          show_ui
+          exit 0
+        fi
+
+        prompt_continue_non_empty
+      fi
+
+      prepare_directories
+      download_compose
+      generate_env_file
+      start_containers
+      show_ui
+      ;;
+    *)
+      error "Unknown command: '${cmd}'"
+      usage >&2
+      exit 1
+      ;;
+  esac
 }
 
 main "$@"
