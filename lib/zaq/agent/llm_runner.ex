@@ -1,6 +1,8 @@
 defmodule Zaq.Agent.LLMRunner do
   @moduledoc false
 
+  @behaviour Zaq.Agent.LLMRunnerBehaviour
+
   require Logger
 
   alias LangChain.Chains.LLMChain
