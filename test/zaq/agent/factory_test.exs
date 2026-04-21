@@ -20,10 +20,11 @@ defmodule Zaq.Agent.FactoryTest do
              Factory.ask_with_config(:unused_server, "hello", configured_agent)
   end
 
-  test "configure_server returns error for invalid server reference" do
-    configured_agent = %Agent.ConfiguredAgent{job: "You are a helper"}
+  test "runtime_config returns unknown tools error for invalid selection" do
+    configured_agent = %Agent.ConfiguredAgent{enabled_tool_keys: ["files.missing"]}
 
-    assert {:error, _reason} = Factory.configure_server(:invalid_server, configured_agent)
+    assert {:error, {:unknown_tools, ["files.missing"]}} =
+             Factory.runtime_config(configured_agent)
   end
 
   test "ask_with_config builds llm opts across option-key and credential branches" do
@@ -58,7 +59,7 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:error, _reason} = Factory.ask_with_config(:invalid_server, "hello", configured_agent)
   end
 
-  test "configure_server and ask_with_config execute end-to-end with advanced llm opts" do
+  test "ask_with_config executes end-to-end with server runtime config" do
     handler = fn conn, body ->
       payload = Jason.decode!(body)
 
@@ -99,7 +100,10 @@ defmodule Zaq.Agent.FactoryTest do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
     assert {:ok, server} = ServerManager.ensure_server(configured_agent)
-    assert :ok = Factory.configure_server(server, configured_agent)
+
+    assert {:ok, status} = Jido.AgentServer.status(server)
+    assert status.raw_state.runtime_config.system_prompt == configured_agent.job
+    assert is_list(status.raw_state.runtime_config.llm_opts)
 
     assert {:ok, request} =
              Factory.ask_with_config(server, incoming.content, configured_agent, timeout: 35_000)
@@ -109,6 +113,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
     assert body =~ "gpt-4.1-mini"
+    assert body =~ configured_agent.job
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do
