@@ -14,8 +14,6 @@ defmodule Zaq.Agent.ServerManager do
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
   @jido_registry Jido.registry_name(@jido_instance)
-  @configure_retries 8
-  @configure_retry_delay_ms 25
 
   @type state :: %{optional(integer()) => binary()}
 
@@ -93,6 +91,7 @@ defmodule Zaq.Agent.ServerManager do
 
   defp start_server(%ConfiguredAgent{} = configured_agent, server_id, state, fingerprint) do
     with {:ok, model_spec} <- model_spec(configured_agent),
+         {:ok, runtime_config} <- Factory.runtime_config(configured_agent),
          {:ok, _pid} <-
            DynamicSupervisor.start_child(
              @dynamic_supervisor,
@@ -104,11 +103,11 @@ defmodule Zaq.Agent.ServerManager do
                 id: server_id,
                 initial_state: %{
                   model: model_spec,
+                  runtime_config: runtime_config,
                   tool_context: %{configured_agent_id: configured_agent.id}
                 }
               ]}
-           ),
-         :ok <- configure_started_server(server_id, configured_agent) do
+           ) do
       {:ok, server_id, Map.put(state, configured_agent.id, fingerprint)}
     else
       {:error, reason} ->
@@ -157,33 +156,6 @@ defmodule Zaq.Agent.ServerManager do
 
   defp server_ref(server_id) when is_binary(server_id) do
     Jido.AgentServer.via_tuple(server_id, @jido_registry)
-  end
-
-  defp configure_started_server(server_id, configured_agent) do
-    server = server_ref(server_id)
-    do_configure_server(server, configured_agent, @configure_retries)
-  end
-
-  defp do_configure_server(server, configured_agent, attempts_left) when attempts_left > 0 do
-    result =
-      try do
-        Factory.configure_server(server, configured_agent)
-      rescue
-        exception -> {:error, {:configure_failed, exception}}
-      end
-
-    case result do
-      :ok ->
-        :ok
-
-      {:error, _reason} ->
-        Process.sleep(@configure_retry_delay_ms)
-        do_configure_server(server, configured_agent, attempts_left - 1)
-    end
-  end
-
-  defp do_configure_server(_server, _configured_agent, 0) do
-    {:error, :system_prompt_config_failed}
   end
 
   defp fingerprint(%ConfiguredAgent{} = configured_agent) do

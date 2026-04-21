@@ -197,19 +197,18 @@ defmodule Zaq.Agent.Tools.Registry do
 
   def model_supports_tools?(provider_id, model_id)
       when is_binary(provider_id) and is_binary(model_id) do
-    provider_atom = String.to_existing_atom(provider_id)
-
-    case LLMDB.model(provider_atom, model_id) do
-      {:ok, %{capabilities: capabilities}} ->
-        case Map.get(capabilities || %{}, :tools) do
-          tools when is_map(tools) -> map_size(tools) > 0
-          _ -> false
-        end
-
-      _ ->
-        false
+    with provider_atom when not is_nil(provider_atom) <- provider_atom_from_id(provider_id),
+         {:ok, %{capabilities: capabilities}} <- LLMDB.model(provider_atom, model_id),
+         tools when is_map(tools) <- Map.get(capabilities || %{}, :tools) do
+      map_size(tools) > 0
+    else
+      _ -> false
     end
-  rescue
-    ArgumentError -> false
+  end
+
+  defp provider_atom_from_id(provider_id) when is_binary(provider_id) do
+    Enum.find_value(LLMDB.providers(), fn provider ->
+      if Atom.to_string(provider.id) == provider_id, do: provider.id
+    end)
   end
 end

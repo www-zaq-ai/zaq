@@ -38,17 +38,29 @@ defmodule Zaq.Agent.JidoObservabilityLogger do
   def init(_opts) do
     cfg = config()
 
-    if cfg.enabled do
-      :ok =
-        :telemetry.attach_many(
-          @handler_id,
-          events(cfg.include_llm_deltas),
-          &__MODULE__.handle_event/4,
-          cfg
-        )
-    end
+    enabled? =
+      if cfg.enabled do
+        case :telemetry.attach_many(
+               @handler_id,
+               events(cfg.include_llm_deltas),
+               &__MODULE__.handle_event/4,
+               cfg
+             ) do
+          :ok ->
+            true
 
-    {:ok, %{enabled?: cfg.enabled}}
+          {:error, reason} ->
+            Logger.warning(
+              "Jido observability logger disabled: telemetry attach failed: #{inspect(reason)}"
+            )
+
+            false
+        end
+      else
+        false
+      end
+
+    {:ok, %{enabled?: enabled?}}
   end
 
   @impl true
