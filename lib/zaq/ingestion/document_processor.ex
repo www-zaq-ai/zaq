@@ -23,7 +23,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker}
   alias Zaq.Ingestion.{LanguageDetector, Sidecar, SourcePath}
   alias Zaq.Ingestion.Python.Pipeline
-  alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, XlsxToMd}
+  alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, PptxToMd, XlsxToMd}
   alias Zaq.Repo
 
   require Logger
@@ -39,7 +39,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
   alias Zaq.Ingestion.CSVParser
 
-  @supported_extensions ~w(.md .pdf .docx .xlsx .csv .png .jpg .jpeg)
+  @supported_extensions ~w(.md .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
 
   @rrf_k 60
 
@@ -82,7 +82,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Processes all supported files in the given folder path.
 
-  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`, `.png`, `.jpg`
+  Supported formats: `.md`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.csv`, `.png`, `.jpg`
 
   ## Examples
 
@@ -117,7 +117,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Processes a single file: converts to markdown if needed, then reads ->
   upserts document -> chunks -> embeds -> stores.
 
-  Supported formats: `.md`, `.pdf`, `.docx`, `.xlsx`, `.csv`, `.png`, `.jpg`
+  Supported formats: `.md`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.csv`, `.png`, `.jpg`
   """
   def process_single_file(file_path) do
     case process_single_file_with_report(file_path) do
@@ -207,6 +207,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         md_path = Path.rootname(file_path) <> ".md"
         read_sidecar_or_convert(md_path, "DOCX", fn -> convert_docx(file_path, md_path) end)
 
+      ".pptx" ->
+        md_path = Path.rootname(file_path) <> ".md"
+        read_sidecar_or_convert(md_path, "PPTX", fn -> convert_pptx(file_path, md_path) end)
+
       ".xlsx" ->
         md_path = Path.rootname(file_path) <> ".md"
         read_sidecar_or_convert(md_path, "XLSX", fn -> convert_xlsx(file_path, md_path) end)
@@ -244,6 +248,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     with {:ok, _} <- DocxToMd.run(file_path, md_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] DOCX converted to markdown: #{md_path}")
+      {:ok, sanitize_utf8(raw)}
+    end
+  end
+
+  defp convert_pptx(file_path, md_path) do
+    with {:ok, _} <- PptxToMd.run(file_path, md_path),
+         {:ok, raw} <- File.read(md_path) do
+      Logger.info("[DocumentProcessor] PPTX converted to markdown: #{md_path}")
       {:ok, sanitize_utf8(raw)}
     end
   end
