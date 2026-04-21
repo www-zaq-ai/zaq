@@ -1144,10 +1144,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       {:ok, tmp_dir: tmp_dir}
     end
 
-    test "reads existing markdown sidecars for pdf/docx/xlsx without conversion", %{
+    test "reads existing markdown sidecars for pdf/docx/pptx/xlsx without conversion", %{
       tmp_dir: tmp_dir
     } do
-      for ext <- [".pdf", ".docx", ".xlsx"] do
+      for ext <- [".pdf", ".docx", ".pptx", ".xlsx"] do
         source_name = "sidecar#{ext}"
         source_path = create_test_md_file(tmp_dir, source_name, "raw-bytes")
         sidecar_path = Path.rootname(source_path) <> ".md"
