@@ -41,6 +41,7 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, status} = Jido.AgentServer.status(server_ref)
     assert {:openai, opts} = status.raw_state.model
     assert Keyword.get(opts, :model) == "gpt-4.1-mini"
+    assert status.raw_state.runtime_config.system_prompt == "You are a test agent"
   end
 
   test "ensure_server supports catalog-only provider via openai runtime fallback" do
@@ -277,24 +278,42 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert is_pid(pid)
   end
 
-  test "ensure_server returns system prompt config failure when prompt cannot be configured" do
-    configured_agent = %ConfiguredAgent{
-      id: System.unique_integer([:positive]),
-      name: "Config Failure Agent",
-      job: nil,
-      model: "gpt-4.1-mini",
-      credential: %{provider: "openai", endpoint: "https://api.openai.com/v1", api_key: "x"},
-      credential_id: nil,
-      strategy: "react",
-      enabled_tool_keys: [],
-      conversation_enabled: false,
-      active: true,
-      advanced_options: %{}
-    }
+  test "concurrent ensure_server calls reuse the same runtime pid" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Concurrent Ensure Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
 
-    assert {:reply, {:error, :system_prompt_config_failed}, %{}} =
-             ServerManager.handle_call({:ensure_server, configured_agent}, self(), %{})
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Concurrent Ensure Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "concurrent",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
 
-    _ = ServerManager.stop_server(configured_agent.id)
+    refs =
+      1..8
+      |> Task.async_stream(fn _ -> ServerManager.ensure_server(configured_agent) end,
+        ordered: false,
+        timeout: 10_000
+      )
+      |> Enum.map(fn {:ok, {:ok, ref}} -> ref end)
+
+    [first_ref | rest] = refs
+    assert Enum.all?(rest, &(&1 == first_ref))
+
+    assert {:via, Registry, {registry, key}} = first_ref
+    pid = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid)
   end
 end

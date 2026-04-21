@@ -238,6 +238,11 @@ defmodule Zaq.Agent do
     end
   end
 
+  @doc false
+  @spec to_existing_atom(String.t()) :: {:ok, atom()} | {:error, :provider_not_found}
+  # Provider ids come from DB/user-configured credentials. We only convert values
+  # that already exist as loaded atoms to avoid atom leaks. Unknown values return
+  # {:error, :provider_not_found}.
   defp to_existing_atom(value) when is_binary(value) do
     {:ok, String.to_existing_atom(value)}
   rescue

@@ -3,8 +3,7 @@ defmodule Zaq.Agent.Factory do
   Standard Jido agent used for BO-managed configured agents.
 
   All configured agents execute through this module. Per-agent specifics are
-  applied at runtime (server model state, set_system_prompt signal, request
-  tool/llm options).
+  applied at runtime (server model/runtime state and request tool/llm options).
   """
 
   use Jido.AI.Agent,
@@ -16,17 +15,22 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
+  require Logger
 
   def strategy_opts do
     super()
     |> Keyword.delete(:model)
   end
 
-  @spec configure_server(GenServer.server(), ConfiguredAgent.t()) :: :ok | {:error, term()}
-  def configure_server(server, %ConfiguredAgent{} = configured_agent) do
-    case Jido.AI.set_system_prompt(server, configured_agent.job, timeout: 5_000) do
-      {:ok, _agent} -> :ok
-      {:error, reason} -> {:error, reason}
+  @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
+  def runtime_config(%ConfiguredAgent{} = configured_agent) do
+    with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
+      {:ok,
+       %{
+         tools: tools,
+         llm_opts: llm_opts(configured_agent),
+         system_prompt: configured_agent.job || ""
+       }}
     end
   end
 
@@ -34,14 +38,61 @@ defmodule Zaq.Agent.Factory do
           {:ok, Jido.AI.Request.Handle.t()} | {:error, term()}
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
       when is_binary(query) do
-    with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
+    with {:ok, config} <- server_runtime_config(server, configured_agent),
+         :ok <- ensure_system_prompt(server, Map.get(config, :system_prompt, "")) do
       ask_opts =
         opts
-        |> Keyword.put(:tools, tools)
-        |> Keyword.put(:llm_opts, llm_opts(configured_agent))
+        |> Keyword.put(:tools, Map.get(config, :tools, []))
+        |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
         |> Keyword.put_new(:timeout, 30_000)
 
       ask(server, query, ask_opts)
+    end
+  end
+
+  defp server_runtime_config(server, configured_agent) do
+    case Jido.AgentServer.status(server) do
+      {:ok, %{raw_state: %{runtime_config: %{} = config}}} ->
+        {:ok, config}
+
+      _ ->
+        runtime_config(configured_agent)
+    end
+  end
+
+  defp ensure_system_prompt(_server, prompt) when prompt in [nil, ""], do: :ok
+
+  defp ensure_system_prompt(server, prompt) when is_binary(prompt) do
+    case current_system_prompt(server) do
+      ^prompt ->
+        :ok
+
+      _other ->
+        do_set_system_prompt(server, prompt, 4)
+    end
+  end
+
+  defp current_system_prompt(server) do
+    case Jido.AgentServer.status(server) do
+      {:ok, %{raw_state: %{__strategy__: %{config: %{system_prompt: prompt}}}}}
+      when is_binary(prompt) ->
+        prompt
+
+      _ ->
+        nil
+    end
+  end
+
+  defp do_set_system_prompt(_server, _prompt, 0), do: {:error, :system_prompt_config_failed}
+
+  defp do_set_system_prompt(server, prompt, attempts_left) do
+    case Jido.AI.set_system_prompt(server, prompt, timeout: 5_000) do
+      {:ok, _agent} ->
+        :ok
+
+      {:error, _reason} ->
+        Process.sleep(20)
+        do_set_system_prompt(server, prompt, attempts_left - 1)
     end
   end
 
@@ -83,7 +134,9 @@ defmodule Zaq.Agent.Factory do
   defp normalize_option_key(key) when is_binary(key) do
     String.to_existing_atom(key)
   rescue
-    ArgumentError -> nil
+    ArgumentError ->
+      Logger.warning("Ignoring unsupported advanced option key: #{inspect(key)}")
+      nil
   end
 
   defp normalize_option_key(_), do: nil
