@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.3](https://github.com/www-zaq-ai/zaq/compare/v0.7.2...v0.7.3) (2026-04-21)
+
+
+### Bug Fixes
+
+* **chat:** add date separators to message list, conversation detail, and chat sidebar ([4136a0f](https://github.com/www-zaq-ai/zaq/commit/4136a0f68109aa6e8f4ad144cbba995d8b99dcd3))
+* **chat:** persist welcome message in conversation history so loaded chats keep the original date ([08f8aa4](https://github.com/www-zaq-ai/zaq/commit/08f8aa4a4bb40166b3ff05eff9286a1d3cb47d33))
+* **e2e:** alias nested E2E modules and fix alias ordering in Reset ([0b04ec7](https://github.com/www-zaq-ai/zaq/commit/0b04ec7a4602e57bd0e15eb221924c6514de6880))
+* **e2e:** stabilize Playwright suite with /e2e/reset endpoint, LiveView settle waits, and server-side mtime touch ([d14f203](https://github.com/www-zaq-ai/zaq/commit/d14f2033acc3b1be31d1a7bf94fb22a148b54783))
+* **ingestion:** deduplicate uploaded filenames using OS-style (n) suffix ([1dbd323](https://github.com/www-zaq-ai/zaq/commit/1dbd3238f4d503bd79edebbb6ade2e0cb1cddbdc))
+* **ingestion:** restore overwrite behaviour for raw saves; add save_file/3, tests, and e2e dedup upload ([fc42061](https://github.com/www-zaq-ai/zaq/commit/fc420614982e6bb2c6499781bf23f84daa2fcc88))
+* **ingestion:** skip language filter for simple-fallback BM25 queries to prevent missed results ([6c64763](https://github.com/www-zaq-ai/zaq/commit/6c64763a17ec02b19b140d99f3b1ead2aae3c401))
+* **migration:** auto-migrate pgvector → paradedb in zaq-local.sh with full data preservation ([39ef775](https://github.com/www-zaq-ai/zaq/commit/39ef7751da7f0b382978765b701dc2a5569a4761))
+* **telemetry:** anchor dashboard_data test timestamps to midday to prevent midnight boundary flake ([2707cf8](https://github.com/www-zaq-ai/zaq/commit/2707cf846d012ca450e57b67960f14c2d9ce1e77))
+
 ## [0.7.2](https://github.com/www-zaq-ai/zaq/compare/v0.7.1...v0.7.2) (2026-04-17)
 
 
