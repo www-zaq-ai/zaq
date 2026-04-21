@@ -29,9 +29,13 @@ defmodule Zaq.License.LicensePostLoaderTest do
   test "notify still broadcasts when migration processing raises" do
     migration_files = [{"nested/path/001_bad.exs", "raise \"boom\""}]
 
-    LicensePostLoader.notify(%{"license_key" => "lic_with_bad_migration"}, migration_files)
+    log =
+      capture_log(fn ->
+        LicensePostLoader.notify(%{"license_key" => "lic_with_bad_migration"}, migration_files)
+        assert_receive :license_updated
+      end)
 
-    assert_receive :license_updated
+    assert log =~ "Migrations failed"
   end
 
   test "notify with non-migration-named file succeeds and logs completion" do

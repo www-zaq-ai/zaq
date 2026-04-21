@@ -47,21 +47,24 @@ defmodule Zaq.License.LoaderTest do
     path = Path.join(tmp_dir, "bad.zaq-license")
     File.write!(path, "not-a-tar")
 
-    assert {:error, {:extract_failed, _reason}} = Loader.load(path)
+    log = capture_log(fn -> assert {:error, {:extract_failed, _reason}} = Loader.load(path) end)
+    assert log =~ "extract_failed"
   end
 
   test "returns missing_license_dat when package lacks license.dat", %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "missing_dat.zaq-license")
     create_archive!(path, [{~c"modules/Any.beam.enc", "x"}])
 
-    assert {:error, :missing_license_dat} = Loader.load(path)
+    log = capture_log(fn -> assert {:error, :missing_license_dat} = Loader.load(path) end)
+    assert log =~ "missing_license_dat"
   end
 
   test "returns invalid_license_dat_format for malformed license.dat", %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "bad_format.zaq-license")
     create_archive!(path, [{~c"license.dat", "only-one-part"}])
 
-    assert {:error, :invalid_license_dat_format} = Loader.load(path)
+    log = capture_log(fn -> assert {:error, :invalid_license_dat_format} = Loader.load(path) end)
+    assert log =~ "invalid_license_dat_format"
   end
 
   test "returns invalid_payload_json for non-json payload", %{
@@ -79,7 +82,8 @@ defmodule Zaq.License.LoaderTest do
       {~c"public.key", Base.encode64(pub)}
     ])
 
-    assert {:error, :invalid_payload_json} = Loader.load(path)
+    log = capture_log(fn -> assert {:error, :invalid_payload_json} = Loader.load(path) end)
+    assert log =~ "invalid_payload_json"
   end
 
   test "returns missing_expires_at when field is absent", %{
@@ -100,7 +104,8 @@ defmodule Zaq.License.LoaderTest do
       {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
-    assert {:error, :missing_expires_at} = Loader.load(path)
+    log = capture_log(fn -> assert {:error, :missing_expires_at} = Loader.load(path) end)
+    assert log =~ "missing_expires_at"
   end
 
   test "returns license_expired when expiry is in the past", %{
@@ -127,7 +132,8 @@ defmodule Zaq.License.LoaderTest do
       {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
-    assert {:error, :license_expired} = Loader.load(path)
+    log = capture_log(fn -> assert {:error, :license_expired} = Loader.load(path) end)
+    assert log =~ "license_expired"
   end
 
   test "returns decrypt_failed when module cannot be decrypted", %{
@@ -153,8 +159,13 @@ defmodule Zaq.License.LoaderTest do
       {~c"modules/Elixir.LicenseManager.Paid.DecFail.beam.enc", encrypted_module}
     ])
 
-    assert {:error, {:decrypt_failed, "Elixir.LicenseManager.Paid.DecFail", :decryption_failed}} =
-             Loader.load(path)
+    log =
+      capture_log(fn ->
+        assert {:error, {:decrypt_failed, "Elixir.LicenseManager.Paid.DecFail", :decryption_failed}} =
+                 Loader.load(path)
+      end)
+
+    assert log =~ "decrypt_failed"
   end
 
   test "returns load_failed when decrypted bytes are not a beam file", %{
@@ -186,8 +197,13 @@ defmodule Zaq.License.LoaderTest do
       {~c"modules/Elixir.LicenseManager.Paid.LoadFail.beam.enc", encrypted_module}
     ])
 
-    assert {:error, {:load_failed, "Elixir.LicenseManager.Paid.LoadFail", _reason}} =
-             Loader.load(path)
+    log =
+      capture_log(fn ->
+        assert {:error, {:load_failed, "Elixir.LicenseManager.Paid.LoadFail", _reason}} =
+                 Loader.load(path)
+      end)
+
+    assert log =~ "load_failed"
   end
 
   test "calls ObanProvisioner when loaded module implements ObanFeature", %{
@@ -335,11 +351,14 @@ defmodule Zaq.License.LoaderTest do
       {~c"migrations/20260101000000_add_thing.exs", "defmodule TempMigration do end"}
     ])
 
-    capture_log(fn ->
-      assert {:ok, license_data} = Loader.load(path)
-      assert license_data["license_key"] == "lic_ok"
-    end)
+    log =
+      capture_log(fn ->
+        assert {:ok, license_data} = Loader.load(path)
+        assert license_data["license_key"] == "lic_ok"
+        :sys.get_state(GenServer.whereis(LicensePostLoader))
+      end)
 
+    assert log =~ "Migrations failed"
     assert FeatureStore.feature_loaded?("ontology")
     assert FeatureStore.module_loaded?(String.to_atom(module_name))
   end

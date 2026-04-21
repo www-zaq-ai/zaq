@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
 
   alias Zaq.Channels.EmailBridge.ImapAdapter.Listener
   alias Zaq.TestSupport.FakeImapServer
@@ -138,9 +139,14 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       idle_timeout: 1_500_000
     }
 
-    assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
-    assert updated.client == nil
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+        assert updated.client == nil
+      end)
+
     assert_receive :reconnect, 50
+    assert log =~ "fetch unseen failed" or log =~ "IMAP client exited"
   end
 
   test "handle_info/2 connect keeps client nil when connection fails" do
@@ -157,8 +163,13 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       idle_timeout: 1_500_000
     }
 
-    assert {:noreply, updated} = Listener.handle_info(:connect, state)
-    assert updated.client == nil
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:connect, state)
+        assert updated.client == nil
+      end)
+
+    assert log =~ "connect failed"
   end
 
   test "handle_info/2 connect establishes client when connection succeeds" do
@@ -180,6 +191,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     assert {:noreply, updated} = Listener.handle_info(:connect, state)
     assert is_pid(updated.client)
     assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
+    # Stop the unsupervised IMAP client before FakeImapServer teardown to avoid
+    # a Mailroom.IMAP crash on {:tcp_closed} when the fake server's socket closes.
+    capture_log(fn -> GenServer.stop(updated.client, :normal) end)
   end
 
   test "handle_info/2 reconnect path reuses connect_and_idle" do
@@ -196,8 +210,13 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       idle_timeout: 1_500_000
     }
 
-    assert {:noreply, updated} = Listener.handle_info(:reconnect, state)
-    assert updated.client == nil
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:reconnect, state)
+        assert updated.client == nil
+      end)
+
+    assert log =~ "connect failed"
   end
 
   test "handle_info/2 reconnect establishes client when server is reachable" do
@@ -219,6 +238,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     assert {:noreply, updated} = Listener.handle_info(:reconnect, state)
     assert is_pid(updated.client)
     assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
+    capture_log(fn -> GenServer.stop(updated.client, :normal) end)
   end
 
   test "listener connects and processes idle notifications through IMAP IDLE" do
@@ -257,13 +277,15 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     assert_receive {:imap_fake_command, ^fake, :idle, _}, 1_500
 
     state = :sys.get_state(listener)
-    assert is_pid(state.client)
+    client_pid = state.client
+    assert is_pid(client_pid)
+    stop_listener_and_imap_client(listener, client_pid)
   end
 
   test "listener does not mark messages as read when mark_as_read is false" do
     fake = start_supervised!({FakeImapServer, owner: self()})
 
-    _listener =
+    listener =
       start_supervised!(
         {Listener,
          [
@@ -282,6 +304,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     assert_receive {:sink_called, payload, _opts}, 1_500
     assert payload["seq"] == 1
     refute_receive {:imap_fake_command, ^fake, :store, _}, 400
+    client_pid = :sys.get_state(listener).client
+    stop_listener_and_imap_client(listener, client_pid)
   end
 
   test "listener reconnects when IMAP client exits" do
@@ -303,18 +327,24 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
          ]}
       )
 
-    assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
+    log =
+      capture_log(fn ->
+        assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
 
-    first_client = :sys.get_state(listener).client
-    assert is_pid(first_client)
+        first_client = :sys.get_state(listener).client
+        assert is_pid(first_client)
 
-    Process.exit(first_client, :kill)
+        Process.exit(first_client, :kill)
 
-    assert_receive {:imap_fake_command, ^fake, :login, _}, 1_500
+        assert_receive {:imap_fake_command, ^fake, :login, _}, 1_500
 
-    second_client = :sys.get_state(listener).client
-    assert is_pid(second_client)
-    refute second_client == first_client
+        second_client = :sys.get_state(listener).client
+        assert is_pid(second_client)
+        refute second_client == first_client
+        stop_listener_and_imap_client(listener, second_client)
+      end)
+
+    assert log =~ "IMAP client exited"
   end
 
   defmodule SinkRaise do
@@ -340,12 +370,18 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
          ]}
       )
 
-    assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
-    assert_receive {:imap_fake_command, ^fake, :select, _}, 1_000
-    assert_receive {:imap_fake_command, ^fake, :idle, _}, 1_000
-    assert :ok = FakeImapServer.trigger_exists(fake)
-    assert_receive {:imap_fake_command, ^fake, :fetch, _}, 1_500
-    assert %{client: _} = :sys.get_state(listener)
+    log =
+      capture_log(fn ->
+        assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
+        assert_receive {:imap_fake_command, ^fake, :select, _}, 1_000
+        assert_receive {:imap_fake_command, ^fake, :idle, _}, 1_000
+        assert :ok = FakeImapServer.trigger_exists(fake)
+        assert_receive {:imap_fake_command, ^fake, :fetch, _}, 1_500
+        client_pid = :sys.get_state(listener).client
+        stop_listener_and_imap_client(listener, client_pid)
+      end)
+
+    assert log =~ "sink dispatch failed"
   end
 
   test "listener terminate/2 disconnects IMAP client" do
@@ -368,8 +404,18 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       )
 
     assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
+    client_pid = :sys.get_state(listener).client
+    ref = Process.monitor(client_pid)
     GenServer.stop(listener, :normal)
     assert_receive {:imap_fake_command, ^fake, :logout, _}, 1_000
+
+    receive do
+      {:DOWN, ^ref, :process, ^client_pid, _} -> :ok
+    after
+      500 ->
+        if Process.alive?(client_pid), do: GenServer.stop(client_pid, :shutdown)
+        assert_receive {:DOWN, ^ref, :process, ^client_pid, _}, 1_000
+    end
   end
 
   test "handle_info/2 clears client on monitored process exit" do
@@ -388,8 +434,13 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       idle_timeout: 1_500_000
     }
 
-    assert {:noreply, updated} = Listener.handle_info({:EXIT, client, :boom}, state)
-    assert updated.client == nil
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info({:EXIT, client, :boom}, state)
+        assert updated.client == nil
+      end)
+
+    assert log =~ "IMAP client exited"
   end
 
   test "handle_info/2 ignores unknown messages" do
@@ -411,6 +462,19 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
 
   test "terminate/2 returns :ok when there is no client" do
     assert :ok = Listener.terminate(:normal, %{})
+  end
+
+  defp stop_listener_and_imap_client(listener, client_pid) do
+    ref = Process.monitor(client_pid)
+    GenServer.stop(listener, :normal)
+
+    receive do
+      {:DOWN, ^ref, :process, ^client_pid, _} -> :ok
+    after
+      500 ->
+        if Process.alive?(client_pid), do: GenServer.stop(client_pid, :shutdown)
+        assert_receive {:DOWN, ^ref, :process, ^client_pid, _}, 1_000
+    end
   end
 
   def sink(_config, payload, opts) do

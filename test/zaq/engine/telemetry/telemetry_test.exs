@@ -382,7 +382,7 @@ defmodule Zaq.Engine.TelemetryTest do
     assert Telemetry.conversation_response_sla_ms() == 2200
   end
 
-  test "dashboard_kpis/1 maps day params to range buckets and defaults" do
+  test "load_main_dashboard_metrics/1 maps range buckets and returns correct KPIs" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_dashboard_rollup(
@@ -449,32 +449,47 @@ defmodule Zaq.Engine.TelemetryTest do
       5
     )
 
-    day_1 = Telemetry.dashboard_kpis(days: 1)
-    assert day_1.documents_ingested_30d == 5.0
-    assert day_1.llm_api_calls_30d == 2
-    assert_in_delta day_1.qa_avg_response_ms_30d, 100.0, 0.0001
+    day_1 = main_dashboard_kpis("24h")
+    assert day_1.documents_ingested == 5.0
+    assert day_1.llm_api_calls == 2
+    assert_in_delta day_1.qa_avg_response_ms, 100.0, 0.0001
 
-    day_7 = Telemetry.dashboard_kpis(%{days: 7})
-    assert day_7.documents_ingested_30d == 12.0
-    assert day_7.llm_api_calls_30d == 5
-    assert_in_delta day_7.qa_avg_response_ms_30d, 220.0, 0.0001
+    day_7 = main_dashboard_kpis("7d")
+    assert day_7.documents_ingested == 12.0
+    assert day_7.llm_api_calls == 5
+    assert_in_delta day_7.qa_avg_response_ms, 220.0, 0.0001
 
-    default_range = Telemetry.dashboard_kpis("invalid")
-    default_explicit = Telemetry.dashboard_kpis(30)
-    assert default_range.documents_ingested_30d == default_explicit.documents_ingested_30d
-    assert default_range.llm_api_calls_30d == default_explicit.llm_api_calls_30d
+    # nil/missing range falls back to "7d" (new API default via normalize_filters)
+    default_nil = main_dashboard_kpis(nil)
+    default_7d = main_dashboard_kpis("7d")
+    assert default_nil.documents_ingested == default_7d.documents_ingested
+    assert default_nil.llm_api_calls == default_7d.llm_api_calls
 
-    assert_in_delta default_range.qa_avg_response_ms_30d,
-                    default_explicit.qa_avg_response_ms_30d,
-                    0.0001
+    default_30d = main_dashboard_kpis("30d")
+    assert default_30d.documents_ingested == 23.0
+    assert default_30d.llm_api_calls == 9
 
-    assert default_explicit.documents_ingested_30d == 23.0
-    assert default_explicit.llm_api_calls_30d == 9
+    day_90 = main_dashboard_kpis("90d")
+    assert day_90.documents_ingested == 36.0
+    assert day_90.llm_api_calls == 14
+    assert_in_delta day_90.qa_avg_response_ms, 471.428571, 0.01
+  end
 
-    day_90 = Telemetry.dashboard_kpis(120)
-    assert day_90.documents_ingested_30d == 36.0
-    assert day_90.llm_api_calls_30d == 14
-    assert_in_delta day_90.qa_avg_response_ms_30d, 471.428571, 0.01
+  defp main_dashboard_kpis(range) do
+    filters = if range, do: %{range: range}, else: %{}
+
+    metrics =
+      Telemetry.load_main_dashboard_metrics(filters)
+      |> get_in([:metric_cards_chart, :summary, :metrics])
+      |> List.wrap()
+
+    find_val = fn id -> (Enum.find(metrics, &(&1.id == id)) || %{value: 0.0}).value end
+
+    %{
+      documents_ingested: find_val.("dashboard-metric-documents-ingested"),
+      llm_api_calls: round(find_val.("dashboard-metric-llm-api-calls")),
+      qa_avg_response_ms: find_val.("dashboard-metric-qa-response-time")
+    }
   end
 
   defp insert_point(metric_key, occurred_at, value) do

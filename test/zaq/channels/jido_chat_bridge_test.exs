@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.JidoChatBridgeTest do
   use Zaq.DataCase, async: false
+  import ExUnit.CaptureLog
 
   alias Jido.Chat
   alias Jido.Chat.Author
@@ -418,7 +419,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{}
       }
 
-      assert {:error, :timeout} = JidoChatBridge.handle_from_listener(@config, incoming, [])
+      log =
+        capture_log(fn ->
+          assert {:error, :timeout} = JidoChatBridge.handle_from_listener(@config, incoming, [])
+        end)
+
+      assert log =~ "Failed to process message"
     end
 
     test "uses NodeRouter dispatch path when bridge modules are defaults" do
@@ -912,7 +918,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{}
       }
 
-      assert {:error, :missing_connection_details} = JidoChatBridge.send_reply(outgoing, %{})
+      log =
+        capture_log(fn ->
+          assert {:error, :missing_connection_details} = JidoChatBridge.send_reply(outgoing, %{})
+        end)
+
+      assert log =~ "send_reply called without connection details"
     end
 
     test "send_reply/2 delegates to do_send_reply/2 with connection details" do
@@ -1003,11 +1014,16 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         }
       }
 
-      assert :ok =
-               JidoChatBridge.do_send_reply(outgoing, %{
-                 url: "https://mm.example.com",
-                 token: "tok"
-               })
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   JidoChatBridge.do_send_reply(outgoing, %{
+                     url: "https://mm.example.com",
+                     token: "tok"
+                   })
+        end)
+
+      assert log =~ "on_reply dispatch failed"
     end
 
     test "do_send_reply/2 rescue path for invalid on_reply module" do
@@ -1032,11 +1048,16 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         }
       }
 
-      assert :ok =
-               JidoChatBridge.do_send_reply(outgoing, %{
-                 url: "https://mm.example.com",
-                 token: "tok"
-               })
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   JidoChatBridge.do_send_reply(outgoing, %{
+                     url: "https://mm.example.com",
+                     token: "tok"
+                   })
+        end)
+
+      assert log =~ "on_reply dispatch failed"
     end
 
     test "do_send_reply/2 returns adapter post errors" do

@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.EmailBridgeTest do
   use Zaq.DataCase, async: false
+  import ExUnit.CaptureLog
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge
@@ -334,8 +335,13 @@ defmodule Zaq.Channels.EmailBridgeTest do
       payload = %{"body_text" => "hello"}
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
-      assert {:error, {:invalid_pipeline_response, :unexpected}} =
-               EmailBridge.from_listener(config, payload, sink_opts)
+      log =
+        capture_log(fn ->
+          assert {:error, {:invalid_pipeline_response, :unexpected}} =
+                   EmailBridge.from_listener(config, payload, sink_opts)
+        end)
+
+      assert log =~ "Failed to process inbound message"
     end
 
     test "returns pipeline error when NodeRouter responds with {:error, reason}" do
@@ -345,7 +351,13 @@ defmodule Zaq.Channels.EmailBridgeTest do
       payload = %{"body_text" => "hello"}
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
-      assert {:error, :pipeline_failed} = EmailBridge.from_listener(config, payload, sink_opts)
+      log =
+        capture_log(fn ->
+          assert {:error, :pipeline_failed} =
+                   EmailBridge.from_listener(config, payload, sink_opts)
+        end)
+
+      assert log =~ "Failed to process inbound message"
     end
   end
 
@@ -942,13 +954,18 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       config = %{provider: "email:imap"}
 
-      assert {:error, :invalid_payload} =
-               EmailBridge.from_listener(
-                 config,
-                 %{"body_text" => "hello"},
-                 adapter: IncomingAdapterErrorStub,
-                 mailbox: "INBOX"
-               )
+      log =
+        capture_log(fn ->
+          assert {:error, :invalid_payload} =
+                   EmailBridge.from_listener(
+                     config,
+                     %{"body_text" => "hello"},
+                     adapter: IncomingAdapterErrorStub,
+                     mailbox: "INBOX"
+                   )
+        end)
+
+      assert log =~ "Failed to process inbound message"
     end
 
     test "returns delivery error" do
@@ -958,13 +975,18 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       config = %{provider: "email:imap"}
 
-      assert {:error, :delivery_failed} =
-               EmailBridge.from_listener(
-                 config,
-                 %{"body_text" => "hello"},
-                 adapter: IncomingAdapterStub,
-                 mailbox: "INBOX"
-               )
+      log =
+        capture_log(fn ->
+          assert {:error, :delivery_failed} =
+                   EmailBridge.from_listener(
+                     config,
+                     %{"body_text" => "hello"},
+                     adapter: IncomingAdapterStub,
+                     mailbox: "INBOX"
+                   )
+        end)
+
+      assert log =~ "Failed to process inbound message"
     end
 
     test "returns persistence error" do
@@ -974,13 +996,18 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       config = %{provider: "email:imap"}
 
-      assert {:error, :persist_failed} =
-               EmailBridge.from_listener(
-                 config,
-                 %{"body_text" => "hello"},
-                 adapter: IncomingAdapterStub,
-                 mailbox: "INBOX"
-               )
+      log =
+        capture_log(fn ->
+          assert {:error, :persist_failed} =
+                   EmailBridge.from_listener(
+                     config,
+                     %{"body_text" => "hello"},
+                     adapter: IncomingAdapterStub,
+                     mailbox: "INBOX"
+                   )
+        end)
+
+      assert log =~ "Failed to process inbound message"
     end
 
     test "returns wrapped error for unexpected non-error pipeline chain value" do
@@ -990,13 +1017,18 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       config = %{provider: "email:imap"}
 
-      assert {:error, :queued} =
-               EmailBridge.from_listener(
-                 config,
-                 %{"body_text" => "hello"},
-                 adapter: IncomingAdapterStub,
-                 mailbox: "INBOX"
-               )
+      log =
+        capture_log(fn ->
+          assert {:error, :queued} =
+                   EmailBridge.from_listener(
+                     config,
+                     %{"body_text" => "hello"},
+                     adapter: IncomingAdapterStub,
+                     mailbox: "INBOX"
+                   )
+        end)
+
+      assert log =~ "Failed to process inbound message"
     end
   end
 
@@ -1070,12 +1102,17 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous_channels) end)
 
-      assert {:error, _reason} =
-               EmailBridge.start_runtime(%{
-                 id: 100,
-                 provider: "email:imap",
-                 settings: %{"imap" => %{}}
-               })
+      log =
+        capture_log(fn ->
+          assert {:error, _reason} =
+                   EmailBridge.start_runtime(%{
+                     id: 100,
+                     provider: "email:imap",
+                     settings: %{"imap" => %{}}
+                   })
+        end)
+
+      assert log =~ "invalid_child_spec"
     end
   end
 

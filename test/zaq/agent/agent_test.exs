@@ -405,7 +405,7 @@ defmodule Zaq.AgentTest do
       })
 
     attach_repo_query_telemetry(self())
-    _ = drain_repo_query_sources()
+    _ = drain_repo_query_sources([], 100)
 
     changeset =
       Agent.change_agent(agent, %{
@@ -463,11 +463,11 @@ defmodule Zaq.AgentTest do
     :ok
   end
 
-  defp drain_repo_query_sources(acc \\ []) do
+  defp drain_repo_query_sources(acc \\ [], timeout \\ 0) do
     receive do
-      {:repo_query, source} -> drain_repo_query_sources([source | acc])
+      {:repo_query, source} -> drain_repo_query_sources([source | acc], timeout)
     after
-      0 -> Enum.reverse(acc)
+      timeout -> Enum.reverse(acc)
     end
   end
 end

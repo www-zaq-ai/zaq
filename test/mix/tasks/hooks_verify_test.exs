@@ -115,63 +115,78 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
   # run/1 — integration tests via Application env glob injection
   # ---------------------------------------------------------------------------
 
-  # Scenario 6
-  test "run/1 succeeds when all dispatched events are documented" do
-    dir = tmp_dir()
+  describe "run/1" do
+    setup do
+      original = Mix.shell()
+      Mix.shell(Mix.Shell.Process)
+      on_exit(fn -> Mix.shell(original) end)
+      :ok
+    end
 
-    on_exit(fn -> File.rm_rf!(dir) end)
+    # Scenario 6
+    test "succeeds when all dispatched events are documented" do
+      dir = tmp_dir()
 
-    # Use a real documented event so coverage check passes
-    write_fixture(dir, "pipeline.ex", """
-    Hooks.dispatch_sync(:retrieval, payload, ctx)
-    Hooks.dispatch_async(:retrieval_complete, result, ctx)
-    """)
+      on_exit(fn -> File.rm_rf!(dir) end)
 
-    with_glob("#{dir}/*.ex", fn ->
-      # Should not raise
+      write_fixture(dir, "pipeline.ex", """
+      Hooks.dispatch_sync(:retrieval, payload, ctx)
+      Hooks.dispatch_async(:retrieval_complete, result, ctx)
+      """)
+
+      with_glob("#{dir}/*.ex", fn ->
+        assert :ok = Verify.run([])
+      end)
+
+      assert_received {:mix_shell, :info, [msg]}
+      assert msg =~ "hooks.verify passed"
+    end
+
+    # Scenario 7
+    test "reports a coverage error when an undocumented event is dispatched" do
+      dir = tmp_dir()
+
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      write_fixture(dir, "pipeline.ex", """
+      Hooks.dispatch_sync(:totally_undocumented_event_xyz, payload, ctx)
+      """)
+
+      with_glob("#{dir}/*.ex", fn ->
+        assert_raise Mix.Error, ~r/hooks.verify failed/, fn ->
+          Verify.run([])
+        end
+      end)
+
+      assert_received {:mix_shell, :error, [msg]}
+      assert msg =~ "totally_undocumented_event_xyz"
+    end
+
+    # Scenario 8
+    test "reports a uniqueness error when the same event is dispatched from two files" do
+      dir = tmp_dir()
+
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      write_fixture(dir, "module_a.ex", "Hooks.dispatch_sync(:retrieval, p, c)\n")
+      write_fixture(dir, "module_b.ex", "Hooks.dispatch_sync(:retrieval, p, c)\n")
+
+      with_glob("#{dir}/*.ex", fn ->
+        assert_raise Mix.Error, ~r/hooks.verify failed/, fn ->
+          Verify.run([])
+        end
+      end)
+
+      assert_received {:mix_shell, :error, [msg]}
+      assert msg =~ "dispatched from multiple modules"
+    end
+
+    # Scenario 9 — happy path on the real codebase
+    test "passes on the actual lib/ directory (precommit guard)" do
       assert :ok = Verify.run([])
-    end)
-  end
 
-  # Scenario 7
-  test "run/1 reports a coverage error when an undocumented event is dispatched" do
-    dir = tmp_dir()
-
-    on_exit(fn -> File.rm_rf!(dir) end)
-
-    write_fixture(dir, "pipeline.ex", """
-    Hooks.dispatch_sync(:totally_undocumented_event_xyz, payload, ctx)
-    """)
-
-    with_glob("#{dir}/*.ex", fn ->
-      assert_raise Mix.Error, ~r/hooks.verify failed/, fn ->
-        Verify.run([])
-      end
-    end)
-  end
-
-  # Scenario 8
-  test "run/1 reports a uniqueness error when the same event is dispatched from two files" do
-    dir = tmp_dir()
-
-    on_exit(fn -> File.rm_rf!(dir) end)
-
-    # :retrieval is documented, but dispatched from two different files — violation
-    write_fixture(dir, "module_a.ex", "Hooks.dispatch_sync(:retrieval, p, c)\n")
-    write_fixture(dir, "module_b.ex", "Hooks.dispatch_sync(:retrieval, p, c)\n")
-
-    with_glob("#{dir}/*.ex", fn ->
-      assert_raise Mix.Error, ~r/hooks.verify failed/, fn ->
-        Verify.run([])
-      end
-    end)
-  end
-
-  # Scenario 9 — happy path on the real codebase
-  test "run/1 passes on the actual lib/ directory (precommit guard)" do
-    # This is an integration smoke-test: the real codebase should always pass
-    # hooks.verify. If it fails here, a dispatch call site is missing from
-    # Zaq.Hooks.documented_events/0.
-    assert :ok = Verify.run([])
+      assert_received {:mix_shell, :info, [msg]}
+      assert msg =~ "hooks.verify passed"
+    end
   end
 end
