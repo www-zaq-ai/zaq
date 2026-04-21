@@ -68,6 +68,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> normalize_concurrency(default)
   end
 
+  defp chunk_processing_timeout do
+    Application.get_env(:zaq, Zaq.Ingestion, [])
+    |> Keyword.get(:chunk_processing_timeout, 90_000)
+  end
+
   defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_concurrency(_value, default), do: default
 
@@ -568,7 +573,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           maybe_delete_chunk_before_store(reset_chunks, document_id, index)
           {index, store_chunk_with_metadata(chunk, document_id, index)}
         end,
-        timeout: :infinity,
+        timeout: chunk_processing_timeout(),
         max_concurrency: chunk_processing_concurrency(),
         ordered: false
       )

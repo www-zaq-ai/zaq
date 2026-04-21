@@ -8,6 +8,8 @@ defmodule Zaq.Ingestion.FileExplorer do
   Volume-aware variants accept a `volume_name` as the first argument.
   """
 
+  require Logger
+
   @doc """
   Returns the configured base path for ingestion files.
   """
@@ -339,11 +341,18 @@ defmodule Zaq.Ingestion.FileExplorer do
       end,
       max_concurrency: file_stats_concurrency(),
       ordered: true,
-      timeout: :infinity
+      timeout: file_stats_timeout()
     )
     |> Enum.flat_map(fn
-      {:ok, entry} -> [entry]
-      {:exit, _} -> []
+      {:ok, entry} ->
+        [entry]
+
+      {:exit, reason} ->
+        Logger.warning(
+          "FileExplorer: skipped entry, stat timed out or crashed: #{inspect(reason)}"
+        )
+
+        []
     end)
   end
 
@@ -353,6 +362,11 @@ defmodule Zaq.Ingestion.FileExplorer do
     Application.get_env(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:file_stats_concurrency, default)
     |> normalize_concurrency(default)
+  end
+
+  defp file_stats_timeout do
+    Application.get_env(:zaq, Zaq.Ingestion, [])
+    |> Keyword.get(:file_stats_timeout, 10_000)
   end
 
   defp default_file_stats_concurrency do
