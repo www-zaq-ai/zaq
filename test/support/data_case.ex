@@ -8,6 +8,7 @@ defmodule Zaq.DataCase do
 
   use ExUnit.CaseTemplate
   alias Ecto.Adapters.SQL.Sandbox
+  alias Zaq.Engine.Telemetry.Buffer
 
   using do
     quote do
@@ -32,16 +33,16 @@ defmodule Zaq.DataCase do
   def setup_sandbox(tags) do
     pid = Sandbox.start_owner!(Zaq.Repo, shared: not tags[:async])
 
-    case Process.whereis(Zaq.Engine.Telemetry.Buffer) do
+    case Process.whereis(Buffer) do
       buffer_pid when is_pid(buffer_pid) -> Sandbox.allow(Zaq.Repo, pid, buffer_pid)
       _ -> :ok
     end
 
     on_exit(fn ->
-      case Process.whereis(Zaq.Engine.Telemetry.Buffer) do
+      case Process.whereis(Buffer) do
         buffer_pid when is_pid(buffer_pid) ->
           Sandbox.allow(Zaq.Repo, pid, buffer_pid)
-          _ = Zaq.Engine.Telemetry.Buffer.flush()
+          _ = Buffer.flush()
 
         _ ->
           :ok
