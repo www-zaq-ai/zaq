@@ -11,7 +11,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.System
   alias ZaqWeb.Live.BO.PreviewHelpers
 
-  @allowed_extensions ~w(.md .txt .pdf .docx .xlsx .csv .png .jpg .jpeg)
+  @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
 
   def mount(_params, _session, socket) do
