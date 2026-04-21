@@ -27,6 +27,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   require Logger
 
+  @welcome_body "Welcome to ZAQ Chat! Ask me anything about your knowledge base."
+
   # ── Lifecycle ──────────────────────────────────────────────────────
 
   @impl true
@@ -128,7 +130,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
            NodeRouter.call(:engine, Zaq.Engine.Conversations, :get_conversation!, [id]),
          db_messages when is_list(db_messages) <-
            NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_messages, [conv]) do
-      ui_messages = [welcome_message()] ++ Enum.map(db_messages, &db_message_to_ui/1)
+      ui_messages = build_ui_messages_from_db(db_messages)
       history = build_history_from_db_messages(db_messages)
 
       subscribe_to_conversation(id)
@@ -532,7 +534,21 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       %{channel_user_id: channel_user_id, channel_type: "bo"}
       |> then(fn a -> if user_id, do: Map.put(a, :user_id, user_id), else: a end)
 
-    node_router().call(:engine, Zaq.Engine.Conversations, :create_conversation, [attrs])
+    case node_router().call(:engine, Zaq.Engine.Conversations, :create_conversation, [attrs]) do
+      {:ok, conv} = ok ->
+        persist_welcome_message(conv)
+        ok
+
+      other ->
+        other
+    end
+  end
+
+  defp persist_welcome_message(conv) do
+    node_router().call(:engine, Zaq.Engine.Conversations, :add_message, [
+      conv,
+      %{role: "assistant", content: @welcome_body, metadata: %{"welcome" => true}}
+    ])
   end
 
   defp extract_confidence(%{score: score}), do: score
@@ -542,15 +558,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   # ── Helpers ────────────────────────────────────────────────────────
 
-  defp welcome_message do
+  defp welcome_message(timestamp \\ nil) do
     %{
       id: generate_id(),
       role: :bot,
-      body: "Welcome to ZAQ Chat! Ask me anything about your knowledge base.",
+      body: @welcome_body,
       confidence: nil,
-      timestamp: DateTime.utc_now(),
+      timestamp: timestamp || DateTime.utc_now(),
       error: false,
-      feedback: nil
+      feedback: nil,
+      welcome: true
+    }
+  end
+
+  defp welcome_message_from_db(%{role: "assistant", inserted_at: ts} = msg) do
+    %{
+      id: generate_id(),
+      db_id: msg.id,
+      role: :bot,
+      body: msg.content || @welcome_body,
+      confidence: nil,
+      timestamp: ts,
+      error: false,
+      feedback: nil,
+      welcome: true
     }
   end
 
@@ -570,6 +601,20 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
     assign(socket, :conversations, if(is_list(conversations), do: conversations, else: []))
   end
+
+  defp build_ui_messages_from_db([first | rest] = db_messages) do
+    if welcome_message?(first) do
+      [welcome_message_from_db(first) | Enum.map(rest, &db_message_to_ui/1)]
+    else
+      [welcome_message() | Enum.map(db_messages, &db_message_to_ui/1)]
+    end
+  end
+
+  defp build_ui_messages_from_db([]), do: [welcome_message()]
+
+  defp welcome_message?(%{role: "assistant", metadata: %{"welcome" => true}}), do: true
+  defp welcome_message?(%{role: "assistant", content: @welcome_body}), do: true
+  defp welcome_message?(_), do: false
 
   defp db_message_to_ui(%{role: "user", content: content, inserted_at: ts}) do
     %{id: generate_id(), role: :user, body: content || "", timestamp: ts}

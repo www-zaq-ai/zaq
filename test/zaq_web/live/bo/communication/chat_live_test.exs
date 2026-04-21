@@ -263,7 +263,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert Enum.count(calls, fn {r, m, f, _a} ->
              r == :engine and m == Zaq.Engine.Conversations and f == :add_message
-           end) == 2
+           end) == 3
+
+    assert Enum.any?(calls, fn {r, m, f, args} ->
+             r == :engine and m == Zaq.Engine.Conversations and f == :add_message and
+               match?([_conv, %{role: "assistant", metadata: %{"welcome" => true}}], args)
+           end)
 
     assert Enum.any?(calls, fn {r, m, f, args} ->
              r == :engine and m == Zaq.Engine.Conversations and f == :update_conversation and
