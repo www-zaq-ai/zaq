@@ -82,6 +82,30 @@ defmodule Zaq.Engine.TelemetryTest do
     assert non_map_dims_point.dimensions == %{}
   end
 
+  test "record/4 truncates long dimension values and keeps dimension_key within DB limit" do
+    long_reason = String.duplicate("x", 1_500)
+
+    assert :ok =
+             Telemetry.record("qa.custom_agent.execution.error", 1, %{
+               error_type: "api_error",
+               reason: long_reason,
+               channel_id: "bo"
+             })
+
+    assert :ok = Buffer.flush()
+
+    point =
+      Repo.one!(
+        from p in Point,
+          where: p.metric_key == "qa.custom_agent.execution.error",
+          order_by: [desc: p.inserted_at],
+          limit: 1
+      )
+
+    assert String.length(point.dimension_key) <= 255
+    assert String.length(point.dimensions["reason"]) <= 80
+  end
+
   test "record_feedback/3 normalizes reasons and only emits negatives for low ratings" do
     occurred_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 

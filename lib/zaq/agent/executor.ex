@@ -38,7 +38,7 @@ defmodule Zaq.Agent.Executor do
           Telemetry.record(
             "qa.custom_agent.execution.error",
             1,
-            Map.put(dims, :reason, inspect(reason))
+            Map.put(dims, :error_type, error_type(reason))
           )
 
         Outgoing.from_pipeline_result(incoming, error_result(reason))
@@ -148,4 +148,9 @@ defmodule Zaq.Agent.Executor do
       execution_path: "custom_agent"
     })
   end
+
+  defp error_type(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_type({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_type(%{__struct__: mod}), do: inspect(mod)
+  defp error_type(_), do: "unknown"
 end

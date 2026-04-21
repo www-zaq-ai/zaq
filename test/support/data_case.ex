@@ -31,7 +31,24 @@ defmodule Zaq.DataCase do
   """
   def setup_sandbox(tags) do
     pid = Sandbox.start_owner!(Zaq.Repo, shared: not tags[:async])
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
+
+    case Process.whereis(Zaq.Engine.Telemetry.Buffer) do
+      buffer_pid when is_pid(buffer_pid) -> Sandbox.allow(Zaq.Repo, pid, buffer_pid)
+      _ -> :ok
+    end
+
+    on_exit(fn ->
+      case Process.whereis(Zaq.Engine.Telemetry.Buffer) do
+        buffer_pid when is_pid(buffer_pid) ->
+          Sandbox.allow(Zaq.Repo, pid, buffer_pid)
+          _ = Zaq.Engine.Telemetry.Buffer.flush()
+
+        _ ->
+          :ok
+      end
+
+      Sandbox.stop_owner(pid)
+    end)
   end
 
   @doc """

@@ -84,6 +84,8 @@ defmodule Zaq.Engine.Telemetry do
   alias Zaq.System
 
   @bucket_size "10m"
+  @max_dimension_key_chars 255
+  @max_dimension_value_chars 80
   @default_remote_url "https://telemetry.zaq.ai"
   @business_metric_prefixes ["qa.", "feedback.", "ingestion."]
   @infra_metric_prefixes ["repo.", "oban.", "phoenix."]
@@ -353,10 +355,13 @@ defmodule Zaq.Engine.Telemetry do
   def dimension_key(dimensions) when map_size(dimensions) == 0, do: "global"
 
   def dimension_key(dimensions) do
-    dimensions
-    |> normalize_dimensions()
-    |> Enum.sort_by(fn {k, _v} -> k end)
-    |> Enum.map_join("|", fn {k, v} -> "#{k}=#{v}" end)
+    key =
+      dimensions
+      |> normalize_dimensions()
+      |> Enum.sort_by(fn {k, _v} -> k end)
+      |> Enum.map_join("|", fn {k, v} -> "#{k}=#{v}" end)
+
+    truncate_dimension_key(key)
   end
 
   @doc "Reads telemetry cursor from system configs."
@@ -461,11 +466,28 @@ defmodule Zaq.Engine.Telemetry do
   defp normalize_occurred_at(%DateTime{} = occurred_at), do: occurred_at
   defp normalize_occurred_at(_), do: DateTime.utc_now()
 
-  defp normalize_dim_value(value) when is_binary(value), do: value
+  defp normalize_dim_value(value) when is_binary(value), do: truncate_dim_string(value)
   defp normalize_dim_value(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_dim_value(value) when is_boolean(value), do: to_string(value)
   defp normalize_dim_value(value) when is_integer(value) or is_float(value), do: value
-  defp normalize_dim_value(value), do: inspect(value)
+  defp normalize_dim_value(value), do: value |> inspect() |> truncate_dim_string()
+
+  defp truncate_dim_string(value) when is_binary(value) do
+    if String.length(value) > @max_dimension_value_chars do
+      String.slice(value, 0, @max_dimension_value_chars)
+    else
+      value
+    end
+  end
+
+  defp truncate_dimension_key(key) when byte_size(key) <= @max_dimension_key_chars, do: key
+
+  defp truncate_dimension_key(key) do
+    hash = :crypto.hash(:sha256, key) |> Base.encode16(case: :lower) |> binary_part(0, 12)
+    suffix = "|h=#{hash}"
+    keep = @max_dimension_key_chars - byte_size(suffix)
+    binary_part(key, 0, max(0, keep)) <> suffix
+  end
 
   defp persist_metric?(metric_key, opts) do
     cond do
