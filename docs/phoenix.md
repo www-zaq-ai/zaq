@@ -26,6 +26,7 @@
 - Phoenix v1.8 moved `<.flash_group>` to the `Layouts` module. **Forbidden** from calling `<.flash_group>` outside of `layouts.ex`.
 - **Always** use the `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for icons — **never** use `Heroicons` modules.
 - **Always** use the imported `<.input>` component for form inputs from `core_components.ex`.
+- For revealable password/token/secret fields, use `<.secret_input>` from `core_components.ex` instead of inlining eye-toggle markup.
 - If you override default input classes, no default classes are inherited — your custom classes must fully style the input.
 
 ---
