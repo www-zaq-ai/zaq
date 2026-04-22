@@ -42,7 +42,9 @@ defmodule Zaq.Agent.Retrieval do
       LLM.chat_config()
       |> maybe_add_json_mode(history)
 
-    Logger.info("Retrieval: Processing question json_mode=#{Map.get(llm_config, :json_response, false)} history_length=#{length(history)}")
+    Logger.info(
+      "Retrieval: Processing question json_mode=#{Map.get(llm_config, :json_response, false)} history_length=#{length(history)}"
+    )
 
     case RuntimeDeps.llm_runner().run(
            llm_config: llm_config,
