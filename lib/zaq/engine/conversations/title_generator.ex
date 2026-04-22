@@ -58,38 +58,41 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
       end
 
     case Generation.generate_text(model_spec, [Context.user(prompt)], gen_opts) do
-      {:ok, response} ->
-        case Response.text(response) do
-          nil ->
-            Logger.error("TitleGenerator failed: Empty assistant response content")
-            {:error, "Empty assistant response content"}
-
-          text ->
-            title =
-              text
-              |> String.trim()
-              |> remove_quotes()
-              |> remove_prefix()
-              |> enforce_word_limit(@max_words)
-
-            if title == "" do
-              Logger.error("TitleGenerator failed: Empty assistant response content")
-              {:error, "Empty assistant response content"}
-            else
-              Logger.info("TitleGenerator: generated \"#{title}\"")
-              {:ok, title}
-            end
-        end
-
-      {:error, reason} ->
-        Logger.error("TitleGenerator failed: #{inspect(reason)}")
-        {:error, inspect(reason)}
+      {:ok, response} -> response |> Response.text() |> build_title()
+      {:error, reason} -> log_error(reason)
     end
   end
 
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp build_title(nil) do
+    Logger.error("TitleGenerator failed: Empty assistant response content")
+    {:error, "Empty assistant response content"}
+  end
+
+  defp build_title(text) do
+    title =
+      text
+      |> String.trim()
+      |> remove_quotes()
+      |> remove_prefix()
+      |> enforce_word_limit(@max_words)
+
+    if title == "" do
+      Logger.error("TitleGenerator failed: Empty assistant response content")
+      {:error, "Empty assistant response content"}
+    else
+      Logger.info("TitleGenerator: generated \"#{title}\"")
+      {:ok, title}
+    end
+  end
+
+  defp log_error(reason) do
+    Logger.error("TitleGenerator failed: #{inspect(reason)}")
+    {:error, inspect(reason)}
+  end
 
   defp remove_quotes(text) do
     text
