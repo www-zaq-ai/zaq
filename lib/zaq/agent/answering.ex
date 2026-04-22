@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Answering do
   Response formulation agent.
 
   Receives context (retrieved chunks + user question) via a system prompt and
-  generates a natural answer.
+  generates a natural answer using a transient Jido AI agent with ReAct tools.
 
   Uses DB-managed system prompt (`answering` slug) and provider-agnostic
   LLM configuration from `Zaq.Agent.LLM`.
@@ -11,9 +11,10 @@ defmodule Zaq.Agent.Answering do
 
   require Logger
 
-  alias ReqLLM.{Context, Generation, Response}
+  alias ReqLLM.Context
   alias Zaq.Agent.Answering.Result
-  alias Zaq.Agent.{History, LLM}
+  alias Zaq.Agent.{AnsweringAgent, History, LLM}
+  alias Zaq.Agent.Tools.{AskForClarification, SearchKnowledgeBase}
   alias Zaq.Engine.Telemetry
 
   @no_answer_signals [
@@ -31,12 +32,18 @@ defmodule Zaq.Agent.Answering do
   Generates an answer from the given system prompt (which should include
   retrieved context) and optional conversation history.
 
+  Starts a transient Jido AI agent with ReAct tools, sets the system prompt,
+  and asks the question. The agent is stopped after the response is received.
+
   ## Options
 
-    * `:system_prompt` — override the DB prompt. When omitted, loads the
-      active `"answering"` template and renders it.
+    * `:question` — the user question string.
     * `:history` — conversation history map.
+    * `:person_id` — required for tool calls (knowledge base search).
+    * `:team_ids` — optional team IDs for permission filtering.
     * `:telemetry_dimensions` — optional dimensions for centralized telemetry metrics.
+    * `:agent_mod` — override the agent module (for testing).
+    * `:set_prompt_fn` — override the set_system_prompt function (for testing).
 
   ## Returns
 
@@ -44,20 +51,15 @@ defmodule Zaq.Agent.Answering do
     * `{:error, String.t()}` — on failure
   """
   def ask(system_prompt, opts \\ []) do
-    history =
-      Keyword.get(opts, :history, [])
-      |> History.build()
-
+    history = opts |> Keyword.get(:history, []) |> History.build()
     question = Keyword.get(opts, :question)
+    person_id = Keyword.get(opts, :person_id)
+    team_ids = Keyword.get(opts, :team_ids, [])
     telemetry_dimensions = Keyword.get(opts, :telemetry_dimensions, %{})
 
     Logger.info("Answering: Formulating response based on retrieved data")
 
     started_at = System.monotonic_time(:millisecond)
-
-    gen_opts =
-      LLM.generation_opts()
-      |> Keyword.put(:system_prompt, system_prompt)
 
     messages =
       if question do
@@ -66,41 +68,61 @@ defmodule Zaq.Agent.Answering do
         history
       end
 
-    case Generation.generate_text(LLM.build_model_spec(), messages, gen_opts) do
-      {:ok, response} ->
-        case normalized_text(Response.text(response)) do
-          nil ->
-            error_reason = "Failed to formulate response: Empty assistant response content"
-            Logger.error("Answering failed: #{error_reason}")
-            {:error, error_reason}
+    agent_mod = Keyword.get(opts, :agent_mod, AnsweringAgent)
 
-          answer ->
-            latency_ms = System.monotonic_time(:millisecond) - started_at
+    set_prompt_fn =
+      Keyword.get(opts, :set_prompt_fn, &Jido.AI.set_system_prompt(&1, &2, timeout: 10_000))
 
-            usage = Response.usage(response) || %{}
-            prompt_tokens = usage[:input_tokens] |> as_int()
-            completion_tokens = usage[:output_tokens] |> as_int()
-            total_tokens = maybe_total_tokens(prompt_tokens, completion_tokens)
+    # :run_fn allows tests to bypass the real AgentServer lifecycle entirely.
+    # It receives (system_prompt, messages, ask_opts) and must return
+    # {:ok, handle} | {:error, reason}.
+    run_fn = Keyword.get(opts, :run_fn)
 
-            log_token_usage(prompt_tokens, completion_tokens)
+    if run_fn do
+      ask_opts = [
+        tools: [SearchKnowledgeBase, AskForClarification],
+        llm_opts: LLM.generation_opts(),
+        context: %{person_id: person_id, team_ids: team_ids},
+        timeout: 60_000
+      ]
 
-            result = %Result{
-              answer: answer,
-              confidence_score: nil,
-              latency_ms: latency_ms,
-              prompt_tokens: prompt_tokens,
-              completion_tokens: completion_tokens,
-              total_tokens: total_tokens
-            }
+      result = run_fn.(system_prompt, messages, ask_opts)
+      parse_agent_result(result, started_at, telemetry_dimensions)
+    else
+      server_id = "answering_#{System.unique_integer([:positive])}"
 
-            emit_answer_telemetry(result, telemetry_dimensions)
-            {:ok, result}
-        end
+      with {:ok, server} <-
+             Jido.AgentServer.start_link(
+               agent: agent_mod,
+               id: server_id,
+               jido: Zaq.Agent.Jido,
+               initial_state: %{model: LLM.build_model_spec()}
+             ),
+           :ok <- set_system_prompt(server, system_prompt, set_prompt_fn) do
+        ask_opts = [
+          tools: [
+            SearchKnowledgeBase,
+            AskForClarification
+          ],
+          llm_opts: LLM.generation_opts(),
+          context: %{person_id: person_id, team_ids: team_ids},
+          timeout: 60_000
+        ]
 
-      {:error, reason} ->
-        error_reason = "Failed to formulate response: #{inspect(reason)}"
-        Logger.error("Answering failed: #{error_reason}")
-        {:error, error_reason}
+        result =
+          try do
+            agent_mod.ask_sync(server, format_messages(messages), ask_opts)
+          after
+            GenServer.stop(server, :normal)
+          end
+
+        parse_agent_result(result, started_at, telemetry_dimensions)
+      else
+        {:error, reason} ->
+          error_reason = "Failed to start answering agent: #{inspect(reason)}"
+          Logger.error("Answering failed: #{error_reason}")
+          {:error, error_reason}
+      end
     end
   end
 
@@ -161,21 +183,87 @@ defmodule Zaq.Agent.Answering do
 
   # -- Private --
 
-  defp normalized_text(nil), do: nil
-
-  defp normalized_text(text) when is_binary(text),
-    do: if(String.trim(text) == "", do: nil, else: text)
-
-  defp maybe_total_tokens(prompt_tokens, completion_tokens)
-       when is_integer(prompt_tokens) and is_integer(completion_tokens),
-       do: prompt_tokens + completion_tokens
-
-  defp maybe_total_tokens(_, _), do: nil
-
-  defp log_token_usage(prompt_tokens, completion_tokens) do
-    if is_integer(prompt_tokens), do: Logger.info("Input tokens: #{prompt_tokens}")
-    if is_integer(completion_tokens), do: Logger.info("Output tokens: #{completion_tokens}")
+  defp set_system_prompt(server, prompt, set_prompt_fn) do
+    case set_prompt_fn.(server, prompt) do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
+
+  defp format_messages([]), do: ""
+
+  defp format_messages(messages) do
+    messages
+    |> Enum.map_join("\n", fn
+      %{role: "user", content: c} -> content_to_string(c)
+      %{role: :user, content: c} -> content_to_string(c)
+      msg when is_binary(msg) -> msg
+      _ -> ""
+    end)
+    |> String.trim()
+  end
+
+  defp content_to_string(c) when is_binary(c), do: c
+
+  defp content_to_string(parts) when is_list(parts) do
+    Enum.map_join(parts, " ", fn
+      %{text: text} when is_binary(text) -> text
+      _ -> ""
+    end)
+  end
+
+  defp content_to_string(_), do: ""
+
+  defp parse_agent_result({:ok, handle}, started_at, telemetry_dimensions) do
+    latency_ms = System.monotonic_time(:millisecond) - started_at
+    clarification = extract_clarification(handle)
+    answer_text = extract_answer_text(handle)
+    build_ok_result(clarification, answer_text, latency_ms, telemetry_dimensions)
+  end
+
+  defp parse_agent_result({:error, reason}, _started_at, _telemetry_dimensions) do
+    error_reason = "Failed to formulate response: #{inspect(reason)}"
+    Logger.error("Answering failed: #{error_reason}")
+    {:error, error_reason}
+  end
+
+  defp build_ok_result(clarification, _answer_text, latency_ms, telemetry_dimensions)
+       when is_binary(clarification) do
+    result = %Result{answer: clarification, clarification: clarification, latency_ms: latency_ms}
+    emit_answer_telemetry(result, telemetry_dimensions)
+    {:ok, result}
+  end
+
+  defp build_ok_result(_clarification, answer_text, latency_ms, telemetry_dimensions)
+       when is_binary(answer_text) do
+    if String.trim(answer_text) == "" do
+      emit_empty_answer_error()
+    else
+      result = %Result{answer: answer_text, latency_ms: latency_ms}
+      emit_answer_telemetry(result, telemetry_dimensions)
+      {:ok, result}
+    end
+  end
+
+  defp build_ok_result(_clarification, _answer_text, _latency_ms, _telemetry_dimensions) do
+    emit_empty_answer_error()
+  end
+
+  defp emit_empty_answer_error do
+    error_reason = "Failed to formulate response: Empty assistant response content"
+    Logger.error("Answering failed: #{error_reason}")
+    {:error, error_reason}
+  end
+
+  defp extract_clarification(%{result: %{clarification_needed: true, question: q}}), do: q
+  defp extract_clarification(%{clarification_needed: true, question: q}), do: q
+  defp extract_clarification(_), do: nil
+
+  defp extract_answer_text(%{result: text}) when is_binary(text), do: text
+  defp extract_answer_text(%{response: text}) when is_binary(text), do: text
+  defp extract_answer_text(text) when is_binary(text), do: text
+  defp extract_answer_text(_), do: nil
 
   defp payload_confidence(payload) do
     case payload_value(payload, :confidence) do

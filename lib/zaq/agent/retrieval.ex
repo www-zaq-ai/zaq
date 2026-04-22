@@ -54,7 +54,14 @@ defmodule Zaq.Agent.Retrieval do
         history
       end
 
-    case Generation.generate_text(LLM.build_model_spec(), messages, gen_opts) do
+    result =
+      try do
+        Generation.generate_text(LLM.build_model_spec(), messages, gen_opts)
+      rescue
+        e -> {:error, e}
+      end
+
+    case result do
       {:ok, response} ->
         case normalized_text(Response.text(response)) do
           nil ->

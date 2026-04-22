@@ -28,7 +28,9 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
-             "advanced.lua_eval"
+             "advanced.lua_eval",
+             "answering.search_knowledge_base",
+             "answering.ask_for_clarification"
            ]
   end
 
@@ -61,7 +63,9 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
-             "advanced.lua_eval"
+             "advanced.lua_eval",
+             "answering.search_knowledge_base",
+             "answering.ask_for_clarification"
            ]
   end
 

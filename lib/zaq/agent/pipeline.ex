@@ -242,6 +242,8 @@ defmodule Zaq.Agent.Pipeline do
 
   defp do_answering(content, query_results, retrieval, history, opts) do
     language = Map.get(retrieval, :language, "en")
+    person_id = Keyword.get(opts, :person_id)
+    team_ids = Keyword.get(opts, :team_ids, [])
 
     retrieved_data =
       Enum.map(query_results, fn %{"content" => chunk_content, "source" => source} ->
@@ -260,6 +262,8 @@ defmodule Zaq.Agent.Pipeline do
     answer_opts = [
       history: history,
       question: content,
+      person_id: person_id,
+      team_ids: team_ids,
       telemetry_dimensions: telemetry_dimensions(opts)
     ]
 

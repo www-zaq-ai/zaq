@@ -4,7 +4,10 @@ defmodule Zaq.Agent.AnsweringTest do
   alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.PromptTemplate
-  alias Zaq.TestSupport.OpenAIStub
+
+  # run_fn helpers bypass the real AgentServer lifecycle in unit tests.
+  # run_fn receives (system_prompt, messages, ask_opts) and returns {:ok, handle} | {:error, reason}.
+  defp run_fn_returning(response), do: fn _prompt, _msgs, _opts -> response end
 
   setup do
     {:ok, template} =
@@ -111,150 +114,55 @@ defmodule Zaq.Agent.AnsweringTest do
     end
   end
 
-  describe "ask/2 deterministic lane" do
-    test "returns plain answer when confidence is explicitly disabled" do
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        refute Map.has_key?(payload, "logprobs")
-        {200, OpenAIStub.chat_completion("The BEAM VM.")}
-      end
+  describe "ask/2 with stubbed run_fn" do
+    test "returns answer result when agent succeeds with binary result" do
+      opts = [run_fn: run_fn_returning({:ok, "The BEAM VM."})]
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
-
-      assert {:ok, %Result{} = result} =
-               Answering.ask("Context + question", include_confidence: false)
-
+      assert {:ok, %Result{} = result} = Answering.ask("Context + question", opts)
       assert result.answer == "The BEAM VM."
       assert is_integer(result.latency_ms)
-      assert is_integer(result.prompt_tokens)
-      assert is_integer(result.completion_tokens)
-      assert is_integer(result.total_tokens)
       assert is_nil(result.confidence_score)
+      assert is_nil(result.clarification)
     end
 
-    test "confidence_score is always nil (logprobs not supported by ReqLLM)" do
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        refute Map.has_key?(payload, "logprobs")
-        {200, OpenAIStub.chat_completion("The BEAM VM.")}
-      end
+    test "returns answer from %{result: text} handle shape" do
+      opts = [run_fn: run_fn_returning({:ok, %{result: "Answer from result key."}})]
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
-
-      assert {:ok, %Result{} = result} =
-               Answering.ask("Context + question", include_confidence: true)
-
-      assert result.answer == "The BEAM VM."
-      assert is_nil(result.confidence_score)
-      assert is_integer(result.latency_ms)
-      assert is_integer(result.prompt_tokens)
-      assert is_integer(result.completion_tokens)
-      assert is_integer(result.total_tokens)
+      assert {:ok, %Result{answer: "Answer from result key."}} = Answering.ask("Prompt", opts)
     end
 
-    test "does not send logprobs regardless of supports_logprobs config" do
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        refute Map.has_key?(payload, "logprobs")
-        {200, OpenAIStub.chat_completion("Default path.")}
-      end
+    test "returns answer from %{response: text} handle shape" do
+      opts = [run_fn: run_fn_returning({:ok, %{response: "Answer from response key."}})]
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
-
-      assert {:ok, %Result{} = result} = Answering.ask("Prompt")
-      assert result.answer == "Default path."
-      assert is_nil(result.confidence_score)
+      assert {:ok, %Result{answer: "Answer from response key."}} = Answering.ask("Prompt", opts)
     end
 
-    test "builds history from map including non-binary bodies" do
-      history = %{
-        "1" => %{"body" => %{"hello" => "world"}, "type" => "user"},
-        "2" => %{"body" => [%{"a" => 1}], "type" => "bot"}
+    test "returns clarification result when agent signals clarification_needed" do
+      clarification_result = %{
+        clarification_needed: true,
+        question: "Do you mean Product A or Product B?",
+        reason: "Ambiguous product name"
       }
 
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        messages = payload["messages"]
+      opts = [run_fn: run_fn_returning({:ok, %{result: clarification_result}})]
 
-        assert Enum.any?(messages, fn msg ->
-                 msg["role"] == "system" and message_text(msg) == "Prompt"
-               end)
-
-        assert Enum.any?(messages, fn msg ->
-                 msg["role"] == "user" and
-                   message_text(msg) == Jason.encode!(%{"hello" => "world"})
-               end)
-
-        assert Enum.any?(messages, fn msg ->
-                 msg["role"] == "assistant" and
-                   message_text(msg) == Jason.encode!([%{"a" => 1}])
-               end)
-
-        {200, OpenAIStub.chat_completion("ok")}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: false)
-
-      assert {:ok, %Result{} = result} = Answering.ask("Prompt", history: history)
-      assert result.answer == "ok"
+      assert {:ok, %Result{} = result} = Answering.ask("Prompt", opts)
+      assert result.clarification == "Do you mean Product A or Product B?"
+      assert result.answer == "Do you mean Product A or Product B?"
     end
 
-    test "gracefully degrades when confidence parsing fails" do
-      handler = fn _conn, _body ->
-        {200, OpenAIStub.chat_completion("No logprobs included")}
-      end
+    test "returns error tuple when agent returns error" do
+      opts = [run_fn: run_fn_returning({:error, :model_unavailable})]
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
-
-      assert {:ok, %Result{} = result} = Answering.ask("Prompt", include_confidence: true)
-      assert result.answer == "No logprobs included"
-      assert is_nil(result.confidence_score)
-    end
-
-    test "returns error tuple when llm call fails" do
-      handler = fn _conn, _body ->
-        {503, %{"error" => "down"}}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: false)
-
-      assert {:error, message} = Answering.ask("Prompt", include_confidence: false)
+      assert {:error, message} = Answering.ask("Prompt", opts)
       assert String.starts_with?(message, "Failed to formulate response:")
     end
 
-    test "does not request logprobs when provider does not support them by default" do
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        refute Map.has_key?(payload, "logprobs")
-        {200, OpenAIStub.chat_completion("No confidence path")}
-      end
+    test "returns error when agent returns empty string" do
+      opts = [run_fn: run_fn_returning({:ok, "   "})]
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_logprobs: false)
-
-      assert {:ok, %Result{} = result} = Answering.ask("Prompt")
-      assert result.answer == "No confidence path"
-      assert is_nil(result.confidence_score)
+      assert {:error, message} = Answering.ask("Prompt", opts)
+      assert String.contains?(message, "Empty assistant response content")
     end
   end
 
@@ -294,9 +202,6 @@ defmodule Zaq.Agent.AnsweringTest do
         )
     end
   end
-
-  defp message_text(%{"content" => content}) when is_binary(content), do: content
-  defp message_text(%{"content" => [%{"text" => text}]}), do: text
 
   defp upsert_prompt_template(attrs) do
     case PromptTemplate.get_by_slug(attrs.slug) do

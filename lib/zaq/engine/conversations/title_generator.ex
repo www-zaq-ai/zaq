@@ -25,7 +25,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
       iex> TitleGenerator.generate("How do I reset my password in the admin panel?")
       {:ok, "Admin Panel Password Reset"}
   """
-  def generate(user_message, _opts \\ []) do
+  def generate(user_message, opts \\ []) do
     prompt = """
     Generate a short title (maximum #{@max_words} words) for a conversation that starts with this user message. Keep in mind that user is communicating with ZAQ.
 
@@ -51,7 +51,13 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
 
     gen_opts = LLM.generation_opts() |> Keyword.delete(:top_p)
 
-    case Generation.generate_text(LLM.build_model_spec(), [Context.user(prompt)], gen_opts) do
+    model_spec =
+      case Keyword.fetch(opts, :model) do
+        {:ok, model} -> LLM.build_model_spec() |> Map.put(:id, model)
+        :error -> LLM.build_model_spec()
+      end
+
+    case Generation.generate_text(model_spec, [Context.user(prompt)], gen_opts) do
       {:ok, response} ->
         case Response.text(response) do
           nil ->
@@ -66,8 +72,13 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
               |> remove_prefix()
               |> enforce_word_limit(@max_words)
 
-            Logger.info("TitleGenerator: generated \"#{title}\"")
-            {:ok, title}
+            if title == "" do
+              Logger.error("TitleGenerator failed: Empty assistant response content")
+              {:error, "Empty assistant response content"}
+            else
+              Logger.info("TitleGenerator: generated \"#{title}\"")
+              {:ok, title}
+            end
         end
 
       {:error, reason} ->
