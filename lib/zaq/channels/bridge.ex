@@ -124,7 +124,24 @@ defmodule Zaq.Channels.Bridge do
 
   def put_agent_selection_assign(%Event{} = event, _selection), do: event
 
-  @doc "Returns first active candidate agent selection from ordered candidates."
+  @doc """
+  Returns first active candidate agent selection from ordered candidates.
+
+  ## Parameters
+  - `candidates`: List of `{source_atom, agent_id}` tuples in priority order.
+    Sources: `:channel_assignment`, `:provider_default`, `:global_default`
+  - `agent_module`: Module implementing agent retrieval (default: `Zaq.Agent`)
+
+  ## Examples
+
+      iex> candidates = [
+      ...>   {:channel_assignment, 42},
+      ...>   {:provider_default, 10},
+      ...>   {:global_default, 1}
+      ...> ]
+      iex> first_active_selection(candidates)
+      %{"agent_id" => 42, "source" => "channel_assignment"}
+  """
   @spec first_active_selection([{atom(), term()}], module()) :: map() | nil
   def first_active_selection(candidates, agent_module \\ Agent)
 

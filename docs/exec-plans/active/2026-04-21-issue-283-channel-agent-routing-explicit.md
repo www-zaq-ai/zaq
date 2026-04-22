@@ -56,6 +56,7 @@ What docs were read before writing this plan? What existing code is relevant?
   - `test/zaq_web/live/bo/ai/agents_live_test.exs`
 
 Issue context validated:
+
 - Issue `#283` reviewed and constrained to explicit routing first step.
 - Tacit/LLM-intent routing remains out of scope for this phase.
 
@@ -73,6 +74,7 @@ Implement explicit routing as a deterministic resolution layer that enriches eve
 Routing should fail open: if a configured agent is missing/inactive, move to next fallback level instead of hard-failing message processing.
 
 Agent deletion will be upgraded from direct delete to guarded delete:
+
 - Block deletion when the target agent is referenced in routing configuration.
 - Return structured and human-readable errors listing all usage locations.
 - Allow deletion only when unreferenced, then stop/cleanup runtime server processes.
@@ -80,6 +82,7 @@ Agent deletion will be upgraded from direct delete to guarded delete:
 Testing strategy prioritizes integration tests to cover full flows and branch behavior, with focused unit tests only for pure resolver/helpers.
 
 BO form impact (explicitly in scope for this plan):
+
 - Shared retrieval channel form used by provider routes in `ChannelsLive` (Mattermost and Discord) must include explicit agent assignment controls.
 - Email IMAP retrieval form (`NotificationImapLive`) must include mailbox/folder to agent assignment controls.
 - System global configuration (`SystemConfigLive`) must include global default agent selection controls.
@@ -179,7 +182,7 @@ as tests-first (failing tests first), then implementation, then verification.
   - Extracted repeated IMAP post-save assignment chain into a single helper in `NotificationImapLive`.
   - Verified with `mix ex_dna` (no duplication detected).
 
-- [ ] Step 9: Final verification and hardening
+- [x] Step 9: Final verification and hardening
   - Run targeted integration suites first, then full `mix test`.
   - Run `mix precommit`.
   - Confirm branch/error coverage includes happy path and representative failure branches for routing + delete.
@@ -190,18 +193,19 @@ as tests-first (failing tests first), then implementation, then verification.
 
 Record decisions made during implementation. Future agents need this context.
 
-| Decision | Rationale | Date |
-|---|---|---|
-| Explicit routing uses metadata (`event.assigns`) and does not mutate `%Incoming{}` | Keeps boundary contract stable and aligned with existing Agent API routing | 2026-04-21 |
-| Routing resolution fails open and falls through on invalid/missing/inactive agents | Avoids message drops and preserves system operability under config drift | 2026-04-21 |
-| Agent-selection logic stays bridge-local via `Bridge.resolve_agent_selection/3` optional callback | Preserves bridge ownership of transport-specific routing semantics; avoids cross-bridge policy coupling | 2026-04-21 |
-| Unset global default must preserve legacy pipeline fallback behavior | Prevents routing rollout from changing current behavior when global config is intentionally empty | 2026-04-21 |
-| IMAP mailbox assignment controls scope to selected mailboxes only | Reduces configuration noise and aligns assignment UX with enabled ingestion scope | 2026-04-21 |
-| Global default agent setting moved to dedicated Global tab | Improves discoverability and keeps telemetry panel focused on telemetry-only concerns | 2026-04-21 |
-| ExDNA clone remediation should reuse `Bridge` and `ParseUtils` rather than introducing ad-hoc duplicate helpers | Keeps shared behavior centralized and prevents reintroduction of parser and bridge-flow drift | 2026-04-22 |
-| Agent deletion is blocked when references exist, with location-rich error reporting | Prevents broken runtime references and gives actionable remediation to users | 2026-04-21 |
-| Deletion entrypoint is added to BO Edit Agent form | Matches product requirement to make deletion accessible in web UI | 2026-04-21 |
-| Test strategy is integration-first with focused error cases | Maximizes branch coverage of real flows while keeping test suite maintainable | 2026-04-21 |
+| Decision                                                                                                        | Rationale                                                                                               | Date       |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------- |
+| Explicit routing uses metadata (`event.assigns`) and does not mutate `%Incoming{}`                              | Keeps boundary contract stable and aligned with existing Agent API routing                              | 2026-04-21 |
+| Routing resolution fails open and falls through on invalid/missing/inactive agents                              | Avoids message drops and preserves system operability under config drift                                | 2026-04-21 |
+| Agent-selection logic stays bridge-local via `Bridge.resolve_agent_selection/3` optional callback               | Preserves bridge ownership of transport-specific routing semantics; avoids cross-bridge policy coupling | 2026-04-21 |
+| Unset global default must preserve legacy pipeline fallback behavior                                            | Prevents routing rollout from changing current behavior when global config is intentionally empty       | 2026-04-21 |
+| IMAP mailbox assignment controls scope to selected mailboxes only                                               | Reduces configuration noise and aligns assignment UX with enabled ingestion scope                       | 2026-04-21 |
+| Global default agent setting moved to dedicated Global tab                                                      | Improves discoverability and keeps telemetry panel focused on telemetry-only concerns                   | 2026-04-21 |
+| ExDNA clone remediation should reuse `Bridge` and `ParseUtils` rather than introducing ad-hoc duplicate helpers | Keeps shared behavior centralized and prevents reintroduction of parser and bridge-flow drift           | 2026-04-22 |
+| Agent deletion is blocked when references exist, with location-rich error reporting                             | Prevents broken runtime references and gives actionable remediation to users                            | 2026-04-21 |
+| Deletion entrypoint is added to BO Edit Agent form                                                              | Matches product requirement to make deletion accessible in web UI                                       | 2026-04-21 |
+| Test strategy is integration-first with focused error cases                                                     | Maximizes branch coverage of real flows while keeping test suite maintainable                           | 2026-04-21 |
+| Delete now stops runtime before row removal and re-checks references immediately before delete                  | Avoids orphaned long-lived agent servers; a narrow concurrent admin-update window remains and BO retry is acceptable | 2026-04-22 |
 
 ---
 
@@ -209,9 +213,9 @@ Record decisions made during implementation. Future agents need this context.
 
 List anything blocking progress and who/what can unblock it.
 
-| Blocker | Owner | Status |
-|---|---|---|
-| Final product wording for "usage location" display format in BO delete errors | Product/maintainer | open |
+| Blocker                                                                       | Owner              | Status |
+| ----------------------------------------------------------------------------- | ------------------ | ------ |
+| Final product wording for "usage location" display format in BO delete errors | Product/maintainer | open   |
 
 ---
 

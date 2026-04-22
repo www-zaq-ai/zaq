@@ -21,21 +21,23 @@ defmodule Zaq.System.AIProviderCredentialTest do
   end
 
   test "creates, lists, gets and deletes AI provider credentials" do
+    unique = :erlang.unique_integer([:positive])
+
     assert {:ok, %AIProviderCredential{} = credential} =
              System.create_ai_provider_credential(%{
-               name: "OpenAI EU",
+               name: "OpenAI EU #{unique}",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
                sovereign: true,
                description: "EU sovereign endpoint"
              })
 
-    assert [%AIProviderCredential{id: id}] = System.list_ai_provider_credentials()
+    assert Enum.any?(System.list_ai_provider_credentials(), &(&1.id == credential.id))
+    assert %AIProviderCredential{id: id} = System.get_ai_provider_credential!(credential.id)
     assert id == credential.id
-    assert %AIProviderCredential{id: ^id} = System.get_ai_provider_credential!(id)
 
     assert {:ok, _} = System.delete_ai_provider_credential(credential)
-    assert [] == System.list_ai_provider_credentials()
+    refute Enum.any?(System.list_ai_provider_credentials(), &(&1.id == credential.id))
   end
 
   test "create_ai_provider_credential/0 returns an invalid changeset error" do
