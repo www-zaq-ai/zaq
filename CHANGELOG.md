@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.4](https://github.com/www-zaq-ai/zaq/compare/v0.7.3...v0.7.4) (2026-04-22)
+
+
+### Bug Fixes
+
+* **retrieval:** disable json mode when conversation history is present ([58658a6](https://github.com/www-zaq-ai/zaq/commit/58658a6))
+
 ## [0.7.3](https://github.com/www-zaq-ai/zaq/compare/v0.7.2...v0.7.3) (2026-04-21)
 
 
