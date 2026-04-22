@@ -985,7 +985,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Repo.insert!()
       end
 
-      assert {:ok, results} = DocumentProcessor.query_extraction("searchable content", skip_permissions: true)
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("searchable content", skip_permissions: true)
+
       assert is_list(results)
 
       Enum.each(results, fn r ->
@@ -1023,10 +1025,15 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> TokenEstimator.estimate()
 
       Zaq.System.set_config("llm.max_context_window", boundary_tokens)
-      assert {:ok, []} = DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
+
+      assert {:ok, []} =
+               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
 
       Zaq.System.set_config("llm.max_context_window", boundary_tokens + 1)
-      assert {:ok, [first | _]} = DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
+
+      assert {:ok, [first | _]} =
+               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
+
       assert first["content"] == "Boundary-only chunk with deterministic payload."
     end
   end
@@ -1820,7 +1827,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
           else: Application.put_env(:zaq, Zaq.Ingestion, original)
       end)
 
-      assert {:ok, results} = DocumentProcessor.query_extraction("fox jumps", skip_permissions: true)
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("fox jumps", skip_permissions: true)
+
       assert is_list(results)
     end
 
