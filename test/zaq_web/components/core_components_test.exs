@@ -4,6 +4,8 @@ defmodule ZaqWeb.CoreComponentsTest do
   import Phoenix.LiveViewTest
 
   alias ZaqWeb.CoreComponents
+  alias Phoenix.LiveView.JS
+  alias Phoenix.LiveView.LiveStream
 
   test "flash/1 renders info flash from map" do
     html =
@@ -28,6 +30,22 @@ defmodule ZaqWeb.CoreComponentsTest do
     assert html =~ "id=\"flash-error\""
     assert html =~ "Nope"
     assert html =~ "alert-error"
+  end
+
+  test "flash/1 renders title, explicit id, and rest attrs" do
+    html =
+      render_component(&CoreComponents.flash/1,
+        id: "custom-flash",
+        kind: :info,
+        flash: %{"info" => "Updated"},
+        title: "Success",
+        data_testid: "flash-custom"
+      )
+
+    assert html =~ "id=\"custom-flash\""
+    assert html =~ "Success"
+    assert html =~ "Updated"
+    assert html =~ "data_testid=\"flash-custom\""
   end
 
   test "flash/1 renders nothing when there is no message" do
@@ -64,6 +82,19 @@ defmodule ZaqWeb.CoreComponentsTest do
     assert html =~ "btn"
     assert html =~ "btn-primary"
     refute html =~ "btn-soft"
+  end
+
+  test "button/1 honors explicit class override and patch links" do
+    html =
+      render_component(&CoreComponents.button/1,
+        class: "btn btn-neutral",
+        patch: "/bo/users",
+        inner_block: [%{inner_block: fn _, _ -> "Users" end}]
+      )
+
+    assert html =~ "href=\"/bo/users\""
+    assert html =~ "btn btn-neutral"
+    refute html =~ "btn-primary"
   end
 
   test "input/1 renders text and checkbox variants" do
@@ -150,6 +181,89 @@ defmodule ZaqWeb.CoreComponentsTest do
     assert html =~ "name=\"filters[tags][]\""
   end
 
+  test "input/1 select supports multiple and no prompt" do
+    html =
+      render_component(&CoreComponents.input/1,
+        type: "select",
+        id: "agents",
+        name: "agents",
+        options: [{"Agent A", 1}, {"Agent B", 2}],
+        value: [1],
+        multiple: true
+      )
+
+    assert html =~ "<select"
+    assert html =~ "multiple"
+    refute html =~ "<option value=\"\""
+  end
+
+  test "secret_input/1 renders explicit assigns and custom classes" do
+    html =
+      render_component(&CoreComponents.secret_input/1,
+        id: "api-token",
+        name: "token",
+        value: "s3cr3t",
+        placeholder: "••••••",
+        input_class: "my-secret-input",
+        button_class: "my-secret-button",
+        wrapper_class: "my-secret-wrapper",
+        "phx-debounce": "300"
+      )
+
+    assert html =~ "id=\"api-token\""
+    assert html =~ "name=\"token\""
+    assert html =~ "type=\"password\""
+    assert html =~ "my-secret-input"
+    assert html =~ "my-secret-button"
+    assert html =~ "my-secret-wrapper"
+    assert html =~ "eye-on"
+    assert html =~ "eye-off"
+    assert html =~ "phx-debounce=\"300\""
+  end
+
+  test "secret_input/1 supports form field and renders field errors" do
+    form =
+      Phoenix.Component.to_form(
+        %{"password" => "hunter2"},
+        as: :user,
+        errors: [password: {"can't be blank", []}],
+        action: :validate
+      )
+
+    html =
+      render_component(&CoreComponents.secret_input/1,
+        field: form[:password]
+      )
+
+    assert html =~ "id=\"secret-user-password-\""
+    assert html =~ "name=\"user[password]\""
+    assert html =~ "can&#39;t be blank"
+  end
+
+  test "secret_input/1 derives stable ids when missing explicit id" do
+    binary_name_html =
+      render_component(&CoreComponents.secret_input/1,
+        name: "credentials[token]",
+        value: nil
+      )
+
+    nil_name_html =
+      render_component(&CoreComponents.secret_input/1,
+        name: nil,
+        value: nil
+      )
+
+    atom_name_html =
+      render_component(&CoreComponents.secret_input/1,
+        name: :api_token,
+        value: nil
+      )
+
+    assert binary_name_html =~ "id=\"secret-credentials-token-\""
+    assert nil_name_html =~ "id=\"secret-input\""
+    assert atom_name_html =~ "id=\"secret-api_token\""
+  end
+
   test "header/1 and list/1 render optional slots" do
     header_html =
       render_component(&CoreComponents.header/1,
@@ -197,6 +311,41 @@ defmodule ZaqWeb.CoreComponentsTest do
     assert html =~ "Edit"
   end
 
+  test "table/1 renders rows without action slot" do
+    html =
+      render_component(&CoreComponents.table/1,
+        id: "rows-no-action",
+        rows: [%{id: 2, name: "Bob"}],
+        row_id: fn row -> "row-#{row.id}" end,
+        col: [
+          %{label: "Name", inner_block: fn _, _ -> "Bob" end}
+        ]
+      )
+
+    assert html =~ "id=\"rows-no-action\""
+    assert html =~ "id=\"row-2\""
+    refute html =~ "Actions"
+  end
+
+  test "table/1 supports LiveStream rows and default row_id" do
+    stream =
+      LiveStream.new(:users, "ref-1", [%{id: 7, name: "Dana"}], [])
+      |> LiveStream.mark_consumable()
+
+    html =
+      render_component(&CoreComponents.table/1,
+        id: "users-stream",
+        rows: stream,
+        col: [
+          %{label: "Name", inner_block: fn _, {_, row} -> row.name end}
+        ]
+      )
+
+    assert html =~ "phx-update=\"stream\""
+    assert html =~ "id=\"users-7\""
+    assert html =~ "Dana"
+  end
+
   test "icon/1 renders hero class names" do
     html = render_component(&CoreComponents.icon/1, name: "hero-x-mark")
 
@@ -214,5 +363,27 @@ defmodule ZaqWeb.CoreComponentsTest do
 
   test "translate_error/1 handles pluralization count option" do
     assert CoreComponents.translate_error({"is too short", [count: 3]}) == "is too short"
+  end
+
+  test "translate_error/1 handles non-count option" do
+    assert CoreComponents.translate_error({"can't be blank", []}) == "can't be blank"
+  end
+
+  test "show/2 and hide/2 build JS operations" do
+    assert %JS{ops: [["show", show_opts]]} = CoreComponents.show("#modal")
+    assert show_opts[:to] == "#modal"
+    assert show_opts[:time] == 300
+
+    assert %JS{ops: [["show", show_opts2]]} = CoreComponents.show(%JS{}, "#panel")
+    assert show_opts2[:to] == "#panel"
+    assert show_opts2[:time] == 300
+
+    assert %JS{ops: [["hide", hide_opts]]} = CoreComponents.hide("#modal")
+    assert hide_opts[:to] == "#modal"
+    assert hide_opts[:time] == 200
+
+    assert %JS{ops: [["hide", hide_opts2]]} = CoreComponents.hide(%JS{}, "#panel")
+    assert hide_opts2[:to] == "#panel"
+    assert hide_opts2[:time] == 200
   end
 end

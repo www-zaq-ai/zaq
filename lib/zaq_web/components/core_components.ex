@@ -338,7 +338,12 @@ defmodule ZaqWeb.CoreComponents do
   end
 
   def secret_input(assigns) do
-    assigns = assign_new(assigns, :id, fn -> secret_input_id(assigns[:name]) end)
+    assigns =
+      if is_binary(assigns[:id]) and assigns[:id] != "" do
+        assigns
+      else
+        assign(assigns, :id, secret_input_id(assigns[:name]))
+      end
 
     ~H"""
     <div class={@wrapper_class || "relative"}>
