@@ -33,9 +33,11 @@ defmodule Mix.Tasks.Hooks.Verify do
 
   @impl Mix.Task
   def run(_args) do
+    mix_task_module = Application.get_env(:zaq, :hooks_verify_mix_task_module, Mix.Task)
+
     try do
-      Mix.Task.run("compile", [])
-      Mix.Task.run("app.start")
+      mix_task_module.run("compile", [])
+      mix_task_module.run("app.start")
     rescue
       e in Mix.Error ->
         Mix.shell().error("Failed to start application: #{Exception.message(e)}")

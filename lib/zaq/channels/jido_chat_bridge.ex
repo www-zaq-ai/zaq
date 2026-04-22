@@ -32,7 +32,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     bridge_id = sink_opts[:bridge_id] || default_bridge_id(config)
 
     with :ok <- ensure_runtime_started(config, bridge_id, []),
-         {:ok, state_pid} <- Supervisor.lookup_state_pid(bridge_id) do
+         {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
       State.process_listener_payload(state_pid, config, payload, sink_opts)
     end
   end
@@ -47,7 +47,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     bridge_id = thread_bridge_id(channel_id, thread_id)
 
     with :ok <- ensure_runtime_started(config, bridge_id, channel_ids: [channel_id]),
-         {:ok, state_pid} <- Supervisor.lookup_state_pid(bridge_id) do
+         {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
       State.subscribe_thread(
         state_pid,
         String.to_existing_atom(config.provider),
@@ -66,7 +66,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       when is_binary(channel_id) and is_binary(thread_id) do
     bridge_id = thread_bridge_id(channel_id, thread_id)
 
-    with {:ok, state_pid} <- Supervisor.lookup_state_pid(bridge_id),
+    with {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id),
          :ok <-
            State.unsubscribe_thread(
              state_pid,
@@ -74,7 +74,7 @@ defmodule Zaq.Channels.JidoChatBridge do
              channel_id,
              thread_id
            ) do
-      Supervisor.stop_bridge_runtime(config, bridge_id)
+      supervisor_module().stop_bridge_runtime(config, bridge_id)
     end
   end
 
@@ -89,7 +89,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc "Stops runtime processes for a channel config."
   @impl true
   def stop_runtime(config) do
-    case Supervisor.stop_bridge_runtime(config, default_bridge_id(config)) do
+    case supervisor_module().stop_bridge_runtime(config, default_bridge_id(config)) do
       :ok -> :ok
       {:error, :not_running} -> :ok
       other -> other
@@ -450,14 +450,18 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp thread_bridge_id(channel_id, thread_id), do: "#{channel_id}_#{thread_id}"
 
   defp ensure_runtime_started(config, bridge_id, runtime_opts) do
-    case Supervisor.lookup_state_pid(bridge_id) do
+    case supervisor_module().lookup_state_pid(bridge_id) do
       {:ok, state_pid} ->
         State.refresh_config(state_pid, config)
 
       {:error, :not_running} ->
         with {:ok, listeners} <- listener_specs(config, bridge_id, runtime_opts),
              {:ok, _runtime} <-
-               Supervisor.start_runtime(bridge_id, state_child_spec(config, bridge_id), listeners) do
+               supervisor_module().start_runtime(
+                 bridge_id,
+                 state_child_spec(config, bridge_id),
+                 listeners
+               ) do
           :ok
         else
           {:error, :already_running} -> :ok
@@ -467,7 +471,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp refresh_runtime(config) do
-    case Supervisor.lookup_state_pid(default_bridge_id(config)) do
+    case supervisor_module().lookup_state_pid(default_bridge_id(config)) do
       {:ok, state_pid} -> State.refresh_config(state_pid, config)
       {:error, :not_running} -> start_runtime(config)
     end
@@ -710,6 +714,14 @@ defmodule Zaq.Channels.JidoChatBridge do
     Application.get_env(:zaq, :chat_bridge_node_router_module, NodeRouter)
   end
 
+  defp supervisor_module do
+    Application.get_env(:zaq, :chat_bridge_supervisor_module, Supervisor)
+  end
+
+  defp oban_module do
+    Application.get_env(:zaq, :chat_bridge_oban_module, Oban)
+  end
+
   defp resolve_adapter_for_provider(provider) do
     case adapter_for(provider) do
       {:ok, adapter} -> {:ok, adapter}
@@ -775,7 +787,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     module = String.to_existing_atom(mod_str)
     full_args = if post_id, do: Map.put(args, "post_id", post_id), else: args
 
-    case module.new(full_args) |> Oban.insert() do
+    case module.new(full_args) |> oban_module().insert() do
       {:ok, job} ->
         Logger.info("[JidoChatBridge] on_reply job #{job.id} enqueued for #{inspect(mod_str)}")
 

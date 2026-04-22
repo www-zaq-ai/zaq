@@ -103,6 +103,26 @@ defmodule Zaq.Channels.RouterTest do
     end
   end
 
+  defmodule FallbackRuntimeBridge do
+    def send_reply(_outgoing, _connection_details), do: :ok
+
+    def start_runtime(config) do
+      send(self(), {:fallback_start_runtime, config.provider, config.id})
+      :ok
+    end
+
+    def stop_runtime(config) do
+      send(self(), {:fallback_stop_runtime, config.provider, config.id})
+      :ok
+    end
+  end
+
+  defmodule ErrorRuntimeBridge do
+    def send_reply(_outgoing, _connection_details), do: :ok
+    def start_runtime(_config), do: {:error, :runtime_failed}
+    def stop_runtime(_config), do: {:error, :runtime_failed}
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -278,6 +298,47 @@ defmodule Zaq.Channels.RouterTest do
       assert :ok = Router.sync_config_runtime(nil, config)
     end
 
+    test "falls back to start_runtime/1 and stop_runtime/1 when sync_runtime/2 is absent", %{
+      config: config
+    } do
+      config_id = config.id
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: FallbackRuntimeBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert :ok = Router.sync_config_runtime(nil, config)
+      assert_received {:fallback_start_runtime, "mattermost", ^config_id}
+
+      disabled = %{config | enabled: false}
+      assert :ok = Router.sync_config_runtime(config, disabled)
+      assert_received {:fallback_stop_runtime, "mattermost", ^config_id}
+
+      assert :ok = Router.sync_config_runtime(nil, disabled)
+      refute_received {:fallback_start_runtime, "mattermost", ^config_id}
+
+      assert :ok = Router.sync_config_runtime(disabled, config)
+      assert_received {:fallback_start_runtime, "mattermost", ^config_id}
+
+      assert :ok = Router.sync_config_runtime(disabled, disabled)
+      refute_received {:fallback_stop_runtime, "mattermost", ^config_id}
+    end
+
+    test "propagates fallback runtime errors when bridge callbacks fail", %{config: config} do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: ErrorRuntimeBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:error, :runtime_failed} = Router.sync_config_runtime(nil, config)
+    end
+
     test "returns no_bridge error when provider is not configured" do
       config = %{id: 99, provider: "missing-provider", enabled: true}
       assert {:error, {:no_bridge, "missing-provider"}} = Router.sync_config_runtime(nil, config)
@@ -304,6 +365,26 @@ defmodule Zaq.Channels.RouterTest do
     test "returns strict channel_not_configured error when config is missing" do
       assert {:error, {:channel_not_configured, :mattermost}} =
                Router.sync_provider_runtime(:mattermost)
+    end
+
+    test "falls back to start_runtime/1 and stop_runtime/1 when sync_provider_runtime/1 is absent" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: FallbackRuntimeBridge}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      enabled = insert_config(:mattermost)
+      enabled_id = enabled.id
+      assert :ok = Router.sync_provider_runtime(:mattermost)
+      assert_received {:fallback_start_runtime, "mattermost", ^enabled_id}
+
+      {:ok, _} = enabled |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update()
+
+      assert :ok = Router.sync_provider_runtime(:mattermost)
+      assert_received {:fallback_stop_runtime, "mattermost", ^enabled_id}
     end
   end
 
@@ -483,6 +564,10 @@ defmodule Zaq.Channels.RouterTest do
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
 
       assert Router.bridge_for("email:imap") == StubBridge
+    end
+
+    test "returns nil for unknown binary provider keys" do
+      assert Router.bridge_for("definitely_missing_provider") == nil
     end
   end
 end

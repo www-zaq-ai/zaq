@@ -34,6 +34,26 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
     end
   end
 
+  defp with_mix_task_module(module, fun) do
+    original = Application.get_env(:zaq, :hooks_verify_mix_task_module)
+    Application.put_env(:zaq, :hooks_verify_mix_task_module, module)
+
+    try do
+      fun.()
+    after
+      if is_nil(original) do
+        Application.delete_env(:zaq, :hooks_verify_mix_task_module)
+      else
+        Application.put_env(:zaq, :hooks_verify_mix_task_module, original)
+      end
+    end
+  end
+
+  defmodule FailingMixTask do
+    def run("compile", []), do: :ok
+    def run("app.start"), do: raise(Mix.Error, message: "boom")
+  end
+
   # ---------------------------------------------------------------------------
   # scan_file/1 — unit tests (no temp dirs needed for basic regex behaviour)
   # ---------------------------------------------------------------------------
@@ -187,6 +207,15 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
 
       assert_received {:mix_shell, :info, [msg]}
       assert msg =~ "hooks.verify passed"
+    end
+
+    test "exits after reporting startup failures from Mix.Task.run/2" do
+      with_mix_task_module(FailingMixTask, fn ->
+        assert catch_exit(Verify.run([])) == {:shutdown, 1}
+      end)
+
+      assert_received {:mix_shell, :error, [msg]}
+      assert msg =~ "Failed to start application: boom"
     end
   end
 end

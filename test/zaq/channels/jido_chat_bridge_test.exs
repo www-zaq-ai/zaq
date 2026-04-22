@@ -184,6 +184,20 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule StubAdapterGetUserFullName do
+    def get_user(author_id, opts) do
+      send(self(), {:adapter_get_user_full_name, author_id, opts})
+
+      {:ok,
+       %{
+         email: "user@example.com",
+         full_name: "Full Name Only",
+         username: "profile_user",
+         phone: "+15550002"
+       }}
+    end
+  end
+
   defmodule StubAdapterThreadPost do
     def send_message(_channel_id, _text, _opts) do
       {:ok, %{external_message_id: "post-123"}}
@@ -203,6 +217,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   defmodule InvalidOnReplyWorker do
     def new(_args), do: Oban.Job.new(%{}, queue: :default)
+  end
+
+  defmodule ErrorOnReplyWorker do
+    def new(_args) do
+      %Oban.Job{}
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.add_error(:worker, "invalid worker")
+    end
+  end
+
+  defmodule StubObanInsertError do
+    def insert(%Ecto.Changeset{} = changeset), do: {:error, changeset}
   end
 
   defmodule StubAdapterListenerError do
@@ -254,6 +280,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def transform_incoming(%{"type" => "reaction"}), do: {:error, :unsupported_event}
   end
 
+  defmodule StubSupervisorAlreadyRunning do
+    def lookup_state_pid(_bridge_id), do: {:error, :not_running}
+    def start_runtime(_bridge_id, _state_spec, _listeners), do: {:error, :already_running}
+    def stop_bridge_runtime(_config, _bridge_id), do: :ok
+  end
+
+  defmodule StubSupervisorStopError do
+    def lookup_state_pid(_bridge_id), do: {:error, :not_running}
+    def start_runtime(_bridge_id, _state_spec, _listeners), do: {:ok, self()}
+    def stop_bridge_runtime(_config, _bridge_id), do: {:error, :stop_failed}
+  end
+
   defmodule StubAccounts do
     def get_user_by_username("alice"), do: %{id: "u1", username: "alice"}
     def get_user_by_username(_), do: nil
@@ -271,6 +309,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     Application.put_env(:zaq, :chat_bridge_accounts_module, StubAccounts)
     Application.put_env(:zaq, :chat_bridge_permissions_module, StubPermissions)
     Application.delete_env(:zaq, :chat_bridge_node_router_module)
+    Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+    Application.delete_env(:zaq, :chat_bridge_oban_module)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :pipeline_hooks_module)
@@ -280,6 +320,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.delete_env(:zaq, :chat_bridge_accounts_module)
       Application.delete_env(:zaq, :chat_bridge_permissions_module)
       Application.delete_env(:zaq, :chat_bridge_node_router_module)
+      Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+      Application.delete_env(:zaq, :chat_bridge_oban_module)
     end)
 
     :ok
@@ -600,6 +642,44 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
       assert_received {:node_router_run_pipeline_event, event}
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
+    end
+
+    test "resolve_agent_selection/3 ignores channel assignments when config id is unavailable" do
+      provider_agent = insert_configured_agent(true)
+
+      config = %{
+        provider: "mattermost",
+        settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+      }
+
+      incoming = %Incoming{
+        content: "route this",
+        channel_id: "room-missing-config-id",
+        provider: :mattermost
+      }
+
+      selected =
+        JidoChatBridge.resolve_agent_selection(config, incoming, channel_id: incoming.channel_id)
+
+      assert selected["source"] == "provider_default"
+      assert selected["agent_id"] == provider_agent.id
+    end
+
+    test "resolve_agent_selection/3 skips channel assignment lookup for non-binary channel ids" do
+      provider_agent = insert_configured_agent(true)
+
+      config = %{
+        id: 123,
+        provider: "mattermost",
+        settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+      }
+
+      incoming = %Incoming{content: "route this", channel_id: nil, provider: :mattermost}
+
+      selected = JidoChatBridge.resolve_agent_selection(config, incoming, channel_id: nil)
+
+      assert selected["source"] == "provider_default"
+      assert selected["agent_id"] == provider_agent.id
     end
 
     test "uses incoming channel adapter when present, even if unsupported" do
@@ -999,6 +1079,46 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:listener_child_specs_opts, listener_opts}
       assert listener_opts[:channel_ids] == :all
     end
+
+    test "runtime_specs/3 supports atom providers when building state specs" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: :mattermost,
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      {state_spec, listener_specs} =
+        JidoChatBridge.runtime_specs(config, "bridge_atom_provider_test", channel_ids: ["chan-1"])
+
+      assert state_spec.start ==
+               {State, :start_link,
+                [
+                  [
+                    bridge_id: "bridge_atom_provider_test",
+                    config: config,
+                    provider: :mattermost,
+                    handler_opts: %{}
+                  ]
+                ]}
+
+      assert listener_specs == []
+      assert_received {:listener_child_specs_opts, listener_opts}
+      assert listener_opts[:sink_opts][:transport] == :websocket
+    end
   end
 
   describe "subscribe_thread_reply/3 and unsubscribe_thread_reply/3" do
@@ -1151,12 +1271,23 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "do_send_reply/2 logs warning path when on_reply insert returns error" do
       previous = Application.get_env(:zaq, :channels, %{})
+      previous_oban = Application.get_env(:zaq, :chat_bridge_oban_module)
 
       Application.put_env(:zaq, :channels, %{
         mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterThreadPost}
       })
 
-      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+      Application.put_env(:zaq, :chat_bridge_oban_module, StubObanInsertError)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+
+        if previous_oban do
+          Application.put_env(:zaq, :chat_bridge_oban_module, previous_oban)
+        else
+          Application.delete_env(:zaq, :chat_bridge_oban_module)
+        end
+      end)
 
       outgoing = %Outgoing{
         body: "hello",
@@ -1165,7 +1296,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         provider: :mattermost,
         metadata: %{
           "on_reply" => %{
-            "module" => Atom.to_string(InvalidOnReplyWorker),
+            "module" => Atom.to_string(ErrorOnReplyWorker),
             "args" => %{"conversation_id" => "conv-1"}
           }
         }
@@ -1180,7 +1311,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                    })
         end)
 
-      assert log =~ "on_reply dispatch failed"
+      assert log =~ "failed to enqueue on_reply"
     end
 
     test "do_send_reply/2 rescue path for invalid on_reply module" do
@@ -1494,6 +1625,22 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:adapter_get_user, "author-1", opts}
       assert opts[:url] == "https://mm.example.com"
       assert opts[:token] == "tok"
+    end
+
+    test "falls back to full_name when display_name is absent" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterGetUserFullName}
+      })
+
+      assert {:ok, profile} =
+               JidoChatBridge.fetch_profile("author-1", %{
+                 provider: "mattermost",
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+
+      assert profile["display_name"] == "Full Name Only"
+      assert_received {:adapter_get_user_full_name, "author-1", _opts}
     end
 
     test "returns unsupported when adapter does not implement get_user/2" do
@@ -1833,9 +1980,164 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert {:ok, new_state_pid} = Supervisor.lookup_state_pid(bridge_id)
       refute new_state_pid == old_state_pid
     end
+
+    test "sync_runtime/2 returns :ok for disabled-to-disabled changes" do
+      before_config = %{provider: "mattermost", enabled: false}
+      after_config = %{provider: "mattermost", enabled: false}
+
+      assert :ok = JidoChatBridge.sync_runtime(before_config, after_config)
+    end
+
+    test "sync_runtime/2 starts runtime for disabled-to-enabled changes" do
+      config = insert_channel_config(%{})
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.sync_runtime(%{enabled: false}, config)
+      assert_received {:listener_child_specs_opts, opts}
+      assert opts[:url] == config.url
+      assert {:ok, _state_pid} = Supervisor.lookup_state_pid("#{config.provider}_#{config.id}")
+    end
+
+    test "sync_runtime/2 starts runtime for nil-to-enabled changes" do
+      config = insert_channel_config(%{})
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.sync_runtime(nil, config)
+      assert_received {:listener_child_specs_opts, opts}
+      assert opts[:url] == config.url
+      assert {:ok, _state_pid} = Supervisor.lookup_state_pid("#{config.provider}_#{config.id}")
+    end
+
+    test "sync_runtime/2 returns :ok for nil-to-disabled changes" do
+      assert :ok = JidoChatBridge.sync_runtime(nil, %{provider: "mattermost", enabled: false})
+    end
+
+    test "sync_runtime/2 stops runtime for enabled-to-disabled changes" do
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert {:ok, _state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      disabled = config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
+
+      assert :ok = JidoChatBridge.sync_runtime(config, disabled)
+      assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+    end
+
+    test "sync_runtime/2 returns :ok when enabled config fingerprints do not change" do
+      config = insert_channel_config(%{})
+      assert :ok = JidoChatBridge.sync_runtime(config, config)
+    end
+
+    test "sync_provider_runtime/1 stops runtime for disabled configs" do
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert {:ok, _state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      disabled = config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
+
+      assert :ok = JidoChatBridge.sync_provider_runtime(disabled)
+      assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+    end
+
+    test "sync_runtime/2 refreshes by starting runtime when no runtime exists yet" do
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"message_patterns" => ["deploy"], "ingress" => "invalid"}}
+        })
+
+      updated =
+        config
+        |> ChannelConfig.changeset(%{
+          settings: %{
+            "jido_chat" => %{"message_patterns" => ["incident"], "ingress" => "invalid"}
+          }
+        })
+        |> Repo.update!()
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(updated)
+      end)
+
+      assert :ok = JidoChatBridge.sync_runtime(config, updated)
+      assert_received {:listener_child_specs_opts, opts}
+      assert opts[:ingress] == %{"mode" => "websocket"}
+      assert {:ok, _state_pid} = Supervisor.lookup_state_pid("#{updated.provider}_#{updated.id}")
+    end
   end
 
   describe "start_runtime/1 and stop_runtime/1 error normalization" do
+    test "start_runtime/1 refreshes existing runtime instead of failing when already running" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = insert_channel_config(%{})
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert_received {:listener_child_specs_opts, _opts}
+
+      assert :ok = JidoChatBridge.start_runtime(%{config | token: "updated-token"})
+      refute_received {:listener_child_specs_opts, _opts}
+
+      {:ok, state_pid} = Supervisor.lookup_state_pid("#{config.provider}_#{config.id}")
+      state = :sys.get_state(state_pid)
+      assert state.config.token == "updated-token"
+    end
+
+    test "start_runtime/1 normalizes already_running races to :ok" do
+      previous = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorAlreadyRunning)
+
+      on_exit(fn ->
+        if previous do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+    end
+
     test "start_runtime/1 returns forwarded errors" do
       previous = Application.get_env(:zaq, :channels, %{})
 
@@ -1867,6 +2169,30 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert :ok = JidoChatBridge.stop_runtime(config)
     end
+
+    test "stop_runtime/1 propagates unexpected stop errors" do
+      previous = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorStopError)
+
+      on_exit(fn ->
+        if previous do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      assert {:error, :stop_failed} = JidoChatBridge.stop_runtime(config)
+    end
   end
 
   defp insert_channel_config(attrs) do
@@ -1894,15 +2220,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   defp insert_configured_agent(active) do
+    unique = System.unique_integer([:positive, :monotonic])
+
     credential =
       SystemConfigFixtures.ai_credential_fixture(%{
+        name: "Bridge Credential #{unique}",
         provider: "openai",
         endpoint: "https://api.openai.com/v1"
       })
 
     {:ok, agent} =
       Zaq.Agent.create_agent(%{
-        name: "Bridge Agent #{System.unique_integer([:positive, :monotonic])}",
+        name: "Bridge Agent #{unique}",
         description: "",
         job: "Route bridge traffic",
         model: "gpt-4.1-mini",
