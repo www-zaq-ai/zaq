@@ -3,9 +3,9 @@ defmodule ZaqWeb.CoreComponentsTest do
 
   import Phoenix.LiveViewTest
 
-  alias ZaqWeb.CoreComponents
   alias Phoenix.LiveView.JS
   alias Phoenix.LiveView.LiveStream
+  alias ZaqWeb.CoreComponents
 
   test "flash/1 renders info flash from map" do
     html =
