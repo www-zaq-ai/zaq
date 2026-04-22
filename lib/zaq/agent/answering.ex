@@ -3,8 +3,7 @@ defmodule Zaq.Agent.Answering do
   Response formulation agent.
 
   Receives context (retrieved chunks + user question) via a system prompt and
-  generates a natural answer. Optionally computes a confidence score from
-  logprobs when the LLM provider supports it.
+  generates a natural answer.
 
   Uses DB-managed system prompt (`answering` slug) and provider-agnostic
   LLM configuration from `Zaq.Agent.LLM`.
@@ -12,10 +11,10 @@ defmodule Zaq.Agent.Answering do
 
   require Logger
 
+  alias ReqLLM.{Context, Generation, Response}
   alias Zaq.Agent.Answering.Result
-  alias Zaq.Agent.{History, LLM, LogprobsAnalyzer}
+  alias Zaq.Agent.{History, LLM}
   alias Zaq.Engine.Telemetry
-  alias Zaq.RuntimeDeps
 
   @no_answer_signals [
     "i don't have",
@@ -37,8 +36,6 @@ defmodule Zaq.Agent.Answering do
     * `:system_prompt` — override the DB prompt. When omitted, loads the
       active `"answering"` template and renders it.
     * `:history` — conversation history map.
-    * `:include_confidence` — whether to compute logprobs confidence.
-      Defaults to `true` when the LLM supports logprobs, `false` otherwise.
     * `:telemetry_dimensions` — optional dimensions for centralized telemetry metrics.
 
   ## Returns
@@ -47,50 +44,49 @@ defmodule Zaq.Agent.Answering do
     * `{:error, String.t()}` — on failure
   """
   def ask(system_prompt, opts \\ []) do
-    include_confidence =
-      Keyword.get(opts, :include_confidence, LLM.supports_logprobs?())
-
     history =
       Keyword.get(opts, :history, [])
       |> History.build()
 
     question = Keyword.get(opts, :question)
-
-    llm_config =
-      LLM.chat_config()
-      |> maybe_add_logprobs(include_confidence)
-
     telemetry_dimensions = Keyword.get(opts, :telemetry_dimensions, %{})
 
     Logger.info("Answering: Formulating response based on retrieved data")
 
     started_at = System.monotonic_time(:millisecond)
 
-    case RuntimeDeps.llm_runner().run(
-           llm_config: llm_config,
-           system_prompt: system_prompt,
-           history: history,
-           question: question,
-           error_prefix: "Failed to formulate response"
-         ) do
-      {:ok, updated_chain} ->
-        case RuntimeDeps.llm_runner().content_result(updated_chain) do
-          {:ok, answer} ->
+    gen_opts =
+      LLM.generation_opts()
+      |> Keyword.put(:system_prompt, system_prompt)
+
+    messages =
+      if question do
+        history ++ [Context.user(question)]
+      else
+        history
+      end
+
+    case Generation.generate_text(LLM.build_model_spec(), messages, gen_opts) do
+      {:ok, response} ->
+        case normalized_text(Response.text(response)) do
+          nil ->
+            error_reason = "Failed to formulate response: Empty assistant response content"
+            Logger.error("Answering failed: #{error_reason}")
+            {:error, error_reason}
+
+          answer ->
             latency_ms = System.monotonic_time(:millisecond) - started_at
 
-            bot_response = List.last(updated_chain.messages)
-            usage = Map.get(bot_response.metadata, :usage) || %{}
-
-            prompt_tokens = usage_value(usage, :input)
-            completion_tokens = usage_value(usage, :output)
-
+            usage = Response.usage(response) || %{}
+            prompt_tokens = usage[:input_tokens] |> as_int()
+            completion_tokens = usage[:output_tokens] |> as_int()
             total_tokens = maybe_total_tokens(prompt_tokens, completion_tokens)
-            confidence_score = maybe_confidence_score(bot_response, include_confidence)
+
             log_token_usage(prompt_tokens, completion_tokens)
 
             result = %Result{
               answer: answer,
-              confidence_score: confidence_score,
+              confidence_score: nil,
               latency_ms: latency_ms,
               prompt_tokens: prompt_tokens,
               completion_tokens: completion_tokens,
@@ -98,18 +94,13 @@ defmodule Zaq.Agent.Answering do
             }
 
             emit_answer_telemetry(result, telemetry_dimensions)
-
             {:ok, result}
-
-          {:error, reason} ->
-            error_reason = "Failed to formulate response: #{reason}"
-            Logger.error("Answering failed: #{error_reason}")
-            {:error, error_reason}
         end
 
       {:error, reason} ->
-        Logger.error("Answering failed: #{reason}")
-        {:error, reason}
+        error_reason = "Failed to formulate response: #{inspect(reason)}"
+        Logger.error("Answering failed: #{error_reason}")
+        {:error, error_reason}
     end
   end
 
@@ -170,33 +161,16 @@ defmodule Zaq.Agent.Answering do
 
   # -- Private --
 
-  defp maybe_add_logprobs(config, true), do: Map.put(config, :logprobs, true)
-  defp maybe_add_logprobs(config, false), do: config
+  defp normalized_text(nil), do: nil
 
-  defp usage_value(usage, key) do
-    value = Map.get(usage, key) || Map.get(usage, Atom.to_string(key))
-    as_int(value)
-  end
+  defp normalized_text(text) when is_binary(text),
+    do: if(String.trim(text) == "", do: nil, else: text)
 
   defp maybe_total_tokens(prompt_tokens, completion_tokens)
        when is_integer(prompt_tokens) and is_integer(completion_tokens),
        do: prompt_tokens + completion_tokens
 
   defp maybe_total_tokens(_, _), do: nil
-
-  defp maybe_confidence_score(_bot_response, false), do: nil
-
-  defp maybe_confidence_score(bot_response, true) do
-    case LogprobsAnalyzer.confidence_from_metadata(bot_response.metadata, true) do
-      {:ok, score} ->
-        Logger.info("Response confidence: #{score * 100}%")
-        score
-
-      {:error, reason} ->
-        Logger.warning("Response confidence unavailable: #{inspect(reason)}")
-        nil
-    end
-  end
 
   defp log_token_usage(prompt_tokens, completion_tokens) do
     if is_integer(prompt_tokens), do: Logger.info("Input tokens: #{prompt_tokens}")

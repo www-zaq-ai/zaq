@@ -9,14 +9,10 @@ defmodule Zaq.RuntimeDeps do
   The defaults are production-safe implementations and can be overridden per environment.
   """
 
-  alias Zaq.Agent.{Answering, LLMRunner, PromptGuard, Retrieval}
+  alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
-
-  @doc "Returns the LLMRunner module used by Answering and Retrieval."
-  @spec llm_runner() :: module()
-  def llm_runner, do: get(:llm_runner_module, LLMRunner)
 
   @doc "Returns the NodeRouter module used for cross-service dispatch."
   @spec node_router() :: module()

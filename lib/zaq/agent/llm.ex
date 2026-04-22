@@ -66,55 +66,42 @@ defmodule Zaq.Agent.LLM do
   def supports_json_mode?, do: Zaq.System.get_llm_config().supports_json_mode
 
   @doc """
-  Returns the full configuration map. Useful for passing to
-  LangChain's ChatOpenAI in a single call.
+  Returns a ReqLLM inline model spec map from the system LLM config.
 
-  ## Example
-
-      config = Zaq.Agent.LLM.chat_config()
-      # => %{
-      #   model: "llama-3.3-70b-instruct",
-      #   temperature: 0.0,
-      #   top_p: 0.9,
-      #   endpoint: "http://localhost:11434/v1/chat/completions",
-      #   api_key: ""
-      # }
+  Uses `cfg.endpoint` directly as `base_url` — do NOT append `cfg.path`
+  (ReqLLM appends the provider path itself). Anthropic uses its own default
+  API URL so no `base_url` is set for that provider.
   """
-  alias LangChain.ChatModels.ChatAnthropic
-  alias LangChain.ChatModels.ChatOpenAI
+  # Providers natively supported by ReqLLM. Everything else is OpenAI-compatible.
+  @reqllm_providers ~w(openai anthropic google xai mistral)
 
-  def chat_config(overrides \\ []) do
+  def build_model_spec do
     cfg = Zaq.System.get_llm_config()
+    provider = reqllm_provider(cfg.provider)
 
-    base = %{
-      provider: cfg.provider,
-      model: cfg.model,
-      temperature: cfg.temperature,
-      top_p: cfg.top_p,
-      endpoint: cfg.endpoint <> cfg.path,
-      api_key: cfg.api_key
-    }
-
-    Map.merge(base, Map.new(overrides))
+    %{provider: provider, id: cfg.model}
+    |> maybe_put_base_url(cfg)
   end
 
-  @doc """
-  Builds a LangChain chat model struct from an LLM config map.
+  defp reqllm_provider(p) when p in @reqllm_providers, do: String.to_atom(p)
+  defp reqllm_provider(_), do: :openai
 
-  Dispatches to `ChatAnthropic` for `provider: "anthropic"`, and falls
-  back to `ChatOpenAI` (which covers all OpenAI-compatible endpoints) for
-  everything else.
-  """
-  def build_model(%{provider: "anthropic"} = config) do
-    ChatAnthropic.new!(%{
-      model: config.model,
-      temperature: config.temperature,
-      api_key: config.api_key,
-      endpoint: config.endpoint
-    })
-  end
+  defp maybe_put_base_url(spec, %{provider: "anthropic"}), do: spec
 
-  def build_model(config) do
-    ChatOpenAI.new!(config)
+  defp maybe_put_base_url(spec, %{endpoint: url}) when is_binary(url) and url != "",
+    do: Map.put(spec, :base_url, url)
+
+  defp maybe_put_base_url(spec, _), do: spec
+
+  @doc "Sampling opts for ReqLLM generation calls. Includes api_key when configured."
+  def generation_opts do
+    cfg = Zaq.System.get_llm_config()
+    opts = [temperature: cfg.temperature, top_p: cfg.top_p]
+
+    if cfg.api_key && cfg.api_key != "" do
+      Keyword.put(opts, :api_key, cfg.api_key)
+    else
+      opts
+    end
   end
 end

@@ -135,13 +135,11 @@ defmodule Zaq.Agent.AnsweringTest do
       assert is_nil(result.confidence_score)
     end
 
-    test "returns answer with confidence when confidence is enabled" do
-      logprobs = %{"content" => [%{"token" => "BEAM", "logprob" => -0.1}]}
-
+    test "confidence_score is always nil (logprobs not supported by ReqLLM)" do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
-        assert payload["logprobs"] == true
-        {200, OpenAIStub.chat_completion("The BEAM VM.", logprobs: logprobs)}
+        refute Map.has_key?(payload, "logprobs")
+        {200, OpenAIStub.chat_completion("The BEAM VM.")}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
@@ -153,21 +151,18 @@ defmodule Zaq.Agent.AnsweringTest do
                Answering.ask("Context + question", include_confidence: true)
 
       assert result.answer == "The BEAM VM."
-      score = result.confidence_score
-      assert is_float(score)
+      assert is_nil(result.confidence_score)
       assert is_integer(result.latency_ms)
       assert is_integer(result.prompt_tokens)
       assert is_integer(result.completion_tokens)
       assert is_integer(result.total_tokens)
     end
 
-    test "uses supports_logprobs default when include_confidence is omitted" do
-      logprobs = %{"content" => [%{"token" => "x", "logprob" => -0.2}]}
-
+    test "does not send logprobs regardless of supports_logprobs config" do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
-        assert payload["logprobs"] == true
-        {200, OpenAIStub.chat_completion("Default confidence path.", logprobs: logprobs)}
+        refute Map.has_key?(payload, "logprobs")
+        {200, OpenAIStub.chat_completion("Default path.")}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
@@ -176,8 +171,8 @@ defmodule Zaq.Agent.AnsweringTest do
       OpenAIStub.seed_llm_config(endpoint, supports_logprobs: true)
 
       assert {:ok, %Result{} = result} = Answering.ask("Prompt")
-      assert result.answer == "Default confidence path."
-      assert is_float(result.confidence_score)
+      assert result.answer == "Default path."
+      assert is_nil(result.confidence_score)
     end
 
     test "builds history from map including non-binary bodies" do
