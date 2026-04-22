@@ -87,8 +87,7 @@ if e2e? do
   config :zaq,
     node_router: Zaq.NodeRouter,
     document_processor: Zaq.E2E.DocumentProcessorFake,
-    pipeline_document_processor_module: Zaq.E2E.DocumentProcessorFake,
-    llm_runner_module: Zaq.E2E.LLMRunnerFake
+    pipeline_document_processor_module: Zaq.E2E.DocumentProcessorFake
 
   config :zaq, Zaq.Ingestion, base_path: "tmp/e2e_documents"
   config :zaq, e2e_routes: true

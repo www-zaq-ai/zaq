@@ -113,6 +113,16 @@ defmodule Zaq.E2E.Reset do
       model: System.get_env("EMBEDDING_MODEL", "bge-multilingual-gemma2"),
       dimension: parse_dim(System.get_env("EMBEDDING_DIMENSION", "3584"))
     })
+
+    base_url = System.get_env("E2E_BASE_URL", "http://localhost:4002")
+
+    SystemConfigFixtures.seed_llm_config(%{
+      endpoint: "#{base_url}/e2e/llm/v1",
+      model: "e2e-fake",
+      api_key: "e2e-fake-key",
+      supports_json_mode: false,
+      supports_logprobs: false
+    })
   end
 
   defp reseed_seed_files! do

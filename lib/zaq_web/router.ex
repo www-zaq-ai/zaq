@@ -20,6 +20,10 @@ defmodule ZaqWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :api_stream do
+    plug :fetch_query_params
+  end
+
   scope "/", ZaqWeb do
     pipe_through :browser
 
@@ -116,6 +120,12 @@ defmodule ZaqWeb.Router do
       # docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md.
       post "/reset", E2EController, :reset_all
       post "/ingestion/touch_file", E2EController, :touch_file
+    end
+
+    scope "/e2e", ZaqWeb do
+      pipe_through :api_stream
+
+      post "/llm/v1/chat/completions", E2EController, :fake_llm
     end
   end
 
