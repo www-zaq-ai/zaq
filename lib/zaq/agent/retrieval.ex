@@ -11,9 +11,9 @@ defmodule Zaq.Agent.Retrieval do
 
   require Logger
 
+  alias ReqLLM.{Context, Generation, Response}
   alias Zaq.Agent.{History, LLM}
   alias Zaq.Agent.PromptTemplate
-  alias Zaq.RuntimeDeps
 
   @doc """
   Rewrites a user question into structured search queries via LLM.
@@ -38,33 +38,36 @@ defmodule Zaq.Agent.Retrieval do
       Keyword.get(opts, :history, [])
       |> History.build()
 
-    llm_config =
-      LLM.chat_config()
+    gen_opts =
+      LLM.generation_opts()
+      |> Keyword.put(:system_prompt, system_prompt)
       |> maybe_add_json_mode(history)
 
     Logger.info(
-      "Retrieval: Processing question json_mode=#{Map.get(llm_config, :json_response, false)} history_length=#{length(history)}"
+      "Retrieval: Processing question json_mode=#{LLM.supports_json_mode?() and history == []} history_length=#{length(history)}"
     )
 
-    case RuntimeDeps.llm_runner().run(
-           llm_config: llm_config,
-           system_prompt: system_prompt,
-           history: history,
-           question: question,
-           error_prefix: "Failed to process question"
-         ) do
-      {:ok, updated_chain} ->
-        case RuntimeDeps.llm_runner().content_result(updated_chain) do
-          {:ok, content} ->
-            decode_retrieval_content(content)
+    messages =
+      if question && question != "" do
+        history ++ [Context.user(question)]
+      else
+        history
+      end
 
-          {:error, reason} ->
-            reason = "Failed to process question: #{reason}"
+    case Generation.generate_text(LLM.build_model_spec(), messages, gen_opts) do
+      {:ok, response} ->
+        case normalized_text(Response.text(response)) do
+          nil ->
+            reason = "Failed to process question: Empty assistant response content"
             Logger.error("Retrieval failed: #{reason}")
             {:error, reason}
+
+          content ->
+            decode_retrieval_content(content)
         end
 
       {:error, reason} ->
+        reason = "Failed to process question: #{inspect(reason)}"
         Logger.error("Retrieval failed: #{reason}")
         {:error, reason}
     end
@@ -94,11 +97,16 @@ defmodule Zaq.Agent.Retrieval do
   # Some providers (e.g. Novita) return null content when json_response is active
   # and history contains non-JSON assistant messages. Disabling JSON mode when
   # history is present is safe — extract_json/1 handles JSON embedded in free-form text.
-  defp maybe_add_json_mode(config, history) do
+  defp normalized_text(nil), do: nil
+
+  defp normalized_text(text) when is_binary(text),
+    do: if(String.trim(text) == "", do: nil, else: text)
+
+  defp maybe_add_json_mode(gen_opts, history) do
     if LLM.supports_json_mode?() and history == [] do
-      Map.put(config, :json_response, true)
+      Keyword.put(gen_opts, :provider_options, response_format: %{type: "json_object"})
     else
-      config
+      gen_opts
     end
   end
 end

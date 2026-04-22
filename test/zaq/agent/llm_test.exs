@@ -68,7 +68,7 @@ defmodule Zaq.Agent.LLMTest do
     end
   end
 
-  describe "chat_config/1" do
+  describe "build_model_spec/0" do
     setup do
       seed_llm(%{
         endpoint: "https://api.example.com/v1",
@@ -80,20 +80,20 @@ defmodule Zaq.Agent.LLMTest do
       :ok
     end
 
-    test "returns full config map with /chat/completions appended" do
-      config = LLM.chat_config()
+    test "returns model spec with provider, id, and base_url" do
+      spec = LLM.build_model_spec()
 
-      assert config.endpoint == "https://api.example.com/v1/chat/completions"
-      assert config.model == "test-model"
-      assert config.temperature == 0.1
-      assert config.top_p == 0.8
+      # unknown providers (e.g. "custom") map to :openai (OpenAI-compatible)
+      assert spec.provider == :openai
+      assert spec.id == "test-model"
+      assert spec.base_url == "https://api.example.com/v1"
     end
 
-    test "allows overrides" do
-      config = LLM.chat_config(model: "override-model", temperature: 0.5)
+    test "generation_opts returns temperature and top_p" do
+      opts = LLM.generation_opts()
 
-      assert config.model == "override-model"
-      assert config.temperature == 0.5
+      assert opts[:temperature] == 0.1
+      assert opts[:top_p] == 0.8
     end
   end
 end

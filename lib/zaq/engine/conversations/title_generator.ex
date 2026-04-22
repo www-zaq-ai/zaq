@@ -11,9 +11,8 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
 
   require Logger
 
-  alias LangChain.Chains.LLMChain
-  alias LangChain.Message
-  alias Zaq.Agent.{LLM, LLMRunner}
+  alias ReqLLM.{Context, Generation, Response}
+  alias Zaq.Agent.LLM
   alias Zaq.Utils.TextUtils
 
   @max_words 6
@@ -21,20 +20,12 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   @doc """
   Generates a concise title from the first user message of a conversation.
 
-  ## Options
-
-    * `:model` — override the configured LLM model.
-
   ## Examples
 
       iex> TitleGenerator.generate("How do I reset my password in the admin panel?")
       {:ok, "Admin Panel Password Reset"}
   """
-  def generate(user_message, opts \\ []) do
-    llm_config =
-      LLM.chat_config(Keyword.take(opts, [:model]))
-      |> Map.drop([:top_p])
-
+  def generate(user_message, _opts \\ []) do
     prompt = """
     Generate a short title (maximum #{@max_words} words) for a conversation that starts with this user message. Keep in mind that user is communicating with ZAQ.
 
@@ -58,39 +49,36 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
     #{user_message}
     """
 
-    try do
-      {:ok, updated_chain} =
-        LLMChain.new!(%{llm: build_llm_model(llm_config)})
-        |> LLMChain.add_message(Message.new_user!(prompt))
-        |> LLMChain.run()
+    gen_opts = LLM.generation_opts() |> Keyword.delete(:top_p)
 
-      case LLMRunner.content_result(updated_chain) do
-        {:ok, content} ->
-          title =
-            content
-            |> String.trim()
-            |> remove_quotes()
-            |> remove_prefix()
-            |> enforce_word_limit(@max_words)
+    case Generation.generate_text(LLM.build_model_spec(), [Context.user(prompt)], gen_opts) do
+      {:ok, response} ->
+        case Response.text(response) do
+          nil ->
+            Logger.error("TitleGenerator failed: Empty assistant response content")
+            {:error, "Empty assistant response content"}
 
-          Logger.info("TitleGenerator: generated \"#{title}\"")
-          {:ok, title}
+          text ->
+            title =
+              text
+              |> String.trim()
+              |> remove_quotes()
+              |> remove_prefix()
+              |> enforce_word_limit(@max_words)
 
-        {:error, reason} ->
-          Logger.error("TitleGenerator failed: #{reason}")
-          {:error, reason}
-      end
-    rescue
-      e ->
-        {:error, Exception.message(e)}
+            Logger.info("TitleGenerator: generated \"#{title}\"")
+            {:ok, title}
+        end
+
+      {:error, reason} ->
+        Logger.error("TitleGenerator failed: #{inspect(reason)}")
+        {:error, inspect(reason)}
     end
   end
 
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
-
-  defp build_llm_model(config), do: LLM.build_model(config)
 
   defp remove_quotes(text) do
     text

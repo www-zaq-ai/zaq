@@ -43,8 +43,9 @@ defmodule Zaq.TestSupport.OpenAIStub do
 
   def llm_config(endpoint, overrides \\ []) do
     [
+      provider: "openai",
       endpoint: endpoint,
-      api_key: "",
+      api_key: "test-key",
       model: "test-model",
       temperature: 0.0,
       top_p: 0.9,

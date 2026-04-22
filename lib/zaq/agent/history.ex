@@ -19,7 +19,7 @@ defmodule Zaq.Agent.History do
   across producers.
   """
 
-  alias LangChain.Message
+  alias ReqLLM.Context
 
   @doc """
   Returns the history map key for a turn entry.
@@ -34,12 +34,12 @@ defmodule Zaq.Agent.History do
   def entry_key(datetime, :bot), do: "#{DateTime.to_iso8601(datetime)}_2_bot"
 
   @doc """
-  Converts a conversation history map into a list of `LangChain.Message` structs,
+  Converts a conversation history map into a list of `ReqLLM.Message` structs,
   sorted chronologically by key (see module doc for the key format).
 
   Returns `[]` when given an empty list or non-map value.
   """
-  @spec build(map() | list()) :: [Message.t()]
+  @spec build(map() | list()) :: [ReqLLM.Message.t()]
   def build([]), do: []
 
   def build(history) when is_map(history) do
@@ -53,11 +53,11 @@ defmodule Zaq.Agent.History do
     |> Enum.map(fn
       {_timestamp, %{"body" => msg, "type" => "bot"}} ->
         msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
-        Message.new_assistant!(msg)
+        Context.assistant(msg)
 
       {_timestamp, %{"body" => msg, "type" => "user"}} ->
         msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
-        Message.new_user!(msg)
+        Context.user(msg)
     end)
   end
 end

@@ -69,7 +69,8 @@ defmodule Zaq.SystemConfigFixtures do
     credential =
       ai_credential_fixture(%{
         endpoint: Map.get(attrs, :endpoint, "http://localhost:11434/v1"),
-        api_key: Map.get(attrs, :api_key, "")
+        api_key: Map.get(attrs, :api_key, ""),
+        provider: Map.get(attrs, :provider, "custom")
       })
 
     params =
@@ -84,7 +85,7 @@ defmodule Zaq.SystemConfigFixtures do
           max_context_window: 5000,
           distance_threshold: 1.2
         },
-        Map.drop(attrs, [:api_key, :endpoint])
+        Map.drop(attrs, [:api_key, :endpoint, :provider])
       )
 
     changeset = LLMConfig.changeset(%LLMConfig{}, params)
