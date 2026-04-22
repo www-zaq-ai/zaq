@@ -24,6 +24,11 @@ defmodule Zaq.Agent.Executor do
 
     with {:ok, configured_agent} <- load_selected_agent(opts, agent_module),
          {:ok, server_id} <- server_manager_module.ensure_server(configured_agent),
+         # Send the start typing event through the router for automatic routing
+         node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
+           incoming.provider,
+           incoming.channel_id
+         ]),
          {:ok, request} <-
            factory_module.ask_with_config(server_id, incoming.content, configured_agent),
          {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
@@ -153,4 +158,12 @@ defmodule Zaq.Agent.Executor do
   defp error_type({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
   defp error_type(%{__struct__: mod}), do: inspect(mod)
   defp error_type(_), do: "unknown"
+
+  defp node_router(opts) do
+    Keyword.get(
+      opts,
+      :node_router,
+      Application.get_env(:zaq, :pipeline_node_router_module, Zaq.NodeRouter)
+    )
+  end
 end
