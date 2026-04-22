@@ -40,9 +40,9 @@ defmodule Zaq.Agent.Retrieval do
 
     llm_config =
       LLM.chat_config()
-      |> maybe_add_json_mode()
+      |> maybe_add_json_mode(history)
 
-    Logger.info("Retrieval: Processing question with strict grounding")
+    Logger.info("Retrieval: Processing question json_mode=#{Map.get(llm_config, :json_response, false)} history_length=#{length(history)}")
 
     case RuntimeDeps.llm_runner().run(
            llm_config: llm_config,
@@ -89,8 +89,11 @@ defmodule Zaq.Agent.Retrieval do
     end
   end
 
-  defp maybe_add_json_mode(config) do
-    if LLM.supports_json_mode?() do
+  # Some providers (e.g. Novita) return null content when json_response is active
+  # and history contains non-JSON assistant messages. Disabling JSON mode when
+  # history is present is safe — extract_json/1 handles JSON embedded in free-form text.
+  defp maybe_add_json_mode(config, history) do
+    if LLM.supports_json_mode?() and history == [] do
       Map.put(config, :json_response, true)
     else
       config

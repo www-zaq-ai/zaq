@@ -103,7 +103,8 @@ defmodule Zaq.Agent.LLMRunner do
       Logger.warning(
         "LLMRunner empty assistant content provider=#{metadata.provider} model=#{metadata.model} " <>
           "role=#{metadata.role} status=#{metadata.status} content_kind=#{metadata.content_kind} " <>
-          "tool_calls_count=#{metadata.tool_calls_count} chain_result=#{metadata.chain_result_status}"
+          "tool_calls_count=#{metadata.tool_calls_count} messages_count=#{metadata.messages_count} " <>
+          "response_metadata=#{metadata.response_metadata} chain_result=#{metadata.chain_result_status}"
       )
     end
   end
@@ -161,6 +162,7 @@ defmodule Zaq.Agent.LLMRunner do
   defp empty_content_metadata(chain, chain_result_status) do
     last_message = Map.get(chain, :last_message)
     llm = Map.get(chain, :llm)
+    messages = Map.get(chain, :messages, [])
 
     %{
       provider: llm_provider(llm),
@@ -169,9 +171,16 @@ defmodule Zaq.Agent.LLMRunner do
       status: message_status(last_message),
       content_kind: content_kind(last_message),
       tool_calls_count: tool_calls_count(last_message),
+      messages_count: length(messages),
+      response_metadata: message_response_metadata(last_message),
       chain_result_status: chain_result_status
     }
   end
+
+  defp message_response_metadata(%{metadata: meta}) when is_map(meta) and map_size(meta) > 0,
+    do: inspect(Map.drop(meta, [:logprobs]))
+
+  defp message_response_metadata(_), do: "none"
 
   defp llm_provider(nil), do: "unknown"
   defp llm_provider(%module{}), do: module |> Module.split() |> List.last()
