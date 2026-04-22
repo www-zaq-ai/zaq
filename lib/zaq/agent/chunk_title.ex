@@ -17,10 +17,6 @@ defmodule Zaq.Agent.ChunkTitle do
   @doc """
   Generates a descriptive title for a document chunk.
 
-  ## Options
-
-    * `:model` — override the configured LLM model.
-
   ## Examples
 
       iex> ChunkTitle.ask("Welcome to Northwind Industries! Founded in 1987 by Eleanor Vance...")

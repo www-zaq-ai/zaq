@@ -26,7 +26,11 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     node_router_mod = Map.get(context, :node_router, NodeRouter)
     doc_proc_mod = Map.get(context, :document_processor, DocumentProcessor)
 
-    skip_permissions = is_nil(person_id)
+    # nil person_id should NEVER grant all permissions.
+    # Admin access must be explicitly granted via skip_permissions: true in context.
+    # If the query has no identified person and is not explicitly an admin,
+    # return only public data (skip_permissions: false, person_id: nil).
+    skip_permissions = Map.get(context, :skip_permissions, false)
     opts = [person_id: person_id, team_ids: team_ids, skip_permissions: skip_permissions]
 
     case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do

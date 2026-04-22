@@ -14,8 +14,12 @@ defmodule Zaq.Agent.Answering do
   alias ReqLLM.Context
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.{AnsweringAgent, History, LLM}
-  alias Zaq.Agent.Tools.{AskForClarification, SearchKnowledgeBase}
   alias Zaq.Engine.Telemetry
+
+  @answering_tools [
+    Zaq.Agent.Tools.SearchKnowledgeBase,
+    Zaq.Agent.Tools.AskForClarification
+  ]
 
   @no_answer_signals [
     "i don't have",
@@ -80,7 +84,7 @@ defmodule Zaq.Agent.Answering do
 
     if run_fn do
       ask_opts = [
-        tools: [SearchKnowledgeBase, AskForClarification],
+        tools: @answering_tools,
         llm_opts: LLM.generation_opts(),
         context: %{person_id: person_id, team_ids: team_ids},
         timeout: 60_000
@@ -100,10 +104,7 @@ defmodule Zaq.Agent.Answering do
              ),
            :ok <- set_system_prompt(server, system_prompt, set_prompt_fn) do
         ask_opts = [
-          tools: [
-            SearchKnowledgeBase,
-            AskForClarification
-          ],
+          tools: @answering_tools,
           llm_opts: LLM.generation_opts(),
           context: %{person_id: person_id, team_ids: team_ids},
           timeout: 60_000

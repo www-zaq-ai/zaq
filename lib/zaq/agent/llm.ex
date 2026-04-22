@@ -75,6 +75,10 @@ defmodule Zaq.Agent.LLM do
   # Providers natively supported by ReqLLM. Everything else is OpenAI-compatible.
   @reqllm_providers ~w(openai anthropic google xai mistral)
 
+  # Providers that manage their own API URLs inside ReqLLM — never override with base_url.
+  # OpenAI is excluded: it supports custom endpoints (Azure, proxies, Scaleway, etc.)
+  @fixed_url_providers ~w(anthropic google xai mistral)
+
   def build_model_spec do
     cfg = Zaq.System.get_llm_config()
     provider = reqllm_provider(cfg.provider)
@@ -86,7 +90,7 @@ defmodule Zaq.Agent.LLM do
   defp reqllm_provider(p) when p in @reqllm_providers, do: String.to_atom(p)
   defp reqllm_provider(_), do: :openai
 
-  defp maybe_put_base_url(spec, %{provider: "anthropic"}), do: spec
+  defp maybe_put_base_url(spec, %{provider: p}) when p in @fixed_url_providers, do: spec
 
   defp maybe_put_base_url(spec, %{endpoint: url}) when is_binary(url) and url != "",
     do: Map.put(spec, :base_url, url)
@@ -98,7 +102,7 @@ defmodule Zaq.Agent.LLM do
     cfg = Zaq.System.get_llm_config()
     opts = [temperature: cfg.temperature, top_p: cfg.top_p]
 
-    if cfg.api_key && cfg.api_key != "" do
+    if is_binary(cfg.api_key) and cfg.api_key != "" do
       Keyword.put(opts, :api_key, cfg.api_key)
     else
       opts

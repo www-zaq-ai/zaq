@@ -1070,8 +1070,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Permission filter
   # ---------------------------------------------------------------------------
 
+  # skip_permissions: true  → admin, explicitly granted upstream (e.g. BO user without person record)
+  # person_id set           → filter by person + teams
+  # person_id nil           → public data only (via_public branch in list_permitted_document_ids)
   defp apply_permission_filter(data, true, _person_id, _team_ids), do: data
-  defp apply_permission_filter(data, _skip, nil, _team_ids), do: data
 
   defp apply_permission_filter(data, false, person_id, team_ids) do
     doc_ids = data |> Enum.map(& &1["document_id"]) |> Enum.uniq()

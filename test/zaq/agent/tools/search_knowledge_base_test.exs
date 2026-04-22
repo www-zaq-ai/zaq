@@ -40,6 +40,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   defmodule SkipPermissionsRouter do
     def call(:ingestion, _mod, :query_extraction, [_query, opts]) do
       case {Keyword.get(opts, :person_id), Keyword.get(opts, :skip_permissions)} do
+        {nil, false} -> {:ok, []}
         {nil, true} -> {:ok, []}
         {_id, false} -> {:ok, []}
         {_id, other} -> {:error, {:skip_permissions_was, other}}
@@ -83,14 +84,20 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   describe "run/2 — permission enforcement" do
-    test "allows BO users (nil person_id) with skip_permissions: true" do
+    test "nil person_id without skip_permissions passes skip_permissions: false (public data only)" do
       context = %{person_id: nil, node_router: SkipPermissionsRouter}
 
       assert {:ok, _} = SearchKnowledgeBase.run(%{query: "anything"}, context)
     end
 
-    test "allows BO users when person_id is absent from context" do
+    test "nil person_id absent from context also passes skip_permissions: false" do
       context = %{team_ids: [1], node_router: SkipPermissionsRouter}
+
+      assert {:ok, _} = SearchKnowledgeBase.run(%{query: "anything"}, context)
+    end
+
+    test "nil person_id with explicit skip_permissions: true passes skip_permissions: true (admin)" do
+      context = %{person_id: nil, skip_permissions: true, node_router: SkipPermissionsRouter}
 
       assert {:ok, _} = SearchKnowledgeBase.run(%{query: "anything"}, context)
     end

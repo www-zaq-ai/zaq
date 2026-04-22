@@ -100,7 +100,9 @@ defmodule ZaqWeb.E2EController do
   def fake_llm(conn, _params) do
     messages = conn.body_params |> Map.get("messages", [])
     streaming? = conn.body_params |> Map.get("stream", false)
-    system_content = messages |> Enum.find(%{}, &(Map.get(&1, "role") == "system")) |> Map.get("content", "")
+
+    system_content =
+      messages |> Enum.find(%{}, &(Map.get(&1, "role") == "system")) |> Map.get("content", "")
 
     content = fake_llm_content(messages, system_content)
 
@@ -124,7 +126,8 @@ defmodule ZaqWeb.E2EController do
 
   defp fake_llm_content(messages, system_content) do
     if retrieval_call?(system_content) do
-      user_content = messages |> Enum.find(%{}, &(Map.get(&1, "role") == "user")) |> Map.get("content", "")
+      user_content =
+        messages |> Enum.find(%{}, &(Map.get(&1, "role") == "user")) |> Map.get("content", "")
 
       Jason.encode!(%{
         "query" => String.trim(user_content),
@@ -153,15 +156,27 @@ defmodule ZaqWeb.E2EController do
 
     chunks = [
       Jason.encode!(%{
-        "id" => id, "object" => "chat.completion.chunk", "model" => "e2e-fake",
-        "choices" => [%{"index" => 0, "delta" => %{"role" => "assistant", "content" => ""}, "finish_reason" => nil}]
+        "id" => id,
+        "object" => "chat.completion.chunk",
+        "model" => "e2e-fake",
+        "choices" => [
+          %{
+            "index" => 0,
+            "delta" => %{"role" => "assistant", "content" => ""},
+            "finish_reason" => nil
+          }
+        ]
       }),
       Jason.encode!(%{
-        "id" => id, "object" => "chat.completion.chunk", "model" => "e2e-fake",
+        "id" => id,
+        "object" => "chat.completion.chunk",
+        "model" => "e2e-fake",
         "choices" => [%{"index" => 0, "delta" => %{"content" => content}, "finish_reason" => nil}]
       }),
       Jason.encode!(%{
-        "id" => id, "object" => "chat.completion.chunk", "model" => "e2e-fake",
+        "id" => id,
+        "object" => "chat.completion.chunk",
+        "model" => "e2e-fake",
         "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "stop"}]
       })
     ]

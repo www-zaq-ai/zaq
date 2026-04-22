@@ -41,11 +41,8 @@ defmodule Zaq.Agent.Retrieval do
     gen_opts =
       LLM.generation_opts()
       |> Keyword.put(:system_prompt, system_prompt)
-      |> maybe_add_json_mode(history)
 
-    Logger.info(
-      "Retrieval: Processing question json_mode=#{LLM.supports_json_mode?() and history == []} history_length=#{length(history)}"
-    )
+    Logger.info("Retrieval: Processing question history_length=#{length(history)}")
 
     messages =
       if question && question != "" do
@@ -101,19 +98,8 @@ defmodule Zaq.Agent.Retrieval do
     end
   end
 
-  # Some providers (e.g. Novita) return null content when json_response is active
-  # and history contains non-JSON assistant messages. Disabling JSON mode when
-  # history is present is safe — extract_json/1 handles JSON embedded in free-form text.
   defp normalized_text(nil), do: nil
 
   defp normalized_text(text) when is_binary(text),
     do: if(String.trim(text) == "", do: nil, else: text)
-
-  defp maybe_add_json_mode(gen_opts, history) do
-    if LLM.supports_json_mode?() and history == [] do
-      Keyword.put(gen_opts, :provider_options, response_format: %{type: "json_object"})
-    else
-      gen_opts
-    end
-  end
 end
