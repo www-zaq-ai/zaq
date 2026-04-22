@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Repo
+  alias ZaqWeb.Live.BO.Communication.ChannelsLive
 
   defmodule BridgeFake do
     def test_connection(_config, _channel_id) do
@@ -36,6 +37,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     def clear_channel(_channel_id), do: fetch_state(:clear_channel, :ok)
     def list_teams(_cfg), do: fetch_state(:list_teams, {:ok, []})
     def list_public_channels(_cfg, _team_id), do: fetch_state(:list_public_channels, {:ok, []})
+    def fetch_bot_user_id(_url, _token), do: fetch_state(:fetch_bot_user_id, {:ok, "bot-user-1"})
 
     def put(key, value), do: put_state(key, value)
 
@@ -109,6 +111,29 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     view |> element("button[phx-click=\"close_modal\"]") |> render_click()
     refute has_element?(view, "#config-form")
+  end
+
+  test "mount builds ingestion and fallback navigation labels" do
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{__changed__: %{}, service_available: false, live_action: :ingestion}
+    }
+
+    assert {:ok, socket} =
+             ChannelsLive.mount(%{"provider" => "google_drive"}, %{}, socket)
+
+    assert socket.assigns.back_path == "/bo/channels/ingestion"
+    assert socket.assigns.back_label == "Ingestion Channels"
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{__changed__: %{}, service_available: false, live_action: :unknown}
+    }
+
+    assert {:ok, socket} =
+             ChannelsLive.mount(%{"provider" => "custom_provider"}, %{}, socket)
+
+    assert socket.assigns.back_path == "/bo/channels"
+    assert socket.assigns.back_label == "All Channels"
+    assert socket.assigns.provider_label == "Custom provider"
   end
 
   test "renders agent routing controls for provider default and retrieval channels", %{conn: conn} do
@@ -206,6 +231,75 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert render(view) =~ "Remove Channel?"
     render_hook(view, "cancel_remove_channel", %{})
     refute render(view) =~ "Remove Channel?"
+  end
+
+  test "provider and retrieval agent assignment events cover success and error paths", %{
+    conn: conn
+  } do
+    config = insert_channel_config(%{})
+    retrieval = insert_retrieval_channel(config)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    render_hook(view, "set_provider_default_agent", %{
+      "config_id" => "bad",
+      "configured_agent_id" => "1"
+    })
+
+    assert render(view) =~ "Failed to update provider default agent"
+
+    render_hook(view, "set_retrieval_channel_agent", %{
+      "retrieval_channel_id" => "bad",
+      "configured_agent_id" => "1"
+    })
+
+    assert render(view) =~ "Failed to update channel agent assignment"
+
+    render_hook(view, "set_provider_default_agent", %{
+      "config_id" => to_string(config.id),
+      "configured_agent_id" => ""
+    })
+
+    assert render(view) =~ "Provider default agent updated"
+
+    render_hook(view, "set_retrieval_channel_agent", %{
+      "retrieval_channel_id" => to_string(retrieval.id),
+      "configured_agent_id" => ""
+    })
+
+    assert render(view) =~ "Channel agent assignment updated"
+  end
+
+  test "fetch_bot_user_id handles required fields, success, and adapter error", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#new-config-button") |> render_click()
+
+    render_hook(view, "fetch_bot_user_id", %{})
+    assert render(view) =~ "URL is required to fetch the bot user ID"
+
+    view
+    |> element("#config-form")
+    |> render_change(%{
+      "form" => %{
+        "provider" => "mattermost",
+        "kind" => "retrieval",
+        "name" => "Bot Config",
+        "url" => "https://mattermost.example.com",
+        "token" => "tok"
+      }
+    })
+
+    MattermostAPIFake.put(:fetch_bot_user_id, {:ok, "bot-123"})
+    render_hook(view, "fetch_bot_user_id", %{})
+
+    assert render(view) =~ "bot-123"
+
+    MattermostAPIFake.put(:fetch_bot_user_id, {:error, :unauthorized})
+    render_hook(view, "fetch_bot_user_id", %{})
+
+    assert render(view) =~ "Failed to fetch bot user ID"
+    assert render(view) =~ "unauthorized"
   end
 
   test "handles missing config on delete branch", %{conn: conn} do
@@ -432,6 +526,77 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     assert Repo.get!(ChannelConfig, config.id).name == "Mattermost Beta"
     assert render(view) =~ "Channel config saved."
+  end
+
+  test "edit validate keeps existing token when blank and exposes bot helper accessors", %{
+    conn: conn
+  } do
+    config =
+      insert_channel_config(%{
+        settings: %{"jido_chat" => %{"bot_name" => "zaq-bot", "bot_user_id" => "bot-7"}}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#edit-config-#{config.id}") |> render_click()
+
+    view
+    |> element("#config-form")
+    |> render_change(%{
+      "form" => %{
+        "name" => "Mattermost Edited",
+        "url" => "https://mattermost.local",
+        "token" => "",
+        "enabled" => "true"
+      }
+    })
+
+    assert Repo.get!(ChannelConfig, config.id).token == "test-token"
+    assert ChannelsLive.jido_chat_bot_name(config) == "zaq-bot"
+    assert ChannelsLive.jido_chat_bot_user_id(config) == "bot-7"
+  end
+
+  test "post browsing covers newer older and body decoding fallbacks", %{conn: conn} do
+    insert_channel_config(%{url: "https://mattermost.test"})
+
+    HTTPClientFake.put_response({
+      :ok,
+      %Req.Response{
+        status: 200,
+        body: %{
+          "order" => ["p2", "p1"],
+          "posts" => %{
+            "p1" => %{"id" => "p1", "message" => "hello", "user_id" => "u1", "create_at" => 1},
+            "p2" => %{"id" => "p2", "message" => "world", "user_id" => "u2", "create_at" => 2}
+          }
+        }
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("form[phx-submit='load_posts']") |> render_submit(%{"channel_id" => "ch-1"})
+    render_hook(view, "load_older_posts", %{})
+    render_hook(view, "load_newer_posts", %{})
+
+    HTTPClientFake.put_response({:error, :boom})
+    view |> element("form[phx-submit='load_posts']") |> render_submit(%{"channel_id" => "ch-1"})
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.posts_status == :error
+    assert state.socket.assigns.posts =~ ":boom"
+
+    HTTPClientFake.put_response({:ok, %Req.Response{status: 200, body: "not-json"}})
+    view |> element("form[phx-submit='load_posts']") |> render_submit(%{"channel_id" => "ch-1"})
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.posts_status == :ok
+    assert state.socket.assigns.posts == []
+
+    HTTPClientFake.put_response({:ok, %Req.Response{status: 200, body: 123}})
+    view |> element("form[phx-submit='load_posts']") |> render_submit(%{"channel_id" => "ch-1"})
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.posts_status == :ok
+    assert state.socket.assigns.posts == []
   end
 
   test "save shows token encryption error when encryption key is invalid", %{conn: conn} do

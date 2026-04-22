@@ -178,6 +178,64 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
            )
   end
 
+  test "save persists provider default, filters mailbox agent ids, and mounts with decrypted fallback defaults",
+       %{conn: conn} do
+    insert_smtp_enabled()
+
+    channel =
+      insert_imap_channel(%{
+        token: "bogus-encrypted-token",
+        settings: %{
+          "imap" => %{
+            "username" => "zaq@example.com",
+            "port" => "bad",
+            "ssl_depth" => "bad",
+            "poll_interval" => "bad",
+            "idle_timeout" => "bad",
+            "selected_mailboxes" => ["INBOX"]
+          }
+        }
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    assert has_element?(view, "#imap-config-form input[name='imap_config[port]'][value='993']")
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "enabled" => "false",
+        "url" => "imap.example.com",
+        "port" => "993",
+        "ssl_depth" => "3",
+        "ssl" => "true",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "provider_default_agent_id" => "42",
+        "mailbox_agent_ids" => %{"" => "77", "INBOX" => "88", "Support" => "bad"},
+        "selected_mailboxes" => ["INBOX"],
+        "mark_as_read" => "true",
+        "poll_interval" => "30000",
+        "idle_timeout" => "1500000"
+      }
+    })
+
+    updated = Repo.get!(ChannelConfig, channel.id)
+    assert ChannelConfig.get_provider_default_agent_id(updated) == 42
+    assert get_in(updated.settings, ["imap", "agent_routing", "mailboxes"]) == %{"INBOX" => 88}
+  end
+
+  test "handle_info formats generic binary and atom reasons", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    send(view.pid, {:load_mailboxes_result, %{}, ["INBOX"], {:error, "plain failure"}})
+    assert_eventually(fn -> render(view) =~ "plain failure" end)
+
+    send(view.pid, {:load_mailboxes_result, %{}, ["INBOX"], {:error, :plain_atom}})
+    assert_eventually(fn -> render(view) =~ "plain_atom" end)
+  end
+
   test "load mailboxes updates multiselect options", %{conn: conn} do
     Application.put_env(:zaq, :notification_imap_router_module, RouterStubOk)
 

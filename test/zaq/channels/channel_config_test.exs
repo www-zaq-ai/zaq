@@ -94,6 +94,29 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert hd(errors_on(failed_changeset).token) =~ "could not be encrypted"
   end
 
+  test "insert returns changeset error when token encryption key is missing" do
+    previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+    Application.delete_env(:zaq, Zaq.System.SecretConfig)
+
+    on_exit(fn ->
+      Application.put_env(:zaq, Zaq.System.SecretConfig, previous_secret_config)
+    end)
+
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Strict Failure Missing",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: "https://example.com",
+        token: "token-that-must-fail"
+      })
+
+    assert {:error, %Ecto.Changeset{} = failed_changeset} = Repo.insert(changeset)
+
+    assert hd(errors_on(failed_changeset).token) =~
+             "could not be encrypted: missing SYSTEM_CONFIG_ENCRYPTION_KEY"
+  end
+
   # ── Validation ──────────────────────────────────────────────────────────
 
   test "changeset/2 validates required fields and inclusion" do
@@ -121,6 +144,48 @@ defmodule Zaq.Channels.ChannelConfigTest do
     refute changeset.valid?
 
     assert "imap.selected_mailboxes must contain at least one mailbox" in errors_on(changeset).settings
+  end
+
+  test "email:imap rejects missing or malformed selected_mailboxes" do
+    missing_selected_mailboxes =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP Missing",
+        provider: "email:imap",
+        kind: "retrieval",
+        token: "imap-secret",
+        enabled: false,
+        settings: %{"imap" => %{"server" => "imap.example.com"}}
+      })
+
+    refute missing_selected_mailboxes.valid?
+    assert "imap.selected_mailboxes is required" in errors_on(missing_selected_mailboxes).settings
+
+    malformed_selected_mailboxes =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP Malformed",
+        provider: "email:imap",
+        kind: "retrieval",
+        token: "imap-secret",
+        enabled: false,
+        settings: %{"imap" => %{"selected_mailboxes" => "INBOX"}}
+      })
+
+    refute malformed_selected_mailboxes.valid?
+
+    assert "imap.selected_mailboxes is required" in errors_on(malformed_selected_mailboxes).settings
+
+    non_map_settings =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP Non Map",
+        provider: "email:imap",
+        kind: "retrieval",
+        token: "imap-secret",
+        enabled: false,
+        settings: "bad"
+      })
+
+    refute non_map_settings.valid?
+    assert "imap.selected_mailboxes is required" in errors_on(non_map_settings).settings
   end
 
   test "email:imap dependency is enforced at persistence time" do
@@ -311,6 +376,82 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert {:ok, cleared} = ChannelConfig.set_provider_default_agent_id(updated, nil)
 
     assert ChannelConfig.get_provider_default_agent_id(cleared) == nil
+  end
+
+  test "get_provider_default_agent_id/1 returns nil for invalid value" do
+    config =
+      insert_channel_config(%{
+        provider: "mattermost",
+        settings: %{"routing" => %{"default_agent_id" => "oops"}}
+      })
+
+    assert ChannelConfig.get_provider_default_agent_id(config) == nil
+  end
+
+  test "set_provider_default_agent_id/2 removes routing map when clearing last field" do
+    config =
+      insert_channel_config(%{
+        provider: "discord",
+        settings: %{"routing" => %{"default_agent_id" => 12}}
+      })
+
+    assert {:ok, cleared} = ChannelConfig.set_provider_default_agent_id(config, nil)
+    refute Map.has_key?(cleared.settings || %{}, "routing")
+  end
+
+  test "imap and jido_chat helpers normalize non-map payloads" do
+    config =
+      insert_channel_config(%{
+        provider: "mattermost",
+        settings: %{"imap" => "bad", "jido_chat" => "bad"}
+      })
+
+    assert ChannelConfig.imap_settings(config) == %{}
+    assert ChannelConfig.imap_selected_mailboxes(config) == []
+    assert ChannelConfig.jido_chat_settings(config) == %{}
+    assert ChannelConfig.jido_chat_bot_name(config) == nil
+    assert ChannelConfig.jido_chat_bot_user_id(config) == nil
+  end
+
+  test "helper accessors handle maps, nil, and loaded smtp records without token" do
+    assert ChannelConfig.jido_chat_settings(%{settings: %{"jido_chat" => %{"bot_name" => "zaq"}}}) ==
+             %{"bot_name" => "zaq"}
+
+    assert ChannelConfig.imap_settings(%{
+             settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+           }) == %{"selected_mailboxes" => ["INBOX"]}
+
+    assert ChannelConfig.imap_settings(nil) == %{}
+    assert ChannelConfig.get_provider_default_agent_id(nil) == nil
+
+    {:ok, smtp} =
+      ChannelConfig.upsert_by_provider("email:smtp", %{
+        name: "Email SMTP",
+        kind: "retrieval",
+        enabled: true,
+        settings: %{"relay" => "smtp.example.com", "port" => "587"}
+      })
+
+    loaded = Repo.get!(ChannelConfig, smtp.id)
+
+    assert {:ok, updated} =
+             loaded |> ChannelConfig.changeset(%{name: "Email SMTP Updated"}) |> Repo.update()
+
+    assert updated.name == "Email SMTP Updated"
+  end
+
+  test "email:imap requires token" do
+    imap_changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "IMAP",
+        provider: "email:imap",
+        kind: "retrieval",
+        enabled: false,
+        settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+      })
+
+    refute imap_changeset.valid?
+    assert "can't be blank" in errors_on(imap_changeset).token
   end
 
   defp insert_channel_config(attrs) do
