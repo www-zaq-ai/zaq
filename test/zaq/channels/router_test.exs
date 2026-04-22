@@ -47,6 +47,16 @@ defmodule Zaq.Channels.RouterTest do
       :ok
     end
 
+    def sync_runtime(before_config, after_config) do
+      send(self(), {:sync_runtime, before_config, after_config})
+      :ok
+    end
+
+    def sync_provider_runtime(config) do
+      send(self(), {:sync_provider_runtime, config.provider, config.id, config.enabled})
+      :ok
+    end
+
     def list_mailboxes(config, details) do
       send(self(), {:list_mailboxes, config, details})
       {:ok, ["INBOX", "Support"]}
@@ -248,30 +258,19 @@ defmodule Zaq.Channels.RouterTest do
       {:ok, config: config}
     end
 
-    test "starts runtime when new config is enabled", %{config: config} do
-      config_id = config.id
+    test "delegates config sync to bridge-owned runtime policy", %{config: config} do
       assert :ok = Router.sync_config_runtime(nil, config)
-      assert_received {:start_runtime, "mattermost", ^config_id}
-    end
+      assert_received {:sync_runtime, nil, ^config}
 
-    test "stops runtime when enabled config is disabled", %{config: config} do
-      config_id = config.id
       disabled = %{config | enabled: false}
       assert :ok = Router.sync_config_runtime(config, disabled)
-      assert_received {:stop_runtime, "mattermost", ^config_id}
-    end
+      assert_received {:sync_runtime, ^config, ^disabled}
 
-    test "starts runtime when disabled config becomes enabled", %{config: config} do
-      config_id = config.id
-      disabled = %{config | enabled: false}
       assert :ok = Router.sync_config_runtime(disabled, config)
-      assert_received {:start_runtime, "mattermost", ^config_id}
-    end
+      assert_received {:sync_runtime, ^disabled, ^config}
 
-    test "no-op when enabled state does not change", %{config: config} do
       assert :ok = Router.sync_config_runtime(config, config)
-      refute_received {:start_runtime, _, _}
-      refute_received {:stop_runtime, _, _}
+      assert_received {:sync_runtime, ^config, ^config}
     end
 
     test "returns :ok when bridge has no runtime callbacks" do
@@ -291,7 +290,7 @@ defmodule Zaq.Channels.RouterTest do
       config_id = config.id
 
       assert :ok = Router.sync_provider_runtime(:mattermost)
-      assert_received {:start_runtime, "mattermost", ^config_id}
+      assert_received {:sync_provider_runtime, "mattermost", ^config_id, true}
     end
 
     test "stops runtime when provider config is disabled" do
@@ -299,7 +298,7 @@ defmodule Zaq.Channels.RouterTest do
       {:ok, _} = config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update()
 
       assert :ok = Router.sync_provider_runtime(:mattermost)
-      assert_received {:stop_runtime, "mattermost", _}
+      assert_received {:sync_provider_runtime, "mattermost", _, false}
     end
 
     test "returns strict channel_not_configured error when config is missing" do

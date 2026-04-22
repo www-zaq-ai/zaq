@@ -1130,17 +1130,56 @@
           <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
             Bot Token
           </label>
-          <input
-            type="password"
-            name="form[token]"
-            value={if @modal == :edit, do: "", else: @form[:token].value}
-            placeholder={
-              if @modal == :edit,
-                do: "Leave blank to keep existing token",
-                else: "••••••••••••••••"
-            }
-            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-          />
+          <div class="relative">
+            <input
+              id="mattermost-token"
+              type="password"
+              name="form[token]"
+              value={@form[:token].value}
+              placeholder="••••••••••••••••"
+              class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            />
+            <button
+              type="button"
+              onclick="var i=document.getElementById('mattermost-token');i.type=i.type==='password'?'text':'password';this.querySelector('.eye-on').classList.toggle('hidden');this.querySelector('.eye-off').classList.toggle('hidden');"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+              tabindex="-1"
+            >
+              <svg
+                class="eye-on w-4 h-4"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle
+                  cx="12"
+                  cy="12"
+                  r="3"
+                />
+              </svg>
+              <svg
+                class="eye-off hidden w-4 h-4"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" /><line
+                  x1="1"
+                  y1="1"
+                  x2="23"
+                  y2="23"
+                />
+              </svg>
+            </button>
+          </div>
           <p class="font-mono text-[0.6rem] text-black/30 mt-1">
             Bot or personal access token with post:write permissions
           </p>

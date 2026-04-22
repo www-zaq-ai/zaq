@@ -96,6 +96,31 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
+  @doc "Synchronizes runtime behavior for config changes owned by this bridge."
+  def sync_runtime(nil, %{enabled: true} = config), do: start_runtime(config)
+  def sync_runtime(nil, %{enabled: false}), do: :ok
+  def sync_runtime(%{enabled: true}, %{enabled: false} = config), do: stop_runtime(config)
+  def sync_runtime(%{enabled: false}, %{enabled: true} = config), do: start_runtime(config)
+
+  def sync_runtime(%{enabled: true} = before_config, %{enabled: true} = after_config) do
+    cond do
+      runtime_restart_required?(before_config, after_config) ->
+        restart_runtime(after_config)
+
+      runtime_refresh_required?(before_config, after_config) ->
+        refresh_runtime(after_config)
+
+      true ->
+        :ok
+    end
+  end
+
+  def sync_runtime(_before, _after), do: :ok
+
+  @doc "Synchronizes runtime from canonical provider config owned by this bridge."
+  def sync_provider_runtime(%{enabled: false} = config), do: stop_runtime(config)
+  def sync_provider_runtime(%{enabled: true} = config), do: restart_runtime(config)
+
   @doc "Tests adapter connectivity by sending a test message."
   @impl true
   def test_connection(config, channel_id) do
@@ -441,6 +466,19 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
+  defp refresh_runtime(config) do
+    case Supervisor.lookup_state_pid(default_bridge_id(config)) do
+      {:ok, state_pid} -> State.refresh_config(state_pid, config)
+      {:error, :not_running} -> start_runtime(config)
+    end
+  end
+
+  defp restart_runtime(config) do
+    with :ok <- stop_runtime(config) do
+      start_runtime(config)
+    end
+  end
+
   defp state_child_spec(config, bridge_id) do
     %{
       id: {State, bridge_id},
@@ -515,6 +553,52 @@ defmodule Zaq.Channels.JidoChatBridge do
       [] -> :all
       ids -> ids
     end
+  end
+
+  defp runtime_restart_required?(before_config, after_config) do
+    startup_fingerprint(before_config) != startup_fingerprint(after_config) or
+      listener_fingerprint(before_config) != listener_fingerprint(after_config)
+  end
+
+  defp runtime_refresh_required?(before_config, after_config) do
+    refresh_fingerprint(before_config) != refresh_fingerprint(after_config)
+  end
+
+  defp startup_fingerprint(config) do
+    %{
+      provider: Map.get(config, :provider) || Map.get(config, "provider"),
+      url: Map.get(config, :url) || Map.get(config, "url"),
+      token: Map.get(config, :token) || Map.get(config, "token")
+    }
+  end
+
+  defp listener_fingerprint(config) do
+    %{
+      bot_name: ChannelConfig.jido_chat_bot_name(config),
+      bot_user_id: ChannelConfig.jido_chat_bot_user_id(config),
+      ingress: normalized_ingress(config)
+    }
+  end
+
+  defp refresh_fingerprint(config) do
+    %{
+      bot_name: ChannelConfig.jido_chat_bot_name(config),
+      message_patterns: normalized_message_patterns(config),
+      provider_default_agent_id: ChannelConfig.get_provider_default_agent_id(config)
+    }
+  end
+
+  defp normalized_ingress(config) do
+    case ChannelConfig.jido_chat_setting(config, "ingress", %{}) do
+      ingress when is_map(ingress) -> ingress
+      _ -> %{}
+    end
+  end
+
+  defp normalized_message_patterns(config) do
+    config
+    |> ChannelConfig.jido_chat_setting("message_patterns", [])
+    |> Enum.filter(&is_binary/1)
   end
 
   defp provider_to_atom(provider) when is_atom(provider), do: provider

@@ -121,28 +121,51 @@ defmodule Zaq.Channels.Router do
 
   @doc "Synchronizes runtime processes when a channel config changes."
   @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}
-  def sync_config_runtime(nil, %{enabled: true} = config),
-    do: with_bridge_runtime(config, :start_runtime)
-
-  def sync_config_runtime(nil, %{enabled: false}), do: :ok
-
-  def sync_config_runtime(%{enabled: true}, %{enabled: false} = config),
-    do: with_bridge_runtime(config, :stop_runtime)
-
-  def sync_config_runtime(%{enabled: false}, %{enabled: true} = config),
-    do: with_bridge_runtime(config, :start_runtime)
-
-  def sync_config_runtime(_before, _after), do: :ok
+  def sync_config_runtime(before_config, %{provider: provider} = after_config) do
+    with {:ok, bridge} <- resolve_bridge(provider) do
+      if bridge_supports?(bridge, :sync_runtime, 2) do
+        bridge.sync_runtime(before_config, after_config)
+      else
+        fallback_sync_config_runtime(before_config, after_config)
+      end
+    end
+  end
 
   @doc "Synchronizes runtime processes from canonical DB config for provider."
   @spec sync_provider_runtime(atom() | String.t()) :: :ok | {:error, term()}
   def sync_provider_runtime(provider) do
-    with {:ok, config} <- fetch_any_channel_config(provider) do
-      if config.enabled do
-        with_bridge_runtime(config, :start_runtime)
-      else
-        with_bridge_runtime(config, :stop_runtime)
-      end
+    with {:ok, config} <- fetch_any_channel_config(provider),
+         {:ok, bridge} <- resolve_bridge(provider) do
+      dispatch_provider_runtime_sync(bridge, config)
+    end
+  end
+
+  defp fallback_sync_config_runtime(nil, %{enabled: true} = config),
+    do: with_bridge_runtime(config, :start_runtime)
+
+  defp fallback_sync_config_runtime(nil, %{enabled: false}), do: :ok
+
+  defp fallback_sync_config_runtime(%{enabled: true}, %{enabled: false} = config),
+    do: with_bridge_runtime(config, :stop_runtime)
+
+  defp fallback_sync_config_runtime(%{enabled: false}, %{enabled: true} = config),
+    do: with_bridge_runtime(config, :start_runtime)
+
+  defp fallback_sync_config_runtime(_before, _after), do: :ok
+
+  defp fallback_sync_provider_runtime(config) do
+    if config.enabled do
+      with_bridge_runtime(config, :start_runtime)
+    else
+      with_bridge_runtime(config, :stop_runtime)
+    end
+  end
+
+  defp dispatch_provider_runtime_sync(bridge, config) do
+    if bridge_supports?(bridge, :sync_provider_runtime, 1) do
+      bridge.sync_provider_runtime(config)
+    else
+      fallback_sync_provider_runtime(config)
     end
   end
 

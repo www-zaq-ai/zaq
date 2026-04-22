@@ -133,7 +133,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   def handle_event("open_modal", %{"action" => "edit", "id" => id}, socket) do
     config = Repo.get!(ChannelConfig, id)
-    changeset = ChannelConfig.changeset(config, %{})
+    changeset = config |> ChannelConfig.changeset(%{}) |> with_visible_token()
 
     {:noreply,
      socket
@@ -153,6 +153,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   def handle_event("validate", %{"form" => params}, socket) do
+    raw_token = Map.get(params, "token")
+
     params =
       case socket.assigns.modal do
         :edit -> if params["token"] == "", do: Map.delete(params, "token"), else: params
@@ -162,6 +164,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     changeset =
       socket.assigns.changeset.data
       |> ChannelConfig.changeset(params)
+      |> with_visible_token(raw_token)
       |> Map.put(:action, :validate)
 
     {:noreply,
@@ -173,6 +176,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   def handle_event("save", %{"form" => params}, socket) do
     previous_config =
       if socket.assigns.modal == :edit, do: socket.assigns.changeset.data, else: nil
+
+    raw_token = Map.get(params, "token")
 
     params =
       case socket.assigns.modal do
@@ -209,6 +214,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
 
       {:error, changeset} ->
+        changeset = with_visible_token(changeset, raw_token)
+
         {:noreply,
          socket
          |> assign(:changeset, changeset)
@@ -284,11 +291,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       ) do
     with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
          %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
-         {:ok, _updated} <-
+         {:ok, updated} <-
            ChannelConfig.set_provider_default_agent_id(
              config,
              ParseUtils.parse_optional_int(raw_id)
            ) do
+      sync_result =
+        NodeRouter.call(:channels, Zaq.Channels.Router, :sync_config_runtime, [
+          config,
+          updated
+        ])
+
       configs = list_configs(socket.assigns.provider)
       first_config = List.first(configs)
 
@@ -296,7 +309,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
        socket
        |> assign(:configs, configs)
        |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
-       |> put_flash(:info, "Provider default agent updated.")}
+       |> maybe_put_runtime_sync_flash(sync_result, "Provider default agent updated.")}
     else
       _ ->
         {:noreply, put_flash(socket, :error, "Failed to update provider default agent.")}
@@ -518,11 +531,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     |> Repo.update!()
 
     config = first_enabled_config(socket)
+    sync_result = sync_provider_runtime(config)
 
     {:noreply,
      socket
      |> assign(:retrieval_channels, load_retrieval_channels(config))
-     |> put_flash(:info, "#{rc.channel_name} #{if rc.active, do: "paused", else: "activated"}.")}
+     |> maybe_put_runtime_sync_flash(
+       sync_result,
+       "#{rc.channel_name} #{if rc.active, do: "paused", else: "activated"}."
+     )}
   end
 
   def handle_event("confirm_remove_channel", %{"id" => id}, socket) do
@@ -539,12 +556,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     Repo.delete!(rc)
 
     config = first_enabled_config(socket)
+    sync_result = sync_provider_runtime(config)
 
     {:noreply,
      socket
      |> assign(:confirm_remove_channel, nil)
      |> assign(:retrieval_channels, load_retrieval_channels(config))
-     |> put_flash(:info, "#{rc.channel_name} removed.")}
+     |> maybe_put_runtime_sync_flash(sync_result, "#{rc.channel_name} removed.")}
   end
 
   # -------------------------------------------------------------------------
@@ -724,13 +742,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp insert_retrieval_channel(socket, cfg, attrs, ch_id, ch_name) do
     case %RetChannel{} |> RetChannel.changeset(attrs) |> Repo.insert() do
       {:ok, _rc} ->
+        sync_result = sync_provider_runtime(cfg)
+
         available =
           Enum.reject(socket.assigns.available_channels, fn ch -> ch.id == ch_id end)
 
         socket
         |> assign(:retrieval_channels, load_retrieval_channels(cfg))
         |> assign(:available_channels, available)
-        |> put_flash(:info, "#{ch_name} added as retrieval channel.")
+        |> maybe_put_runtime_sync_flash(sync_result, "#{ch_name} added as retrieval channel.")
 
       {:error, changeset} ->
         errors = format_errors(changeset) |> Enum.join(", ")
@@ -779,6 +799,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket
     |> put_flash(:info, success_message)
     |> put_flash(:error, "Runtime sync returned unexpected result: #{inspect(other)}")
+  end
+
+  defp with_visible_token(changeset, raw_token \\ nil)
+
+  defp with_visible_token(%Ecto.Changeset{} = changeset, raw_token) when is_binary(raw_token) do
+    Ecto.Changeset.put_change(changeset, :token, raw_token)
+  end
+
+  defp with_visible_token(%Ecto.Changeset{} = changeset, _raw_token) do
+    case changeset.data do
+      %ChannelConfig{token: token} when is_binary(token) and token != "" ->
+        Ecto.Changeset.put_change(changeset, :token, token)
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp sync_provider_runtime(nil), do: :ok
+
+  defp sync_provider_runtime(%ChannelConfig{provider: provider}) do
+    NodeRouter.call(:channels, Zaq.Channels.Router, :sync_provider_runtime, [provider])
   end
 
   def jido_chat_bot_name(%ChannelConfig{} = config) do

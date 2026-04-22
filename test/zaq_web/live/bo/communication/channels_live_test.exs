@@ -19,7 +19,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     def start_runtime(_config), do: fetch_state(:start_runtime, :ok)
     def stop_runtime(_config), do: fetch_state(:stop_runtime, :ok)
 
+    def sync_runtime(before_config, after_config),
+      do: record_call(:sync_runtime, {before_config, after_config})
+
+    def sync_provider_runtime(config), do: record_call(:sync_provider_runtime, config)
+
     def put(key, value), do: put_state(key, value)
+    def calls(key), do: fetch_state(key, []) |> Enum.reverse()
 
     defp fetch_state(key, default) do
       state = :persistent_term.get(__MODULE__, %{})
@@ -29,6 +35,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     defp put_state(key, value) do
       state = :persistent_term.get(__MODULE__, %{})
       :persistent_term.put(__MODULE__, Map.put(state, key, value))
+    end
+
+    defp record_call(key, value) do
+      state = :persistent_term.get(__MODULE__, %{})
+      values = Map.get(state, key, [])
+      :persistent_term.put(__MODULE__, Map.put(state, key, [value | values]))
+      :ok
     end
   end
 
@@ -526,9 +539,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     assert Repo.get!(ChannelConfig, config.id).name == "Mattermost Beta"
     assert render(view) =~ "Channel config saved."
+
+    assert [{nil, created_after}, {edited_before, edited_after}] = BridgeFake.calls(:sync_runtime)
+    assert created_after.name == "Mattermost Alpha"
+    assert edited_before.name == "Mattermost Alpha"
+    assert edited_after.name == "Mattermost Beta"
   end
 
-  test "edit validate keeps existing token when blank and exposes bot helper accessors", %{
+  test "edit modal shows existing token and blank save preserves it", %{
     conn: conn
   } do
     config =
@@ -539,6 +557,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     view |> element("#edit-config-#{config.id}") |> render_click()
+
+    assert render(view) =~ ~s(value="test-token")
 
     view
     |> element("#config-form")
@@ -552,6 +572,24 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     })
 
     assert Repo.get!(ChannelConfig, config.id).token == "test-token"
+
+    view
+    |> element("#config-form")
+    |> render_submit(%{
+      "form" => %{
+        "name" => "Mattermost Edited",
+        "url" => "https://mattermost.local",
+        "token" => "",
+        "enabled" => "true"
+      }
+    })
+
+    updated = Repo.get!(ChannelConfig, config.id)
+
+    assert updated.token == "test-token"
+    assert [{before_config, after_config}] = BridgeFake.calls(:sync_runtime)
+    assert before_config.id == config.id
+    assert after_config.id == config.id
     assert ChannelsLive.jido_chat_bot_name(config) == "zaq-bot"
     assert ChannelsLive.jido_chat_bot_user_id(config) == "bot-7"
   end
@@ -709,9 +747,25 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     assert Repo.get_by(RetrievalChannel, channel_config_id: config.id, channel_id: "c-2")
     assert render(view) =~ "added as retrieval channel"
+    assert [%ChannelConfig{id: id}] = BridgeFake.calls(:sync_provider_runtime)
+    assert id == config.id
 
     render_hook(view, "add_channel", %{"channel-id" => "c-2", "channel-name" => "general"})
     assert render(view) =~ "Failed to add channel"
+  end
+
+  test "retrieval channel toggles and removals trigger bridge reload", %{conn: conn} do
+    config = insert_channel_config(%{})
+    retrieval = insert_retrieval_channel(config)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#toggle-retrieval-channel-#{retrieval.id}") |> render_click()
+    view |> element("#confirm-remove-retrieval-channel-#{retrieval.id}") |> render_click()
+    view |> element("#remove-retrieval-channel-button") |> render_click()
+
+    assert [%ChannelConfig{id: config_id}, %ChannelConfig{id: config_id}] =
+             BridgeFake.calls(:sync_provider_runtime)
   end
 
   defp insert_channel_config(attrs) do

@@ -1726,6 +1726,115 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  describe "sync runtime policy" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+    end
+
+    test "sync_runtime/2 refreshes state without restart for handler-only changes" do
+      config =
+        insert_channel_config(%{settings: %{"jido_chat" => %{"message_patterns" => ["deploy"]}}})
+
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert_received {:listener_child_specs_opts, listener_opts}
+      assert listener_opts[:channel_ids] == :all
+
+      assert {:ok, old_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      updated =
+        config
+        |> ChannelConfig.changeset(%{
+          settings: %{"jido_chat" => %{"message_patterns" => ["incident"]}}
+        })
+        |> Repo.update!()
+
+      assert :ok = JidoChatBridge.sync_runtime(config, updated)
+      assert {:ok, new_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+      assert new_state_pid == old_state_pid
+      refute_received {:listener_child_specs_opts, _}
+
+      state = :sys.get_state(new_state_pid)
+      assert state.config.settings["jido_chat"]["message_patterns"] == ["incident"]
+    end
+
+    test "sync_runtime/2 fully restarts runtime for startup-bound changes" do
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert_received {:listener_child_specs_opts, initial_opts}
+      assert initial_opts[:url] == config.url
+      assert {:ok, old_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      updated =
+        config
+        |> ChannelConfig.changeset(%{url: "https://mattermost.updated.local"})
+        |> Repo.update!()
+
+      assert :ok = JidoChatBridge.sync_runtime(config, updated)
+      assert_received {:listener_child_specs_opts, updated_opts}
+      assert updated_opts[:url] == "https://mattermost.updated.local"
+
+      assert {:ok, new_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+      refute new_state_pid == old_state_pid
+    end
+
+    test "sync_provider_runtime/1 reloads listener channel ids" do
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      insert_retrieval_channel(config.id,
+        channel_id: "chan-1",
+        channel_name: "General",
+        team_id: "team-1",
+        team_name: "Platform"
+      )
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert_received {:listener_child_specs_opts, initial_opts}
+      assert initial_opts[:channel_ids] == ["chan-1"]
+      assert {:ok, old_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      insert_retrieval_channel(config.id,
+        channel_id: "chan-2",
+        channel_name: "Operations",
+        team_id: "team-1",
+        team_name: "Platform"
+      )
+
+      assert :ok = JidoChatBridge.sync_provider_runtime(config)
+      assert_received {:listener_child_specs_opts, updated_opts}
+      assert Enum.sort(updated_opts[:channel_ids]) == ["chan-1", "chan-2"]
+
+      assert {:ok, new_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+      refute new_state_pid == old_state_pid
+    end
+  end
+
   describe "start_runtime/1 and stop_runtime/1 error normalization" do
     test "start_runtime/1 returns forwarded errors" do
       previous = Application.get_env(:zaq, :channels, %{})
