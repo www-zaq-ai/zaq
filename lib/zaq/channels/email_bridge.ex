@@ -13,11 +13,10 @@ defmodule Zaq.Channels.EmailBridge do
 
   require Logger
 
-  alias Zaq.{Agent, System}
   alias Zaq.Channels.{Bridge, ChannelConfig, Router, Supervisor}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.{Event, NodeRouter}
+  alias Zaq.{Event, NodeRouter, System}
   alias Zaq.Utils.EmailUtils
 
   @doc "Converts an email adapter payload to the internal `%Incoming{}` format."
@@ -211,32 +210,17 @@ defmodule Zaq.Channels.EmailBridge do
     pipeline_opts = Keyword.delete(opts, :agent_selection)
 
     if module == Zaq.Agent.Pipeline do
-      event =
-        Event.new(
-          msg,
-          :agent,
-          actor: actor_from_incoming(msg),
-          opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
-        )
-        |> maybe_put_agent_selection(agent_selection)
-
-      case node_router_module().dispatch(event).response do
-        %Outgoing{} = outgoing -> outgoing
-        {:error, _reason} = error -> error
-        other -> {:error, {:invalid_pipeline_response, other}}
-      end
+      Bridge.run_pipeline_with_node_router(
+        msg,
+        pipeline_opts,
+        agent_selection,
+        actor_from_incoming(msg),
+        node_router_module()
+      )
     else
       module.run(msg, pipeline_opts)
     end
   end
-
-  defp maybe_put_agent_selection(%Event{} = event, nil), do: event
-
-  defp maybe_put_agent_selection(%Event{} = event, %{"agent_id" => _} = selection) do
-    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
-  end
-
-  defp maybe_put_agent_selection(%Event{} = event, _selection), do: event
 
   @impl true
   def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
@@ -248,18 +232,7 @@ defmodule Zaq.Channels.EmailBridge do
       {:global_default, System.get_global_default_agent_id()}
     ]
 
-    first_active_selection(candidates)
-  end
-
-  defp first_active_selection(candidates) do
-    Enum.find_value(candidates, fn {source, candidate_id} ->
-      with {:ok, id} <- normalize_id(candidate_id),
-           {:ok, _agent} <- Agent.get_active_agent(id) do
-        %{"agent_id" => id, "source" => Atom.to_string(source)}
-      else
-        _ -> nil
-      end
-    end)
+    Bridge.first_active_selection(candidates)
   end
 
   defp mailbox_assignment_agent_id(config, mailbox) do
@@ -285,17 +258,6 @@ defmodule Zaq.Channels.EmailBridge do
   end
 
   defp normalize_mailbox(_), do: nil
-
-  defp normalize_id(id) when is_integer(id), do: {:ok, id}
-
-  defp normalize_id(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {int, ""} -> {:ok, int}
-      _ -> :error
-    end
-  end
-
-  defp normalize_id(_), do: :error
 
   defp deliver_outgoing(%Outgoing{} = outgoing) do
     module = router_module()

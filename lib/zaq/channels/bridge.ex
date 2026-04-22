@@ -7,10 +7,10 @@ defmodule Zaq.Channels.Bridge do
   type and are optional.
   """
 
+  alias Zaq.{Agent, Event, NodeRouter}
   alias Zaq.Engine.Conversations
-  alias Zaq.Engine.Messages.Incoming
-  alias Zaq.Event
-  alias Zaq.NodeRouter
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Utils.ParseUtils
 
   @callback to_internal(map(), map()) :: Incoming.t() | {:error, term()}
   @callback send_reply(term(), map()) :: :ok | {:error, term()}
@@ -85,5 +85,58 @@ defmodule Zaq.Channels.Bridge do
     else
       conversations_module.persist_from_incoming(incoming, metadata)
     end
+  end
+
+  @doc "Runs pipeline through NodeRouter and normalizes response shape."
+  @spec run_pipeline_with_node_router(Incoming.t(), keyword(), map() | nil, map(), module()) ::
+          Outgoing.t() | {:error, term()}
+  def run_pipeline_with_node_router(
+        %Incoming{} = msg,
+        pipeline_opts,
+        agent_selection,
+        actor,
+        node_router_module
+      )
+      when is_list(pipeline_opts) and is_map(actor) and is_atom(node_router_module) do
+    event =
+      Event.new(
+        msg,
+        :agent,
+        actor: actor,
+        opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
+      )
+      |> put_agent_selection_assign(agent_selection)
+
+    case node_router_module.dispatch(event).response do
+      %Outgoing{} = outgoing -> outgoing
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_pipeline_response, other}}
+    end
+  end
+
+  @doc "Adds validated agent selection into event assigns."
+  @spec put_agent_selection_assign(Event.t(), map() | nil) :: Event.t()
+  def put_agent_selection_assign(%Event{} = event, nil), do: event
+
+  def put_agent_selection_assign(%Event{} = event, %{"agent_id" => _} = selection) do
+    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
+  end
+
+  def put_agent_selection_assign(%Event{} = event, _selection), do: event
+
+  @doc "Returns first active candidate agent selection from ordered candidates."
+  @spec first_active_selection([{atom(), term()}], module()) :: map() | nil
+  def first_active_selection(candidates, agent_module \\ Agent)
+
+  def first_active_selection(candidates, agent_module)
+      when is_list(candidates) and is_atom(agent_module) do
+    Enum.find_value(candidates, fn {source, candidate_id} ->
+      with {:ok, id} <- ParseUtils.parse_int_strict(candidate_id),
+           {:ok, _agent} <- agent_module.get_active_agent(id) do
+        %{"agent_id" => id, "source" => Atom.to_string(source)}
+      else
+        _ -> nil
+      end
+    end)
   end
 end

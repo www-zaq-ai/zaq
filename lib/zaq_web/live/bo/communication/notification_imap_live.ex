@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   alias Zaq.NodeRouter
   alias Zaq.System.ImapConfig
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
 
   @imap_provider "email:imap"
@@ -101,15 +102,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
         {:noreply,
          socket
-         |> assign(:imap_enabled, fresh.enabled)
-         |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
-         |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
-         |> assign(:mailbox_assignment_targets, selected_mailboxes(fresh.selected_mailboxes))
-         |> assign(:form, to_form(fresh_changeset))
-         |> assign(
-           :available_mailboxes,
-           mailbox_options(fresh.selected_mailboxes, socket.assigns.available_mailboxes)
-         )
+         |> assign_persisted_imap_state(fresh, channel, fresh_changeset)
          |> assign(:save_status, :ok)
          |> maybe_put_runtime_sync_flash(sync_result)}
 
@@ -141,15 +134,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
         {:noreply,
          socket
-         |> assign(:imap_enabled, fresh.enabled)
-         |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
-         |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
-         |> assign(:mailbox_assignment_targets, selected_mailboxes(fresh.selected_mailboxes))
-         |> assign(:form, to_form(fresh_changeset))
-         |> assign(
-           :available_mailboxes,
-           mailbox_options(fresh.selected_mailboxes, socket.assigns.available_mailboxes)
-         )
+         |> assign_persisted_imap_state(fresh, channel, fresh_changeset)
          |> assign(:save_status, :idle)
          |> maybe_put_runtime_sync_flash(sync_result)}
 
@@ -219,7 +204,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     config = Ecto.Changeset.apply_changes(changeset)
     channel = ChannelConfig.get_any_by_provider(@imap_provider)
     existing_settings = if(channel, do: channel.settings || %{}, else: %{})
-    provider_default = parse_optional_id(Map.get(raw_params, "provider_default_agent_id"))
+
+    provider_default =
+      ParseUtils.parse_optional_int(Map.get(raw_params, "provider_default_agent_id"))
+
     mailbox_agents = parse_mailbox_agents(Map.get(raw_params, "mailbox_agent_ids", %{}))
 
     routing_settings =
@@ -286,7 +274,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     |> Enum.reduce(%{}, fn {mailbox, raw_id}, acc ->
       mailbox_key = String.trim(to_string(mailbox || ""))
 
-      case {mailbox_key, parse_optional_id(raw_id)} do
+      case {mailbox_key, ParseUtils.parse_optional_int(raw_id)} do
         {"", _} -> acc
         {_, nil} -> acc
         {key, id} -> Map.put(acc, key, id)
@@ -307,19 +295,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp normalize_map(map) when is_map(map), do: map
   defp normalize_map(_), do: %{}
-
-  defp parse_optional_id(nil), do: nil
-  defp parse_optional_id(""), do: nil
-  defp parse_optional_id(value) when is_integer(value), do: value
-
-  defp parse_optional_id(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} -> id
-      _ -> nil
-    end
-  end
-
-  defp parse_optional_id(_), do: nil
 
   defp selected_mailboxes(value), do: ImapConfig.normalize_mailboxes(value)
 
@@ -389,6 +364,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp sync_runtime(provider) do
     NodeRouter.call(:channels, router_module(), :sync_provider_runtime, [provider])
+  end
+
+  defp assign_persisted_imap_state(socket, fresh, channel, fresh_changeset) do
+    socket
+    |> assign(:imap_enabled, fresh.enabled)
+    |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
+    |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
+    |> assign(:mailbox_assignment_targets, selected_mailboxes(fresh.selected_mailboxes))
+    |> assign(:form, to_form(fresh_changeset))
+    |> assign(
+      :available_mailboxes,
+      mailbox_options(fresh.selected_mailboxes, socket.assigns.available_mailboxes)
+    )
   end
 
   defp maybe_put_runtime_sync_flash(socket, :ok), do: socket

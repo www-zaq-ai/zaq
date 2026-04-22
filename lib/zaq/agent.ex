@@ -10,6 +10,7 @@ defmodule Zaq.Agent do
   alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
+  alias Zaq.Utils.ParseUtils
 
   @spec list_agents() :: [ConfiguredAgent.t()]
   def list_agents do
@@ -60,7 +61,7 @@ defmodule Zaq.Agent do
 
   @spec get_agent(integer() | String.t()) :: ConfiguredAgent.t() | nil
   def get_agent(id) do
-    with {:ok, int_id} <- parse_id(id) do
+    with {:ok, int_id} <- ParseUtils.parse_int_strict(id) do
       ConfiguredAgent
       |> preload(:credential)
       |> Repo.get(int_id)
@@ -285,7 +286,9 @@ defmodule Zaq.Agent do
 
   defp imap_mailbox_usages_for_agent(mailboxes, agent_id) when is_map(mailboxes) do
     mailboxes
-    |> Enum.filter(fn {_mailbox, assigned_id} -> parse_optional_id(assigned_id) == agent_id end)
+    |> Enum.filter(fn {_mailbox, assigned_id} ->
+      ParseUtils.parse_optional_int(assigned_id) == agent_id
+    end)
     |> Enum.map(fn {mailbox, _assigned_id} -> "imap mailbox #{mailbox}" end)
   end
 
@@ -309,17 +312,6 @@ defmodule Zaq.Agent do
     |> Changeset.change()
     |> Changeset.add_error(:base, message)
   end
-
-  defp parse_optional_id(value) when is_integer(value), do: value
-
-  defp parse_optional_id(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} -> id
-      _ -> nil
-    end
-  end
-
-  defp parse_optional_id(_), do: nil
 
   defp runtime_provider_from_atom(provider_atom) when is_atom(provider_atom) do
     case ReqLLM.provider(provider_atom) do
@@ -404,19 +396,8 @@ defmodule Zaq.Agent do
 
   defp maybe_filter_sovereign(query, _), do: query
 
-  defp parse_id(id) when is_integer(id), do: {:ok, id}
-
-  defp parse_id(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {int, ""} -> {:ok, int}
-      _ -> :error
-    end
-  end
-
-  defp parse_id(_), do: :error
-
   defp parse_id!(id) do
-    case parse_id(id) do
+    case ParseUtils.parse_int_strict(id) do
       {:ok, int} -> int
       :error -> raise ArgumentError, "invalid id: #{inspect(id)}"
     end

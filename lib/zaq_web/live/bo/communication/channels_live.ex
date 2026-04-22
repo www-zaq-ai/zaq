@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Repo
   alias Zaq.RuntimeDeps
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
 
   import Ecto.Query
@@ -281,10 +282,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         %{"config_id" => config_id, "configured_agent_id" => raw_id},
         socket
       ) do
-    with {:ok, id} <- parse_id(config_id),
+    with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
          %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
          {:ok, _updated} <-
-           ChannelConfig.set_provider_default_agent_id(config, parse_optional_id(raw_id)) do
+           ChannelConfig.set_provider_default_agent_id(
+             config,
+             ParseUtils.parse_optional_int(raw_id)
+           ) do
       configs = list_configs(socket.assigns.provider)
       first_config = List.first(configs)
 
@@ -304,11 +308,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         %{"retrieval_channel_id" => id, "configured_agent_id" => raw_id},
         socket
       ) do
-    with {:ok, rc_id} <- parse_id(id),
+    with {:ok, rc_id} <- ParseUtils.parse_int_strict(id),
          %RetChannel{} = retrieval_channel <- Repo.get(RetChannel, rc_id),
          {:ok, _updated} <-
            retrieval_channel
-           |> RetChannel.changeset(%{configured_agent_id: parse_optional_id(raw_id)})
+           |> RetChannel.changeset(%{configured_agent_id: ParseUtils.parse_optional_int(raw_id)})
            |> Repo.update() do
       config = first_enabled_config(socket)
 
@@ -695,30 +699,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     Agent.list_active_agents()
     |> Enum.map(fn agent -> {agent.name, agent.id} end)
   end
-
-  defp parse_id(value) when is_integer(value), do: {:ok, value}
-
-  defp parse_id(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} -> {:ok, id}
-      _ -> :error
-    end
-  end
-
-  defp parse_id(_), do: :error
-
-  defp parse_optional_id(nil), do: nil
-  defp parse_optional_id(""), do: nil
-  defp parse_optional_id(value) when is_integer(value), do: value
-
-  defp parse_optional_id(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} -> id
-      _ -> nil
-    end
-  end
-
-  defp parse_optional_id(_), do: nil
 
   defp fetch_and_assign_channels(socket, cfg, team_id) do
     case mattermost_api().list_public_channels(cfg, team_id) do

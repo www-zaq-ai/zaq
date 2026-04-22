@@ -173,6 +173,12 @@ as tests-first (failing tests first), then implementation, then verification.
   - Moved global default selector from telemetry panel to Global panel.
   - Renamed empty-option label to `Default Zaq Agent`.
 
+- [x] Refactor: Remove ExDNA-reported duplication in channels and BO parsing helpers
+  - Centralized shared bridge mechanics in `Zaq.Channels.Bridge` (pipeline dispatch + selection assign + active-selection resolver).
+  - Centralized integer parsing helpers in `Zaq.Utils.ParseUtils` and replaced duplicate local parsers.
+  - Extracted repeated IMAP post-save assignment chain into a single helper in `NotificationImapLive`.
+  - Verified with `mix ex_dna` (no duplication detected).
+
 - [ ] Step 9: Final verification and hardening
   - Run targeted integration suites first, then full `mix test`.
   - Run `mix precommit`.
@@ -192,6 +198,7 @@ Record decisions made during implementation. Future agents need this context.
 | Unset global default must preserve legacy pipeline fallback behavior | Prevents routing rollout from changing current behavior when global config is intentionally empty | 2026-04-21 |
 | IMAP mailbox assignment controls scope to selected mailboxes only | Reduces configuration noise and aligns assignment UX with enabled ingestion scope | 2026-04-21 |
 | Global default agent setting moved to dedicated Global tab | Improves discoverability and keeps telemetry panel focused on telemetry-only concerns | 2026-04-21 |
+| ExDNA clone remediation should reuse `Bridge` and `ParseUtils` rather than introducing ad-hoc duplicate helpers | Keeps shared behavior centralized and prevents reintroduction of parser and bridge-flow drift | 2026-04-22 |
 | Agent deletion is blocked when references exist, with location-rich error reporting | Prevents broken runtime references and gives actionable remediation to users | 2026-04-21 |
 | Deletion entrypoint is added to BO Edit Agent form | Matches product requirement to make deletion accessible in web UI | 2026-04-21 |
 | Test strategy is integration-first with focused error cases | Maximizes branch coverage of real flows while keeping test suite maintainable | 2026-04-21 |

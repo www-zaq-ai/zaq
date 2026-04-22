@@ -13,6 +13,7 @@ defmodule Zaq.Channels.ChannelConfig do
   import Ecto.Query
 
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.ParseUtils
 
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
@@ -296,14 +297,14 @@ defmodule Zaq.Channels.ChannelConfig do
     config
     |> provider_routing_settings()
     |> Map.get("default_agent_id")
-    |> parse_optional_id()
+    |> ParseUtils.parse_optional_int()
   end
 
   def get_provider_default_agent_id(%{settings: _settings} = config) do
     config
     |> provider_routing_settings()
     |> Map.get("default_agent_id")
-    |> parse_optional_id()
+    |> ParseUtils.parse_optional_int()
   end
 
   def get_provider_default_agent_id(_), do: nil
@@ -314,7 +315,7 @@ defmodule Zaq.Channels.ChannelConfig do
     routing = provider_routing_settings(config)
 
     updated_routing =
-      case parse_optional_id(agent_id) do
+      case ParseUtils.parse_optional_int(agent_id) do
         nil -> Map.delete(routing, "default_agent_id")
         id -> Map.put(routing, "default_agent_id", id)
       end
@@ -342,17 +343,4 @@ defmodule Zaq.Channels.ChannelConfig do
   end
 
   defp provider_routing_settings(_), do: %{}
-
-  defp parse_optional_id(nil), do: nil
-  defp parse_optional_id(""), do: nil
-  defp parse_optional_id(value) when is_integer(value), do: value
-
-  defp parse_optional_id(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} -> id
-      _ -> nil
-    end
-  end
-
-  defp parse_optional_id(_), do: nil
 end

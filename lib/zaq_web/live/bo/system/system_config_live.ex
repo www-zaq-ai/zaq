@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
+  alias Zaq.Utils.ParseUtils
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -81,7 +82,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_global_default_agent", %{"global_default_agent_id" => raw_id}, socket) do
-    case System.set_global_default_agent_id(parse_optional_id(raw_id)) do
+    case System.set_global_default_agent_id(ParseUtils.parse_optional_int(raw_id)) do
       :ok ->
         {:noreply,
          socket
@@ -871,19 +872,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     Agent.list_active_agents()
     |> Enum.map(fn agent -> {agent.name, agent.id} end)
   end
-
-  defp parse_optional_id(nil), do: nil
-  defp parse_optional_id(""), do: nil
-  defp parse_optional_id(value) when is_integer(value), do: value
-
-  defp parse_optional_id(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} -> id
-      _ -> nil
-    end
-  end
-
-  defp parse_optional_id(_), do: nil
 
   # ── LLM Panel ─────────────────────────────────────────────────────────
 
