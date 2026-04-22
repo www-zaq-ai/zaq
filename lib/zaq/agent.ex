@@ -101,13 +101,18 @@ defmodule Zaq.Agent do
     usage_locations = usage_locations_for_agent(agent.id)
 
     if usage_locations == [] do
-      case Repo.delete(agent) do
-        {:ok, _deleted} = ok ->
-          _ = ServerManager.stop_server(agent.id)
-          ok
+      # Stop runtime first so a successful row delete cannot leave an orphaned
+      # long-lived agent server behind if the node crashes before cleanup.
+      # A concurrent admin update can still reference the agent after this check;
+      # in that case the BO delete can be retried safely.
+      _ = ServerManager.stop_server(agent.id)
 
-        other ->
-          other
+      case usage_locations_for_agent(agent.id) do
+        [] ->
+          Repo.delete(agent)
+
+        late_usage_locations ->
+          {:error, in_use_changeset(agent, late_usage_locations)}
       end
     else
       {:error, in_use_changeset(agent, usage_locations)}
@@ -261,9 +266,13 @@ defmodule Zaq.Agent do
 
   defp provider_default_usages(agent_id) do
     ChannelConfig
+    |> where(
+      [config],
+      fragment("?->'routing'->>'default_agent_id' = ?", config.settings, ^to_string(agent_id))
+    )
+    |> select([config], config.provider)
     |> Repo.all()
-    |> Enum.filter(&(ChannelConfig.get_provider_default_agent_id(&1) == agent_id))
-    |> Enum.map(fn config -> "provider default #{config.provider}" end)
+    |> Enum.map(&"provider default #{&1}")
   end
 
   defp imap_mailbox_usages(agent_id) do
@@ -305,8 +314,8 @@ defmodule Zaq.Agent do
       usage_locations
       |> Enum.uniq()
       |> Enum.sort()
-      |> Enum.join(", ")
-      |> then(&"Agent is in use by: #{&1}")
+      |> Enum.map_join("\n", &"- #{&1}")
+      |> then(&"Agent is in use by:\n#{&1}")
 
     agent
     |> Changeset.change()

@@ -5,6 +5,7 @@ defmodule Zaq.AgentTest do
 
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.ServerManager
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
@@ -381,10 +382,11 @@ defmodule Zaq.AgentTest do
     assert {:error, changeset} = Agent.delete_agent(agent)
 
     assert [message | _] = errors_on(changeset).base
-    assert message =~ "retrieval channel"
-    assert message =~ "provider default"
-    assert message =~ "imap mailbox"
-    assert message =~ "global default"
+    assert message =~ "Agent is in use by:\n"
+    assert message =~ "- retrieval channel"
+    assert message =~ "- provider default"
+    assert message =~ "- imap mailbox"
+    assert message =~ "- global default"
   end
 
   test "delete_agent/1 succeeds when agent is unreferenced" do
@@ -408,6 +410,40 @@ defmodule Zaq.AgentTest do
       })
 
     assert {:ok, _deleted} = Agent.delete_agent(agent)
+    assert Agent.get_agent(agent.id) == nil
+  end
+
+  test "delete_agent/1 stops the runtime server before removing the record" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Delete Runtime Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, agent} =
+      Agent.create_agent(%{
+        name: "Delete Runtime Agent #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} = ServerManager.ensure_server(agent)
+
+    pid = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid)
+
+    monitor_ref = Process.monitor(pid)
+
+    assert {:ok, _deleted} = Agent.delete_agent(agent)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
     assert Agent.get_agent(agent.id) == nil
   end
 
