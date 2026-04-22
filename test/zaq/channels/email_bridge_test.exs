@@ -4,6 +4,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge
+  alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Engine.Notifications.EmailNotification
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
@@ -106,6 +107,13 @@ defmodule Zaq.Channels.EmailBridgeTest do
         end)
 
       {:ok, {nil, listeners}}
+    end
+  end
+
+  defmodule RuntimeCaptureAdapterStub do
+    def runtime_specs(config, _bridge_id, _opts) do
+      send(self(), {:captured_runtime_config, config})
+      {:ok, {nil, []}}
     end
   end
 
@@ -450,6 +458,39 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
       assert_received {:node_router_run_pipeline_event, event}
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
+    end
+
+    test "keeps mailbox-specific agent routing when using runtime-prepared config" do
+      Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      :ok = Zaq.System.set_global_default_agent_id(nil)
+
+      mailbox_agent = insert_configured_agent(true)
+
+      config = %{
+        provider: "email:imap",
+        settings: %{
+          "routing" => %{"default_agent_id" => mailbox_agent.id + 1},
+          "imap" => %{
+            "selected_mailboxes" => ["INBOX"],
+            "agent_routing" => %{"mailboxes" => %{"INBOX" => mailbox_agent.id}}
+          }
+        }
+      }
+
+      prepared = ImapConfigHelpers.normalize_bridge_config(config)
+      payload = %{"body_text" => "hello"}
+      sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
+
+      assert :ok = EmailBridge.from_listener(prepared, payload, sink_opts)
+      assert_received {:node_router_run_pipeline_event, event}
+
+      assert get_in(event.assigns, ["agent_selection", "agent_id"]) == mailbox_agent.id
+      assert get_in(event.assigns, ["agent_selection", "source"]) == "mailbox_assignment"
     end
   end
 
@@ -1125,6 +1166,41 @@ defmodule Zaq.Channels.EmailBridgeTest do
   end
 
   describe "start_runtime/1" do
+    test "passes routing settings into runtime-prepared listener config" do
+      previous_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        :email => %{adapter: RuntimeCaptureAdapterStub},
+        :"email:imap" => %{adapter: RuntimeCaptureAdapterStub}
+      })
+
+      config_id = System.unique_integer([:positive])
+
+      config = %{
+        id: config_id,
+        provider: "email:imap",
+        settings: %{
+          "routing" => %{"default_agent_id" => 123},
+          "imap" => %{
+            "username" => "imap-user",
+            "selected_mailboxes" => ["INBOX"],
+            "agent_routing" => %{"mailboxes" => %{"INBOX" => 456}}
+          }
+        }
+      }
+
+      on_exit(fn ->
+        _ = EmailBridge.stop_runtime(config)
+        Application.put_env(:zaq, :channels, previous_channels)
+      end)
+
+      assert :ok = EmailBridge.start_runtime(config)
+      assert_receive {:captured_runtime_config, prepared}
+      assert prepared.selected_mailboxes == ["INBOX"]
+      assert prepared.settings["routing"]["default_agent_id"] == 123
+      assert prepared.settings["imap"]["agent_routing"]["mailboxes"]["INBOX"] == 456
+    end
+
     test "restarts running runtime to apply updated selected mailboxes" do
       previous_channels = Application.get_env(:zaq, :channels)
 

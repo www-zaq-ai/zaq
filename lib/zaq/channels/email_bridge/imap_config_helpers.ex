@@ -47,6 +47,7 @@ defmodule Zaq.Channels.EmailBridge.ImapConfigHelpers do
   @spec normalize_bridge_config(map()) :: map()
   def normalize_bridge_config(config) when is_map(config) do
     %{
+      settings: normalize_settings(config),
       provider: get(config, :provider) || "email:imap",
       url: get(config, :url),
       token: first_non_nil([get(config, :token), get(config, :password)]),
@@ -65,6 +66,13 @@ defmodule Zaq.Channels.EmailBridge.ImapConfigHelpers do
         |> List.wrap()
         |> normalize_mailbox_names()
     }
+  end
+
+  defp normalize_settings(config) do
+    case Map.get(config, :settings) || Map.get(config, "settings") do
+      settings when is_map(settings) -> settings
+      _ -> %{}
+    end
   end
 
   defp lookup_keys(_map, key) when is_atom(key), do: [key, Atom.to_string(key)]
