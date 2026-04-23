@@ -968,7 +968,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         handler_id,
         [:zaq, :repo, :query],
         fn _event, _measurements, metadata, _config ->
-          send(test_pid, {:repo_query, metadata[:source]})
+          if self() == test_pid, do: send(test_pid, {:repo_query, metadata[:source]})
         end,
         nil
       )

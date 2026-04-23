@@ -76,12 +76,19 @@ function fileRow(page, filename) {
 async function selectAndIngest(page, row) {
   await waitForLiveViewSettled(page)
   const checkbox = row.getByRole("checkbox")
+  const ingestButton = page.locator(SEL.ingestButton)
   await expect(checkbox).toBeVisible()
   if (!(await checkbox.isChecked())) {
     await checkbox.click()
     await expect(checkbox).toBeChecked()
+    await waitForLiveViewSettled(page)
   }
-  await page.locator(SEL.ingestButton).click()
+  // The checkbox reflects the browser state immediately, but the server-side
+  // @selected set drives whether ingest_selected actually enqueues a job.
+  // Wait for LiveView to re-enable the action before clicking, otherwise the
+  // click can race ahead of toggle_select and enqueue nothing.
+  await expect(ingestButton).toBeEnabled()
+  await ingestButton.click()
   await expect(page.getByText("Ingestion started.")).toBeVisible()
   // Dismiss the "Ingestion started." toast so a later test does not match on it.
   await dismissFlash(page)
@@ -97,6 +104,7 @@ test.describe("Ingestion", () => {
   })
 
   test.beforeEach(async ({ page }) => {
+    await resetE2EState(page.request)
     await loginToBackOffice(page)
     // Reset processor state so no leftover fail count from a previous run affects this test.
     await page.request.get("/e2e/processor/reset")
@@ -139,7 +147,7 @@ test.describe("Ingestion", () => {
 
   // ── Full ingestion lifecycle ────────────────────────────────────────────────
   //
-  // 1. Set embedding config  →  chunks table exists, no warning on ingestion page
+  // 1. Reset seeds embedding config  →  chunks table exists, no warning on ingestion page
   // 2. Upload a PDF and ingest it:
   //      →  "ingested" tag appears in the file browser
   //      →  sidecar .md row appears (DocumentProcessorFake creates it)
@@ -158,37 +166,20 @@ test.describe("Ingestion", () => {
     const pdfFilename = `e2e-ingestion-${Date.now()}.pdf`
     const sidecarFilename = pdfFilename.replace(/\.pdf$/, ".md")
 
-    // ── Step 1: Ensure embedding is configured (chunks table exists) ─────────
+    // ── Step 1: Reset already seeded embedding config — no warning ────────────
     //
-    // Save current settings without changing the model (locked state keeps the
-    // model input disabled so the existing model is preserved).  If the table
-    // does not yet exist, save_embedding_config creates it.  If it already
-    // exists and the model is unchanged, no reset occurs.
-
-    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
-    await expect(page.locator(SEL.embeddingForm)).toBeVisible()
-
-    await page.getByRole("button", { name: "Save Embedding Settings" }).click()
-
-    // If a previous destructive save left a different model in the DB versus
-    // the current form value, model_changed could be true — handle the modal.
-    const confirmAfterFirstSave = page.getByRole("heading", { name: "Delete All Embeddings?" })
-    if (await confirmAfterFirstSave.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await page.locator(SEL.confirmSave).click()
-    }
-
-    await expect(page.getByText("Embedding settings saved.")).toBeVisible()
-    await dismissFlash(page)
-
-    // ── Step 2: Navigate to ingestion — no warning ────────────────────────────
+    // POST /e2e/reset re-seeds the default embedding config and ensures the
+    // chunks table exists. Assert that configured state directly instead of
+    // clicking a no-op save and depending on a success toast.
 
     await gotoBackOfficeLive(page, INGESTION_PATH)
 
     await expect(
       page.locator(SEL.warningHeading, { hasText: "Embedding not configured" })
     ).not.toBeVisible()
+    await waitForLiveViewSettled(page)
 
-    // ── Step 3: Upload the PDF ────────────────────────────────────────────────
+    // ── Step 2: Upload the PDF ────────────────────────────────────────────────
 
     const tempPdfPath = path.join(os.tmpdir(), pdfFilename)
     fs.writeFileSync(tempPdfPath, minimalPdfBuffer())
@@ -206,7 +197,7 @@ test.describe("Ingestion", () => {
     // Flash confirms server processed the upload.
     await expect(page.getByText(/file\(s\) uploaded\./)).toBeVisible()
 
-    // ── Step 4: Select file and ingest ───────────────────────────────────────
+    // ── Step 3: Select file and ingest ───────────────────────────────────────
     //
     // Rows are located via ARIA role "row" with the filename as a name substring —
     // this avoids CSS attribute selector issues with multi-hyphen phx-* attributes.
@@ -220,7 +211,7 @@ test.describe("Ingestion", () => {
     // load_entries() in the LiveView, which updates the ingestion_map.
     await expect(row.locator("span", { hasText: "ingested" })).toBeVisible({ timeout: 15_000 })
 
-    // ── Step 4b: Sidecar sub-row must appear below the PDF row ───────────────
+    // ── Step 3b: Sidecar sub-row must appear below the PDF row ───────────────
     //
     // DocumentProcessorFake writes a .md sidecar to disk and creates a sidecar
     // Document record. DirectorySnapshot attaches it as related_md on the PDF
@@ -228,7 +219,7 @@ test.describe("Ingestion", () => {
 
     await expect(fileRow(page, sidecarFilename)).toBeVisible({ timeout: 5_000 })
 
-    // ── Step 4c: Fail a re-ingest while "ingested" is still in the DB ─────────
+    // ── Step 3c: Fail a re-ingest while "ingested" is still in the DB ─────────
     //
     // This is the key regression case: documents.content is non-NULL (prior
     // success), so ingested_at != nil. A subsequent failed job must override
@@ -245,7 +236,7 @@ test.describe("Ingestion", () => {
     await selectAndIngest(page, row)
     await expect(row.locator("span", { hasText: "ingested" })).toBeVisible({ timeout: 15_000 })
 
-    // ── Step 5: Change embedding model → destructive save ────────────────────
+    // ── Step 4: Change embedding model → destructive save ────────────────────
     //
     // Changing the model name causes save_embedding_config to call reset_table,
     // which drops + recreates the chunks table AND sets documents.content = NULL.
@@ -254,9 +245,12 @@ test.describe("Ingestion", () => {
 
     await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
     await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+    await waitForLiveViewSettled(page)
 
     // Unlock model selection.
-    await page.locator(SEL.unlockTrigger).click()
+    const unlockTrigger = page.locator(SEL.unlockTrigger).first()
+    await expect(unlockTrigger).toBeVisible()
+    await unlockTrigger.click()
     await expect(page.getByRole("heading", { name: "Unlock Model Selection" })).toBeVisible()
     await page.locator(SEL.confirmUnlock).click()
     await expect(page.locator(SEL.unlockTrigger)).not.toBeVisible()
@@ -295,7 +289,7 @@ test.describe("Ingestion", () => {
 
     await confirmDestructiveSave(page)
 
-    // ── Step 6: Ingestion page — "ingested" tag must be gone ─────────────────
+    // ── Step 5: Ingestion page — "ingested" tag must be gone ─────────────────
 
     await gotoBackOfficeLive(page, INGESTION_PATH)
 
@@ -305,7 +299,7 @@ test.describe("Ingestion", () => {
     // After reset_table, documents.content = NULL → ingested_at = nil → no tag.
     await expect(rowAfterReset.locator("span", { hasText: "ingested" })).not.toBeVisible()
 
-    // ── Step 7: Ingest with simulated failure → "failed" tag must appear ──────
+    // ── Step 6: Ingest with simulated failure → "failed" tag must appear ──────
     //
     // ProcessorState.set_fail(1) makes DocumentProcessorFake return
     // {:error, "Structural error: simulated e2e failure"} for the next job.
@@ -322,7 +316,7 @@ test.describe("Ingestion", () => {
 
     await expect(rowAfterReset.locator("span", { hasText: "ingested" })).not.toBeVisible()
 
-    // ── Step 8: Re-ingest (no failure) → "ingested" tag must return ──────────
+    // ── Step 7: Re-ingest (no failure) → "ingested" tag must return ──────────
     //
     // selectAndIngest checks isChecked() first — after step 7 the file is still
     // selected (LiveView does not clear @selected on job completion), so the
@@ -350,6 +344,7 @@ test.describe("Ingestion", () => {
     const dedupFilename = `${baseName}(1).pdf`
 
     await gotoBackOfficeLive(page, INGESTION_PATH)
+    await waitForLiveViewSettled(page)
 
     const tempPdfPath = path.join(os.tmpdir(), pdfFilename)
     fs.writeFileSync(tempPdfPath, minimalPdfBuffer())

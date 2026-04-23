@@ -1,9 +1,38 @@
+defmodule Zaq.Agent.AnsweringCoverageTest.StubAgent do
+  @moduledoc false
+  use Jido.AI.Agent,
+    name: "stub_answering_agent_coverage",
+    description: "Stub agent for coverage tests",
+    tools: []
+
+  def ask_sync(_pid, _query, _opts), do: {:ok, "stub answer"}
+end
+
+defmodule Zaq.Agent.AnsweringCoverageTest.StubAgentWithLogprobs do
+  @moduledoc false
+  use Jido.AI.Agent,
+    name: "stub_answering_agent_logprobs",
+    description: "Stub agent that emits logprobs for coverage tests",
+    tools: []
+
+  def ask_sync(_pid, _query, _opts) do
+    logprob = Process.get(:stub_logprob, -0.05)
+
+    :telemetry.execute([:req_llm, :openai, :logprobs], %{}, %{logprobs: [%{"logprob" => logprob}]})
+
+    {:ok, "stub answer with logprobs"}
+  end
+end
+
 defmodule Zaq.Agent.AnsweringCoverageTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.PromptTemplate
+
+  alias Zaq.Agent.AnsweringCoverageTest.StubAgent
+  alias Zaq.Agent.AnsweringCoverageTest.StubAgentWithLogprobs
 
   defp run_fn_returning(response), do: fn _prompt, _msgs, _opts -> response end
 
@@ -174,6 +203,169 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
 
     test "passes through list as-is" do
       assert Answering.clean_answer([1, 2, 3]) == [1, 2, 3]
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Non-run_fn path — exercises set_system_prompt, format_messages,
+  # content_to_string, capture_logprobs, release_logprobs, drain_logprobs
+  # ---------------------------------------------------------------------------
+
+  describe "ask/2 via real AgentServer (non-run_fn path)" do
+    test "succeeds when set_prompt_fn returns {:ok, value}" do
+      opts = [
+        agent_mod: StubAgent,
+        set_prompt_fn: fn _server, _prompt -> {:ok, :done} end,
+        question: "What is Elixir?"
+      ]
+
+      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
+    end
+
+    test "succeeds when set_prompt_fn returns :ok" do
+      opts = [
+        agent_mod: StubAgent,
+        set_prompt_fn: fn _server, _prompt -> :ok end
+      ]
+
+      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
+    end
+
+    test "returns error when set_prompt_fn returns {:error, reason}" do
+      opts = [
+        agent_mod: StubAgent,
+        set_prompt_fn: fn _server, _prompt -> {:error, "prompt rejected"} end
+      ]
+
+      assert {:error, message} = Answering.ask("Prompt", opts)
+      assert String.contains?(message, "Failed to start answering agent")
+    end
+
+    test "handles empty messages (no question, no history)" do
+      opts = [
+        agent_mod: StubAgent,
+        set_prompt_fn: fn _server, _prompt -> :ok end
+      ]
+
+      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
+    end
+
+    test "handles mixed history with user and bot messages" do
+      history = %{
+        "1" => %{"body" => "What is Elixir?", "type" => "user"},
+        "2" => %{"body" => "A functional language.", "type" => "bot"}
+      }
+
+      opts = [
+        agent_mod: StubAgent,
+        set_prompt_fn: fn _server, _prompt -> :ok end,
+        history: history,
+        question: "Tell me more."
+      ]
+
+      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
+    end
+
+    test "handles list-typed question content (content_to_string list branch)" do
+      opts = [
+        agent_mod: StubAgent,
+        set_prompt_fn: fn _server, _prompt -> :ok end,
+        question: [%{text: "What is Elixir?"}, %{other_key: "ignored"}]
+      ]
+
+      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Confidence scoring via logprobs (covers emit_answer_telemetry branches
+  # and all confidence_bucket_metric clauses)
+  # ---------------------------------------------------------------------------
+
+  describe "confidence scoring via logprobs (non-run_fn path)" do
+    setup do
+      on_exit(fn -> Process.delete(:stub_logprob) end)
+      :ok
+    end
+
+    test "records confidence telemetry when logprobs yield score > 0.9 (gt_90 bucket)" do
+      Process.put(:stub_logprob, -0.05)
+
+      opts = [
+        agent_mod: StubAgentWithLogprobs,
+        set_prompt_fn: fn _server, _prompt -> :ok end
+      ]
+
+      assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
+      assert is_float(score)
+      assert score > 0.9
+    end
+
+    test "confidence bucket between_80_90 (score > 0.8 and <= 0.9)" do
+      Process.put(:stub_logprob, -0.18)
+
+      opts = [
+        agent_mod: StubAgentWithLogprobs,
+        set_prompt_fn: fn _server, _prompt -> :ok end
+      ]
+
+      assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
+      assert is_float(score)
+      assert score > 0.8 and score <= 0.9
+    end
+
+    test "confidence bucket between_70_80 (score > 0.7 and <= 0.8)" do
+      Process.put(:stub_logprob, -0.28)
+
+      opts = [
+        agent_mod: StubAgentWithLogprobs,
+        set_prompt_fn: fn _server, _prompt -> :ok end
+      ]
+
+      assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
+      assert is_float(score)
+      assert score > 0.7 and score <= 0.8
+    end
+
+    test "confidence bucket between_50_70 (score >= 0.5 and <= 0.7)" do
+      Process.put(:stub_logprob, -0.6)
+
+      opts = [
+        agent_mod: StubAgentWithLogprobs,
+        set_prompt_fn: fn _server, _prompt -> :ok end
+      ]
+
+      assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
+      assert is_float(score)
+      assert score >= 0.5 and score <= 0.7
+    end
+
+    test "confidence bucket lt_50 (score < 0.5)" do
+      Process.put(:stub_logprob, -1.5)
+
+      opts = [
+        agent_mod: StubAgentWithLogprobs,
+        set_prompt_fn: fn _server, _prompt -> :ok end
+      ]
+
+      assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
+      assert is_float(score)
+      assert score < 0.5
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # normalize_dimensions catch-all
+  # ---------------------------------------------------------------------------
+
+  describe "normalize_dimensions/1 catch-all" do
+    test "non-map telemetry_dimensions is normalised to empty map without crash" do
+      opts = [
+        run_fn: fn _prompt, _msgs, _opts -> {:ok, "The answer"} end,
+        telemetry_dimensions: :not_a_map
+      ]
+
+      assert {:ok, %Result{answer: "The answer"}} = Answering.ask("Prompt", opts)
     end
   end
 

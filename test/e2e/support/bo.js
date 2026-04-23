@@ -107,11 +107,13 @@ async function dismissFlash(page) {
 
   for (let i = 0; i < count; i += 1) {
     const item = flash.nth(i);
-    const close = item.locator("button[aria-label='close']");
+    const close = item.getByRole("button", { name: /close|dismiss/i });
     if (await close.count()) {
-      await close.click().catch(() => {});
+      await close.first().click().catch(() => {});
     }
   }
+
+  await expect(flash).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
 }
 
 // Small helper for the common "server just processed a phx event" wait.
