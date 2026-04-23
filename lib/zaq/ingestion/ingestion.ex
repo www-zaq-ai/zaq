@@ -5,6 +5,8 @@ defmodule Zaq.Ingestion do
   """
 
   alias Zaq.Ingestion.{
+    ConnectorRegistry,
+    ContentSource,
     DeleteService,
     DirectorySnapshot,
     Document,
@@ -57,6 +59,91 @@ defmodule Zaq.Ingestion do
 
       {:ok, jobs}
     end
+  end
+
+  # --- Content filter autocomplete ---
+
+  @doc """
+  Returns up to 50 `%ContentSource{}` structs for the @ mention autocomplete.
+
+  Connector-level entries (one per configured connector) are always included first.
+  When `query` is given, only document sources matching the query string are returned.
+
+  Called via `NodeRouter.call(:ingestion, Zaq.Ingestion, :list_document_sources, [query])`.
+  Never call this directly from BO — use the NodeRouter boundary.
+  """
+  def list_document_sources(query \\ nil) do
+    connector_sources =
+      ConnectorRegistry.list_connectors()
+      |> then(fn connectors ->
+        if is_binary(query) and query != "",
+          do: Enum.filter(connectors, &String.contains?(&1.id, query)),
+          else: connectors
+      end)
+      |> Enum.map(fn %{id: id, label: label} ->
+        %ContentSource{connector: id, source_prefix: id, label: label, type: :connector}
+      end)
+
+    db_sources = list_db_sources(query)
+
+    (connector_sources ++ db_sources)
+    |> Enum.uniq_by(& &1.source_prefix)
+    |> Enum.take(50)
+  end
+
+  defp list_db_sources(nil) do
+    from(d in Document,
+      where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+      select: d.source,
+      order_by: [asc: d.source],
+      limit: 200
+    )
+    |> Repo.all()
+    |> build_sources_with_folders(nil)
+  end
+
+  defp list_db_sources(query) when is_binary(query) and query != "" do
+    from(d in Document,
+      where:
+        like(d.source, ^"%#{query}%") and
+          fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+      select: d.source,
+      order_by: [asc: d.source],
+      limit: 200
+    )
+    |> Repo.all()
+    |> build_sources_with_folders(query)
+  end
+
+  defp list_db_sources(_), do: []
+
+  defp build_sources_with_folders(raw_sources, query) do
+    file_sources =
+      raw_sources
+      |> Enum.map(&ContentSource.from_source/1)
+      |> Enum.reject(&is_nil/1)
+
+    folder_sources =
+      raw_sources
+      |> Enum.flat_map(&derive_folder_prefixes/1)
+      |> Enum.uniq()
+      |> then(fn prefixes ->
+        if query, do: Enum.filter(prefixes, &String.contains?(&1, query)), else: prefixes
+      end)
+      |> Enum.map(&ContentSource.from_source/1)
+      |> Enum.reject(&is_nil/1)
+
+    (folder_sources ++ file_sources)
+    |> Enum.uniq_by(& &1.source_prefix)
+  end
+
+  # Returns all intermediate path prefixes for a source, excluding the leaf segment.
+  # "zaq/hr/policy.pdf" → ["zaq", "zaq/hr"]
+  defp derive_folder_prefixes(source) do
+    parts = String.split(source, "/", trim: true)
+
+    0..(length(parts) - 2)
+    |> Enum.map(fn i -> parts |> Enum.take(i + 1) |> Enum.join("/") end)
   end
 
   # --- Access control ---

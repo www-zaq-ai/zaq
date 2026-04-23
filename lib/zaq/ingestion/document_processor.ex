@@ -761,8 +761,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     person_id = Keyword.get(access_opts, :person_id)
     team_ids = Keyword.get(access_opts, :team_ids, [])
     skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
+    source_filter = Keyword.get(access_opts, :source_filter, [])
 
-    with {:ok, grouped} <- retrieve(query),
+    with {:ok, grouped} <- retrieve(query, source_filter),
          sections = build_query_sections(grouped),
          {:ok, data} <- fetch_sections_with_source(sections) do
       filtered = apply_permission_filter(data, skip_permissions, person_id, team_ids)
@@ -770,11 +771,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp retrieve(query) do
+  defp retrieve(query, source_filter) do
     limit = hybrid_search_limit()
 
-    bm25_task = Task.async(fn -> bm25_search_group_by(query, limit) end)
-    vector_task = Task.async(fn -> similarity_search_group_by(query) end)
+    bm25_task = Task.async(fn -> bm25_search_group_by(query, limit, source_filter) end)
+    vector_task = Task.async(fn -> similarity_search_group_by(query, source_filter) end)
 
     with {:ok, bm25} <- Task.await(bm25_task, 30_000),
          {:ok, vector} <- Task.await(vector_task, 30_000) do
@@ -812,12 +813,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Enum.reverse(answer)
   end
 
-  defp similarity_search_group_by(query_text) do
+  defp similarity_search_group_by(query_text, source_filter) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       threshold = distance_threshold()
 
-      results =
+      base =
         Chunk
         |> join(:inner, [c], d in Document, on: c.document_id == d.id)
         |> where([c, _d], fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold))
@@ -827,7 +828,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           section_path: c.section_path,
           vector_distance: fragment("? <-> ?", c.embedding, ^embedding_vector)
         })
-        |> Repo.all()
+
+      query =
+        if source_filter == [] do
+          base
+        else
+          condition = build_source_filter_condition(source_filter)
+          where(base, [_c, d], ^condition)
+        end
+
+      results = Repo.all(query)
 
       grouped =
         results
@@ -840,6 +850,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
+  defp build_source_filter_condition(source_filter) do
+    Enum.reduce(source_filter, dynamic(false), fn prefix, acc ->
+      if String.contains?(Path.basename(prefix), ".") do
+        dynamic([_c, d], ^acc or d.source == ^prefix)
+      else
+        dynamic([_c, d], ^acc or like(d.source, ^"#{prefix}/%"))
+      end
+    end)
+  end
+
   # ---------------------------------------------------------------------------
   # BM25 search (pg_search single index with language filtering)
   # ---------------------------------------------------------------------------
@@ -850,9 +870,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns `{:ok, %{doc_id => %{section_path => [%{document_id, section_path, bm25_score}]}}}`.
   Mirrors the output shape of `similarity_search_group_by/1` so both legs can
   be fed into `rrf_merge/2` without transformation.
+
+  When `source_filter` is non-empty, adds an INNER JOIN on `documents` and filters
+  results to chunks whose document source matches one of the given prefixes.
+  Files (paths containing a `.` in the last segment) are matched exactly;
+  folders and connectors are matched via prefix (`LIKE "prefix/%"`).
   """
-  def bm25_search_group_by(query_text, limit) do
-    query =
+  def bm25_search_group_by(query_text, limit, source_filter \\ []) do
+    base =
       from(c in Chunk,
         where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
         order_by: [desc: fragment("paradedb.score(?)", c.id)],
@@ -863,6 +888,17 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           bm25_score: fragment("paradedb.score(?)", c.id)
         }
       )
+
+    query =
+      if source_filter == [] do
+        base
+      else
+        condition = build_source_filter_condition(source_filter)
+
+        base
+        |> join(:inner, [c], d in Document, on: c.document_id == d.id)
+        |> where([_c, d], ^condition)
+      end
 
     results = Repo.all(query)
 

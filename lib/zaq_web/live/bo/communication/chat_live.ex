@@ -16,6 +16,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias Zaq.Channels.{Router, WebBridge}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
+  alias Zaq.Ingestion.ContentSource
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
   alias ZaqWeb.Live.BO.PreviewHelpers
@@ -70,6 +71,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:current_conversation_id, nil)
      |> assign(:available_agents, list_chat_agents())
      |> assign(:selected_agent_id, "")
+     |> assign(:active_filters, [])
+     |> assign(:filter_suggestions, [])
+     |> assign(:filter_query, "")
      |> assign(:suggested_questions, [
        "What is ZAQ and what does it do?",
        "Which integrations does ZAQ support?",
@@ -92,11 +96,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if trimmed == "" do
       {:noreply, socket}
     else
+      active_filters = socket.assigns.active_filters
+
       user_msg = %{
         id: generate_id(),
         role: :user,
         body: trimmed,
-        timestamp: DateTime.utc_now()
+        timestamp: DateTime.utc_now(),
+        filters:
+          Enum.map(active_filters, fn f ->
+            %{label: f.label, source_prefix: f.source_prefix, type: f.type}
+          end)
       }
 
       socket =
@@ -106,6 +116,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         |> assign(:status, :thinking)
         |> assign(:status_message, "ZAQ is analyzing your question…")
         |> assign(:current_request_id, user_msg.id)
+        |> assign(:active_filters, [])
+        |> assign(:filter_suggestions, [])
+        |> assign(:filter_query, "")
 
       session_id = socket.assigns.session_id
       request_id = user_msg.id
@@ -117,7 +130,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           trimmed,
           socket.assigns.history,
           socket.assigns.current_user,
-          socket.assigns.selected_agent_id
+          socket.assigns.selected_agent_id,
+          active_filters
         )
       end)
 
@@ -225,6 +239,65 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("close_feedback_modal", _params, socket) do
     {:noreply, assign(socket, :show_feedback_modal, false)}
+  end
+
+  def handle_event("filter_autocomplete", %{"query" => query}, socket)
+      when is_binary(query) and byte_size(query) > 0 do
+    suggestions =
+      node_router().call(:ingestion, Zaq.Ingestion, :list_document_sources, [query])
+
+    suggestions = if is_list(suggestions), do: suggestions, else: []
+    {:noreply, assign(socket, filter_suggestions: suggestions, filter_query: query)}
+  end
+
+  def handle_event("filter_autocomplete", _params, socket) do
+    {:noreply, assign(socket, filter_suggestions: [], filter_query: "")}
+  end
+
+  def handle_event("add_content_filter", params, socket) do
+    %{
+      "source_prefix" => source_prefix,
+      "connector" => connector,
+      "label" => label,
+      "type" => type_str
+    } = params
+
+    type = String.to_existing_atom(type_str)
+
+    filter = %ContentSource{
+      connector: connector,
+      source_prefix: source_prefix,
+      label: label,
+      type: type
+    }
+
+    active_filters = socket.assigns.active_filters
+
+    socket =
+      if Enum.any?(active_filters, &(&1.source_prefix == source_prefix)) do
+        socket
+      else
+        update(socket, :active_filters, &(&1 ++ [filter]))
+      end
+
+    {:noreply,
+     socket
+     |> assign(:filter_suggestions, [])
+     |> assign(:filter_query, "")
+     |> push_event("complete_filter_mention", %{label: label})}
+  end
+
+  def handle_event("remove_content_filter", %{"source_prefix" => source_prefix}, socket) do
+    {:noreply,
+     update(
+       socket,
+       :active_filters,
+       &Enum.reject(&1, fn f -> f.source_prefix == source_prefix end)
+     )}
+  end
+
+  def handle_event("clear_content_filters", _params, socket) do
+    {:noreply, assign(socket, :active_filters, [])}
   end
 
   def handle_event("noop", _params, socket), do: {:noreply, socket}
@@ -394,13 +467,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          user_msg,
          history,
          current_user,
-         selected_agent_id
+         selected_agent_id,
+         active_filters
        ) do
+    source_filter = Enum.map(active_filters, & &1.source_prefix)
+
     incoming = %Incoming{
       content: user_msg,
       channel_id: "bo",
       author_id: current_user.id,
       provider: :web,
+      content_filter: source_filter,
       metadata: %{session_id: session_id, request_id: request_id, user_content: user_msg}
     }
 

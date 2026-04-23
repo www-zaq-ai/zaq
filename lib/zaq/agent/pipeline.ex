@@ -67,7 +67,13 @@ defmodule Zaq.Agent.Pipeline do
         person -> person.team_ids || []
       end
 
-    opts = Keyword.merge(opts, person_id: person_id, team_ids: team_ids)
+    opts =
+      Keyword.merge(opts,
+        person_id: person_id,
+        team_ids: team_ids,
+        source_filter: incoming.content_filter
+      )
+
     result = do_run(incoming, opts)
     Outgoing.from_pipeline_result(incoming, result)
   end
@@ -226,12 +232,21 @@ defmodule Zaq.Agent.Pipeline do
     person_id = Keyword.get(opts, :person_id)
     team_ids = Keyword.get(opts, :team_ids, [])
     skip_permissions = Keyword.get(opts, :skip_permissions, false)
+    source_filter = Keyword.get(opts, :source_filter, [])
 
     case node_router(opts).call(
            :ingestion,
            document_processor_mod(opts),
            :query_extraction,
-           [query, [person_id: person_id, team_ids: team_ids, skip_permissions: skip_permissions]]
+           [
+             query,
+             [
+               person_id: person_id,
+               team_ids: team_ids,
+               skip_permissions: skip_permissions,
+               source_filter: source_filter
+             ]
+           ]
          ) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}

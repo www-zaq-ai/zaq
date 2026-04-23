@@ -21,7 +21,8 @@ defmodule Zaq.Engine.Messages.Incoming do
     :provider,
     :person_id,
     is_dm: false,
-    metadata: %{}
+    metadata: %{},
+    content_filter: []
   ]
 
   @type t :: %__MODULE__{
@@ -34,6 +35,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           provider: atom() | String.t(),
           person_id: integer() | nil,
           is_dm: boolean(),
-          metadata: map()
+          metadata: map(),
+          content_filter: [String.t()]
         }
 end
