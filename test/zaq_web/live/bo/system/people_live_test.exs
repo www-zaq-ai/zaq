@@ -95,7 +95,9 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     |> render_click()
 
     view
-    |> element("[phx-click='open_modal'][phx-value-action='edit'][phx-value-id='#{person.id}']")
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='person'][phx-value-id='#{person.id}']"
+    )
     |> render_click()
 
     assert has_element?(view, "#people-modal-overlay")
@@ -542,7 +544,9 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     |> render_click()
 
     view
-    |> element("[phx-click='open_modal'][phx-value-action='edit'][phx-value-id='#{person.id}']")
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='person'][phx-value-id='#{person.id}']"
+    )
     |> render_click()
 
     view
@@ -837,7 +841,9 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     |> render_click()
 
     view
-    |> element("[phx-click='open_modal'][phx-value-action='edit'][phx-value-id='#{person.id}']")
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='person'][phx-value-id='#{person.id}']"
+    )
     |> render_click()
 
     new_name = "After Edit Name#{System.unique_integer([:positive])}"
