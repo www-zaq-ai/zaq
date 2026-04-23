@@ -242,6 +242,12 @@ test.describe("System Config", () => {
 
     test("clearing model (text input) blocks save (required field)", async ({ page }) => {
       const modelInput = page.locator('input[name="llm_config[model]"]')
+      const modelSelect = page.locator("#llm-model-select [data-select-trigger]")
+
+      // Wait for the LiveView phx-change from beforeEach to settle before checking
+      // which model widget is present. Point-in-time isVisible() is racy in CI.
+      await expectEitherVisible(modelInput, modelSelect)
+
       if (await modelInput.isVisible()) {
         await modelInput.fill("")
         await modelInput.press("Tab")
