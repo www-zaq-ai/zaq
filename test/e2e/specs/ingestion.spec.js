@@ -1,4 +1,4 @@
-const { test, expect, request: apiRequest } = require("@playwright/test")
+const { test, expect } = require("@playwright/test")
 const fs = require("fs")
 const os = require("os")
 const path = require("path")
@@ -74,6 +74,9 @@ function fileRow(page, filename) {
 // Waits for the LiveView to quiesce before reading the checkbox state, otherwise a
 // pending PubSub re-render can stale the handle and flip the selection off.
 async function selectAndIngest(page, row) {
+  // Clear any stale flash FIRST so the "Ingestion started." check below cannot
+  // match a leftover toast from a previous call and silently skip the real wait.
+  await dismissFlash(page)
   await waitForLiveViewSettled(page)
   const checkbox = row.getByRole("checkbox")
   const ingestButton = page.locator(SEL.ingestButton)
@@ -90,19 +93,13 @@ async function selectAndIngest(page, row) {
   await expect(ingestButton).toBeEnabled()
   await ingestButton.click()
   await expect(page.getByText("Ingestion started.")).toBeVisible()
-  // Dismiss the "Ingestion started." toast so a later test does not match on it.
+  // Dismiss the "Ingestion started." toast so a later call does not match on it.
   await dismissFlash(page)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 test.describe("Ingestion", () => {
-  test.beforeAll(async () => {
-    const req = await apiRequest.newContext()
-    await resetE2EState(req)
-    await req.dispose()
-  })
-
   test.beforeEach(async ({ page }) => {
     await resetE2EState(page.request)
     await loginToBackOffice(page)
@@ -173,11 +170,11 @@ test.describe("Ingestion", () => {
     // clicking a no-op save and depending on a success toast.
 
     await gotoBackOfficeLive(page, INGESTION_PATH)
+    await waitForLiveViewSettled(page)
 
     await expect(
       page.locator(SEL.warningHeading, { hasText: "Embedding not configured" })
     ).not.toBeVisible()
-    await waitForLiveViewSettled(page)
 
     // ── Step 2: Upload the PDF ────────────────────────────────────────────────
 
@@ -194,8 +191,10 @@ test.describe("Ingestion", () => {
     await expect(uploadBtn).toBeVisible()
     await uploadBtn.click()
 
-    // Flash confirms server processed the upload.
+    // Flash confirms server processed the upload. Dismiss it so subsequent
+    // upload checks cannot match this stale toast.
     await expect(page.getByText(/file\(s\) uploaded\./)).toBeVisible()
+    await dismissFlash(page)
 
     // ── Step 3: Select file and ingest ───────────────────────────────────────
     //
@@ -244,12 +243,20 @@ test.describe("Ingestion", () => {
     // making the "ingested" tag disappear.
 
     await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
-    await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+    // Wait for settled BEFORE asserting visibility — `waitForLiveViewConnected` only
+    // guarantees the socket is up, not that handle_params (tab switch) has been applied.
+    // Without settled first, the embedding form can be briefly visible from a partial
+    // render, and the click below races a second diff that morphs the button away.
     await waitForLiveViewSettled(page)
+    await expect(page.locator(SEL.embeddingForm)).toBeVisible()
 
     // Unlock model selection.
     const unlockTrigger = page.locator(SEL.unlockTrigger).first()
     await expect(unlockTrigger).toBeVisible()
+    // One final settled check immediately before the click. If a re-render is in
+    // flight, the button element gets detached mid-morph and the phx-click event is
+    // silently dropped by Phoenix LiveView. Waiting here closes that window.
+    await waitForLiveViewSettled(page)
     await unlockTrigger.click()
     await expect(page.getByRole("heading", { name: "Unlock Model Selection" })).toBeVisible()
     await page.locator(SEL.confirmUnlock).click()
@@ -357,6 +364,8 @@ test.describe("Ingestion", () => {
     await fc1.setFiles(tempPdfPath)
     await page.locator(SEL.uploadSubmitButton).click()
     await expect(page.getByText(/file\(s\) uploaded\./)).toBeVisible()
+    // Dismiss so the second upload's flash check cannot match this stale toast.
+    await dismissFlash(page)
     await expect(fileRow(page, pdfFilename)).toBeVisible()
 
     // ── Second upload of the same file ───────────────────────────────────────
