@@ -13,6 +13,34 @@ defmodule Zaq.Agent.FactoryTest do
     refute Keyword.has_key?(Factory.strategy_opts(), :model)
   end
 
+  describe "build_model_spec/0" do
+    setup do
+      seed_llm_config(%{
+        endpoint: "https://api.example.com/v1",
+        model: "test-model",
+        temperature: 0.1,
+        top_p: 0.8
+      })
+
+      :ok
+    end
+
+    test "returns model spec with provider, id, and base_url" do
+      spec = Factory.build_model_spec()
+
+      assert spec.provider == :openai
+      assert spec.id == "test-model"
+      assert spec.base_url == "https://api.example.com/v1"
+    end
+
+    test "generation_opts returns temperature and top_p" do
+      opts = Factory.generation_opts()
+
+      assert opts[:temperature] == 0.1
+      assert opts[:top_p] == 0.8
+    end
+  end
+
   test "ask_with_config returns unknown tools error before runtime call" do
     configured_agent = %Agent.ConfiguredAgent{enabled_tool_keys: ["files.missing"]}
 

@@ -6,13 +6,13 @@ defmodule Zaq.Agent.Retrieval do
   into one or more search queries via LLM, returning structured JSON.
 
   Uses DB-managed system prompt (`retrieval` slug) and provider-agnostic
-  LLM configuration from `Zaq.Agent.LLM`.
+  LLM configuration from `Zaq.Agent.Factory`.
   """
 
   require Logger
 
   alias ReqLLM.{Context, Generation, Response}
-  alias Zaq.Agent.{History, LLM}
+  alias Zaq.Agent.{Factory, History}
   alias Zaq.Agent.PromptTemplate
 
   @doc """
@@ -39,7 +39,7 @@ defmodule Zaq.Agent.Retrieval do
       |> History.build()
 
     gen_opts =
-      LLM.generation_opts()
+      Factory.generation_opts()
       |> Keyword.put(:system_prompt, system_prompt)
 
     Logger.info("Retrieval: Processing question history_length=#{length(history)}")
@@ -53,7 +53,7 @@ defmodule Zaq.Agent.Retrieval do
 
     result =
       try do
-        Generation.generate_text(LLM.build_model_spec(), messages, gen_opts)
+        Generation.generate_text(Factory.build_model_spec(), messages, gen_opts)
       rescue
         e -> {:error, e}
       end

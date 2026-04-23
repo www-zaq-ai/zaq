@@ -1,24 +1,27 @@
-defmodule Zaq.Agent.AnsweringCoverageTest.StubAgent do
+defmodule Zaq.Agent.AnsweringCoverageTest.FakeFactory do
   @moduledoc false
-  use Jido.AI.Agent,
-    name: "stub_answering_agent_coverage",
-    description: "Stub agent for coverage tests",
-    tools: []
 
-  def ask_sync(_pid, _query, _opts), do: {:ok, "stub answer"}
+  def ask(_server, _query, _opts) do
+    case Process.get(:fake_factory_response) do
+      {:error, _} = err -> err
+      _ -> {:ok, make_ref()}
+    end
+  end
+
+  def await(_request, _opts), do: Process.get(:fake_factory_response, {:ok, "stub answer"})
 end
 
-defmodule Zaq.Agent.AnsweringCoverageTest.StubAgentWithLogprobs do
+defmodule Zaq.Agent.AnsweringCoverageTest.FakeFactoryWithLogprobs do
   @moduledoc false
-  use Jido.AI.Agent,
-    name: "stub_answering_agent_logprobs",
-    description: "Stub agent that emits logprobs for coverage tests",
-    tools: []
 
-  def ask_sync(_pid, _query, _opts) do
+  def ask(_server, _query, _opts), do: {:ok, make_ref()}
+
+  def await(_request, _opts) do
     logprob = Process.get(:stub_logprob, -0.05)
 
-    :telemetry.execute([:req_llm, :openai, :logprobs], %{}, %{logprobs: [%{"logprob" => logprob}]})
+    :telemetry.execute([:req_llm, :openai, :logprobs], %{}, %{
+      logprobs: [%{"logprob" => logprob}]
+    })
 
     {:ok, "stub answer with logprobs"}
   end
@@ -31,10 +34,13 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
   alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.PromptTemplate
 
-  alias Zaq.Agent.AnsweringCoverageTest.StubAgent
-  alias Zaq.Agent.AnsweringCoverageTest.StubAgentWithLogprobs
+  alias Zaq.Agent.AnsweringCoverageTest.FakeFactory
+  alias Zaq.Agent.AnsweringCoverageTest.FakeFactoryWithLogprobs
 
-  defp run_fn_returning(response), do: fn _prompt, _msgs, _opts -> response end
+  defp stub_factory(response) do
+    Process.put(:fake_factory_response, response)
+    [factory_module: FakeFactory]
+  end
 
   setup do
     {:ok, _template} =
@@ -89,71 +95,60 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
   end
 
   # ---------------------------------------------------------------------------
-  # ask/2 with run_fn — uncovered paths
+  # ask/2 with stubbed factory — additional paths
   # ---------------------------------------------------------------------------
 
-  describe "ask/2 with run_fn — additional paths" do
+  describe "ask/2 with stubbed factory — additional paths" do
     test "returns answer from top-level clarification_needed handle" do
       clarification_result = %{clarification_needed: true, question: "Which region?"}
-      opts = [run_fn: run_fn_returning({:ok, clarification_result})]
+      opts = stub_factory({:ok, clarification_result})
 
       assert {:ok, %Result{clarification: "Which region?"}} = Answering.ask("Prompt", opts)
     end
 
     test "returns error when both answer and clarification are nil" do
-      opts = [run_fn: run_fn_returning({:ok, %{unknown_key: "value"}})]
+      opts = stub_factory({:ok, %{unknown_key: "value"}})
 
       assert {:error, message} = Answering.ask("Prompt", opts)
       assert String.contains?(message, "Empty assistant response content")
     end
 
     test "error containing 'logprob' string triggers logprobs unsupported path" do
-      opts = [run_fn: run_fn_returning({:error, "model does not support logprobs"})]
+      opts = stub_factory({:error, "model does not support logprobs"})
 
       assert {:error, message} = Answering.ask("Prompt", opts)
       assert String.starts_with?(message, "Failed to formulate response:")
     end
 
     test "error containing 'log_prob' string triggers logprobs unsupported path" do
-      opts = [run_fn: run_fn_returning({:error, "log_prob not supported by this model"})]
+      opts = stub_factory({:error, "log_prob not supported by this model"})
 
       assert {:error, message} = Answering.ask("Prompt", opts)
       assert String.starts_with?(message, "Failed to formulate response:")
     end
 
-    test "appends question as user message and still returns result" do
-      test_pid = self()
-
-      run_fn = fn _prompt, messages, _opts ->
-        send(test_pid, {:messages, messages})
-        {:ok, "answer"}
-      end
-
-      opts = [run_fn: run_fn, question: "What is Elixir?"]
-      assert {:ok, %Result{answer: "answer"}} = Answering.ask("Prompt", opts)
-      assert_receive {:messages, messages}
-      # messages is a list of ReqLLM.Message structs when run_fn is used
-      assert is_list(messages)
-      assert length(messages) == 1
-    end
-
     test "telemetry_dimensions option is accepted without crash" do
-      opts = [
-        run_fn: run_fn_returning({:ok, "The answer"}),
-        telemetry_dimensions: %{server_id: "srv-1"}
-      ]
+      opts =
+        stub_factory({:ok, "The answer"}) ++
+          [telemetry_dimensions: %{server_id: "srv-1"}]
 
       assert {:ok, %Result{answer: "The answer"}} = Answering.ask("Prompt", opts)
     end
 
     test "person_id and team_ids are forwarded without crash" do
-      opts = [
-        run_fn: run_fn_returning({:ok, "answer"}),
-        person_id: 99,
-        team_ids: [1, 2, 3]
-      ]
+      opts =
+        stub_factory({:ok, "answer"}) ++
+          [person_id: 99, team_ids: [1, 2, 3]]
 
       assert {:ok, %Result{answer: "answer"}} = Answering.ask("Prompt", opts)
+    end
+
+    test "non-map telemetry_dimensions is normalised to empty map without crash" do
+      opts =
+        stub_factory({:ok, "The answer"}) ++
+          [telemetry_dimensions: :not_a_map]
+
+      assert {:ok, %Result{answer: "The answer"}} = Answering.ask("Prompt", opts)
     end
   end
 
@@ -207,82 +202,11 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Non-run_fn path — exercises set_system_prompt, format_messages,
-  # content_to_string, capture_logprobs, release_logprobs, drain_logprobs
-  # ---------------------------------------------------------------------------
-
-  describe "ask/2 via real AgentServer (non-run_fn path)" do
-    test "succeeds when set_prompt_fn returns {:ok, value}" do
-      opts = [
-        agent_mod: StubAgent,
-        set_prompt_fn: fn _server, _prompt -> {:ok, :done} end,
-        question: "What is Elixir?"
-      ]
-
-      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
-    end
-
-    test "succeeds when set_prompt_fn returns :ok" do
-      opts = [
-        agent_mod: StubAgent,
-        set_prompt_fn: fn _server, _prompt -> :ok end
-      ]
-
-      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
-    end
-
-    test "returns error when set_prompt_fn returns {:error, reason}" do
-      opts = [
-        agent_mod: StubAgent,
-        set_prompt_fn: fn _server, _prompt -> {:error, "prompt rejected"} end
-      ]
-
-      assert {:error, message} = Answering.ask("Prompt", opts)
-      assert String.contains?(message, "Failed to start answering agent")
-    end
-
-    test "handles empty messages (no question, no history)" do
-      opts = [
-        agent_mod: StubAgent,
-        set_prompt_fn: fn _server, _prompt -> :ok end
-      ]
-
-      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
-    end
-
-    test "handles mixed history with user and bot messages" do
-      history = %{
-        "1" => %{"body" => "What is Elixir?", "type" => "user"},
-        "2" => %{"body" => "A functional language.", "type" => "bot"}
-      }
-
-      opts = [
-        agent_mod: StubAgent,
-        set_prompt_fn: fn _server, _prompt -> :ok end,
-        history: history,
-        question: "Tell me more."
-      ]
-
-      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
-    end
-
-    test "handles list-typed question content (content_to_string list branch)" do
-      opts = [
-        agent_mod: StubAgent,
-        set_prompt_fn: fn _server, _prompt -> :ok end,
-        question: [%{text: "What is Elixir?"}, %{other_key: "ignored"}]
-      ]
-
-      assert {:ok, %Result{answer: "stub answer"}} = Answering.ask("Prompt", opts)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
   # Confidence scoring via logprobs (covers emit_answer_telemetry branches
   # and all confidence_bucket_metric clauses)
   # ---------------------------------------------------------------------------
 
-  describe "confidence scoring via logprobs (non-run_fn path)" do
+  describe "confidence scoring via FakeFactoryWithLogprobs" do
     setup do
       on_exit(fn -> Process.delete(:stub_logprob) end)
       :ok
@@ -291,10 +215,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "records confidence telemetry when logprobs yield score > 0.9 (gt_90 bucket)" do
       Process.put(:stub_logprob, -0.05)
 
-      opts = [
-        agent_mod: StubAgentWithLogprobs,
-        set_prompt_fn: fn _server, _prompt -> :ok end
-      ]
+      opts = [factory_module: FakeFactoryWithLogprobs]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -304,10 +225,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket between_80_90 (score > 0.8 and <= 0.9)" do
       Process.put(:stub_logprob, -0.18)
 
-      opts = [
-        agent_mod: StubAgentWithLogprobs,
-        set_prompt_fn: fn _server, _prompt -> :ok end
-      ]
+      opts = [factory_module: FakeFactoryWithLogprobs]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -317,10 +235,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket between_70_80 (score > 0.7 and <= 0.8)" do
       Process.put(:stub_logprob, -0.28)
 
-      opts = [
-        agent_mod: StubAgentWithLogprobs,
-        set_prompt_fn: fn _server, _prompt -> :ok end
-      ]
+      opts = [factory_module: FakeFactoryWithLogprobs]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -330,10 +245,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket between_50_70 (score >= 0.5 and <= 0.7)" do
       Process.put(:stub_logprob, -0.6)
 
-      opts = [
-        agent_mod: StubAgentWithLogprobs,
-        set_prompt_fn: fn _server, _prompt -> :ok end
-      ]
+      opts = [factory_module: FakeFactoryWithLogprobs]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -343,29 +255,11 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket lt_50 (score < 0.5)" do
       Process.put(:stub_logprob, -1.5)
 
-      opts = [
-        agent_mod: StubAgentWithLogprobs,
-        set_prompt_fn: fn _server, _prompt -> :ok end
-      ]
+      opts = [factory_module: FakeFactoryWithLogprobs]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
       assert score < 0.5
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # normalize_dimensions catch-all
-  # ---------------------------------------------------------------------------
-
-  describe "normalize_dimensions/1 catch-all" do
-    test "non-map telemetry_dimensions is normalised to empty map without crash" do
-      opts = [
-        run_fn: fn _prompt, _msgs, _opts -> {:ok, "The answer"} end,
-        telemetry_dimensions: :not_a_map
-      ]
-
-      assert {:ok, %Result{answer: "The answer"}} = Answering.ask("Prompt", opts)
     end
   end
 

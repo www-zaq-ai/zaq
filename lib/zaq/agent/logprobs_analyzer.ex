@@ -111,4 +111,52 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
         []
     end)
   end
+
+  @doc """
+  Attaches a telemetry handler that collects logprobs emitted during the next
+  LLM call. Returns an opaque handler ID to pass to `release_logprobs/1`.
+  """
+  @spec capture_logprobs() :: term()
+  def capture_logprobs do
+    handler_id = {__MODULE__, :logprobs, self()}
+    parent = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:req_llm, :openai, :logprobs],
+      fn _event, _measurements, metadata, _config ->
+        send(parent, {:req_llm_logprobs, metadata[:logprobs]})
+      end,
+      nil
+    )
+
+    handler_id
+  end
+
+  @doc """
+  Detaches the logprobs handler and returns all collected logprob entries, or
+  `nil` if none were received.
+  """
+  @spec release_logprobs(term()) :: list() | nil
+  def release_logprobs(handler_id) do
+    :telemetry.detach(handler_id)
+    drain_logprobs([])
+  end
+
+  defp drain_logprobs(acc) do
+    receive do
+      {:req_llm_logprobs, chunk} -> drain_logprobs(acc ++ chunk)
+    after
+      0 -> if acc == [], do: nil, else: acc
+    end
+  end
+
+  @logprobs_error_terms ~w(logprob log_prob logprobs log_probs)
+
+  @doc "Returns true if the error reason indicates the model does not support logprobs."
+  @spec logprobs_unsupported_error?(term()) :: boolean()
+  def logprobs_unsupported_error?(reason) do
+    text = inspect(reason) |> String.downcase()
+    Enum.any?(@logprobs_error_terms, &String.contains?(text, &1))
+  end
 end

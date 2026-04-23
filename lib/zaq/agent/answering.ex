@@ -6,14 +6,14 @@ defmodule Zaq.Agent.Answering do
   generates a natural answer using a transient Jido AI agent with ReAct tools.
 
   Uses DB-managed system prompt (`answering` slug) and provider-agnostic
-  LLM configuration from `Zaq.Agent.LLM`.
+  LLM configuration from `Zaq.Agent.Factory`.
   """
 
   require Logger
 
   alias ReqLLM.Context
   alias Zaq.Agent.Answering.Result
-  alias Zaq.Agent.{AnsweringAgent, History, LLM, LogprobsAnalyzer}
+  alias Zaq.Agent.{Factory, History, LogprobsAnalyzer}
   alias Zaq.Engine.Telemetry
 
   @answering_tools [
@@ -46,8 +46,7 @@ defmodule Zaq.Agent.Answering do
     * `:person_id` — required for tool calls (knowledge base search).
     * `:team_ids` — optional team IDs for permission filtering.
     * `:telemetry_dimensions` — optional dimensions for centralized telemetry metrics.
-    * `:agent_mod` — override the agent module (for testing).
-    * `:set_prompt_fn` — override the set_system_prompt function (for testing).
+    * `:factory_module` — override the factory module (for testing).
 
   ## Returns
 
@@ -60,6 +59,7 @@ defmodule Zaq.Agent.Answering do
     person_id = Keyword.get(opts, :person_id)
     team_ids = Keyword.get(opts, :team_ids, [])
     telemetry_dimensions = Keyword.get(opts, :telemetry_dimensions, %{})
+    factory_mod = Keyword.get(opts, :factory_module, Factory)
 
     Logger.info("Answering: Formulating response based on retrieved data")
 
@@ -72,61 +72,42 @@ defmodule Zaq.Agent.Answering do
         history
       end
 
-    agent_mod = Keyword.get(opts, :agent_mod, AnsweringAgent)
+    server_id = "answering_#{System.unique_integer([:positive])}"
 
-    set_prompt_fn =
-      Keyword.get(opts, :set_prompt_fn, &Jido.AI.set_system_prompt(&1, &2, timeout: 10_000))
+    ask_opts = [
+      tools: @answering_tools,
+      llm_opts: Factory.generation_opts(),
+      context: %{person_id: person_id, team_ids: team_ids},
+      timeout: 60_000
+    ]
 
-    # :run_fn allows tests to bypass the real AgentServer lifecycle entirely.
-    # It receives (system_prompt, messages, ask_opts) and must return
-    # {:ok, handle} | {:error, reason}.
-    run_fn = Keyword.get(opts, :run_fn)
+    with {:ok, server} <-
+           Jido.AgentServer.start_link(
+             agent: Factory,
+             id: server_id,
+             jido: Zaq.Agent.Jido,
+             initial_state: %{model: Factory.build_model_spec()}
+           ),
+         :ok <- set_system_prompt(server, system_prompt) do
+      logprobs_ref = LogprobsAnalyzer.capture_logprobs()
 
-    if run_fn do
-      ask_opts = [
-        tools: @answering_tools,
-        llm_opts: LLM.generation_opts(),
-        context: %{person_id: person_id, team_ids: team_ids},
-        timeout: 60_000
-      ]
-
-      result = run_fn.(system_prompt, messages, ask_opts)
-      parse_agent_result(result, started_at, telemetry_dimensions, nil)
-    else
-      server_id = "answering_#{System.unique_integer([:positive])}"
-
-      with {:ok, server} <-
-             Jido.AgentServer.start_link(
-               agent: agent_mod,
-               id: server_id,
-               jido: Zaq.Agent.Jido,
-               initial_state: %{model: LLM.build_model_spec()}
-             ),
-           :ok <- set_system_prompt(server, system_prompt, set_prompt_fn) do
-        ask_opts = [
-          tools: @answering_tools,
-          llm_opts: LLM.generation_opts(),
-          context: %{person_id: person_id, team_ids: team_ids},
-          timeout: 60_000
-        ]
-
-        logprobs_ref = capture_logprobs()
-
-        result =
-          try do
-            agent_mod.ask_sync(server, format_messages(messages), ask_opts)
-          after
-            GenServer.stop(server, :normal)
+      result =
+        try do
+          with {:ok, request} <-
+                 factory_mod.ask(server, History.format_messages(messages), ask_opts) do
+            factory_mod.await(request, timeout: 60_000)
           end
+        after
+          GenServer.stop(server, :normal)
+        end
 
-        logprobs = release_logprobs(logprobs_ref)
-        parse_agent_result(result, started_at, telemetry_dimensions, logprobs)
-      else
-        {:error, reason} ->
-          error_reason = "Failed to start answering agent: #{inspect(reason)}"
-          Logger.error("Answering failed: #{error_reason}")
-          {:error, error_reason}
-      end
+      logprobs = LogprobsAnalyzer.release_logprobs(logprobs_ref)
+      parse_agent_result(result, started_at, telemetry_dimensions, logprobs)
+    else
+      {:error, reason} ->
+        error_reason = "Failed to start answering agent: #{inspect(reason)}"
+        Logger.error("Answering failed: #{error_reason}")
+        {:error, error_reason}
     end
   end
 
@@ -187,37 +168,12 @@ defmodule Zaq.Agent.Answering do
 
   # -- Private --
 
-  defp set_system_prompt(server, prompt, set_prompt_fn) do
-    case set_prompt_fn.(server, prompt) do
+  defp set_system_prompt(server, prompt) do
+    case Jido.AI.set_system_prompt(server, prompt, timeout: 10_000) do
       {:ok, _} -> :ok
-      :ok -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
-
-  defp format_messages([]), do: ""
-
-  defp format_messages(messages) do
-    messages
-    |> Enum.map_join("\n", fn
-      %{role: "user", content: c} -> content_to_string(c)
-      %{role: :user, content: c} -> content_to_string(c)
-      msg when is_binary(msg) -> msg
-      _ -> ""
-    end)
-    |> String.trim()
-  end
-
-  defp content_to_string(c) when is_binary(c), do: c
-
-  defp content_to_string(parts) when is_list(parts) do
-    Enum.map_join(parts, " ", fn
-      %{text: text} when is_binary(text) -> text
-      _ -> ""
-    end)
-  end
-
-  defp content_to_string(_), do: ""
 
   defp parse_agent_result({:ok, handle}, started_at, telemetry_dimensions, logprobs) do
     latency_ms = System.monotonic_time(:millisecond) - started_at
@@ -230,7 +186,7 @@ defmodule Zaq.Agent.Answering do
   defp parse_agent_result({:error, reason}, _started_at, _telemetry_dimensions, _logprobs) do
     error_reason = "Failed to formulate response: #{inspect(reason)}"
 
-    if logprobs_unsupported_error?(reason) do
+    if LogprobsAnalyzer.logprobs_unsupported_error?(reason) do
       Logger.error(
         "Answering failed: the configured model does not support logprobs. " <>
           "Disable it in System Config → LLM → supports_logprobs. Original error: #{inspect(reason)}"
@@ -352,40 +308,4 @@ defmodule Zaq.Agent.Answering do
 
   defp normalize_dimensions(dimensions) when is_map(dimensions), do: dimensions
   defp normalize_dimensions(_), do: %{}
-
-  defp capture_logprobs do
-    handler_id = {__MODULE__, :logprobs, self()}
-    parent = self()
-
-    :telemetry.attach(
-      handler_id,
-      [:req_llm, :openai, :logprobs],
-      fn _event, _measurements, metadata, _config ->
-        send(parent, {:req_llm_logprobs, metadata[:logprobs]})
-      end,
-      nil
-    )
-
-    handler_id
-  end
-
-  defp release_logprobs(handler_id) do
-    :telemetry.detach(handler_id)
-    drain_logprobs([])
-  end
-
-  defp drain_logprobs(acc) do
-    receive do
-      {:req_llm_logprobs, chunk} -> drain_logprobs(acc ++ chunk)
-    after
-      0 -> if acc == [], do: nil, else: acc
-    end
-  end
-
-  @logprobs_error_terms ~w(logprob log_prob logprobs log_probs)
-
-  defp logprobs_unsupported_error?(reason) do
-    text = inspect(reason) |> String.downcase()
-    Enum.any?(@logprobs_error_terms, &String.contains?(text, &1))
-  end
 end

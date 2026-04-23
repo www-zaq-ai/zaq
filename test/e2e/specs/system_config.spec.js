@@ -4,6 +4,7 @@ const {
   loginToBackOffice,
   resetE2EState,
   dismissFlash,
+  waitForLiveViewSettled,
 } = require("../support/bo")
 
 // At least one of the two locators becomes visible. Use in place of
@@ -178,11 +179,21 @@ test.describe("System Config", () => {
   // ── LLM tab ────────────────────────────────────────────────────────────
 
   test.describe("LLM tab", () => {
+    test.beforeAll(async () => {
+      const req = await apiRequest.newContext()
+      await resetE2EState(req)
+      await req.dispose()
+    })
+
     test.beforeEach(async ({ page }) => {
       const credential = await createAiCredential(page)
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
       await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      // Wait for the phx-change from credential selection to fully settle before
+      // the test starts. Without this, LiveView's DOM patch can overwrite fill()
+      // calls made immediately after pickSearchableSelect.
+      await waitForLiveViewSettled(page)
     })
 
     test("renders all required form fields", async ({ page }) => {
@@ -241,19 +252,14 @@ test.describe("System Config", () => {
     })
 
     test("clearing model (text input) blocks save (required field)", async ({ page }) => {
+      // createAiCredential always uses the Custom provider, which has no predefined
+      // model list — so the model widget is always a text input here, never a select.
       const modelInput = page.locator('input[name="llm_config[model]"]')
-      const modelSelect = page.locator("#llm-model-select [data-select-trigger]")
-
-      // Wait for the LiveView phx-change from beforeEach to settle before checking
-      // which model widget is present. Point-in-time isVisible() is racy in CI.
-      await expectEitherVisible(modelInput, modelSelect)
-
-      if (await modelInput.isVisible()) {
-        await modelInput.fill("")
-        await modelInput.press("Tab")
-        await page.getByRole("button", { name: "Save LLM Settings" }).click()
-        await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
-      }
+      await expect(modelInput).toBeVisible()
+      await modelInput.fill("")
+      await modelInput.press("Tab")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
     })
 
     // ── Validation: numeric boundaries ───────────────────────────────────

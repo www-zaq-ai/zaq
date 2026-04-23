@@ -1,7 +1,7 @@
 defmodule Zaq.Agent.RetrievalTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Agent.{LLM, PromptTemplate, Retrieval}
+  alias Zaq.Agent.{PromptTemplate, Retrieval}
   alias Zaq.TestSupport.OpenAIStub
 
   describe "ask/2" do
@@ -132,7 +132,7 @@ defmodule Zaq.Agent.RetrievalTest do
 
       # This test requires a running LLM endpoint.
       # Skip in CI or when no LLM is configured.
-      case LLM.endpoint() do
+      case Zaq.System.get_llm_config().endpoint do
         nil ->
           :skipped
 
@@ -153,7 +153,7 @@ defmodule Zaq.Agent.RetrievalTest do
         history: []
       ]
 
-      case LLM.endpoint() do
+      case Zaq.System.get_llm_config().endpoint do
         nil ->
           :skipped
 

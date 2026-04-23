@@ -1,13 +1,28 @@
+defmodule Zaq.Agent.AnsweringTest.FakeFactory do
+  @moduledoc false
+
+  def ask(_server, _query, _opts) do
+    case Process.get(:fake_factory_response) do
+      {:error, _} = err -> err
+      _ -> {:ok, make_ref()}
+    end
+  end
+
+  def await(_request, _opts), do: Process.get(:fake_factory_response)
+end
+
 defmodule Zaq.Agent.AnsweringTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
+  alias Zaq.Agent.AnsweringTest.FakeFactory
   alias Zaq.Agent.PromptTemplate
 
-  # run_fn helpers bypass the real AgentServer lifecycle in unit tests.
-  # run_fn receives (system_prompt, messages, ask_opts) and returns {:ok, handle} | {:error, reason}.
-  defp run_fn_returning(response), do: fn _prompt, _msgs, _opts -> response end
+  defp stub_factory(response) do
+    Process.put(:fake_factory_response, response)
+    [factory_module: FakeFactory]
+  end
 
   setup do
     {:ok, template} =
@@ -114,9 +129,9 @@ defmodule Zaq.Agent.AnsweringTest do
     end
   end
 
-  describe "ask/2 with stubbed run_fn" do
+  describe "ask/2 with stubbed factory" do
     test "returns answer result when agent succeeds with binary result" do
-      opts = [run_fn: run_fn_returning({:ok, "The BEAM VM."})]
+      opts = stub_factory({:ok, "The BEAM VM."})
 
       assert {:ok, %Result{} = result} = Answering.ask("Context + question", opts)
       assert result.answer == "The BEAM VM."
@@ -126,13 +141,13 @@ defmodule Zaq.Agent.AnsweringTest do
     end
 
     test "returns answer from %{result: text} handle shape" do
-      opts = [run_fn: run_fn_returning({:ok, %{result: "Answer from result key."}})]
+      opts = stub_factory({:ok, %{result: "Answer from result key."}})
 
       assert {:ok, %Result{answer: "Answer from result key."}} = Answering.ask("Prompt", opts)
     end
 
     test "returns answer from %{response: text} handle shape" do
-      opts = [run_fn: run_fn_returning({:ok, %{response: "Answer from response key."}})]
+      opts = stub_factory({:ok, %{response: "Answer from response key."}})
 
       assert {:ok, %Result{answer: "Answer from response key."}} = Answering.ask("Prompt", opts)
     end
@@ -144,7 +159,7 @@ defmodule Zaq.Agent.AnsweringTest do
         reason: "Ambiguous product name"
       }
 
-      opts = [run_fn: run_fn_returning({:ok, %{result: clarification_result}})]
+      opts = stub_factory({:ok, %{result: clarification_result}})
 
       assert {:ok, %Result{} = result} = Answering.ask("Prompt", opts)
       assert result.clarification == "Do you mean Product A or Product B?"
@@ -152,14 +167,14 @@ defmodule Zaq.Agent.AnsweringTest do
     end
 
     test "returns error tuple when agent returns error" do
-      opts = [run_fn: run_fn_returning({:error, :model_unavailable})]
+      opts = stub_factory({:error, :model_unavailable})
 
       assert {:error, message} = Answering.ask("Prompt", opts)
       assert String.starts_with?(message, "Failed to formulate response:")
     end
 
     test "returns error when agent returns empty string" do
-      opts = [run_fn: run_fn_returning({:ok, "   "})]
+      opts = stub_factory({:ok, "   "})
 
       assert {:error, message} = Answering.ask("Prompt", opts)
       assert String.contains?(message, "Empty assistant response content")
