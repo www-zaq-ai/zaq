@@ -123,7 +123,7 @@ defmodule Zaq.Agent.Pipeline do
             sources: sources
           })
         else
-          confidence_score = answer_result.confidence_score || 1.0
+          confidence_score = answer_result.confidence_score
 
           result_from_answering(answer_result, safe_answer, confidence_score)
           |> Map.put(:sources, sources)

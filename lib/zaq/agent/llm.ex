@@ -102,8 +102,15 @@ defmodule Zaq.Agent.LLM do
     cfg = Zaq.System.get_llm_config()
     opts = [temperature: cfg.temperature, top_p: cfg.top_p]
 
-    if is_binary(cfg.api_key) and cfg.api_key != "" do
-      Keyword.put(opts, :api_key, cfg.api_key)
+    opts =
+      if is_binary(cfg.api_key) and cfg.api_key != "" do
+        Keyword.put(opts, :api_key, cfg.api_key)
+      else
+        opts
+      end
+
+    if cfg.supports_logprobs do
+      Keyword.put(opts, :provider_options, openai_logprobs: true)
     else
       opts
     end

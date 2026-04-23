@@ -13,7 +13,7 @@ defmodule Zaq.Agent.Answering do
 
   alias ReqLLM.Context
   alias Zaq.Agent.Answering.Result
-  alias Zaq.Agent.{AnsweringAgent, History, LLM}
+  alias Zaq.Agent.{AnsweringAgent, History, LLM, LogprobsAnalyzer}
   alias Zaq.Engine.Telemetry
 
   @answering_tools [
@@ -91,7 +91,7 @@ defmodule Zaq.Agent.Answering do
       ]
 
       result = run_fn.(system_prompt, messages, ask_opts)
-      parse_agent_result(result, started_at, telemetry_dimensions)
+      parse_agent_result(result, started_at, telemetry_dimensions, nil)
     else
       server_id = "answering_#{System.unique_integer([:positive])}"
 
@@ -110,6 +110,8 @@ defmodule Zaq.Agent.Answering do
           timeout: 60_000
         ]
 
+        logprobs_ref = capture_logprobs()
+
         result =
           try do
             agent_mod.ask_sync(server, format_messages(messages), ask_opts)
@@ -117,7 +119,8 @@ defmodule Zaq.Agent.Answering do
             GenServer.stop(server, :normal)
           end
 
-        parse_agent_result(result, started_at, telemetry_dimensions)
+        logprobs = release_logprobs(logprobs_ref)
+        parse_agent_result(result, started_at, telemetry_dimensions, logprobs)
       else
         {:error, reason} ->
           error_reason = "Failed to start answering agent: #{inspect(reason)}"
@@ -216,38 +219,60 @@ defmodule Zaq.Agent.Answering do
 
   defp content_to_string(_), do: ""
 
-  defp parse_agent_result({:ok, handle}, started_at, telemetry_dimensions) do
+  defp parse_agent_result({:ok, handle}, started_at, telemetry_dimensions, logprobs) do
     latency_ms = System.monotonic_time(:millisecond) - started_at
     clarification = extract_clarification(handle)
     answer_text = extract_answer_text(handle)
-    build_ok_result(clarification, answer_text, latency_ms, telemetry_dimensions)
+    confidence = LogprobsAnalyzer.confidence_from_metadata_or_nil(%{logprobs: logprobs})
+    build_ok_result(clarification, answer_text, latency_ms, telemetry_dimensions, confidence)
   end
 
-  defp parse_agent_result({:error, reason}, _started_at, _telemetry_dimensions) do
+  defp parse_agent_result({:error, reason}, _started_at, _telemetry_dimensions, _logprobs) do
     error_reason = "Failed to formulate response: #{inspect(reason)}"
-    Logger.error("Answering failed: #{error_reason}")
+
+    if logprobs_unsupported_error?(reason) do
+      Logger.error(
+        "Answering failed: the configured model does not support logprobs. " <>
+          "Disable it in System Config → LLM → supports_logprobs. Original error: #{inspect(reason)}"
+      )
+    else
+      Logger.error("Answering failed: #{error_reason}")
+    end
+
     {:error, error_reason}
   end
 
-  defp build_ok_result(clarification, _answer_text, latency_ms, telemetry_dimensions)
+  defp build_ok_result(clarification, _answer_text, latency_ms, telemetry_dimensions, confidence)
        when is_binary(clarification) do
-    result = %Result{answer: clarification, clarification: clarification, latency_ms: latency_ms}
+    result = %Result{
+      answer: clarification,
+      clarification: clarification,
+      latency_ms: latency_ms,
+      confidence_score: confidence
+    }
+
     emit_answer_telemetry(result, telemetry_dimensions)
     {:ok, result}
   end
 
-  defp build_ok_result(_clarification, answer_text, latency_ms, telemetry_dimensions)
+  defp build_ok_result(_clarification, answer_text, latency_ms, telemetry_dimensions, confidence)
        when is_binary(answer_text) do
     if String.trim(answer_text) == "" do
       emit_empty_answer_error()
     else
-      result = %Result{answer: answer_text, latency_ms: latency_ms}
+      result = %Result{answer: answer_text, latency_ms: latency_ms, confidence_score: confidence}
       emit_answer_telemetry(result, telemetry_dimensions)
       {:ok, result}
     end
   end
 
-  defp build_ok_result(_clarification, _answer_text, _latency_ms, _telemetry_dimensions) do
+  defp build_ok_result(
+         _clarification,
+         _answer_text,
+         _latency_ms,
+         _telemetry_dimensions,
+         _confidence
+       ) do
     emit_empty_answer_error()
   end
 
@@ -327,4 +352,40 @@ defmodule Zaq.Agent.Answering do
 
   defp normalize_dimensions(dimensions) when is_map(dimensions), do: dimensions
   defp normalize_dimensions(_), do: %{}
+
+  defp capture_logprobs do
+    handler_id = {__MODULE__, :logprobs, self()}
+    parent = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:req_llm, :openai, :logprobs],
+      fn _event, _measurements, metadata, _config ->
+        send(parent, {:req_llm_logprobs, metadata[:logprobs]})
+      end,
+      nil
+    )
+
+    handler_id
+  end
+
+  defp release_logprobs(handler_id) do
+    :telemetry.detach(handler_id)
+    drain_logprobs([])
+  end
+
+  defp drain_logprobs(acc) do
+    receive do
+      {:req_llm_logprobs, chunk} -> drain_logprobs(acc ++ chunk)
+    after
+      0 -> if acc == [], do: nil, else: acc
+    end
+  end
+
+  @logprobs_error_terms ~w(logprob log_prob logprobs log_probs)
+
+  defp logprobs_unsupported_error?(reason) do
+    text = inspect(reason) |> String.downcase()
+    Enum.any?(@logprobs_error_terms, &String.contains?(text, &1))
+  end
 end

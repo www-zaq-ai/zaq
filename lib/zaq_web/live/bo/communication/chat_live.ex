@@ -700,7 +700,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       db_id: msg.id,
       role: :bot,
       body: trim_body(content),
-      confidence: msg.confidence_score || 0.0,
+      confidence: msg.confidence_score,
       timestamp: msg.inserted_at,
       error: false,
       feedback: infer_feedback_from_ratings(ratings),

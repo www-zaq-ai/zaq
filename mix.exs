@@ -109,7 +109,8 @@ defmodule Zaq.MixProject do
       {:lingua, "~> 0.3.6"},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
-      {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"}
+      {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
+      {:req_llm, github: "www-zaq-ai/req_llm", branch: "main", override: true}
     ]
   end
 
