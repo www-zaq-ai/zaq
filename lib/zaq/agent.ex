@@ -4,7 +4,7 @@ defmodule Zaq.Agent do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Zaq.Agent.{ConfiguredAgent, ServerManager}
+  alias Zaq.Agent.{ConfiguredAgent, QueryFilters, ServerManager}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
@@ -356,18 +356,11 @@ defmodule Zaq.Agent do
 
     ConfiguredAgent
     |> order_by([a], asc: a.name)
-    |> maybe_filter_name(name)
+    |> QueryFilters.maybe_filter_ilike(name, :name)
     |> maybe_filter_model(model)
     |> maybe_filter_conversation(conversation)
     |> maybe_filter_active(active)
     |> maybe_filter_sovereign(sovereign)
-  end
-
-  defp maybe_filter_name(query, ""), do: query
-
-  defp maybe_filter_name(query, name) do
-    escaped = String.replace(name, "%", "\\%")
-    from(a in query, where: ilike(a.name, ^"%#{escaped}%"))
   end
 
   defp maybe_filter_model(query, ""), do: query

@@ -4,6 +4,7 @@ defmodule Zaq.Agent.MCP do
   import Ecto.Query
 
   alias Ecto.Changeset
+  alias Zaq.Agent.{QueryFilters}
   alias Zaq.Agent.MCP.{Endpoint, Runtime}
   alias Zaq.Repo
   alias Zaq.Types.EncryptedString
@@ -215,17 +216,10 @@ defmodule Zaq.Agent.MCP do
 
   defp build_filter_query(filters) do
     Endpoint
-    |> maybe_filter_name(Map.get(filters, "name", ""))
+    |> QueryFilters.maybe_filter_ilike(Map.get(filters, "name", ""), :name)
     |> maybe_filter_type(Map.get(filters, "type", "all"))
     |> maybe_filter_status(Map.get(filters, "status", "all"))
     |> order_by([e], asc: e.name)
-  end
-
-  defp maybe_filter_name(query, ""), do: query
-
-  defp maybe_filter_name(query, name) do
-    escaped = String.replace(name, "%", "\\%")
-    from(e in query, where: ilike(e.name, ^"%#{escaped}%"))
   end
 
   defp maybe_filter_type(query, type) when type in ["local", "remote"] do
