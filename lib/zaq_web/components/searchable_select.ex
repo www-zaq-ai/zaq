@@ -1,5 +1,10 @@
 defmodule ZaqWeb.Components.SearchableSelect do
-  @moduledoc false
+  @moduledoc """
+  Searchable select component used in BO forms.
+
+  Supports client-side filtering and optional creation flow integration through
+  a LiveView event hook.
+  """
   use Phoenix.Component
 
   attr :id, :string, required: true
@@ -13,6 +18,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
   attr :on_search, :string, default: nil
   attr :compact, :boolean, default: false
 
+  @doc "Renders a searchable select dropdown with optional create action."
   def searchable_select(assigns) do
     ~H"""
     <div id={@id} phx-hook="SearchableSelect" data-server-search={@on_search} class="relative">

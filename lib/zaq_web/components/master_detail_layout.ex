@@ -1,5 +1,9 @@
 defmodule ZaqWeb.Components.MasterDetailLayout do
-  @moduledoc false
+  @moduledoc """
+  Reusable master/detail layout component for BO pages.
+
+  Renders a master slot and, when `show_detail` is true, a detail slot alongside it.
+  """
 
   use Phoenix.Component
 
@@ -13,6 +17,7 @@ defmodule ZaqWeb.Components.MasterDetailLayout do
   slot :master, required: true
   slot :detail
 
+  @doc "Renders the responsive master/detail container and slots."
   def master_detail(assigns) do
     ~H"""
     <div class={@container_class}>

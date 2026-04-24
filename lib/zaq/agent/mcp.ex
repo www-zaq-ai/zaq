@@ -4,8 +4,8 @@ defmodule Zaq.Agent.MCP do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Zaq.Agent.{QueryFilters}
   alias Zaq.Agent.MCP.{Endpoint, Runtime}
+  alias Zaq.Agent.QueryFilters
   alias Zaq.Repo
   alias Zaq.Types.EncryptedString
 

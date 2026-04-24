@@ -1,5 +1,9 @@
 defmodule ZaqWeb.Components.PasswordPolicyComponents do
-  @moduledoc false
+  @moduledoc """
+  UI helpers for password policy feedback.
+
+  Provides components that display password requirement status while users type.
+  """
 
   use Phoenix.Component
 
@@ -7,6 +11,7 @@ defmodule ZaqWeb.Components.PasswordPolicyComponents do
 
   attr :requirements, :list, required: true
 
+  @doc "Renders the password requirements checklist with pass/fail state."
   def password_requirements(assigns) do
     ~H"""
     <div
