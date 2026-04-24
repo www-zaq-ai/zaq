@@ -38,6 +38,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
+  defmodule MCPTestOtherResponseStub do
+    def test_list_tools(_endpoint_id, _opts), do: :unexpected
+  end
+
+  defmodule MCPTestAlreadyRegisteredStub do
+    def test_list_tools(_endpoint_id, _opts), do: {:error, :endpoint_already_registered}
+  end
+
+  defmodule MCPTestRuntimeExitStub do
+    def test_list_tools(_endpoint_id, _opts),
+      do: {:error, {:mcp_runtime_call_exit, {:shutdown, :noproc}}}
+  end
+
   setup %{conn: conn} do
     user = user_fixture(%{email: "admin@example.com", username: "testadmin_sc"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
@@ -380,6 +393,141 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "MCP tools test failed: unauthorized (401)."
       refute has_element?(view, "#mcp-test-button-#{endpoint.id}[disabled]")
+    end
+
+    test "filters MCP endpoints by name and resets page", %{conn: conn} do
+      assert {:ok, _} =
+               MCP.create_mcp_endpoint(%{
+                 name: "Filterable Endpoint",
+                 type: "remote",
+                 status: "enabled",
+                 timeout_ms: 5000,
+                 url: "http://localhost:8000/mcp"
+               })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        render_change(view, "filter_mcp_endpoints", %{
+          "mcp_filter_name" => "filterable",
+          "mcp_filter_type" => "all",
+          "mcp_filter_status" => "all"
+        })
+
+      assert html =~ "Filterable Endpoint"
+    end
+
+    test "close_mcp_endpoint_modal hides modal after opening", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      assert has_element?(view, "#mcp-endpoint-modal")
+
+      render_click(view, "close_mcp_endpoint_modal", %{})
+      refute has_element?(view, "#mcp-endpoint-modal")
+    end
+
+    test "enable predefined mcp failure shows error flash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "unknown"})
+      assert html =~ "Failed to enable MCP"
+    end
+
+    test "shows fallback message for unexpected MCP test response", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Other Response MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test returned"
+    end
+
+    test "shows stale-endpoint message when endpoint already registered", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestAlreadyRegisteredStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Already Registered MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "stale test endpoint state detected"
+    end
+
+    test "shows client-disconnect message for mcp runtime call exit", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestRuntimeExitStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Runtime Exit MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP client disconnected during request"
     end
   end
 
