@@ -25,14 +25,14 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @spec ensure_server(ConfiguredAgent.t()) :: {:ok, GenServer.server()} | {:error, term()}
+  @spec ensure_server(ConfiguredAgent.t() | String.t()) ::
+          {:ok, GenServer.server()} | {:error, term()}
   def ensure_server(%ConfiguredAgent{} = configured_agent) do
     GenServer.call(__MODULE__, {:ensure_server, configured_agent})
   end
 
-  @spec ensure_answering_server(String.t()) :: {:ok, GenServer.server()} | {:error, term()}
-  def ensure_answering_server(server_id) when is_binary(server_id) do
-    GenServer.call(__MODULE__, {:ensure_answering_server, server_id})
+  def ensure_server(server_id) when is_binary(server_id) do
+    GenServer.call(__MODULE__, {:ensure_server_raw, server_id})
   end
 
   @spec ensure_server_by_id(ConfiguredAgent.t(), String.t()) ::
@@ -75,7 +75,7 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  def handle_call({:ensure_answering_server, server_id}, _from, state) do
+  def handle_call({:ensure_server_raw, server_id}, _from, state) do
     state = put_in(state, [:last_active, server_id], DateTime.utc_now())
 
     result =

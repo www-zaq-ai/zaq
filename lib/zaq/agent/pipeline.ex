@@ -46,8 +46,8 @@ defmodule Zaq.Agent.Pipeline do
 
   require Logger
   alias Zaq.Accounts.People
-  alias Zaq.Agent.Answering
   alias Zaq.Agent.Answering.Result
+  alias Zaq.Agent.Executor
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Telemetry
@@ -70,7 +70,7 @@ defmodule Zaq.Agent.Pipeline do
       end
 
     opts = Keyword.merge(opts, person_id: person_id, team_ids: team_ids)
-    result = do_run(incoming.content, opts)
+    result = do_run(incoming, opts)
     Outgoing.from_pipeline_result(incoming, result)
   end
 
@@ -85,8 +85,9 @@ defmodule Zaq.Agent.Pipeline do
     incoming
   end
 
-  @spec do_run(String.t(), keyword()) :: map()
-  defp do_run(content, opts) do
+  @spec do_run(Incoming.t(), keyword()) :: map()
+  defp do_run(%Incoming{} = incoming, opts) do
+    content = incoming.content
     history = Keyword.get(opts, :history, %{})
     on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
     ctx = %{trace_id: generate_trace_id(), node: node()}
@@ -105,7 +106,7 @@ defmodule Zaq.Agent.Pipeline do
          {:ok, extraction_result} <- do_query_extraction(answering_payload, opts),
          :ok <- on_status.(:answering, "Formulating your answer…"),
          {:ok, answer_result} <-
-           do_answering(clean_msg, extraction_result, answering_payload, history, opts),
+           do_answering(incoming, clean_msg, extraction_result, answering_payload, history, opts),
          {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.answer) do
       :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
       sources = build_sources(extraction_result)
@@ -240,7 +241,7 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_answering(content, query_results, retrieval, history, opts) do
+  defp do_answering(incoming, content, query_results, retrieval, history, opts) do
     language = Map.get(retrieval, :language, "en")
     person_id = Keyword.get(opts, :person_id)
     team_ids = Keyword.get(opts, :team_ids, [])
@@ -259,42 +260,35 @@ defmodule Zaq.Agent.Pipeline do
         has_history: history != %{}
       })
 
-    answer_opts = [
-      history: history,
-      question: content,
-      person_id: person_id,
-      team_ids: team_ids,
-      telemetry_dimensions: telemetry_dimensions(opts),
-      server: Keyword.fetch!(opts, :server)
-    ]
+    %Outgoing{} =
+      outgoing =
+      executor_module(opts).run(incoming,
+        agent_id: nil,
+        scope: Keyword.get(opts, :scope),
+        system_prompt: system_prompt,
+        question: content,
+        person_id: person_id,
+        team_ids: team_ids,
+        history: history,
+        telemetry_dimensions: telemetry_dimensions(opts),
+        node_router: node_router(opts)
+      )
 
-    ask_args =
-      if function_exported?(answering_mod(opts), :ask, 2) do
-        [system_prompt, answer_opts]
-      else
-        [system_prompt]
-      end
+    result = %Result{
+      answer: outgoing.body || "",
+      confidence_score: outgoing.metadata[:confidence_score],
+      latency_ms: outgoing.metadata[:latency_ms],
+      prompt_tokens: outgoing.metadata[:prompt_tokens],
+      completion_tokens: outgoing.metadata[:completion_tokens],
+      total_tokens: outgoing.metadata[:total_tokens]
+    }
 
-    case node_router(opts).call(:agent, answering_mod(opts), :ask, ask_args) do
-      {:ok, answer} -> normalize_answer_result(answering_mod(opts), answer)
-      error -> error
-    end
+    {:ok, result}
   end
 
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
-
-  defp normalize_answer_result(module, %Result{} = result) when module == Answering,
-    do: {:ok, result}
-
-  defp normalize_answer_result(module, result) do
-    if function_exported?(module, :normalize_result, 1) do
-      module.normalize_result(result)
-    else
-      Answering.normalize_result(result)
-    end
-  end
 
   defp telemetry_dimensions(opts) do
     Keyword.get(opts, :telemetry_dimensions, %{})
@@ -407,6 +401,14 @@ defmodule Zaq.Agent.Pipeline do
       opts,
       :prompt_guard,
       Application.get_env(:zaq, :pipeline_prompt_guard_module, Zaq.Agent.PromptGuard)
+    )
+  end
+
+  defp executor_module(opts) do
+    Keyword.get(
+      opts,
+      :executor_module,
+      Application.get_env(:zaq, :pipeline_executor_module, Executor)
     )
   end
 

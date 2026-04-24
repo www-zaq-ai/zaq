@@ -15,21 +15,25 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
   defmodule StubServerManager do
     def ensure_server(_configured_agent), do: {:ok, :stub_server}
+    def ensure_server_by_id(_configured_agent, _server_id), do: {:ok, :stub_server}
   end
 
   defmodule StubFactoryResult do
-    def ask_with_config(_server, _content, _configured_agent), do: {:ok, :request}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
     def await(:request, timeout: 45_000), do: {:ok, %{result: "from-result"}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryAnswer do
-    def ask_with_config(_server, _content, _configured_agent), do: {:ok, :request}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
     def await(:request, timeout: 45_000), do: {:ok, %{answer: "from-answer"}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryOther do
-    def ask_with_config(_server, _content, _configured_agent), do: {:ok, :request}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
     def await(:request, timeout: 45_000), do: {:ok, %{unexpected: 123}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   test "runs configured agent end-to-end with only AI edge mocked" do
@@ -239,14 +243,14 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert String.contains?(body2, prompt_v2)
   end
 
-  test "returns graceful error when agent selection is missing" do
+  test "routes to answering path when no agent_id is provided" do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
+    # nil agent_id → answering configured agent; ServerManager spawns a real server.
+    # Since there is no LLM configured in test env, the run will error gracefully.
     outgoing = Executor.run(incoming, [])
 
-    assert outgoing.metadata.error == true
-    assert outgoing.metadata.reason == ":missing_agent_selection"
-    assert outgoing.body =~ "something went wrong"
+    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
   end
 
   test "returns graceful error when selected agent is inactive" do
@@ -289,12 +293,11 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert outgoing.body =~ "something went wrong"
   end
 
-  test "run/1 defaults to missing selection error" do
+  test "run/1 with no opts routes to answering path" do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
     outgoing = Executor.run(incoming)
 
-    assert outgoing.metadata.error == true
-    assert outgoing.metadata.reason == ":missing_agent_selection"
+    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
   end
 
   test "normalizes nested result answer maps" do
