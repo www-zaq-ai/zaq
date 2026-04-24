@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.MCP.RuntimeTest do
   use Zaq.DataCase, async: false
 
+  alias Anubis.MCP.Error, as: MCPError
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Agent.MCP.Runtime
   alias Zaq.Types.EncryptedString
@@ -227,7 +228,7 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
          message: "Internal error",
          status: :error,
          type: :protocol,
-         details: "Server capabilities not set"
+         details: MCPError.protocol(:internal_error, %{message: "Server capabilities not set"})
        }}
 
     list_tools_fn = fn endpoint_id, _timeout ->
@@ -257,6 +258,23 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
     assert_received {:listed_tools, :zaq_mcp_test}
     assert_received {:listed_tools, :zaq_mcp_test}
     assert_received {:unregistered, :zaq_mcp_test}
+  end
+
+  test "build_endpoint ignores undecryptable secret values and keeps plain entries" do
+    endpoint = %Endpoint{
+      name: "Remote",
+      type: "remote",
+      status: "enabled",
+      timeout_ms: 5000,
+      url: "https://example.com/mcp",
+      headers: %{"X-App" => "zaq"},
+      secret_headers: %{"Authorization" => "enc:test-v1:invalid"}
+    }
+
+    assert {:ok, runtime_endpoint} = Runtime.build_endpoint(:remote_test, endpoint)
+    assert {:streamable_http, opts} = runtime_endpoint.transport
+    assert opts[:headers]["X-App"] == "zaq"
+    refute Map.has_key?(opts[:headers], "Authorization")
   end
 
   test "test_list_tools retries after transient client call exit and returns second error" do

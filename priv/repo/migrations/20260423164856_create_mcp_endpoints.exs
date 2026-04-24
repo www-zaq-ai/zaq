@@ -23,7 +23,7 @@ defmodule Zaq.Repo.Migrations.CreateMcpEndpoints do
       timestamps(type: :utc_datetime)
     end
 
-    create index(:mcp_endpoints, [:name])
+    create unique_index(:mcp_endpoints, [:name])
     create index(:mcp_endpoints, [:type])
     create index(:mcp_endpoints, [:status])
     create unique_index(:mcp_endpoints, [:predefined_id], where: "predefined_id IS NOT NULL")

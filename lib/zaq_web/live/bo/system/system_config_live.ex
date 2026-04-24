@@ -473,8 +473,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("validate_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
-    rows = mcp_rows_from_params(params, socket.assigns.mcp_endpoint_rows)
-    parsed = parse_mcp_endpoint_params(params, rows)
+    {rows, parsed} = build_mcp_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
 
     changeset =
       socket.assigns.mcp_endpoint_action
@@ -489,8 +488,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
-    rows = mcp_rows_from_params(params, socket.assigns.mcp_endpoint_rows)
-    parsed = parse_mcp_endpoint_params(params, rows)
+    {rows, parsed} = build_mcp_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
 
     result =
       case socket.assigns.mcp_endpoint_action do
@@ -636,6 +634,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp mcp_endpoint_for_action(:edit, id), do: MCP.get_mcp_endpoint!(id)
   defp mcp_endpoint_for_action(_, _), do: %MCP.Endpoint{}
+
+  defp build_mcp_endpoint_payload(params, rows_state) do
+    rows = mcp_rows_from_params(params, rows_state)
+    parsed = parse_mcp_endpoint_params(params, rows)
+    {rows, parsed}
+  end
 
   defp mcp_rows(endpoint) do
     %{
