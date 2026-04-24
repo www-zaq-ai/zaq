@@ -62,8 +62,8 @@ defmodule Zaq.Agent.Api do
 
   defp selected_agent_id(assigns) when is_map(assigns) do
     case Map.get(assigns, "agent_selection") do
-      %{"agent_id" => id} when id not in [nil, ""] -> id
-      %{agent_id: id} when id not in [nil, ""] -> id
+      %{"agent_id" => id} when id not in [nil, ""] -> normalize_selected_id(id)
+      %{agent_id: id} when id not in [nil, ""] -> normalize_selected_id(id)
       _ -> nil
     end
   end
@@ -71,11 +71,11 @@ defmodule Zaq.Agent.Api do
   defp selected_agent_id(_), do: nil
 
   defp mcp_test_opts(opts) when is_list(opts) do
-    opts
-    |> Keyword.get(:mcp_test_opts, [])
-    |> case do
+    case Keyword.get(opts, :mcp_test_opts, []) do
       list when is_list(list) -> list
       _ -> []
     end
   end
+
+  defp normalize_selected_id(id), do: id
 end

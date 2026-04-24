@@ -135,6 +135,23 @@ defmodule Zaq.Agent.ApiTest do
     assert_received {:pipeline_called, ^incoming, []}
   end
 
+  test "run_pipeline falls back to pipeline when agent_selection has unsupported shape" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [action: :run_pipeline, pipeline_module: StubPipeline, pipeline_opts: [foo: :bar]]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{source: "bo"}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "ok"
+    assert_received {:pipeline_called, ^incoming, [foo: :bar]}
+  end
+
   test "delegates invoke to shared internal boundaries helper" do
     event = Event.new(%{module: String, function: :upcase, args: ["hi"]}, :agent)
 
@@ -160,6 +177,18 @@ defmodule Zaq.Agent.ApiTest do
 
     assert result.response == {:ok, %{status: :ok, endpoint_id: 42}}
     assert_received {:mcp_test_called, 42, [timeout: 1234]}
+  end
+
+  test "mcp_test_list_tools coerces invalid mcp_test_opts to empty list" do
+    event =
+      Event.new(%{endpoint_id: 42}, :agent,
+        opts: [action: :mcp_test_list_tools, mcp_module: StubMCP, mcp_test_opts: :invalid]
+      )
+
+    result = Api.handle_event(event, :mcp_test_list_tools, nil)
+
+    assert result.response == {:ok, %{status: :ok, endpoint_id: 42}}
+    assert_received {:mcp_test_called, 42, []}
   end
 
   test "returns invalid request for mcp_test_list_tools without endpoint id" do
