@@ -44,8 +44,23 @@ Break the work into small, independently completable steps. Each step should be
 completable in a single PR. Check off as you go.
 
 - [ ] Step 1: [description]
+  - Tests to add before implementation:
+    - [ ] Integration test(s): [describe]
+    - [ ] Branch/path coverage: [describe branches]
+    - [ ] Edge external API mocks only: [describe mocks or `none`]
+  - Coverage target for files touched in this step: `>= 95%`
 - [ ] Step 2: [description]
+  - Tests to add before implementation:
+    - [ ] Integration test(s): [describe]
+    - [ ] Branch/path coverage: [describe branches]
+    - [ ] Edge external API mocks only: [describe mocks or `none`]
+  - Coverage target for files touched in this step: `>= 95%`
 - [ ] Step 3: [description]
+  - Tests to add before implementation:
+    - [ ] Integration test(s): [describe]
+    - [ ] Branch/path coverage: [describe branches]
+    - [ ] Edge external API mocks only: [describe mocks or `none`]
+  - Coverage target for files touched in this step: `>= 95%`
 
 ---
 
@@ -73,6 +88,9 @@ List anything blocking progress and who/what can unblock it.
 
 - [ ] All steps above completed
 - [ ] Tests written and passing
+- [ ] Integration tests cover key branches/paths
+- [ ] Any mocks are limited to edge external API calls
+- [ ] Coverage for every added/modified file is `>= 95%`
 - [ ] `mix precommit` passes
 - [ ] Relevant docs updated
 - [ ] `docs/QUALITY_SCORE.md` updated if domain grade changed

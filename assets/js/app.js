@@ -59,6 +59,51 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this.el.focus()
       }
     },
+    LoadingActionButton: {
+      mounted() {
+        this._syncDisabled = () => {
+          if (!this.el.classList.contains("phx-click-loading")) {
+            this.el.disabled = false
+          }
+        }
+
+        this._onClick = () => {
+          // Defer disabling so LiveView can capture and push the click event first.
+          requestAnimationFrame(() => {
+            this.el.disabled = true
+          })
+        }
+
+        this.el.addEventListener("click", this._onClick)
+
+        this._observer = new MutationObserver(() => this._syncDisabled())
+        this._observer.observe(this.el, { attributes: true, attributeFilter: ["class"] })
+
+        this._onLoadingStop = () => this._syncDisabled()
+        window.addEventListener("phx:page-loading-stop", this._onLoadingStop)
+      },
+      updated() {
+        this._syncDisabled()
+      },
+      destroyed() {
+        if (this._onClick) {
+          this.el.removeEventListener("click", this._onClick)
+          this._onClick = null
+        }
+
+        if (this._observer) {
+          this._observer.disconnect()
+          this._observer = null
+        }
+
+        if (this._onLoadingStop) {
+          window.removeEventListener("phx:page-loading-stop", this._onLoadingStop)
+          this._onLoadingStop = null
+        }
+
+        this._syncDisabled = null
+      }
+    },
     CopyToClipboard: {
       mounted() {
         this.el.addEventListener("click", () => {

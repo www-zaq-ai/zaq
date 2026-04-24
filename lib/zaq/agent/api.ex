@@ -6,6 +6,7 @@ defmodule Zaq.Agent.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.Pipeline
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -42,6 +43,19 @@ defmodule Zaq.Agent.Api do
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)
 
+  def handle_event(%Event{} = event, :mcp_test_list_tools, _context) do
+    mcp_module = Keyword.get(event.opts, :mcp_module, MCP)
+
+    case event.request do
+      %{endpoint_id: endpoint_id} ->
+        opts = mcp_test_opts(event.opts)
+        %{event | response: mcp_module.test_list_tools(endpoint_id, opts)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
@@ -55,4 +69,13 @@ defmodule Zaq.Agent.Api do
   end
 
   defp selected_agent_id(_), do: nil
+
+  defp mcp_test_opts(opts) when is_list(opts) do
+    opts
+    |> Keyword.get(:mcp_test_opts, [])
+    |> case do
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
 end
