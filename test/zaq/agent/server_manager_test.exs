@@ -258,8 +258,12 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert is_pid(pid)
   end
 
+  test "ensure_answering_server/1 no longer exists" do
+    refute function_exported?(ServerManager, :ensure_answering_server, 1)
+  end
+
   # ---------------------------------------------------------------------------
-  # New tests: ensure_answering_server/1, last_active/1, stop_server/1 raw id
+  # New tests: ensure_server/1, last_active/1, stop_server/1 raw id
   # ---------------------------------------------------------------------------
 
   describe "init/1 starts no servers" do
@@ -271,10 +275,10 @@ defmodule Zaq.Agent.ServerManagerTest do
     end
   end
 
-  describe "ensure_answering_server/1" do
+  describe "ensure_server/1" do
     test "starts server with given id and adds it to supervision tree" do
       server_id = "answering_test_#{System.unique_integer([:positive])}"
-      assert {:ok, server_ref} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, server_ref} = ServerManager.ensure_server(server_id)
 
       assert {:via, Registry, {registry, ^server_id}} = server_ref
       assert registry == Jido.registry_name(Zaq.Agent.Jido)
@@ -284,8 +288,8 @@ defmodule Zaq.Agent.ServerManagerTest do
     test "is idempotent — second call reuses existing server, no new process" do
       server_id = "answering_idempotent_#{System.unique_integer([:positive])}"
 
-      assert {:ok, ref1} = ServerManager.ensure_answering_server(server_id)
-      assert {:ok, ref2} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, ref1} = ServerManager.ensure_server(server_id)
+      assert {:ok, ref2} = ServerManager.ensure_server(server_id)
       assert ref1 == ref2
 
       assert {:via, Registry, {registry, ^server_id}} = ref1
@@ -298,8 +302,8 @@ defmodule Zaq.Agent.ServerManagerTest do
     test "same scope across two calls returns same server ref" do
       server_id = "answering_scope_#{System.unique_integer([:positive])}"
 
-      assert {:ok, ref_a} = ServerManager.ensure_answering_server(server_id)
-      assert {:ok, ref_b} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, ref_a} = ServerManager.ensure_server(server_id)
+      assert {:ok, ref_b} = ServerManager.ensure_server(server_id)
       assert ref_a == ref_b
     end
 
@@ -316,24 +320,24 @@ defmodule Zaq.Agent.ServerManagerTest do
       # Call internal handle_call with invalid supervisor
       # Since we can't easily inject a broken supervisor, verify the public function
       # returns :ok or :error (function must exist and return the right shape)
-      _result = ServerManager.ensure_answering_server(server_id)
+      _result = ServerManager.ensure_server(server_id)
     end
 
     test "stamps last_active timestamp on first call" do
       server_id = "answering_active_#{System.unique_integer([:positive])}"
 
-      assert {:ok, _ref} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
       assert %DateTime{} = ServerManager.last_active(server_id)
     end
 
     test "updates last_active timestamp on repeated calls" do
       server_id = "answering_active_update_#{System.unique_integer([:positive])}"
 
-      assert {:ok, _ref} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
       t1 = ServerManager.last_active(server_id)
       # Wait a tiny bit to ensure clock advances
       Process.sleep(2)
-      assert {:ok, _ref} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
       t2 = ServerManager.last_active(server_id)
 
       assert DateTime.compare(t2, t1) in [:gt, :eq]
@@ -379,7 +383,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     test "returns DateTime after ensure call" do
       server_id = "answering_last_active_#{System.unique_integer([:positive])}"
-      assert {:ok, _ref} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
       result = ServerManager.last_active(server_id)
       assert %DateTime{} = result
     end
@@ -390,7 +394,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       server_id = "answering_stop_#{System.unique_integer([:positive])}"
 
       assert {:ok, {:via, Registry, {registry, ^server_id}}} =
-               ServerManager.ensure_answering_server(server_id)
+               ServerManager.ensure_server(server_id)
 
       pid = Jido.AgentServer.whereis(registry, server_id)
       assert is_pid(pid)
@@ -407,7 +411,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     test "clears last_active entry" do
       server_id = "answering_clear_active_#{System.unique_integer([:positive])}"
-      assert {:ok, _ref} = ServerManager.ensure_answering_server(server_id)
+      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
       assert %DateTime{} = ServerManager.last_active(server_id)
 
       assert :ok = ServerManager.stop_server(server_id)

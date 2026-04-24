@@ -7,9 +7,18 @@ defmodule Zaq.Agent.Executor do
 
   alias ReqLLM.Context
   alias Zaq.Agent
-  alias Zaq.Agent.{Factory, History, ServerManager}
+  alias Zaq.Agent.{Factory, History, LogprobsAnalyzer, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
+
+  @spec derive_scope(Incoming.t()) :: String.t()
+  def derive_scope(%Incoming{person_id: person_id}) when not is_nil(person_id),
+    do: to_string(person_id)
+
+  def derive_scope(%Incoming{metadata: %{session_id: sid}}) when is_binary(sid) and sid != "",
+    do: sid
+
+  def derive_scope(_), do: "anonymous"
 
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
@@ -22,36 +31,52 @@ defmodule Zaq.Agent.Executor do
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
+    question = Keyword.get(opts, :question, incoming.content)
     history = opts |> Keyword.get(:history, %{}) |> History.build()
-    messages = history ++ [Context.user(incoming.content)]
+    messages = history ++ [Context.user(question)]
     query = History.format_messages(messages)
 
-    with {:ok, configured_agent} <- load_selected_agent(opts, agent_module),
-         {:ok, server_id} <- ensure_agent_server(server_manager_module, configured_agent, opts),
-         # Send the start typing event through the router for automatic routing
-         node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
-           incoming.provider,
-           incoming.channel_id
-         ]),
-         {:ok, request} <-
-           factory_module.ask_with_config(server_id, query, configured_agent),
-         {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
-      result = success_result(answer, configured_agent, started_at)
-      :ok = record_success_telemetry(result, dims)
-      Outgoing.from_pipeline_result(incoming, result)
-    else
-      {:error, reason} ->
-        Logger.error("Configured agent execution failed: #{inspect(reason)}")
+    logprobs_ref = LogprobsAnalyzer.capture_logprobs()
+    opts = ensure_scope_for_answering_path(opts, incoming)
 
-        :ok =
-          Telemetry.record(
-            "qa.custom_agent.execution.error",
-            1,
-            Map.put(dims, :error_type, error_type(reason))
-          )
+    result =
+      with {:ok, configured_agent} <-
+             load_selected_agent(opts, agent_module, factory_module),
+           configured_agent <- apply_system_prompt_override(configured_agent, opts),
+           {:ok, server_id} <- ensure_agent_server(server_manager_module, configured_agent, opts),
+           node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
+             incoming.provider,
+             incoming.channel_id
+           ]),
+           {:ok, request} <-
+             factory_module.ask_with_config(server_id, query, configured_agent,
+               context: %{
+                 person_id: Keyword.get(opts, :person_id),
+                 team_ids: Keyword.get(opts, :team_ids, [])
+               }
+             ),
+           {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
+        logprobs = LogprobsAnalyzer.release_logprobs(logprobs_ref)
+        confidence = LogprobsAnalyzer.confidence_from_metadata_or_nil(%{logprobs: logprobs})
+        result = success_result(answer, configured_agent, started_at, confidence)
+        :ok = record_success_telemetry(result, dims)
+        Outgoing.from_pipeline_result(incoming, result)
+      else
+        {:error, reason} ->
+          LogprobsAnalyzer.release_logprobs(logprobs_ref)
+          Logger.error("Configured agent execution failed: #{inspect(reason)}")
 
-        Outgoing.from_pipeline_result(incoming, error_result(reason))
-    end
+          :ok =
+            Telemetry.record(
+              "qa.custom_agent.execution.error",
+              1,
+              Map.put(dims, :error_type, error_type(reason))
+            )
+
+          Outgoing.from_pipeline_result(incoming, error_result(reason))
+      end
+
+    result
   end
 
   defp ensure_agent_server(server_manager_module, configured_agent, opts) do
@@ -65,20 +90,35 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp load_selected_agent(opts, agent_module) do
+  defp load_selected_agent(opts, agent_module, factory_module) do
     case Keyword.get(opts, :agent_id) do
-      nil -> {:error, :missing_agent_selection}
+      nil -> {:ok, factory_module.answering_configured_agent()}
       agent_id -> agent_module.get_active_agent(agent_id)
     end
   end
 
-  defp success_result(answer, configured_agent, started_at) do
+  defp ensure_scope_for_answering_path(opts, incoming) do
+    if Keyword.get(opts, :agent_id) == nil and Keyword.get(opts, :scope) == nil do
+      Keyword.put(opts, :scope, derive_scope(incoming))
+    else
+      opts
+    end
+  end
+
+  defp apply_system_prompt_override(configured_agent, opts) do
+    case Keyword.get(opts, :system_prompt) do
+      prompt when is_binary(prompt) and prompt != "" -> %{configured_agent | job: prompt}
+      _ -> configured_agent
+    end
+  end
+
+  defp success_result(answer, configured_agent, started_at, confidence) do
     answer_text = normalize_answer(answer)
     metrics = extract_metrics(answer, started_at)
 
     %{
       answer: answer_text,
-      confidence_score: metrics.confidence_score,
+      confidence_score: confidence || metrics.confidence_score,
       latency_ms: metrics.latency_ms,
       prompt_tokens: metrics.prompt_tokens,
       completion_tokens: metrics.completion_tokens,

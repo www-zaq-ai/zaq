@@ -56,11 +56,24 @@ defmodule Zaq.Agent.Factory do
         opts
       end
 
-    if cfg.supports_logprobs do
+    if cfg.supports_logprobs and cfg.provider == "openai" do
       Keyword.put(opts, :provider_options, openai_logprobs: true)
     else
       opts
     end
+  end
+
+  @spec answering_configured_agent() :: ConfiguredAgent.t()
+  def answering_configured_agent do
+    %ConfiguredAgent{
+      id: :answering,
+      name: "answering",
+      strategy: "react",
+      enabled_tool_keys: ["answering.search_knowledge_base", "answering.ask_for_clarification"],
+      conversation_enabled: false,
+      active: true,
+      advanced_options: %{}
+    }
   end
 
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}

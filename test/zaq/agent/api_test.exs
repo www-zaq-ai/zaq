@@ -34,7 +34,7 @@ defmodule Zaq.Agent.ApiTest do
 
   # Passthrough server manager (no-op, returns a fake ref)
   defmodule PassthroughServerManager do
-    def ensure_answering_server(server_id),
+    def ensure_server(server_id),
       do: {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
 
     def ensure_server_by_id(_agent, server_id),
@@ -54,10 +54,10 @@ defmodule Zaq.Agent.ApiTest do
     def call(incoming, _opts), do: %{incoming | person_id: nil}
   end
 
-  # StubServerManager records ensure_answering_server calls
+  # StubServerManager records ensure_server calls
   defmodule SpyServerManager do
-    def ensure_answering_server(server_id) do
-      send(self(), {:ensure_answering_server, server_id})
+    def ensure_server(server_id) do
+      send(self(), {:ensure_server, server_id})
       {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
     end
 
@@ -290,7 +290,7 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   describe "pipeline path" do
-    test "spawns answering server with answering_{person_id} scope" do
+    test "passes scope derived from person_id into pipeline_opts" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
       event =
@@ -299,15 +299,15 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: SpyIdentityPlug,
-            server_manager: SpyServerManager
+            identity_plug: SpyIdentityPlug
           ]
         )
 
       Api.handle_event(event, :run_pipeline, nil)
 
       # person_id = 99 set by SpyIdentityPlug
-      assert_received {:ensure_answering_server, "answering_99"}
+      assert_received {:pipeline_called, _incoming, opts}
+      assert Keyword.get(opts, :scope) == "99"
     end
 
     test "nil person_id + BO provider (provider: :web) uses metadata.session_id as scope" do
@@ -325,17 +325,17 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: NilPersonIdentityPlug,
-            server_manager: SpyServerManager
+            identity_plug: NilPersonIdentityPlug
           ]
         )
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      assert_received {:ensure_answering_server, "answering_sess_abc"}
+      assert_received {:pipeline_called, _incoming, opts}
+      assert Keyword.get(opts, :scope) == "sess_abc"
     end
 
-    test "server ref is passed through pipeline_opts to Pipeline.run" do
+    test "scope is passed through pipeline_opts to Pipeline.run" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
       event =
@@ -344,16 +344,16 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [foo: :bar],
-            identity_plug: SpyIdentityPlug,
-            server_manager: SpyServerManager
+            identity_plug: SpyIdentityPlug
           ]
         )
 
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:pipeline_called, _incoming, opts}
-      assert Keyword.has_key?(opts, :server)
-      assert Keyword.get(opts, :server) == {:via, Registry, {Zaq.Agent.Jido, "answering_99"}}
+      assert Keyword.has_key?(opts, :scope)
+      assert Keyword.get(opts, :scope) == "99"
+      assert Keyword.get(opts, :foo) == :bar
     end
   end
 
@@ -436,7 +436,7 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   describe "same person messaging twice" do
-    test "reuses same server (no duplicate spawn)" do
+    test "passes same scope to pipeline on both calls" do
       incoming = %Incoming{content: "first", channel_id: "c1", provider: :web}
 
       make_event = fn content ->
@@ -445,8 +445,7 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: SpyIdentityPlug,
-            server_manager: SpyServerManager
+            identity_plug: SpyIdentityPlug
           ]
         )
       end
@@ -454,9 +453,11 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(make_event.("first"), :run_pipeline, nil)
       Api.handle_event(make_event.("second"), :run_pipeline, nil)
 
-      # Both calls use same scope → same server_id
-      assert_received {:ensure_answering_server, "answering_99"}
-      assert_received {:ensure_answering_server, "answering_99"}
+      # Both calls use same scope
+      assert_received {:pipeline_called, _, opts1}
+      assert_received {:pipeline_called, _, opts2}
+      assert Keyword.get(opts1, :scope) == "99"
+      assert Keyword.get(opts2, :scope) == "99"
     end
   end
 end
