@@ -19,6 +19,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 | Dev setup, tool usage, sub-agents | `docs/dev-setup.md` |
 | Elixir, Mix, Ecto, Test guidelines | `docs/elixir.md` |
 | Phoenix, LiveView, HTML, JS/CSS, UI/UX | `docs/phoenix.md` |
+| BO layout, design tokens, colors, components | `docs/bo-components.md` |
 
 ### Planning & Quality
 | What you need | Where to look |
