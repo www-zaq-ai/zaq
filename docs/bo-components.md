@@ -125,13 +125,13 @@ Before writing any markup from scratch, check whether one of these components al
 | `<BOTelemetryComponents.progress_countdown>` | Progress bar with countdown |
 | `<BOTelemetryComponents.radar_chart>` | Radar / spider chart |
 
-### `ZaqWeb.Components.MasterDetailLayout` — `lib/zaq_web/components/master_detail_layout.ex`
+### MasterDetailLayout — `lib/zaq_web/components/master_detail_layout.ex`
 
 | Component | When to use |
 |---|---|
 | `<MasterDetailLayout.master_detail>` | Two-pane layout (list on left, detail on right) — collapses master when detail is open |
 
-### `ZaqWeb.Components.SearchableSelect` — `lib/zaq_web/components/searchable_select.ex`
+### SearchableSelect — `lib/zaq_web/components/searchable_select.ex`
 
 | Component | When to use |
 |---|---|
@@ -143,7 +143,7 @@ Before writing any markup from scratch, check whether one of these components al
 |---|---|
 | `<RoleSharePicker.role_share_picker>` | Multi-select role assignment UI |
 
-### `ZaqWeb.Components.PasswordPolicyComponents` — `lib/zaq_web/components/password_policy_components.ex`
+### PasswordPolicyComponents — `lib/zaq_web/components/password_policy_components.ex`
 
 | Component | When to use |
 |---|---|
