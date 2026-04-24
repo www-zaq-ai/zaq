@@ -33,13 +33,17 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     skip_permissions = Map.get(context, :skip_permissions, false)
     opts = [person_id: person_id, team_ids: team_ids, skip_permissions: skip_permissions]
 
-    case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do
-      {:ok, chunks} ->
-        formatted = Enum.map_join(chunks, "\n\n", &format_chunk/1)
-        {:ok, %{chunks: formatted, count: length(chunks)}}
+    try do
+      case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do
+        {:ok, chunks} ->
+          formatted = Enum.map_join(chunks, "\n\n", &format_chunk/1)
+          {:ok, %{chunks: formatted, count: length(chunks)}}
 
-      {:error, reason} ->
-        {:error, "Knowledge base search failed: #{inspect(reason)}"}
+        {:error, reason} ->
+          {:error, "Knowledge base search failed: #{inspect(reason)}"}
+      end
+    rescue
+      e -> {:error, "Knowledge base search error: #{Exception.message(e)}"}
     end
   end
 

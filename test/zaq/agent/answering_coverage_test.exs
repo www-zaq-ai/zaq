@@ -39,7 +39,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
 
   defp stub_factory(response) do
     Process.put(:fake_factory_response, response)
-    [factory_module: FakeFactory]
+    [factory_module: FakeFactory, server: :stub_answering_server]
   end
 
   setup do
@@ -215,7 +215,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "records confidence telemetry when logprobs yield score > 0.9 (gt_90 bucket)" do
       Process.put(:stub_logprob, -0.05)
 
-      opts = [factory_module: FakeFactoryWithLogprobs]
+      opts = [factory_module: FakeFactoryWithLogprobs, server: :stub_answering_server]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -225,7 +225,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket between_80_90 (score > 0.8 and <= 0.9)" do
       Process.put(:stub_logprob, -0.18)
 
-      opts = [factory_module: FakeFactoryWithLogprobs]
+      opts = [factory_module: FakeFactoryWithLogprobs, server: :stub_answering_server]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -235,7 +235,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket between_70_80 (score > 0.7 and <= 0.8)" do
       Process.put(:stub_logprob, -0.28)
 
-      opts = [factory_module: FakeFactoryWithLogprobs]
+      opts = [factory_module: FakeFactoryWithLogprobs, server: :stub_answering_server]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -245,7 +245,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket between_50_70 (score >= 0.5 and <= 0.7)" do
       Process.put(:stub_logprob, -0.6)
 
-      opts = [factory_module: FakeFactoryWithLogprobs]
+      opts = [factory_module: FakeFactoryWithLogprobs, server: :stub_answering_server]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)
@@ -255,7 +255,7 @@ defmodule Zaq.Agent.AnsweringCoverageTest do
     test "confidence bucket lt_50 (score < 0.5)" do
       Process.put(:stub_logprob, -1.5)
 
-      opts = [factory_module: FakeFactoryWithLogprobs]
+      opts = [factory_module: FakeFactoryWithLogprobs, server: :stub_answering_server]
 
       assert {:ok, %Result{confidence_score: score}} = Answering.ask("Prompt", opts)
       assert is_float(score)

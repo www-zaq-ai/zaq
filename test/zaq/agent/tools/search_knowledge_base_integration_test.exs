@@ -117,7 +117,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   # Helpers
   # ---------------------------------------------------------------------------
 
-  defp create_doc(opts \\ []) do
+  defp create_doc(opts) do
     tags = Keyword.get(opts, :tags, [])
 
     {:ok, doc} =

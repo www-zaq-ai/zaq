@@ -3,7 +3,8 @@ defmodule Zaq.Agent.Answering do
   Response formulation agent.
 
   Receives context (retrieved chunks + user question) via a system prompt and
-  generates a natural answer using a transient Jido AI agent with ReAct tools.
+  generates a natural answer using the singleton Jido AI agent managed by
+  `Zaq.Agent.ServerManager` with ReAct tools.
 
   Uses DB-managed system prompt (`answering` slug) and provider-agnostic
   LLM configuration from `Zaq.Agent.Factory`.
@@ -36,8 +37,8 @@ defmodule Zaq.Agent.Answering do
   Generates an answer from the given system prompt (which should include
   retrieved context) and optional conversation history.
 
-  Starts a transient Jido AI agent with ReAct tools, sets the system prompt,
-  and asks the question. The agent is stopped after the response is received.
+  Routes to the singleton Jido AI agent managed by `ServerManager`, passing the
+  system prompt per-call so concurrent requests never share mutable server state.
 
   ## Options
 
@@ -72,43 +73,25 @@ defmodule Zaq.Agent.Answering do
         history
       end
 
-    server_id = "answering_#{System.unique_integer([:positive])}"
-
     ask_opts = [
       tools: @answering_tools,
       llm_opts: Factory.generation_opts(),
       context: %{person_id: person_id, team_ids: team_ids},
+      system_prompt: system_prompt,
       timeout: 60_000
     ]
 
-    with {:ok, server} <-
-           Jido.AgentServer.start_link(
-             agent: Factory,
-             id: server_id,
-             jido: Zaq.Agent.Jido,
-             initial_state: %{model: Factory.build_model_spec()}
-           ),
-         :ok <- set_system_prompt(server, system_prompt) do
-      logprobs_ref = LogprobsAnalyzer.capture_logprobs()
+    server = Keyword.fetch!(opts, :server)
+    logprobs_ref = LogprobsAnalyzer.capture_logprobs()
 
-      result =
-        try do
-          with {:ok, request} <-
-                 factory_mod.ask(server, History.format_messages(messages), ask_opts) do
-            factory_mod.await(request, timeout: 60_000)
-          end
-        after
-          GenServer.stop(server, :normal)
-        end
+    result =
+      with {:ok, request} <-
+             factory_mod.ask(server, History.format_messages(messages), ask_opts) do
+        factory_mod.await(request, timeout: 60_000)
+      end
 
-      logprobs = LogprobsAnalyzer.release_logprobs(logprobs_ref)
-      parse_agent_result(result, started_at, telemetry_dimensions, logprobs)
-    else
-      {:error, reason} ->
-        error_reason = "Failed to start answering agent: #{inspect(reason)}"
-        Logger.error("Answering failed: #{error_reason}")
-        {:error, error_reason}
-    end
+    logprobs = LogprobsAnalyzer.release_logprobs(logprobs_ref)
+    parse_agent_result(result, started_at, telemetry_dimensions, logprobs)
   end
 
   @doc "Normalizes legacy answer payloads into the canonical result struct."
@@ -167,13 +150,6 @@ defmodule Zaq.Agent.Answering do
   def clean_answer(answer), do: answer
 
   # -- Private --
-
-  defp set_system_prompt(server, prompt) do
-    case Jido.AI.set_system_prompt(server, prompt, timeout: 10_000) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   defp parse_agent_result({:ok, handle}, started_at, telemetry_dimensions, logprobs) do
     latency_ms = System.monotonic_time(:millisecond) - started_at

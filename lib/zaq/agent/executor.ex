@@ -5,9 +5,9 @@ defmodule Zaq.Agent.Executor do
 
   require Logger
 
+  alias ReqLLM.Context
   alias Zaq.Agent
-  alias Zaq.Agent.Factory
-  alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.{Factory, History, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
 
@@ -22,15 +22,19 @@ defmodule Zaq.Agent.Executor do
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
+    history = opts |> Keyword.get(:history, %{}) |> History.build()
+    messages = history ++ [Context.user(incoming.content)]
+    query = History.format_messages(messages)
+
     with {:ok, configured_agent} <- load_selected_agent(opts, agent_module),
-         {:ok, server_id} <- server_manager_module.ensure_server(configured_agent),
+         {:ok, server_id} <- ensure_agent_server(server_manager_module, configured_agent, opts),
          # Send the start typing event through the router for automatic routing
          node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
            incoming.provider,
            incoming.channel_id
          ]),
          {:ok, request} <-
-           factory_module.ask_with_config(server_id, incoming.content, configured_agent),
+           factory_module.ask_with_config(server_id, query, configured_agent),
          {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
       result = success_result(answer, configured_agent, started_at)
       :ok = record_success_telemetry(result, dims)
@@ -47,6 +51,17 @@ defmodule Zaq.Agent.Executor do
           )
 
         Outgoing.from_pipeline_result(incoming, error_result(reason))
+    end
+  end
+
+  defp ensure_agent_server(server_manager_module, configured_agent, opts) do
+    case Keyword.get(opts, :scope) do
+      nil ->
+        server_manager_module.ensure_server(configured_agent)
+
+      scope ->
+        server_id = "#{configured_agent.name}:#{scope}"
+        server_manager_module.ensure_server_by_id(configured_agent, server_id)
     end
   end
 

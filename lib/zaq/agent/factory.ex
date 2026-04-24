@@ -10,7 +10,8 @@ defmodule Zaq.Agent.Factory do
     name: "agent_factory",
     description: "Runtime-configured standard ZAQ agent",
     request_policy: :reject,
-    tools: []
+    tools: [],
+    plugins: []
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Tools.Registry

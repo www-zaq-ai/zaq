@@ -8,6 +8,7 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Agent.Executor
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Pipeline
+  alias Zaq.Agent.ServerManager
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.InternalBoundaries
@@ -19,15 +20,24 @@ defmodule Zaq.Agent.Api do
         pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
         pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
         executor_module = Keyword.get(event.opts, :executor_module, Executor)
+        server_manager_mod = server_manager_mod(event.opts)
+
+        # TODO: move identity resolution to Executor once executor owns the full lifecycle
+        incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
+        scope = derive_scope(incoming)
 
         outgoing =
           case selected_agent_id(event.assigns) do
             nil ->
-              pipeline_module.run(incoming, pipeline_opts)
+              {:ok, server_ref} =
+                server_manager_mod.ensure_answering_server("answering_#{scope}")
+
+              pipeline_module.run(incoming, Keyword.put(pipeline_opts, :server, server_ref))
 
             selected_id ->
               executor_module.run(incoming,
                 agent_id: selected_id,
+                scope: scope,
                 history: Keyword.get(pipeline_opts, :history, %{}),
                 telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{})
               )
@@ -77,5 +87,27 @@ defmodule Zaq.Agent.Api do
     end
   end
 
-  defp normalize_selected_id(id), do: id
+  defp derive_scope(%Incoming{person_id: person_id}) when not is_nil(person_id),
+    do: to_string(person_id)
+
+  defp derive_scope(%Incoming{metadata: %{session_id: sid}}) when is_binary(sid) and sid != "",
+    do: sid
+
+  defp derive_scope(_), do: "anonymous"
+
+  defp identity_plug_mod(opts) do
+    Keyword.get(
+      opts,
+      :identity_plug,
+      Application.get_env(:zaq, :api_identity_plug_module, Zaq.People.IdentityPlug)
+    )
+  end
+
+  defp server_manager_mod(opts) do
+    Keyword.get(
+      opts,
+      :server_manager,
+      Application.get_env(:zaq, :api_server_manager_module, ServerManager)
+    )
+  end
 end

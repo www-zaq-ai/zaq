@@ -250,13 +250,7 @@ defmodule Zaq.Ingestion do
 
   def list_permitted_document_ids(person_id, team_ids, doc_ids) do
     via_permission =
-      from(p in Permission,
-        where:
-          p.document_id in ^doc_ids and
-            (p.person_id == ^person_id or p.team_id in ^team_ids),
-        select: p.document_id,
-        distinct: true
-      )
+      build_permission_query(person_id, team_ids, doc_ids)
       |> Repo.all()
 
     via_public =
@@ -267,6 +261,28 @@ defmodule Zaq.Ingestion do
       |> Repo.all()
 
     Enum.uniq(via_permission ++ via_public)
+  end
+
+  defp build_permission_query(nil, team_ids, _doc_ids) when team_ids == [] do
+    from(p in Permission, where: false, select: p.document_id)
+  end
+
+  defp build_permission_query(nil, team_ids, doc_ids) do
+    from(p in Permission,
+      where: p.document_id in ^doc_ids and p.team_id in ^team_ids,
+      select: p.document_id,
+      distinct: true
+    )
+  end
+
+  defp build_permission_query(person_id, team_ids, doc_ids) do
+    from(p in Permission,
+      where:
+        p.document_id in ^doc_ids and
+          (p.person_id == ^person_id or p.team_id in ^team_ids),
+      select: p.document_id,
+      distinct: true
+    )
   end
 
   # --- Document tag management ---

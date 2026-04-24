@@ -82,7 +82,7 @@ defmodule Zaq.Agent.Pipeline do
       incoming.channel_id
     ])
 
-    identity_plug_mod(opts).call(incoming, opts)
+    incoming
   end
 
   @spec do_run(String.t(), keyword()) :: map()
@@ -264,7 +264,8 @@ defmodule Zaq.Agent.Pipeline do
       question: content,
       person_id: person_id,
       team_ids: team_ids,
-      telemetry_dimensions: telemetry_dimensions(opts)
+      telemetry_dimensions: telemetry_dimensions(opts),
+      server: Keyword.fetch!(opts, :server)
     ]
 
     ask_args =
@@ -359,14 +360,6 @@ defmodule Zaq.Agent.Pipeline do
 
   defp generate_trace_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-  end
-
-  defp identity_plug_mod(opts) do
-    Keyword.get(
-      opts,
-      :identity_plug,
-      Application.get_env(:zaq, :pipeline_identity_plug_module, Zaq.People.IdentityPlug)
-    )
   end
 
   defp hooks_mod(opts) do

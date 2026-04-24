@@ -151,7 +151,8 @@ defmodule Zaq.Agent.PipelineTest do
     prompt_template: StubPromptTemplate,
     retrieval: StubRetrieval,
     document_processor: StubDocumentProcessor,
-    answering: StubAnswering
+    answering: StubAnswering,
+    server: :stub_server_ref
   ]
 
   setup do
@@ -254,14 +255,9 @@ defmodule Zaq.Agent.PipelineTest do
 
   describe "run/2 typing dispatch" do
     test "dispatches typing via router before continuing" do
-      result =
-        Pipeline.run(
-          @incoming,
-          Keyword.put(@base_opts, :identity_plug, SpyIdentityPlug)
-        )
+      result = Pipeline.run(@incoming, @base_opts)
 
       assert_receive {:typing_called, :test, "test"}, 1000
-      assert_receive :identity_called, 1000
       assert %Outgoing{} = result
       assert result.metadata.error == false
     end
@@ -297,6 +293,58 @@ defmodule Zaq.Agent.PipelineTest do
       assert %Outgoing{} = result
       assert result.body == "The answer is 42."
       assert result.metadata.error == false
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # New tests: identity plug removed; :server threaded from opts
+  # ---------------------------------------------------------------------------
+
+  describe "pre_do_run" do
+    test "does not call identity_plug" do
+      # After the refactor, identity resolution happens in Api, not Pipeline.
+      # SpyIdentityPlug must NOT be called during Pipeline.run.
+      opts = Keyword.put(@base_opts, :identity_plug, SpyIdentityPlug)
+      opts = Keyword.put(opts, :server, :stub_server_ref)
+
+      Pipeline.run(@incoming, opts)
+
+      refute_received :identity_called
+    end
+  end
+
+  describe "do_answering :server threading" do
+    test "passes :server from opts to Answering.ask" do
+      opts =
+        @base_opts
+        |> Keyword.put(:answering, SpyAnswering)
+        |> Keyword.put(:server, :stub_server_ref)
+
+      Pipeline.run(@incoming, opts)
+
+      assert_receive {:answering_opts, answering_opts}, 1_000
+      assert Keyword.get(answering_opts, :server) == :stub_server_ref
+    end
+  end
+
+  describe "run/2 does not overwrite person_id" do
+    test "does not overwrite person_id already set on incoming" do
+      incoming_with_person = %Incoming{
+        content: "What is the answer?",
+        channel_id: "test",
+        provider: :test,
+        person_id: 42
+      }
+
+      opts =
+        @base_opts
+        |> Keyword.put(:answering, SpyAnswering)
+        |> Keyword.put(:server, :stub_server_ref)
+
+      Pipeline.run(incoming_with_person, opts)
+
+      assert_receive {:answering_opts, answering_opts}, 1_000
+      assert Keyword.get(answering_opts, :person_id) == 42
     end
   end
 

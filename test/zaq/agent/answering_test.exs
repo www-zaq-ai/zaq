@@ -21,7 +21,7 @@ defmodule Zaq.Agent.AnsweringTest do
 
   defp stub_factory(response) do
     Process.put(:fake_factory_response, response)
-    [factory_module: FakeFactory]
+    [factory_module: FakeFactory, server: :stub_answering_server]
   end
 
   setup do
@@ -178,6 +178,27 @@ defmodule Zaq.Agent.AnsweringTest do
 
       assert {:error, message} = Answering.ask("Prompt", opts)
       assert String.contains?(message, "Empty assistant response content")
+    end
+  end
+
+  describe "ask/2 :server opt" do
+    test "uses :server opt when provided" do
+      # Verifies that ask/2 uses the :server from opts instead of calling ServerManager
+      Process.put(:fake_factory_response, {:ok, "Answer with explicit server."})
+      opts = [factory_module: FakeFactory, server: :my_explicit_server_ref]
+
+      assert {:ok, %Result{answer: "Answer with explicit server."}} =
+               Answering.ask("Prompt", opts)
+    end
+
+    test "raises when :server opt is absent" do
+      Process.put(:fake_factory_response, {:ok, "Should not reach."})
+      # Intentionally omit :server key
+      opts = [factory_module: FakeFactory]
+
+      assert_raise KeyError, fn ->
+        Answering.ask("Prompt", opts)
+      end
     end
   end
 
