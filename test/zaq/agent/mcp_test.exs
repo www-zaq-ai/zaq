@@ -397,7 +397,9 @@ defmodule Zaq.Agent.MCPTest do
                  register_fn: fn _ -> :ok end,
                  unregister_fn: fn _ -> :ok end,
                  ensure_client_fn: fn _ -> {:error, :no_client} end,
-                 list_tools_fn: fn endpoint_id, _ -> {:ok, %{status: :ok, endpoint: endpoint_id}} end
+                 list_tools_fn: fn endpoint_id, _ ->
+                   {:ok, %{status: :ok, endpoint: endpoint_id}}
+                 end
                )
     end
 

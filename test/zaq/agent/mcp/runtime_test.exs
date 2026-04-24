@@ -398,7 +398,13 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
 
   test "test_list_tools handles transport down reason from monitored client" do
     endpoint = %Endpoint{type: "remote", timeout_ms: 2000, url: "http://localhost:8000/mcp"}
-    client = spawn(fn -> receive do :stop -> :ok end end)
+
+    client =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
 
     list_tools_fn = fn _endpoint_id, _timeout ->
       send(client, :stop)
@@ -410,7 +416,8 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
     register_fn = fn _runtime_endpoint -> :ok end
     unregister_fn = fn _endpoint_id -> :ok end
 
-    assert {:error, %{type: :transport, message: "MCP client transport failure", details: :normal}} =
+    assert {:error,
+            %{type: :transport, message: "MCP client transport failure", details: :normal}} =
              Runtime.test_list_tools(endpoint,
                register_fn: register_fn,
                unregister_fn: unregister_fn,
@@ -461,7 +468,9 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
              Runtime.test_list_tools(endpoint,
                register_fn: register_fn,
                unregister_fn: unregister_fn,
-               ensure_client_fn: fn _ -> {:ok, :endpoint, %{client: {:via, Registry, {:x, :y}}}} end,
+               ensure_client_fn: fn _ ->
+                 {:ok, :endpoint, %{client: {:via, Registry, {:x, :y}}}}
+               end,
                list_tools_fn: list_tools_fn
              )
 
