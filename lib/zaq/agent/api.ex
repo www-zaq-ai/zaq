@@ -22,7 +22,6 @@ defmodule Zaq.Agent.Api do
         executor_module = Keyword.get(event.opts, :executor_module, Executor)
         server_manager_mod = server_manager_mod(event.opts)
 
-        # TODO: move identity resolution to Executor once executor owns the full lifecycle
         incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
         scope = derive_scope(incoming)
 

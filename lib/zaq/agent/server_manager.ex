@@ -118,26 +118,8 @@ defmodule Zaq.Agent.ServerManager do
           {:ok, server_ref(server_id)}
 
         _ ->
-          with {:ok, model_spec} <- model_spec(configured_agent),
-               {:ok, runtime_config} <- Factory.runtime_config(configured_agent),
-               {:ok, _pid} <-
-                 DynamicSupervisor.start_child(
-                   @dynamic_supervisor,
-                   {Jido.AgentServer,
-                    [
-                      agent: Factory,
-                      jido: @jido_instance,
-                      registry: @jido_registry,
-                      id: server_id,
-                      initial_state: %{
-                        model: model_spec,
-                        runtime_config: runtime_config,
-                        tool_context: %{configured_agent_id: configured_agent.id}
-                      }
-                    ]}
-                 ) do
-            {:ok, server_ref(server_id)}
-          else
+          case spawn_agent_server(configured_agent, server_id) do
+            :ok -> {:ok, server_ref(server_id)}
             {:error, {:already_started, _}} -> {:ok, server_ref(server_id)}
             {:error, reason} -> {:error, reason}
           end
@@ -190,6 +172,13 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp start_server(%ConfiguredAgent{} = configured_agent, server_id, state, fingerprint) do
+    case spawn_agent_server(configured_agent, server_id) do
+      :ok -> {:ok, server_id, put_in(state, [:fingerprints, configured_agent.id], fingerprint)}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id) do
     with {:ok, model_spec} <- model_spec(configured_agent),
          {:ok, runtime_config} <- Factory.runtime_config(configured_agent),
          {:ok, _pid} <-
@@ -208,10 +197,7 @@ defmodule Zaq.Agent.ServerManager do
                 }
               ]}
            ) do
-      {:ok, server_id, put_in(state, [:fingerprints, configured_agent.id], fingerprint)}
-    else
-      {:error, reason} ->
-        {:error, reason, state}
+      :ok
     end
   end
 
