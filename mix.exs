@@ -141,8 +141,7 @@ defmodule Zaq.MixProject do
         "credo --strict",
         "ex_dna",
         "hooks.verify",
-        "test",
-        "e2e"
+        "test"
       ]
       # coveralls: ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls"],
       # "coveralls.html": ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls.html"],

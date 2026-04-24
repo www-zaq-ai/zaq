@@ -20,6 +20,13 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  defmodule StubMCP do
+    def test_list_tools(endpoint_id, opts) do
+      send(self(), {:mcp_test_called, endpoint_id, opts})
+      {:ok, %{status: :ok, endpoint_id: endpoint_id}}
+    end
+  end
+
   test "handles run_pipeline action" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
@@ -141,5 +148,25 @@ defmodule Zaq.Agent.ApiTest do
     result = Api.handle_event(event, :unknown_action, nil)
 
     assert result.response == {:error, {:unsupported_action, :unknown_action}}
+  end
+
+  test "delegates mcp_test_list_tools to MCP module" do
+    event =
+      Event.new(%{endpoint_id: 42}, :agent,
+        opts: [action: :mcp_test_list_tools, mcp_module: StubMCP, mcp_test_opts: [timeout: 1234]]
+      )
+
+    result = Api.handle_event(event, :mcp_test_list_tools, nil)
+
+    assert result.response == {:ok, %{status: :ok, endpoint_id: 42}}
+    assert_received {:mcp_test_called, 42, [timeout: 1234]}
+  end
+
+  test "returns invalid request for mcp_test_list_tools without endpoint id" do
+    event = Event.new(%{foo: "bar"}, :agent, opts: [action: :mcp_test_list_tools])
+
+    result = Api.handle_event(event, :mcp_test_list_tools, nil)
+
+    assert result.response == {:error, {:invalid_request, %{foo: "bar"}}}
   end
 end
