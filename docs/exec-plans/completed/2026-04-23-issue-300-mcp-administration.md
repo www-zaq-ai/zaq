@@ -4,7 +4,7 @@
 
 **Date:** 2026-04-23
 **Author:** OpenCode (gpt-5.3-codex)
-**Status:** `active`
+**Status:** `completed`
 **Related debt:** N/A
 **PR(s):** TBD
 
@@ -179,7 +179,7 @@ Pagination/filtering follows existing BO patterns (`PeopleLive`/`Agent.filter_ag
   - Coverage target for touched files:
     - >=95% for all files modified for test-action plumbing and UI response handling.
 
-- [ ] Step 7: Coverage hardening + regression suite (PR 3)
+- [x] Step 7: Coverage hardening + regression suite (PR 3)
   - Tests to add before implementation:
     - Add branch-closing integration tests for any touched file under 95%.
     - Extend `test/e2e/specs/system_config.spec.js` with MCP admin happy path + MCP test failure UX path.
@@ -191,7 +191,7 @@ Pagination/filtering follows existing BO patterns (`PeopleLive`/`Agent.filter_ag
   - Coverage target for touched files:
     - >=95% for every added/modified file in this plan; document exceptions if any.
 
-- [ ] Step 8: Documentation + final validation (PR 3)
+- [x] Step 8: Documentation + final validation (PR 3)
   - Tests to add before implementation:
     - No new tests expected for docs-only changes; if code changes are introduced during this step, add tests first for those changes.
   - Branches/paths validated:
@@ -226,6 +226,10 @@ Pagination/filtering follows existing BO patterns (`PeopleLive`/`Agent.filter_ag
 | BO MCP form uses line-based key/value editors (`key=value`) and JSON settings textarea | Keeps implementation simple while supporting multi-value args/env/header workflows in this phase | 2026-04-23 |
 | OAuth is deferred but planned as reusable subsystem | Needed across stacks; prevents MCP-specific one-off implementation | 2026-04-23 |
 | OAuth implementation should start with existing `Req` stack (no extra deps by default) | No OAuth support found in current jido/anubis deps; prefer minimal dependency surface | 2026-04-23 |
+| MCP endpoint names are unique | Prevent operator confusion and align BO validation with DB integrity | 2026-04-24 |
+| Decrypt failures in runtime secret maps are logged and ignored | Keeps runtime resilient while surfacing key-rotation/corruption diagnostics | 2026-04-24 |
+| MCP test uses `tools/list` (not endpoint liveness) | `endpoint_status` only checks process health, not auth/protocol correctness | 2026-04-24 |
+| BO action buttons use reusable loading hook/component | Standardizes disable/spinner/reset UX for pending click actions | 2026-04-24 |
 
 ---
 
@@ -233,21 +237,21 @@ Pagination/filtering follows existing BO patterns (`PeopleLive`/`Agent.filter_ag
 
 | Blocker | Owner | Status |
 |---|---|---|
-| Final predefined MCP catalog (ids, names, icons, locked defaults) | Product/maintainer | open |
-| Confirm ownership model for future oauth credentials (`resource/person` relation shape) | Product/architecture | open |
+| Final predefined MCP catalog (ids, names, icons, locked defaults) | Product/maintainer | mitigated (current hardcoded catalog in place) |
+| Confirm ownership model for future oauth credentials (`resource/person` relation shape) | Product/architecture | deferred to Step 9 |
 
 ---
 
 ## Definition of Done
 
-- [ ] All non-deferred steps above completed (Steps 1-8)
-- [ ] Step-level test definitions were written before implementation for every implementation step
-- [ ] Required tests were implemented and passing
-- [ ] Coverage for every touched file is >= 95%
-- [ ] Any file below 95% has exact rationale + follow-up documented in Decisions Log and PR
-- [ ] `mix precommit` passes
-- [ ] Relevant docs updated
-- [ ] `docs/QUALITY_SCORE.md` updated if domain grade changed
-- [ ] Item removed from `docs/exec-plans/tech-debt-tracker.md` if applicable
-- [ ] Plan moved to `docs/exec-plans/completed/`
-- [ ] Deferred OAuth step tracked as a dedicated follow-up issue/plan
+- [x] All non-deferred steps above completed (Steps 1-8)
+- [x] Step-level test definitions were written before implementation for every implementation step
+- [x] Required tests were implemented and passing
+- [x] Coverage for every touched file is >= 95%
+- [x] Any file below 95% has exact rationale + follow-up documented in Decisions Log and PR
+- [x] `mix precommit` passes
+- [x] Relevant docs updated
+- [x] `docs/QUALITY_SCORE.md` updated if domain grade changed
+- [x] Item removed from `docs/exec-plans/tech-debt-tracker.md` if applicable
+- [x] Plan moved to `docs/exec-plans/completed/`
+- [x] Deferred OAuth step tracked as a dedicated follow-up issue/plan
