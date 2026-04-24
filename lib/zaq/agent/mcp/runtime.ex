@@ -1,6 +1,9 @@
 defmodule Zaq.Agent.MCP.Runtime do
   @moduledoc "Runtime helpers for MCP endpoint testing and registration."
 
+  require Logger
+
+  alias Anubis.MCP.Error, as: MCPError
   alias Jido.{MCP, MCP.Actions.ListTools, MCP.ClientPool}
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Types.EncryptedString
@@ -58,14 +61,15 @@ defmodule Zaq.Agent.MCP.Runtime do
   end
 
   defp transport_for(%Endpoint{type: "local"} = endpoint) do
-    env = merge_secret_map(endpoint.environments, endpoint.secret_environments)
+    env =
+      merge_secret_map(endpoint.environments, endpoint.secret_environments, :secret_environments)
 
     {:ok, {:stdio, command: endpoint.command, args: endpoint.args || [], env: env}}
   end
 
   defp transport_for(%Endpoint{type: "remote"} = endpoint) do
     with {:ok, %{base_url: base_url, mcp_path: mcp_path}} <- parse_url(endpoint.url) do
-      headers = merge_secret_map(endpoint.headers, endpoint.secret_headers)
+      headers = merge_secret_map(endpoint.headers, endpoint.secret_headers, :secret_headers)
 
       {:ok, {:streamable_http, base_url: base_url, mcp_path: mcp_path, headers: headers}}
     end
@@ -94,15 +98,29 @@ defmodule Zaq.Agent.MCP.Runtime do
   defp port_segment(%URI{scheme: "https", port: 443}), do: ""
   defp port_segment(%URI{port: port}), do: ":#{port}"
 
-  defp merge_secret_map(plain, secrets) do
+  defp merge_secret_map(plain, secrets, secret_field) do
     plain = ensure_string_map(plain)
     secrets = ensure_string_map(secrets)
 
     decrypted_secrets =
       Enum.reduce(secrets, %{}, fn {key, value}, acc ->
         case EncryptedString.decrypt(value) do
-          {:ok, decrypted} -> Map.put(acc, key, decrypted)
-          _ -> acc
+          {:ok, decrypted} ->
+            Map.put(acc, key, decrypted)
+
+          {:error, reason} ->
+            Logger.warning(
+              "MCP secret decryption failed for #{secret_field} key=#{inspect(key)}: #{inspect(reason)}"
+            )
+
+            acc
+
+          other ->
+            Logger.warning(
+              "MCP secret decryption failed for #{secret_field} key=#{inspect(key)}: #{inspect(other)}"
+            )
+
+            acc
         end
       end)
 
@@ -207,10 +225,37 @@ defmodule Zaq.Agent.MCP.Runtime do
   end
 
   defp capabilities_not_ready_result?(result) do
-    result
-    |> inspect()
-    |> String.contains?("Server capabilities not set")
+    case result do
+      {:error, %{details: %MCPError{reason: :internal_error, data: data}}} when is_map(data) ->
+        capability_message?(Map.get(data, :message) || Map.get(data, "message"))
+
+      {:error, %{details: %MCPError{reason: :internal_error, message: message}}} ->
+        capability_message?(message)
+
+      {:error, %{details: details}} when is_map(details) ->
+        capability_message?(Map.get(details, :message) || Map.get(details, "message"))
+
+      {:error, %{message: message}} ->
+        capability_message?(message)
+
+      {:error, reason} ->
+        capability_message_from_text?(inspect(reason))
+
+      _ ->
+        false
+    end
   end
+
+  defp capability_message?(message) when is_binary(message),
+    do: message == "Server capabilities not set"
+
+  defp capability_message?(_), do: false
+
+  defp capability_message_from_text?(text) when is_binary(text) do
+    String.contains?(text, "Server capabilities not set")
+  end
+
+  defp capability_message_from_text?(_), do: false
 
   defp transient_client_call_exit?({:error, {:mcp_runtime_call_exit, reason}}) do
     rendered = inspect(reason)

@@ -5,6 +5,8 @@ defmodule Zaq.Agent.MCP.Endpoint do
 
   import Ecto.Changeset
 
+  alias Zaq.Repo
+
   @types ~w(local remote)
   @statuses ~w(enabled disabled)
   @type t :: %__MODULE__{}
@@ -52,6 +54,8 @@ defmodule Zaq.Agent.MCP.Endpoint do
     |> validate_key_value_map_strings(:secret_headers)
     |> validate_key_value_map_strings(:environments)
     |> validate_key_value_map_strings(:secret_environments)
+    |> unsafe_validate_unique(:name, Repo)
+    |> unique_constraint(:name)
     |> unique_constraint(:predefined_id)
   end
 

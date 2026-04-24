@@ -100,6 +100,28 @@ defmodule Zaq.Agent.MCPTest do
 
       assert "must be greater than 0" in errors_on(changeset).timeout_ms
     end
+
+    test "rejects duplicate endpoint names" do
+      assert {:ok, _endpoint} =
+               MCP.create_mcp_endpoint(%{
+                 name: "Duplicate Name",
+                 type: "remote",
+                 status: "enabled",
+                 timeout_ms: 5000,
+                 url: "http://localhost:8000/mcp"
+               })
+
+      assert {:error, changeset} =
+               MCP.create_mcp_endpoint(%{
+                 name: "Duplicate Name",
+                 type: "remote",
+                 status: "disabled",
+                 timeout_ms: 5000,
+                 url: "http://localhost:9000/mcp"
+               })
+
+      assert "has already been taken" in errors_on(changeset).name
+    end
   end
 
   describe "predefined catalog merge and policy" do
