@@ -75,6 +75,8 @@ defmodule Zaq.Agent.Api do
 
   defp selected_agent_id(_), do: nil
 
+  defp normalize_selected_id(id), do: id
+
   defp mcp_test_opts(opts) when is_list(opts) do
     case Keyword.get(opts, :mcp_test_opts, []) do
       list when is_list(list) -> list

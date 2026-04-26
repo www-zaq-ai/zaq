@@ -252,12 +252,13 @@ test.describe("Ingestion", () => {
     // Unlock model selection.
     const unlockTrigger = page.locator(SEL.unlockTrigger).first()
     await expect(unlockTrigger).toBeVisible()
-    // One final settled check immediately before the click. If a re-render is in
-    // flight, the button element gets detached mid-morph and the phx-click event is
-    // silently dropped by Phoenix LiveView. Waiting here closes that window.
-    await waitForLiveViewSettled(page)
-    await unlockTrigger.click()
-    await expect(page.getByRole("heading", { name: "Unlock Model Selection" })).toBeVisible()
+    const unlockHeading = page.getByRole("heading", { name: "Unlock Model Selection" })
+    // Retry the click: a DOM morph in flight can silently drop the phx-click event.
+    await expect(async () => {
+      await waitForLiveViewSettled(page)
+      await unlockTrigger.click()
+      await expect(unlockHeading).toBeVisible({ timeout: 2_000 })
+    }).toPass({ intervals: [500, 1_000, 2_000], timeout: 15_000 })
     await page.locator(SEL.confirmUnlock).click()
     await expect(page.locator(SEL.unlockTrigger)).not.toBeVisible()
 

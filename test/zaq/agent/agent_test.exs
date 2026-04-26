@@ -3,6 +3,7 @@ defmodule Zaq.AgentTest do
 
   import Zaq.SystemConfigFixtures
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.ServerManager
@@ -435,7 +436,7 @@ defmodule Zaq.AgentTest do
         advanced_options: %{}
       })
 
-    Ecto.Adapters.SQL.Sandbox.allow(Zaq.Repo, self(), Process.whereis(Zaq.Agent.ServerManager))
+    Sandbox.allow(Zaq.Repo, self(), Process.whereis(Zaq.Agent.ServerManager))
     assert {:ok, {:via, Registry, {registry, key}}} = ServerManager.ensure_server(agent)
 
     pid = Jido.AgentServer.whereis(registry, key)
