@@ -22,17 +22,10 @@ defmodule ZaqWeb.Components.ServiceUnavailable do
 
   use Phoenix.Component
 
+  alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
 
   defp node_router, do: RuntimeDeps.node_router()
-
-  @supervisor_map %{
-    agent: Zaq.Agent.Supervisor,
-    ingestion: Zaq.Ingestion.Supervisor,
-    channels: Zaq.Channels.Supervisor,
-    engine: Zaq.Engine.Supervisor,
-    bo: ZaqWeb.Endpoint
-  }
 
   @role_labels %{
     agent: "Agent",
@@ -174,7 +167,7 @@ defmodule ZaqWeb.Components.ServiceUnavailable do
   # -- Private --
 
   defp role_running?(role) do
-    supervisor = Map.fetch!(@supervisor_map, role)
+    supervisor = NodeRouter.supervisor_map() |> Map.fetch!(role)
 
     case node_router().find_node(supervisor) do
       nil -> false

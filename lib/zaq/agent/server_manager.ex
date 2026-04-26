@@ -15,6 +15,7 @@ defmodule Zaq.Agent.ServerManager do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
+  alias Zaq.Agent.RuntimeSync
   alias Zaq.Agent.ProviderSpec
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
@@ -34,6 +35,11 @@ defmodule Zaq.Agent.ServerManager do
           {:ok, GenServer.server()} | {:error, term()}
   def ensure_server(%ConfiguredAgent{} = configured_agent) do
     GenServer.call(__MODULE__, {:ensure_server, configured_agent})
+  end
+
+  @spec sync_runtime(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
+  def sync_runtime(%ConfiguredAgent{} = configured_agent) do
+    GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
 
   def ensure_server(server_id) when is_binary(server_id) do
@@ -72,6 +78,22 @@ defmodule Zaq.Agent.ServerManager do
     case do_ensure_server(configured_agent, state) do
       {:ok, server_id, next_state} -> {:reply, {:ok, server_ref(server_id)}, next_state}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+    end
+  end
+
+  def handle_call({:sync_runtime, %ConfiguredAgent{} = configured_agent}, _from, state) do
+    case do_ensure_server(configured_agent, state) do
+      {:ok, server_id, next_state} ->
+        case hydrate_mcp_assignments(configured_agent, server_id) do
+          {:ok, runtime} ->
+            {:reply, {:ok, %{server_ref: server_ref(server_id), runtime: runtime}}, next_state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, next_state}
+        end
+
+      {:error, reason, next_state} ->
+        {:reply, {:error, reason}, next_state}
     end
   end
 
@@ -192,9 +214,49 @@ defmodule Zaq.Agent.ServerManager do
               initial_state: initial_state
             ]}
          ) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _}} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, _pid} ->
+        _ = hydrate_mcp_assignments(configured_agent, server_id)
+        :ok
+
+      {:error, {:already_started, _}} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp hydrate_mcp_assignments(%ConfiguredAgent{} = configured_agent, server_id) do
+    server_ref = server_ref(server_id)
+
+    case runtime_sync_module().sync_agent_runtime(
+           configured_agent,
+           server_ref,
+           runtime_sync_opts()
+         ) do
+      {:ok, %{mcp: %{warnings: []}} = runtime} ->
+        {:ok, runtime}
+
+      {:ok, %{mcp: %{warnings: warnings}} = runtime} ->
+        Logger.warning(
+          "MCP tool hydration warnings for configured agent #{configured_agent.id}: #{inspect(warnings)}"
+        )
+
+        {:ok, runtime}
+
+      {:ok, other} ->
+        Logger.warning(
+          "Unexpected MCP hydration result for configured agent #{configured_agent.id}: #{inspect(other)}"
+        )
+
+        {:ok, other}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to hydrate MCP tools for configured agent #{configured_agent.id}: #{inspect(reason)}"
+        )
+
+        {:error, reason}
     end
   end
 
@@ -241,6 +303,17 @@ defmodule Zaq.Agent.ServerManager do
     case Integer.parse(id) do
       {int, ""} -> int
       _ -> raise ArgumentError, "invalid configured agent id: #{inspect(id)}"
+    end
+  end
+
+  defp runtime_sync_module do
+    Application.get_env(:zaq, :agent_runtime_sync_module, RuntimeSync)
+  end
+
+  defp runtime_sync_opts do
+    case Application.get_env(:zaq, :agent_runtime_sync_opts, []) do
+      opts when is_list(opts) -> opts
+      _ -> []
     end
   end
 end

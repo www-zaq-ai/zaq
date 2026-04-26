@@ -187,10 +187,16 @@
 
       <:detail>
         <% selected_keys = @form[:enabled_tool_keys].value || [] %>
+        <% selected_mcp_ids = @form[:enabled_mcp_endpoint_ids].value || [] %>
         <% unselected_tool_options =
           @tools
           |> Enum.reject(&(&1.key in selected_keys))
           |> Enum.map(&{"#{&1.label} (#{&1.key})", &1.key}) %>
+        <% unselected_mcp_options =
+          @mcp_endpoints
+          |> Enum.filter(&(&1.status == "enabled"))
+          |> Enum.reject(&(&1.id in selected_mcp_ids))
+          |> Enum.map(&{"#{&1.name} (##{&1.id})", &1.id}) %>
 
         <section class="rounded-xl border border-[#e6e2db] bg-white p-4">
           <div class="flex items-center justify-between">
@@ -357,6 +363,47 @@
                   {msg}
                 </p>
               </div>
+            </div>
+
+            <div>
+              <div class="mb-2 flex items-center justify-between">
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82]">
+                  MCP Endpoints
+                </label>
+                <button
+                  id="add-mcp-button"
+                  type="button"
+                  phx-click="open_mcp_picker"
+                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
+                  disabled={unselected_mcp_options == []}
+                >
+                  + Add MCP
+                </button>
+              </div>
+              <input type="hidden" name="configured_agent[enabled_mcp_endpoint_ids][]" value="" />
+              <input
+                :for={endpoint_id <- selected_mcp_ids}
+                type="hidden"
+                name="configured_agent[enabled_mcp_endpoint_ids][]"
+                value={endpoint_id}
+              />
+              <div
+                :if={@mcp_endpoints == []}
+                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+              >
+                No MCP endpoints are configured.
+              </div>
+              <.selected_mcp_panel
+                :if={@mcp_endpoints != []}
+                mcp_endpoints={@mcp_endpoints}
+                selected_endpoint_ids={selected_mcp_ids}
+              />
+              <p
+                :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
+                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+              >
+                {msg}
+              </p>
             </div>
 
             <div>
@@ -542,6 +589,57 @@
             </div>
           </.form>
         </section>
+
+        <ZaqWeb.Components.BOModal.modal_shell
+          :if={@mcp_picker_open}
+          id="agent-mcp-picker-modal"
+          cancel_event="close_mcp_picker"
+          max_width_class="max-w-lg"
+          panel_class="p-6"
+        >
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+              Add MCP endpoint
+            </h3>
+            <button
+              type="button"
+              phx-click="close_mcp_picker"
+              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form phx-change="add_mcp_from_picker">
+            <.searchable_select
+              id="agent-mcp-picker-select"
+              name="endpoint_id"
+              value={@mcp_picker_value}
+              options={unselected_mcp_options}
+              placeholder="Search MCP endpoints..."
+              empty_label="Choose an endpoint to add..."
+              compact={true}
+            />
+          </form>
+
+          <div class="mt-4">
+            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+              Selected MCP endpoints
+            </p>
+            <.selected_mcp_panel
+              mcp_endpoints={@mcp_endpoints}
+              selected_endpoint_ids={selected_mcp_ids}
+            />
+          </div>
+        </ZaqWeb.Components.BOModal.modal_shell>
 
         <ZaqWeb.Components.BOModal.modal_shell
           :if={@tools_picker_open}

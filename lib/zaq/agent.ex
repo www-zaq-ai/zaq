@@ -4,7 +4,7 @@ defmodule Zaq.Agent do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Zaq.Agent.{ConfiguredAgent, QueryFilters, ServerManager}
+  alias Zaq.Agent.{ConfiguredAgent, MCP, QueryFilters, ServerManager}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
@@ -36,6 +36,14 @@ defmodule Zaq.Agent do
     |> order_by([a], asc: a.name)
     |> preload(:credential)
     |> Repo.all()
+  end
+
+  @spec list_agents_with_mcp_endpoint(integer()) :: [ConfiguredAgent.t()]
+  def list_agents_with_mcp_endpoint(endpoint_id) when is_integer(endpoint_id) do
+    list_agents()
+    |> Enum.filter(fn %ConfiguredAgent{} = agent ->
+      endpoint_id in (agent.enabled_mcp_endpoint_ids || [])
+    end)
   end
 
   @spec filter_agents(map(), keyword()) :: {[ConfiguredAgent.t()], non_neg_integer()}
@@ -167,6 +175,28 @@ defmodule Zaq.Agent do
     changeset
     |> validate_runtime_provider(provider)
     |> validate_tool_capability(provider)
+    |> validate_mcp_endpoint_assignments()
+  end
+
+  defp validate_mcp_endpoint_assignments(%Changeset{} = changeset) do
+    ids = Changeset.get_field(changeset, :enabled_mcp_endpoint_ids) || []
+
+    unknown_ids =
+      ids
+      |> Enum.uniq()
+      |> Enum.reject(fn endpoint_id ->
+        match?(%MCP.Endpoint{}, MCP.get_mcp_endpoint(endpoint_id))
+      end)
+
+    if unknown_ids == [] do
+      changeset
+    else
+      Changeset.add_error(
+        changeset,
+        :enabled_mcp_endpoint_ids,
+        "contains unknown MCP endpoint ids: #{Enum.join(unknown_ids, ", ")}"
+      )
+    end
   end
 
   defp validate_tool_capability(%Changeset{} = changeset, provider) do

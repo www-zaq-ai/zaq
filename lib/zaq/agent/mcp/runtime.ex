@@ -5,10 +5,71 @@ defmodule Zaq.Agent.MCP.Runtime do
 
   alias Anubis.MCP.Error, as: MCPError
   alias Jido.{MCP, MCP.Actions.ListTools, MCP.ClientPool}
+  alias Zaq.Agent.MCP, as: MCPContext
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Types.EncryptedString
 
   @test_endpoint_id :zaq_mcp_test
+  @runtime_endpoint_prefix "mcp_"
+  @max_runtime_endpoints 2000
+  @atom_usage_threshold 0.85
+
+  @spec runtime_endpoint_id(integer(), keyword()) :: {:ok, atom()} | {:error, term()}
+  def runtime_endpoint_id(id, opts \\ [])
+
+  def runtime_endpoint_id(id, opts) when is_integer(id) and id > 0 do
+    atom_value = @runtime_endpoint_prefix <> Integer.to_string(id)
+
+    case to_existing_atom(atom_value) do
+      {:ok, endpoint_id} ->
+        {:ok, endpoint_id}
+
+      :error ->
+        with :ok <- ensure_atom_budget(opts),
+             :ok <- ensure_endpoint_cap(opts) do
+          {:ok, String.to_atom(atom_value)}
+        end
+    end
+  end
+
+  def runtime_endpoint_id(_id, _opts), do: {:error, :invalid_endpoint_id}
+
+  @spec db_endpoint_id(atom()) :: {:ok, integer()} | {:error, :invalid_runtime_endpoint_id}
+  def db_endpoint_id(runtime_endpoint_id)
+      when is_atom(runtime_endpoint_id) and runtime_endpoint_id != @test_endpoint_id do
+    runtime_endpoint_id
+    |> Atom.to_string()
+    |> parse_runtime_endpoint_db_id()
+  end
+
+  def db_endpoint_id(_), do: {:error, :invalid_runtime_endpoint_id}
+
+  @spec register_or_refresh_endpoint(Endpoint.t(), keyword()) :: :ok | {:error, term()}
+  def register_or_refresh_endpoint(endpoint, opts \\ [])
+
+  def register_or_refresh_endpoint(%Endpoint{id: nil}, _opts), do: {:error, :missing_endpoint_id}
+
+  def register_or_refresh_endpoint(%Endpoint{} = endpoint, opts) do
+    register_fn = Keyword.get(opts, :register_fn, &MCP.register_endpoint/1)
+    refresh_fn = Keyword.get(opts, :refresh_fn, &MCP.refresh_endpoint/1)
+
+    with {:ok, endpoint_id} <- runtime_endpoint_id(endpoint.id, opts),
+         {:ok, runtime_endpoint} <- build_endpoint(endpoint_id, endpoint) do
+      case normalize_register_result(register_fn.(runtime_endpoint)) do
+        :ok -> :ok
+        {:error, _reason} -> normalize_refresh_result(refresh_fn.(endpoint_id))
+      end
+    end
+  end
+
+  @spec unregister_endpoint(integer() | atom(), keyword()) :: :ok | {:error, term()}
+  def unregister_endpoint(endpoint_id_or_db_id, opts \\ []) do
+    unregister_fn = Keyword.get(opts, :unregister_fn, &MCP.unregister_endpoint/1)
+
+    with {:ok, endpoint_id} <- resolve_runtime_endpoint_id(endpoint_id_or_db_id, opts) do
+      safe_unregister(unregister_fn, endpoint_id)
+    end
+  end
 
   @spec test_list_tools(Endpoint.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def test_list_tools(%Endpoint{} = endpoint, opts \\ []) do
@@ -91,6 +152,60 @@ defmodule Zaq.Agent.MCP.Runtime do
   end
 
   defp parse_url(_), do: {:error, :invalid_url}
+
+  defp resolve_runtime_endpoint_id(endpoint_id, _opts) when is_atom(endpoint_id),
+    do: {:ok, endpoint_id}
+
+  defp resolve_runtime_endpoint_id(db_id, opts) when is_integer(db_id),
+    do: runtime_endpoint_id(db_id, opts)
+
+  defp resolve_runtime_endpoint_id(_, _opts), do: {:error, :invalid_endpoint_id}
+
+  defp parse_runtime_endpoint_db_id(@runtime_endpoint_prefix <> id_text) do
+    case Integer.parse(id_text) do
+      {id, ""} when id > 0 -> {:ok, id}
+      _ -> {:error, :invalid_runtime_endpoint_id}
+    end
+  end
+
+  defp parse_runtime_endpoint_db_id(_), do: {:error, :invalid_runtime_endpoint_id}
+
+  defp to_existing_atom(value) when is_binary(value) do
+    {:ok, String.to_existing_atom(value)}
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp ensure_atom_budget(opts) do
+    atom_count_fn = Keyword.get(opts, :atom_count_fn, fn -> :erlang.system_info(:atom_count) end)
+    atom_limit_fn = Keyword.get(opts, :atom_limit_fn, fn -> :erlang.system_info(:atom_limit) end)
+    atom_count = atom_count_fn.()
+    atom_limit = atom_limit_fn.()
+
+    usage = if atom_limit > 0, do: atom_count / atom_limit, else: 1.0
+
+    if usage >= @atom_usage_threshold do
+      {:error, {:atom_budget_exceeded, %{atom_count: atom_count, atom_limit: atom_limit}}}
+    else
+      :ok
+    end
+  end
+
+  defp ensure_endpoint_cap(opts) do
+    endpoint_count_fn =
+      Keyword.get(opts, :endpoint_count_fn, fn -> MCPContext.list_mcp_endpoints() |> length() end)
+
+    endpoint_count = endpoint_count_fn.()
+
+    if endpoint_count >= @max_runtime_endpoints do
+      {:error, {:endpoint_cap_reached, %{max: @max_runtime_endpoints, current: endpoint_count}}}
+    else
+      :ok
+    end
+  end
+
+  defp normalize_refresh_result({:ok, _payload}), do: :ok
+  defp normalize_refresh_result(other), do: other
 
   defp port_segment(%URI{port: nil}), do: ""
 

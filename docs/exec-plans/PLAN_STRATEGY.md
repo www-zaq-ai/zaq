@@ -68,10 +68,11 @@ before coding that step.
 
 Each step must include:
 
-1. `Tests to add before implementation`
-2. `Branches/paths validated`
-3. `Mocking plan` (only for edge external API calls)
-4. `Coverage target for touched files` (minimum 95%)
+1. `Functional specifications covered with associated files to edit/add`
+2. `Tests to add before implementation`
+3. `Branches/paths validated`
+4. `Mocking plan` (only for edge external API calls)
+5. `Documentations to update for both code and AGENTS.md related descriptions`
 
 If any item is missing, the step is incomplete and cannot be executed.
 
@@ -81,7 +82,7 @@ If any item is missing, the step is incomplete and cannot be executed.
 
 - Favor integration tests that validate multi-branch behavior.
 - Avoid seams as much as possible; test through real module boundaries.
-- Use mocks only for edge external API calls.
+- Use mocks only for edge API calls that are external to Zaq's primitives (separate deps or outside API).
 - Keep internal dependencies real unless there is a hard technical constraint.
 
 ---
@@ -100,6 +101,7 @@ If any item is missing, the step is incomplete and cannot be executed.
 
 A plan is done only when:
 
+- Step-level functional specifications were written before implementation
 - Step-level test definitions were written before implementation.
 - Required tests were implemented and passing.
 - Coverage for every touched file is >= 95%.

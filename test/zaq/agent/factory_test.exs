@@ -12,6 +12,16 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.TestSupport.OpenAIStub
 
+  defmodule MCPProbeTool do
+    use Jido.Action,
+      name: "mcp_probe_tool",
+      description: "Probe MCP runtime merge",
+      schema: Zoi.object(%{value: Zoi.string() |> Zoi.optional()})
+
+    @impl true
+    def run(_params, _context), do: {:ok, %{ok: true}}
+  end
+
   describe "answering_configured_agent/0" do
     test "returns a ConfiguredAgent with name answering" do
       agent = Answering.answering_configured_agent()
@@ -35,6 +45,18 @@ defmodule Zaq.Agent.FactoryTest do
 
   test "strategy_opts does not include model option" do
     refute Keyword.has_key?(Factory.strategy_opts(), :model)
+  end
+
+  test "declares MCP runtime plugins and actions" do
+    plugins = Factory.plugins()
+    actions = Factory.actions()
+
+    assert Jido.MCP.Plugins.MCP in plugins
+    assert Jido.MCP.JidoAI.Plugins.MCPAI in plugins
+
+    assert Jido.MCP.Actions.ListTools in actions
+    assert Jido.MCP.JidoAI.Actions.SyncToolsToAgent in actions
+    assert Jido.MCP.JidoAI.Actions.UnsyncToolsFromAgent in actions
   end
 
   describe "ProviderSpec.build/0" do
@@ -166,6 +188,53 @@ defmodule Zaq.Agent.FactoryTest do
     assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
     assert body =~ "gpt-4.1-mini"
     assert body =~ configured_agent.job
+  end
+
+  test "ask_with_config merges DB tools with runtime-synced MCP tools" do
+    handler = fn conn, _body ->
+      {200, streamed_reply(conn.request_path, "Factory reply", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Factory Merge Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "factory-merge-key"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Factory Merge Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "You are a helper",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: ["files.read_file"],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    on_exit(fn ->
+      _ = ServerManager.stop_server(configured_agent.id)
+    end)
+
+    assert {:ok, server} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, _agent} = Jido.AI.register_tool(server, MCPProbeTool)
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "hello", configured_agent, timeout: 35_000)
+
+    assert {:ok, _answer} = Factory.await(request, timeout: 45_000)
+
+    assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
+    assert body =~ "mcp_probe_tool"
+    assert body =~ "read_file"
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do

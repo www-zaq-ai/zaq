@@ -3,6 +3,8 @@
 defmodule ZaqWeb.Router do
   use ZaqWeb, :router
 
+  import JidoStudio.Router
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -107,6 +109,8 @@ defmodule ZaqWeb.Router do
 
       live "/people", Live.BO.System.PeopleLive
     end
+
+    jido_studio("/studio")
   end
 
   if Application.compile_env(:zaq, :e2e_routes, false) do

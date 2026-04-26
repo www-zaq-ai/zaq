@@ -17,6 +17,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
     field :job, :string
     field :model, :string
     field :enabled_tool_keys, {:array, :string}, default: []
+    field :enabled_mcp_endpoint_ids, {:array, :integer}, default: []
     field :conversation_enabled, :boolean, default: false
     field :strategy, :string, default: "react"
     field :advanced_options, :map, default: %{}
@@ -28,7 +29,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
   end
 
   @required_fields ~w(name job model credential_id strategy)a
-  @optional_fields ~w(description enabled_tool_keys conversation_enabled advanced_options active)a
+  @optional_fields ~w(description enabled_tool_keys enabled_mcp_endpoint_ids conversation_enabled advanced_options active)a
 
   def changeset(configured_agent, attrs) do
     configured_agent
@@ -37,8 +38,14 @@ defmodule Zaq.Agent.ConfiguredAgent do
     |> validate_length(:name, min: 2, max: 255)
     |> validate_inclusion(:strategy, @strategies)
     |> validate_tool_keys()
+    |> normalize_mcp_endpoint_ids()
     |> unique_constraint(:name)
     |> foreign_key_constraint(:credential_id)
+  end
+
+  defp normalize_mcp_endpoint_ids(changeset) do
+    ids = get_field(changeset, :enabled_mcp_endpoint_ids) || []
+    put_change(changeset, :enabled_mcp_endpoint_ids, Enum.uniq(ids))
   end
 
   defp validate_tool_keys(changeset) do
