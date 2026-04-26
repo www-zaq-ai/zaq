@@ -261,18 +261,16 @@ defmodule Zaq.Agent.ServerManager do
     |> Integer.to_string()
   end
 
-  # Fixed-URL providers manage their own API base URL inside ReqLLM — never override.
-  @fixed_url_providers ~w(anthropic google xai mistral)a
-
-  defp maybe_put_model_base_url(spec, provider, _credential)
-       when provider in @fixed_url_providers,
-       do: spec
-
-  defp maybe_put_model_base_url(spec, _provider, %{endpoint: url})
-       when is_binary(url) and url != "",
-       do: Map.put(spec, :base_url, url)
-
-  defp maybe_put_model_base_url(spec, _provider, _credential), do: spec
+  defp maybe_put_model_base_url(spec, provider, credential) do
+    if Factory.fixed_url_provider?(provider) do
+      spec
+    else
+      case credential do
+        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
+        _ -> spec
+      end
+    end
+  end
 
   defp parse_int_id(id) when is_integer(id), do: id
 

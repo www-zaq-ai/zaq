@@ -19,11 +19,11 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.System
   require Logger
 
-  # Providers natively supported by ReqLLM. Everything else is treated as OpenAI-compatible.
-  @reqllm_providers ~w(openai anthropic google xai mistral)
-
-  # Providers that manage their own API URLs inside ReqLLM — never override with base_url.
-  @fixed_url_providers ~w(anthropic google xai mistral)
+  # Providers that manage their own base URL inside ReqLLM — never override with a custom base_url.
+  # This list cannot be derived automatically from the llm_db catalog: the catalog's `base_url`
+  # field marks a provider's default endpoint, not whether it is user-overridable. For example,
+  # both `openai` (overridable) and `anthropic` (not overridable) have `base_url` in the catalog.
+  @fixed_url_providers ~w(anthropic google xai mistral)a
 
   def strategy_opts do
     super()
@@ -186,13 +186,49 @@ defmodule Zaq.Agent.Factory do
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
-  defp reqllm_provider(p) when p in @reqllm_providers, do: String.to_atom(p)
-  defp reqllm_provider(_), do: :openai
+  @doc """
+  Maps a provider string or atom to the atom ReqLLM expects.
 
-  defp maybe_put_base_url(spec, %{provider: p}) when p in @fixed_url_providers, do: spec
+  Looks up the provider in the llm_db catalog. If found and not `catalog_only`,
+  returns the catalog atom — ReqLLM handles it natively. `catalog_only` providers
+  have no direct API endpoint managed by ReqLLM and fall back to `:openai` for
+  OpenAI-compatible routing. Also falls back for unknown providers.
+  """
+  def reqllm_provider(p) do
+    with {:ok, atom} <- LLMDB.Spec.parse_provider(p),
+         {:ok, %LLMDB.Provider{catalog_only: false}} <- LLMDB.provider(atom) do
+      atom
+    else
+      _ -> :openai
+    end
+  end
 
-  defp maybe_put_base_url(spec, %{endpoint: url}) when is_binary(url) and url != "",
-    do: Map.put(spec, :base_url, url)
+  @doc """
+  Returns `true` if the provider manages its own base URL inside ReqLLM.
+
+  Callers must NOT supply a `base_url` for these providers — ReqLLM uses its
+  built-in default endpoint. Accepts both atoms (`:anthropic`) and strings
+  (`"anthropic"`).
+  """
+  def fixed_url_provider?(provider) when is_atom(provider),
+    do: provider in @fixed_url_providers
+
+  def fixed_url_provider?(provider) when is_binary(provider) do
+    fixed_url_provider?(String.to_existing_atom(provider))
+  rescue
+    ArgumentError -> false
+  end
+
+  defp maybe_put_base_url(spec, %{provider: p} = cfg) do
+    if fixed_url_provider?(reqllm_provider(p)) do
+      spec
+    else
+      case cfg do
+        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
+        _ -> spec
+      end
+    end
+  end
 
   defp maybe_put_base_url(spec, _), do: spec
 end

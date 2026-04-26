@@ -364,7 +364,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         end
 
       updated_history =
-        if result.metadata[:error] || Map.get(result.metadata, :confidence_score, 0.0) == 0.0 do
+        if result.metadata[:error] || Map.get(result.metadata, :confidence_score) == 0.0 do
           history
         else
           now = DateTime.utc_now()

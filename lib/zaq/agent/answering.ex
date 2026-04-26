@@ -8,10 +8,9 @@ defmodule Zaq.Agent.Answering do
   """
 
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.Factory
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
-
-  @reqllm_providers ~w(openai anthropic google xai mistral)
 
   @answering_tools [
     Zaq.Agent.Tools.SearchKnowledgeBase,
@@ -86,7 +85,7 @@ defmodule Zaq.Agent.Answering do
   def clean_answer(answer), do: answer
 
   defp default_advanced_options(%{supports_logprobs: true} = cfg) do
-    if reqllm_provider(cfg.provider) == :openai do
+    if Factory.reqllm_provider(cfg.provider) == :openai do
       %{provider_options: [openai_logprobs: true]}
       |> maybe_put_json_mode(cfg)
     else
@@ -100,7 +99,4 @@ defmodule Zaq.Agent.Answering do
     do: Map.put(opts, :response_format, %{type: "json_object"})
 
   defp maybe_put_json_mode(opts, _cfg), do: opts
-
-  defp reqllm_provider(p) when p in @reqllm_providers, do: String.to_atom(p)
-  defp reqllm_provider(_), do: :openai
 end

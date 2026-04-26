@@ -76,6 +76,23 @@ defmodule Zaq.Agent.ExecutorTest do
       def runtime_config(_agent), do: {:ok, %{system_prompt: "", tools: [], llm_opts: []}}
     end
 
+    defmodule StubFactoryWithUsage do
+      def answering_configured_agent,
+        do: %Zaq.Agent.ConfiguredAgent{id: :answering, name: "answering", strategy: "react"}
+
+      def ask_with_config(_server_id, _query, _agent, _opts \\ []), do: {:ok, make_ref()}
+
+      def await(_ref, _opts) do
+        {:ok,
+         %{
+           result: "the answer",
+           usage: %{prompt_tokens: 50, completion_tokens: 25, total_tokens: 75}
+         }}
+      end
+
+      def runtime_config(_agent), do: {:ok, %{system_prompt: "", tools: [], llm_opts: []}}
+    end
+
     test "routes through answering configured agent, scoped per person" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 5}
 
@@ -103,6 +120,43 @@ defmodule Zaq.Agent.ExecutorTest do
       )
 
       assert_received {:ensure_server_by_id, "answering:anonymous"}
+    end
+
+    test "propagates answer text and token counts into Outgoing metadata" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 7}
+
+      result =
+        Executor.run(incoming,
+          answering_module: StubFactoryWithUsage,
+          factory_module: StubFactoryWithUsage,
+          server_manager_module: StubSMAnswering,
+          node_router: StubNodeRouter,
+          scope: "7"
+        )
+
+      assert %Zaq.Engine.Messages.Outgoing{} = result
+      assert result.body == "the answer"
+      assert result.metadata[:prompt_tokens] == 50
+      assert result.metadata[:completion_tokens] == 25
+      assert result.metadata[:total_tokens] == 75
+      assert result.metadata[:error] == false
+    end
+
+    test "nil confidence from stub does not appear as 0.0 in metadata" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 8}
+
+      result =
+        Executor.run(incoming,
+          answering_module: StubFactoryWithUsage,
+          factory_module: StubFactoryWithUsage,
+          server_manager_module: StubSMAnswering,
+          node_router: StubNodeRouter,
+          scope: "8"
+        )
+
+      # nil confidence (no logprobs) must NOT be coerced to 0.0 —
+      # 0.0 is the explicit no-answer sentinel used by the history guard.
+      assert is_nil(result.metadata[:confidence_score])
     end
   end
 

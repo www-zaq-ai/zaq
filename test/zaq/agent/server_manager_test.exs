@@ -38,8 +38,10 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert key == Agent.agent_server_id(configured_agent.id)
 
     assert {:ok, status} = Jido.AgentServer.status(server_ref)
-    assert {:openai, opts} = status.raw_state.model
-    assert Keyword.get(opts, :model) == "gpt-4.1-mini"
+
+    assert %{provider: :openai, id: "gpt-4.1-mini", base_url: "https://api.openai.com/v1"} =
+             status.raw_state.model
+
     assert status.raw_state.runtime_config.system_prompt == "You are a test agent"
   end
 
@@ -70,7 +72,12 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:via, Registry, {_registry, _key}} = server_ref
 
     assert {:ok, status} = Jido.AgentServer.status(server_ref)
-    assert status.raw_state.model == %{provider: :openai, id: "deepseek/deepseek-r1-0528"}
+
+    assert status.raw_state.model == %{
+             provider: :openai,
+             id: "deepseek/deepseek-r1-0528",
+             base_url: "https://api.novita.ai/openai/v1"
+           }
   end
 
   test "ensure_server is idempotent for unchanged agent config" do
@@ -215,10 +222,10 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent)
     assert {:ok, status} = Jido.AgentServer.status(server_ref)
-    assert {:openai, opts} = status.raw_state.model
-    assert Keyword.get(opts, :model) == "gpt-4.1-mini"
-    assert Keyword.get(opts, :base_url) == credential.endpoint
-    refute Keyword.has_key?(opts, :api_key)
+    model = status.raw_state.model
+    assert %{provider: :openai, id: "gpt-4.1-mini"} = model
+    assert Map.get(model, :base_url) == credential.endpoint
+    refute Map.has_key?(model, :api_key)
 
     _ = ServerManager.stop_server(configured_agent.id)
   end

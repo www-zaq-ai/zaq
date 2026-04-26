@@ -199,7 +199,20 @@ defmodule Zaq.Agent.Executor do
       do: Telemetry.record("qa.tokens.total", result.total_tokens, dims),
       else: :ok
 
-    :ok
+    if is_number(result.confidence_score) do
+      :ok = Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
+
+      bucket =
+        cond do
+          result.confidence_score >= 0.9 -> "qa.answer.confidence.bucket.gt_90"
+          result.confidence_score >= 0.7 -> "qa.answer.confidence.bucket.gt_70"
+          true -> "qa.answer.confidence.bucket.lt_70"
+        end
+
+      Telemetry.record(bucket, 1, dims)
+    else
+      :ok
+    end
   end
 
   defp telemetry_dimensions(opts, incoming) do

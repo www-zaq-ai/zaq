@@ -1,6 +1,15 @@
 defmodule Zaq.Agent.Api do
   @moduledoc """
   Agent role boundary module used by `Zaq.NodeRouter.dispatch/1`.
+
+  Handles the `:run_pipeline` action by resolving the caller identity via
+  `IdentityPlug`, scoping the request, and dispatching to either `Executor`
+  (direct agent run when an agent is selected) or `Pipeline` (full RAG pipeline).
+
+  Identity resolution currently lives here as a temporary step: `IdentityPlug`
+  is a BO-specific Phoenix plug and its invocation belongs closer to the HTTP
+  boundary. It will move into `Executor` once a generic identity contract
+  (decoupled from plug concerns) is in place.
   """
 
   @behaviour Zaq.InternalBoundaries
@@ -20,7 +29,7 @@ defmodule Zaq.Agent.Api do
         pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
         executor_module = Keyword.get(event.opts, :executor_module, Executor)
 
-        # identity resolution — moving to Executor in a follow-up refactor
+        # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
         incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
         scope = Executor.derive_scope(incoming)
 
@@ -67,15 +76,13 @@ defmodule Zaq.Agent.Api do
 
   defp selected_agent_id(assigns) when is_map(assigns) do
     case Map.get(assigns, "agent_selection") do
-      %{"agent_id" => id} when id not in [nil, ""] -> normalize_selected_id(id)
-      %{agent_id: id} when id not in [nil, ""] -> normalize_selected_id(id)
+      %{"agent_id" => id} when id not in [nil, ""] -> id
+      %{agent_id: id} when id not in [nil, ""] -> id
       _ -> nil
     end
   end
 
   defp selected_agent_id(_), do: nil
-
-  defp normalize_selected_id(id), do: id
 
   defp mcp_test_opts(opts) when is_list(opts) do
     case Keyword.get(opts, :mcp_test_opts, []) do

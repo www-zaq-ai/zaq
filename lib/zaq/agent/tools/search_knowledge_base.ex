@@ -43,7 +43,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
           {:error, "Knowledge base search failed: #{inspect(reason)}"}
       end
     rescue
-      e -> {:error, "Knowledge base search error: #{Exception.message(e)}"}
+      e ->
+        {:error, "Knowledge base search error: #{Exception.message(e)}"}
     end
   end
 

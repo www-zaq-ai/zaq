@@ -36,6 +36,50 @@ defmodule Zaq.Agent.FactoryTest do
     refute Keyword.has_key?(Factory.strategy_opts(), :model)
   end
 
+  describe "reqllm_provider/1" do
+    test "known native provider returns its catalog atom" do
+      assert Factory.reqllm_provider("openai") == :openai
+      assert Factory.reqllm_provider("anthropic") == :anthropic
+    end
+
+    test "unknown provider falls back to :openai" do
+      assert Factory.reqllm_provider("totally_nonexistent_xyz") == :openai
+    end
+
+    test "catalog_only provider falls back to :openai" do
+      catalog_only =
+        LLMDB.providers()
+        |> Enum.find(& &1.catalog_only)
+
+      if catalog_only do
+        assert Factory.reqllm_provider(to_string(catalog_only.id)) == :openai
+      end
+    end
+  end
+
+  describe "fixed_url_provider?/1" do
+    test "returns true for known fixed-URL providers" do
+      assert Factory.fixed_url_provider?(:anthropic) == true
+      assert Factory.fixed_url_provider?(:google) == true
+      assert Factory.fixed_url_provider?(:xai) == true
+      assert Factory.fixed_url_provider?(:mistral) == true
+    end
+
+    test "returns false for user-configurable providers" do
+      assert Factory.fixed_url_provider?(:openai) == false
+    end
+
+    test "accepts string provider names" do
+      assert Factory.fixed_url_provider?("anthropic") == true
+      assert Factory.fixed_url_provider?("openai") == false
+    end
+
+    test "returns false for unknown atoms and strings" do
+      assert Factory.fixed_url_provider?(:unknown_provider) == false
+      assert Factory.fixed_url_provider?("not_a_real_provider") == false
+    end
+  end
+
   describe "build_model_spec/0" do
     setup do
       seed_llm_config(%{

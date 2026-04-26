@@ -101,7 +101,10 @@ defmodule ZaqWeb.AgentController do
     if function_exported?(module, :normalize_result, 1) do
       module.normalize_result(result)
     else
-      {:ok, result}
+      case result do
+        %{answer: answer} when is_binary(answer) -> {:ok, result}
+        _ -> {:error, :invalid_result}
+      end
     end
   end
 
