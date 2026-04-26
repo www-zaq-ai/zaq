@@ -4,6 +4,7 @@ defmodule Zaq.Agent.FactoryTest do
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Agent
+  alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
   alias Zaq.Agent.ServerManager
@@ -12,20 +13,20 @@ defmodule Zaq.Agent.FactoryTest do
 
   describe "answering_configured_agent/0" do
     test "returns a ConfiguredAgent with name answering" do
-      agent = Factory.answering_configured_agent()
+      agent = Answering.answering_configured_agent()
       assert %ConfiguredAgent{} = agent
       assert agent.id == :answering
       assert agent.name == "answering"
     end
 
     test "includes answering tool keys" do
-      agent = Factory.answering_configured_agent()
+      agent = Answering.answering_configured_agent()
       assert "answering.search_knowledge_base" in agent.enabled_tool_keys
       assert "answering.ask_for_clarification" in agent.enabled_tool_keys
     end
 
     test "is active and not conversation-enabled" do
-      agent = Factory.answering_configured_agent()
+      agent = Answering.answering_configured_agent()
       assert agent.active == true
       assert agent.conversation_enabled == false
     end

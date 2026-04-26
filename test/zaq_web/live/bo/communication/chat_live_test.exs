@@ -85,6 +85,55 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end
   end
 
+  # FakeExecutor bridges the old NodeRouterFake(:agent, Answering, :ask) stub convention
+  # to the new Executor.run interface used by the pipeline since the Jido refactor.
+  defmodule FakeExecutor do
+    alias Zaq.Engine.Messages.{Incoming, Outgoing}
+
+    def run(%Incoming{} = incoming, opts) do
+      nr = Keyword.get(opts, :node_router, NodeRouterFake)
+
+      case nr.call(:agent, Zaq.Agent.Answering, :ask, []) do
+        {:ok, %{answer: answer, confidence: %{score: score}}} ->
+          %Outgoing{
+            body: answer,
+            channel_id: incoming.channel_id,
+            provider: incoming.provider,
+            metadata: %{
+              confidence_score: score,
+              latency_ms: nil,
+              prompt_tokens: nil,
+              completion_tokens: nil,
+              total_tokens: nil,
+              error: false
+            }
+          }
+
+        {:ok, raw} when is_binary(raw) ->
+          %Outgoing{
+            body: raw,
+            channel_id: incoming.channel_id,
+            provider: incoming.provider,
+            metadata: %{
+              confidence_score: nil,
+              latency_ms: nil,
+              prompt_tokens: nil,
+              completion_tokens: nil,
+              total_tokens: nil,
+              error: false
+            }
+          }
+
+        {:error, {:missing_stub, _, _, _}} ->
+          # No stub registered — fall through to real executor (will fail with :provider_not_found)
+          Zaq.Agent.Executor.run(incoming, opts)
+
+        {:error, _reason} = err ->
+          raise "FakeExecutor: unexpected answering stub error: #{inspect(err)}"
+      end
+    end
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -96,6 +145,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
 
     Application.put_env(:zaq, :chat_live_node_router_module, NodeRouterFake)
+    Application.put_env(:zaq, :pipeline_executor_module, FakeExecutor)
     :persistent_term.put(NodeRouterFake, %{})
     NodeRouterFake.reset_calls()
 
@@ -117,6 +167,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     on_exit(fn ->
       Application.delete_env(:zaq, :chat_live_node_router_module)
+      Application.delete_env(:zaq, :pipeline_executor_module)
       :persistent_term.erase(NodeRouterFake)
       :persistent_term.erase({NodeRouterFake, :calls})
       :persistent_term.erase({NodeRouterFake, :dispatches})

@@ -81,6 +81,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
       result =
         Executor.run(incoming,
+          answering_module: StubFactoryAnswering,
           factory_module: StubFactoryAnswering,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter,
@@ -95,6 +96,7 @@ defmodule Zaq.Agent.ExecutorTest do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: nil}
 
       Executor.run(incoming,
+        answering_module: StubFactoryAnswering,
         factory_module: StubFactoryAnswering,
         server_manager_module: StubSMAnswering,
         node_router: StubNodeRouter

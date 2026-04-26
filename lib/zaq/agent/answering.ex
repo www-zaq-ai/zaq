@@ -1,10 +1,17 @@
 defmodule Zaq.Agent.Answering do
   @moduledoc """
-  Answering agent constants and helpers.
+  Answering agent constants, helpers, and default configuration.
 
-  Defines the tools list and no-answer signals used by the answering agent.
-  Execution is handled by `Zaq.Agent.Executor` via `Factory.answering_configured_agent/0`.
+  Defines the tools list, no-answer signals, and the built-in answering
+  `ConfiguredAgent` used when no BO-configured agent is selected.
+  Execution is handled by `Zaq.Agent.Executor`.
   """
+
+  alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.System
+  alias Zaq.System.AIProviderCredential
+
+  @reqllm_providers ~w(openai anthropic google xai mistral)
 
   @answering_tools [
     Zaq.Agent.Tools.SearchKnowledgeBase,
@@ -41,6 +48,27 @@ defmodule Zaq.Agent.Answering do
 
   def no_answer?(_), do: false
 
+  @spec answering_configured_agent() :: ConfiguredAgent.t()
+  def answering_configured_agent do
+    cfg = System.get_llm_config()
+
+    %ConfiguredAgent{
+      id: :answering,
+      name: "answering",
+      strategy: "react",
+      enabled_tool_keys: ["answering.search_knowledge_base", "answering.ask_for_clarification"],
+      conversation_enabled: false,
+      active: true,
+      advanced_options: default_advanced_options(cfg),
+      model: cfg.model,
+      credential: %AIProviderCredential{
+        provider: cfg.provider,
+        api_key: cfg.api_key,
+        endpoint: cfg.endpoint
+      }
+    }
+  end
+
   @doc """
   Cleans up the raw LLM answer by trimming whitespace and removing
   any surrounding quotes or markdown code fences.
@@ -56,4 +84,23 @@ defmodule Zaq.Agent.Answering do
   end
 
   def clean_answer(answer), do: answer
+
+  defp default_advanced_options(%{supports_logprobs: true} = cfg) do
+    if reqllm_provider(cfg.provider) == :openai do
+      %{provider_options: [openai_logprobs: true]}
+      |> maybe_put_json_mode(cfg)
+    else
+      maybe_put_json_mode(%{}, cfg)
+    end
+  end
+
+  defp default_advanced_options(cfg), do: maybe_put_json_mode(%{}, cfg)
+
+  defp maybe_put_json_mode(opts, %{supports_json_mode: true}),
+    do: Map.put(opts, :response_format, %{type: "json_object"})
+
+  defp maybe_put_json_mode(opts, _cfg), do: opts
+
+  defp reqllm_provider(p) when p in @reqllm_providers, do: String.to_atom(p)
+  defp reqllm_provider(_), do: :openai
 end

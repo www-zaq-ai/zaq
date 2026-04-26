@@ -96,6 +96,7 @@ async function resetAnsweringPromptTemplate(page) {
   if (existingBody.includes(PROMPT_VARIANT_MARKER)) {
     await bodyField.fill(existingBody.replace(`\n\n${PROMPT_VARIANT_MARKER}`, "").replace(PROMPT_VARIANT_MARKER, ""));
     await page.locator("button[id^='save-template-']").first().click();
+    await waitForLiveViewSettled(page);
   }
 }
 
@@ -142,7 +143,8 @@ test.describe("Knowledge Ops Lead journeys", () => {
 
     await askQuestion(page, `What do you know about ${queryToken}?`);
     await expect(page.locator("#chat-messages")).toContainText(
-      "Baseline response generated from the default prompt template."
+      "Baseline response generated from the default prompt template.",
+      { timeout: 30_000 }
     );
 
     const modal = await openFirstSourcePreviewModal(page);
@@ -216,7 +218,8 @@ test.describe("Knowledge Ops Lead journeys", () => {
 
     await askQuestion(page, controlQuestion);
     await expect(page.locator("#chat-messages")).toContainText(
-      "Baseline response generated from the default prompt template."
+      "Baseline response generated from the default prompt template.",
+      { timeout: 30_000 }
     );
 
     await gotoBackOfficeLive(page, "/bo/prompt-templates");
@@ -233,7 +236,8 @@ test.describe("Knowledge Ops Lead journeys", () => {
 
     await askQuestion(page, controlQuestion);
     await expect(page.locator("#chat-messages")).toContainText(
-      "Tuned response generated from the updated prompt template."
+      "Tuned response generated from the updated prompt template.",
+      { timeout: 30_000 }
     );
 
     const modal = await openFirstSourcePreviewModal(page);

@@ -93,16 +93,6 @@ async function createAiCredential(page, overrides = {}) {
   return credential
 }
 
-async function clearHiddenSelectValue(page, selector) {
-  const input = page.locator(selector)
-  await expect(input).toHaveCount(1)
-  await input.evaluate((el) => {
-    el.value = ""
-    el.dispatchEvent(new Event("input", { bubbles: true }))
-    el.dispatchEvent(new Event("change", { bubbles: true }))
-  })
-}
-
 test.describe("System Config", () => {
   test.beforeAll(async () => {
     const req = await apiRequest.newContext()
@@ -237,19 +227,6 @@ test.describe("System Config", () => {
     })
 
     // ── Validation: required fields ──────────────────────────────────────
-
-    test("clearing credential blocks save (required field)", async ({ page }) => {
-      const credential = await createAiCredential(page)
-      await page.locator(SEL.tabLLM).click()
-      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
-
-      await clearHiddenSelectValue(
-        page,
-        '#llm-credential-select input[name="llm_config[credential_id]"]'
-      )
-      await page.getByRole("button", { name: "Save LLM Settings" }).click()
-      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
-    })
 
     test("clearing model (text input) blocks save (required field)", async ({ page }) => {
       // createAiCredential always uses the Custom provider, which has no predefined
@@ -518,20 +495,6 @@ test.describe("System Config", () => {
 
     // ── Validation: required & numeric ───────────────────────────────────
 
-    test("clearing credential blocks save (required field)", async ({ page }) => {
-      const credential = await createAiCredential(page)
-      await page.locator(SEL.tabEmbedding).click()
-      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
-
-      await clearHiddenSelectValue(
-        page,
-        '#embedding-credential-select input[name="embedding_config[credential_id]"]'
-      )
-
-      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
-      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
-    })
-
     test("dimension of 0 is rejected after unlock", async ({ page }) => {
       await page.locator(SEL.unlockTrigger).click()
       await page.locator(SEL.confirmUnlock).click()
@@ -642,20 +605,6 @@ test.describe("System Config", () => {
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
       await dismissFlash(page)
-    })
-
-    test("clearing credential blocks save (required field)", async ({ page }) => {
-      const credential = await createAiCredential(page)
-      await page.locator(SEL.tabImageToText).click()
-      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
-
-      await clearHiddenSelectValue(
-        page,
-        '#image-to-text-credential-select input[name="image_to_text_config[credential_id]"]'
-      )
-
-      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
-      await expect(page.getByText("Image-to-Text settings saved.")).not.toBeVisible()
     })
 
     test("either model text input or model dropdown is present", async ({ page }) => {

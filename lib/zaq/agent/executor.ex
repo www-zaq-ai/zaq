@@ -1,13 +1,16 @@
 defmodule Zaq.Agent.Executor do
   @moduledoc """
-  Executes explicit BO-selected configured agents.
+  Single execution boundary for all agent runs.
+
+  Handles both the default answering path (when no agent is selected) and
+  explicit BO-configured agents. Responsible for scope derivation, Jido server
+  lifecycle, typing indicators, telemetry, and result normalization.
   """
 
   require Logger
 
-  alias ReqLLM.Context
   alias Zaq.Agent
-  alias Zaq.Agent.{Factory, History, LogprobsAnalyzer, ServerManager}
+  alias Zaq.Agent.{Answering, Factory, LogprobsAnalyzer, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
 
@@ -32,11 +35,7 @@ defmodule Zaq.Agent.Executor do
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
     question = Keyword.get(opts, :question, incoming.content)
-    history = opts |> Keyword.get(:history, %{}) |> History.build()
-    messages = history ++ [Context.user(question)]
-    query = History.format_messages(messages)
 
-    logprobs_ref = LogprobsAnalyzer.capture_logprobs()
     opts = ensure_scope_for_answering_path(opts, incoming)
 
     result =
@@ -49,21 +48,23 @@ defmodule Zaq.Agent.Executor do
              incoming.channel_id
            ]),
            {:ok, request} <-
-             factory_module.ask_with_config(server_id, query, configured_agent,
+             factory_module.ask_with_config(server_id, question, configured_agent,
                context: %{
                  person_id: Keyword.get(opts, :person_id),
                  team_ids: Keyword.get(opts, :team_ids, [])
                }
              ),
            {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
-        logprobs = LogprobsAnalyzer.release_logprobs(logprobs_ref)
-        confidence = LogprobsAnalyzer.confidence_from_metadata_or_nil(%{logprobs: logprobs})
+        confidence =
+          LogprobsAnalyzer.confidence_from_metadata_or_nil(%{
+            logprobs: LogprobsAnalyzer.from_response(answer)
+          })
+
         result = success_result(answer, configured_agent, started_at, confidence)
         :ok = record_success_telemetry(result, dims)
         Outgoing.from_pipeline_result(incoming, result)
       else
         {:error, reason} ->
-          LogprobsAnalyzer.release_logprobs(logprobs_ref)
           Logger.error("Configured agent execution failed: #{inspect(reason)}")
 
           :ok =
@@ -90,9 +91,11 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp load_selected_agent(opts, agent_module, factory_module) do
+  defp load_selected_agent(opts, agent_module, _factory_module) do
+    answering_module = Keyword.get(opts, :answering_module, Answering)
+
     case Keyword.get(opts, :agent_id) do
-      nil -> {:ok, factory_module.answering_configured_agent()}
+      nil -> {:ok, answering_module.answering_configured_agent()}
       agent_id -> agent_module.get_active_agent(agent_id)
     end
   end

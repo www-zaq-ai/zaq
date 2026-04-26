@@ -70,9 +70,10 @@ function fileRow(page, filename) {
   return page.getByRole("row", { name: filename })
 }
 
-// Ensure the file is selected (check if already selected to avoid toggling off) then ingest.
-// Waits for the LiveView to quiesce before reading the checkbox state, otherwise a
-// pending PubSub re-render can stale the handle and flip the selection off.
+// Ensure the file is selected then ingest.
+// Uses check() (idempotent) instead of a point-in-time isChecked() read so that
+// an in-flight PubSub handle_info re-render cannot produce a stale DOM snapshot
+// that causes the selection to be toggled off.
 async function selectAndIngest(page, row) {
   // Clear any stale flash FIRST so the "Ingestion started." check below cannot
   // match a leftover toast from a previous call and silently skip the real wait.
@@ -81,11 +82,9 @@ async function selectAndIngest(page, row) {
   const checkbox = row.getByRole("checkbox")
   const ingestButton = page.locator(SEL.ingestButton)
   await expect(checkbox).toBeVisible()
-  if (!(await checkbox.isChecked())) {
-    await checkbox.click()
-    await expect(checkbox).toBeChecked()
-    await waitForLiveViewSettled(page)
-  }
+  await checkbox.check()
+  await expect(checkbox).toBeChecked()
+  await waitForLiveViewSettled(page)
   // The checkbox reflects the browser state immediately, but the server-side
   // @selected set drives whether ingest_selected actually enqueues a job.
   // Wait for LiveView to re-enable the action before clicking, otherwise the

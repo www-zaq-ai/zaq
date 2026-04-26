@@ -1,9 +1,10 @@
 defmodule Zaq.Agent.Factory do
   @moduledoc """
-  Standard Jido agent used for BO-managed configured agents.
+  Jido AI agent implementation shared by all configured agents.
 
-  All configured agents execute through this module. Per-agent specifics are
-  applied at runtime (server model/runtime state and request tool/llm options).
+  One Factory server is spawned per agent scope. Provides `ask_with_config/4`
+  to send a query with per-agent tool and LLM opts resolved at call time.
+  The built-in answering agent configuration lives in `Zaq.Agent.Answering`.
   """
 
   use Jido.AI.Agent,
@@ -56,24 +57,11 @@ defmodule Zaq.Agent.Factory do
         opts
       end
 
-    if cfg.supports_logprobs and cfg.provider == "openai" do
+    if cfg.supports_logprobs and reqllm_provider(cfg.provider) == :openai do
       Keyword.put(opts, :provider_options, openai_logprobs: true)
     else
       opts
     end
-  end
-
-  @spec answering_configured_agent() :: ConfiguredAgent.t()
-  def answering_configured_agent do
-    %ConfiguredAgent{
-      id: :answering,
-      name: "answering",
-      strategy: "react",
-      enabled_tool_keys: ["answering.search_knowledge_base", "answering.ask_for_clarification"],
-      conversation_enabled: false,
-      active: true,
-      advanced_options: %{}
-    }
   end
 
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
@@ -82,7 +70,7 @@ defmodule Zaq.Agent.Factory do
       {:ok,
        %{
          tools: tools,
-         llm_opts: llm_opts(configured_agent),
+         llm_opts: Keyword.merge(generation_opts(), llm_opts(configured_agent)),
          system_prompt: configured_agent.job || ""
        }}
     end
