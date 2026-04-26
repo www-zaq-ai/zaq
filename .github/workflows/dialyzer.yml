@@ -1,0 +1,93 @@
+name: Dialyzer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dialyzer:
+    name: Dialyzer
+    runs-on: ubuntu-latest
+
+    env:
+      MIX_ENV: dev
+
+    strategy:
+      matrix:
+        include:
+          - otp: "27.2"
+            elixir: "1.18.1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        id: setup-beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+
+      # Cache deps — keyed on OTP/Elixir/mix.lock so it busts when any of these change.
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            deps-${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-
+
+      # Cache _build separately — same key strategy.
+      - name: Cache _build
+        uses: actions/cache@v4
+        with:
+          path: _build
+          key: build-${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ env.MIX_ENV }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            build-${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ env.MIX_ENV }}-
+
+      - name: Install dependencies
+        run: mix deps.get --only $MIX_ENV
+
+      - name: Compile dependencies
+        run: mix deps.compile
+
+      - name: Compile project
+        run: mix compile --warnings-as-errors
+
+      # PLT cache — the important one.
+      # restore-keys lets an older PLT be picked up and incrementally updated
+      # instead of rebuilt from scratch when mix.lock changes.
+      - name: Restore PLT cache
+        id: plt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: priv/plts
+          key: plt-${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            plt-${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-
+
+      - name: Create PLTs directory
+        run: mkdir -p priv/plts
+
+      - name: Build PLTs
+        if: steps.plt-cache.outputs.cache-hit != 'true'
+        run: mix dialyzer --plt
+
+      # Save PLT cache separately from restore — this way we save even when
+      # only the hash changed but the PLT was incrementally updated.
+      - name: Save PLT cache
+        uses: actions/cache/save@v4
+        if: steps.plt-cache.outputs.cache-hit != 'true'
+        with:
+          path: priv/plts
+          key: plt-${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+
+      - name: Run Dialyzer
+        run: mix dialyzer --format github

@@ -13,9 +13,24 @@ defmodule Zaq.MixProject do
       aliases: aliases(),
       deps: deps(),
       dialyzer: [
-        flags: [:unmatched_returns, :error_handling, :underspecs],
+        flags: [:error_handling, :underspecs, :unknown],
         # This will use your ignore file
         ignore_warnings: ".dialyzer_ignore.exs"
+      ],
+      dialyzer: [
+        plt_file: {:no_warn, "priv/plts/project.plt"},
+        plt_core_path: "priv/plts/core.plt",
+        plt_add_apps: [:mix, :ex_unit],
+        flags: [
+          :error_handling,
+          :extra_return,
+          :missing_return,
+          :underspecs,
+          :unknown,
+          :unmatched_returns
+        ],
+        ignore_warnings: ".dialyzer_ignore.exs",
+        list_unused_filters: true
       ],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
