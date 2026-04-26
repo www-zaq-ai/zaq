@@ -202,28 +202,31 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp model_spec(%ConfiguredAgent{} = configured_agent) do
-    case Agent.runtime_provider_for_agent(configured_agent) do
-      {:ok, runtime_provider} ->
-        credential =
-          configured_agent.credential ||
-            Zaq.System.get_ai_provider_credential(configured_agent.credential_id)
+    credential =
+      configured_agent.credential ||
+        Zaq.System.get_ai_provider_credential(configured_agent.credential_id)
 
-        if needs_inline_model_shape?(configured_agent, runtime_provider) do
-          {:ok, %{provider: runtime_provider, id: configured_agent.model}}
-        else
-          provider_opts =
-            []
-            |> Keyword.put(:model, configured_agent.model)
-            |> maybe_put(:base_url, credential && credential.endpoint)
-            |> maybe_put(:api_key, credential && credential.api_key)
-
-          {:ok, {runtime_provider, provider_opts}}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, runtime_provider} <- resolve_runtime_provider(configured_agent, credential) do
+      spec = %{provider: runtime_provider, id: configured_agent.model}
+      {:ok, maybe_put_model_base_url(spec, runtime_provider, credential)}
     end
   end
+
+  # Falls back to :openai only when the provider is unknown to both ReqLLM and LLMDB
+  # but the credential carries an explicit endpoint — the endpoint signals an intentional
+  # custom OpenAI-compatible setup.
+  defp resolve_runtime_provider(configured_agent, credential) do
+    case Agent.runtime_provider_for_agent(configured_agent) do
+      {:ok, _} = ok -> ok
+      {:error, :provider_not_found} -> openai_if_custom_endpoint(credential)
+      error -> error
+    end
+  end
+
+  defp openai_if_custom_endpoint(%{endpoint: url}) when is_binary(url) and url != "",
+    do: {:ok, :openai}
+
+  defp openai_if_custom_endpoint(_), do: {:error, :provider_not_found}
 
   defp stop_server_if_running(server_id) do
     case safe_whereis(server_id) do
@@ -258,12 +261,18 @@ defmodule Zaq.Agent.ServerManager do
     |> Integer.to_string()
   end
 
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+  # Fixed-URL providers manage their own API base URL inside ReqLLM — never override.
+  @fixed_url_providers ~w(anthropic google xai mistral)a
 
-  defp needs_inline_model_shape?(%ConfiguredAgent{} = configured_agent, runtime_provider) do
-    Agent.provider_for_agent(configured_agent) != Atom.to_string(runtime_provider)
-  end
+  defp maybe_put_model_base_url(spec, provider, _credential)
+       when provider in @fixed_url_providers,
+       do: spec
+
+  defp maybe_put_model_base_url(spec, _provider, %{endpoint: url})
+       when is_binary(url) and url != "",
+       do: Map.put(spec, :base_url, url)
+
+  defp maybe_put_model_base_url(spec, _provider, _credential), do: spec
 
   defp parse_int_id(id) when is_integer(id), do: id
 

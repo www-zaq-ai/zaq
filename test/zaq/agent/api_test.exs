@@ -213,7 +213,8 @@ defmodule Zaq.Agent.ApiTest do
 
     assert %Outgoing{} = result.response
     assert result.response.body == "ok"
-    assert_received {:pipeline_called, ^incoming, [foo: :bar]}
+    assert_received {:pipeline_called, ^incoming, opts}
+    assert Keyword.get(opts, :foo) == :bar
   end
 
   test "delegates invoke to shared internal boundaries helper" do

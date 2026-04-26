@@ -88,12 +88,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   # FakeExecutor bridges the old NodeRouterFake(:agent, Answering, :ask) stub convention
   # to the new Executor.run interface used by the pipeline since the Jido refactor.
   defmodule FakeExecutor do
+    alias Zaq.Agent.Answering
+    alias Zaq.Agent.Executor
     alias Zaq.Engine.Messages.{Incoming, Outgoing}
 
     def run(%Incoming{} = incoming, opts) do
       nr = Keyword.get(opts, :node_router, NodeRouterFake)
 
-      case nr.call(:agent, Zaq.Agent.Answering, :ask, []) do
+      case nr.call(:agent, Answering, :ask, []) do
         {:ok, %{answer: answer, confidence: %{score: score}}} ->
           %Outgoing{
             body: answer,
@@ -126,7 +128,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
         {:error, {:missing_stub, _, _, _}} ->
           # No stub registered — fall through to real executor (will fail with :provider_not_found)
-          Zaq.Agent.Executor.run(incoming, opts)
+          Executor.run(incoming, opts)
 
         {:error, _reason} = err ->
           raise "FakeExecutor: unexpected answering stub error: #{inspect(err)}"
