@@ -46,6 +46,34 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
     assert opts[:env]["API_TOKEN"] == "top-secret"
   end
 
+  test "runtime endpoint id maps to and from deterministic atom" do
+    assert {:ok, :mcp_42} = Runtime.runtime_endpoint_id(42)
+    assert {:ok, 42} = Runtime.db_endpoint_id(:mcp_42)
+  end
+
+  test "runtime endpoint id parsing rejects invalid atoms" do
+    assert {:error, :invalid_runtime_endpoint_id} = Runtime.db_endpoint_id(:mcp_bad)
+    assert {:error, :invalid_runtime_endpoint_id} = Runtime.db_endpoint_id(:zaq_mcp_test)
+  end
+
+  test "runtime endpoint id rejects new atom creation when atom budget is exhausted" do
+    assert {:error, {:atom_budget_exceeded, _details}} =
+             Runtime.runtime_endpoint_id(9_999,
+               atom_count_fn: fn -> 90 end,
+               atom_limit_fn: fn -> 100 end,
+               endpoint_count_fn: fn -> 0 end
+             )
+  end
+
+  test "runtime endpoint id rejects registration when endpoint cap is reached" do
+    assert {:error, {:endpoint_cap_reached, %{max: 2000, current: 2000}}} =
+             Runtime.runtime_endpoint_id(8_888,
+               atom_count_fn: fn -> 10 end,
+               atom_limit_fn: fn -> 100 end,
+               endpoint_count_fn: fn -> 2000 end
+             )
+  end
+
   test "build_endpoint builds remote streamable_http endpoint and decrypts secret headers" do
     {:ok, encrypted_auth} = EncryptedString.encrypt("Bearer abc")
 

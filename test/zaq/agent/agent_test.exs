@@ -6,6 +6,7 @@ defmodule Zaq.AgentTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
@@ -259,6 +260,57 @@ defmodule Zaq.AgentTest do
 
     assert Agent.provider_for_agent(%ConfiguredAgent{credential_id: credential.id}) == "novita_ai"
     assert {:ok, :openai} = Agent.runtime_provider_for_agent(agent)
+  end
+
+  test "validates enabled_mcp_endpoint_ids and can list agents by endpoint assignment" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Agent MCP Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Agent MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, assigned} =
+      Agent.create_agent(%{
+        name: "Agent With MCP #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_mcp_endpoint_ids: [endpoint.id],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert Enum.any?(Agent.list_agents_with_mcp_endpoint(endpoint.id), &(&1.id == assigned.id))
+
+    {:error, changeset} =
+      Agent.create_agent(%{
+        name: "Agent With Unknown MCP #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_mcp_endpoint_ids: [999_999_999],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert errors_on(changeset).enabled_mcp_endpoint_ids
+           |> to_string()
+           |> String.contains?("contains unknown MCP endpoint ids")
   end
 
   test "runtime provider returns provider_not_supported for known unsupported runtime" do

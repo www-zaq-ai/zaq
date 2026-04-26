@@ -27,6 +27,28 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  defmodule StubRuntimeSync do
+    def configured_agent_created(attrs) do
+      send(self(), {:configured_agent_created_called, attrs})
+      {:ok, %{agent: %{id: 1, name: attrs["name"] || attrs[:name]}}}
+    end
+
+    def configured_agent_updated(id, attrs) do
+      send(self(), {:configured_agent_updated_called, id, attrs})
+      {:ok, %{agent: %{id: id, name: attrs["name"] || attrs[:name]}}}
+    end
+
+    def configured_agent_deleted(id) do
+      send(self(), {:configured_agent_deleted_called, id})
+      {:ok, %{agent: %{id: id}}}
+    end
+
+    def mcp_endpoint_updated(request) do
+      send(self(), {:mcp_endpoint_updated_called, request})
+      {:ok, %{endpoint: %{id: 42, name: "MCP"}}}
+    end
+  end
+
   # Passthrough identity plug (no DB, leaves incoming unchanged)
   defmodule PassthroughIdentityPlug do
     def call(incoming, _opts), do: incoming
@@ -262,6 +284,56 @@ defmodule Zaq.Agent.ApiTest do
     result = Api.handle_event(event, :mcp_test_list_tools, nil)
 
     assert result.response == {:error, {:invalid_request, %{foo: "bar"}}}
+  end
+
+  test "delegates configured_agent_created to runtime sync module" do
+    event =
+      Event.new(%{attrs: %{"name" => "Agent"}}, :agent,
+        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSync]
+      )
+
+    result = Api.handle_event(event, :configured_agent_created, nil)
+
+    assert result.response == {:ok, %{agent: %{id: 1, name: "Agent"}}}
+    assert_received {:configured_agent_created_called, %{"name" => "Agent"}}
+  end
+
+  test "configured_agent_updated validates request shape" do
+    event = Event.new(%{id: "1", attrs: %{}}, :agent, opts: [action: :configured_agent_updated])
+
+    result = Api.handle_event(event, :configured_agent_updated, nil)
+
+    assert result.response == {:error, {:invalid_request, %{id: "1", attrs: %{}}}}
+  end
+
+  test "delegates configured_agent_updated, configured_agent_deleted, and mcp_endpoint_updated" do
+    updated_event =
+      Event.new(%{id: 9, attrs: %{"name" => "Updated"}}, :agent,
+        opts: [action: :configured_agent_updated, runtime_sync_module: StubRuntimeSync]
+      )
+
+    deleted_event =
+      Event.new(%{id: 9}, :agent,
+        opts: [action: :configured_agent_deleted, runtime_sync_module: StubRuntimeSync]
+      )
+
+    mcp_event =
+      Event.new(%{action: :create, attrs: %{name: "X"}}, :agent,
+        opts: [action: :mcp_endpoint_updated, runtime_sync_module: StubRuntimeSync]
+      )
+
+    assert Api.handle_event(updated_event, :configured_agent_updated, nil).response ==
+             {:ok, %{agent: %{id: 9, name: "Updated"}}}
+
+    assert Api.handle_event(deleted_event, :configured_agent_deleted, nil).response ==
+             {:ok, %{agent: %{id: 9}}}
+
+    assert Api.handle_event(mcp_event, :mcp_endpoint_updated, nil).response ==
+             {:ok, %{endpoint: %{id: 42, name: "MCP"}}}
+
+    assert_received {:configured_agent_updated_called, 9, %{"name" => "Updated"}}
+    assert_received {:configured_agent_deleted_called, 9}
+    assert_received {:mcp_endpoint_updated_called, %{action: :create, attrs: %{name: "X"}}}
   end
 
   # ---------------------------------------------------------------------------

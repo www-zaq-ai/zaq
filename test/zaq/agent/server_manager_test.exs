@@ -5,7 +5,24 @@ defmodule Zaq.Agent.ServerManagerTest do
 
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
+
+  defmodule StubRuntimeSync do
+    def sync_agent_runtime(agent, server_ref, opts \\ []) do
+      notify_pid = Keyword.get(opts, :notify_pid)
+
+      if is_pid(notify_pid) do
+        send(notify_pid, {:runtime_sync_hydrate_called, agent.id, agent.enabled_mcp_endpoint_ids, server_ref})
+      end
+
+      {:ok,
+       %{
+         tools: %{added_tools: [], removed_tools: [], add_results: [], remove_results: []},
+         mcp: %{synced_endpoint_ids: [], skipped_endpoint_ids: [], warnings: [], results: []}
+       }}
+    end
+  end
 
   test "ensure_server returns a resolvable server reference" do
     credential =
@@ -482,5 +499,67 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:via, Registry, {registry, key}} = first_ref
     pid = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid)
+  end
+
+  test "init hydrates MCP assignments for active agents on fresh start" do
+    previous_module = Application.get_env(:zaq, :agent_runtime_sync_module)
+    previous_opts = Application.get_env(:zaq, :agent_runtime_sync_opts)
+
+    Application.put_env(:zaq, :agent_runtime_sync_module, StubRuntimeSync)
+    Application.put_env(:zaq, :agent_runtime_sync_opts, notify_pid: self())
+
+    on_exit(fn ->
+      if is_nil(previous_module) do
+        Application.delete_env(:zaq, :agent_runtime_sync_module)
+      else
+        Application.put_env(:zaq, :agent_runtime_sync_module, previous_module)
+      end
+
+      if is_nil(previous_opts) do
+        Application.delete_env(:zaq, :agent_runtime_sync_opts)
+      else
+        Application.put_env(:zaq, :agent_runtime_sync_opts, previous_opts)
+      end
+    end)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Hydrate Init Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Hydrate Endpoint #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Hydrate Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "hydrate",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_mcp_endpoint_ids: [endpoint.id],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    expected_agent_id = configured_agent.id
+    expected_endpoint_id = endpoint.id
+
+    assert {:ok, _state} = ServerManager.init([])
+
+    assert_receive {:runtime_sync_hydrate_called, ^expected_agent_id, [^expected_endpoint_id], _server_ref},
+                   1_000
   end
 end

@@ -11,8 +11,11 @@ defmodule Zaq.Agent.Factory do
     name: "agent_factory",
     description: "Runtime-configured standard ZAQ agent",
     request_policy: :reject,
-    tools: [],
-    plugins: []
+    plugins: [
+      {Jido.MCP.Plugins.MCP, %{allowed_endpoints: :all}},
+      Jido.MCP.JidoAI.Plugins.MCPAI
+    ],
+    tools: []
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.ProviderSpec
@@ -51,7 +54,6 @@ defmodule Zaq.Agent.Factory do
          :ok <- ensure_system_prompt(server, Map.get(config, :system_prompt, "")) do
       ask_opts =
         opts
-        |> Keyword.put(:tools, Map.get(config, :tools, []))
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
         |> Keyword.put_new(:timeout, 30_000)
 

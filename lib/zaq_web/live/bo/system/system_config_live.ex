@@ -460,15 +460,26 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("enable_predefined_mcp", %{"predefined_id" => predefined_id}, socket) do
-    case MCP.enable_predefined(predefined_id) do
-      {:ok, _endpoint} ->
-        {:noreply,
-         socket
-         |> load_mcp_endpoints()
-         |> put_flash(:info, "Predefined MCP enabled.")}
+    event =
+      Event.new(%{action: :enable_predefined, predefined_id: predefined_id}, :agent,
+        opts: [action: :mcp_endpoint_updated]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, payload} ->
+        socket =
+          socket
+          |> load_mcp_endpoints()
+          |> put_flash(:info, "Predefined MCP enabled.")
+          |> maybe_put_mcp_runtime_warnings(payload)
+
+        {:noreply, socket}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to enable MCP: #{inspect(reason)}")}
+
+      other ->
+        {:noreply, put_flash(socket, :error, "Failed to enable MCP: #{inspect(other)}")}
     end
   end
 
@@ -490,24 +501,30 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   def handle_event("save_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
     {rows, parsed} = build_mcp_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
 
-    result =
+    request =
       case socket.assigns.mcp_endpoint_action do
         :edit ->
-          socket.assigns.mcp_endpoint_id
-          |> MCP.get_mcp_endpoint!()
-          |> MCP.update_mcp_endpoint(parsed)
+          %{action: :update, id: socket.assigns.mcp_endpoint_id, attrs: parsed}
 
         _ ->
-          MCP.create_mcp_endpoint(parsed)
+          %{action: :create, attrs: parsed}
       end
 
+    event =
+      Event.new(request, :agent, opts: [action: :mcp_endpoint_updated])
+
+    result = NodeRouter.dispatch(event).response
+
     case result do
-      {:ok, endpoint} ->
-        {:noreply,
-         socket
-         |> assign(:mcp_endpoint_modal, false)
-         |> load_mcp_endpoints()
-         |> put_flash(:info, "MCP endpoint saved (#{endpoint.name}).")}
+      {:ok, %{endpoint: endpoint} = payload} ->
+        socket =
+          socket
+          |> assign(:mcp_endpoint_modal, false)
+          |> load_mcp_endpoints()
+          |> put_flash(:info, "MCP endpoint saved (#{endpoint.name}).")
+          |> maybe_put_mcp_runtime_warnings(payload)
+
+        {:noreply, socket}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
@@ -517,6 +534,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
            to_form(Map.put(changeset, :action, :validate), as: :mcp_endpoint)
          )
          |> assign(:mcp_endpoint_rows, rows)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_rows, rows)
+         |> put_flash(:error, "Failed to save MCP endpoint: #{inspect(reason)}")}
+
+      other ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_rows, rows)
+         |> put_flash(:error, "Failed to save MCP endpoint: #{inspect(other)}")}
     end
   end
 
@@ -912,6 +941,30 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> inspect()
     |> String.contains?("mcp_runtime_call_exit")
   end
+
+  defp maybe_put_mcp_runtime_warnings(socket, payload) when is_map(payload) do
+    warnings = mcp_runtime_warnings(payload)
+
+    if warnings == [] do
+      socket
+    else
+      put_flash(socket, :warning, "MCP runtime warnings: #{inspect(warnings)}")
+    end
+  end
+
+  defp maybe_put_mcp_runtime_warnings(socket, _), do: socket
+
+  defp mcp_runtime_warnings(payload) when is_map(payload) do
+    payload
+    |> mcp_map_get(:runtime, %{})
+    |> mcp_map_get(:warnings, [])
+  end
+
+  defp mcp_map_get(map, key, default) when is_map(map) do
+    Map.get(map, key, Map.get(map, to_string(key), default))
+  end
+
+  defp mcp_map_get(_map, _key, default), do: default
 
   defp load_llm_form(socket) do
     cfg = System.get_llm_config()

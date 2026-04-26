@@ -81,6 +81,27 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
     assert "contains unknown tools: files.unknown" in errors_on(changeset).enabled_tool_keys
   end
 
+  test "changeset normalizes enabled_mcp_endpoint_ids" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Configured Agent MCP Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    changeset =
+      ConfiguredAgent.changeset(%ConfiguredAgent{}, %{
+        name: "Agent #{System.unique_integer([:positive])}",
+        job: "do thing",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_mcp_endpoint_ids: [1, 2, 1]
+      })
+
+    assert changeset.valid?
+    assert Ecto.Changeset.get_field(changeset, :enabled_mcp_endpoint_ids) == [1, 2]
+  end
+
   test "database constraints are surfaced by the changeset" do
     credential =
       ai_credential_fixture(%{

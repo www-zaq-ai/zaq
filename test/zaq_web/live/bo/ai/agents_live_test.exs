@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
   alias Ecto.Changeset
   alias Zaq.Accounts
+  alias Zaq.Agent.MCP
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
@@ -71,6 +72,55 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Read file"
     assert html =~ "Write file"
     assert html =~ "List directory"
+  end
+
+  test "renders MCP section above tools and supports add/remove", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, enabled_endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Enabled MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, _disabled_endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Disabled MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "disabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    html = render(view)
+    {mcp_pos, _} = :binary.match(html, "MCP Endpoints")
+    {tools_pos, _} = :binary.match(html, "Enabled Tools")
+    assert mcp_pos < tools_pos
+
+    render_click(element(view, "#add-mcp-button"))
+
+    modal_html = render(view)
+    assert modal_html =~ "Enabled MCP"
+    refute modal_html =~ "Disabled MCP"
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => to_string(enabled_endpoint.id)})
+
+    assert has_element?(view, ~s([data-selected-mcp-endpoint-id="#{enabled_endpoint.id}"]))
+
+    view
+    |> element(
+      "#configured-agent-form button[phx-click='remove_mcp'][phx-value-id='#{enabled_endpoint.id}']"
+    )
+    |> render_click()
+
+    refute has_element?(view, ~s([data-selected-mcp-endpoint-id="#{enabled_endpoint.id}"]))
   end
 
   test "list hides delete button and shows status dot in name", %{conn: conn} do

@@ -17,6 +17,7 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Agent.Executor
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Pipeline
+  alias Zaq.Agent.RuntimeSync
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.InternalBoundaries
@@ -64,6 +65,63 @@ defmodule Zaq.Agent.Api do
       %{endpoint_id: endpoint_id} ->
         opts = mcp_test_opts(event.opts)
         %{event | response: mcp_module.test_list_tools(endpoint_id, opts)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :configured_agent_created, _context) do
+    runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
+
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: runtime_sync_module.configured_agent_created(attrs)}
+
+      %{"attrs" => attrs} when is_map(attrs) ->
+        %{event | response: runtime_sync_module.configured_agent_created(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :configured_agent_updated, _context) do
+    runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
+
+    case event.request do
+      %{id: id, attrs: attrs} when is_integer(id) and is_map(attrs) ->
+        %{event | response: runtime_sync_module.configured_agent_updated(id, attrs)}
+
+      %{"id" => id, "attrs" => attrs} when is_integer(id) and is_map(attrs) ->
+        %{event | response: runtime_sync_module.configured_agent_updated(id, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :configured_agent_deleted, _context) do
+    runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
+
+    case event.request do
+      %{id: id} when is_integer(id) ->
+        %{event | response: runtime_sync_module.configured_agent_deleted(id)}
+
+      %{"id" => id} when is_integer(id) ->
+        %{event | response: runtime_sync_module.configured_agent_deleted(id)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :mcp_endpoint_updated, _context) do
+    runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
+
+    case event.request do
+      request when is_map(request) ->
+        %{event | response: runtime_sync_module.mcp_endpoint_updated(request)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}

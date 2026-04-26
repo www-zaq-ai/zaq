@@ -8,7 +8,7 @@ Move it to `docs/exec-plans/completed/` when done.
 ## Plan: [Short Title]
 
 **Date:** YYYY-MM-DD
-**Author:** [agent or human]
+**Author:** [human]
 **Status:** `active` | `completed` | `blocked`
 **Related debt:** [link to item in tech-debt-tracker.md if applicable]
 **PR(s):** [list PRs opened as part of this plan]
@@ -87,8 +87,8 @@ completable in a single PR. Check off as you go.
 Record decisions made during implementation. Future agents need this context.
 
 | Decision | Rationale | Date |
-|---|---|---|
-| | | |
+| -------- | --------- | ---- |
+|          |           |      |
 
 ---
 
@@ -97,8 +97,8 @@ Record decisions made during implementation. Future agents need this context.
 List anything blocking progress and who/what can unblock it.
 
 | Blocker | Owner | Status |
-|---|---|---|
-| | | |
+| ------- | ----- | ------ |
+|         |       |        |
 
 ---
 
