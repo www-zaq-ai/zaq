@@ -71,7 +71,12 @@ defmodule Zaq.Ingestion.ListDocumentSourcesTest do
       seed("archives/zaq-pptx/other.pptx")
 
       results = Ingestion.list_document_sources("zaq/")
-      child_labels = results |> Enum.reject(&(&1.type == :current_folder)) |> Enum.map(& &1.label) |> Enum.sort()
+
+      child_labels =
+        results
+        |> Enum.reject(&(&1.type == :current_folder))
+        |> Enum.map(& &1.label)
+        |> Enum.sort()
 
       assert child_labels == ["file1.pdf", "file2.pdf"]
       refute "other.pptx" in child_labels
