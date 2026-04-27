@@ -79,6 +79,14 @@ const ContentFilter = {
   },
 
   handleClick(e) {
+    const selectBtn = e.target.closest("[data-select-folder-item]")
+    if (selectBtn) {
+      e.preventDefault()
+      e.stopPropagation()
+      this.selectFolderAsFilter(selectBtn)
+      return
+    }
+
     const item = e.target.closest("[data-suggestion-item]")
     if (item) {
       e.preventDefault()
@@ -99,7 +107,19 @@ const ContentFilter = {
     const before = ta.value.slice(0, this._atPos)
     const after = ta.value.slice(this._atPos + 1 + (this._currentQuery || "").length)
 
-    if (type === "folder") {
+    if (type === "current_folder") {
+      // The user is inside @folder/ and wants the folder itself as the filter.
+      // label is e.g. "zaq"; _currentQuery is "zaq/" — replace the whole thing with "zaq ".
+      const completion = label
+      ta.value = before + "@" + completion + " " + after
+      const newCursor = this._atPos + 1 + completion.length + 1
+      ta.setSelectionRange(newCursor, newCursor)
+      this._atPos = null
+      this._currentQuery = null
+      this._activeIndex = -1
+      ta.dispatchEvent(new Event("input", { bubbles: true }))
+      this.pushEvent("add_content_filter", { source_prefix: sourcePrefix, connector, label, type: "folder" })
+    } else if (type === "folder") {
       const completion = folderPrefix + label + "/"
       ta.value = before + "@" + completion + after
       const newCursor = this._atPos + 1 + completion.length
@@ -119,6 +139,30 @@ const ContentFilter = {
       ta.dispatchEvent(new Event("input", { bubbles: true }))
       this.pushEvent("add_content_filter", { source_prefix: sourcePrefix, connector, label, type })
     }
+  },
+
+  selectFolderAsFilter(el) {
+    const ta = this.textarea
+    if (this._atPos === null) return
+
+    const sourcePrefix = el.dataset.sourcePrefix
+    const connector = el.dataset.connector
+    const label = el.dataset.label
+    const type = el.dataset.type
+
+    const folderPrefix = this.getFolderPrefix()
+    const before = ta.value.slice(0, this._atPos)
+    const after = ta.value.slice(this._atPos + 1 + (this._currentQuery || "").length)
+
+    const completion = folderPrefix + label
+    ta.value = before + "@" + completion + " " + after
+    const newCursor = this._atPos + 1 + completion.length + 1
+    ta.setSelectionRange(newCursor, newCursor)
+    this._atPos = null
+    this._currentQuery = null
+    this._activeIndex = -1
+    ta.dispatchEvent(new Event("input", { bubbles: true }))
+    this.pushEvent("add_content_filter", { source_prefix: sourcePrefix, connector, label, type })
   },
 
   getFolderPrefix() {

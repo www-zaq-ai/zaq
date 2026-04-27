@@ -24,12 +24,14 @@ defmodule Zaq.Ingestion.ListDocumentSourcesTest do
       assert labels == ["zaq"]
     end
 
-    test "does not include individual files when query has no slash" do
+    test "includes individual files whose filename matches the query (no slash)" do
       seed("archives/zaq/report.pdf")
 
       results = Ingestion.list_document_sources("report")
+      labels = Enum.map(results, & &1.label)
 
-      assert results == []
+      assert "report.pdf" in labels
+      assert hd(results).type == :file
     end
 
     test "returns one entry per unique {connector, label}, keeping the shallowest path" do
@@ -63,16 +65,17 @@ defmodule Zaq.Ingestion.ListDocumentSourcesTest do
   # ── Path browse (query contains "/") ───────────────────────────────────────
 
   describe "list_document_sources/1 — path browse" do
-    test "returns only direct children of the named folder" do
+    test "returns only direct children of the named folder, plus the folder itself as current_folder" do
       seed("archives/zaq/file1.pdf")
       seed("archives/zaq/file2.pdf")
       seed("archives/zaq-pptx/other.pptx")
 
       results = Ingestion.list_document_sources("zaq/")
-      labels = results |> Enum.map(& &1.label) |> Enum.sort()
+      child_labels = results |> Enum.reject(&(&1.type == :current_folder)) |> Enum.map(& &1.label) |> Enum.sort()
 
-      assert labels == ["file1.pdf", "file2.pdf"]
-      refute "other.pptx" in labels
+      assert child_labels == ["file1.pdf", "file2.pdf"]
+      refute "other.pptx" in child_labels
+      assert Enum.any?(results, &(&1.type == :current_folder and &1.label == "zaq"))
     end
 
     test "does not leak files from a sibling folder with a similar name" do
@@ -117,13 +120,14 @@ defmodule Zaq.Ingestion.ListDocumentSourcesTest do
       refute Enum.any?(results, &(&1.label == "deep.pdf"))
     end
 
-    test "does not include the folder itself, only its children" do
+    test "includes the folder itself as :current_folder at the top, followed by children" do
       seed("archives/zaq/file.pdf")
 
       results = Ingestion.list_document_sources("zaq/")
       labels = Enum.map(results, & &1.label)
 
-      refute "zaq" in labels
+      assert List.first(results).type == :current_folder
+      assert List.first(results).label == "zaq"
       assert "file.pdf" in labels
     end
   end

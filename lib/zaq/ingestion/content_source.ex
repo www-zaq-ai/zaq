@@ -25,7 +25,7 @@ defmodule Zaq.Ingestion.ContentSource do
           connector: String.t(),
           source_prefix: String.t(),
           label: String.t(),
-          type: :connector | :folder | :file
+          type: :connector | :folder | :file | :current_folder
         }
 
   @doc """

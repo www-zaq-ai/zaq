@@ -109,8 +109,7 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  # Name search — returns unique folder entries whose label matches the query.
-  # Individual files are never surfaced; the folder entry covers them.
+  # Name search — returns folders and files whose label matches the query.
   defp name_search_sources(name) do
     condition =
       if name,
@@ -129,7 +128,9 @@ defmodule Zaq.Ingestion do
       limit: 200
     )
     |> Repo.all()
-    |> Enum.flat_map(&derive_folder_prefixes/1)
+    |> Enum.flat_map(fn source ->
+      if name, do: derive_folder_prefixes(source) ++ [source], else: derive_folder_prefixes(source)
+    end)
     |> Enum.uniq()
     |> Enum.map(&ContentSource.from_source/1)
     |> Enum.reject(&is_nil/1)
@@ -142,30 +143,52 @@ defmodule Zaq.Ingestion do
 
   # Path browse — returns direct children (files + immediate subfolders) of the
   # named folder.  Uses an exact prefix query so sibling folders never leak in.
+  # When child_query is empty (bare "@folder/"), prepends the folder itself as a
+  # :current_folder entry so the user can apply the whole folder as a filter.
   defp browse_sources(folder_label, child_query) do
-    find_canonical_paths(folder_label)
-    |> Enum.flat_map(fn canonical_path ->
-      prefix = canonical_path <> "/"
+    canonical_paths = find_canonical_paths(folder_label)
 
-      from(d in Document,
-        where:
-          like(d.source, ^"#{prefix}%") and
-            fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
-        select: d.source,
-        order_by: [asc: d.source],
-        limit: 100
-      )
-      |> Repo.all()
-      |> extract_direct_children(canonical_path)
-      |> Enum.map(&ContentSource.from_source/1)
-      |> Enum.reject(&is_nil/1)
-    end)
-    |> Enum.uniq_by(& &1.source_prefix)
-    |> then(fn sources ->
-      if child_query != "",
-        do: Enum.filter(sources, &String.contains?(&1.label, child_query)),
-        else: sources
-    end)
+    children =
+      canonical_paths
+      |> Enum.flat_map(fn canonical_path ->
+        prefix = canonical_path <> "/"
+
+        from(d in Document,
+          where:
+            like(d.source, ^"#{prefix}%") and
+              fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+          select: d.source,
+          order_by: [asc: d.source],
+          limit: 100
+        )
+        |> Repo.all()
+        |> extract_direct_children(canonical_path)
+        |> Enum.map(&ContentSource.from_source/1)
+        |> Enum.reject(&is_nil/1)
+      end)
+      |> Enum.uniq_by(& &1.source_prefix)
+      |> then(fn sources ->
+        if child_query != "",
+          do: Enum.filter(sources, &String.contains?(&1.label, child_query)),
+          else: sources
+      end)
+
+    if child_query == "" do
+      folder_self =
+        canonical_paths
+        |> Enum.map(fn path ->
+          case ContentSource.from_source(path) do
+            nil -> nil
+            cs -> %{cs | type: :current_folder}
+          end
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(& &1.label)
+
+      folder_self ++ children
+    else
+      children
+    end
   end
 
   # Resolves folder_label to its canonical full path(s) in the documents table.
