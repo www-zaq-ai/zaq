@@ -453,9 +453,9 @@ defmodule Zaq.Agent.ApiTest do
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      # person_id = 99 set by SpyIdentityPlug
+      # person_id = 99 set by SpyIdentityPlug, provider :web → "bo-99"
       assert_received {:pipeline_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "99"
+      assert Keyword.get(opts, :scope) == "bo-99"
     end
 
     test "nil person_id + BO provider (provider: :web) uses metadata.session_id as scope" do
@@ -480,7 +480,7 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:pipeline_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "sess_abc"
+      assert Keyword.get(opts, :scope) == "bo-sess_abc"
     end
 
     test "scope is passed through pipeline_opts to Pipeline.run" do
@@ -500,7 +500,7 @@ defmodule Zaq.Agent.ApiTest do
 
       assert_received {:pipeline_called, _incoming, opts}
       assert Keyword.has_key?(opts, :scope)
-      assert Keyword.get(opts, :scope) == "99"
+      assert Keyword.get(opts, :scope) == "bo-99"
       assert Keyword.get(opts, :foo) == :bar
     end
   end
@@ -526,7 +526,7 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:executor_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "99"
+      assert Keyword.get(opts, :scope) == "bo-99"
       refute Keyword.has_key?(opts, :server_id)
     end
 
@@ -556,7 +556,7 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:executor_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "sess_xyz"
+      assert Keyword.get(opts, :scope) == "bo-sess_xyz"
     end
 
     test "scope key is passed through opts to Executor.run" do
@@ -604,8 +604,8 @@ defmodule Zaq.Agent.ApiTest do
       # Both calls use same scope
       assert_received {:pipeline_called, _, opts1}
       assert_received {:pipeline_called, _, opts2}
-      assert Keyword.get(opts1, :scope) == "99"
-      assert Keyword.get(opts2, :scope) == "99"
+      assert Keyword.get(opts1, :scope) == "bo-99"
+      assert Keyword.get(opts2, :scope) == "bo-99"
     end
   end
 end
