@@ -372,8 +372,12 @@ defmodule Zaq.Agent.ServerManagerTest do
       status =
         Enum.reduce_while(1..10, {:error, :not_found}, fn _, _ ->
           case Jido.AgentServer.status(ref) do
-            {:ok, _} = ok -> {:halt, ok}
-            _ -> Process.sleep(30); {:cont, {:error, :not_found}}
+            {:ok, _} = ok ->
+              {:halt, ok}
+
+            _ ->
+              Process.sleep(30)
+              {:cont, {:error, :not_found}}
           end
         end)
 
