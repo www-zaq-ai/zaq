@@ -283,8 +283,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     {:noreply,
      socket
      |> assign(:filter_suggestions, [])
-     |> assign(:filter_query, "")
-     |> push_event("complete_filter_mention", %{label: label})}
+     |> assign(:filter_query, "")}
   end
 
   def handle_event("remove_content_filter", %{"source_prefix" => source_prefix}, socket) do
