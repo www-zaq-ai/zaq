@@ -129,7 +129,9 @@ defmodule Zaq.Ingestion do
     )
     |> Repo.all()
     |> Enum.flat_map(fn source ->
-      if name, do: derive_folder_prefixes(source) ++ [source], else: derive_folder_prefixes(source)
+      if name,
+        do: derive_folder_prefixes(source) ++ [source],
+        else: derive_folder_prefixes(source)
     end)
     |> Enum.uniq()
     |> Enum.map(&ContentSource.from_source/1)
@@ -176,18 +178,20 @@ defmodule Zaq.Ingestion do
     if child_query == "" do
       folder_self =
         canonical_paths
-        |> Enum.map(fn path ->
-          case ContentSource.from_source(path) do
-            nil -> nil
-            cs -> %{cs | type: :current_folder}
-          end
-        end)
+        |> Enum.map(&to_current_folder_source/1)
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq_by(& &1.label)
 
       folder_self ++ children
     else
       children
+    end
+  end
+
+  defp to_current_folder_source(path) do
+    case ContentSource.from_source(path) do
+      nil -> nil
+      cs -> %{cs | type: :current_folder}
     end
   end
 
