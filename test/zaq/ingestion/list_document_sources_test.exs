@@ -135,5 +135,42 @@ defmodule Zaq.Ingestion.ListDocumentSourcesTest do
       assert List.first(results).label == "zaq"
       assert "file.pdf" in labels
     end
+
+    test "browse with multiple connectors sharing same subfolder name yields exactly one current_folder entry" do
+      # Two connectors each have a "zaq" subfolder; current_folder is deduped by label
+      seed("documents/zaq/file1.pdf")
+      seed("sharepoint/zaq/slide1.pptx")
+
+      results = Ingestion.list_document_sources("zaq/")
+
+      current_folder_entries = Enum.filter(results, &(&1.type == :current_folder))
+
+      assert length(current_folder_entries) == 1
+      assert hd(current_folder_entries).label == "zaq"
+    end
+
+    test "browse with child_query non-empty does not include a current_folder entry" do
+      seed("archives/zaq/report.pdf")
+      seed("archives/zaq/readme.md")
+
+      results = Ingestion.list_document_sources("zaq/re")
+
+      current_folder_entries = Enum.filter(results, &(&1.type == :current_folder))
+
+      assert current_folder_entries == []
+    end
+
+    test "browse with child_query non-empty returns only matching children" do
+      seed("archives/zaq/report.pdf")
+      seed("archives/zaq/readme.md")
+      seed("archives/zaq/other.pdf")
+
+      results = Ingestion.list_document_sources("zaq/re")
+      labels = results |> Enum.map(& &1.label) |> Enum.sort()
+
+      assert "readme.md" in labels
+      assert "report.pdf" in labels
+      refute "other.pdf" in labels
+    end
   end
 end

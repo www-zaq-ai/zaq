@@ -73,5 +73,9 @@ defmodule Zaq.Ingestion.ContentSourceTest do
     test "returns nil for nil" do
       assert is_nil(ContentSource.from_source(nil))
     end
+
+    test "returns nil for slash-only string (all segments trimmed away)" do
+      assert is_nil(ContentSource.from_source("/"))
+    end
   end
 end

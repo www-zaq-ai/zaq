@@ -1134,6 +1134,303 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
+  # ── Content filter event tests ───────────────────────────────────────────────
+
+  test "filter_autocomplete with non-empty query calls NodeRouter and assigns suggestions", %{
+    conn: conn
+  } do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      [
+        %Zaq.Ingestion.ContentSource{
+          connector: "documents",
+          source_prefix: "documents/hr",
+          label: "hr",
+          type: :folder
+        }
+      ]
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_query == "hr" and length(assigns.filter_suggestions) == 1
+    end)
+
+    state = :sys.get_state(view.pid)
+    [suggestion] = state.socket.assigns.filter_suggestions
+    assert suggestion.source_prefix == "documents/hr"
+    assert suggestion.label == "hr"
+  end
+
+  test "filter_autocomplete with empty query clears suggestions and filter_query", %{conn: conn} do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      [
+        %Zaq.Ingestion.ContentSource{
+          connector: "documents",
+          source_prefix: "documents/hr",
+          label: "hr",
+          type: :folder
+        }
+      ]
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.filter_query == "hr"
+    end)
+
+    render_hook(view, "filter_autocomplete", %{"query" => ""})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_suggestions == [] and assigns.filter_query == ""
+    end)
+  end
+
+  test "filter_autocomplete with missing query key clears suggestions", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{})
+
+    state = :sys.get_state(view.pid)
+    assigns = state.socket.assigns
+    assert assigns.filter_suggestions == []
+    assert assigns.filter_query == ""
+  end
+
+  test "add_content_filter appends a new ContentSource to active_filters", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      length(assigns.active_filters) == 1
+    end)
+
+    state = :sys.get_state(view.pid)
+    [filter] = state.socket.assigns.active_filters
+    assert filter.source_prefix == "documents/hr"
+    assert filter.label == "hr"
+    assert filter.type == :folder
+    assert filter.connector == "documents"
+  end
+
+  test "add_content_filter clears filter_suggestions and filter_query after adding", %{
+    conn: conn
+  } do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      [
+        %Zaq.Ingestion.ContentSource{
+          connector: "documents",
+          source_prefix: "documents/hr",
+          label: "hr",
+          type: :folder
+        }
+      ]
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.filter_suggestions) == 1
+    end)
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_suggestions == [] and assigns.filter_query == ""
+    end)
+  end
+
+  test "add_content_filter does not add duplicate by source_prefix", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    params = %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    }
+
+    render_hook(view, "add_content_filter", params)
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    render_hook(view, "add_content_filter", params)
+
+    state = :sys.get_state(view.pid)
+    assert length(state.socket.assigns.active_filters) == 1
+  end
+
+  test "add_content_filter accepts file type atom", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr/policy.md",
+      "connector" => "documents",
+      "label" => "policy.md",
+      "type" => "file"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    state = :sys.get_state(view.pid)
+    [filter] = state.socket.assigns.active_filters
+    assert filter.type == :file
+  end
+
+  test "remove_content_filter removes the matching entry by source_prefix", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/legal",
+      "connector" => "documents",
+      "label" => "legal",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 2
+    end)
+
+    render_hook(view, "remove_content_filter", %{"source_prefix" => "documents/hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      length(assigns.active_filters) == 1 and
+        hd(assigns.active_filters).source_prefix == "documents/legal"
+    end)
+  end
+
+  test "remove_content_filter with non-existing source_prefix leaves filters unchanged", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    render_hook(view, "remove_content_filter", %{"source_prefix" => "documents/nonexistent"})
+
+    state = :sys.get_state(view.pid)
+    assert length(state.socket.assigns.active_filters) == 1
+  end
+
+  test "clear_content_filters resets active_filters to empty list", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/legal",
+      "connector" => "documents",
+      "label" => "legal",
+      "type" => "connector"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 2
+    end)
+
+    render_hook(view, "clear_content_filters", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.active_filters == []
+    end)
+  end
+
+  test "noop event does not change any assigns", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    before_state = :sys.get_state(view.pid)
+    before_assigns = before_state.socket.assigns
+
+    render_hook(view, "noop", %{})
+
+    after_state = :sys.get_state(view.pid)
+    after_assigns = after_state.socket.assigns
+
+    assert after_assigns.active_filters == before_assigns.active_filters
+    assert after_assigns.filter_suggestions == before_assigns.filter_suggestions
+    assert after_assigns.filter_query == before_assigns.filter_query
+  end
+
+  test "filter_autocomplete when NodeRouter returns non-list falls back to empty suggestions", %{
+    conn: conn
+  } do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      {:error, :not_found}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_query == "hr" and assigns.filter_suggestions == []
+    end)
+  end
+
   defp assert_eventually(fun, retries \\ 80)
 
   defp assert_eventually(fun, retries) when retries > 0 do
