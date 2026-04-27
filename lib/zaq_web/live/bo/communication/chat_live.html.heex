@@ -498,11 +498,11 @@
                     <button
                       :for={s <- suggestions}
                       type="button"
-                      phx-click="add_content_filter"
-                      phx-value-source_prefix={s.source_prefix}
-                      phx-value-connector={s.connector}
-                      phx-value-label={s.label}
-                      phx-value-type={s.type}
+                      data-suggestion-item="true"
+                      data-source-prefix={s.source_prefix}
+                      data-connector={s.connector}
+                      data-label={s.label}
+                      data-type={s.type}
                       class="w-full flex items-center gap-2 px-4 py-2 text-left text-[0.8rem] hover:bg-[#f0f9fb] transition-colors"
                       style="color:#3b3935;"
                     >
@@ -537,7 +537,19 @@
                           />
                         </svg>
                       <% end %>
-                      <span class="font-mono truncate">{s.label}</span>
+                      <span class="font-mono truncate flex-1">{s.label}</span>
+                      <%= if s.type != :file do %>
+                        <svg
+                          class="w-3 h-3 flex-shrink-0 ml-auto"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.5"
+                          viewBox="0 0 24 24"
+                          style="color:#c8c5be;"
+                        >
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      <% end %>
                     </button>
                   <% end %>
                 </div>
