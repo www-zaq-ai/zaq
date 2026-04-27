@@ -89,6 +89,8 @@ async function createAiCredential(page, overrides = {}) {
 
   await expect(page.getByText("AI credential saved.")).toBeVisible()
   await expect(page.locator(SEL.aiCredentialForm)).not.toBeVisible()
+  // Drain any trailing phx-submit events before the caller switches tabs
+  await waitForLiveViewSettled(page)
 
   return credential
 }
@@ -179,11 +181,14 @@ test.describe("System Config", () => {
       const credential = await createAiCredential(page)
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
+      // Wait for the tab's phx-click to settle so the credential dropdown is
+      // fully populated before pickSearchableSelect tries to search it.
+      await waitForLiveViewSettled(page)
       await pickSearchableSelect(page, "#llm-credential-select", credential.name)
       // Wait for the phx-change from credential selection to fully settle before
       // the test starts. Without this, LiveView's DOM patch can overwrite fill()
       // calls made immediately after pickSearchableSelect.
-      await waitForLiveViewSettled(page)
+      await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
     test("renders all required form fields", async ({ page }) => {
@@ -352,7 +357,9 @@ test.describe("System Config", () => {
       const credential = await createAiCredential(page)
       await page.locator(SEL.tabEmbedding).click()
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+      await waitForLiveViewSettled(page)
       await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
+      await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
     test("renders all required form fields", async ({ page }) => {
@@ -575,7 +582,9 @@ test.describe("System Config", () => {
       const credential = await createAiCredential(page)
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+      await waitForLiveViewSettled(page)
       await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+      await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
     test("renders credential and model fields", async ({ page }) => {

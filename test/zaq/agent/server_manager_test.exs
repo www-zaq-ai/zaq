@@ -194,7 +194,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   test "init starts no servers — supervision tree is empty on start" do
     # init/1 no longer pre-spawns any servers; all spawning is lazy per-message.
     assert {:ok, state} = ServerManager.init([])
-    assert state == %{fingerprints: %{}, last_active: %{}}
+    assert state == %{fingerprints: %{}}
   end
 
   test "ensure_server uses credential lookup when credential is not preloaded" do
@@ -245,7 +245,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       advanced_options: %{}
     }
 
-    init_state = %{fingerprints: %{}, last_active: %{}}
+    init_state = %{fingerprints: %{}}
 
     assert {:reply, {:error, :provider_not_found}, ^init_state} =
              ServerManager.handle_call({:ensure_server, configured_agent}, self(), init_state)
@@ -253,10 +253,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
   test "handle_call stop_server raises for invalid string ids" do
     assert_raise ArgumentError, ~r/invalid configured agent id/, fn ->
-      ServerManager.handle_call({:stop_server, "not-an-id"}, self(), %{
-        fingerprints: %{},
-        last_active: %{}
-      })
+      ServerManager.handle_call({:stop_server, "not-an-id"}, self(), %{fingerprints: %{}})
     end
   end
 
@@ -278,7 +275,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       # init/1 must not pre-spawn any servers; all children belong to other tests.
       # We call init/1 directly to inspect the state without side effects.
       assert {:ok, state} = ServerManager.init([])
-      assert state == %{fingerprints: %{}, last_active: %{}}
+      assert state == %{fingerprints: %{}}
     end
   end
 
@@ -330,29 +327,49 @@ defmodule Zaq.Agent.ServerManagerTest do
       _result = ServerManager.ensure_server(server_id)
     end
 
-    test "stamps last_active timestamp on first call" do
-      server_id = "answering_active_#{System.unique_integer([:positive])}"
+    test "server is stopped after idle TTL fires" do
+      Application.put_env(:zaq, :agent_server_idle_ttl_ms, 100)
 
-      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
-      assert %DateTime{} = ServerManager.last_active(server_id)
+      on_exit(fn ->
+        Application.delete_env(:zaq, :agent_server_idle_ttl_ms)
+      end)
+
+      server_id = "answering_ttl_#{System.unique_integer([:positive])}"
+
+      assert {:ok, {:via, Registry, {registry, ^server_id}}} =
+               ServerManager.ensure_server(server_id)
+
+      pid = Jido.AgentServer.whereis(registry, server_id)
+      assert is_pid(pid)
+      monitor_ref = Process.monitor(pid)
+
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
     end
 
-    test "updates last_active timestamp on repeated calls" do
-      server_id = "answering_active_update_#{System.unique_integer([:positive])}"
+    test "server is restarted after expiry when ensure_server is called again" do
+      Application.put_env(:zaq, :agent_server_idle_ttl_ms, 100)
 
-      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
-      t1 = ServerManager.last_active(server_id)
-      # Wait a tiny bit to ensure clock advances
-      Process.sleep(2)
-      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
-      t2 = ServerManager.last_active(server_id)
+      on_exit(fn ->
+        Application.delete_env(:zaq, :agent_server_idle_ttl_ms)
+      end)
 
-      assert DateTime.compare(t2, t1) in [:gt, :eq]
+      server_id = "answering_restart_#{System.unique_integer([:positive])}"
+      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
+
+      registry = Jido.registry_name(Zaq.Agent.Jido)
+      pid1 = Jido.AgentServer.whereis(registry, server_id)
+      monitor_ref = Process.monitor(pid1)
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid1, _reason}, 1_000
+
+      assert {:ok, ref} = ServerManager.ensure_server(server_id)
+      pid2 = Jido.AgentServer.whereis(registry, server_id)
+      assert is_pid(pid2)
+      assert {:ok, _status} = Jido.AgentServer.status(ref)
     end
   end
 
   describe "ensure_server_by_id/2" do
-    test "stamps last_active timestamp on each call" do
+    test "starts server with the given scope id and returns a ref" do
       credential =
         ai_credential_fixture(%{
           name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
@@ -377,22 +394,8 @@ defmodule Zaq.Agent.ServerManagerTest do
 
       server_id = "configured_agent_#{configured_agent.id}:person_42"
 
-      assert {:ok, _ref} = ServerManager.ensure_server_by_id(configured_agent, server_id)
-      assert %DateTime{} = ServerManager.last_active(server_id)
-    end
-  end
-
-  describe "last_active/1" do
-    test "returns nil for unknown server_id" do
-      assert nil ==
-               ServerManager.last_active("unknown_server_#{System.unique_integer([:positive])}")
-    end
-
-    test "returns DateTime after ensure call" do
-      server_id = "answering_last_active_#{System.unique_integer([:positive])}"
-      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
-      result = ServerManager.last_active(server_id)
-      assert %DateTime{} = result
+      assert {:ok, ref} = ServerManager.ensure_server_by_id(configured_agent, server_id)
+      assert {:via, Registry, {_registry, ^server_id}} = ref
     end
   end
 
@@ -416,13 +419,12 @@ defmodule Zaq.Agent.ServerManagerTest do
       assert :ok = ServerManager.stop_server(server_id)
     end
 
-    test "clears last_active entry" do
-      server_id = "answering_clear_active_#{System.unique_integer([:positive])}"
+    test "is idempotent after repeated stop calls" do
+      server_id = "answering_stop_idempotent_#{System.unique_integer([:positive])}"
       assert {:ok, _ref} = ServerManager.ensure_server(server_id)
-      assert %DateTime{} = ServerManager.last_active(server_id)
 
       assert :ok = ServerManager.stop_server(server_id)
-      assert nil == ServerManager.last_active(server_id)
+      assert :ok = ServerManager.stop_server(server_id)
     end
   end
 

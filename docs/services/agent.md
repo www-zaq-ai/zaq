@@ -22,6 +22,46 @@ single-node and multi-node deployments. New routing should use
 
 ---
 
+## Entry Point Decision Tree
+
+Before writing any new agent-service code, verify which entry point already covers your case:
+
+| I need to… | Use |
+|---|---|
+| Make an LLM call | `Factory.ask/2` or `Factory.ask_with_config/2` — never call ReqLLM or Jido directly |
+| Execute a configured agent | `Executor.run/2` — handles server presence, config loading, factory delegation |
+| Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
+| Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
+| Resolve provider credentials or endpoint URL | `get_ai_provider_credential/1` then `Factory.build_model_spec/1` — nowhere else |
+
+If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
+
+---
+
+## Module Responsibility Map
+
+Use this to decide where new code belongs. When a function would violate the "Does NOT own" column, find the correct module first.
+
+| Module | Owns | Does NOT own |
+|---|---|---|
+| `Factory` | Model spec building, `ask/ask_with_config`, provider URL formatting | Credential resolution, pipeline orchestration |
+| `Executor` | Configured-agent lifecycle, config loading, factory delegation | LLM call details, response struct construction |
+| `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
+| `Pipeline` | Orchestration of retrieval → answering steps, hook dispatch | LLM calls, response struct construction, agent-type branches |
+| `Answering` | Answer extraction, `Result` struct, telemetry | Agent lifecycle, provider/credential details |
+| `Api` | `NodeRouter` dispatch entrypoint, role boundary | Business logic of any kind |
+| `History` | Conversation turn storage and retrieval helpers | LLM calls, pipeline logic |
+
+**`ServerManager` state discipline**: state must be minimal. If a variable exists only to trigger future behavior, use `Process.send_after/3` instead of storing it in state.
+
+**Security**: `nil` person_id is never an implicit permission grant. Any function that filters data by person must default `skip_permissions: false` and require an explicit opt-in for admin access:
+```elixir
+skip_permissions = Map.get(context, :skip_permissions, false)
+# Never: skip_permissions = is_nil(person_id)
+```
+
+---
+
 ## Pipeline Flow
 
 ```

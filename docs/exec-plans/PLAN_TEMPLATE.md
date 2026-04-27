@@ -30,6 +30,15 @@ What docs were read before writing this plan? What existing code is relevant?
 - [ ] `docs/services/<relevant>.md`
 - [ ] Existing code reviewed: [list files]
 
+### Infrastructure Audit
+
+Confirm before writing any step — what already exists that this plan must use or extend?
+
+- [ ] Existing entry points checked (Factory, Executor, builders, helpers): [list findings or `n/a`]
+- [ ] `@moduledoc` read for every module that will receive new code: [list modules]
+- [ ] No parallel code path being created where an existing one can be extended: [confirm or explain]
+- [ ] Provider/credential/URL logic confirmed to stay in its designated module: [confirm or `n/a`]
+
 ---
 
 ## Approach
@@ -44,21 +53,30 @@ Break the work into small, independently completable steps. Each step should be
 completable in a single PR. Check off as you go.
 
 - [ ] Step 1: [description]
+  - Module placement check: [which module owns this? does @moduledoc cover it?]
+  - Temporary code? [yes → add `# Temporary:` comment in code | no]
   - Tests to add before implementation:
     - [ ] Integration test(s): [describe]
     - [ ] Branch/path coverage: [describe branches]
+    - [ ] Permission/security paths (if applicable): [nil person_id, skip_permissions, access scope]
     - [ ] Edge external API mocks only: [describe mocks or `none`]
   - Coverage target for files touched in this step: `>= 95%`
 - [ ] Step 2: [description]
+  - Module placement check: [which module owns this? does @moduledoc cover it?]
+  - Temporary code? [yes → add `# Temporary:` comment in code | no]
   - Tests to add before implementation:
     - [ ] Integration test(s): [describe]
     - [ ] Branch/path coverage: [describe branches]
+    - [ ] Permission/security paths (if applicable): [nil person_id, skip_permissions, access scope]
     - [ ] Edge external API mocks only: [describe mocks or `none`]
   - Coverage target for files touched in this step: `>= 95%`
 - [ ] Step 3: [description]
+  - Module placement check: [which module owns this? does @moduledoc cover it?]
+  - Temporary code? [yes → add `# Temporary:` comment in code | no]
   - Tests to add before implementation:
     - [ ] Integration test(s): [describe]
     - [ ] Branch/path coverage: [describe branches]
+    - [ ] Permission/security paths (if applicable): [nil person_id, skip_permissions, access scope]
     - [ ] Edge external API mocks only: [describe mocks or `none`]
   - Coverage target for files touched in this step: `>= 95%`
 

@@ -1,6 +1,11 @@
 defmodule Zaq.Agent.ServerManager do
   @moduledoc """
-  Starts and maintains one long-lived AgentServer per configured agent id or per-person scope.
+  Starts and maintains one long-lived AgentServer per configured agent scope.
+
+  The scope is determined upstream and passed in as a `server_id` string — it
+  can represent any granularity (agent-wide, per-person, per-channel, etc.).
+  Raw servers spawned via `ensure_server/1` (string form) are automatically
+  stopped after an idle TTL using a scheduled message.
   """
 
   use GenServer
@@ -16,8 +21,7 @@ defmodule Zaq.Agent.ServerManager do
   @jido_registry Jido.registry_name(@jido_instance)
 
   @type state :: %{
-          fingerprints: %{optional(integer()) => binary()},
-          last_active: %{optional(String.t()) => DateTime.t()}
+          fingerprints: %{optional(integer()) => binary()}
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -42,11 +46,6 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.call(__MODULE__, {:ensure_server_by_id, configured_agent, server_id})
   end
 
-  @spec last_active(String.t()) :: DateTime.t() | nil
-  def last_active(server_id) when is_binary(server_id) do
-    GenServer.call(__MODULE__, {:last_active, server_id})
-  end
-
   @spec stop_server(integer() | String.t()) :: :ok
   def stop_server(server_id) when is_binary(server_id) do
     case Integer.parse(server_id) do
@@ -64,7 +63,7 @@ defmodule Zaq.Agent.ServerManager do
 
   @impl true
   def init(_opts) do
-    {:ok, %{fingerprints: %{}, last_active: %{}}}
+    {:ok, %{fingerprints: %{}}}
   end
 
   @impl true
@@ -76,28 +75,19 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   def handle_call({:ensure_server_raw, server_id}, _from, state) do
-    state = put_in(state, [:last_active, server_id], DateTime.utc_now())
-
     result =
       case safe_whereis(server_id) do
         pid when is_pid(pid) ->
           {:ok, server_ref(server_id)}
 
         _ ->
-          case DynamicSupervisor.start_child(
-                 @dynamic_supervisor,
-                 {Jido.AgentServer,
-                  [
-                    agent: Factory,
-                    jido: @jido_instance,
-                    registry: @jido_registry,
-                    id: server_id,
-                    initial_state: %{model: Factory.build_model_spec()}
-                  ]}
-               ) do
-            {:ok, _pid} -> {:ok, server_ref(server_id)}
-            {:error, {:already_started, _}} -> {:ok, server_ref(server_id)}
-            {:error, reason} -> {:error, reason}
+          case spawn_server(server_id, %{model: Factory.build_model_spec()}) do
+            :ok ->
+              Process.send_after(self(), {:expire_server, server_id}, idle_ttl_ms())
+              {:ok, server_ref(server_id)}
+
+            {:error, reason} ->
+              {:error, reason}
           end
       end
 
@@ -109,7 +99,6 @@ defmodule Zaq.Agent.ServerManager do
         _from,
         state
       ) do
-    state = put_in(state, [:last_active, server_id], DateTime.utc_now())
     fingerprint = fingerprint(configured_agent)
 
     result =
@@ -120,7 +109,6 @@ defmodule Zaq.Agent.ServerManager do
         _ ->
           case spawn_agent_server(configured_agent, server_id) do
             :ok -> {:ok, server_ref(server_id)}
-            {:error, {:already_started, _}} -> {:ok, server_ref(server_id)}
             {:error, reason} -> {:error, reason}
           end
       end
@@ -132,10 +120,6 @@ defmodule Zaq.Agent.ServerManager do
       end
 
     {:reply, result, next_state}
-  end
-
-  def handle_call({:last_active, server_id}, _from, state) do
-    {:reply, Map.get(state.last_active, server_id), state}
   end
 
   def handle_call({:stop_server, agent_id}, _from, state) do
@@ -150,7 +134,7 @@ defmodule Zaq.Agent.ServerManager do
   def handle_call({:stop_server_by_raw_id, server_id}, _from, state) do
     _ = stop_server_if_running(server_id)
 
-    {:reply, :ok, %{state | last_active: Map.delete(state.last_active, server_id)}}
+    {:reply, :ok, state}
   end
 
   defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state) do
@@ -178,55 +162,44 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
+  @impl true
+  def handle_info({:expire_server, server_id}, state) do
+    _ = stop_server_if_running(server_id)
+    {:noreply, state}
+  end
+
   defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id) do
-    with {:ok, model_spec} <- model_spec(configured_agent),
-         {:ok, runtime_config} <- Factory.runtime_config(configured_agent),
-         {:ok, _pid} <-
-           DynamicSupervisor.start_child(
-             @dynamic_supervisor,
-             {Jido.AgentServer,
-              [
-                agent: Factory,
-                jido: @jido_instance,
-                registry: @jido_registry,
-                id: server_id,
-                initial_state: %{
-                  model: model_spec,
-                  runtime_config: runtime_config,
-                  tool_context: %{configured_agent_id: configured_agent.id}
-                }
-              ]}
-           ) do
-      :ok
+    with {:ok, model_spec} <- Factory.build_model_spec(configured_agent),
+         {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
+      spawn_server(server_id, %{
+        model: model_spec,
+        runtime_config: runtime_config,
+        tool_context: %{configured_agent_id: configured_agent.id}
+      })
     end
   end
 
-  defp model_spec(%ConfiguredAgent{} = configured_agent) do
-    credential =
-      configured_agent.credential ||
-        Zaq.System.get_ai_provider_credential(configured_agent.credential_id)
-
-    with {:ok, runtime_provider} <- resolve_runtime_provider(configured_agent, credential) do
-      spec = %{provider: runtime_provider, id: configured_agent.model}
-      {:ok, maybe_put_model_base_url(spec, runtime_provider, credential)}
+  defp spawn_server(server_id, initial_state) do
+    case DynamicSupervisor.start_child(
+           @dynamic_supervisor,
+           {Jido.AgentServer,
+            [
+              agent: Factory,
+              jido: @jido_instance,
+              registry: @jido_registry,
+              id: server_id,
+              initial_state: initial_state
+            ]}
+         ) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _}} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  # Falls back to :openai only when the provider is unknown to both ReqLLM and LLMDB
-  # but the credential carries an explicit endpoint — the endpoint signals an intentional
-  # custom OpenAI-compatible setup.
-  defp resolve_runtime_provider(configured_agent, credential) do
-    case Agent.runtime_provider_for_agent(configured_agent) do
-      {:ok, _} = ok -> ok
-      {:error, :provider_not_found} -> openai_if_custom_endpoint(credential)
-      error -> error
-    end
+  defp idle_ttl_ms do
+    Application.get_env(:zaq, :agent_server_idle_ttl_ms, 30 * 60 * 1_000)
   end
-
-  defp openai_if_custom_endpoint(%{endpoint: url}) when is_binary(url) and url != "",
-    do: {:ok, :openai}
-
-  defp openai_if_custom_endpoint(_), do: {:error, :provider_not_found}
 
   defp stop_server_if_running(server_id) do
     case safe_whereis(server_id) do
@@ -259,17 +232,6 @@ defmodule Zaq.Agent.ServerManager do
       configured_agent.conversation_enabled
     })
     |> Integer.to_string()
-  end
-
-  defp maybe_put_model_base_url(spec, provider, credential) do
-    if Factory.fixed_url_provider?(provider) do
-      spec
-    else
-      case credential do
-        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
-        _ -> spec
-      end
-    end
   end
 
   defp parse_int_id(id) when is_integer(id), do: id
