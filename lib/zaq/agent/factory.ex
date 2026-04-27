@@ -18,57 +18,16 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
-  require Logger
 
   def strategy_opts do
     super()
     |> Keyword.delete(:model)
   end
 
-  @doc """
-  Returns a ReqLLM inline model spec map from the system LLM config.
-
-  Uses `cfg.endpoint` directly as `base_url` — do NOT append `cfg.path`
-  (ReqLLM appends the provider path itself). Anthropic uses its own default
-  API URL so no `base_url` is set for that provider.
-  """
-  def build_model_spec do
-    cfg = System.get_llm_config()
-    provider = ProviderSpec.reqllm_provider(cfg.provider)
-
-    %{provider: provider, id: cfg.model}
-    |> ProviderSpec.put_base_url(cfg)
-  end
-
-  @doc """
-  Returns a ReqLLM inline model spec map for a configured agent.
-
-  Resolves the provider via LLMDB and the agent's credential. Falls back to
-  `:openai` when the provider is unknown to LLMDB but the credential carries a
-  custom endpoint — indicating an intentional OpenAI-compatible deployment.
-  """
-  @spec build_model_spec(ConfiguredAgent.t()) :: {:ok, map()} | {:error, atom()}
-  def build_model_spec(%ConfiguredAgent{} = configured_agent),
-    do: ProviderSpec.build(configured_agent)
-
-  @doc "Sampling opts for ReqLLM generation calls. Includes api_key and logprobs when configured."
-  def generation_opts do
-    cfg = System.get_llm_config()
-    opts = [temperature: cfg.temperature, top_p: cfg.top_p]
-
-    opts =
-      if is_binary(cfg.api_key) and cfg.api_key != "" do
-        Keyword.put(opts, :api_key, cfg.api_key)
-      else
-        opts
-      end
-
-    if cfg.supports_logprobs and ProviderSpec.reqllm_provider(cfg.provider) == :openai do
-      Keyword.put(opts, :provider_options, openai_logprobs: true)
-    else
-      opts
-    end
-  end
+  # Replace with per-agent advanced LLM opts so each ConfiguredAgent carries its own
+  # temperature/top_p/logprobs config instead of falling back to the global system LLM config.
+  @doc "Sampling opts for ReqLLM generation calls from the system LLM config."
+  def generation_opts, do: System.get_llm_config() |> ProviderSpec.generation_opts()
 
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
@@ -78,7 +37,7 @@ defmodule Zaq.Agent.Factory do
          tools: tools,
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
-         llm_opts: Keyword.merge(generation_opts(), llm_opts(configured_agent)),
+         llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
          system_prompt: configured_agent.job || ""
        }}
     end
@@ -145,52 +104,4 @@ defmodule Zaq.Agent.Factory do
         do_set_system_prompt(server, prompt, attempts_left - 1)
     end
   end
-
-  defp llm_opts(%ConfiguredAgent{} = configured_agent) do
-    credential = credential(configured_agent)
-
-    configured_agent
-    |> advanced_options_as_keyword()
-    |> maybe_put(:api_key, credential && credential.api_key)
-    |> maybe_put(:base_url, credential && credential.endpoint)
-  end
-
-  defp advanced_options_as_keyword(%ConfiguredAgent{advanced_options: options})
-       when is_map(options) do
-    options
-    |> Enum.reduce([], fn {key, value}, acc ->
-      case normalize_option_key(key) do
-        nil -> acc
-        atom_key -> [{atom_key, value} | acc]
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp advanced_options_as_keyword(_), do: []
-
-  defp credential(%ConfiguredAgent{credential: credential}) when not is_nil(credential),
-    do: credential
-
-  defp credential(%ConfiguredAgent{credential_id: credential_id})
-       when is_integer(credential_id) do
-    System.get_ai_provider_credential(credential_id)
-  end
-
-  defp credential(_), do: nil
-
-  defp normalize_option_key(key) when is_atom(key), do: key
-
-  defp normalize_option_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError ->
-      Logger.warning("Ignoring unsupported advanced option key: #{inspect(key)}")
-      nil
-  end
-
-  defp normalize_option_key(_), do: nil
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

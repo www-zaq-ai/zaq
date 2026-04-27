@@ -11,6 +11,8 @@ defmodule Zaq.Agent.ProviderSpec do
   """
 
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.System
+  require Logger
 
   # Providers that manage their own base URL inside ReqLLM — never override with a custom base_url.
   # This list cannot be derived automatically from the llm_db catalog: the catalog's `base_url`
@@ -52,12 +54,31 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   @doc """
-  Builds a ReqLLM model spec map for a configured agent.
-
-  Resolves the provider via LLMDB and the agent's credential. Falls back to
-  `:openai` when the provider is unknown to LLMDB but the credential carries a
-  custom endpoint — indicating an intentional OpenAI-compatible deployment.
+  Builds a ReqLLM model spec map from the system LLM config.
   """
+  def build do
+    System.get_llm_config() |> build()
+  end
+
+  @doc """
+  Builds a ReqLLM model spec map.
+
+  Accepts either a system LLM config map (`%{provider:, model:, ...}`) or a
+  `ConfiguredAgent`. Pass a pre-fetched config map when the config has already
+  been read to avoid a redundant `get_llm_config/0` call.
+
+  For a `ConfiguredAgent`, resolves the provider via LLMDB and the agent's
+  credential, falling back to `:openai` for OpenAI-compatible custom endpoints.
+  """
+  def build(arg)
+
+  def build(%{provider: _, model: _} = cfg) do
+    provider = reqllm_provider(cfg.provider)
+
+    %{provider: provider, id: cfg.model}
+    |> put_base_url(cfg)
+  end
+
   @spec build(ConfiguredAgent.t()) :: {:ok, map()} | {:error, atom()}
   def build(%ConfiguredAgent{} = configured_agent) do
     credential =
@@ -119,4 +140,104 @@ defmodule Zaq.Agent.ProviderSpec do
     do: {:ok, :openai}
 
   defp openai_if_custom_endpoint(_), do: {:error, :provider_not_found}
+
+  @doc """
+  Builds sampling keyword opts for ReqLLM generation calls from a config map.
+
+  Includes `temperature`, `top_p`, `api_key` (when present), and `openai_logprobs`
+  when the config reports logprob support and the provider resolves to `:openai`.
+  Accepts any map with the same shape as the system LLM config or a per-agent config.
+  """
+  def generation_opts(cfg) do
+    opts = [temperature: cfg.temperature, top_p: cfg.top_p]
+
+    opts =
+      if is_binary(cfg.api_key) and cfg.api_key != "" do
+        Keyword.put(opts, :api_key, cfg.api_key)
+      else
+        opts
+      end
+
+    if cfg.supports_logprobs and reqllm_provider(cfg.provider) == :openai do
+      Keyword.put(opts, :provider_options, openai_logprobs: true)
+    else
+      opts
+    end
+  end
+
+  @doc """
+  Builds the default `advanced_options` map for a system LLM config.
+
+  Enables `openai_logprobs` when the provider resolves to `:openai` and the
+  config reports logprob support. Adds `json_object` response format when the
+  config reports JSON-mode support.
+  """
+  def default_advanced_options(%{supports_logprobs: true} = cfg) do
+    if reqllm_provider(cfg.provider) == :openai do
+      %{provider_options: [openai_logprobs: true]}
+      |> maybe_put_json_mode(cfg)
+    else
+      maybe_put_json_mode(%{}, cfg)
+    end
+  end
+
+  def default_advanced_options(cfg), do: maybe_put_json_mode(%{}, cfg)
+
+  defp maybe_put_json_mode(opts, %{supports_json_mode: true}),
+    do: Map.put(opts, :response_format, %{type: "json_object"})
+
+  defp maybe_put_json_mode(opts, _cfg), do: opts
+
+  @doc """
+  Builds ReqLLM keyword opts for a configured agent.
+
+  Converts the agent's `advanced_options` map to a keyword list, then merges
+  in `api_key` and `base_url` from the resolved credential.
+  """
+  @spec llm_opts(ConfiguredAgent.t()) :: keyword()
+  def llm_opts(%ConfiguredAgent{} = configured_agent) do
+    credential = resolve_credential(configured_agent)
+
+    configured_agent
+    |> advanced_options_as_keyword()
+    |> maybe_put(:api_key, credential && credential.api_key)
+    |> maybe_put(:base_url, credential && credential.endpoint)
+  end
+
+  defp resolve_credential(%ConfiguredAgent{credential: credential}) when not is_nil(credential),
+    do: credential
+
+  defp resolve_credential(%ConfiguredAgent{credential_id: id}) when is_integer(id),
+    do: Zaq.System.get_ai_provider_credential(id)
+
+  defp resolve_credential(_), do: nil
+
+  defp advanced_options_as_keyword(%ConfiguredAgent{advanced_options: options})
+       when is_map(options) do
+    options
+    |> Enum.reduce([], fn {key, value}, acc ->
+      case normalize_option_key(key) do
+        nil -> acc
+        atom_key -> [{atom_key, value} | acc]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp advanced_options_as_keyword(_), do: []
+
+  defp normalize_option_key(key) when is_atom(key), do: key
+
+  defp normalize_option_key(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError ->
+      Logger.warning("Ignoring unsupported advanced option key: #{inspect(key)}")
+      nil
+  end
+
+  defp normalize_option_key(_), do: nil
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

@@ -12,8 +12,9 @@ defmodule Zaq.Agent.Retrieval do
   require Logger
 
   alias ReqLLM.{Context, Generation, Response}
-  alias Zaq.Agent.{Factory, History}
+  alias Zaq.Agent.{History, ProviderSpec}
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.System
 
   @doc """
   Rewrites a user question into structured search queries via LLM.
@@ -38,8 +39,11 @@ defmodule Zaq.Agent.Retrieval do
       Keyword.get(opts, :history, [])
       |> History.build()
 
+    cfg = System.get_llm_config()
+
     gen_opts =
-      Factory.generation_opts()
+      cfg
+      |> ProviderSpec.generation_opts()
       |> Keyword.put(:system_prompt, system_prompt)
 
     Logger.info("Retrieval: Processing question history_length=#{length(history)}")
@@ -53,7 +57,7 @@ defmodule Zaq.Agent.Retrieval do
 
     result =
       try do
-        Generation.generate_text(Factory.build_model_spec(), messages, gen_opts)
+        Generation.generate_text(ProviderSpec.build(cfg), messages, gen_opts)
       rescue
         e -> {:error, e}
       end

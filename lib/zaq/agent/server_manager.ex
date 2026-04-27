@@ -15,6 +15,7 @@ defmodule Zaq.Agent.ServerManager do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
+  alias Zaq.Agent.ProviderSpec
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
@@ -81,7 +82,7 @@ defmodule Zaq.Agent.ServerManager do
           {:ok, server_ref(server_id)}
 
         _ ->
-          case spawn_server(server_id, %{model: Factory.build_model_spec()}) do
+          case spawn_server(server_id, %{model: ProviderSpec.build()}) do
             :ok ->
               Process.send_after(self(), {:expire_server, server_id}, idle_ttl_ms())
               {:ok, server_ref(server_id)}
@@ -169,7 +170,7 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id) do
-    with {:ok, model_spec} <- Factory.build_model_spec(configured_agent),
+    with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
          {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
       spawn_server(server_id, %{
         model: model_spec,
