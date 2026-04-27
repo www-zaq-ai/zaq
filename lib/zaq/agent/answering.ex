@@ -8,7 +8,7 @@ defmodule Zaq.Agent.Answering do
   """
 
   alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Agent.Factory
+  alias Zaq.Agent.ProviderSpec
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
 
@@ -85,7 +85,7 @@ defmodule Zaq.Agent.Answering do
   def clean_answer(answer), do: answer
 
   defp default_advanced_options(%{supports_logprobs: true} = cfg) do
-    if Factory.reqllm_provider(cfg.provider) == :openai do
+    if ProviderSpec.reqllm_provider(cfg.provider) == :openai do
       %{provider_options: [openai_logprobs: true]}
       |> maybe_put_json_mode(cfg)
     else

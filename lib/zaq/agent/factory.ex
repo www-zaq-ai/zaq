@@ -15,15 +15,10 @@ defmodule Zaq.Agent.Factory do
     plugins: []
 
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
   require Logger
-
-  # Providers that manage their own base URL inside ReqLLM — never override with a custom base_url.
-  # This list cannot be derived automatically from the llm_db catalog: the catalog's `base_url`
-  # field marks a provider's default endpoint, not whether it is user-overridable. For example,
-  # both `openai` (overridable) and `anthropic` (not overridable) have `base_url` in the catalog.
-  @fixed_url_providers ~w(anthropic google xai mistral)a
 
   def strategy_opts do
     super()
@@ -39,10 +34,10 @@ defmodule Zaq.Agent.Factory do
   """
   def build_model_spec do
     cfg = System.get_llm_config()
-    provider = reqllm_provider(cfg.provider)
+    provider = ProviderSpec.reqllm_provider(cfg.provider)
 
     %{provider: provider, id: cfg.model}
-    |> maybe_put_base_url(cfg)
+    |> ProviderSpec.put_base_url(cfg)
   end
 
   @doc """
@@ -53,16 +48,8 @@ defmodule Zaq.Agent.Factory do
   custom endpoint — indicating an intentional OpenAI-compatible deployment.
   """
   @spec build_model_spec(ConfiguredAgent.t()) :: {:ok, map()} | {:error, atom()}
-  def build_model_spec(%ConfiguredAgent{} = configured_agent) do
-    credential =
-      configured_agent.credential ||
-        System.get_ai_provider_credential(configured_agent.credential_id)
-
-    with {:ok, runtime_provider} <- resolve_configured_provider(configured_agent, credential) do
-      spec = %{provider: runtime_provider, id: configured_agent.model}
-      {:ok, maybe_put_base_url(spec, runtime_provider, credential)}
-    end
-  end
+  def build_model_spec(%ConfiguredAgent{} = configured_agent),
+    do: ProviderSpec.build(configured_agent)
 
   @doc "Sampling opts for ReqLLM generation calls. Includes api_key and logprobs when configured."
   def generation_opts do
@@ -76,7 +63,7 @@ defmodule Zaq.Agent.Factory do
         opts
       end
 
-    if cfg.supports_logprobs and reqllm_provider(cfg.provider) == :openai do
+    if cfg.supports_logprobs and ProviderSpec.reqllm_provider(cfg.provider) == :openai do
       Keyword.put(opts, :provider_options, openai_logprobs: true)
     else
       opts
@@ -206,77 +193,4 @@ defmodule Zaq.Agent.Factory do
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
-
-  @doc """
-  Maps a provider string or atom to the atom ReqLLM expects.
-
-  Looks up the provider in the llm_db catalog. If found and not `catalog_only`,
-  returns the catalog atom — ReqLLM handles it natively. `catalog_only` providers
-  have no direct API endpoint managed by ReqLLM and fall back to `:openai` for
-  OpenAI-compatible routing. Also falls back for unknown providers.
-  """
-  def reqllm_provider(p) do
-    with {:ok, atom} <- LLMDB.Spec.parse_provider(p),
-         {:ok, %LLMDB.Provider{catalog_only: false}} <- LLMDB.provider(atom) do
-      atom
-    else
-      _ -> :openai
-    end
-  end
-
-  @doc """
-  Returns `true` if the provider manages its own base URL inside ReqLLM.
-
-  Callers must NOT supply a `base_url` for these providers — ReqLLM uses its
-  built-in default endpoint. Accepts both atoms (`:anthropic`) and strings
-  (`"anthropic"`).
-  """
-  def fixed_url_provider?(provider) when is_atom(provider),
-    do: provider in @fixed_url_providers
-
-  def fixed_url_provider?(provider) when is_binary(provider) do
-    fixed_url_provider?(String.to_existing_atom(provider))
-  rescue
-    ArgumentError -> false
-  end
-
-  defp maybe_put_base_url(spec, %{provider: p} = cfg) do
-    if fixed_url_provider?(reqllm_provider(p)) do
-      spec
-    else
-      case cfg do
-        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
-        _ -> spec
-      end
-    end
-  end
-
-  defp maybe_put_base_url(spec, _), do: spec
-
-  defp maybe_put_base_url(spec, provider, credential) when is_atom(provider) do
-    if fixed_url_provider?(provider) do
-      spec
-    else
-      case credential do
-        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
-        _ -> spec
-      end
-    end
-  end
-
-  # Falls back to :openai only when the provider is unknown to both ReqLLM and LLMDB
-  # but the credential carries an explicit endpoint — signals an intentional
-  # OpenAI-compatible custom deployment.
-  defp resolve_configured_provider(configured_agent, credential) do
-    case Zaq.Agent.runtime_provider_for_agent(configured_agent) do
-      {:ok, _} = ok -> ok
-      {:error, :provider_not_found} -> openai_if_custom_endpoint(credential)
-      error -> error
-    end
-  end
-
-  defp openai_if_custom_endpoint(%{endpoint: url}) when is_binary(url) and url != "",
-    do: {:ok, :openai}
-
-  defp openai_if_custom_endpoint(_), do: {:error, :provider_not_found}
 end

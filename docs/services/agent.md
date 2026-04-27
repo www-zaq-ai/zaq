@@ -33,6 +33,7 @@ Before writing any new agent-service code, verify which entry point already cove
 | Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
 | Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
 | Resolve provider credentials or endpoint URL | `get_ai_provider_credential/1` then `Factory.build_model_spec/1` — nowhere else |
+| Translate a provider name to a ReqLLM atom | `ProviderSpec.reqllm_provider/1` — called by `Factory`; other modules must not call it directly |
 
 If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
 
@@ -44,7 +45,8 @@ Use this to decide where new code belongs. When a function would violate the "Do
 
 | Module | Owns | Does NOT own |
 |---|---|---|
-| `Factory` | Model spec building, `ask/ask_with_config`, provider URL formatting | Credential resolution, pipeline orchestration |
+| `ProviderSpec` | Provider-atom normalisation (`reqllm_provider/1`), fixed-URL detection, base-URL injection, `build/1` for configured agents | Agent lifecycle, LLM calls, credential storage |
+| `Factory` | Model spec assembly (`build_model_spec/0,1`), `ask/ask_with_config`, generation opts | Provider/URL logic (delegated to `ProviderSpec`), credential resolution, pipeline orchestration |
 | `Executor` | Configured-agent lifecycle, config loading, factory delegation | LLM call details, response struct construction |
 | `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
 | `Pipeline` | Orchestration of retrieval → answering steps, hook dispatch | LLM calls, response struct construction, agent-type branches |
