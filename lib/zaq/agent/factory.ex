@@ -45,6 +45,25 @@ defmodule Zaq.Agent.Factory do
     |> maybe_put_base_url(cfg)
   end
 
+  @doc """
+  Returns a ReqLLM inline model spec map for a configured agent.
+
+  Resolves the provider via LLMDB and the agent's credential. Falls back to
+  `:openai` when the provider is unknown to LLMDB but the credential carries a
+  custom endpoint — indicating an intentional OpenAI-compatible deployment.
+  """
+  @spec build_model_spec(ConfiguredAgent.t()) :: {:ok, map()} | {:error, atom()}
+  def build_model_spec(%ConfiguredAgent{} = configured_agent) do
+    credential =
+      configured_agent.credential ||
+        System.get_ai_provider_credential(configured_agent.credential_id)
+
+    with {:ok, runtime_provider} <- resolve_configured_provider(configured_agent, credential) do
+      spec = %{provider: runtime_provider, id: configured_agent.model}
+      {:ok, maybe_put_base_url(spec, runtime_provider, credential)}
+    end
+  end
+
   @doc "Sampling opts for ReqLLM generation calls. Includes api_key and logprobs when configured."
   def generation_opts do
     cfg = System.get_llm_config()
@@ -70,6 +89,8 @@ defmodule Zaq.Agent.Factory do
       {:ok,
        %{
          tools: tools,
+         # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
+         # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), llm_opts(configured_agent)),
          system_prompt: configured_agent.job || ""
        }}
@@ -231,4 +252,31 @@ defmodule Zaq.Agent.Factory do
   end
 
   defp maybe_put_base_url(spec, _), do: spec
+
+  defp maybe_put_base_url(spec, provider, credential) when is_atom(provider) do
+    if fixed_url_provider?(provider) do
+      spec
+    else
+      case credential do
+        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
+        _ -> spec
+      end
+    end
+  end
+
+  # Falls back to :openai only when the provider is unknown to both ReqLLM and LLMDB
+  # but the credential carries an explicit endpoint — signals an intentional
+  # OpenAI-compatible custom deployment.
+  defp resolve_configured_provider(configured_agent, credential) do
+    case Zaq.Agent.runtime_provider_for_agent(configured_agent) do
+      {:ok, _} = ok -> ok
+      {:error, :provider_not_found} -> openai_if_custom_endpoint(credential)
+      error -> error
+    end
+  end
+
+  defp openai_if_custom_endpoint(%{endpoint: url}) when is_binary(url) and url != "",
+    do: {:ok, :openai}
+
+  defp openai_if_custom_endpoint(_), do: {:error, :provider_not_found}
 end

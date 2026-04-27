@@ -63,6 +63,15 @@ This file is your **map**. Read the relevant doc before starting any task.
 - **All related operations must be concurrent in a single message** — never split related reads/writes across messages.
 - When a task touches keys, tokens, passwords, or encrypted config fields — read `docs/services/system-config.md` first.
 
+### Agent Service Rules (apply when touching `lib/zaq/agent/`)
+
+- **Use existing infrastructure before building new paths** — before implementing any LLM call, agent lifecycle, or response builder, confirm whether `Factory`, `Executor`, `Outgoing`, or `History` already covers the case. If it does, use or extend it. Never create a parallel path. See `docs/services/agent.md` for the Entry Point Decision Tree.
+- **Provider/URL logic has one home** — all AI provider credential resolution and endpoint URL formatting belongs exclusively in `get_ai_provider_credential/1` and `Zaq.Agent.Factory`. All other modules (`ServerManager`, `Pipeline`, `Answering`, etc.) receive pre-built model spec objects and must never construct or inspect provider URLs or credentials directly.
+- **The default answering agent is not a special case** — it is a configured agent with default values. `ServerManager` must not branch on agent type. Any logic that applies only to "the answering agent" is a smell: either it belongs to all agents (move it to the general path) or it should not exist.
+- **`nil` person_id is never an implicit permission grant** — if a function receives `person_id: nil` with no explicit `skip_permissions: true` in context, it must return only public data. Explicit admin access must be opt-in. Never derive permissions from nil. See `docs/services/agent.md` security note.
+- **`ServerManager` state must be minimal** — if a state variable exists only to trigger future behavior, use `Process.send_after/3` instead. Ask: "would this variable still be needed if I used a timer?" If no, use the timer.
+- **Provider enumerations must come from `llm_db`, not source code** — provider names, endpoint configs, and capability flags that exist in `llm_db` must be read at runtime. Hardcoded provider lists (`@reqllm_providers`, `@fixed_url_providers`, etc.) create silent bugs where adding a provider in the admin UI has no effect until a developer also edits source.
+
 ---
 
 ## 🛠 Tool Priority

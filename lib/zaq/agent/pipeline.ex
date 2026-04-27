@@ -46,10 +46,8 @@ defmodule Zaq.Agent.Pipeline do
 
   require Logger
   alias Zaq.Accounts.People
-  alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.Executor
-  alias Zaq.Engine.Messages.Incoming
-  alias Zaq.Engine.Messages.Outgoing
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
 
   @no_answer_signal "I don't have enough information to answer that question."
@@ -107,7 +105,7 @@ defmodule Zaq.Agent.Pipeline do
          :ok <- on_status.(:answering, "Formulating your answer…"),
          {:ok, answer_result} <-
            do_answering(incoming, clean_msg, extraction_result, answering_payload, history, opts),
-         {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.answer) do
+         {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.body) do
       :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
       sources = build_sources(extraction_result)
 
@@ -124,7 +122,7 @@ defmodule Zaq.Agent.Pipeline do
             sources: sources
           })
         else
-          confidence_score = answer_result.confidence_score
+          confidence_score = answer_result.metadata[:confidence_score]
 
           result_from_answering(answer_result, safe_answer, confidence_score)
           |> Map.put(:sources, sources)
@@ -274,16 +272,7 @@ defmodule Zaq.Agent.Pipeline do
         node_router: node_router(opts)
       )
 
-    result = %Result{
-      answer: outgoing.body || "",
-      confidence_score: outgoing.metadata[:confidence_score],
-      latency_ms: outgoing.metadata[:latency_ms],
-      prompt_tokens: outgoing.metadata[:prompt_tokens],
-      completion_tokens: outgoing.metadata[:completion_tokens],
-      total_tokens: outgoing.metadata[:total_tokens]
-    }
-
-    {:ok, result}
+    {:ok, outgoing}
   end
 
   # ---------------------------------------------------------------------------
@@ -302,14 +291,14 @@ defmodule Zaq.Agent.Pipeline do
     Telemetry.record("qa.message.count", 1, telemetry_dimensions(opts))
   end
 
-  defp result_from_answering(%Result{} = result, answer, confidence_score) do
+  defp result_from_answering(%Outgoing{} = outgoing, answer, confidence_score) do
     %{
       answer: answer,
       confidence_score: confidence_score,
-      latency_ms: result.latency_ms,
-      prompt_tokens: result.prompt_tokens,
-      completion_tokens: result.completion_tokens,
-      total_tokens: result.total_tokens,
+      latency_ms: outgoing.metadata[:latency_ms],
+      prompt_tokens: outgoing.metadata[:prompt_tokens],
+      completion_tokens: outgoing.metadata[:completion_tokens],
+      total_tokens: outgoing.metadata[:total_tokens],
       error: false
     }
   end
