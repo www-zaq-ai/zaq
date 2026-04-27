@@ -59,6 +59,9 @@ File path
 - `delete_paths/3` — batch delete
 - `directory_snapshot/3` — lists entries and combines with DB document/job state (delegates to `DirectorySnapshot.build/4`)
 
+**Content filter / source search**
+- `list_document_sources/1` — search indexed document sources by query string; returns a list of `ContentSource` structs for use in chat content filtering; delegates to `DocumentProcessor.list_document_sources/1` via NodeRouter
+
 **Access control**
 - `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; files with no permissions record are public by default
 - `list_document_permissions/1` — list all permissions for a document (preloads `:person`, `:team`)
@@ -105,11 +108,24 @@ File path
 - `prepare_file_chunks/3` — parses document and returns persisted chunk payloads for child jobs
 - `process_folder/1` — processes all `*.md` files in a directory
 - `store_chunk_with_metadata/5` — generates LLM title, embeds, validates dimension, inserts
-- `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60)
+- `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60); accepts optional `:source_filter` list of path prefixes — files matched by exact source, folders matched by `LIKE prefix/%`
+- `list_document_sources/1` — searches distinct document sources by query string; returns `ContentSource` structs sorted by relevance; used by the chat autocomplete dropdown
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
 - `query_extraction/1` — token-limited context builder for the answering agent (max 5,000 tokens)
 - Current limitation: `prepare_file_chunks/3` materializes all chunk payloads in memory before persistence/scheduling
+
+### Content Source (`Zaq.Ingestion.ContentSource`)
+- Struct representing a user-selected content filter applied to a chat message
+- Fields: `:connector` (string, e.g. volume name), `:source_prefix` (path prefix used in DB query), `:label` (display name shown in UI), `:type` (`:connector | :folder | :file | :current_folder`)
+- `parse/1` — converts a map with string keys into a `ContentSource` struct; returns `nil` on invalid input
+- Used by `ChatLive` to pass `:source_filter` to the agent pipeline, which is forwarded to `DocumentProcessor.hybrid_search/2`
+
+### Connector Registry (`Zaq.Ingestion.ConnectorRegistry`)
+- Config-driven registry of active ingestion connectors; no runtime registration, no ETS table
+- `list_connectors/0` — returns sorted list of active connectors derived from `FileExplorer.list_volumes/0`; each entry is `%{id: String.t(), label: String.t(), icon: atom()}`
+- Used by `ChatLive` to populate the `@`-mention autocomplete dropdown with available source scopes
+- Extend by adding clauses to `list_connectors/0` when new connector types ship (e.g. SharePoint, Google Drive)
 
 ### Python Pipeline (`Zaq.Ingestion.Python.Pipeline`)
 - Orchestrates PDF → clean Markdown conversion via individual Python step scripts
