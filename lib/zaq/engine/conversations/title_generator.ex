@@ -12,7 +12,8 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   require Logger
 
   alias ReqLLM.{Context, Generation, Response}
-  alias Zaq.Agent.Factory
+  alias Zaq.Agent.ProviderSpec
+  alias Zaq.System
   alias Zaq.Utils.TextUtils
 
   @max_words 6
@@ -49,12 +50,13 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
     #{user_message}
     """
 
-    gen_opts = Factory.generation_opts() |> Keyword.delete(:top_p)
+    cfg = System.get_llm_config()
+    gen_opts = ProviderSpec.generation_opts(cfg) |> Keyword.delete(:top_p)
 
     model_spec =
       case Keyword.fetch(opts, :model) do
-        {:ok, model} -> Factory.build_model_spec() |> Map.put(:id, model)
-        :error -> Factory.build_model_spec()
+        {:ok, model} -> ProviderSpec.build(cfg) |> Map.put(:id, model)
+        :error -> ProviderSpec.build(cfg)
       end
 
     case Generation.generate_text(model_spec, [Context.user(prompt)], gen_opts) do

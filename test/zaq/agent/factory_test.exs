@@ -7,6 +7,7 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
+  alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.TestSupport.OpenAIStub
@@ -36,7 +37,7 @@ defmodule Zaq.Agent.FactoryTest do
     refute Keyword.has_key?(Factory.strategy_opts(), :model)
   end
 
-  describe "build_model_spec/0" do
+  describe "ProviderSpec.build/0" do
     setup do
       seed_llm_config(%{
         endpoint: "https://api.example.com/v1",
@@ -49,7 +50,7 @@ defmodule Zaq.Agent.FactoryTest do
     end
 
     test "returns model spec with provider, id, and base_url" do
-      spec = Factory.build_model_spec()
+      spec = ProviderSpec.build()
 
       assert spec.provider == :openai
       assert spec.id == "test-model"

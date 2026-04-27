@@ -366,7 +366,18 @@ defmodule Zaq.Agent.ServerManagerTest do
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid1, _reason}, 1_000
 
       assert {:ok, ref} = ServerManager.ensure_server(server_id)
-      assert {:ok, _status} = Jido.AgentServer.status(ref)
+
+      # The Jido registry entry is written by the new process after init, so poll
+      # briefly rather than calling status immediately after ensure_server returns.
+      status =
+        Enum.reduce_while(1..10, {:error, :not_found}, fn _, _ ->
+          case Jido.AgentServer.status(ref) do
+            {:ok, _} = ok -> {:halt, ok}
+            _ -> Process.sleep(30); {:cont, {:error, :not_found}}
+          end
+        end)
+
+      assert {:ok, _status} = status
     end
   end
 

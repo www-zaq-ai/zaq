@@ -7,7 +7,8 @@ defmodule Zaq.Agent.ChunkTitle do
   require Logger
 
   alias ReqLLM.{Context, Generation, Response}
-  alias Zaq.Agent.Factory
+  alias Zaq.Agent.ProviderSpec
+  alias Zaq.System
   alias Zaq.Utils.TextUtils
 
   @behaviour Zaq.Agent.ChunkTitleBehaviour
@@ -49,9 +50,10 @@ defmodule Zaq.Agent.ChunkTitle do
     #{content}
     """
 
-    gen_opts = Factory.generation_opts() |> Keyword.delete(:top_p)
+    cfg = System.get_llm_config()
+    gen_opts = ProviderSpec.generation_opts(cfg) |> Keyword.delete(:top_p)
 
-    case Generation.generate_text(Factory.build_model_spec(), [Context.user(prompt)], gen_opts) do
+    case Generation.generate_text(ProviderSpec.build(cfg), [Context.user(prompt)], gen_opts) do
       {:ok, response} ->
         case normalized_text(Response.text(response)) do
           nil ->

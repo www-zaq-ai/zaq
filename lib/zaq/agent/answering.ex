@@ -58,7 +58,7 @@ defmodule Zaq.Agent.Answering do
       enabled_tool_keys: ["answering.search_knowledge_base", "answering.ask_for_clarification"],
       conversation_enabled: false,
       active: true,
-      advanced_options: default_advanced_options(cfg),
+      advanced_options: ProviderSpec.default_advanced_options(cfg),
       model: cfg.model,
       credential: %AIProviderCredential{
         provider: cfg.provider,
@@ -83,20 +83,4 @@ defmodule Zaq.Agent.Answering do
   end
 
   def clean_answer(answer), do: answer
-
-  defp default_advanced_options(%{supports_logprobs: true} = cfg) do
-    if ProviderSpec.reqllm_provider(cfg.provider) == :openai do
-      %{provider_options: [openai_logprobs: true]}
-      |> maybe_put_json_mode(cfg)
-    else
-      maybe_put_json_mode(%{}, cfg)
-    end
-  end
-
-  defp default_advanced_options(cfg), do: maybe_put_json_mode(%{}, cfg)
-
-  defp maybe_put_json_mode(opts, %{supports_json_mode: true}),
-    do: Map.put(opts, :response_format, %{type: "json_object"})
-
-  defp maybe_put_json_mode(opts, _cfg), do: opts
 end
