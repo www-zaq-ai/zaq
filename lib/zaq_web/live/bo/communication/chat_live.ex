@@ -244,9 +244,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   def handle_event("filter_autocomplete", %{"query" => query}, socket)
       when is_binary(query) and byte_size(query) > 0 do
     suggestions =
-      node_router().call(:ingestion, Zaq.Ingestion, :list_document_sources, [query])
+      case node_router().call(:ingestion, Zaq.Ingestion, :list_document_sources, [query]) do
+        list when is_list(list) ->
+          list
 
-    suggestions = if is_list(suggestions), do: suggestions, else: []
+        error ->
+          Logger.warning("filter_autocomplete: list_document_sources failed: #{inspect(error)}")
+          []
+      end
+
     {:noreply, assign(socket, filter_suggestions: suggestions, filter_query: query)}
   end
 
@@ -262,28 +268,39 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       "type" => type_str
     } = params
 
-    type = String.to_existing_atom(type_str)
-
-    filter = %ContentSource{
-      connector: connector,
-      source_prefix: source_prefix,
-      label: label,
-      type: type
-    }
-
-    active_filters = socket.assigns.active_filters
-
-    socket =
-      if Enum.any?(active_filters, &(&1.source_prefix == source_prefix)) do
-        socket
-      else
-        update(socket, :active_filters, &(&1 ++ [filter]))
+    type =
+      case type_str do
+        "connector" -> :connector
+        "folder" -> :folder
+        "file" -> :file
+        "current_folder" -> :current_folder
+        _ -> nil
       end
 
-    {:noreply,
-     socket
-     |> assign(:filter_suggestions, [])
-     |> assign(:filter_query, "")}
+    if is_nil(type) do
+      {:noreply, socket}
+    else
+      filter = %ContentSource{
+        connector: connector,
+        source_prefix: source_prefix,
+        label: label,
+        type: type
+      }
+
+      active_filters = socket.assigns.active_filters
+
+      socket =
+        if Enum.any?(active_filters, &(&1.source_prefix == source_prefix)) do
+          socket
+        else
+          update(socket, :active_filters, &(&1 ++ [filter]))
+        end
+
+      {:noreply,
+       socket
+       |> assign(:filter_suggestions, [])
+       |> assign(:filter_query, "")}
+    end
   end
 
   def handle_event("remove_content_filter", %{"source_prefix" => source_prefix}, socket) do

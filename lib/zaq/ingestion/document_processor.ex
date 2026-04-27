@@ -852,7 +852,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp build_source_filter_condition(source_filter) do
     Enum.reduce(source_filter, dynamic(false), fn prefix, acc ->
-      if String.contains?(Path.basename(prefix), ".") do
+      if String.contains?(prefix |> String.split("/") |> List.last(), ".") do
         dynamic([_c, d], ^acc or d.source == ^prefix)
       else
         dynamic([_c, d], ^acc or like(d.source, ^"#{prefix}/%"))
