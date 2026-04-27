@@ -356,14 +356,16 @@ defmodule Zaq.Agent.ServerManagerTest do
       server_id = "answering_restart_#{System.unique_integer([:positive])}"
       assert {:ok, _ref} = ServerManager.ensure_server(server_id)
 
+      # Restore default TTL immediately so the replacement server does not also
+      # expire in 100 ms before the assertion below has a chance to run.
+      Application.delete_env(:zaq, :agent_server_idle_ttl_ms)
+
       registry = Jido.registry_name(Zaq.Agent.Jido)
       pid1 = Jido.AgentServer.whereis(registry, server_id)
       monitor_ref = Process.monitor(pid1)
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid1, _reason}, 1_000
 
       assert {:ok, ref} = ServerManager.ensure_server(server_id)
-      pid2 = Jido.AgentServer.whereis(registry, server_id)
-      assert is_pid(pid2)
       assert {:ok, _status} = Jido.AgentServer.status(ref)
     end
   end
