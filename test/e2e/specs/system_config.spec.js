@@ -240,6 +240,10 @@ test.describe("System Config", () => {
       await expect(modelInput).toBeVisible()
       await modelInput.fill("")
       await modelInput.press("Tab")
+      // Wait for the validate_llm phx-change (triggered by blur on the debounced input)
+      // to fully settle. Without this, a late DOM patch from the credential selection
+      // phx-change can overwrite the empty value before save — causing save to succeed.
+      await waitForLiveViewSettled(page)
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
     })
