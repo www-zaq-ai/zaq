@@ -52,7 +52,7 @@ defmodule Zaq.Agent.MCP.Runtime do
          endpoint_id: endpoint_id,
          endpoint: %{
            transport: transport,
-           client_info: %{"name" => "zaq", "version" => "1.0.0"},
+           client_info: %{"name" => "zaq_#{endpoint_id}", "version" => "1.0.0"},
            capabilities: %{},
            protocol_version: "2025-03-26",
            timeouts: %{request_ms: endpoint.timeout_ms || 5000}
