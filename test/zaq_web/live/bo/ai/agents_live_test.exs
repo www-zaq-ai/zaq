@@ -1029,7 +1029,10 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     render_click(element(view, "#add-tools-button"))
     assert has_element?(view, "#agent-tools-picker-modal")
 
-    render_click(element(view, "#agent-tools-picker-modal button[phx-click='close_tools_picker']"))
+    render_click(
+      element(view, "#agent-tools-picker-modal button[phx-click='close_tools_picker']")
+    )
+
     refute has_element?(view, "#agent-tools-picker-modal")
 
     render_change(view, "add_tool_from_picker", %{"tool_key" => ""})
@@ -1056,8 +1059,18 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     render_click(element(view, "#new-agent-button"))
 
     before = render(view)
-    render_click(element(view, "button[phx-click='toggle_form_boolean'][phx-value-field='conversation_enabled']"))
-    render_click(element(view, "button[phx-click='toggle_form_boolean'][phx-value-field='active']"))
+
+    render_click(
+      element(
+        view,
+        "button[phx-click='toggle_form_boolean'][phx-value-field='conversation_enabled']"
+      )
+    )
+
+    render_click(
+      element(view, "button[phx-click='toggle_form_boolean'][phx-value-field='active']")
+    )
+
     after_html = render(view)
 
     refute before == after_html

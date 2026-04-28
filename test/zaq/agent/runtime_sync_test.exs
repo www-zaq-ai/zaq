@@ -340,17 +340,16 @@ defmodule Zaq.Agent.RuntimeSyncTest do
       alias Zaq.Agent.MCP.Endpoint
 
       def get_mcp_endpoint(1),
-        do:
-          %Endpoint{
-            id: 1,
-            type: "local",
-            status: "enabled",
-            command: "echo",
-            args: ["ok"],
-            environments: %{},
-            secret_environments: %{},
-            timeout_ms: 5000
-          }
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
     end
 
     defmodule SignalAdapterNestedMetrics do
@@ -386,17 +385,16 @@ defmodule Zaq.Agent.RuntimeSyncTest do
       alias Zaq.Agent.MCP.Endpoint
 
       def get_mcp_endpoint(1),
-        do:
-          %Endpoint{
-            id: 1,
-            type: "local",
-            status: "enabled",
-            command: "echo",
-            args: ["ok"],
-            environments: %{},
-            secret_environments: %{},
-            timeout_ms: 5000
-          }
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
     end
 
     defmodule SignalAdapterInvalidNested do
@@ -426,17 +424,16 @@ defmodule Zaq.Agent.RuntimeSyncTest do
       alias Zaq.Agent.MCP.Endpoint
 
       def get_mcp_endpoint(1),
-        do:
-          %Endpoint{
-            id: 1,
-            type: "local",
-            status: "enabled",
-            command: "echo",
-            args: ["ok"],
-            environments: %{},
-            secret_environments: %{},
-            timeout_ms: 5000
-          }
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
     end
 
     defmodule SignalAdapterInvalidSyncPayload do
@@ -463,17 +460,16 @@ defmodule Zaq.Agent.RuntimeSyncTest do
       alias Zaq.Agent.MCP.Endpoint
 
       def get_mcp_endpoint(1),
-        do:
-          %Endpoint{
-            id: 1,
-            type: "local",
-            status: "enabled",
-            command: "echo",
-            args: ["ok"],
-            environments: %{},
-            secret_environments: %{},
-            timeout_ms: 5000
-          }
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
     end
 
     defmodule SignalAdapterDirectSyncError do
@@ -612,7 +608,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                agent_module: StubAgentNoRuntimeChangeModule,
                server_manager_module: StubServerManagerForPatch,
                signal_adapter_module: StubSignalAdapterUnsyncError
-              )
+             )
   end
 
   test "configured_agent_updated maps unsync status error payload to mcp_unsync_failed" do
