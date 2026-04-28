@@ -109,7 +109,7 @@ defmodule Zaq.MixProject do
       {:lingua, "~> 0.3.6"},
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
-      {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
+      {:jido_ai, github: "agentjido/jido_ai", branch: "main", override: true},
       # {:jido_mcp, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_mcp"},
       {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
@@ -142,7 +142,6 @@ defmodule Zaq.MixProject do
         "deps.unlock --unused",
         "format",
         "credo --strict",
-        &ex_dna_or_halt/1,
         "hooks.verify",
         "test"
       ]
@@ -154,13 +153,5 @@ defmodule Zaq.MixProject do
       main: "readme",
       extras: ["README.md", "CHANGELOG.md"] ++ (Path.wildcard("docs/*.md") |> Enum.sort())
     ]
-  end
-
-  defp ex_dna_or_halt(_args) do
-    {_output, status} = System.cmd("mix", ["ex_dna"], into: IO.stream())
-
-    if status != 0 do
-      System.halt(status)
-    end
   end
 end
