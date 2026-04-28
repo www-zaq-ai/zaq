@@ -430,6 +430,152 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute has_element?(view, "#mcp-endpoint-modal")
     end
 
+    test "open/cancel delete confirm toggles MCP delete modal", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Delete Toggle MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      refute has_element?(view, "#mcp-endpoint-delete-confirm")
+
+      render_click(view, "open_delete_mcp_endpoint_confirm", %{})
+      assert has_element?(view, "#mcp-endpoint-delete-confirm")
+
+      render_click(view, "cancel_delete_mcp_endpoint", %{})
+      refute has_element?(view, "#mcp-endpoint-delete-confirm")
+    end
+
+    test "changes MCP page with valid and invalid values", %{conn: conn} do
+      {:ok, _} =
+        MCP.create_mcp_endpoint(%{
+          name: "Paging MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html = render_click(view, "change_mcp_page", %{"page" => "2"})
+      assert html =~ "MCP Administration"
+
+      html = render_click(view, "change_mcp_page", %{"page" => "not-a-number"})
+      assert html =~ "MCP Administration"
+    end
+
+    test "saves MCP endpoint in edit mode", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Editable MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Editable MCP Updated",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "6000",
+            "url" => "http://localhost:9000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP endpoint saved"
+      assert MCP.get_mcp_endpoint!(endpoint.id).name == "Editable MCP Updated"
+    end
+
+    test "save MCP endpoint shows validation errors on invalid data", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "0",
+            "url" => "",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP Administration"
+      assert has_element?(view, "#mcp-endpoint-modal")
+    end
+
+    test "enable predefined MCP opens edit modal for editable predefined endpoint", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "github_mcp"})
+
+      assert html =~ "Predefined MCP enabled."
+      assert has_element?(view, "#mcp-endpoint-modal")
+      assert has_element?(view, "input[name='mcp_endpoint[name]']")
+    end
+
+    test "confirm delete MCP endpoint removes endpoint", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Delete Me MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      render_click(view, "open_delete_mcp_endpoint_confirm", %{})
+      html = render_click(view, "confirm_delete_mcp_endpoint", %{})
+
+      assert html =~ "MCP endpoint deleted"
+      assert_raise Ecto.NoResultsError, fn -> MCP.get_mcp_endpoint!(endpoint.id) end
+    end
+
     test "enable predefined mcp failure shows error flash", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
 
