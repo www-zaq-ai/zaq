@@ -1749,4 +1749,50 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute html =~ "Image-to-Text settings saved."
     end
   end
+
+  describe "global default agent saving" do
+    test "accepts empty global_default_agent_id and saves", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html =
+        render_submit(view, "save_global_default_agent", %{
+          "global_default_agent_id" => ""
+        })
+
+      assert html =~ "Global default agent saved."
+    end
+  end
+
+  describe "MCP test endpoint failure mapping" do
+    test "shows generic fallback message for unexpected MCP error", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Fallback MCP #{:erlang.unique_integer([:positive])}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test returned"
+    end
+  end
 end

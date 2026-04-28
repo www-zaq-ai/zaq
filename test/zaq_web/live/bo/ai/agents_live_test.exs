@@ -1009,6 +1009,60 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     refute has_element?(view, ~s([data-selected-tool-key="files.read_file"]))
   end
 
+  test "picker open/close and empty add events are no-ops", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Picker MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    render_click(element(view, "#new-agent-button"))
+
+    render_click(element(view, "#add-tools-button"))
+    assert has_element?(view, "#agent-tools-picker-modal")
+
+    render_click(element(view, "#agent-tools-picker-modal button[phx-click='close_tools_picker']"))
+    refute has_element?(view, "#agent-tools-picker-modal")
+
+    render_change(view, "add_tool_from_picker", %{"tool_key" => ""})
+    refute has_element?(view, "[data-selected-tool-key]")
+
+    render_click(element(view, "#add-mcp-button"))
+    assert has_element?(view, "#agent-mcp-picker-modal")
+
+    render_click(element(view, "#agent-mcp-picker-modal button[phx-click='close_mcp_picker']"))
+    refute has_element?(view, "#agent-mcp-picker-modal")
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => ""})
+    refute has_element?(view, "[data-selected-mcp-endpoint-id]")
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => to_string(endpoint.id)})
+    assert has_element?(view, ~s([data-selected-mcp-endpoint-id="#{endpoint.id}"]))
+  end
+
+  test "toggle_form_boolean updates conversation and active values", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    before = render(view)
+    render_click(element(view, "button[phx-click='toggle_form_boolean'][phx-value-field='conversation_enabled']"))
+    render_click(element(view, "button[phx-click='toggle_form_boolean'][phx-value-field='active']"))
+    after_html = render(view)
+
+    refute before == after_html
+  end
+
   defp attach_repo_query_telemetry(test_pid) do
     ref = make_ref()
     handler_id = {__MODULE__, :repo_query, ref}

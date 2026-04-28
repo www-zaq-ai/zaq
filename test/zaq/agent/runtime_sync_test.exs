@@ -126,6 +126,26 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
   end
 
+  defmodule StubSignalAdapterUnsyncStatusError do
+    def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+
+    def sync_tools(_server_ref, _runtime_endpoint_id, _opts),
+      do: {:ok, %{discovered_count: 1, registered_count: 1, failed_count: 0}}
+
+    def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{status: :error}}
+    def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+  end
+
+  defmodule StubSignalAdapterUnsyncInvalid do
+    def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+
+    def sync_tools(_server_ref, _runtime_endpoint_id, _opts),
+      do: {:ok, %{discovered_count: 1, registered_count: 1, failed_count: 0}}
+
+    def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, :invalid_payload}
+    def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+  end
+
   defmodule StubAgentLifecycleErrorModule do
     def create_agent(_attrs), do: {:error, :create_failed}
     def get_agent!(id), do: %ConfiguredAgent{id: id, active: true, enabled_mcp_endpoint_ids: []}
@@ -315,6 +335,166 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     assert result.skipped_endpoint_ids == [1, 2]
   end
 
+  test "sync_agent_mcp_assignments supports aggregated metrics from nested results" do
+    defmodule MCPForNestedMetrics do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1),
+        do:
+          %Endpoint{
+            id: 1,
+            type: "local",
+            status: "enabled",
+            command: "echo",
+            args: ["ok"],
+            environments: %{},
+            secret_environments: %{},
+            timeout_ms: 5000
+          }
+    end
+
+    defmodule SignalAdapterNestedMetrics do
+      def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts) do
+        {:ok,
+         %{
+           results: [
+             %{status: :ok, result: %{discovered_count: 1, registered_count: 1, failed_count: 0}},
+             %{status: :ok, result: %{discovered_count: 2, registered_count: 1, failed_count: 1}}
+           ]
+         }}
+      end
+
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 0}}
+      def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+    end
+
+    agent = %ConfiguredAgent{id: 20, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
+
+    assert {:ok, result} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: MCPForNestedMetrics,
+               signal_adapter_module: SignalAdapterNestedMetrics
+             )
+
+    assert [%{status: :warning, reason: :partial_tool_sync}] = result.warnings
+  end
+
+  test "sync_agent_mcp_assignments errors for invalid nested result entry" do
+    defmodule MCPForInvalidNested do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1),
+        do:
+          %Endpoint{
+            id: 1,
+            type: "local",
+            status: "enabled",
+            command: "echo",
+            args: ["ok"],
+            environments: %{},
+            secret_environments: %{},
+            timeout_ms: 5000
+          }
+    end
+
+    defmodule SignalAdapterInvalidNested do
+      def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 0}}
+      def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts) do
+        {:ok, %{results: [%{status: :error, reason: :tool_failure}]}}
+      end
+    end
+
+    agent = %ConfiguredAgent{id: 21, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
+
+    assert {:error, {:mcp_sync_failed, details}} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: MCPForInvalidNested,
+               signal_adapter_module: SignalAdapterInvalidNested
+             )
+
+    assert details.endpoint_id == 1
+    assert match?({:mcp_sync_failed, _}, details.reason)
+  end
+
+  test "sync_agent_mcp_assignments errors for invalid sync payload type" do
+    defmodule MCPForInvalidSyncPayload do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1),
+        do:
+          %Endpoint{
+            id: 1,
+            type: "local",
+            status: "enabled",
+            command: "echo",
+            args: ["ok"],
+            environments: %{},
+            secret_environments: %{},
+            timeout_ms: 5000
+          }
+    end
+
+    defmodule SignalAdapterInvalidSyncPayload do
+      def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 0}}
+      def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, :not_a_map}
+    end
+
+    agent = %ConfiguredAgent{id: 22, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
+
+    assert {:error, {:mcp_sync_failed, details}} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: MCPForInvalidSyncPayload,
+               signal_adapter_module: SignalAdapterInvalidSyncPayload
+             )
+
+    assert details.endpoint_id == 1
+    assert match?({:invalid_mcp_sync_result, _}, details.reason)
+  end
+
+  test "sync_agent_mcp_assignments handles direct signal adapter error" do
+    defmodule MCPForDirectSyncError do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1),
+        do:
+          %Endpoint{
+            id: 1,
+            type: "local",
+            status: "enabled",
+            command: "echo",
+            args: ["ok"],
+            environments: %{},
+            secret_environments: %{},
+            timeout_ms: 5000
+          }
+    end
+
+    defmodule SignalAdapterDirectSyncError do
+      def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 0}}
+      def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:error, :transport_down}
+    end
+
+    agent = %ConfiguredAgent{id: 23, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
+
+    assert {:error, {:mcp_sync_failed, details}} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: MCPForDirectSyncError,
+               signal_adapter_module: SignalAdapterDirectSyncError
+             )
+
+    assert details.endpoint_id == 1
+    assert details.reason == :transport_down
+  end
+
   test "configured_agent lifecycle delegates and propagates failures" do
     assert {:ok, %{agent: %ConfiguredAgent{id: 501}}} =
              RuntimeSync.configured_agent_created(%{name: "A"},
@@ -432,6 +612,50 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                agent_module: StubAgentNoRuntimeChangeModule,
                server_manager_module: StubServerManagerForPatch,
                signal_adapter_module: StubSignalAdapterUnsyncError
+              )
+  end
+
+  test "configured_agent_updated maps unsync status error payload to mcp_unsync_failed" do
+    assert {:error, {:mcp_unsync_failed, %{endpoint_id: 1}}} =
+             RuntimeSync.configured_agent_updated(
+               82,
+               %{
+                 enabled_mcp_endpoint_ids: [],
+                 advanced_options: %{"temperature" => 0.2}
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapterUnsyncStatusError
+             )
+  end
+
+  test "configured_agent_updated maps invalid unsync payload to invalid_mcp_unsync_result" do
+    assert {:error, {:invalid_mcp_unsync_result, %{endpoint_id: 1}}} =
+             RuntimeSync.configured_agent_updated(
+               83,
+               %{
+                 enabled_mcp_endpoint_ids: [],
+                 advanced_options: %{"temperature" => 0.2}
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapterUnsyncInvalid
+             )
+  end
+
+  test "configured_agent_deleted returns drain_and_stop strategy on success" do
+    assert {:ok, %{agent: %ConfiguredAgent{id: 99}, runtime: %{strategy: :drain_and_stop}}} =
+             RuntimeSync.configured_agent_deleted(99,
+               agent_module: StubAgentLifecycleModule
+             )
+  end
+
+  test "sync_agent_configured_tools propagates list_tools error" do
+    agent = %ConfiguredAgent{id: 18, enabled_tool_keys: [], enabled_mcp_endpoint_ids: []}
+
+    assert {:error, :list_failed} =
+             RuntimeSync.sync_agent_configured_tools(agent, :server_ref,
+               list_tools_fn: fn _ -> {:error, :list_failed} end
              )
   end
 end
