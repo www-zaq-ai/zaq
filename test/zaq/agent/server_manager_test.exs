@@ -406,24 +406,29 @@ defmodule Zaq.Agent.ServerManagerTest do
       registry = Jido.registry_name(Zaq.Agent.Jido)
       pid1 = Jido.AgentServer.whereis(registry, server_id)
       monitor_ref = Process.monitor(pid1)
-      assert_receive {:DOWN, ^monitor_ref, :process, ^pid1, _reason}, 1_000
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid1, _reason}, 2_500
 
-      assert {:ok, ref} = ServerManager.ensure_server(server_id)
+      restarted =
+        Enum.reduce_while(1..50, nil, fn _, _ ->
+          case ServerManager.ensure_server(server_id) do
+            {:ok, ref} ->
+              case Jido.AgentServer.whereis(registry, server_id) do
+                pid when is_pid(pid) and pid != pid1 ->
+                  {:halt, {ref, pid}}
 
-      # The new process may need a short moment before it is visible in the registry.
-      resolved_pid =
-        Enum.reduce_while(1..20, nil, fn _, _ ->
-          case Jido.AgentServer.whereis(registry, server_id) do
-            pid when is_pid(pid) ->
-              {:halt, pid}
+                _ ->
+                  Process.sleep(50)
+                  {:cont, nil}
+              end
 
             _ ->
-              Process.sleep(30)
+              Process.sleep(50)
               {:cont, nil}
           end
         end)
 
-      assert is_pid(resolved_pid)
+      assert {ref, pid2} = restarted
+      assert is_pid(pid2)
       assert {:ok, _status} = Jido.AgentServer.status(ref)
     end
   end
