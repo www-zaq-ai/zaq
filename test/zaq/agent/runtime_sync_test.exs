@@ -155,7 +155,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   defmodule StubAgentLifecycleActiveModule do
-    def create_agent(attrs), do: {:ok, struct(ConfiguredAgent, Map.merge(%{id: 701, active: true}, attrs))}
+    def create_agent(attrs),
+      do: {:ok, struct(ConfiguredAgent, Map.merge(%{id: 701, active: true}, attrs))}
 
     def get_agent!(id) do
       %ConfiguredAgent{
@@ -184,7 +185,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
       {:ok, struct(Endpoint, Map.merge(%{id: id, status: "enabled", type: "remote"}, attrs))}
     end
 
-    def get_mcp_endpoint!(id), do: %Endpoint{id: id, status: "enabled", type: "remote", url: "http://localhost:8000/mcp"}
+    def get_mcp_endpoint!(id),
+      do: %Endpoint{id: id, status: "enabled", type: "remote", url: "http://localhost:8000/mcp"}
 
     def update_mcp_endpoint(endpoint, attrs), do: {:ok, struct(endpoint, attrs)}
 
@@ -195,7 +197,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     alias Ecto.Changeset
     alias Zaq.Agent.MCP.Endpoint
 
-    def get_mcp_endpoint!(id), do: %Endpoint{id: id, status: "enabled", type: "remote", url: "http://localhost:8000/mcp"}
+    def get_mcp_endpoint!(id),
+      do: %Endpoint{id: id, status: "enabled", type: "remote", url: "http://localhost:8000/mcp"}
 
     def delete_mcp_endpoint(%Endpoint{} = endpoint) do
       changeset = endpoint |> Changeset.change() |> Changeset.add_error(:base, "cannot delete")
@@ -243,7 +246,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   defmodule StubServerManagerRuntimeErrorForOne do
     def sync_runtime(%ConfiguredAgent{id: 51}) do
-      {:ok, %{server_ref: {:server, 51}, runtime: %{mcp: %{results: []}, tools: %{added_tools: []}}}}
+      {:ok,
+       %{server_ref: {:server, 51}, runtime: %{mcp: %{results: []}, tools: %{added_tools: []}}}}
     end
 
     def sync_runtime(%ConfiguredAgent{id: 52}) do
@@ -792,17 +796,16 @@ defmodule Zaq.Agent.RuntimeSyncTest do
       alias Zaq.Agent.MCP.Endpoint
 
       def get_mcp_endpoint(1),
-        do:
-          %Endpoint{
-            id: 1,
-            type: "local",
-            status: "enabled",
-            command: "echo",
-            args: ["ok"],
-            environments: %{},
-            secret_environments: %{},
-            timeout_ms: 5000
-          }
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
     end
 
     defmodule SignalAdapterRuntimeFailure do
@@ -827,17 +830,16 @@ defmodule Zaq.Agent.RuntimeSyncTest do
       alias Zaq.Agent.MCP.Endpoint
 
       def get_mcp_endpoint(1),
-        do:
-          %Endpoint{
-            id: 1,
-            type: "local",
-            status: "enabled",
-            command: "echo",
-            args: ["ok"],
-            environments: %{},
-            secret_environments: %{},
-            timeout_ms: 5000
-          }
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
     end
 
     defmodule SignalAdapterStringMetrics do
@@ -859,7 +861,13 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                signal_adapter_module: SignalAdapterStringMetrics
              )
 
-    assert [%{status: :warning, endpoint_id: 1, metrics: %{discovered_count: 0, registered_count: 0, failed_count: 0}}] =
+    assert [
+             %{
+               status: :warning,
+               endpoint_id: 1,
+               metrics: %{discovered_count: 0, registered_count: 0, failed_count: 0}
+             }
+           ] =
              result.mcp.warnings
   end
 
@@ -888,7 +896,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              )
 
     assert {:ok, %{endpoint: %Endpoint{id: 12, name: "Updated"}}} =
-             RuntimeSync.mcp_endpoint_updated(%{action: :update, id: 12, attrs: %{name: "Updated"}},
+             RuntimeSync.mcp_endpoint_updated(
+               %{action: :update, id: 12, attrs: %{name: "Updated"}},
                mcp_module: StubMCPCreateUpdate,
                agent_module: StubAgentLifecycleModule
              )
@@ -896,13 +905,15 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   test "mcp_endpoint_updated supports string actions for create update and delete" do
     assert {:ok, %{endpoint: %Endpoint{id: 901}}} =
-             RuntimeSync.mcp_endpoint_updated(%{"action" => "create", "attrs" => %{"name" => "Created"}},
+             RuntimeSync.mcp_endpoint_updated(
+               %{"action" => "create", "attrs" => %{"name" => "Created"}},
                mcp_module: StubMCPCreateUpdateDeleteString,
                agent_module: StubAgentLifecycleModule
              )
 
     assert {:ok, %{endpoint: %Endpoint{id: 22}}} =
-             RuntimeSync.mcp_endpoint_updated(%{"action" => "update", "id" => 22, "attrs" => %{"name" => "Updated String"}},
+             RuntimeSync.mcp_endpoint_updated(
+               %{"action" => "update", "id" => 22, "attrs" => %{"name" => "Updated String"}},
                mcp_module: StubMCPCreateUpdateDeleteString,
                agent_module: StubAgentLifecycleModule
              )
@@ -924,7 +935,11 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   test "mcp_endpoint_updated filters inactive impacted agents for enabled endpoint" do
     assert {:ok, %{runtime: runtime}} =
-             RuntimeSync.mcp_endpoint_updated(%{action: :create, attrs: %{name: "Enabled", id: 55, status: "enabled", type: "remote"}},
+             RuntimeSync.mcp_endpoint_updated(
+               %{
+                 action: :create,
+                 attrs: %{name: "Enabled", id: 55, status: "enabled", type: "remote"}
+               },
                mcp_module: StubMCPCreateUpdate,
                agent_module: StubAgentImpactedModule,
                server_manager_module: StubServerManagerRuntimeWithResult
@@ -936,7 +951,11 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   test "mcp_endpoint_updated returns default endpoint result when runtime has no endpoint match" do
     assert {:ok, %{runtime: runtime}} =
-             RuntimeSync.mcp_endpoint_updated(%{action: :create, attrs: %{name: "Enabled No Match", id: 99, status: "enabled", type: "remote"}},
+             RuntimeSync.mcp_endpoint_updated(
+               %{
+                 action: :create,
+                 attrs: %{name: "Enabled No Match", id: 99, status: "enabled", type: "remote"}
+               },
                mcp_module: StubMCPCreateUpdate,
                agent_module: StubAgentImpactedModule,
                server_manager_module: StubServerManagerRuntimeNoResult
@@ -947,7 +966,11 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   test "mcp_endpoint_updated halts when one impacted agent patch fails" do
     assert {:error, :agent_runtime_sync_failed} =
-             RuntimeSync.mcp_endpoint_updated(%{action: :create, attrs: %{id: 55, name: "Enabled", status: "enabled", type: "remote"}},
+             RuntimeSync.mcp_endpoint_updated(
+               %{
+                 action: :create,
+                 attrs: %{id: 55, name: "Enabled", status: "enabled", type: "remote"}
+               },
                mcp_module: StubMCPCreateUpdate,
                agent_module: StubAgentImpactedTwoActiveModule,
                server_manager_module: StubServerManagerRuntimeErrorForOne
@@ -963,7 +986,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     end
 
     assert {:ok, %{endpoint: %Endpoint{id: 333, status: "disabled"}, runtime: runtime}} =
-             RuntimeSync.mcp_endpoint_updated(%{action: :enable_predefined, predefined_id: "filesystem"},
+             RuntimeSync.mcp_endpoint_updated(
+               %{action: :enable_predefined, predefined_id: "filesystem"},
                mcp_module: StubMCPEnablePredefined,
                agent_module: StubAgentLifecycleModule
              )
@@ -990,24 +1014,35 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   test "mcp_endpoint_updated unsyncs endpoint for active impacted agents when disabled" do
     defmodule StubDisabledImpactedAgentModule do
-      def list_agents_with_mcp_endpoint(_endpoint_id), do: [%ConfiguredAgent{id: 88, active: true}]
+      def list_agents_with_mcp_endpoint(_endpoint_id),
+        do: [%ConfiguredAgent{id: 88, active: true}]
     end
 
     defmodule StubServerManagerDisabledPatch do
       def sync_runtime(%ConfiguredAgent{id: 88}) do
-        {:ok, %{server_ref: :server_ref, runtime: %{mcp: %{results: []}, tools: %{added_tools: []}}}}
+        {:ok,
+         %{server_ref: :server_ref, runtime: %{mcp: %{results: []}, tools: %{added_tools: []}}}}
       end
     end
 
     defmodule StubSignalAdapterDisabledPatch do
       def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
-      def sync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{discovered_count: 0, registered_count: 0, failed_count: 0}}
+
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts),
+        do: {:ok, %{discovered_count: 0, registered_count: 0, failed_count: 0}}
+
       def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
-      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 1, failed_count: 0}}
+
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts),
+        do: {:ok, %{removed_count: 1, failed_count: 0}}
     end
 
     assert {:ok, %{runtime: runtime}} =
-             RuntimeSync.mcp_endpoint_updated(%{action: :create, attrs: %{id: 66, name: "Disabled", status: "disabled", type: "remote"}},
+             RuntimeSync.mcp_endpoint_updated(
+               %{
+                 action: :create,
+                 attrs: %{id: 66, name: "Disabled", status: "disabled", type: "remote"}
+               },
                mcp_module: StubMCPCreateUpdate,
                agent_module: StubDisabledImpactedAgentModule,
                server_manager_module: StubServerManagerDisabledPatch,
