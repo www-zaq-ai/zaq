@@ -91,8 +91,8 @@
           #
           {Credo.Check.Design.TagTODO, [exit_status: 2]},
           # Disable to let ex_dna handle it
-          # {Credo.Check.Design.DuplicatedCode, false},
-          # {ExDNA.Credo, []},
+          {Credo.Check.Design.DuplicatedCode, false},
+          {ExDNA.Credo, []},
 
           #
           ## Readability Checks
