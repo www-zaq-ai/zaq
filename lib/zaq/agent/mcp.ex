@@ -4,6 +4,7 @@ defmodule Zaq.Agent.MCP do
   import Ecto.Query
 
   alias Ecto.Changeset
+  alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP.{Endpoint, Runtime}
   alias Zaq.Agent.QueryFilters
   alias Zaq.Repo
@@ -12,34 +13,108 @@ defmodule Zaq.Agent.MCP do
   @secret_fields [:secret_headers, :secret_environments]
 
   @predefined %{
-    "filesystem" => %{
-      id: "filesystem",
-      name: "Filesystem",
-      icon: "hero-folder",
-      editable: false,
-      defaults: %{
-        type: "local",
-        status: "disabled",
-        timeout_ms: 5000,
-        command: "npx",
-        args: ["-y", "@modelcontextprotocol/server-filesystem"],
-        environments: %{},
-        secret_environments: %{},
-        headers: %{},
-        secret_headers: %{},
-        settings: %{}
-      }
-    },
-    "fetch" => %{
-      id: "fetch",
-      name: "Fetch",
-      icon: "hero-globe-alt",
+    # "filesystem" => %{
+    #   id: "filesystem",
+    #   name: "Filesystem",
+    #   icon: "hero-folder",
+    #   editable: false,
+    #   defaults: %{
+    #     type: "local",
+    #     status: "disabled",
+    #     timeout_ms: 5000,
+    #     command: "npx",
+    #     args: ["-y", "@modelcontextprotocol/server-filesystem"],
+    #     environments: %{},
+    #     secret_environments: %{},
+    #     headers: %{},
+    #     secret_headers: %{},
+    #     settings: %{}
+    #   }
+    # },
+    "github_mcp" => %{
+      id: "github_mcp",
+      name: "Github",
+      icon: "hero-code-bracket-square",
+      description: "Official GitHub MCP for repository operations, pull requests, and issues.",
       editable: true,
       defaults: %{
         type: "remote",
         status: "disabled",
         timeout_ms: 5000,
-        url: "http://localhost:8000/mcp",
+        url: "https://api.githubcopilot.com/mcp/",
+        headers: %{},
+        secret_headers: %{"Authorization" => "t"},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+    },
+    "stripe_mcp" => %{
+      id: "stripe_mcp",
+      name: "Stripe",
+      icon: "hero-credit-card-solid",
+      description: "Stripe MCP for payments, customers, and billing workflows.",
+      editable: true,
+      defaults: %{
+        type: "remote",
+        status: "disabled",
+        timeout_ms: 5000,
+        url: "https://mcp.stripe.com",
+        headers: %{},
+        secret_headers: %{"Authorization" => "Bearer {restricted api key}"},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+    },
+    "context_awesome_mcp" => %{
+      id: "context_awesome_mcp",
+      name: "Context Awesome",
+      icon: "hero-command-line",
+      description:
+        "Community-curated collections of the best tools, libraries, and resources on any topic.",
+      editable: true,
+      defaults: %{
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "https://www.context-awesome.com/api/mcp",
+        headers: %{},
+        secret_headers: %{},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+    },
+    "datagouv_mcp" => %{
+      id: "datagouv_mcp",
+      name: "Datagouv MCP",
+      icon: "hero-building-library-solid",
+      description: "French public data MCP endpoint (data.gouv.fr) for open-data exploration.",
+      editable: true,
+      defaults: %{
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 10_000,
+        url: "https://mcp.data.gouv.fr/mcp",
+        headers: %{},
+        secret_headers: %{},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+    },
+    "tweetsave_mcp" => %{
+      id: "tweetsave_mcp",
+      name: "TweetSave",
+      icon: "hero-chat-bubble-left-right-solid",
+      description: "TweetSave MCP endpoint for social content retrieval workflows.",
+      editable: true,
+      defaults: %{
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "https://mcp.tweetsave.org/sse",
         headers: %{},
         secret_headers: %{},
         environments: %{},
@@ -119,6 +194,7 @@ defmodule Zaq.Agent.MCP do
     endpoint
     |> Changeset.change()
     |> validate_editable_predefined()
+    |> validate_not_assigned_to_agents()
     |> case do
       %Changeset{valid?: true} -> Repo.delete(endpoint)
       %Changeset{} = changeset -> {:error, changeset}
@@ -244,6 +320,8 @@ defmodule Zaq.Agent.MCP do
       predefined_id: endpoint.predefined_id,
       editable: endpoint_editable?(endpoint.predefined_id),
       icon: predefined && predefined.icon,
+      description: predefined && predefined.description,
+      auto_enabled: predefined_auto_enabled?(predefined),
       name: endpoint.name,
       type: endpoint.type,
       status: endpoint.status,
@@ -268,6 +346,8 @@ defmodule Zaq.Agent.MCP do
       predefined_id: predefined.id,
       editable: predefined.editable,
       icon: predefined.icon,
+      description: Map.get(predefined, :description),
+      auto_enabled: predefined_auto_enabled?(predefined),
       name: predefined.name,
       type: predefined.defaults.type,
       status: "disabled",
@@ -282,6 +362,9 @@ defmodule Zaq.Agent.MCP do
       settings: Map.get(predefined.defaults, :settings, %{})
     }
   end
+
+  defp predefined_auto_enabled?(%{defaults: %{status: "enabled"}}), do: true
+  defp predefined_auto_enabled?(_), do: false
 
   defp endpoint_editable?(nil), do: true
 
@@ -301,6 +384,38 @@ defmodule Zaq.Agent.MCP do
       Changeset.add_error(changeset, :base, "predefined MCP is not editable")
     end
   end
+
+  defp validate_not_assigned_to_agents(%Changeset{} = changeset) do
+    endpoint_id = Changeset.get_field(changeset, :id)
+
+    case agents_using_endpoint(endpoint_id) do
+      [] ->
+        changeset
+
+      agent_names ->
+        message =
+          [
+            "This MCP endpoint is currently used by custom agents:",
+            Enum.map_join(agent_names, "\n", &"- #{&1}"),
+            "",
+            "Remove this MCP endpoint from these agents first, then try deleting it again."
+          ]
+          |> Enum.join("\n")
+
+        Changeset.add_error(changeset, :base, message)
+    end
+  end
+
+  defp agents_using_endpoint(endpoint_id) when is_integer(endpoint_id) do
+    ConfiguredAgent
+    |> where([a], ^endpoint_id in a.enabled_mcp_endpoint_ids)
+    |> select([a], a.name)
+    |> Repo.all()
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp agents_using_endpoint(_), do: []
 
   defp encrypt_secret_maps(%Changeset{} = changeset) do
     Enum.reduce_while(@secret_fields, changeset, fn field, acc ->

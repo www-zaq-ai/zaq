@@ -18,6 +18,48 @@ defmodule Zaq.Agent.RuntimeSyncTest do
         timeout_ms: 5000
       }
     end
+
+    def get_mcp_endpoint!(id), do: get_mcp_endpoint(id)
+
+    def delete_mcp_endpoint(%Endpoint{} = endpoint) do
+      send(self(), {:delete_mcp_endpoint_called, endpoint.id})
+      {:ok, endpoint}
+    end
+  end
+
+  defmodule StubSignalAdapter do
+    def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+
+    def sync_tools(_server_ref, _runtime_endpoint_id, opts) do
+      result = Keyword.get(opts, :stub_sync_result)
+
+      if result,
+        do: result,
+        else:
+          {:ok,
+           %{discovered_count: 0, registered_count: 0, failed_count: 0, failed: [], warnings: []}}
+    end
+
+    def unsync_tools(_server_ref, _runtime_endpoint_id, _opts) do
+      {:ok, %{removed_count: 0, failed_count: 0, removed_tools: [], failed: []}}
+    end
+
+    def unregister_endpoint(_server_ref, runtime_endpoint_id, _opts) do
+      send(self(), {:unregister_endpoint_called, runtime_endpoint_id})
+      :ok
+    end
+  end
+
+  defmodule StubServerManager do
+    def sync_runtime(%ConfiguredAgent{id: id}) do
+      {:ok, %{server_ref: {:server, id}, runtime: %{mcp: %{results: []}}}}
+    end
+  end
+
+  defmodule StubAgentModule do
+    def list_agents_with_mcp_endpoint(_endpoint_id) do
+      [%ConfiguredAgent{id: 77, active: true}]
+    end
   end
 
   defmodule RuntimeCustomTool do
@@ -97,37 +139,21 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   test "sync_agent_mcp_assignments returns warning when endpoint exposes zero tools" do
     agent = %ConfiguredAgent{id: 7, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
 
-    mcp_sync_fn = fn _endpoint_id, _agent_server, _options ->
-      %{
-        status: :ok,
-        operation: :sync,
-        endpoint_id: :mcp_1,
-        attempted: 1,
-        succeeded: 1,
-        failed: 0,
-        results: [
-          %{
-            status: :ok,
-            result: %{
-              discovered_count: 0,
-              registered_count: 0,
-              failed_count: 0,
-              failed: [],
-              warnings: %{}
-            }
-          }
-        ]
-      }
-    end
-
     assert {:ok, result} =
              RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
                mcp_module: StubMCP,
                endpoint_count_fn: fn -> 0 end,
-                register_fn: fn _endpoint -> :ok end,
-                refresh_fn: fn _endpoint_id -> :ok end,
-                mcp_sync_fn: mcp_sync_fn
-              )
+               signal_adapter_module: StubSignalAdapter,
+               stub_sync_result:
+                 {:ok,
+                  %{
+                    discovered_count: 0,
+                    registered_count: 0,
+                    failed_count: 0,
+                    failed: [],
+                    warnings: []
+                  }}
+             )
 
     assert result.synced_endpoint_ids == [1]
     assert [%{status: :warning, reason: :no_tools_discovered}] = result.warnings
@@ -136,37 +162,21 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   test "sync_agent_mcp_assignments errors when tools are discovered but none register" do
     agent = %ConfiguredAgent{id: 8, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
 
-    mcp_sync_fn = fn _endpoint_id, _agent_server, _options ->
-      %{
-        status: :ok,
-        operation: :sync,
-        endpoint_id: :mcp_1,
-        attempted: 1,
-        succeeded: 1,
-        failed: 0,
-        results: [
-          %{
-            status: :ok,
-            result: %{
-              discovered_count: 3,
-              registered_count: 0,
-              failed_count: 3,
-              failed: ["a"],
-              warnings: %{}
-            }
-          }
-        ]
-      }
-    end
-
     assert {:error, {:mcp_sync_failed, details}} =
              RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
                mcp_module: StubMCP,
                endpoint_count_fn: fn -> 0 end,
-                register_fn: fn _endpoint -> :ok end,
-                refresh_fn: fn _endpoint_id -> :ok end,
-                mcp_sync_fn: mcp_sync_fn
-              )
+               signal_adapter_module: StubSignalAdapter,
+               stub_sync_result:
+                 {:ok,
+                  %{
+                    discovered_count: 3,
+                    registered_count: 0,
+                    failed_count: 3,
+                    failed: ["a"],
+                    warnings: []
+                  }}
+             )
 
     assert details.endpoint_id == 1
 
@@ -174,5 +184,23 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              {:mcp_tools_not_registered, %{endpoint_id: 1, discovered_count: 3, result: _}},
              details.reason
            )
+  end
+
+  test "mcp_endpoint_updated deletes endpoint and unsyncs impacted active agents" do
+    assert {:ok, %{endpoint: endpoint, runtime: runtime}} =
+             RuntimeSync.mcp_endpoint_updated(%{action: :delete, id: 12},
+               mcp_module: StubMCP,
+               agent_module: StubAgentModule,
+               server_manager_module: StubServerManager,
+               signal_adapter_module: StubSignalAdapter,
+               endpoint_count_fn: fn -> 0 end,
+               atom_count_fn: fn -> 100 end
+             )
+
+    assert endpoint.id == 12
+    assert runtime.endpoint_id == 12
+    assert runtime.endpoint_status == "disabled"
+    assert runtime.impacted_agent_ids == [77]
+    assert_received {:delete_mcp_endpoint_called, 12}
   end
 end

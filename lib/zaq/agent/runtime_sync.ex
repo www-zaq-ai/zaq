@@ -5,10 +5,12 @@ defmodule Zaq.Agent.RuntimeSync do
 
   require Logger
 
+  alias Jido.MCP.JidoAI.ProxyRegistry
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.MCP.Runtime
+  alias Zaq.Agent.MCP.SignalAdapter
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Tools.Registry
 
@@ -159,6 +161,15 @@ defmodule Zaq.Agent.RuntimeSync do
       :enable_predefined ->
         mcp_module.enable_predefined(map_get(request, :predefined_id))
 
+      :delete ->
+        id = map_get(request, :id)
+        endpoint = mcp_module.get_mcp_endpoint!(id)
+
+        case mcp_module.delete_mcp_endpoint(endpoint) do
+          {:ok, deleted} -> {:ok, %{deleted | status: "disabled"}}
+          other -> other
+        end
+
       _ ->
         {:error, {:invalid_request, request}}
     end
@@ -178,7 +189,8 @@ defmodule Zaq.Agent.RuntimeSync do
       true ->
         {added, removed} = mcp_assignment_diff(previous, agent)
 
-        with {:ok, %{server_ref: server_ref, runtime: runtime}} <- server_manager.sync_runtime(agent),
+        with {:ok, %{server_ref: server_ref, runtime: runtime}} <-
+               server_manager.sync_runtime(agent),
              {:ok, unsync_results} <- unsync_removed_endpoints(server_ref, removed, opts) do
           {:ok,
            %{
@@ -204,7 +216,6 @@ defmodule Zaq.Agent.RuntimeSync do
 
     with :ok <- apply_runtime_endpoint_update(endpoint, status, opts),
          {:ok, results} <- patch_impacted_agents(impacted_agents, endpoint.id, status, opts) do
-
       warnings =
         Enum.flat_map(results, fn
           {:ok, %{status: :warning} = warning} -> [warning]
@@ -262,29 +273,10 @@ defmodule Zaq.Agent.RuntimeSync do
     Enum.all?(fields, fn field -> Map.get(previous, field) == Map.get(current, field) end)
   end
 
-  defp run_sync_action(sync_fn, runtime_endpoint_id, server_ref, opts) do
-    sync_opts = %{prefix: Keyword.get(opts, :mcp_tool_prefix)}
-    sync_fn.(runtime_endpoint_id, server_ref, sync_opts)
-  end
-
-  defp run_unsync_action(unsync_fn, runtime_endpoint_id, server_ref) do
-    unsync_fn.(runtime_endpoint_id, server_ref)
-  end
-
-  defp sync_fn(opts) do
-    Keyword.get(opts, :mcp_sync_fn, &Jido.MCP.sync_endpoint_to_agent/3)
-  end
-
-  defp unsync_fn(opts) do
-    Keyword.get(opts, :mcp_unsync_fn, &Jido.MCP.unsync_endpoint_from_agent/2)
-  end
-
-  defp apply_runtime_endpoint_update(endpoint, "enabled", opts) do
-    Runtime.register_or_refresh_endpoint(endpoint, opts)
-  end
-
-  defp apply_runtime_endpoint_update(endpoint, _status, opts) do
-    Runtime.unregister_endpoint(endpoint.id, opts)
+  defp apply_runtime_endpoint_update(_endpoint, _status, _opts) do
+    # Endpoint lifecycle (register/refresh/unregister) is now handled
+    # per-agent via signals in sync_endpoint_for_agent / unsync_endpoint_for_agent.
+    :ok
   end
 
   defp patch_impacted_agent(agent, endpoint_id, status, opts) do
@@ -334,24 +326,36 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
-  defp sync_enabled_endpoint(server_ref, endpoint, opts), do: sync_endpoint_for_agent(server_ref, endpoint, opts)
+  defp sync_enabled_endpoint(server_ref, endpoint, opts),
+    do: sync_endpoint_for_agent(server_ref, endpoint, opts)
 
   defp sync_endpoint_for_agent(server_ref, endpoint, opts) do
-    with :ok <- Runtime.register_or_refresh_endpoint(endpoint, opts),
-         {:ok, runtime_endpoint_id} <- Runtime.runtime_endpoint_id(endpoint.id, opts) do
-      classify_sync_result(
-        endpoint.id,
-        run_sync_action(sync_fn(opts), runtime_endpoint_id, server_ref, opts)
-      )
+    signal_adapter = Keyword.get(opts, :signal_adapter_module, SignalAdapter)
+
+    with {:ok, runtime_endpoint_id} <- Runtime.runtime_endpoint_id(endpoint.id, opts),
+         {:ok, endpoint_attrs} <- Runtime.build_endpoint_attrs(runtime_endpoint_id, endpoint),
+         :ok <- signal_adapter.register_endpoint(server_ref, endpoint_attrs, opts),
+         {:ok, result} <- signal_adapter.sync_tools(server_ref, runtime_endpoint_id, opts) do
+      classify_sync_result(endpoint.id, result)
     end
   end
 
   defp unsync_endpoint_for_agent(server_ref, endpoint_id, opts) do
-    with {:ok, runtime_endpoint_id} <- Runtime.runtime_endpoint_id(endpoint_id, opts) do
-      classify_unsync_result(
-        endpoint_id,
-        run_unsync_action(unsync_fn(opts), runtime_endpoint_id, server_ref)
-      )
+    signal_adapter = Keyword.get(opts, :signal_adapter_module, SignalAdapter)
+
+    with {:ok, runtime_endpoint_id} <- Runtime.runtime_endpoint_id(endpoint_id, opts),
+         {:ok, result} <- signal_adapter.unsync_tools(server_ref, runtime_endpoint_id, opts) do
+      maybe_unregister_endpoint_globally(server_ref, runtime_endpoint_id, opts)
+      classify_unsync_result(endpoint_id, result)
+    end
+  end
+
+  defp maybe_unregister_endpoint_globally(server_ref, runtime_endpoint_id, opts) do
+    signal_adapter = Keyword.get(opts, :signal_adapter_module, SignalAdapter)
+
+    case ProxyRegistry.subscribers_for(runtime_endpoint_id) do
+      [] -> signal_adapter.unregister_endpoint(server_ref, runtime_endpoint_id, opts)
+      _ -> :ok
     end
   end
 
@@ -362,7 +366,12 @@ defmodule Zaq.Agent.RuntimeSync do
       {:error, reason} ->
         {:error, {:mcp_sync_failed, %{endpoint_id: endpoint_id, reason: reason}}}
 
-      {:ok, %{discovered_count: discovered_count, registered_count: registered_count, failed_count: failed_count} = metrics} ->
+      {:ok,
+       %{
+         discovered_count: discovered_count,
+         registered_count: registered_count,
+         failed_count: failed_count
+       } = metrics} ->
         cond do
           discovered_count == 0 ->
             {:ok,
@@ -441,23 +450,25 @@ defmodule Zaq.Agent.RuntimeSync do
   end
 
   defp sync_metrics_from_result(%{results: results}) when is_list(results) do
-    Enum.reduce_while(results, {:ok, %{discovered_count: 0, registered_count: 0, failed_count: 0}}, fn entry,
-                                                                                                      {:ok,
-                                                                                                       acc} ->
-      case sync_metrics_from_entry(entry) do
-        {:ok, metrics} ->
-          {:cont,
-           {:ok,
-            %{
-              discovered_count: acc.discovered_count + metrics.discovered_count,
-              registered_count: acc.registered_count + metrics.registered_count,
-              failed_count: acc.failed_count + metrics.failed_count
-            }}}
+    Enum.reduce_while(
+      results,
+      {:ok, %{discovered_count: 0, registered_count: 0, failed_count: 0}},
+      fn entry, {:ok, acc} ->
+        case sync_metrics_from_entry(entry) do
+          {:ok, metrics} ->
+            {:cont,
+             {:ok,
+              %{
+                discovered_count: acc.discovered_count + metrics.discovered_count,
+                registered_count: acc.registered_count + metrics.registered_count,
+                failed_count: acc.failed_count + metrics.failed_count
+              }}}
 
-        {:error, reason} ->
-          {:halt, {:error, reason}}
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
       end
-    end)
+    )
   end
 
   defp sync_metrics_from_result(result) when is_map(result) do
@@ -500,6 +511,7 @@ defmodule Zaq.Agent.RuntimeSync do
       "create" -> :create
       "update" -> :update
       "enable_predefined" -> :enable_predefined
+      "delete" -> :delete
       _ -> :invalid
     end
   end

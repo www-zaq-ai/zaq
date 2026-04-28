@@ -1,6 +1,9 @@
 defmodule Zaq.Agent.MCPTest do
   use Zaq.DataCase, async: false
 
+  import Zaq.SystemConfigFixtures
+
+  alias Zaq.Agent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Repo
@@ -322,6 +325,60 @@ defmodule Zaq.Agent.MCPTest do
 
       assert {:error, changeset} = MCP.delete_mcp_endpoint(endpoint)
       assert "predefined MCP is not editable" in errors_on(changeset).base
+    end
+
+    test "delete_mcp_endpoint blocks entries assigned to custom agents" do
+      assert {:ok, endpoint} =
+               MCP.create_mcp_endpoint(%{
+                 name: "In Use Endpoint",
+                 type: "remote",
+                 status: "enabled",
+                 timeout_ms: 5000,
+                 url: "http://localhost:8000/mcp"
+               })
+
+      credential =
+        ai_credential_fixture(%{
+          name: "MCP Delete Guard Credential #{System.unique_integer([:positive, :monotonic])}",
+          provider: "openai",
+          sovereign: false
+        })
+
+      {:ok, _agent_a} =
+        Agent.create_agent(%{
+          name: "Alpha Agent #{System.unique_integer([:positive])}",
+          job: "job",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          enabled_mcp_endpoint_ids: [endpoint.id],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{}
+        })
+
+      {:ok, _agent_b} =
+        Agent.create_agent(%{
+          name: "Beta Agent #{System.unique_integer([:positive])}",
+          job: "job",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          enabled_mcp_endpoint_ids: [endpoint.id],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{}
+        })
+
+      assert {:error, changeset} = MCP.delete_mcp_endpoint(endpoint)
+
+      [base_error | _] = errors_on(changeset).base
+      assert base_error =~ "currently used by custom agents"
+      assert base_error =~ "Alpha Agent"
+      assert base_error =~ "Beta Agent"
+      assert base_error =~ "Remove this MCP endpoint from these agents first"
     end
 
     test "get_by_predefined_id returns enabled predefined entry" do

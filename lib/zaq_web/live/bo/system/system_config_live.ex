@@ -31,6 +31,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:embedding_save_confirm_modal, false)
      |> assign(:pending_embedding_params, nil)
      |> assign(:mcp_endpoint_modal, false)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)
      |> assign(:mcp_endpoint_action, :new)
      |> assign(:mcp_endpoint_id, nil)
      |> assign(:mcp_filter_name, "")
@@ -439,6 +440,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      socket
      |> assign(:mcp_endpoint_action, :new)
      |> assign(:mcp_endpoint_id, nil)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)
      |> assign(:mcp_endpoint_modal, true)
      |> load_mcp_endpoint_form()}
   end
@@ -450,13 +452,66 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      socket
      |> assign(:mcp_endpoint_action, :edit)
      |> assign(:mcp_endpoint_id, endpoint.id)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)
      |> assign(:mcp_endpoint_modal, true)
      |> assign(:mcp_endpoint_form, to_form(MCP.change_mcp_endpoint(endpoint), as: :mcp_endpoint))
      |> assign(:mcp_endpoint_rows, mcp_rows(endpoint))}
   end
 
   def handle_event("close_mcp_endpoint_modal", _params, socket) do
-    {:noreply, assign(socket, :mcp_endpoint_modal, false)}
+    {:noreply,
+     socket
+     |> assign(:mcp_endpoint_modal, false)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)}
+  end
+
+  def handle_event("open_delete_mcp_endpoint_confirm", _params, socket) do
+    {:noreply, assign(socket, :mcp_endpoint_delete_confirm_modal, true)}
+  end
+
+  def handle_event("cancel_delete_mcp_endpoint", _params, socket) do
+    {:noreply, assign(socket, :mcp_endpoint_delete_confirm_modal, false)}
+  end
+
+  def handle_event("confirm_delete_mcp_endpoint", _params, socket) do
+    event =
+      Event.new(%{action: :delete, id: socket.assigns.mcp_endpoint_id}, :agent,
+        opts: [action: :mcp_endpoint_updated]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, %{endpoint: endpoint} = payload} ->
+        socket =
+          socket
+          |> assign(:mcp_endpoint_delete_confirm_modal, false)
+          |> assign(:mcp_endpoint_modal, false)
+          |> load_mcp_endpoints()
+          |> put_flash(:info, "MCP endpoint deleted (#{endpoint.name}).")
+          |> maybe_put_mcp_runtime_warnings(payload)
+
+        {:noreply, socket}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_delete_confirm_modal, false)
+         |> assign(
+           :mcp_endpoint_form,
+           to_form(Map.put(changeset, :action, :validate), as: :mcp_endpoint)
+         )}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_delete_confirm_modal, false)
+         |> put_flash(:error, "Failed to delete MCP endpoint: #{inspect(reason)}")}
+
+      other ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_delete_confirm_modal, false)
+         |> put_flash(:error, "Failed to delete MCP endpoint: #{inspect(other)}")}
+    end
   end
 
   def handle_event("enable_predefined_mcp", %{"predefined_id" => predefined_id}, socket) do
@@ -466,12 +521,30 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       )
 
     case NodeRouter.dispatch(event).response do
-      {:ok, payload} ->
+      {:ok, %{endpoint: endpoint} = payload} ->
         socket =
           socket
           |> load_mcp_endpoints()
           |> put_flash(:info, "Predefined MCP enabled.")
           |> maybe_put_mcp_runtime_warnings(payload)
+
+        predefined = endpoint.predefined_id && MCP.predefined_catalog()[endpoint.predefined_id]
+
+        socket =
+          if is_map(predefined) and predefined[:editable] do
+            socket
+            |> assign(:mcp_endpoint_action, :edit)
+            |> assign(:mcp_endpoint_id, endpoint.id)
+            |> assign(:mcp_endpoint_modal, true)
+            |> assign(:mcp_endpoint_delete_confirm_modal, false)
+            |> assign(
+              :mcp_endpoint_form,
+              to_form(MCP.change_mcp_endpoint(endpoint), as: :mcp_endpoint)
+            )
+            |> assign(:mcp_endpoint_rows, mcp_rows(endpoint))
+          else
+            socket
+          end
 
         {:noreply, socket}
 
@@ -2068,6 +2141,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   attr :rows, :map, required: true
   attr :modal, :boolean, required: true
   attr :action, :atom, required: true
+  attr :delete_confirm_modal, :boolean, required: true
 
   defp mcp_panel(assigns) do
     ~H"""
@@ -2124,19 +2198,28 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
       <div :if={@entries != []} class="divide-y divide-black/[0.06]">
         <div :for={entry <- @entries} class="px-8 py-4 flex items-center justify-between gap-4">
-          <div class="min-w-0">
-            <p class="font-mono text-[0.82rem] font-semibold text-black truncate">{entry.name}</p>
-            <p class="font-mono text-[0.7rem] text-black/45 mt-0.5">
-              {entry.type} ·
-              <span class="inline-flex items-center gap-1.5">
+          <div class="min-w-0 flex items-start gap-3">
+            <div class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+              <ZaqWeb.Components.MCPEndpointIcons.icon
+                endpoint_key={entry.predefined_id}
+                class="h-7 w-7"
+              />
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <p class="font-mono text-[0.82rem] font-semibold text-black truncate">{entry.name}</p>
                 <span class={[
                   "h-2 w-2 rounded-full",
                   if(entry.status == "enabled", do: "bg-emerald-500", else: "bg-red-500")
                 ]} />
-                {entry.status}
-              </span>
-              <span :if={entry.predefined?}> · predefined</span>
-            </p>
+              </div>
+              <p class="font-mono text-[0.7rem] text-black/45 mt-0.5">
+                {entry.type}<span :if={entry.predefined?}> · predefined</span>
+              </p>
+              <p :if={entry.description} class="font-mono text-[0.7rem] text-black/35 mt-0.5 truncate">
+                {entry.description}
+              </p>
+            </div>
           </div>
           <div class="flex items-center gap-2">
             <button
@@ -2147,6 +2230,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
             >
               Enable
+              <span :if={entry.auto_enabled} class="ml-1" title="Immediately available">⚡</span>
             </button>
             <button
               :if={entry.persisted?}
@@ -2216,12 +2300,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       >
         <p
           :for={{msg, opts} <- Keyword.get_values(@form.errors, :base)}
-          class="font-mono text-[0.72rem] text-red-500 bg-red-50 border border-red-100 rounded-xl px-3 py-2"
+          class="whitespace-pre-line font-mono text-[0.72rem] text-red-500 bg-red-50 border border-red-100 rounded-xl px-3 py-2"
         >
           {translate_error({msg, opts})}
         </p>
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_160px_160px]">
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Name
@@ -2235,32 +2319,37 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           </div>
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-              Type
-            </label>
-            <select
-              name="mcp_endpoint[type]"
-              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
-            >
-              <option value="local" selected={@form[:type].value == "local"}>local</option>
-              <option value="remote" selected={@form[:type].value == "remote"}>remote</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Status
             </label>
-            <select
-              name="mcp_endpoint[status]"
-              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
-            >
-              <option value="enabled" selected={@form[:status].value == "enabled"}>enabled</option>
-              <option value="disabled" selected={@form[:status].value == "disabled"}>
-                disabled
-              </option>
-            </select>
+            <label class="h-11 px-1 inline-flex items-center gap-3 cursor-pointer">
+              <input
+                type="hidden"
+                name="mcp_endpoint[status]"
+                value={if @form[:status].value == "enabled", do: "enabled", else: "disabled"}
+              />
+              <input
+                type="checkbox"
+                checked={@form[:status].value == "enabled"}
+                class="sr-only peer"
+                phx-click={
+                  if @form[:status].value == "enabled" do
+                    JS.set_attribute({"value", "disabled"},
+                      to: "#mcp-endpoint-form input[name='mcp_endpoint[status]']"
+                    )
+                  else
+                    JS.set_attribute({"value", "enabled"},
+                      to: "#mcp-endpoint-form input[name='mcp_endpoint[status]']"
+                    )
+                  end
+                  |> JS.dispatch("change", to: "#mcp-endpoint-form")
+                }
+              />
+              <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm relative">
+              </div>
+              <span class="font-mono text-[0.78rem] text-black/70">
+                {if @form[:status].value == "enabled", do: "Enabled", else: "Disabled"}
+              </span>
+            </label>
           </div>
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
@@ -2282,28 +2371,43 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           value={@form[:predefined_id].value || ""}
         />
 
-        <div :if={@form[:type].value == "local"}>
-          <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-            Command
-          </label>
-          <input
-            type="text"
-            name="mcp_endpoint[command]"
-            value={@form[:command].value || ""}
-            class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
-          />
-        </div>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Type
+            </label>
+            <select
+              name="mcp_endpoint[type]"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            >
+              <option value="local" selected={@form[:type].value == "local"}>local</option>
+              <option value="remote" selected={@form[:type].value == "remote"}>remote</option>
+            </select>
+          </div>
 
-        <div :if={@form[:type].value == "remote"}>
-          <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-            URL
-          </label>
-          <input
-            type="text"
-            name="mcp_endpoint[url]"
-            value={@form[:url].value || ""}
-            class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
-          />
+          <div :if={@form[:type].value == "local"}>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Command
+            </label>
+            <input
+              type="text"
+              name="mcp_endpoint[command]"
+              value={@form[:command].value || ""}
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            />
+          </div>
+
+          <div :if={@form[:type].value == "remote"}>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              URL
+            </label>
+            <input
+              type="text"
+              name="mcp_endpoint[url]"
+              value={@form[:url].value || ""}
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            />
+          </div>
         </div>
 
         <div :if={@form[:type].value == "local"} class="space-y-4">
@@ -2356,6 +2460,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
       <:actions>
         <button
+          :if={@action == :edit}
+          type="button"
+          phx-click="open_delete_mcp_endpoint_confirm"
+          class="inline-flex items-center gap-2 font-mono text-[0.8rem] px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+        >
+          <.icon name="hero-trash" class="h-4 w-4" /> Delete endpoint
+        </button>
+        <button
           type="submit"
           form="mcp-endpoint-form"
           class="font-mono text-[0.8rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3]"
@@ -2363,6 +2475,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           Save endpoint
         </button>
       </:actions>
+
+      <ZaqWeb.Components.BOModal.confirm_dialog
+        :if={@delete_confirm_modal}
+        id="mcp-endpoint-delete-confirm"
+        cancel_event="cancel_delete_mcp_endpoint"
+        confirm_event="confirm_delete_mcp_endpoint"
+        title="Delete MCP Endpoint?"
+        message="This action removes the endpoint. Associated runtime tools will be unsynced from active agents."
+        confirm_label="Delete"
+        cancel_label="Cancel"
+      />
     </BOModal.form_dialog>
     """
   end

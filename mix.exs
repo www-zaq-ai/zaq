@@ -110,8 +110,8 @@ defmodule Zaq.MixProject do
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
-      {:jido_mcp, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_mcp"},
-      # {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
+      # {:jido_mcp, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_mcp"},
+      {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
       {:req_llm, github: "agentjido/req_llm", branch: "main", override: true}
     ]

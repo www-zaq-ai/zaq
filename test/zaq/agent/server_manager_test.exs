@@ -13,7 +13,10 @@ defmodule Zaq.Agent.ServerManagerTest do
       notify_pid = Keyword.get(opts, :notify_pid)
 
       if is_pid(notify_pid) do
-        send(notify_pid, {:runtime_sync_hydrate_called, agent.id, agent.enabled_mcp_endpoint_ids, server_ref})
+        send(
+          notify_pid,
+          {:runtime_sync_hydrate_called, agent.id, agent.enabled_mcp_endpoint_ids, server_ref}
+        )
       end
 
       {:ok,
@@ -559,7 +562,8 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:ok, _state} = ServerManager.init([])
 
-    assert_receive {:runtime_sync_hydrate_called, ^expected_agent_id, [^expected_endpoint_id], _server_ref},
+    assert_receive {:runtime_sync_hydrate_called, ^expected_agent_id, [^expected_endpoint_id],
+                    _server_ref},
                    1_000
   end
 end
