@@ -25,6 +25,8 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
   use GenServer
 
+  require Logger
+
   alias Jido.Chat
   alias Jido.Chat.Adapter
   alias Zaq.Channels.ChannelConfig
@@ -97,23 +99,32 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     transport = sink_opts[:transport] || :websocket
 
     reply =
-      with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
-           incoming <- with_transport(incoming, transport),
-           thread_id <-
-             JidoChatBridge.thread_key(
-               incoming.channel_meta.adapter_name,
-               incoming.external_room_id,
-               incoming.external_thread_id || incoming.external_room_id
-             ),
-           {:ok, updated_chat, _} <-
-             Chat.process_message(
-               state.chat,
-               incoming.channel_meta.adapter_name,
-               thread_id,
-               incoming,
-               []
-             ) do
-        {:ok, updated_chat}
+      try do
+        with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
+             incoming <- with_transport(incoming, transport),
+             thread_id <-
+               JidoChatBridge.thread_key(
+                 incoming.channel_meta.adapter_name,
+                 incoming.external_room_id,
+                 incoming.external_thread_id || incoming.external_room_id
+               ),
+             {:ok, updated_chat, _} <-
+               Chat.process_message(
+                 state.chat,
+                 incoming.channel_meta.adapter_name,
+                 thread_id,
+                 incoming,
+                 []
+               ) do
+          {:ok, updated_chat}
+        end
+      rescue
+        e ->
+          Logger.error(
+            "[JidoChatBridge.State] Exception processing payload bridge_id=#{state.bridge_id}: #{Exception.message(e)}\n#{Exception.format_stacktrace(__STACKTRACE__)}"
+          )
+
+          {:ok, state.chat}
       end
 
     case reply do

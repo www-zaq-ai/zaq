@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-27
 **Author:** Claude
-**Status:** `active`
+**Status:** `completed`
 **Related debt:** —
 **PR(s):** —
 
@@ -168,7 +168,7 @@ History is only loaded on spawn (cold start). Live Jido state is authoritative w
   - Temporary code? No
   - Coverage target: `>= 95%`
 
-- [ ] **Step 7b — BO UI: expose `idle_time_seconds` and `memory_context_max_size` in agent form**
+- [x] **Step 7b — BO UI: expose `idle_time_seconds` and `memory_context_max_size` in agent form**
   - Files: `lib/zaq_web/live/bo/ai/agents_live.html.heex`, `lib/zaq_web/live/bo/ai/agents_live.ex`
   - In the template, add a new `grid grid-cols-1 gap-3 md:grid-cols-2` row **between** the "Advanced Options" block and the boolean toggles block:
     - Left cell — **Idle Timeout (seconds)** number input, `name="configured_agent[idle_time_seconds]"`, `value={@form[:idle_time_seconds].value || ""}`, `placeholder="Default: 1800"`. Helper text: `"Leave blank to use the system default (30 min)."`.
