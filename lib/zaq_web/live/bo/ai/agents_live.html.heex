@@ -478,6 +478,51 @@
               </p>
             </div>
 
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Idle Timeout (seconds)
+                </label>
+                <input
+                  type="number"
+                  name="configured_agent[idle_time_seconds]"
+                  value={@form[:idle_time_seconds].value || ""}
+                  placeholder="Default: 1800"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                />
+                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                  Leave blank to use the system default (30 min).
+                </p>
+                <p
+                  :for={msg <- error_messages(@changeset, :idle_time_seconds)}
+                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                >
+                  {msg}
+                </p>
+              </div>
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Memory Context Size (tokens)
+                </label>
+                <input
+                  type="number"
+                  name="configured_agent[memory_context_max_size]"
+                  value={@form[:memory_context_max_size].value || ""}
+                  placeholder="Default: 5000"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                />
+                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                  Max conversation history tokens loaded on process restart.
+                </p>
+                <p
+                  :for={msg <- error_messages(@changeset, :memory_context_max_size)}
+                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                >
+                  {msg}
+                </p>
+              </div>
+            </div>
+
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div class="rounded-xl border border-[#efece6] bg-[#fafafa] px-3 py-2.5 flex items-center justify-between gap-3">
                 <div>

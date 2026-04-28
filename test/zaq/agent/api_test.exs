@@ -438,7 +438,7 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   describe "pipeline path" do
-    test "passes scope derived from person_id into pipeline_opts" do
+    test "passes identity-resolved incoming to pipeline" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
       event =
@@ -453,12 +453,12 @@ defmodule Zaq.Agent.ApiTest do
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      # person_id = 99 set by SpyIdentityPlug, provider :web → "bo-99"
-      assert_received {:pipeline_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "bo-99"
+      # SpyIdentityPlug sets person_id: 99 — pipeline receives the resolved incoming
+      assert_received {:pipeline_called, resolved_incoming, _opts}
+      assert resolved_incoming.person_id == 99
     end
 
-    test "nil person_id + BO provider (provider: :web) uses metadata.session_id as scope" do
+    test "nil person_id identity plug passes through to pipeline" do
       incoming = %Incoming{
         content: "hi",
         channel_id: "c1",
@@ -479,11 +479,11 @@ defmodule Zaq.Agent.ApiTest do
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      assert_received {:pipeline_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "bo-sess_abc"
+      assert_received {:pipeline_called, resolved_incoming, _opts}
+      assert is_nil(resolved_incoming.person_id)
     end
 
-    test "scope is passed through pipeline_opts to Pipeline.run" do
+    test "pipeline_opts are passed through to Pipeline.run" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
       event =
@@ -499,14 +499,12 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:pipeline_called, _incoming, opts}
-      assert Keyword.has_key?(opts, :scope)
-      assert Keyword.get(opts, :scope) == "bo-99"
       assert Keyword.get(opts, :foo) == :bar
     end
   end
 
   describe "executor path" do
-    test "passes scope to Executor — Executor builds {agent_name}:{scope} server id" do
+    test "passes identity-resolved incoming and agent_id to Executor" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
       event =
@@ -525,12 +523,13 @@ defmodule Zaq.Agent.ApiTest do
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      assert_received {:executor_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "bo-99"
+      assert_received {:executor_called, resolved_incoming, opts}
+      assert resolved_incoming.person_id == 99
+      assert Keyword.get(opts, :agent_id) == "42"
       refute Keyword.has_key?(opts, :server_id)
     end
 
-    test "nil person_id + BO provider uses metadata.session_id as scope" do
+    test "nil person_id identity plug passes resolved incoming to Executor" do
       incoming = %Incoming{
         content: "hi",
         channel_id: "c1",
@@ -555,11 +554,13 @@ defmodule Zaq.Agent.ApiTest do
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      assert_received {:executor_called, _incoming, opts}
-      assert Keyword.get(opts, :scope) == "bo-sess_xyz"
+      assert_received {:executor_called, resolved_incoming, opts}
+      assert is_nil(resolved_incoming.person_id)
+      assert resolved_incoming.metadata.session_id == "sess_xyz"
+      assert Keyword.get(opts, :agent_id) == "7"
     end
 
-    test "scope key is passed through opts to Executor.run" do
+    test "history and telemetry_dimensions from pipeline_opts are forwarded to Executor.run" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
       event =
@@ -568,7 +569,7 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             executor_module: StubExecutor,
-            pipeline_opts: [history: %{"x" => 1}],
+            pipeline_opts: [history: %{"x" => 1}, telemetry_dimensions: %{channel_type: "bo"}],
             identity_plug: SpyIdentityPlug,
             server_manager: SpyServerManager
           ]
@@ -579,12 +580,13 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:executor_called, _incoming, opts}
-      assert Keyword.has_key?(opts, :scope)
+      assert Keyword.get(opts, :history) == %{"x" => 1}
+      assert Keyword.get(opts, :telemetry_dimensions) == %{channel_type: "bo"}
     end
   end
 
   describe "same person messaging twice" do
-    test "passes same scope to pipeline on both calls" do
+    test "identity plug resolves the same person_id on both calls" do
       incoming = %Incoming{content: "first", channel_id: "c1", provider: :web}
 
       make_event = fn content ->
@@ -601,11 +603,11 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(make_event.("first"), :run_pipeline, nil)
       Api.handle_event(make_event.("second"), :run_pipeline, nil)
 
-      # Both calls use same scope
-      assert_received {:pipeline_called, _, opts1}
-      assert_received {:pipeline_called, _, opts2}
-      assert Keyword.get(opts1, :scope) == "bo-99"
-      assert Keyword.get(opts2, :scope) == "bo-99"
+      # Both calls resolve the same person_id via identity plug
+      assert_received {:pipeline_called, resolved1, _opts1}
+      assert_received {:pipeline_called, resolved2, _opts2}
+      assert resolved1.person_id == 99
+      assert resolved2.person_id == 99
     end
   end
 end

@@ -27,14 +27,22 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   @doc """
   Sink target for `sink_mfa`. Always routes through the bridge state process.
+
+  Processing is dispatched in a Task so the WebSocket client process (Fresh)
+  is freed immediately. A blocked Fresh process cannot respond to Mattermost
+  pings, which causes the server to close the connection mid-LLM-call.
   """
   def from_listener(config, payload, sink_opts) when is_map(payload) do
     bridge_id = sink_opts[:bridge_id] || default_bridge_id(config)
 
-    with :ok <- ensure_runtime_started(config, bridge_id, []),
-         {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
-      State.process_listener_payload(state_pid, config, payload, sink_opts)
-    end
+    Task.start(fn ->
+      with :ok <- ensure_runtime_started(config, bridge_id, []),
+           {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
+        State.process_listener_payload(state_pid, config, payload, sink_opts)
+      end
+    end)
+
+    :ok
   end
 
   @doc """
