@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.RuntimeSyncTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: false
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP.Endpoint
@@ -60,6 +60,78 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     def list_agents_with_mcp_endpoint(_endpoint_id) do
       [%ConfiguredAgent{id: 77, active: true}]
     end
+  end
+
+  defmodule StubAgentLifecycleModule do
+    def create_agent(attrs), do: {:ok, struct(ConfiguredAgent, Map.merge(%{id: 501}, attrs))}
+
+    def get_agent!(id), do: %ConfiguredAgent{id: id, active: true, enabled_mcp_endpoint_ids: []}
+
+    def update_agent(existing, attrs), do: {:ok, struct(existing, attrs)}
+
+    def delete_agent(%ConfiguredAgent{} = agent), do: {:ok, agent}
+
+    def list_agents_with_mcp_endpoint(_endpoint_id), do: []
+  end
+
+  defmodule StubAgentNoRuntimeChangeModule do
+    def create_agent(attrs), do: {:ok, struct(ConfiguredAgent, Map.merge(%{id: 601}, attrs))}
+
+    def get_agent!(id) do
+      %ConfiguredAgent{
+        id: id,
+        model: "gpt-4.1-mini",
+        credential_id: 1,
+        enabled_tool_keys: ["files.read_file"],
+        enabled_mcp_endpoint_ids: [1],
+        advanced_options: %{"temperature" => 0.1},
+        active: true,
+        job: "job",
+        strategy: "react"
+      }
+    end
+
+    def update_agent(existing, attrs), do: {:ok, struct(existing, attrs)}
+    def delete_agent(agent), do: {:ok, agent}
+    def list_agents_with_mcp_endpoint(_endpoint_id), do: []
+  end
+
+  defmodule StubServerManagerForPatch do
+    def sync_runtime(_agent) do
+      {:ok,
+       %{
+         server_ref: :server_ref,
+         runtime: %{tools: %{added_tools: []}, mcp: %{results: [], warnings: []}}
+       }}
+    end
+
+    def stop_server(id) do
+      send(self(), {:stop_server_called, id})
+      :ok
+    end
+  end
+
+  defmodule StubServerManagerError do
+    def sync_runtime(_agent), do: {:error, :sync_runtime_failed}
+    def stop_server(_id), do: :ok
+  end
+
+  defmodule StubSignalAdapterUnsyncError do
+    def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+
+    def sync_tools(_server_ref, _runtime_endpoint_id, _opts),
+      do: {:ok, %{discovered_count: 1, registered_count: 1, failed_count: 0}}
+
+    def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:error, :unsync_failed}
+    def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+  end
+
+  defmodule StubAgentLifecycleErrorModule do
+    def create_agent(_attrs), do: {:error, :create_failed}
+    def get_agent!(id), do: %ConfiguredAgent{id: id, active: true, enabled_mcp_endpoint_ids: []}
+    def update_agent(_existing, _attrs), do: {:error, :update_failed}
+    def delete_agent(_agent), do: {:error, :delete_failed}
+    def list_agents_with_mcp_endpoint(_endpoint_id), do: []
   end
 
   defmodule RuntimeCustomTool do
@@ -202,5 +274,164 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     assert runtime.endpoint_status == "disabled"
     assert runtime.impacted_agent_ids == [77]
     assert_received {:delete_mcp_endpoint_called, 12}
+  end
+
+  test "sync_agent_runtime returns tools and mcp payloads" do
+    agent = %ConfiguredAgent{id: 15, enabled_tool_keys: [], enabled_mcp_endpoint_ids: []}
+
+    assert {:ok, %{tools: tools, mcp: mcp}} =
+             RuntimeSync.sync_agent_runtime(agent, :server_ref,
+               list_tools_fn: fn _ -> {:ok, []} end
+             )
+
+    assert is_map(tools)
+    assert is_map(mcp)
+  end
+
+  test "sync_agent_runtime returns error when list_tools returns invalid payload" do
+    agent = %ConfiguredAgent{id: 16, enabled_tool_keys: [], enabled_mcp_endpoint_ids: []}
+
+    assert {:error, {:invalid_list_tools_response, :bad}} =
+             RuntimeSync.sync_agent_runtime(agent, :server_ref, list_tools_fn: fn _ -> :bad end)
+  end
+
+  test "sync_agent_mcp_assignments skips missing and disabled endpoints" do
+    defmodule SkipMCP do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1), do: nil
+      def get_mcp_endpoint(2), do: %Endpoint{id: 2, status: "disabled", type: "local"}
+    end
+
+    agent = %ConfiguredAgent{id: 17, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1, 2]}
+
+    assert {:ok, result} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: SkipMCP,
+               signal_adapter_module: StubSignalAdapter
+             )
+
+    assert result.synced_endpoint_ids == []
+    assert result.skipped_endpoint_ids == [1, 2]
+  end
+
+  test "configured_agent lifecycle delegates and propagates failures" do
+    assert {:ok, %{agent: %ConfiguredAgent{id: 501}}} =
+             RuntimeSync.configured_agent_created(%{name: "A"},
+               agent_module: StubAgentLifecycleModule,
+               server_manager_module: StubServerManager
+             )
+
+    assert {:error, :create_failed} =
+             RuntimeSync.configured_agent_created(%{name: "A"},
+               agent_module: StubAgentLifecycleErrorModule
+             )
+
+    assert {:error, :update_failed} =
+             RuntimeSync.configured_agent_updated(9, %{name: "B"},
+               agent_module: StubAgentLifecycleErrorModule
+             )
+
+    assert {:error, :delete_failed} =
+             RuntimeSync.configured_agent_deleted(9,
+               agent_module: StubAgentLifecycleErrorModule
+             )
+  end
+
+  test "mcp_endpoint_updated rejects invalid requests" do
+    assert {:error, {:invalid_request, %{action: :unknown}}} =
+             RuntimeSync.mcp_endpoint_updated(%{action: :unknown}, mcp_module: StubMCP)
+  end
+
+  test "mcp_endpoint_updated supports string action for enable_predefined" do
+    defmodule EnableMCP do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def enable_predefined("github_mcp") do
+        {:ok,
+         %Endpoint{id: 31, status: "enabled", type: "remote", url: "http://localhost:8123/mcp"}}
+      end
+
+      def get_mcp_endpoint(_), do: nil
+    end
+
+    assert {:ok, %{endpoint: endpoint, runtime: runtime}} =
+             RuntimeSync.mcp_endpoint_updated(
+               %{"action" => "enable_predefined", "predefined_id" => "github_mcp"},
+               mcp_module: EnableMCP,
+               agent_module: StubAgentLifecycleModule
+             )
+
+    assert endpoint.id == 31
+    assert runtime.endpoint_status == "enabled"
+  end
+
+  test "configured_agent_updated returns no_runtime_change when tracked fields are unchanged" do
+    assert {:ok, %{runtime: %{strategy: :no_runtime_change}}} =
+             RuntimeSync.configured_agent_updated(
+               77,
+               %{
+                 model: "gpt-4.1-mini",
+                 credential_id: 1,
+                 enabled_tool_keys: ["files.read_file"],
+                 enabled_mcp_endpoint_ids: [1],
+                 advanced_options: %{"temperature" => 0.1},
+                 active: true,
+                 job: "job",
+                 strategy: "react"
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch
+             )
+  end
+
+  test "configured_agent_updated drains and stops when updated agent is inactive" do
+    assert {:ok, %{runtime: %{strategy: :drain_and_stop}}} =
+             RuntimeSync.configured_agent_updated(78, %{active: false},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch
+             )
+
+    assert_received {:stop_server_called, 78}
+  end
+
+  test "configured_agent_updated returns hot_runtime_patch and unsync results" do
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.configured_agent_updated(
+               79,
+               %{
+                 enabled_mcp_endpoint_ids: [],
+                 advanced_options: %{"temperature" => 0.2}
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapter
+             )
+
+    assert runtime.strategy == :hot_runtime_patch
+    assert runtime.removed_mcp_endpoint_ids == [1]
+    assert is_list(runtime.unsync_results)
+  end
+
+  test "configured_agent_updated propagates sync_runtime errors" do
+    assert {:error, :sync_runtime_failed} =
+             RuntimeSync.configured_agent_updated(80, %{job: "changed"},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerError
+             )
+  end
+
+  test "configured_agent_updated propagates unsync failures" do
+    assert {:error, :unsync_failed} =
+             RuntimeSync.configured_agent_updated(
+               81,
+               %{
+                 enabled_mcp_endpoint_ids: [],
+                 advanced_options: %{"temperature" => 0.2}
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapterUnsyncError
+             )
   end
 end

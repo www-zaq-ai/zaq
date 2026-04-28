@@ -298,6 +298,21 @@ defmodule Zaq.Agent.ApiTest do
     assert_received {:configured_agent_created_called, %{"name" => "Agent"}}
   end
 
+  test "configured_agent_created accepts string attrs key and rejects invalid payload" do
+    ok_event =
+      Event.new(%{"attrs" => %{"name" => "Agent String"}}, :agent,
+        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSync]
+      )
+
+    assert Api.handle_event(ok_event, :configured_agent_created, nil).response ==
+             {:ok, %{agent: %{id: 1, name: "Agent String"}}}
+
+    bad_event = Event.new(%{foo: "bar"}, :agent, opts: [action: :configured_agent_created])
+
+    assert Api.handle_event(bad_event, :configured_agent_created, nil).response ==
+             {:error, {:invalid_request, %{foo: "bar"}}}
+  end
+
   test "configured_agent_updated validates request shape" do
     event = Event.new(%{id: "1", attrs: %{}}, :agent, opts: [action: :configured_agent_updated])
 
@@ -334,6 +349,36 @@ defmodule Zaq.Agent.ApiTest do
     assert_received {:configured_agent_updated_called, 9, %{"name" => "Updated"}}
     assert_received {:configured_agent_deleted_called, 9}
     assert_received {:mcp_endpoint_updated_called, %{action: :create, attrs: %{name: "X"}}}
+  end
+
+  test "configured_agent_updated and configured_agent_deleted support string keys" do
+    updated_event =
+      Event.new(%{"id" => 10, "attrs" => %{"name" => "String Updated"}}, :agent,
+        opts: [action: :configured_agent_updated, runtime_sync_module: StubRuntimeSync]
+      )
+
+    deleted_event =
+      Event.new(%{"id" => 10}, :agent,
+        opts: [action: :configured_agent_deleted, runtime_sync_module: StubRuntimeSync]
+      )
+
+    assert Api.handle_event(updated_event, :configured_agent_updated, nil).response ==
+             {:ok, %{agent: %{id: 10, name: "String Updated"}}}
+
+    assert Api.handle_event(deleted_event, :configured_agent_deleted, nil).response ==
+             {:ok, %{agent: %{id: 10}}}
+  end
+
+  test "configured_agent_deleted and mcp_endpoint_updated reject invalid payloads" do
+    bad_delete = Event.new(%{id: "10"}, :agent, opts: [action: :configured_agent_deleted])
+
+    assert Api.handle_event(bad_delete, :configured_agent_deleted, nil).response ==
+             {:error, {:invalid_request, %{id: "10"}}}
+
+    bad_mcp = Event.new(:bad, :agent, opts: [action: :mcp_endpoint_updated])
+
+    assert Api.handle_event(bad_mcp, :mcp_endpoint_updated, nil).response ==
+             {:error, {:invalid_request, :bad}}
   end
 
   # ---------------------------------------------------------------------------

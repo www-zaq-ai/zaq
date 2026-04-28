@@ -27,6 +27,29 @@ defmodule Zaq.Agent.ServerManagerTest do
     end
   end
 
+  defmodule StubRuntimeSyncWarn do
+    def sync_agent_runtime(_agent, _server_ref, _opts \\ []) do
+      {:ok,
+       %{
+         tools: %{added_tools: [], removed_tools: [], add_results: [], remove_results: []},
+         mcp: %{
+           synced_endpoint_ids: [],
+           skipped_endpoint_ids: [],
+           warnings: ["warn"],
+           results: []
+         }
+       }}
+    end
+  end
+
+  defmodule StubRuntimeSyncUnexpected do
+    def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:ok, %{unexpected: true}}
+  end
+
+  defmodule StubRuntimeSyncError do
+    def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:error, :runtime_sync_failed}
+  end
+
   test "ensure_server returns a resolvable server reference" do
     credential =
       ai_credential_fixture(%{
@@ -387,21 +410,21 @@ defmodule Zaq.Agent.ServerManagerTest do
 
       assert {:ok, ref} = ServerManager.ensure_server(server_id)
 
-      # The Jido registry entry is written by the new process after init, so poll
-      # briefly rather than calling status immediately after ensure_server returns.
-      status =
-        Enum.reduce_while(1..10, {:error, :not_found}, fn _, _ ->
-          case Jido.AgentServer.status(ref) do
-            {:ok, _} = ok ->
-              {:halt, ok}
+      # The new process may need a short moment before it is visible in the registry.
+      resolved_pid =
+        Enum.reduce_while(1..20, nil, fn _, _ ->
+          case Jido.AgentServer.whereis(registry, server_id) do
+            pid when is_pid(pid) ->
+              {:halt, pid}
 
             _ ->
               Process.sleep(30)
-              {:cont, {:error, :not_found}}
+              {:cont, nil}
           end
         end)
 
-      assert {:ok, _status} = status
+      assert is_pid(resolved_pid)
+      assert {:ok, _status} = Jido.AgentServer.status(ref)
     end
   end
 
@@ -504,7 +527,7 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert is_pid(pid)
   end
 
-  test "init hydrates MCP assignments for active agents on fresh start" do
+  test "runtime hydration happens when server is first ensured, not during init" do
     previous_module = Application.get_env(:zaq, :agent_runtime_sync_module)
     previous_opts = Application.get_env(:zaq, :agent_runtime_sync_opts)
 
@@ -557,13 +580,269 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{}
       })
 
-    expected_agent_id = configured_agent.id
-    expected_endpoint_id = endpoint.id
-
     assert {:ok, _state} = ServerManager.init([])
 
-    assert_receive {:runtime_sync_hydrate_called, ^expected_agent_id, [^expected_endpoint_id],
-                    _server_ref},
-                   1_000
+    refute_receive {:runtime_sync_hydrate_called, _, _, _}, 150
+
+    assert {:ok, _server_ref} = ServerManager.ensure_server(configured_agent)
+
+    assert_receive {:runtime_sync_hydrate_called, agent_id, endpoint_ids, _server_ref}, 1_000
+    assert agent_id == configured_agent.id
+    assert endpoint_ids == [endpoint.id]
+  end
+
+  test "sync_runtime returns ok with runtime when sync emits warnings" do
+    previous_module = Application.get_env(:zaq, :agent_runtime_sync_module)
+
+    Application.put_env(:zaq, :agent_runtime_sync_module, StubRuntimeSyncWarn)
+
+    on_exit(fn ->
+      if is_nil(previous_module) do
+        Application.delete_env(:zaq, :agent_runtime_sync_module)
+      else
+        Application.put_env(:zaq, :agent_runtime_sync_module, previous_module)
+      end
+    end)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Sync Runtime Warn Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Sync Runtime Warn Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "sync warn",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, %{server_ref: {:via, Registry, _}, runtime: runtime}} =
+             ServerManager.sync_runtime(configured_agent)
+
+    assert runtime.mcp.warnings == ["warn"]
+  end
+
+  test "sync_runtime returns ok when runtime sync returns an unexpected payload shape" do
+    previous_module = Application.get_env(:zaq, :agent_runtime_sync_module)
+
+    Application.put_env(:zaq, :agent_runtime_sync_module, StubRuntimeSyncUnexpected)
+
+    on_exit(fn ->
+      if is_nil(previous_module) do
+        Application.delete_env(:zaq, :agent_runtime_sync_module)
+      else
+        Application.put_env(:zaq, :agent_runtime_sync_module, previous_module)
+      end
+    end)
+
+    credential =
+      ai_credential_fixture(%{
+        name:
+          "Sync Runtime Unexpected Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Sync Runtime Unexpected Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "sync unexpected",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, %{server_ref: {:via, Registry, _}, runtime: %{unexpected: true}}} =
+             ServerManager.sync_runtime(configured_agent)
+  end
+
+  test "sync_runtime returns error when runtime sync fails" do
+    previous_module = Application.get_env(:zaq, :agent_runtime_sync_module)
+
+    Application.put_env(:zaq, :agent_runtime_sync_module, StubRuntimeSyncError)
+
+    on_exit(fn ->
+      if is_nil(previous_module) do
+        Application.delete_env(:zaq, :agent_runtime_sync_module)
+      else
+        Application.put_env(:zaq, :agent_runtime_sync_module, previous_module)
+      end
+    end)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Sync Runtime Error Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Sync Runtime Error Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "sync error",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:error, :runtime_sync_failed} = ServerManager.sync_runtime(configured_agent)
+  end
+
+  test "sync_runtime ignores invalid runtime sync opts env and falls back to []" do
+    previous_module = Application.get_env(:zaq, :agent_runtime_sync_module)
+    previous_opts = Application.get_env(:zaq, :agent_runtime_sync_opts)
+
+    Application.put_env(:zaq, :agent_runtime_sync_module, StubRuntimeSync)
+    Application.put_env(:zaq, :agent_runtime_sync_opts, :invalid_opts)
+
+    on_exit(fn ->
+      if is_nil(previous_module) do
+        Application.delete_env(:zaq, :agent_runtime_sync_module)
+      else
+        Application.put_env(:zaq, :agent_runtime_sync_module, previous_module)
+      end
+
+      if is_nil(previous_opts) do
+        Application.delete_env(:zaq, :agent_runtime_sync_opts)
+      else
+        Application.put_env(:zaq, :agent_runtime_sync_opts, previous_opts)
+      end
+    end)
+
+    credential =
+      ai_credential_fixture(%{
+        name:
+          "Sync Runtime Invalid Opts Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Sync Runtime Invalid Opts Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "sync opts fallback",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, %{runtime: runtime}} = ServerManager.sync_runtime(configured_agent)
+    assert runtime.mcp.warnings == []
+  end
+
+  test "stop_server accepts integer configured agent id" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Integer Stop Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Integer Stop Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "stop integer",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(configured_agent)
+
+    pid = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid)
+    monitor_ref = Process.monitor(pid)
+
+    assert :ok = ServerManager.stop_server(configured_agent.id)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
+  end
+
+  test "sync_runtime returns error when ensure_server cannot build model" do
+    configured_agent = %ConfiguredAgent{
+      id: 889_001,
+      name: "Sync Runtime Provider Error",
+      job: "job",
+      model: "gpt-4.1-mini",
+      credential: %{provider: "provider_not_found_zaq"},
+      credential_id: nil,
+      strategy: "react",
+      enabled_tool_keys: [],
+      conversation_enabled: false,
+      active: true,
+      advanced_options: %{}
+    }
+
+    assert {:error, :provider_not_found} = ServerManager.sync_runtime(configured_agent)
+  end
+
+  test "ensure_server_by_id is idempotent for unchanged config on same scope" do
+    credential =
+      ai_credential_fixture(%{
+        name: "By Id Idempotent Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "By Id Idempotent Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "idempotent",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    server_id = "configured_agent_#{configured_agent.id}:channel_99"
+
+    assert {:ok, ref1} = ServerManager.ensure_server_by_id(configured_agent, server_id)
+    assert {:ok, ref2} = ServerManager.ensure_server_by_id(configured_agent, server_id)
+    assert ref1 == ref2
+
+    assert {:via, Registry, {registry, ^server_id}} = ref1
+    pid1 = Jido.AgentServer.whereis(registry, server_id)
+    pid2 = Jido.AgentServer.whereis(registry, server_id)
+    assert is_pid(pid1)
+    assert pid1 == pid2
   end
 end

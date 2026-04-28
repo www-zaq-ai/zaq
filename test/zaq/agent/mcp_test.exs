@@ -8,6 +8,32 @@ defmodule Zaq.Agent.MCPTest do
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Repo
 
+  defp predefined_catalog, do: MCP.predefined_catalog()
+
+  defp existing_predefined_id! do
+    predefined_catalog()
+    |> Map.keys()
+    |> List.first()
+    |> case do
+      nil -> raise "expected at least one predefined MCP in catalog"
+      id -> id
+    end
+  end
+
+  defp editable_predefined_id! do
+    predefined_catalog()
+    |> Enum.find_value(fn {id, entry} -> if entry.editable, do: id end)
+    |> case do
+      nil -> raise "expected at least one editable predefined MCP in catalog"
+      id -> id
+    end
+  end
+
+  defp non_editable_predefined_id do
+    predefined_catalog()
+    |> Enum.find_value(fn {id, entry} -> if entry.editable == false, do: id end)
+  end
+
   setup do
     prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
 
@@ -157,29 +183,43 @@ defmodule Zaq.Agent.MCPTest do
     end
 
     test "enable_predefined creates endpoint with enabled status" do
-      assert {:ok, endpoint} = MCP.enable_predefined("filesystem")
-      assert endpoint.predefined_id == "filesystem"
+      predefined_id = existing_predefined_id!()
+
+      assert {:ok, endpoint} = MCP.enable_predefined(predefined_id)
+      assert endpoint.predefined_id == predefined_id
       assert endpoint.status == "enabled"
-      assert endpoint.name == MCP.predefined_catalog()["filesystem"].name
+      assert endpoint.name == MCP.predefined_catalog()[predefined_id].name
     end
 
     test "predefined endpoint with editable false cannot be updated" do
-      assert {:ok, endpoint} = MCP.enable_predefined("filesystem")
+      case non_editable_predefined_id() do
+        nil ->
+          assert Enum.all?(MCP.predefined_catalog(), fn {_id, entry} -> entry.editable end)
 
-      assert {:error, changeset} =
-               MCP.update_mcp_endpoint(endpoint, %{
-                 name: "Renamed FS",
-                 type: endpoint.type,
-                 status: endpoint.status,
-                 timeout_ms: endpoint.timeout_ms,
-                 command: endpoint.command
-               })
+        predefined_id ->
+          assert {:ok, endpoint} = MCP.enable_predefined(predefined_id)
 
-      assert "predefined MCP is not editable" in errors_on(changeset).base
+          attrs = %{
+            name: "Renamed Non Editable",
+            type: endpoint.type,
+            status: endpoint.status,
+            timeout_ms: endpoint.timeout_ms
+          }
+
+          attrs =
+            case endpoint.type do
+              "local" -> Map.put(attrs, :command, endpoint.command)
+              "remote" -> Map.put(attrs, :url, endpoint.url)
+            end
+
+          assert {:error, changeset} = MCP.update_mcp_endpoint(endpoint, attrs)
+          assert "predefined MCP is not editable" in errors_on(changeset).base
+      end
     end
 
     test "predefined endpoint with editable true can be updated" do
-      assert {:ok, endpoint} = MCP.enable_predefined("fetch")
+      predefined_id = editable_predefined_id!()
+      assert {:ok, endpoint} = MCP.enable_predefined(predefined_id)
 
       assert {:ok, updated} =
                MCP.update_mcp_endpoint(endpoint, %{
@@ -321,10 +361,15 @@ defmodule Zaq.Agent.MCPTest do
     end
 
     test "delete_mcp_endpoint blocks non-editable predefined entries" do
-      assert {:ok, endpoint} = MCP.enable_predefined("filesystem")
+      case non_editable_predefined_id() do
+        nil ->
+          assert Enum.all?(MCP.predefined_catalog(), fn {_id, entry} -> entry.editable end)
 
-      assert {:error, changeset} = MCP.delete_mcp_endpoint(endpoint)
-      assert "predefined MCP is not editable" in errors_on(changeset).base
+        predefined_id ->
+          assert {:ok, endpoint} = MCP.enable_predefined(predefined_id)
+          assert {:error, changeset} = MCP.delete_mcp_endpoint(endpoint)
+          assert "predefined MCP is not editable" in errors_on(changeset).base
+      end
     end
 
     test "delete_mcp_endpoint blocks entries assigned to custom agents" do
@@ -382,8 +427,9 @@ defmodule Zaq.Agent.MCPTest do
     end
 
     test "get_by_predefined_id returns enabled predefined entry" do
-      assert {:ok, enabled} = MCP.enable_predefined("fetch")
-      assert %Endpoint{id: enabled_id} = MCP.get_by_predefined_id("fetch")
+      predefined_id = existing_predefined_id!()
+      assert {:ok, enabled} = MCP.enable_predefined(predefined_id)
+      assert %Endpoint{id: enabled_id} = MCP.get_by_predefined_id(predefined_id)
       assert enabled_id == enabled.id
     end
   end
@@ -435,8 +481,10 @@ defmodule Zaq.Agent.MCPTest do
     end
 
     test "enable_predefined updates existing endpoint and errors on unknown id" do
-      assert {:ok, first} = MCP.enable_predefined("fetch")
-      assert {:ok, second} = MCP.enable_predefined("fetch")
+      predefined_id = existing_predefined_id!()
+
+      assert {:ok, first} = MCP.enable_predefined(predefined_id)
+      assert {:ok, second} = MCP.enable_predefined(predefined_id)
       assert first.id == second.id
 
       assert {:error, :unknown_predefined_mcp} = MCP.enable_predefined("unknown")
