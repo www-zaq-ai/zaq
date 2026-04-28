@@ -68,9 +68,12 @@ defmodule Zaq.Agent.MCP do
       }
     },
     # MCP Client incompatibility
-    #  [debug] MCP transport details: %{timeout: 30000, url: "https://www.context-awesome.com/api/mcp", headers: %{"accept" => "application/json, text/event-stream", "content-type" => "application/json"}, method: :post}
+    #  [debug] MCP transport details: %{timeout: 30000, url: "https://www.context-awesome.com/api/mcp", headers:
+    # %{"accept" => "application/json, text/event-stream", "content-type" => "application/json"}, method: :post}
     # [error] MCP transport event: http_request_error
-    # [error] MCP transport details: %{reason: "{:http_error, 406, \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"error\\\":{\\\"code\\\":-32000,\\\"message\\\":\\\"Not Acceptable: Client must accept both application/json and text/event-stream\\\"},\\\"id\\\":null}\"}"}
+    # [error] MCP transport details: %{reason: "{:http_error, 406, \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"error\\\":{\\\
+    # "code\\\":-32000,\\\"message\\\":\\\"Not Acceptable: Client must accept both application/json
+    # and text/event-stream\\\"},\\\"id\\\":null}\"}"}
     # "context_awesome_mcp" => %{
     #   id: "context_awesome_mcp",
     #   name: "Context Awesome",
@@ -109,9 +112,14 @@ defmodule Zaq.Agent.MCP do
       }
     }
     # MCP Client incompatibility
-    #     debug] MCP transport details: %{timeout: 30000, url: "https://mcp.tweetsave.org/sse", headers: %{"accept" => "application/json, text/event-stream", "content-type" => "application/json"}, method: :post}
+    #     debug] MCP transport details: %{timeout: 30000, url: "https://mcp.tweetsave.org/sse", headers:
+    # %{"accept" => "application/json, text/event-stream", "content-type" => "application/json"}, method: :post}
     # [error] MCP transport event: http_request_error
-    # [error] MCP transport details: %{reason: "{:http_error, 404, \"{\\\"error\\\":\\\"Not found\\\",\\\"endpoints\\\":{\\\"/health\\\":\\\"Health check\\\",\\\"/sse\\\":\\\"SSE endpoint for MCP clients (GET)\\\",\\\"/messages?sessionId=X\\\":\\\"Message endpoint for MCP clients (POST)\\\",\\\"/api/tweet/:id\\\":\\\"Direct API - Get tweet (params: format=json|markdown|blog)\\\",\\\"/deploy\\\":\\\"GitHub webhook - auto deploy (POST)\\\"}}\"}"}
+    # [error] MCP transport details: %{reason: "{:http_error, 404, \"{\\\"error\\\":\\\"Not found\\\",\\\"endpoints\\\"
+    # :{\\\"/health\\\":\\\"Health check\\\",\\\"/sse\\\":\\\"SSE endpoint for MCP clients (GET)\\\",\\\"
+    # /messages?sessionId=X\\\":\\\"Message endpoint for MCP clients (POST)\\\",\\\"/api/tweet/:id\\\":\\\
+    # "Direct API - Get tweet (params: format=json|markdown|blog)\\\",\\\"
+    # /deploy\\\":\\\"GitHub webhook - auto deploy (POST)\\\"}}\"}"}
     # "tweetsave_mcp" => %{
     #   id: "tweetsave_mcp",
     #   name: "TweetSave",

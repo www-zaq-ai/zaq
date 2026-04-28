@@ -77,10 +77,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   defp build_title(text) do
     title =
       text
-      |> String.trim()
-      |> remove_quotes()
-      |> remove_prefix()
-      |> enforce_word_limit(@max_words)
+      |> TextUtils.normalize_generated_title(@max_words)
 
     if title == "" do
       Logger.error("TitleGenerator failed: Empty assistant response content")
@@ -95,19 +92,4 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
     Logger.error("TitleGenerator failed: #{inspect(reason)}")
     {:error, inspect(reason)}
   end
-
-  defp remove_quotes(text) do
-    text
-    |> String.replace(~r/^["']/, "")
-    |> String.replace(~r/["']$/, "")
-    |> String.trim()
-  end
-
-  defp remove_prefix(text) do
-    text
-    |> String.replace(~r/^(Title:|Here is|Here's|The title is:?)\s*/i, "")
-    |> String.trim()
-  end
-
-  defp enforce_word_limit(text, max), do: TextUtils.enforce_word_limit(text, max)
 end

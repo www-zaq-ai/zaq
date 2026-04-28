@@ -13,10 +13,7 @@ defmodule Zaq.Agent.ServerManager do
   require Logger
 
   alias Zaq.Agent
-  alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Agent.Factory
-  alias Zaq.Agent.RuntimeSync
-  alias Zaq.Agent.ProviderSpec
+  alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderSpec, RuntimeSync}
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
@@ -31,15 +28,15 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @spec sync_runtime(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
+  def sync_runtime(%ConfiguredAgent{} = configured_agent) do
+    GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
+  end
+
   @spec ensure_server(ConfiguredAgent.t() | String.t()) ::
           {:ok, GenServer.server()} | {:error, term()}
   def ensure_server(%ConfiguredAgent{} = configured_agent) do
     GenServer.call(__MODULE__, {:ensure_server, configured_agent})
-  end
-
-  @spec sync_runtime(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
-  def sync_runtime(%ConfiguredAgent{} = configured_agent) do
-    GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
 
   def ensure_server(server_id) when is_binary(server_id) do
@@ -122,27 +119,31 @@ defmodule Zaq.Agent.ServerManager do
         _from,
         state
       ) do
-    fingerprint = fingerprint(configured_agent)
+    # fingerprint = fingerprint(configured_agent)
 
-    result =
-      case safe_whereis(server_id) do
-        pid when is_pid(pid) ->
-          {:ok, server_ref(server_id)}
+    # result =
+    #   case safe_whereis(server_id) do
+    #     pid when is_pid(pid) ->
+    #       {:ok, server_ref(server_id)}
 
-        _ ->
-          case spawn_agent_server(configured_agent, server_id) do
-            :ok -> {:ok, server_ref(server_id)}
-            {:error, reason} -> {:error, reason}
-          end
-      end
+    #     _ ->
+    #       case spawn_agent_server(configured_agent, server_id) do
+    #         :ok -> {:ok, server_ref(server_id)}
+    #         {:error, reason} -> {:error, reason}
+    #       end
+    #   end
 
-    next_state =
-      case result do
-        {:ok, _} -> put_in(state, [:fingerprints, configured_agent.id], fingerprint)
-        _ -> state
-      end
+    # next_state =
+    #   case result do
+    #     {:ok, _} -> put_in(state, [:fingerprints, configured_agent.id], fingerprint)
+    #     _ -> state
+    #   end
 
-    {:reply, result, next_state}
+    # {:reply, result, next_state}
+    case do_ensure_server(configured_agent, state, server_id) do
+      {:ok, server_id, next_state} -> {:reply, {:ok, server_ref(server_id)}, next_state}
+      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+    end
   end
 
   def handle_call({:stop_server, agent_id}, _from, state) do
@@ -160,12 +161,21 @@ defmodule Zaq.Agent.ServerManager do
     {:reply, :ok, state}
   end
 
-  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state) do
-    int_id = configured_agent.id
-    server_id = Agent.agent_server_id(int_id)
+  defp do_ensure_server(
+         %ConfiguredAgent{} = configured_agent,
+         state
+       ) do
+    do_ensure_server(configured_agent, state, Agent.agent_server_id(configured_agent.id))
+  end
+
+  defp do_ensure_server(
+         %ConfiguredAgent{} = configured_agent,
+         state,
+         server_id
+       ) do
     fingerprint = fingerprint(configured_agent)
 
-    case {Map.get(state.fingerprints, int_id), safe_whereis(server_id)} do
+    case {Map.get(state.fingerprints, configured_agent.id), safe_whereis(server_id)} do
       {^fingerprint, pid} when is_pid(pid) ->
         {:ok, server_id, state}
 
@@ -180,8 +190,12 @@ defmodule Zaq.Agent.ServerManager do
 
   defp start_server(%ConfiguredAgent{} = configured_agent, server_id, state, fingerprint) do
     case spawn_agent_server(configured_agent, server_id) do
-      :ok -> {:ok, server_id, put_in(state, [:fingerprints, configured_agent.id], fingerprint)}
-      {:error, reason} -> {:error, reason, state}
+      :ok ->
+        _ = hydrate_mcp_assignments(configured_agent, server_id)
+        {:ok, server_id, put_in(state, [:fingerprints, configured_agent.id], fingerprint)}
+
+      {:error, reason} ->
+        {:error, reason, state}
     end
   end
 
@@ -215,7 +229,6 @@ defmodule Zaq.Agent.ServerManager do
             ]}
          ) do
       {:ok, _pid} ->
-        _ = hydrate_mcp_assignments(configured_agent, server_id)
         :ok
 
       {:error, {:already_started, _}} ->
