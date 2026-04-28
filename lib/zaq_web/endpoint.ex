@@ -25,7 +25,8 @@ defmodule ZaqWeb.Endpoint do
     from: :zaq,
     gzip: not code_reloading?,
     only: ZaqWeb.static_paths(),
-    raise_on_missing_only: code_reloading?
+    # code_reloading? disabled to avoid crash on Jido studio with Process names carrying a `:`
+    raise_on_missing_only: false
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.

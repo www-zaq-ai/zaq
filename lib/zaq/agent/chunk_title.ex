@@ -64,10 +64,7 @@ defmodule Zaq.Agent.ChunkTitle do
           text ->
             title =
               text
-              |> String.trim()
-              |> remove_quotes()
-              |> remove_prefix()
-              |> enforce_word_limit(@max_words)
+              |> TextUtils.normalize_generated_title(@max_words)
 
             Logger.info("ChunkTitle: Generated title: #{title}")
             {:ok, title}
@@ -84,23 +81,6 @@ defmodule Zaq.Agent.ChunkTitle do
   Returns the maximum number of words allowed in a chunk title.
   """
   def max_words, do: @max_words
-
-  # Remove surrounding quotes
-  defp remove_quotes(text) do
-    text
-    |> String.replace(~r/^["']/, "")
-    |> String.replace(~r/["']$/, "")
-    |> String.trim()
-  end
-
-  # Remove common prefixes that LLMs might add
-  defp remove_prefix(text) do
-    text
-    |> String.replace(~r/^(Title:|Here is|Here's|The title is:?)\s*/i, "")
-    |> String.trim()
-  end
-
-  defp enforce_word_limit(text, max_words), do: TextUtils.enforce_word_limit(text, max_words)
 
   defp normalized_text(nil), do: nil
 
