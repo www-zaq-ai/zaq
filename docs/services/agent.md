@@ -11,6 +11,8 @@ Core pipeline modules remain stateless, but configured agents are now runtime-ma
 - `Zaq.Agent.ServerManager`
 
 `ServerManager` maintains one long-lived `Jido.AgentServer` per configured agent id.
+When `Executor` passes an explicit scope, that scope is encoded in `server_id`
+(`<agent_name>:<scope>`) and `ServerManager` manages that runtime too.
 
 LLM configuration is centralized in `Zaq.Agent.LLM` — no other module reads
 provider details directly.
@@ -110,12 +112,33 @@ User question (BO Chat / Channel)
   - no `event.assigns["agent_selection"]` -> `Pipeline.run/2`
   - explicit `event.assigns["agent_selection"]["agent_id"]` -> `Zaq.Agent.Executor.run/2`
 - `Zaq.Agent.Executor` loads and validates selected configured agent, ensures server presence, and executes through `Zaq.Agent.Factory`
+- Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
+  - `:configured_agent_created`
+  - `:configured_agent_updated`
+  - `:configured_agent_deleted`
+  - `:mcp_endpoint_updated`
 
 ### Configured Agents (`Zaq.Agent` context)
 - Schema: `Zaq.Agent.ConfiguredAgent` (`configured_agents` table)
 - BO CRUD route: `/bo/agents`
 - Chat selector route: `/bo/chat` top bar dropdown
-- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+
+### Runtime Sync (`Zaq.Agent.RuntimeSync`)
+- Owns runtime orchestration after configured-agent and MCP endpoint mutations.
+- Responsibilities:
+  - configured agent create/update/delete runtime handling
+  - MCP endpoint update fanout to impacted configured agents
+  - hydration/sync of MCP assignments into running agent runtimes
+  - unsync of MCP assignments when endpoint is disabled/deleted
+- Exposes a single orchestration boundary so BO code dispatches events and does not call low-level runtime modules directly.
+
+### MCP Runtime IDs + Signal Adapter (`Zaq.Agent.MCP.Runtime`)
+- Owns deterministic runtime endpoint id mapping:
+  - DB endpoint id `123` -> runtime id `:"mcp_123"`
+  - runtime id `:"mcp_123"` -> DB endpoint id `123`
+- Owns runtime registration/sync/unsync adapters used by RuntimeSync.
+- Implements the MCP signal adapter pattern: BO/system-config changes produce one agent-domain event (`:mcp_endpoint_updated`) that RuntimeSync translates into runtime operations.
 
 ### Tool Registry (`Zaq.Agent.Tools.Registry`)
 - Code-defined allowlist of tool keys and modules
@@ -126,6 +149,25 @@ User question (BO Chat / Channel)
 - Standard runtime agent for all configured agents
 - Supports per-request runtime tool/module selection and LLM options
 - Supports runtime server configuration via system-prompt signal
+- `runtime_config/1` is the canonical runtime-config builder (other modules should delegate, not duplicate logic)
+
+### Server Manager (`Zaq.Agent.ServerManager`)
+- Ensures server presence and fingerprint-based restart when configured-agent runtime inputs change.
+- Restart strategy is stop then start. This introduces a short replacement window where the old process is gone before the new process is registered.
+- Duplicate start attempts are tolerated (`{:already_started, _}` is treated as success), so concurrent ensure calls remain idempotent.
+- Current behavior prioritizes correctness and idempotency over zero-downtime replacement.
+
+### Runtime Sync Strategy (Hot Patch vs Restart)
+- Preferred path is hot runtime patching for MCP assignment updates on already-running servers.
+- Full server restart is used when fingerprinted core runtime inputs change (model/credential/job/strategy/tool/options/flags).
+- This keeps MCP assignment changes lightweight while preserving a deterministic restart path for structural runtime changes.
+
+### Atom Safety + Capacity Guards
+- MCP runtime endpoint ids create atoms at runtime; safeguards are enforced before registration.
+- Guardrails:
+  - atom-memory usage threshold: `>= 85%` blocks new endpoint atom creation
+  - endpoint hard cap: `2000` MCP endpoints
+- These checks are implemented in `Zaq.Agent.MCP.Runtime` and must remain centralized there.
 
 ### Jido Observability Logger (`Zaq.Agent.JidoObservabilityLogger`)
 - Attaches to Jido AI telemetry events (`request`, `llm`, `tool`, `tool.execute`) on the agent node
@@ -238,10 +280,13 @@ lib/zaq/agent/
 ├── llm.ex                      # Centralized LLM config reader
 ├── llm_runner.ex               # Low-level LangChain LLMChain wrapper
 ├── logprobs_analyzer.ex        # Confidence scoring from logprobs
+├── mcp/
+│   └── runtime.ex              # MCP runtime id mapping, guards, registration helpers
 ├── pipeline.ex                 # Unified answering pipeline for all channels
 ├── prompt_guard.ex             # Prompt injection + leakage protection
 ├── prompt_template.ex          # Ecto schema + context for DB-stored prompts
 ├── retrieval.ex                # Query rewriting agent
+├── runtime_sync.ex             # Runtime orchestration for agent + MCP mutations
 ├── server_manager.ex           # Ensures one AgentServer per configured agent id
 ├── supervisor.ex               # Agent role supervisor with dynamic AgentServer tree
 ├── tools/
