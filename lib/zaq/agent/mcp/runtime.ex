@@ -103,7 +103,7 @@ defmodule Zaq.Agent.MCP.Runtime do
     with {:ok, transport} <- transport_for(endpoint) do
       Jido.MCP.Endpoint.new(endpoint_id,
         transport: transport,
-        client_info: %{"name" => "zaq", "version" => "1.0.0"},
+        client_info: %{"name" => "zaq_#{endpoint_id}", "version" => "1.0.0"},
         capabilities: %{},
         protocol_version: "2025-03-26",
         timeouts: %{request_ms: endpoint.timeout_ms || 5000}
