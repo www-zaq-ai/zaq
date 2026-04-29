@@ -54,7 +54,7 @@ defmodule Zaq.Agent.HistoryLoader do
       where: m.conversation_id in subquery(conv_ids),
       order_by: [desc: m.inserted_at],
       limit: @max_db_fetch,
-      select: %{role: m.role, content: m.content}
+      select: %{role: m.role, content: m.content, inserted_at: m.inserted_at}
     )
     |> Repo.all()
   end
@@ -75,14 +75,30 @@ defmodule Zaq.Agent.HistoryLoader do
 
   defp build_context(messages) do
     Enum.reduce(messages, AIContext.new(), fn
-      %{role: "user", content: content}, ctx ->
-        AIContext.append_user(ctx, content || "")
+      %{role: "user", content: content, inserted_at: ts}, ctx ->
+        AIContext.append(ctx, %AIContext.Entry{
+          role: :user,
+          content: "[#{format_ts(ts)}] #{content || ""}",
+          timestamp: ts
+        })
 
-      %{role: "assistant", content: content}, ctx ->
-        AIContext.append_assistant(ctx, content || "")
+      %{role: "assistant", content: content, inserted_at: ts}, ctx ->
+        AIContext.append(ctx, %AIContext.Entry{
+          role: :assistant,
+          content: content || "",
+          timestamp: ts
+        })
 
       _other, ctx ->
         ctx
     end)
   end
+
+  defp format_ts(%NaiveDateTime{} = dt),
+    do: dt |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_string()
+
+  defp format_ts(%DateTime{} = dt),
+    do: dt |> DateTime.truncate(:second) |> DateTime.to_string()
+
+  defp format_ts(_), do: "unknown time"
 end
