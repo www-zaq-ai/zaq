@@ -214,23 +214,26 @@ defmodule Zaq.Agent.RuntimeSync do
 
     status = endpoint.status || "disabled"
 
-    with :ok <- apply_runtime_endpoint_update(endpoint, status, opts),
-         {:ok, results} <- patch_impacted_agents(impacted_agents, endpoint.id, status, opts) do
-      warnings =
-        Enum.flat_map(results, fn
-          {:ok, %{status: :warning} = warning} -> [warning]
-          _ -> []
-        end)
+    case patch_impacted_agents(impacted_agents, endpoint.id, status, opts) do
+      {:ok, results} ->
+        warnings =
+          Enum.flat_map(results, fn
+            {:ok, %{status: :warning} = warning} -> [warning]
+            _ -> []
+          end)
 
-      {:ok,
-       %{
-         strategy: :hot_runtime_patch,
-         endpoint_id: endpoint.id,
-         endpoint_status: status,
-         impacted_agent_ids: Enum.map(impacted_agents, & &1.id),
-         warnings: warnings,
-         results: results
-       }}
+        {:ok,
+         %{
+           strategy: :hot_runtime_patch,
+           endpoint_id: endpoint.id,
+           endpoint_status: status,
+           impacted_agent_ids: Enum.map(impacted_agents, & &1.id),
+           warnings: warnings,
+           results: results
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -266,17 +269,10 @@ defmodule Zaq.Agent.RuntimeSync do
       :enabled_mcp_endpoint_ids,
       :advanced_options,
       :active,
-      :job,
       :strategy
     ]
 
     Enum.all?(fields, fn field -> Map.get(previous, field) == Map.get(current, field) end)
-  end
-
-  defp apply_runtime_endpoint_update(_endpoint, _status, _opts) do
-    # Endpoint lifecycle (register/refresh/unregister) is now handled
-    # per-agent via signals in sync_endpoint_for_agent / unsync_endpoint_for_agent.
-    :ok
   end
 
   defp patch_impacted_agent(agent, endpoint_id, status, opts) do

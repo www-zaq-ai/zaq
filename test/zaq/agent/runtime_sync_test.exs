@@ -706,7 +706,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   test "configured_agent_updated propagates sync_runtime errors" do
     assert {:error, :sync_runtime_failed} =
-             RuntimeSync.configured_agent_updated(80, %{job: "changed"},
+             RuntimeSync.configured_agent_updated(80, %{model: "changed"},
                agent_module: StubAgentNoRuntimeChangeModule,
                server_manager_module: StubServerManagerError
              )

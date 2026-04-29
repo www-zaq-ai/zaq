@@ -30,6 +30,7 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
 
     case Jido.AgentServer.call(server_ref, signal, timeout) do
       {:ok, agent} ->
+        # We aligned with the Jido action returned map
         {:ok,
          Map.take(
            agent.state,
@@ -67,6 +68,7 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
 
     case Jido.AgentServer.call(server_ref, signal, timeout) do
       {:ok, agent} ->
+        # We aligned with the Jido action returned map
         {:ok,
          Map.take(agent.state, [
            :endpoint_id,
