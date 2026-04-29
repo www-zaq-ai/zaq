@@ -113,7 +113,6 @@ User question (BO Chat / Channel)
   - explicit `event.assigns["agent_selection"]["agent_id"]` -> `Zaq.Agent.Executor.run/2`
 - `Zaq.Agent.Executor` loads and validates selected configured agent, ensures server presence, and executes through `Zaq.Agent.Factory`
 - Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
-  - `:configured_agent_created`
   - `:configured_agent_updated`
   - `:configured_agent_deleted`
   - `:mcp_endpoint_updated`

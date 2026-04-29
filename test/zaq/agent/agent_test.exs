@@ -489,7 +489,9 @@ defmodule Zaq.AgentTest do
       })
 
     Sandbox.allow(Zaq.Repo, self(), Process.whereis(Zaq.Agent.ServerManager))
-    assert {:ok, {:via, Registry, {registry, key}}} = ServerManager.ensure_server(agent)
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(agent, "configured_agent_#{agent.id}")
 
     pid = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid)

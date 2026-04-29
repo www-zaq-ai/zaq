@@ -73,7 +73,12 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{}
       })
 
-    assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
     refute is_binary(server_ref)
 
     assert {:via, Registry, {registry, key}} = server_ref
@@ -111,7 +116,12 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{}
       })
 
-    assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
     assert {:via, Registry, {_registry, _key}} = server_ref
 
     assert {:ok, status} = Jido.AgentServer.status(server_ref)
@@ -146,8 +156,18 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{}
       })
 
-    assert {:ok, server_ref_1} = ServerManager.ensure_server(configured_agent)
-    assert {:ok, server_ref_2} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, server_ref_1} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    assert {:ok, server_ref_2} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
     assert server_ref_1 == server_ref_2
 
     assert {:via, Registry, {registry, key}} = server_ref_1
@@ -182,7 +202,10 @@ defmodule Zaq.Agent.ServerManagerTest do
       })
 
     assert {:ok, {:via, Registry, {registry, key}}} =
-             ServerManager.ensure_server(configured_agent)
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid_before)
@@ -193,7 +216,9 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{"temperature" => 0.1}
       })
 
-    assert {:ok, _server_ref} = ServerManager.ensure_server(updated_agent)
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+
     pid_after = Jido.AgentServer.whereis(registry, key)
 
     assert is_pid(pid_after)
@@ -224,20 +249,23 @@ defmodule Zaq.Agent.ServerManagerTest do
       })
 
     assert {:ok, {:via, Registry, {registry, key}}} =
-             ServerManager.ensure_server(configured_agent)
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
 
     pid = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid)
     monitor_ref = Process.monitor(pid)
 
-    assert :ok = ServerManager.stop_server(to_string(configured_agent.id))
+    assert :ok = ServerManager.stop_server(configured_agent)
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
   end
 
   test "init starts no servers — supervision tree is empty on start" do
     # init/1 no longer pre-spawns any servers; all spawning is lazy per-message.
     assert {:ok, state} = ServerManager.init([])
-    assert state == %{fingerprints: %{}}
+    assert state == %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}
   end
 
   test "ensure_server uses credential lookup when credential is not preloaded" do
@@ -263,14 +291,19 @@ defmodule Zaq.Agent.ServerManagerTest do
       advanced_options: %{}
     }
 
-    assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
     assert {:ok, status} = Jido.AgentServer.status(server_ref)
     model = status.raw_state.model
     assert %{provider: :openai, id: "gpt-4.1-mini"} = model
     assert Map.get(model, :base_url) == credential.endpoint
     refute Map.has_key?(model, :api_key)
 
-    _ = ServerManager.stop_server(configured_agent.id)
+    _ = ServerManager.stop_server(configured_agent)
   end
 
   test "handle_call returns error tuple when ensure_server model resolution fails" do
@@ -288,16 +321,15 @@ defmodule Zaq.Agent.ServerManagerTest do
       advanced_options: %{}
     }
 
-    init_state = %{fingerprints: %{}}
+    init_state = %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}
+    server_id = "configured_agent_123456"
 
     assert {:reply, {:error, :provider_not_found}, ^init_state} =
-             ServerManager.handle_call({:ensure_server, configured_agent}, self(), init_state)
-  end
-
-  test "handle_call stop_server raises for invalid string ids" do
-    assert_raise ArgumentError, ~r/invalid configured agent id/, fn ->
-      ServerManager.handle_call({:stop_server, "not-an-id"}, self(), %{fingerprints: %{}})
-    end
+             ServerManager.handle_call(
+               {:ensure_server, configured_agent, server_id},
+               self(),
+               init_state
+             )
   end
 
   test "start_link returns already_started when manager is running" do
@@ -309,131 +341,16 @@ defmodule Zaq.Agent.ServerManagerTest do
     refute function_exported?(ServerManager, :ensure_answering_server, 1)
   end
 
-  # ---------------------------------------------------------------------------
-  # New tests: ensure_server/1, last_active/1, stop_server/1 raw id
-  # ---------------------------------------------------------------------------
-
   describe "init/1 starts no servers" do
     test "supervision tree is empty after start" do
       # init/1 must not pre-spawn any servers; all children belong to other tests.
       # We call init/1 directly to inspect the state without side effects.
       assert {:ok, state} = ServerManager.init([])
-      assert state == %{fingerprints: %{}}
+      assert state == %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}
     end
   end
 
-  describe "ensure_server/1" do
-    test "starts server with given id and adds it to supervision tree" do
-      server_id = "answering_test_#{System.unique_integer([:positive])}"
-      assert {:ok, server_ref} = ServerManager.ensure_server(server_id)
-
-      assert {:via, Registry, {registry, ^server_id}} = server_ref
-      assert registry == Jido.registry_name(Zaq.Agent.Jido)
-      assert is_pid(Jido.AgentServer.whereis(registry, server_id))
-    end
-
-    test "is idempotent — second call reuses existing server, no new process" do
-      server_id = "answering_idempotent_#{System.unique_integer([:positive])}"
-
-      assert {:ok, ref1} = ServerManager.ensure_server(server_id)
-      assert {:ok, ref2} = ServerManager.ensure_server(server_id)
-      assert ref1 == ref2
-
-      assert {:via, Registry, {registry, ^server_id}} = ref1
-      pid1 = Jido.AgentServer.whereis(registry, server_id)
-      pid2 = Jido.AgentServer.whereis(registry, server_id)
-      assert is_pid(pid1)
-      assert pid1 == pid2
-    end
-
-    test "same scope across two calls returns same server ref" do
-      server_id = "answering_scope_#{System.unique_integer([:positive])}"
-
-      assert {:ok, ref_a} = ServerManager.ensure_server(server_id)
-      assert {:ok, ref_b} = ServerManager.ensure_server(server_id)
-      assert ref_a == ref_b
-    end
-
-    test "returns error when supervisor not available" do
-      # We call the handler with a state that simulates the supervisor missing.
-      # We test via handle_call directly with a fake server_id that would require
-      # the supervisor — but we override by patching the dynamic supervisor.
-      # Instead: verify the error path by triggering a crash in the supervisor call.
-      # The simplest approach is to send directly to a stopped manager name.
-      server_id = "answering_no_supervisor_#{System.unique_integer([:positive])}"
-
-      # Start a manager that is NOT registered as __MODULE__, disconnected from supervisors
-      # Start isolated genserver to test error path - we call handle_call directly
-      # Call internal handle_call with invalid supervisor
-      # Since we can't easily inject a broken supervisor, verify the public function
-      # returns :ok or :error (function must exist and return the right shape)
-      _result = ServerManager.ensure_server(server_id)
-    end
-
-    test "server is stopped after idle TTL fires" do
-      Application.put_env(:zaq, :agent_server_idle_ttl_ms, 100)
-
-      on_exit(fn ->
-        Application.delete_env(:zaq, :agent_server_idle_ttl_ms)
-      end)
-
-      server_id = "answering_ttl_#{System.unique_integer([:positive])}"
-
-      assert {:ok, {:via, Registry, {registry, ^server_id}}} =
-               ServerManager.ensure_server(server_id)
-
-      pid = Jido.AgentServer.whereis(registry, server_id)
-      assert is_pid(pid)
-      monitor_ref = Process.monitor(pid)
-
-      assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
-    end
-
-    test "server is restarted after expiry when ensure_server is called again" do
-      Application.put_env(:zaq, :agent_server_idle_ttl_ms, 100)
-
-      on_exit(fn ->
-        Application.delete_env(:zaq, :agent_server_idle_ttl_ms)
-      end)
-
-      server_id = "answering_restart_#{System.unique_integer([:positive])}"
-      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
-
-      # Restore default TTL immediately so the replacement server does not also
-      # expire in 100 ms before the assertion below has a chance to run.
-      Application.delete_env(:zaq, :agent_server_idle_ttl_ms)
-
-      registry = Jido.registry_name(Zaq.Agent.Jido)
-      pid1 = Jido.AgentServer.whereis(registry, server_id)
-      monitor_ref = Process.monitor(pid1)
-      assert_receive {:DOWN, ^monitor_ref, :process, ^pid1, _reason}, 2_500
-
-      restarted =
-        Enum.reduce_while(1..50, nil, fn _, _ ->
-          case ServerManager.ensure_server(server_id) do
-            {:ok, ref} ->
-              case Jido.AgentServer.whereis(registry, server_id) do
-                pid when is_pid(pid) and pid != pid1 ->
-                  {:halt, {ref, pid}}
-
-                _ ->
-                  Process.sleep(50)
-                  {:cont, nil}
-              end
-
-            _ ->
-              Process.sleep(50)
-              {:cont, nil}
-          end
-        end)
-
-      assert {ref, pid2} = restarted
-      assert is_pid(pid2)
-      assert {:ok, _status} = Jido.AgentServer.status(ref)
-    end
-  end
-
-  describe "ensure_server_by_id/2" do
+  describe "ensure_server/2" do
     test "starts server with the given scope id and returns a ref" do
       credential =
         ai_credential_fixture(%{
@@ -459,37 +376,46 @@ defmodule Zaq.Agent.ServerManagerTest do
 
       server_id = "configured_agent_#{configured_agent.id}:person_42"
 
-      assert {:ok, ref} = ServerManager.ensure_server_by_id(configured_agent, server_id)
+      assert {:ok, ref} = ServerManager.ensure_server(configured_agent, server_id)
       assert {:via, Registry, {_registry, ^server_id}} = ref
     end
   end
 
-  describe "stop_server/1 with raw server_id string" do
-    test "terminates the server process" do
-      server_id = "answering_stop_#{System.unique_integer([:positive])}"
+  describe "stop_server/2" do
+    test "terminates the scoped server process" do
+      credential =
+        ai_credential_fixture(%{
+          name: "Scoped Stop Credential #{System.unique_integer([:positive, :monotonic])}",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          api_key: "x"
+        })
+
+      {:ok, configured_agent} =
+        Agent.create_agent(%{
+          name: "Scoped Stop Agent #{System.unique_integer([:positive])}",
+          description: "",
+          job: "stop scope",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: false,
+          active: true,
+          advanced_options: %{}
+        })
+
+      server_id = "configured_agent_#{configured_agent.id}:scope_stop"
 
       assert {:ok, {:via, Registry, {registry, ^server_id}}} =
-               ServerManager.ensure_server(server_id)
+               ServerManager.ensure_server(configured_agent, server_id)
 
       pid = Jido.AgentServer.whereis(registry, server_id)
       assert is_pid(pid)
       monitor_ref = Process.monitor(pid)
 
-      assert :ok = ServerManager.stop_server(server_id)
+      assert :ok = ServerManager.stop_server(configured_agent, server_id)
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
-    end
-
-    test "is a no-op when server does not exist" do
-      server_id = "answering_noop_#{System.unique_integer([:positive])}"
-      assert :ok = ServerManager.stop_server(server_id)
-    end
-
-    test "is idempotent after repeated stop calls" do
-      server_id = "answering_stop_idempotent_#{System.unique_integer([:positive])}"
-      assert {:ok, _ref} = ServerManager.ensure_server(server_id)
-
-      assert :ok = ServerManager.stop_server(server_id)
-      assert :ok = ServerManager.stop_server(server_id)
     end
   end
 
@@ -518,7 +444,10 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     refs =
       1..8
-      |> Task.async_stream(fn _ -> ServerManager.ensure_server(configured_agent) end,
+      |> Task.async_stream(
+        fn _ ->
+          ServerManager.ensure_server(configured_agent, "configured_agent_#{configured_agent.id}")
+        end,
         ordered: false,
         timeout: 10_000
       )
@@ -589,7 +518,11 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     refute_receive {:runtime_sync_hydrate_called, _, _, _}, 150
 
-    assert {:ok, _server_ref} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
 
     assert_receive {:runtime_sync_hydrate_called, agent_id, endpoint_ids, _server_ref}, 1_000
     assert agent_id == configured_agent.id
@@ -630,6 +563,12 @@ defmodule Zaq.Agent.ServerManagerTest do
         active: true,
         advanced_options: %{}
       })
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
 
     assert {:ok, %{server_ref: {:via, Registry, _}, runtime: runtime}} =
              ServerManager.sync_runtime(configured_agent)
@@ -673,6 +612,12 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{}
       })
 
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
     assert {:ok, %{server_ref: {:via, Registry, _}, runtime: %{unexpected: true}}} =
              ServerManager.sync_runtime(configured_agent)
   end
@@ -711,6 +656,12 @@ defmodule Zaq.Agent.ServerManagerTest do
         active: true,
         advanced_options: %{}
       })
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
 
     assert {:error, :runtime_sync_failed} = ServerManager.sync_runtime(configured_agent)
   end
@@ -759,11 +710,17 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{}
       })
 
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
     assert {:ok, %{runtime: runtime}} = ServerManager.sync_runtime(configured_agent)
     assert runtime.mcp.warnings == []
   end
 
-  test "stop_server accepts integer configured agent id" do
+  test "stop_server/1 stops all tracked servers for configured agent" do
     credential =
       ai_credential_fixture(%{
         name: "Integer Stop Credential #{System.unique_integer([:positive, :monotonic])}",
@@ -787,13 +744,16 @@ defmodule Zaq.Agent.ServerManagerTest do
       })
 
     assert {:ok, {:via, Registry, {registry, key}}} =
-             ServerManager.ensure_server(configured_agent)
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
 
     pid = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid)
     monitor_ref = Process.monitor(pid)
 
-    assert :ok = ServerManager.stop_server(configured_agent.id)
+    assert :ok = ServerManager.stop_server(configured_agent)
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
   end
 
@@ -812,10 +772,14 @@ defmodule Zaq.Agent.ServerManagerTest do
       advanced_options: %{}
     }
 
-    assert {:error, :provider_not_found} = ServerManager.sync_runtime(configured_agent)
+    assert {:error, :provider_not_found} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
   end
 
-  test "ensure_server_by_id is idempotent for unchanged config on same scope" do
+  test "ensure_server/2 is idempotent for unchanged config on same scope" do
     credential =
       ai_credential_fixture(%{
         name: "By Id Idempotent Credential #{System.unique_integer([:positive, :monotonic])}",
@@ -840,8 +804,8 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     server_id = "configured_agent_#{configured_agent.id}:channel_99"
 
-    assert {:ok, ref1} = ServerManager.ensure_server_by_id(configured_agent, server_id)
-    assert {:ok, ref2} = ServerManager.ensure_server_by_id(configured_agent, server_id)
+    assert {:ok, ref1} = ServerManager.ensure_server(configured_agent, server_id)
+    assert {:ok, ref2} = ServerManager.ensure_server(configured_agent, server_id)
     assert ref1 == ref2
 
     assert {:via, Registry, {registry, ^server_id}} = ref1

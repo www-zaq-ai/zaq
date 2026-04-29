@@ -683,7 +683,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                server_manager_module: StubServerManagerForPatch
              )
 
-    assert_received {:stop_server_called, 78}
+    assert_received {:stop_server_called, %ConfiguredAgent{id: 78}}
   end
 
   test "configured_agent_updated returns hot_runtime_patch and unsync results" do

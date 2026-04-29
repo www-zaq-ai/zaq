@@ -9,13 +9,8 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(configured_agent) do
-      send(self(), {:ensure_server, configured_agent})
-      {:ok, :stub_server}
-    end
-
-    def ensure_server_by_id(configured_agent, server_id) do
-      send(self(), {:ensure_server_by_id, configured_agent, server_id})
+    def ensure_server(configured_agent, server_id) do
+      send(self(), {:ensure_server, configured_agent, server_id})
       {:ok, :stub_server_scoped}
     end
   end
@@ -61,8 +56,8 @@ defmodule Zaq.Agent.ExecutorTest do
 
   describe "run/2 — answering agent (no agent_id)" do
     defmodule StubSMAnswering do
-      def ensure_server_by_id(_agent, server_id) do
-        send(self(), {:ensure_server_by_id, server_id})
+      def ensure_server(_agent, server_id) do
+        send(self(), {:ensure_server, server_id})
         {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
       end
     end
@@ -106,7 +101,7 @@ defmodule Zaq.Agent.ExecutorTest do
         )
 
       assert %Zaq.Engine.Messages.Outgoing{} = result
-      assert_received {:ensure_server_by_id, "answering:5"}
+      assert_received {:ensure_server, "answering:5"}
     end
 
     test "uses 'anonymous' scope when person_id and session_id are absent" do
@@ -119,7 +114,7 @@ defmodule Zaq.Agent.ExecutorTest do
         node_router: StubNodeRouter
       )
 
-      assert_received {:ensure_server_by_id, "answering:anonymous"}
+      assert_received {:ensure_server, "answering:anonymous"}
     end
 
     test "propagates answer text and token counts into Outgoing metadata" do
@@ -161,20 +156,18 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   describe "run/2 :scope opt" do
-    test "with :scope opt uses agent name as server id — {agent_name}:{scope}" do
+    test "uses agent name as server id — {agent_name}:{scope}" do
       opts = Keyword.put(@base_opts, :scope, "99")
 
       Executor.run(@incoming, opts)
 
-      assert_received {:ensure_server_by_id, _configured_agent, "Stub Agent:99"}
-      refute_received {:ensure_server, _}
+      assert_received {:ensure_server, _configured_agent, "Stub Agent:99"}
     end
 
-    test "without :scope opt falls back to shared ensure_server" do
+    test "without :scope opt still uses scoped server id contract" do
       Executor.run(@incoming, @base_opts)
 
-      assert_received {:ensure_server, _configured_agent}
-      refute_received {:ensure_server_by_id, _, _}
+      assert_received {:ensure_server, _configured_agent, "Stub Agent:"}
     end
   end
 end

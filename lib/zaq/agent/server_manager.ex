@@ -4,15 +4,12 @@ defmodule Zaq.Agent.ServerManager do
 
   The scope is determined upstream and passed in as a `server_id` string — it
   can represent any granularity (agent-wide, per-person, per-channel, etc.).
-  Raw servers spawned via `ensure_server/1` (string form) are automatically
-  stopped after an idle TTL using a scheduled message.
   """
 
   use GenServer
 
   require Logger
 
-  alias Zaq.Agent
   alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderSpec, RuntimeSync}
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
@@ -20,7 +17,9 @@ defmodule Zaq.Agent.ServerManager do
   @jido_registry Jido.registry_name(@jido_instance)
 
   @type state :: %{
-          fingerprints: %{optional(integer()) => binary()}
+          fingerprints: %{optional(String.t()) => binary()},
+          agent_servers: %{optional(integer()) => MapSet.t(String.t())},
+          server_to_agent: %{optional(String.t()) => integer()}
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -33,139 +32,71 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
 
-  @spec ensure_server(ConfiguredAgent.t() | String.t()) ::
+  @spec ensure_server(ConfiguredAgent.t(), String.t()) ::
           {:ok, GenServer.server()} | {:error, term()}
-  def ensure_server(%ConfiguredAgent{} = configured_agent) do
-    GenServer.call(__MODULE__, {:ensure_server, configured_agent})
-  end
-
-  def ensure_server(server_id) when is_binary(server_id) do
-    GenServer.call(__MODULE__, {:ensure_server_raw, server_id})
-  end
-
-  @spec ensure_server_by_id(ConfiguredAgent.t(), String.t()) ::
-          {:ok, GenServer.server()} | {:error, term()}
-  def ensure_server_by_id(%ConfiguredAgent{} = configured_agent, server_id)
+  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id)
       when is_binary(server_id) do
-    GenServer.call(__MODULE__, {:ensure_server_by_id, configured_agent, server_id})
+    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id})
   end
 
-  @spec stop_server(integer() | String.t()) :: :ok
-  def stop_server(server_id) when is_binary(server_id) do
-    case Integer.parse(server_id) do
-      {int_id, ""} ->
-        GenServer.call(__MODULE__, {:stop_server, int_id})
-
-      _ ->
-        GenServer.call(__MODULE__, {:stop_server_by_raw_id, server_id})
-    end
+  @spec stop_server(ConfiguredAgent.t()) :: :ok
+  def stop_server(%ConfiguredAgent{} = configured_agent) do
+    GenServer.call(__MODULE__, {:stop_server, configured_agent})
   end
 
-  def stop_server(agent_id) when is_integer(agent_id) do
-    GenServer.call(__MODULE__, {:stop_server, agent_id})
+  @spec stop_server(ConfiguredAgent.t(), String.t()) :: :ok
+  def stop_server(%ConfiguredAgent{} = configured_agent, server_id) do
+    GenServer.call(__MODULE__, {:stop_server, configured_agent, server_id})
   end
 
   @impl true
   def init(_opts) do
-    {:ok, %{fingerprints: %{}}}
+    {:ok, %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}}
   end
 
   @impl true
-  def handle_call({:ensure_server, %ConfiguredAgent{} = configured_agent}, _from, state) do
-    case do_ensure_server(configured_agent, state) do
-      {:ok, server_id, next_state} -> {:reply, {:ok, server_ref(server_id)}, next_state}
-      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
-    end
-  end
-
-  def handle_call({:sync_runtime, %ConfiguredAgent{} = configured_agent}, _from, state) do
-    case do_ensure_server(configured_agent, state) do
-      {:ok, server_id, next_state} ->
-        case hydrate_mcp_assignments(configured_agent, server_id) do
-          {:ok, runtime} ->
-            {:reply, {:ok, %{server_ref: server_ref(server_id), runtime: runtime}}, next_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, next_state}
-        end
-
-      {:error, reason, next_state} ->
-        {:reply, {:error, reason}, next_state}
-    end
-  end
-
-  def handle_call({:ensure_server_raw, server_id}, _from, state) do
-    result =
-      case safe_whereis(server_id) do
-        pid when is_pid(pid) ->
-          {:ok, server_ref(server_id)}
-
-        _ ->
-          case spawn_server(server_id, %{model: ProviderSpec.build()}) do
-            :ok ->
-              Process.send_after(self(), {:expire_server, server_id}, idle_ttl_ms())
-              {:ok, server_ref(server_id)}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
-      end
-
-    {:reply, result, state}
-  end
-
   def handle_call(
-        {:ensure_server_by_id, %ConfiguredAgent{} = configured_agent, server_id},
+        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id},
         _from,
         state
       ) do
-    # fingerprint = fingerprint(configured_agent)
-
-    # result =
-    #   case safe_whereis(server_id) do
-    #     pid when is_pid(pid) ->
-    #       {:ok, server_ref(server_id)}
-
-    #     _ ->
-    #       case spawn_agent_server(configured_agent, server_id) do
-    #         :ok -> {:ok, server_ref(server_id)}
-    #         {:error, reason} -> {:error, reason}
-    #       end
-    #   end
-
-    # next_state =
-    #   case result do
-    #     {:ok, _} -> put_in(state, [:fingerprints, configured_agent.id], fingerprint)
-    #     _ -> state
-    #   end
-
-    # {:reply, result, next_state}
     case do_ensure_server(configured_agent, state, server_id) do
       {:ok, server_id, next_state} -> {:reply, {:ok, server_ref(server_id)}, next_state}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
     end
   end
 
-  def handle_call({:stop_server, agent_id}, _from, state) do
-    int_id = parse_int_id(agent_id)
-    server_id = Agent.agent_server_id(int_id)
-
-    _ = stop_server_if_running(server_id)
-
-    {:reply, :ok, %{state | fingerprints: Map.delete(state.fingerprints, int_id)}}
+  def handle_call({:sync_runtime, %ConfiguredAgent{} = configured_agent}, _from, state) do
+    case do_sync_runtime(configured_agent, state) do
+      {:ok, response, next_state} -> {:reply, {:ok, response}, next_state}
+      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+    end
   end
 
-  def handle_call({:stop_server_by_raw_id, server_id}, _from, state) do
-    _ = stop_server_if_running(server_id)
+  def handle_call({:stop_server, %ConfiguredAgent{} = configured_agent}, _from, state) do
+    next_state =
+      Enum.reduce(tracked_server_ids(state, configured_agent.id), state, fn server_id,
+                                                                            acc_state ->
+        _ = stop_server_if_running(server_id)
+        untrack_server(acc_state, server_id)
+      end)
 
-    {:reply, :ok, state}
+    {:reply, :ok, next_state}
   end
 
-  defp do_ensure_server(
-         %ConfiguredAgent{} = configured_agent,
-         state
-       ) do
-    do_ensure_server(configured_agent, state, Agent.agent_server_id(configured_agent.id))
+  def handle_call({:stop_server, %ConfiguredAgent{} = configured_agent, server_id}, _from, state) do
+    next_state =
+      Enum.reduce(tracked_server_ids(state, configured_agent.id), state, fn tracked_server_id,
+                                                                            acc_state ->
+        if tracked_server_id == server_id do
+          _ = stop_server_if_running(tracked_server_id)
+          untrack_server(acc_state, tracked_server_id)
+        else
+          acc_state
+        end
+      end)
+
+    {:reply, :ok, next_state}
   end
 
   defp do_ensure_server(
@@ -175,9 +106,9 @@ defmodule Zaq.Agent.ServerManager do
        ) do
     fingerprint = fingerprint(configured_agent)
 
-    case {Map.get(state.fingerprints, configured_agent.id), safe_whereis(server_id)} do
+    case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
       {^fingerprint, pid} when is_pid(pid) ->
-        {:ok, server_id, state}
+        {:ok, server_id, track_server(state, configured_agent.id, server_id)}
 
       {_previous, pid} when is_pid(pid) ->
         _ = stop_server_if_running(server_id)
@@ -192,7 +123,13 @@ defmodule Zaq.Agent.ServerManager do
     case spawn_agent_server(configured_agent, server_id) do
       :ok ->
         _ = hydrate_mcp_assignments(configured_agent, server_id)
-        {:ok, server_id, put_in(state, [:fingerprints, configured_agent.id], fingerprint)}
+
+        next_state =
+          state
+          |> put_in([:fingerprints, server_id], fingerprint)
+          |> track_server(configured_agent.id, server_id)
+
+        {:ok, server_id, next_state}
 
       {:error, reason} ->
         {:error, reason, state}
@@ -202,7 +139,7 @@ defmodule Zaq.Agent.ServerManager do
   @impl true
   def handle_info({:expire_server, server_id}, state) do
     _ = stop_server_if_running(server_id)
-    {:noreply, state}
+    {:noreply, untrack_server(state, server_id)}
   end
 
   defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id) do
@@ -273,18 +210,21 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp idle_ttl_ms do
-    Application.get_env(:zaq, :agent_server_idle_ttl_ms, 30 * 60 * 1_000)
-  end
-
   defp stop_server_if_running(server_id) do
+    # Temporary: graceful drain is not implemented yet.
+    # Current strategy is terminate-on-stop.
     case safe_whereis(server_id) do
-      pid when is_pid(pid) -> DynamicSupervisor.terminate_child(@dynamic_supervisor, pid)
-      _ -> :ok
+      pid when is_pid(pid) ->
+        DynamicSupervisor.terminate_child(@dynamic_supervisor, pid)
+
+      _ ->
+        :ok
     end
   end
 
   defp safe_whereis(server_id) do
+    # Temporary: no drain-state probing yet.
+    # Registry lookup can race with shutdown during replacement windows.
     Jido.AgentServer.whereis(@jido_registry, server_id)
   rescue
     ArgumentError ->
@@ -310,15 +250,6 @@ defmodule Zaq.Agent.ServerManager do
     |> Integer.to_string()
   end
 
-  defp parse_int_id(id) when is_integer(id), do: id
-
-  defp parse_int_id(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {int, ""} -> int
-      _ -> raise ArgumentError, "invalid configured agent id: #{inspect(id)}"
-    end
-  end
-
   defp runtime_sync_module do
     Application.get_env(:zaq, :agent_runtime_sync_module, RuntimeSync)
   end
@@ -328,5 +259,115 @@ defmodule Zaq.Agent.ServerManager do
       opts when is_list(opts) -> opts
       _ -> []
     end
+  end
+
+  defp do_sync_runtime(configured_agent, state) do
+    case tracked_server_ids(state, configured_agent.id) do
+      [] ->
+        {:ok, %{runtime: %{strategy: :no_running_servers}, synced_servers: []}, state}
+
+      server_ids ->
+        sync_existing_servers(configured_agent, state, server_ids)
+    end
+  end
+
+  defp sync_existing_servers(configured_agent, state, server_ids) do
+    sync_result =
+      Enum.reduce_while(server_ids, {:ok, state, []}, fn server_id, {:ok, acc_state, acc} ->
+        case sync_single_runtime(configured_agent, acc_state, server_id) do
+          {:ok, response, next_state} ->
+            synced_server = %{
+              server_id: server_id,
+              server_ref: response.server_ref,
+              runtime: response.runtime
+            }
+
+            {:cont, {:ok, next_state, [synced_server | acc]}}
+
+          {:error, reason, next_state} ->
+            {:halt, {:error, reason, next_state}}
+        end
+      end)
+
+    case sync_result do
+      {:ok, next_state, [first | _] = synced_servers} ->
+        {:ok,
+         %{
+           server_ref: first.server_ref,
+           runtime: first.runtime,
+           synced_servers: Enum.reverse(synced_servers)
+         }, next_state}
+
+      {:error, reason, next_state} ->
+        {:error, reason, next_state}
+    end
+  end
+
+  defp sync_single_runtime(configured_agent, state, server_id) do
+    case do_ensure_server(configured_agent, state, server_id) do
+      {:ok, ensured_server_id, next_state} ->
+        case hydrate_mcp_assignments(configured_agent, ensured_server_id) do
+          {:ok, runtime} ->
+            {:ok, %{server_ref: server_ref(ensured_server_id), runtime: runtime}, next_state}
+
+          {:error, reason} ->
+            {:error, reason, next_state}
+        end
+
+      {:error, reason, next_state} ->
+        {:error, reason, next_state}
+    end
+  end
+
+  defp track_server(state, agent_id, server_id) do
+    agent_servers =
+      Map.update(
+        state.agent_servers,
+        agent_id,
+        MapSet.new([server_id]),
+        &MapSet.put(&1, server_id)
+      )
+
+    %{
+      state
+      | agent_servers: agent_servers,
+        server_to_agent: Map.put(state.server_to_agent, server_id, agent_id)
+    }
+  end
+
+  defp untrack_server(state, server_id) do
+    agent_id = Map.get(state.server_to_agent, server_id)
+
+    state = %{
+      state
+      | fingerprints: Map.delete(state.fingerprints, server_id),
+        server_to_agent: Map.delete(state.server_to_agent, server_id)
+    }
+
+    case agent_id do
+      nil ->
+        state
+
+      _ ->
+        updated_set =
+          state.agent_servers
+          |> Map.get(agent_id, MapSet.new())
+          |> MapSet.delete(server_id)
+
+        agent_servers =
+          if MapSet.size(updated_set) == 0 do
+            Map.delete(state.agent_servers, agent_id)
+          else
+            Map.put(state.agent_servers, agent_id, updated_set)
+          end
+
+        %{state | agent_servers: agent_servers}
+    end
+  end
+
+  defp tracked_server_ids(state, agent_id) do
+    state.agent_servers
+    |> Map.get(agent_id, MapSet.new())
+    |> MapSet.to_list()
   end
 end
