@@ -447,7 +447,10 @@ defmodule Zaq.Agent.ApiTest do
   test "preserves invalid_request errors returned by runtime sync" do
     created_event =
       Event.new(%{attrs: %{}}, :agent,
-        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSyncInvalidRequestError]
+        opts: [
+          action: :configured_agent_created,
+          runtime_sync_module: StubRuntimeSyncInvalidRequestError
+        ]
       )
 
     assert Api.handle_event(created_event, :configured_agent_created, nil).response ==
