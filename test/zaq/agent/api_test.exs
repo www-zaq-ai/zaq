@@ -56,6 +56,13 @@ defmodule Zaq.Agent.ApiTest do
     def mcp_endpoint_updated(_request), do: {:error, :mcp_failed}
   end
 
+  defmodule StubRuntimeSyncInvalidRequestError do
+    def configured_agent_created(_attrs), do: {:error, {:invalid_request, :bad_attrs}}
+    def configured_agent_updated(_id, _attrs), do: {:error, {:invalid_request, :bad_update}}
+    def configured_agent_deleted(_id), do: {:error, {:invalid_request, :bad_delete}}
+    def mcp_endpoint_updated(_request), do: {:error, {:invalid_request, :bad_mcp}}
+  end
+
   # Passthrough identity plug (no DB, leaves incoming unchanged)
   defmodule PassthroughIdentityPlug do
     def call(incoming, _opts), do: incoming
@@ -388,6 +395,21 @@ defmodule Zaq.Agent.ApiTest do
              {:error, {:invalid_request, :bad}}
   end
 
+  test "configured agent actions reject non-map requests via request fallbacks" do
+    created = Event.new(:bad, :agent, opts: [action: :configured_agent_created])
+    updated = Event.new(:bad, :agent, opts: [action: :configured_agent_updated])
+    deleted = Event.new(:bad, :agent, opts: [action: :configured_agent_deleted])
+
+    assert Api.handle_event(created, :configured_agent_created, nil).response ==
+             {:error, {:invalid_request, :bad}}
+
+    assert Api.handle_event(updated, :configured_agent_updated, nil).response ==
+             {:error, {:invalid_request, :bad}}
+
+    assert Api.handle_event(deleted, :configured_agent_deleted, nil).response ==
+             {:error, {:invalid_request, :bad}}
+  end
+
   test "normalizes runtime sync errors for configured-agent and mcp actions" do
     created_event =
       Event.new(%{attrs: %{}}, :agent,
@@ -420,6 +442,16 @@ defmodule Zaq.Agent.ApiTest do
 
     assert Api.handle_event(mcp_event, :mcp_endpoint_updated, nil).response ==
              {:error, {:action_failed, :mcp_failed}}
+  end
+
+  test "preserves invalid_request errors returned by runtime sync" do
+    created_event =
+      Event.new(%{attrs: %{}}, :agent,
+        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSyncInvalidRequestError]
+      )
+
+    assert Api.handle_event(created_event, :configured_agent_created, nil).response ==
+             {:error, {:invalid_request, :bad_attrs}}
   end
 
   # ---------------------------------------------------------------------------
