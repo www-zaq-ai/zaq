@@ -60,7 +60,8 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       messages = AIContext.to_messages(result)
       assert length(messages) == 1
       assert hd(messages).role == :user
-      assert hd(messages).content == "hello from user"
+      # User messages are prefixed with a timestamp so the LLM can answer timing questions
+      assert String.ends_with?(hd(messages).content, "hello from user")
     end
 
     test "maps assistant DB role to assistant entry" do
@@ -91,8 +92,11 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       messages = AIContext.to_messages(result)
 
       assert length(messages) == 3
-      contents = Enum.map(messages, & &1.content)
-      assert contents == ["first", "second", "third"]
+      [m1, m2, m3] = messages
+      # User messages carry a timestamp prefix; assistant messages do not
+      assert String.ends_with?(m1.content, "first")
+      assert m2.content == "second"
+      assert String.ends_with?(m3.content, "third")
     end
 
     test "truncates to stay within max_tokens (keeps most recent)" do

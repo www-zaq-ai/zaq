@@ -82,7 +82,10 @@ defmodule Zaq.Agent.Executor do
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
-    question = Keyword.get(opts, :question, incoming.content)
+    question =
+      opts
+      |> Keyword.get(:question, incoming.content)
+      |> timestamp_question()
 
     opts = ensure_scope_for_answering_path(opts, incoming)
 
@@ -279,4 +282,11 @@ defmodule Zaq.Agent.Executor do
       Application.get_env(:zaq, :pipeline_node_router_module, Zaq.NodeRouter)
     )
   end
+
+  defp timestamp_question(content) when is_binary(content) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_string()
+    "[#{ts}] #{content}"
+  end
+
+  defp timestamp_question(content), do: content
 end
