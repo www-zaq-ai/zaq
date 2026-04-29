@@ -152,6 +152,11 @@ User question (BO Chat / Channel)
 
 ### Server Manager (`Zaq.Agent.ServerManager`)
 - Ensures server presence and fingerprint-based restart when configured-agent runtime inputs change.
+- Stop strategy is drain-aware:
+  - if requests are in-flight, server enters drain mode and a forced stop is scheduled.
+  - if idle, server is terminated immediately.
+- Drain timeout is controlled by `:zaq, :agent_server_drain_timeout_ms` (default `1500`).
+- Test-only deterministic drain can be enabled with `:zaq, :agent_server_force_drain`.
 - Restart strategy is stop then start. This introduces a short replacement window where the old process is gone before the new process is registered.
 - Duplicate start attempts are tolerated (`{:already_started, _}` is treated as success), so concurrent ensure calls remain idempotent.
 - Current behavior prioritizes correctness and idempotency over zero-downtime replacement.

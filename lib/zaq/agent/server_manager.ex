@@ -19,7 +19,8 @@ defmodule Zaq.Agent.ServerManager do
   @type state :: %{
           fingerprints: %{optional(String.t()) => binary()},
           agent_servers: %{optional(integer()) => MapSet.t(String.t())},
-          server_to_agent: %{optional(String.t()) => integer()}
+          server_to_agent: %{optional(String.t()) => integer()},
+          draining: %{optional(String.t()) => reference()}
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -51,7 +52,7 @@ defmodule Zaq.Agent.ServerManager do
 
   @impl true
   def init(_opts) do
-    {:ok, %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}}
+    {:ok, %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}}}
   end
 
   @impl true
@@ -60,6 +61,8 @@ defmodule Zaq.Agent.ServerManager do
         _from,
         state
       ) do
+    state = clear_stale_drain(state, server_id)
+
     case do_ensure_server(configured_agent, state, server_id) do
       {:ok, server_id, next_state} -> {:reply, {:ok, server_ref(server_id)}, next_state}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
@@ -77,8 +80,7 @@ defmodule Zaq.Agent.ServerManager do
     next_state =
       Enum.reduce(tracked_server_ids(state, configured_agent.id), state, fn server_id,
                                                                             acc_state ->
-        _ = stop_server_if_running(server_id)
-        untrack_server(acc_state, server_id)
+        begin_stop(acc_state, server_id)
       end)
 
     {:reply, :ok, next_state}
@@ -89,8 +91,7 @@ defmodule Zaq.Agent.ServerManager do
       Enum.reduce(tracked_server_ids(state, configured_agent.id), state, fn tracked_server_id,
                                                                             acc_state ->
         if tracked_server_id == server_id do
-          _ = stop_server_if_running(tracked_server_id)
-          untrack_server(acc_state, tracked_server_id)
+          begin_stop(acc_state, tracked_server_id)
         else
           acc_state
         end
@@ -140,6 +141,17 @@ defmodule Zaq.Agent.ServerManager do
   def handle_info({:expire_server, server_id}, state) do
     _ = stop_server_if_running(server_id)
     {:noreply, untrack_server(state, server_id)}
+  end
+
+  def handle_info({:force_stop_server, server_id, ref}, state) do
+    case Map.get(state.draining, server_id) do
+      ^ref ->
+        _ = stop_server_if_running(server_id)
+        {:noreply, state |> untrack_server(server_id) |> clear_drain(server_id)}
+
+      _ ->
+        {:noreply, state}
+    end
   end
 
   defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id) do
@@ -211,8 +223,7 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp stop_server_if_running(server_id) do
-    # Temporary: graceful drain is not implemented yet.
-    # Current strategy is terminate-on-stop.
+    # Server shutdown is immediate here; graceful drain is coordinated by begin_stop/2.
     case safe_whereis(server_id) do
       pid when is_pid(pid) ->
         DynamicSupervisor.terminate_child(@dynamic_supervisor, pid)
@@ -223,7 +234,6 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp safe_whereis(server_id) do
-    # Temporary: no drain-state probing yet.
     # Registry lookup can race with shutdown during replacement windows.
     Jido.AgentServer.whereis(@jido_registry, server_id)
   rescue
@@ -259,6 +269,67 @@ defmodule Zaq.Agent.ServerManager do
       opts when is_list(opts) -> opts
       _ -> []
     end
+  end
+
+  defp drain_timeout_ms do
+    Application.get_env(:zaq, :agent_server_drain_timeout_ms, 1_500)
+  end
+
+  defp force_drain_enabled? do
+    Application.get_env(:zaq, :agent_server_force_drain, false) == true
+  end
+
+  defp begin_stop(state, server_id) do
+    cond do
+      not server_running?(server_id) ->
+        untrack_server(state, server_id)
+
+      draining?(state, server_id) ->
+        state
+
+      force_drain_enabled?() ->
+        ref = make_ref()
+        _ = Process.send_after(self(), {:force_stop_server, server_id, ref}, drain_timeout_ms())
+        %{state | draining: Map.put(state.draining, server_id, ref)}
+
+      in_flight_requests?(server_id) ->
+        ref = make_ref()
+        _ = Process.send_after(self(), {:force_stop_server, server_id, ref}, drain_timeout_ms())
+        %{state | draining: Map.put(state.draining, server_id, ref)}
+
+      true ->
+        _ = stop_server_if_running(server_id)
+        untrack_server(state, server_id)
+    end
+  end
+
+  defp draining?(state, server_id), do: Map.has_key?(state.draining, server_id)
+
+  defp clear_drain(state, server_id),
+    do: %{state | draining: Map.delete(state.draining, server_id)}
+
+  defp clear_stale_drain(state, server_id) do
+    if draining?(state, server_id) and not server_running?(server_id) do
+      clear_drain(state, server_id)
+    else
+      state
+    end
+  end
+
+  defp server_running?(server_id) do
+    case safe_whereis(server_id) do
+      pid when is_pid(pid) -> true
+      _ -> false
+    end
+  end
+
+  defp in_flight_requests?(server_id) do
+    case Jido.AgentServer.status(server_ref(server_id)) do
+      {:ok, %{raw_state: %{requests: requests}}} when is_map(requests) -> map_size(requests) > 0
+      _ -> false
+    end
+  rescue
+    _ -> false
   end
 
   defp do_sync_runtime(configured_agent, state) do
@@ -341,7 +412,8 @@ defmodule Zaq.Agent.ServerManager do
     state = %{
       state
       | fingerprints: Map.delete(state.fingerprints, server_id),
-        server_to_agent: Map.delete(state.server_to_agent, server_id)
+        server_to_agent: Map.delete(state.server_to_agent, server_id),
+        draining: Map.delete(state.draining, server_id)
     }
 
     case agent_id do
