@@ -269,6 +269,7 @@ defmodule Zaq.Agent.RuntimeSync do
       :enabled_mcp_endpoint_ids,
       :advanced_options,
       :active,
+      :job,
       :strategy
     ]
 

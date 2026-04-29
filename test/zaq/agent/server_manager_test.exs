@@ -5,8 +5,10 @@ defmodule Zaq.Agent.ServerManagerTest do
 
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.Factory
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
+  alias Zaq.TestSupport.OpenAIStub
 
   defmodule StubRuntimeSync do
     def sync_agent_runtime(agent, server_ref, opts \\ []) do
@@ -265,7 +267,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   test "init starts no servers — supervision tree is empty on start" do
     # init/1 no longer pre-spawns any servers; all spawning is lazy per-message.
     assert {:ok, state} = ServerManager.init([])
-    assert state == %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}
+    assert state == %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}}
   end
 
   test "ensure_server uses credential lookup when credential is not preloaded" do
@@ -321,7 +323,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       advanced_options: %{}
     }
 
-    init_state = %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}
+    init_state = %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}}
     server_id = "configured_agent_123456"
 
     assert {:reply, {:error, :provider_not_found}, ^init_state} =
@@ -346,7 +348,13 @@ defmodule Zaq.Agent.ServerManagerTest do
       # init/1 must not pre-spawn any servers; all children belong to other tests.
       # We call init/1 directly to inspect the state without side effects.
       assert {:ok, state} = ServerManager.init([])
-      assert state == %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}}
+
+      assert state == %{
+               fingerprints: %{},
+               agent_servers: %{},
+               server_to_agent: %{},
+               draining: %{}
+             }
     end
   end
 
@@ -814,4 +822,186 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert is_pid(pid1)
     assert pid1 == pid2
   end
+
+  test "drain timeout kills in-flight server and next message uses replacement pid" do
+    previous_timeout = Application.get_env(:zaq, :agent_server_drain_timeout_ms)
+    previous_force_drain = Application.get_env(:zaq, :agent_server_force_drain)
+    Application.put_env(:zaq, :agent_server_drain_timeout_ms, 200)
+    Application.put_env(:zaq, :agent_server_force_drain, true)
+
+    on_exit(fn ->
+      if is_nil(previous_timeout) do
+        Application.delete_env(:zaq, :agent_server_drain_timeout_ms)
+      else
+        Application.put_env(:zaq, :agent_server_drain_timeout_ms, previous_timeout)
+      end
+
+      if is_nil(previous_force_drain) do
+        Application.delete_env(:zaq, :agent_server_force_drain)
+      else
+        Application.put_env(:zaq, :agent_server_force_drain, previous_force_drain)
+      end
+    end)
+
+    handler = fn conn, body ->
+      payload = Jason.decode!(body)
+      content = extract_request_content(payload)
+
+      if String.contains?(content, "SLOW_REQUEST") do
+        Process.sleep(10_000)
+      end
+
+      {200, streamed_reply(conn.request_path, "ok", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Drain Timeout Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "drain-key"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Drain Timeout Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "You are a helper",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{"stream" => false}
+      })
+
+    server_id = "configured_agent_#{configured_agent.id}:drain_timeout"
+
+    assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent, server_id)
+    assert {:via, Registry, {registry, ^server_id}} = server_ref
+
+    pid_before = Jido.AgentServer.whereis(registry, server_id)
+    assert is_pid(pid_before)
+
+    parent = self()
+
+    {:ok, _slow_pid} =
+      Task.start(fn ->
+        result =
+          try do
+            case Factory.ask_with_config(
+                   server_ref,
+                   "SLOW_REQUEST",
+                   configured_agent,
+                   timeout: 15_000
+                 ) do
+              {:ok, request} -> Factory.await(request, timeout: 20_000)
+              error -> error
+            end
+          catch
+            :exit, reason -> {:exit, reason}
+          end
+
+        send(parent, {:slow_result, result})
+      end)
+
+    Process.sleep(50)
+
+    assert :ok = ServerManager.stop_server(configured_agent, server_id)
+
+    monitor_ref = Process.monitor(pid_before)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid_before, _reason}, 2_000
+
+    assert_receive {:slow_result, slow_result}, 21_000
+    assert match?({:error, _}, slow_result) or match?({:exit, _}, slow_result)
+
+    assert {:ok, server_ref_after} = ServerManager.ensure_server(configured_agent, server_id)
+    assert {:via, Registry, {registry, ^server_id}} = server_ref_after
+
+    pid_after = Jido.AgentServer.whereis(registry, server_id)
+    assert is_pid(pid_after)
+    refute pid_after == pid_before
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server_ref_after, "FAST_REQUEST", configured_agent,
+               timeout: 15_000
+             )
+
+    assert {:ok, _answer} = Factory.await(request, timeout: 20_000)
+  end
+
+  defp streamed_reply("/v1/chat/completions", text, model) do
+    chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{"content" => text}, "finish_reason" => nil}]
+      })
+
+    done_chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "stop"}],
+        "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 1, "total_tokens" => 6}
+      })
+
+    "data: #{chunk}\n\ndata: #{done_chunk}\n\ndata: [DONE]\n\n"
+  end
+
+  defp streamed_reply(_path, text, model) do
+    delta_event = Jason.encode!(%{"delta" => text})
+
+    completed_event =
+      Jason.encode!(%{
+        "response" => %{
+          "id" => "resp_test",
+          "model" => model,
+          "usage" => %{"input_tokens" => 5, "output_tokens" => 1, "total_tokens" => 6}
+        }
+      })
+
+    [
+      "event: response.output_text.delta\n",
+      "data: #{delta_event}\n\n",
+      "event: response.completed\n",
+      "data: #{completed_event}\n\n"
+    ]
+    |> IO.iodata_to_binary()
+  end
+
+  defp extract_request_content(%{"input" => input}) when is_list(input) do
+    input
+    |> Enum.flat_map(fn
+      %{"content" => content} when is_list(content) ->
+        Enum.map(content, fn
+          %{"text" => text} when is_binary(text) -> text
+          _ -> ""
+        end)
+
+      %{"content" => content} when is_binary(content) ->
+        [content]
+
+      _ ->
+        []
+    end)
+    |> Enum.join(" ")
+  end
+
+  defp extract_request_content(%{"messages" => messages}) when is_list(messages) do
+    messages
+    |> Enum.map_join(" ", fn
+      %{"content" => content} when is_binary(content) -> content
+      %{"content" => content} when is_list(content) -> inspect(content)
+      _ -> ""
+    end)
+  end
+
+  defp extract_request_content(_), do: ""
 end
