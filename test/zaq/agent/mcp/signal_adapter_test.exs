@@ -56,7 +56,8 @@ defmodule Zaq.Agent.MCP.SignalAdapterTest do
 
   test "register/sync/unsync/refresh/unregister succeed against running server" do
     %ConfiguredAgent{} = configured_agent = configured_agent_fixture()
-    assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent)
+    server_id = "configured_agent_#{configured_agent.id}:signal_adapter"
+    assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent, server_id)
 
     {runtime_endpoint_id, endpoint_attrs} = endpoint_attrs_fixture()
 

@@ -32,17 +32,19 @@ defmodule Zaq.Agent.Api do
 
         # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
         incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
-        scope = Executor.derive_scope(incoming)
 
         outgoing =
           case selected_agent_id(event.assigns) do
             nil ->
-              pipeline_module.run(incoming, Keyword.put(pipeline_opts, :scope, scope))
+              pipeline_module.run(
+                incoming,
+                Keyword.put(pipeline_opts, :scope, Executor.derive_scope(incoming))
+              )
 
             selected_id ->
               executor_module.run(incoming,
                 agent_id: selected_id,
-                scope: scope,
+                scope: Executor.derive_scope(incoming),
                 history: Keyword.get(pipeline_opts, :history, %{}),
                 telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{})
               )
@@ -71,21 +73,8 @@ defmodule Zaq.Agent.Api do
     end
   end
 
-  def handle_event(%Event{} = event, :configured_agent_created, _context) do
-    runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
-
-    case created_request(event.request) do
-      {:ok, attrs} ->
-        %{
-          event
-          | response: normalize_action_error(runtime_sync_module.configured_agent_created(attrs))
-        }
-
-      other ->
-        invalid_request_response(event, other)
-    end
-  end
-
+  # Temporary: runtime replacement still enters through update action.
+  # Stop is enough because servers restart lazily on next message.
   def handle_event(%Event{} = event, :configured_agent_updated, _context) do
     runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
 
@@ -160,15 +149,6 @@ defmodule Zaq.Agent.Api do
       Application.get_env(:zaq, :api_identity_plug_module, Zaq.People.IdentityPlug)
     )
   end
-
-  defp created_request(%{} = request) do
-    case fetch_key(request, :attrs) do
-      {:ok, attrs} when is_map(attrs) -> {:ok, attrs}
-      _ -> request
-    end
-  end
-
-  defp created_request(other), do: other
 
   defp updated_request(%{} = request) do
     with {:ok, id} when is_integer(id) <- fetch_key(request, :id),

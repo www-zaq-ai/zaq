@@ -183,7 +183,7 @@ defmodule Zaq.Agent.RuntimeSync do
         {:ok, %{strategy: :no_runtime_change}}
 
       agent.active != true ->
-        _ = server_manager.stop_server(agent.id)
+        _ = server_manager.stop_server(agent)
         {:ok, %{strategy: :drain_and_stop}}
 
       true ->

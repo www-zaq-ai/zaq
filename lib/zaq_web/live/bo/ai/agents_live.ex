@@ -266,9 +266,29 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   defp save_new_agent(socket, attrs) do
-    event = Event.new(%{attrs: attrs}, :agent, opts: [action: :configured_agent_created])
+    event =
+      Event.new(%{module: Agent, function: :create_agent, args: [attrs]}, :agent,
+        opts: [action: :invoke]
+      )
 
     case NodeRouter.dispatch(event).response do
+      {:ok, %ConfiguredAgent{} = agent} ->
+        socket =
+          socket
+          |> put_flash(:info, "Agent created")
+          |> assign(:mode, :edit)
+          |> assign(:selected_agent_id, agent.id)
+          |> assign(:selected_agent, agent)
+          |> assign(:advanced_options_error, nil)
+          |> assign(:form_notice, nil)
+          |> assign(:advanced_options_json, pretty_json(agent.advanced_options || %{}))
+          |> assign_changeset(Agent.change_agent(agent))
+          |> assign(:model_options, model_options_for_credential(agent.credential_id, socket))
+          |> assign(:mcp_endpoints, MCP.list_mcp_endpoints())
+          |> refresh_agents()
+
+        {:noreply, socket}
+
       {:ok, %{agent: agent} = payload} ->
         socket =
           socket

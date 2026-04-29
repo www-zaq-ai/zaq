@@ -28,11 +28,6 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   defmodule StubRuntimeSync do
-    def configured_agent_created(attrs) do
-      send(self(), {:configured_agent_created_called, attrs})
-      {:ok, %{agent: %{id: 1, name: attrs["name"] || attrs[:name]}}}
-    end
-
     def configured_agent_updated(id, attrs) do
       send(self(), {:configured_agent_updated_called, id, attrs})
       {:ok, %{agent: %{id: id, name: attrs["name"] || attrs[:name]}}}
@@ -50,14 +45,12 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   defmodule StubRuntimeSyncError do
-    def configured_agent_created(_attrs), do: {:error, :create_failed}
     def configured_agent_updated(_id, _attrs), do: {:error, :update_failed}
     def configured_agent_deleted(_id), do: {:error, :delete_failed}
     def mcp_endpoint_updated(_request), do: {:error, :mcp_failed}
   end
 
   defmodule StubRuntimeSyncInvalidRequestError do
-    def configured_agent_created(_attrs), do: {:error, {:invalid_request, :bad_attrs}}
     def configured_agent_updated(_id, _attrs), do: {:error, {:invalid_request, :bad_update}}
     def configured_agent_deleted(_id), do: {:error, {:invalid_request, :bad_delete}}
     def mcp_endpoint_updated(_request), do: {:error, {:invalid_request, :bad_mcp}}
@@ -300,33 +293,6 @@ defmodule Zaq.Agent.ApiTest do
     assert result.response == {:error, {:invalid_request, %{foo: "bar"}}}
   end
 
-  test "delegates configured_agent_created to runtime sync module" do
-    event =
-      Event.new(%{attrs: %{"name" => "Agent"}}, :agent,
-        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSync]
-      )
-
-    result = Api.handle_event(event, :configured_agent_created, nil)
-
-    assert result.response == {:ok, %{agent: %{id: 1, name: "Agent"}}}
-    assert_received {:configured_agent_created_called, %{"name" => "Agent"}}
-  end
-
-  test "configured_agent_created accepts string attrs key and rejects invalid payload" do
-    ok_event =
-      Event.new(%{"attrs" => %{"name" => "Agent String"}}, :agent,
-        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSync]
-      )
-
-    assert Api.handle_event(ok_event, :configured_agent_created, nil).response ==
-             {:ok, %{agent: %{id: 1, name: "Agent String"}}}
-
-    bad_event = Event.new(%{foo: "bar"}, :agent, opts: [action: :configured_agent_created])
-
-    assert Api.handle_event(bad_event, :configured_agent_created, nil).response ==
-             {:error, {:invalid_request, %{foo: "bar"}}}
-  end
-
   test "configured_agent_updated validates request shape" do
     event = Event.new(%{id: "1", attrs: %{}}, :agent, opts: [action: :configured_agent_updated])
 
@@ -396,12 +362,8 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   test "configured agent actions reject non-map requests via request fallbacks" do
-    created = Event.new(:bad, :agent, opts: [action: :configured_agent_created])
     updated = Event.new(:bad, :agent, opts: [action: :configured_agent_updated])
     deleted = Event.new(:bad, :agent, opts: [action: :configured_agent_deleted])
-
-    assert Api.handle_event(created, :configured_agent_created, nil).response ==
-             {:error, {:invalid_request, :bad}}
 
     assert Api.handle_event(updated, :configured_agent_updated, nil).response ==
              {:error, {:invalid_request, :bad}}
@@ -411,11 +373,6 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   test "normalizes runtime sync errors for configured-agent and mcp actions" do
-    created_event =
-      Event.new(%{attrs: %{}}, :agent,
-        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSyncError]
-      )
-
     updated_event =
       Event.new(%{id: 1, attrs: %{}}, :agent,
         opts: [action: :configured_agent_updated, runtime_sync_module: StubRuntimeSyncError]
@@ -431,9 +388,6 @@ defmodule Zaq.Agent.ApiTest do
         opts: [action: :mcp_endpoint_updated, runtime_sync_module: StubRuntimeSyncError]
       )
 
-    assert Api.handle_event(created_event, :configured_agent_created, nil).response ==
-             {:error, {:action_failed, :create_failed}}
-
     assert Api.handle_event(updated_event, :configured_agent_updated, nil).response ==
              {:error, {:action_failed, :update_failed}}
 
@@ -445,16 +399,16 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   test "preserves invalid_request errors returned by runtime sync" do
-    created_event =
-      Event.new(%{attrs: %{}}, :agent,
+    updated_event =
+      Event.new(%{id: 1, attrs: %{}}, :agent,
         opts: [
-          action: :configured_agent_created,
+          action: :configured_agent_updated,
           runtime_sync_module: StubRuntimeSyncInvalidRequestError
         ]
       )
 
-    assert Api.handle_event(created_event, :configured_agent_created, nil).response ==
-             {:error, {:invalid_request, :bad_attrs}}
+    assert Api.handle_event(updated_event, :configured_agent_updated, nil).response ==
+             {:error, {:invalid_request, :bad_update}}
   end
 
   # ---------------------------------------------------------------------------

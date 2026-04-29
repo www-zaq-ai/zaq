@@ -113,7 +113,7 @@ defmodule Zaq.Agent do
       # long-lived agent server behind if the node crashes before cleanup.
       # A concurrent admin update can still reference the agent after this check;
       # in that case the BO delete can be retried safely.
-      _ = ServerManager.stop_server(agent.id)
+      _ = ServerManager.stop_server(agent)
 
       case usage_locations_for_agent(agent.id) do
         [] ->

@@ -168,12 +168,16 @@ defmodule Zaq.Agent.FactoryTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
-    assert {:ok, server} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, server} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
 
     assert {:ok, status} = Jido.AgentServer.status(server)
     assert status.raw_state.runtime_config.system_prompt == configured_agent.job
@@ -221,10 +225,15 @@ defmodule Zaq.Agent.FactoryTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
-    assert {:ok, server} = ServerManager.ensure_server(configured_agent)
+    assert {:ok, server} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
     assert {:ok, _agent} = Jido.AI.register_tool(server, MCPProbeTool)
 
     assert {:ok, request} =

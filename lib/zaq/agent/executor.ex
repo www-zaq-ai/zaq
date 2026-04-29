@@ -81,14 +81,8 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp ensure_agent_server(server_manager_module, configured_agent, opts) do
-    case Keyword.get(opts, :scope) do
-      nil ->
-        server_manager_module.ensure_server(configured_agent)
-
-      scope ->
-        server_id = "#{configured_agent.name}:#{scope}"
-        server_manager_module.ensure_server_by_id(configured_agent, server_id)
-    end
+    server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "")}"
+    server_manager_module.ensure_server(configured_agent, server_id)
   end
 
   defp load_selected_agent(opts, agent_module, _factory_module) do

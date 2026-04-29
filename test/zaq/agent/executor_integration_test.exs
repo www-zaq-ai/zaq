@@ -14,8 +14,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(_configured_agent), do: {:ok, :stub_server}
-    def ensure_server_by_id(_configured_agent, _server_id), do: {:ok, :stub_server}
+    def ensure_server(_configured_agent, _server_id), do: {:ok, :stub_server}
   end
 
   defmodule StubFactoryResult do
@@ -70,7 +69,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -119,7 +118,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -175,7 +174,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -223,7 +222,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -376,7 +375,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
