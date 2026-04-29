@@ -51,7 +51,7 @@ defmodule Zaq.Agent.Api do
         %{event | response: outgoing}
 
       other ->
-        %{event | response: {:error, {:invalid_request, other}}}
+        invalid_request_response(event, other)
     end
   end
 
@@ -67,52 +67,53 @@ defmodule Zaq.Agent.Api do
         %{event | response: mcp_module.test_list_tools(endpoint_id, opts)}
 
       other ->
-        %{event | response: {:error, {:invalid_request, other}}}
+        invalid_request_response(event, other)
     end
   end
 
   def handle_event(%Event{} = event, :configured_agent_created, _context) do
     runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
 
-    case event.request do
-      %{attrs: attrs} when is_map(attrs) ->
-        %{event | response: runtime_sync_module.configured_agent_created(attrs)}
-
-      %{"attrs" => attrs} when is_map(attrs) ->
-        %{event | response: runtime_sync_module.configured_agent_created(attrs)}
+    case created_request(event.request) do
+      {:ok, attrs} ->
+        %{
+          event
+          | response: normalize_action_error(runtime_sync_module.configured_agent_created(attrs))
+        }
 
       other ->
-        %{event | response: {:error, {:invalid_request, other}}}
+        invalid_request_response(event, other)
     end
   end
 
   def handle_event(%Event{} = event, :configured_agent_updated, _context) do
     runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
 
-    case event.request do
-      %{id: id, attrs: attrs} when is_integer(id) and is_map(attrs) ->
-        %{event | response: runtime_sync_module.configured_agent_updated(id, attrs)}
-
-      %{"id" => id, "attrs" => attrs} when is_integer(id) and is_map(attrs) ->
-        %{event | response: runtime_sync_module.configured_agent_updated(id, attrs)}
+    case updated_request(event.request) do
+      {:ok, id, attrs} ->
+        %{
+          event
+          | response:
+              normalize_action_error(runtime_sync_module.configured_agent_updated(id, attrs))
+        }
 
       other ->
-        %{event | response: {:error, {:invalid_request, other}}}
+        invalid_request_response(event, other)
     end
   end
 
   def handle_event(%Event{} = event, :configured_agent_deleted, _context) do
     runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
 
-    case event.request do
-      %{id: id} when is_integer(id) ->
-        %{event | response: runtime_sync_module.configured_agent_deleted(id)}
-
-      %{"id" => id} when is_integer(id) ->
-        %{event | response: runtime_sync_module.configured_agent_deleted(id)}
+    case deleted_request(event.request) do
+      {:ok, id} ->
+        %{
+          event
+          | response: normalize_action_error(runtime_sync_module.configured_agent_deleted(id))
+        }
 
       other ->
-        %{event | response: {:error, {:invalid_request, other}}}
+        invalid_request_response(event, other)
     end
   end
 
@@ -121,10 +122,13 @@ defmodule Zaq.Agent.Api do
 
     case event.request do
       request when is_map(request) ->
-        %{event | response: runtime_sync_module.mcp_endpoint_updated(request)}
+        %{
+          event
+          | response: normalize_action_error(runtime_sync_module.mcp_endpoint_updated(request))
+        }
 
       other ->
-        %{event | response: {:error, {:invalid_request, other}}}
+        invalid_request_response(event, other)
     end
   end
 
@@ -156,4 +160,48 @@ defmodule Zaq.Agent.Api do
       Application.get_env(:zaq, :api_identity_plug_module, Zaq.People.IdentityPlug)
     )
   end
+
+  defp created_request(%{} = request) do
+    case fetch_key(request, :attrs) do
+      {:ok, attrs} when is_map(attrs) -> {:ok, attrs}
+      _ -> request
+    end
+  end
+
+  defp created_request(other), do: other
+
+  defp updated_request(%{} = request) do
+    with {:ok, id} when is_integer(id) <- fetch_key(request, :id),
+         {:ok, attrs} when is_map(attrs) <- fetch_key(request, :attrs) do
+      {:ok, id, attrs}
+    else
+      _ -> request
+    end
+  end
+
+  defp updated_request(other), do: other
+
+  defp deleted_request(%{} = request) do
+    case fetch_key(request, :id) do
+      {:ok, id} when is_integer(id) -> {:ok, id}
+      _ -> request
+    end
+  end
+
+  defp deleted_request(other), do: other
+
+  defp fetch_key(request, key) when is_map(request) and is_atom(key) do
+    cond do
+      Map.has_key?(request, key) -> {:ok, Map.get(request, key)}
+      Map.has_key?(request, Atom.to_string(key)) -> {:ok, Map.get(request, Atom.to_string(key))}
+      true -> :error
+    end
+  end
+
+  defp normalize_action_error({:error, {:invalid_request, _} = reason}), do: {:error, reason}
+  defp normalize_action_error({:error, reason}), do: {:error, {:action_failed, reason}}
+  defp normalize_action_error(other), do: other
+
+  defp invalid_request_response(event, other),
+    do: %{event | response: {:error, {:invalid_request, other}}}
 end

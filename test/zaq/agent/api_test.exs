@@ -49,6 +49,13 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  defmodule StubRuntimeSyncError do
+    def configured_agent_created(_attrs), do: {:error, :create_failed}
+    def configured_agent_updated(_id, _attrs), do: {:error, :update_failed}
+    def configured_agent_deleted(_id), do: {:error, :delete_failed}
+    def mcp_endpoint_updated(_request), do: {:error, :mcp_failed}
+  end
+
   # Passthrough identity plug (no DB, leaves incoming unchanged)
   defmodule PassthroughIdentityPlug do
     def call(incoming, _opts), do: incoming
@@ -379,6 +386,40 @@ defmodule Zaq.Agent.ApiTest do
 
     assert Api.handle_event(bad_mcp, :mcp_endpoint_updated, nil).response ==
              {:error, {:invalid_request, :bad}}
+  end
+
+  test "normalizes runtime sync errors for configured-agent and mcp actions" do
+    created_event =
+      Event.new(%{attrs: %{}}, :agent,
+        opts: [action: :configured_agent_created, runtime_sync_module: StubRuntimeSyncError]
+      )
+
+    updated_event =
+      Event.new(%{id: 1, attrs: %{}}, :agent,
+        opts: [action: :configured_agent_updated, runtime_sync_module: StubRuntimeSyncError]
+      )
+
+    deleted_event =
+      Event.new(%{id: 1}, :agent,
+        opts: [action: :configured_agent_deleted, runtime_sync_module: StubRuntimeSyncError]
+      )
+
+    mcp_event =
+      Event.new(%{action: :update, attrs: %{}}, :agent,
+        opts: [action: :mcp_endpoint_updated, runtime_sync_module: StubRuntimeSyncError]
+      )
+
+    assert Api.handle_event(created_event, :configured_agent_created, nil).response ==
+             {:error, {:action_failed, :create_failed}}
+
+    assert Api.handle_event(updated_event, :configured_agent_updated, nil).response ==
+             {:error, {:action_failed, :update_failed}}
+
+    assert Api.handle_event(deleted_event, :configured_agent_deleted, nil).response ==
+             {:error, {:action_failed, :delete_failed}}
+
+    assert Api.handle_event(mcp_event, :mcp_endpoint_updated, nil).response ==
+             {:error, {:action_failed, :mcp_failed}}
   end
 
   # ---------------------------------------------------------------------------

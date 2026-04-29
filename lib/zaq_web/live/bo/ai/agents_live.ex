@@ -388,23 +388,19 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   defp open_new_form(socket) do
     socket
-    |> assign(:mode, :new)
-    |> assign(:selected_agent_id, nil)
-    |> assign(:selected_agent, nil)
-    |> assign(:model_options, [])
-    |> assign(:advanced_options_json, "{}")
-    |> assign(:advanced_options_error, nil)
-    |> assign(:form_notice, nil)
-    |> assign(:tools_picker_open, false)
-    |> assign(:tools_picker_value, "")
-    |> assign(:mcp_picker_open, false)
-    |> assign(:mcp_picker_value, "")
+    |> reset_form_state(:new)
     |> assign_new_changeset()
   end
 
   defp close_form(socket) do
     socket
-    |> assign(:mode, :idle)
+    |> reset_form_state(:idle)
+    |> assign_new_changeset()
+  end
+
+  defp reset_form_state(socket, mode) when mode in [:new, :idle] do
+    socket
+    |> assign(:mode, mode)
     |> assign(:selected_agent_id, nil)
     |> assign(:selected_agent, nil)
     |> assign(:model_options, [])
@@ -415,7 +411,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     |> assign(:tools_picker_value, "")
     |> assign(:mcp_picker_open, false)
     |> assign(:mcp_picker_value, "")
-    |> assign_new_changeset()
   end
 
   defp save_action(socket) do
