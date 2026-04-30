@@ -10,7 +10,8 @@ defmodule Zaq.Agent.ServerManager do
 
   require Logger
 
-  alias Zaq.Agent.{ConfiguredAgent, Factory, HistoryLoader, ProviderSpec, RuntimeSync}
+  alias Jido.AI.Context, as: AIContext
+  alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderSpec, RuntimeSync}
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
@@ -34,11 +35,11 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
 
-  @spec ensure_server(ConfiguredAgent.t(), String.t(), map()) ::
+  @spec ensure_server(ConfiguredAgent.t(), String.t(), AIContext.t()) ::
           {:ok, GenServer.server()} | {:error, term()}
-  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, spawn_opts \\ %{})
+  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, history_context \\ AIContext.new())
       when is_binary(server_id) do
-    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, spawn_opts})
+    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, history_context})
   end
 
   @spec stop_server(ConfiguredAgent.t()) :: :ok
@@ -59,13 +60,13 @@ defmodule Zaq.Agent.ServerManager do
 
   @impl true
   def handle_call(
-        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, spawn_opts},
+        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, history_context},
         _from,
         state
       ) do
     state = clear_stale_drain(state, server_id)
 
-    case do_ensure_server(configured_agent, state, server_id, spawn_opts) do
+    case do_ensure_server(configured_agent, state, server_id, history_context) do
       {:ok, server_id, next_state} ->
         next_state = schedule_idle_timer(next_state, server_id, configured_agent)
         {:reply, {:ok, server_ref(server_id)}, next_state}
@@ -106,7 +107,7 @@ defmodule Zaq.Agent.ServerManager do
     {:reply, :ok, next_state}
   end
 
-  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, spawn_opts) do
+  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, history_context) do
     fingerprint = fingerprint(configured_agent)
 
     case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
@@ -115,10 +116,10 @@ defmodule Zaq.Agent.ServerManager do
 
       {_previous, pid} when is_pid(pid) ->
         _ = stop_server_if_running(server_id)
-        start_server(configured_agent, server_id, state, fingerprint, spawn_opts)
+        start_server(configured_agent, server_id, state, fingerprint, history_context)
 
       _ ->
-        start_server(configured_agent, server_id, state, fingerprint, spawn_opts)
+        start_server(configured_agent, server_id, state, fingerprint, history_context)
     end
   end
 
@@ -127,9 +128,9 @@ defmodule Zaq.Agent.ServerManager do
          server_id,
          state,
          fingerprint,
-         spawn_opts
+         history_context
        ) do
-    case spawn_agent_server(configured_agent, server_id, spawn_opts) do
+    case spawn_agent_server(configured_agent, server_id, history_context) do
       :ok ->
         _ = hydrate_mcp_assignments(configured_agent, server_id)
 
@@ -164,29 +165,14 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, spawn_opts) do
+  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, history_context) do
     with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
          {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
-      max_tokens = configured_agent.memory_context_max_size || 5_000
-
-      context =
-        case Map.get(spawn_opts, :conversation_id) do
-          id when is_binary(id) and id != "" ->
-            HistoryLoader.load_for_conversation(id, max_tokens: max_tokens)
-
-          _ ->
-            HistoryLoader.load(
-              Map.get(spawn_opts, :person_id),
-              Map.get(spawn_opts, :channel_type),
-              max_tokens: max_tokens
-            )
-        end
-
       spawn_server(server_id, %{
         model: model_spec,
         runtime_config: runtime_config,
         tool_context: %{configured_agent_id: configured_agent.id},
-        context: context
+        context: history_context
       })
     end
   end
@@ -428,7 +414,7 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp sync_single_runtime(configured_agent, state, server_id) do
-    case do_ensure_server(configured_agent, state, server_id, %{}) do
+    case do_ensure_server(configured_agent, state, server_id, AIContext.new()) do
       {:ok, ensured_server_id, next_state} ->
         case hydrate_mcp_assignments(configured_agent, ensured_server_id) do
           {:ok, runtime} ->

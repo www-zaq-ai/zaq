@@ -10,9 +10,10 @@ defmodule Zaq.Agent.Executor do
   require Logger
 
   alias Zaq.Agent
-  alias Zaq.Agent.{Answering, Factory, LogprobsAnalyzer, ServerManager}
+  alias Zaq.Agent.{Answering, Factory, HistoryLoader, LogprobsAnalyzer, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
+  alias Zaq.Utils.DateUtils
 
   @doc """
   Derives a stable scope string from an incoming message used to key the Jido agent server.
@@ -84,13 +85,14 @@ defmodule Zaq.Agent.Executor do
   - `:system_prompt` — override the agent's `job` field for this run only
   - `:person_id` — passed into the retrieval context for permission scoping
   - `:team_ids` — list of team IDs passed into the retrieval context
-  - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
+  - `:agent_module`, `:server_manager_module`, `:history_loader_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
   """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
     started_at = System.monotonic_time(:millisecond)
     agent_module = Keyword.get(opts, :agent_module, Agent)
     server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
+    history_loader_module = Keyword.get(opts, :history_loader_module, HistoryLoader)
     factory_module = Keyword.get(opts, :factory_module, Factory)
     dims = telemetry_dimensions(opts, incoming)
 
@@ -108,7 +110,7 @@ defmodule Zaq.Agent.Executor do
       with {:ok, configured_agent} <-
              load_selected_agent(opts, agent_module, factory_module),
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
-           {:ok, server_id} <- ensure_agent_server(server_manager_module, configured_agent, opts),
+           {:ok, server_id} <- ensure_agent_server(server_manager_module, history_loader_module, configured_agent, opts, incoming),
            node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
              incoming.provider,
              incoming.channel_id
@@ -146,16 +148,20 @@ defmodule Zaq.Agent.Executor do
     result
   end
 
-  defp ensure_agent_server(server_manager_module, configured_agent, opts) do
+  defp ensure_agent_server(server_manager_module, history_loader_module, configured_agent, opts, incoming) do
     server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
 
-    spawn_opts = %{
-      person_id: Keyword.get(opts, :person_id),
-      channel_type: Keyword.get(opts, :channel_type),
-      conversation_id: Keyword.get(opts, :conversation_id)
-    }
+    history_context =
+      history_loader_module.load_context(
+        %{
+          conversation_id: incoming.metadata[:conversation_id],
+          person_id: Keyword.get(opts, :person_id, incoming.person_id),
+          channel_type: normalize_provider(incoming.provider)
+        },
+        max_tokens: Map.get(configured_agent, :memory_context_max_size) || 5_000
+      )
 
-    server_manager_module.ensure_server(configured_agent, server_id, spawn_opts)
+    server_manager_module.ensure_server(configured_agent, server_id, history_context)
   end
 
   defp load_selected_agent(opts, agent_module, _factory_module) do
@@ -168,15 +174,9 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp ensure_scope_for_answering_path(opts, incoming) do
-    opts
-    |> Keyword.put_new(:person_id, incoming.person_id)
-    |> Keyword.put_new(:channel_type, normalize_provider(incoming.provider))
-    |> Keyword.put_new(:conversation_id, incoming.metadata[:conversation_id])
-    |> then(fn opts ->
-      if is_nil(Keyword.get(opts, :scope)),
-        do: Keyword.put(opts, :scope, derive_scope(incoming)),
-        else: opts
-    end)
+    if is_nil(Keyword.get(opts, :scope)),
+      do: Keyword.put(opts, :scope, derive_scope(incoming)),
+      else: opts
   end
 
   defp normalize_provider(:web), do: "bo"
@@ -318,7 +318,7 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp timestamp_question(content) when is_binary(content) do
-    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_string()
+    ts = DateUtils.format_ts(DateTime.utc_now())
     "[#{ts}] #{content}"
   end
 

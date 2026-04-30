@@ -14,9 +14,31 @@ defmodule Zaq.Agent.HistoryLoader do
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
+  alias Zaq.Utils.DateUtils
 
   @default_max_tokens 5_000
   @max_db_fetch 500
+
+  @doc """
+  Selects and loads the appropriate history context from a spawn opts map.
+
+  Routes to `load_for_conversation/2` when `:conversation_id` is present,
+  otherwise falls back to `load/3` using `:person_id` + `:channel_type`.
+
+  ## Options
+
+    * `:max_tokens` — token budget (default: #{@default_max_tokens})
+  """
+  @spec load_context(map(), keyword()) :: AIContext.t()
+  def load_context(spawn_opts, opts \\ []) do
+    case Map.get(spawn_opts, :conversation_id) do
+      id when is_binary(id) and id != "" ->
+        load_for_conversation(id, opts)
+
+      _ ->
+        load(Map.get(spawn_opts, :person_id), Map.get(spawn_opts, :channel_type), opts)
+    end
+  end
 
   @doc """
   Loads the most recent messages for the given `conversation_id`, accumulates
@@ -107,7 +129,7 @@ defmodule Zaq.Agent.HistoryLoader do
       %{role: "user", content: content, inserted_at: ts}, ctx ->
         AIContext.append(ctx, %AIContext.Entry{
           role: :user,
-          content: "[#{format_ts(ts)}] #{content || ""}",
+          content: "[#{DateUtils.format_ts(ts)}] #{content || ""}",
           timestamp: ts
         })
 
@@ -123,11 +145,4 @@ defmodule Zaq.Agent.HistoryLoader do
     end)
   end
 
-  defp format_ts(%NaiveDateTime{} = dt),
-    do: dt |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_string()
-
-  defp format_ts(%DateTime{} = dt),
-    do: dt |> DateTime.truncate(:second) |> DateTime.to_string()
-
-  defp format_ts(_), do: "unknown time"
 end

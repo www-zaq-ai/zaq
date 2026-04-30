@@ -11,10 +11,14 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(configured_agent, server_id, _spawn_opts) do
+    def ensure_server(configured_agent, server_id, _history_context) do
       send(self(), {:ensure_server, configured_agent, server_id})
       {:ok, :stub_server_scoped}
     end
+  end
+
+  defmodule StubHistoryLoader do
+    def load_context(_spawn_opts, _opts), do: Jido.AI.Context.new()
   end
 
   defmodule StubFactory do
@@ -34,6 +38,7 @@ defmodule Zaq.Agent.ExecutorTest do
     agent_id: "stub",
     agent_module: StubAgent,
     server_manager_module: StubServerManager,
+    history_loader_module: StubHistoryLoader,
     factory_module: StubFactory,
     node_router: StubNodeRouter
   ]
@@ -146,6 +151,7 @@ defmodule Zaq.Agent.ExecutorTest do
           answering_module: StubFactoryAnswering,
           factory_module: StubFactoryAnswering,
           server_manager_module: StubSMAnswering,
+          history_loader_module: StubHistoryLoader,
           node_router: StubNodeRouter
         )
 
@@ -174,6 +180,7 @@ defmodule Zaq.Agent.ExecutorTest do
           answering_module: StubFactoryWithUsage,
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
+          history_loader_module: StubHistoryLoader,
           node_router: StubNodeRouter,
           scope: "bo:7"
         )
@@ -194,6 +201,7 @@ defmodule Zaq.Agent.ExecutorTest do
           answering_module: StubFactoryWithUsage,
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
+          history_loader_module: StubHistoryLoader,
           node_router: StubNodeRouter,
           scope: "bo:8"
         )

@@ -342,7 +342,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:reply, {:error, :provider_not_found}, ^init_state} =
              ServerManager.handle_call(
-               {:ensure_server, configured_agent, server_id, %{}},
+               {:ensure_server, configured_agent, server_id, Jido.AI.Context.new()},
                self(),
                init_state
              )
@@ -838,8 +838,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert pid1 == pid2
   end
 
-  describe "spawn_opts conversation_id routing" do
+  describe "history context injection on cold spawn" do
     alias Jido.AI.Context, as: AIContext
+    alias Zaq.Agent.HistoryLoader
     alias Zaq.Accounts.Person
     alias Zaq.Engine.Conversations.{Conversation, Message}
     alias Zaq.Repo
@@ -899,7 +900,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       configured_agent
     end
 
-    test "spawn_agent_server loads history from conversation when conversation_id in spawn_opts" do
+    test "injects conversation history when context is loaded by conversation_id" do
       person = insert_person_for_sm()
       conv = insert_conversation_for_sm(person.id, "bo")
       insert_message_for_sm(conv, "user", "hello from this conversation")
@@ -907,12 +908,10 @@ defmodule Zaq.Agent.ServerManagerTest do
       configured_agent = make_agent_for_routing("HistConv")
       server_id = "routing_conv_test_#{System.unique_integer([:positive])}"
 
+      context = HistoryLoader.load_context(%{conversation_id: conv.id, person_id: person.id, channel_type: "bo"})
+
       assert {:ok, server_ref} =
-               ServerManager.ensure_server(configured_agent, server_id, %{
-                 conversation_id: conv.id,
-                 person_id: person.id,
-                 channel_type: "bo"
-               })
+               ServerManager.ensure_server(configured_agent, server_id, context)
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
@@ -922,7 +921,7 @@ defmodule Zaq.Agent.ServerManagerTest do
              end)
     end
 
-    test "spawn_agent_server falls back to load/3 when no conversation_id in spawn_opts" do
+    test "injects person+channel history when context is loaded without conversation_id" do
       person = insert_person_for_sm()
       conv = insert_conversation_for_sm(person.id, "bo")
       insert_message_for_sm(conv, "user", "person-channel message")
@@ -930,11 +929,10 @@ defmodule Zaq.Agent.ServerManagerTest do
       configured_agent = make_agent_for_routing("HistPerson")
       server_id = "routing_person_test_#{System.unique_integer([:positive])}"
 
+      context = HistoryLoader.load_context(%{person_id: person.id, channel_type: "bo"})
+
       assert {:ok, server_ref} =
-               ServerManager.ensure_server(configured_agent, server_id, %{
-                 person_id: person.id,
-                 channel_type: "bo"
-               })
+               ServerManager.ensure_server(configured_agent, server_id, context)
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
