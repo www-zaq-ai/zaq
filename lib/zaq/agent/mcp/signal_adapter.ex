@@ -11,6 +11,17 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
 
   @default_timeout 15_000
 
+  @doc """
+  Dispatches an `mcp.ai.sync_tools` signal to discover and register an endpoint's tools on the agent server.
+
+  Returns `{:ok, map}` with tool counts and results extracted from the agent state, or `{:error, reason}`.
+
+  ## Examples
+
+      iex> Zaq.Agent.MCP.SignalAdapter.sync_tools(:nonexistent_agent, :my_endpoint)
+      {:error, :not_found}
+
+  """
   @spec sync_tools(GenServer.server(), atom(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def sync_tools(server_ref, runtime_endpoint_id, opts \\ []) do
@@ -51,6 +62,17 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
     end
   end
 
+  @doc """
+  Dispatches an `mcp.ai.unsync_tools` signal to remove an endpoint's tools from the agent server.
+
+  Returns `{:ok, map}` with removal counts and results, or `{:error, reason}`.
+
+  ## Examples
+
+      iex> Zaq.Agent.MCP.SignalAdapter.unsync_tools(:nonexistent_agent, :my_endpoint)
+      {:error, :not_found}
+
+  """
   @spec unsync_tools(GenServer.server(), atom(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def unsync_tools(server_ref, runtime_endpoint_id, opts \\ []) do
@@ -86,6 +108,18 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
     end
   end
 
+  @doc """
+  Dispatches an `mcp.endpoint.register` signal to register an MCP endpoint on the agent server.
+
+  `endpoint_attrs` is the full endpoint attribute map built by `Runtime.build_endpoint_attrs/2`.
+  Returns `:ok` or `{:error, reason}`.
+
+  ## Examples
+
+      iex> Zaq.Agent.MCP.SignalAdapter.register_endpoint(:nonexistent_agent, %{})
+      {:error, :not_found}
+
+  """
   @spec register_endpoint(GenServer.server(), map(), keyword()) ::
           :ok | {:error, term()}
   def register_endpoint(server_ref, endpoint_attrs, opts \\ []) do
@@ -103,6 +137,17 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
     end
   end
 
+  @doc """
+  Dispatches an `mcp.endpoint.refresh` signal to reconnect and reload an already-registered endpoint.
+
+  Returns `:ok` or `{:error, reason}`.
+
+  ## Examples
+
+      iex> Zaq.Agent.MCP.SignalAdapter.refresh_endpoint(:nonexistent_agent, :my_endpoint)
+      {:error, :not_found}
+
+  """
   @spec refresh_endpoint(GenServer.server(), atom(), keyword()) ::
           :ok | {:error, term()}
   def refresh_endpoint(server_ref, runtime_endpoint_id, opts \\ []) do
@@ -123,6 +168,18 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
     end
   end
 
+  @doc """
+  Dispatches an `mcp.endpoint.unregister` signal to fully remove an endpoint from the agent server.
+
+  Only called when the endpoint has no remaining subscribers in the `ProxyRegistry`.
+  Returns `:ok` or `{:error, reason}`.
+
+  ## Examples
+
+      iex> Zaq.Agent.MCP.SignalAdapter.unregister_endpoint(:nonexistent_agent, :my_endpoint)
+      {:error, :not_found}
+
+  """
   @spec unregister_endpoint(GenServer.server(), atom(), keyword()) ::
           :ok | {:error, term()}
   def unregister_endpoint(server_ref, runtime_endpoint_id, opts \\ []) do

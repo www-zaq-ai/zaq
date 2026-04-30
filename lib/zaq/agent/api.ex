@@ -22,6 +22,35 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Event
   alias Zaq.InternalBoundaries
 
+  @doc """
+  Dispatches an agent-role event routed by `Zaq.NodeRouter`.
+
+  Supported actions:
+
+  - `:run_pipeline` — resolves caller identity via `IdentityPlug`, then routes to
+    `Pipeline.run/2` (full RAG path) or `Executor.run/2` (direct agent run) depending
+    on whether `event.assigns["agent_selection"]` carries a non-nil `agent_id`.
+
+  - `:invoke` — generic passthrough to `InternalBoundaries.invoke_request/1`.
+
+  - `:mcp_test_list_tools` — proxies `MCP.test_list_tools/2` for the BO endpoint
+    connectivity check. Expects `event.request` to be `%{endpoint_id: id}`.
+
+  - `:configured_agent_updated` — delegates to `RuntimeSync.configured_agent_updated/3`.
+    Expects `event.request` to carry `:id` (integer) and `:attrs` (map).
+
+  - `:configured_agent_deleted` — delegates to `RuntimeSync.configured_agent_deleted/2`.
+    Expects `event.request` to carry `:id` (integer).
+
+  - `:mcp_endpoint_updated` — delegates to `RuntimeSync.mcp_endpoint_updated/2`.
+    Expects `event.request` to be a map with an `:action` key.
+
+  - Any other action — returns `{:error, {:unsupported_action, action}}`.
+
+  All clauses return the event struct with `response` set. Runtime errors from
+  `RuntimeSync` are normalized to `{:error, {:action_failed, reason}}` unless
+  they are already `{:error, {:invalid_request, _}}`.
+  """
   @impl true
   def handle_event(%Event{} = event, :run_pipeline, _context) do
     case event.request do
