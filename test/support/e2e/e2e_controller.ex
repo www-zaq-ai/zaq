@@ -37,6 +37,24 @@ defmodule ZaqWeb.E2EController do
     json(conn, %{ok: true})
   end
 
+  # POST /e2e/system-config with JSON body: {"key": "...", "value": "..."}
+  def set_system_config(conn, params) do
+    key = Map.get(params, "key")
+    value = Map.get(params, "value")
+
+    if is_binary(key) and key != "" do
+      case Zaq.System.set_config(key, value) do
+        {:ok, _} ->
+          json(conn, %{ok: true, key: key, value: value})
+
+        {:error, reason} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: inspect(reason)})
+      end
+    else
+      conn |> put_status(:bad_request) |> json(%{error: "missing key"})
+    end
+  end
+
   # POST /e2e/ingestion/touch_file?path=knowledge/benefits.md
   # Bumps the mtime of a file inside tmp/e2e_documents/ so stale detection
   # fires without Playwright having to sleep for filesystem granularity.

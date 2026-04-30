@@ -123,6 +123,7 @@ defmodule ZaqWeb.Router do
       # Describe-level teardown and filesystem helpers. Documented in
       # docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md.
       post "/reset", E2EController, :reset_all
+      post "/system-config", E2EController, :set_system_config
       post "/ingestion/touch_file", E2EController, :touch_file
     end
 

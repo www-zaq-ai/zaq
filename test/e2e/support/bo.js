@@ -134,6 +134,17 @@ async function resetE2EState(request, options = {}) {
   }
 }
 
+async function setE2ESystemConfig(request, key, value, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/system-config`, {
+    data: { key, value },
+  });
+
+  if (!res.ok()) {
+    throw new Error(`/e2e/system-config returned ${res.status()} ${await res.text()}`);
+  }
+}
+
 // Server-side mtime bump. Use in place of `page.waitForTimeout(...)` when a
 // test needs a file to look newer than a document row's updated_at.
 async function touchE2EFile(request, relativePath, options = {}) {
@@ -155,5 +166,6 @@ module.exports = {
   dismissFlash,
   normalizeBaseURL,
   resetE2EState,
+  setE2ESystemConfig,
   touchE2EFile,
 };
