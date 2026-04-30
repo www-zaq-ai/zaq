@@ -104,4 +104,34 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "Logout"
     assert html =~ "sidebar-version"
   end
+
+  test "bo_layout/1 renders update badge when enabled" do
+    html =
+      render_component(&BOLayout.bo_layout/1,
+        current_user: %{username: "alice", role: %{name: "admin"}},
+        page_title: "Ops",
+        current_path: "/bo/dashboard",
+        update_badge_enabled: true,
+        inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
+      )
+
+    assert html =~ "id=\"sidebar-version-update-badge\""
+    assert html =~ "https://github.com/www-zaq-ai/zaq/releases"
+    assert html =~ "target=\"_blank\""
+    assert html =~ "rel=\"noopener noreferrer\""
+    assert html =~ "version-update-badge"
+  end
+
+  test "bo_layout/1 hides update badge when disabled" do
+    html =
+      render_component(&BOLayout.bo_layout/1,
+        current_user: %{username: "alice", role: %{name: "admin"}},
+        page_title: "Ops",
+        current_path: "/bo/dashboard",
+        update_badge_enabled: false,
+        inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
+      )
+
+    refute html =~ "id=\"sidebar-version-update-badge\""
+  end
 end

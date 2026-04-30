@@ -59,11 +59,12 @@ config :zaq, Oban,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
     {Zaq.Oban.DynamicCron,
      crontab: [
-       {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
-       {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
-       {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
-       {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker}
-     ]}
+        {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
+        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
+        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
+        {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker},
+        {"0 3 * * *", Zaq.System.UpdateBadgeWorker}
+      ]}
   ],
   shutdown_grace_period: :timer.seconds(10)
 
