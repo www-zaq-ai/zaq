@@ -325,7 +325,7 @@
             <% end %>
 
             <%!-- Thinking indicator --%>
-            <%= if @status in [:thinking, :retrieving, :answering] do %>
+            <%= if @status in [:validating, :thinking, :retrieving, :answering] do %>
               <div class="flex justify-start animate-slide-in-left">
                 <div class="flex gap-3">
                   <img
@@ -337,14 +337,14 @@
                     <div class="flex items-center gap-3 mb-2">
                       <div class={[
                         "flex items-center gap-1.5 text-[0.68rem] font-mono transition-colors",
-                        if(@status in [:thinking, :retrieving, :answering],
+                        if(@status in [:validating, :thinking, :retrieving, :answering],
                           do: "text-[#03b6d4]",
                           else: "text-[#c8c5be]"
                         )
                       ]}>
                         <div class={[
                           "w-1.5 h-1.5 rounded-full",
-                          if(@status in [:thinking, :retrieving, :answering],
+                          if(@status in [:validating, :thinking, :retrieving, :answering],
                             do: "bg-[#03b6d4]",
                             else: "bg-[#e0ddd8]"
                           )
@@ -630,17 +630,17 @@
                   phx-hook="AutoExpand"
                   autocomplete="off"
                   placeholder="Ask a question… Type @ to filter by source  (Enter ↵ send · Shift+Enter new line)"
-                  disabled={@status in [:thinking, :retrieving, :answering]}
+                  disabled={@status in [:validating, :thinking, :retrieving, :answering]}
                   class={[
                     "w-full text-[0.85rem] rounded-xl border px-4 py-2.5 resize-none overflow-hidden leading-relaxed",
                     "focus:outline-none focus:ring-2 transition-all duration-200",
-                    if(@status in [:thinking, :retrieving, :answering],
+                    if(@status in [:validating, :thinking, :retrieving, :answering],
                       do: "cursor-not-allowed",
                       else: ""
                     )
                   ]}
                   style={
-                    if @status in [:thinking, :retrieving, :answering],
+                    if @status in [:validating, :thinking, :retrieving, :answering],
                       do: "background:#faf9f7; border-color:#e8e6e1; color:#b8b5ae;",
                       else: "background:#ffffff; border-color:#e0ddd8; color:#2c2b28;"
                   }
@@ -648,13 +648,17 @@
               </div>
               <button
                 type="submit"
-                disabled={@status in [:thinking, :retrieving, :answering] or @input_value == ""}
+                disabled={
+                  @status in [:validating, :thinking, :retrieving, :answering] or
+                    @input_value == ""
+                }
                 class="flex-shrink-0 w-10 h-10 rounded-xl grid place-items-center transition-all duration-200"
                 style={
-                  if @status in [:thinking, :retrieving, :answering] or @input_value == "",
-                    do: "background:#f0ede8; color:#c8c5be; cursor:not-allowed;",
-                    else:
-                      "background:#03b6d4; color:white; box-shadow:0 2px 8px rgba(3,182,212,0.25);"
+                  if @status in [:validating, :thinking, :retrieving, :answering] or
+                       @input_value == "",
+                     do: "background:#f0ede8; color:#c8c5be; cursor:not-allowed;",
+                     else:
+                       "background:#03b6d4; color:white; box-shadow:0 2px 8px rgba(3,182,212,0.25);"
                 }
               >
                 <svg

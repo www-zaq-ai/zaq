@@ -17,8 +17,10 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Agent.Executor
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Pipeline
+  alias Zaq.Agent.PromptGuard
   alias Zaq.Agent.RuntimeSync
-  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Agent.Status
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.InternalBoundaries
 
@@ -55,31 +57,25 @@ defmodule Zaq.Agent.Api do
   def handle_event(%Event{} = event, :run_pipeline, _context) do
     case event.request do
       %Incoming{} = incoming ->
-        pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
-        pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
-        executor_module = Keyword.get(event.opts, :executor_module, Executor)
+        prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
+        status_mod = Keyword.get(event.opts, :status_module, Status)
+        node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
-        # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
-        incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
+        case prompt_guard_mod.validate(incoming.content) do
+          {:error, _reason} ->
+            %{event | response: guard_error_outgoing(incoming)}
 
-        outgoing =
-          case selected_agent_id(event.assigns) do
-            nil ->
-              pipeline_module.run(
+          {:ok, _} ->
+            :ok =
+              status_mod.broadcast(
                 incoming,
-                Keyword.put(pipeline_opts, :scope, Executor.derive_scope(incoming))
+                :validating,
+                "Checking your request…",
+                node_router_mod
               )
 
-            selected_id ->
-              executor_module.run(incoming,
-                agent_id: selected_id,
-                scope: Executor.derive_scope(incoming),
-                history: Keyword.get(pipeline_opts, :history, %{}),
-                telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{})
-              )
-          end
-
-        %{event | response: outgoing}
+            dispatch_pipeline(event, incoming)
+        end
 
       other ->
         invalid_request_response(event, other)
@@ -210,6 +206,46 @@ defmodule Zaq.Agent.Api do
   defp normalize_action_error({:error, {:invalid_request, _} = reason}), do: {:error, reason}
   defp normalize_action_error({:error, reason}), do: {:error, {:action_failed, reason}}
   defp normalize_action_error(other), do: other
+
+  defp dispatch_pipeline(event, incoming) do
+    pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
+    pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
+    executor_module = Keyword.get(event.opts, :executor_module, Executor)
+
+    # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
+    incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
+
+    outgoing =
+      case selected_agent_id(event.assigns) do
+        nil ->
+          pipeline_module.run(
+            incoming,
+            Keyword.put(pipeline_opts, :scope, Executor.derive_scope(incoming))
+          )
+
+        selected_id ->
+          executor_module.run(incoming,
+            agent_id: selected_id,
+            scope: Executor.derive_scope(incoming),
+            history: Keyword.get(pipeline_opts, :history, %{}),
+            telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{})
+          )
+      end
+
+    %{event | response: outgoing}
+  end
+
+  defp guard_error_outgoing(%Incoming{} = incoming) do
+    Outgoing.from_pipeline_result(incoming, %{
+      answer: "I can only help with ZAQ-related questions.",
+      confidence_score: 0.0,
+      latency_ms: nil,
+      prompt_tokens: nil,
+      completion_tokens: nil,
+      total_tokens: nil,
+      error: true
+    })
+  end
 
   defp invalid_request_response(event, other),
     do: %{event | response: {:error, {:invalid_request, other}}}

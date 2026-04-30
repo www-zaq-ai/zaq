@@ -115,6 +115,13 @@ defmodule Zaq.Agent.Executor do
              incoming.provider,
              incoming.channel_id
            ]),
+           :ok <-
+             status_mod(opts).broadcast(
+               incoming,
+               :answering,
+               "Formulating your answer…",
+               node_router(opts)
+             ),
            {:ok, request} <-
              factory_module.ask_with_config(server_id, question, configured_agent,
                context: %{
@@ -313,4 +320,8 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp timestamp_question(content), do: content
+
+  defp status_mod(opts) do
+    Keyword.get(opts, :status_module, Zaq.Agent.Status)
+  end
 end
