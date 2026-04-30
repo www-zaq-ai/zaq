@@ -12,6 +12,8 @@ defmodule ZaqWeb.Components.BOLayout do
   attr :page_title, :string, default: "Dashboard"
   attr :current_path, :string, default: ""
   attr :flash, :map, default: %{}
+  attr :auto_dismiss, :boolean, default: true
+  attr :auto_dismiss_duration, :integer, default: 5000
   attr :features_version, :integer, default: 0
   slot :inner_block, required: true
 
@@ -473,7 +475,10 @@ defmodule ZaqWeb.Components.BOLayout do
         <div class="p-8">
           <div
             :if={Phoenix.Flash.get(@flash, :info)}
+            id="flash-info"
             class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+            phx-hook={@auto_dismiss && "FlashAutoDismiss"}
+            data-auto-dismiss-duration={@auto_dismiss_duration}
           >
             <svg
               class="w-4 h-4 shrink-0"
@@ -488,6 +493,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <button
               phx-click="lv:clear-flash"
               phx-value-key="info"
+              data-flash-dismiss
               class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
               aria-label="Dismiss"
             >
@@ -504,7 +510,10 @@ defmodule ZaqWeb.Components.BOLayout do
           </div>
           <div
             :if={Phoenix.Flash.get(@flash, :error)}
+            id="flash-error"
             class="mb-4 rounded-xl bg-red-100 border border-red-200 text-red-600 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+            phx-hook={@auto_dismiss && "FlashAutoDismiss"}
+            data-auto-dismiss-duration={@auto_dismiss_duration}
           >
             <svg
               class="w-4 h-4 shrink-0"
@@ -519,6 +528,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <button
               phx-click="lv:clear-flash"
               phx-value-key="error"
+              data-flash-dismiss
               class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
               aria-label="Dismiss"
             >

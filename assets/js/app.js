@@ -61,6 +61,17 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this.el.focus()
       }
     },
+    FlashAutoDismiss: {
+      mounted() {
+        const duration = parseInt(this.el.dataset.autoDismissDuration, 10)
+        this._timer = setTimeout(() => {
+          this.el.querySelector("[data-flash-dismiss]")?.click()
+        }, duration)
+      },
+      destroyed() {
+        clearTimeout(this._timer)
+      }
+    },
     LoadingActionButton: {
       mounted() {
         this._syncDisabled = () => {

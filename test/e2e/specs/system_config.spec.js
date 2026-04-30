@@ -3,7 +3,6 @@ const {
   gotoBackOfficeLive,
   loginToBackOffice,
   resetE2EState,
-  dismissFlash,
   waitForLiveViewSettled,
 } = require("../support/bo")
 
@@ -228,7 +227,14 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
-      await dismissFlash(page)
+    })
+
+    test("flash auto-dismisses without user interaction", async ({ page }) => {
+      await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      // Must disappear on its own — do not click dismiss
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible({ timeout: 10_000 })
     })
 
     // ── Validation: required fields ──────────────────────────────────────
@@ -343,7 +349,6 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
-      await dismissFlash(page)
 
       // Full reload — triggers mount → load_llm_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
@@ -443,7 +448,6 @@ test.describe("System Config", () => {
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
-      await dismissFlash(page)
     })
 
     // ── Destructive save flow ─────────────────────────────────────────────
@@ -501,7 +505,6 @@ test.describe("System Config", () => {
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
-      await dismissFlash(page)
     })
 
     // ── Validation: required & numeric ───────────────────────────────────
@@ -568,7 +571,6 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
-      await dismissFlash(page)
 
       // Full reload — triggers mount → load_embedding_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
@@ -617,7 +619,6 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
-      await dismissFlash(page)
     })
 
     test("either model text input or model dropdown is present", async ({ page }) => {
@@ -635,7 +636,6 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
-      await dismissFlash(page)
 
       // Full reload — triggers mount → load_image_to_text_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=image_to_text`)
@@ -700,7 +700,6 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
-      await dismissFlash(page)
     })
   })
 })
