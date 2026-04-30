@@ -54,10 +54,16 @@ defmodule Zaq.Application do
       end
 
     opts = [strategy: :one_for_one, name: Zaq.Supervisor]
-    result = Supervisor.start_link(children, opts)
-    enqueue_release_badge_check_on_startup()
-    LLMDB.load()
-    result
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, _pid} = ok ->
+        enqueue_release_badge_check_on_startup()
+        LLMDB.load()
+        ok
+
+      other ->
+        other
+    end
   end
 
   @impl true

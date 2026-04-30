@@ -33,7 +33,7 @@ defmodule ZaqWeb.Components.BOLayout do
     update_badge_enabled =
       case assigns.update_badge_enabled do
         value when is_boolean(value) -> value
-        _ -> System.get_config("ui.update_badge_enabled") == "true"
+        _ -> load_update_badge_enabled()
       end
 
     assigns =
@@ -969,5 +969,16 @@ defmodule ZaqWeb.Components.BOLayout do
   defp communication_section_active?(current_path) do
     String.starts_with?(current_path, "/bo/channels") or
       current_path in ["/bo/chat", "/bo/history"]
+  end
+
+  defp load_update_badge_enabled do
+    try do
+      System.get_config("ui.update_badge_enabled") == "true"
+    rescue
+      DBConnection.OwnershipError -> false
+      DBConnection.ConnectionError -> false
+    catch
+      :exit, _reason -> false
+    end
   end
 end
