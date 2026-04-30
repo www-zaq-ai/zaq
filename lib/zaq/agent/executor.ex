@@ -18,13 +18,13 @@ defmodule Zaq.Agent.Executor do
   @doc """
   Derives a stable scope string from an incoming message used to key the Jido agent server.
 
-  Format: `"channel:identity"` where channel is the normalized provider and identity is
+  Format: `"channel:type:identity"` where channel is the normalized provider and identity is
   `person_id`, `session_id`, or `"anonymous"`.
 
   Priority order:
   1. `:web` provider + `metadata.conversation_id` — `"bo:conv:<id>"` (BO per-conversation isolation)
-  2. `person_id` — `"<channel>:<person_id>"` when present
-  3. `metadata.session_id` — `"bo:<session_id>"` when `person_id` is nil and session ID is a non-empty string
+  2. `person_id` — `"<channel>:person:<person_id>"` when present
+  3. `metadata.session_id` — `"bo:session:<session_id>"` when `person_id` is nil and session ID is a non-empty string
   4. `"anonymous"` — fallback for all other cases
 
   ## Examples
@@ -37,12 +37,12 @@ defmodule Zaq.Agent.Executor do
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
       iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: 7})
-      "test:7"
+      "test:person:7"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
       iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{session_id: "sess_abc"}})
-      "bo:sess_abc"
+      "bo:session:sess_abc"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
@@ -57,11 +57,11 @@ defmodule Zaq.Agent.Executor do
 
   def derive_scope(%Incoming{person_id: person_id, provider: provider})
       when not is_nil(person_id),
-      do: "#{normalize_provider(provider)}:#{person_id}"
+      do: "#{normalize_provider(provider)}:person:#{person_id}"
 
   def derive_scope(%Incoming{metadata: %{session_id: sid}})
       when is_binary(sid) and sid != "",
-      do: "bo:#{sid}"
+      do: "bo:session:#{sid}"
 
   def derive_scope(_), do: "anonymous"
 
@@ -110,7 +110,7 @@ defmodule Zaq.Agent.Executor do
              load_selected_agent(opts, agent_module, factory_module),
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
            {:ok, server_id} <-
-             ensure_agent_server(server_manager_module, configured_agent, opts, incoming),
+             ensure_agent_server(server_manager_module, configured_agent, opts),
            node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
              incoming.provider,
              incoming.channel_id
@@ -148,9 +148,9 @@ defmodule Zaq.Agent.Executor do
     result
   end
 
-  defp ensure_agent_server(server_manager_module, configured_agent, opts, incoming) do
+  defp ensure_agent_server(server_manager_module, configured_agent, opts) do
     server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
-    server_manager_module.ensure_server(configured_agent, server_id, incoming)
+    server_manager_module.ensure_server(configured_agent, server_id)
   end
 
   defp load_selected_agent(opts, agent_module, _factory_module) do

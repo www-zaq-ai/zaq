@@ -11,7 +11,6 @@ defmodule Zaq.Agent.ServerManager do
   require Logger
 
   alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderSpec, RuntimeSync}
-  alias Zaq.Engine.Messages.Incoming
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
@@ -35,11 +34,11 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
 
-  @spec ensure_server(ConfiguredAgent.t(), String.t(), Incoming.t() | nil) ::
+  @spec ensure_server(ConfiguredAgent.t(), String.t()) ::
           {:ok, GenServer.server()} | {:error, term()}
-  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, incoming \\ nil)
+  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id)
       when is_binary(server_id) do
-    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, incoming})
+    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id})
   end
 
   @spec stop_server(ConfiguredAgent.t()) :: :ok
@@ -60,13 +59,13 @@ defmodule Zaq.Agent.ServerManager do
 
   @impl true
   def handle_call(
-        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, incoming},
+        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id},
         _from,
         state
       ) do
     state = clear_stale_drain(state, server_id)
 
-    case do_ensure_server(configured_agent, state, server_id, incoming) do
+    case do_ensure_server(configured_agent, state, server_id) do
       {:ok, server_id, next_state} ->
         {:reply, {:ok, server_ref(server_id)}, next_state}
 
@@ -106,7 +105,7 @@ defmodule Zaq.Agent.ServerManager do
     {:reply, :ok, next_state}
   end
 
-  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, incoming) do
+  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id) do
     fingerprint = fingerprint(configured_agent)
 
     case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
@@ -116,10 +115,10 @@ defmodule Zaq.Agent.ServerManager do
 
       {_previous, pid} when is_pid(pid) ->
         _ = stop_server_if_running(server_id)
-        start_server(configured_agent, server_id, state, fingerprint, incoming)
+        start_server(configured_agent, server_id, state, fingerprint)
 
       _ ->
-        start_server(configured_agent, server_id, state, fingerprint, incoming)
+        start_server(configured_agent, server_id, state, fingerprint)
     end
   end
 
@@ -127,10 +126,9 @@ defmodule Zaq.Agent.ServerManager do
          %ConfiguredAgent{} = configured_agent,
          server_id,
          state,
-         fingerprint,
-         incoming
+         fingerprint
        ) do
-    case spawn_agent_server(configured_agent, server_id, incoming) do
+    case spawn_agent_server(configured_agent, server_id) do
       :ok ->
         _ = hydrate_mcp_assignments(configured_agent, server_id)
 
@@ -174,14 +172,14 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, incoming) do
+  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id) do
     with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
          {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
       spawn_server(server_id, configured_agent, %{
         model: model_spec,
         runtime_config: runtime_config,
         tool_context: %{configured_agent_id: configured_agent.id},
-        context: Factory.build_initial_context(incoming, configured_agent)
+        context: Factory.build_initial_context(configured_agent, server_id)
       })
     end
   end
@@ -428,7 +426,7 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp sync_single_runtime(configured_agent, state, server_id) do
-    case do_ensure_server(configured_agent, state, server_id, nil) do
+    case do_ensure_server(configured_agent, state, server_id) do
       {:ok, ensured_server_id, next_state} ->
         case hydrate_mcp_assignments(configured_agent, ensured_server_id) do
           {:ok, runtime} ->

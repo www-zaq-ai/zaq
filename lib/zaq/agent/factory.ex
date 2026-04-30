@@ -20,7 +20,6 @@ defmodule Zaq.Agent.Factory do
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec}
   alias Zaq.Agent.Tools.Registry
-  alias Zaq.Engine.Messages.Incoming
   alias Zaq.System
 
   def strategy_opts do
@@ -73,15 +72,15 @@ defmodule Zaq.Agent.Factory do
   otherwise loads by `person_id` + normalized provider. Returns an empty context when
   `incoming` is `nil` or the relevant identifiers are absent.
   """
-  @spec build_initial_context(Incoming.t() | nil, ConfiguredAgent.t()) :: AIContext.t()
-  def build_initial_context(nil, _configured_agent), do: AIContext.new()
+  @spec build_initial_context(ConfiguredAgent.t(), String.t()) :: AIContext.t()
+  def build_initial_context(%ConfiguredAgent{} = configured_agent, server_id) do
+    [_agent, provider, type, id] = String.split(server_id, ":")
 
-  def build_initial_context(%Incoming{} = incoming, %ConfiguredAgent{} = configured_agent) do
     HistoryLoader.load_context(
       %{
-        conversation_id: incoming.metadata[:conversation_id],
-        person_id: incoming.person_id,
-        channel_type: normalize_provider(incoming.provider)
+        conversation_id: if(type == "conv", do: id, else: nil),
+        person_id: if(type == "person", do: id, else: nil),
+        channel_type: provider
       },
       max_tokens: configured_agent.memory_context_max_size || 5_000
     )
