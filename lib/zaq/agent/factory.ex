@@ -86,15 +86,6 @@ defmodule Zaq.Agent.Factory do
     )
   end
 
-  @doc false
-  def normalize_provider(:web), do: "bo"
-
-  def normalize_provider(provider) when is_atom(provider),
-    do: provider |> Atom.to_string() |> String.replace(":", "_")
-
-  def normalize_provider(provider) when is_binary(provider),
-    do: String.replace(provider, ":", "_")
-
   @doc """
   Sends a query to a running agent server with the configured agent's LLM and tool settings.
 

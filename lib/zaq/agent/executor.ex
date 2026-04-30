@@ -168,7 +168,14 @@ defmodule Zaq.Agent.Executor do
       else: opts
   end
 
-  defp normalize_provider(provider), do: Factory.normalize_provider(provider)
+  @doc false
+  def normalize_provider(:web), do: "bo"
+
+  def normalize_provider(provider) when is_atom(provider),
+    do: provider |> Atom.to_string() |> String.replace(":", "_")
+
+  def normalize_provider(provider) when is_binary(provider),
+    do: String.replace(provider, ":", "_")
 
   defp apply_system_prompt_override(configured_agent, opts) do
     case Keyword.get(opts, :system_prompt) do
