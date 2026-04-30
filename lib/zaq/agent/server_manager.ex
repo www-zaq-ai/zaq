@@ -111,6 +111,7 @@ defmodule Zaq.Agent.ServerManager do
 
     case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
       {^fingerprint, pid} when is_pid(pid) ->
+        _ = Jido.AgentServer.touch(pid)
         {:ok, server_id, track_server(state, configured_agent.id, server_id)}
 
       {_previous, pid} when is_pid(pid) ->
@@ -147,6 +148,11 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   @impl true
+  def handle_info({:expire_server, server_id}, state) do
+    _ = stop_server_if_running(server_id)
+    {:noreply, untrack_server(state, server_id)}
+  end
+
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     case Enum.find(state.monitors, fn {_sid, r} -> r == ref end) do
       nil ->
