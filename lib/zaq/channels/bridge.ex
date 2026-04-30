@@ -125,12 +125,13 @@ defmodule Zaq.Channels.Bridge do
   def put_agent_selection_assign(%Event{} = event, _selection), do: event
 
   @doc """
-  Returns first active candidate agent selection from ordered candidates.
+  Returns first conversation-eligible candidate agent selection from ordered candidates.
 
   ## Parameters
   - `candidates`: List of `{source_atom, agent_id}` tuples in priority order.
     Sources: `:channel_assignment`, `:provider_default`, `:global_default`
-  - `agent_module`: Module implementing agent retrieval (default: `Zaq.Agent`)
+  - `agent_module`: Module implementing conversation eligibility lookup
+    (default: `Zaq.Agent`)
 
   ## Examples
 
@@ -149,7 +150,7 @@ defmodule Zaq.Channels.Bridge do
       when is_list(candidates) and is_atom(agent_module) do
     Enum.find_value(candidates, fn {source, candidate_id} ->
       with {:ok, id} <- ParseUtils.parse_int_strict(candidate_id),
-           {:ok, _agent} <- agent_module.get_active_agent(id) do
+           {:ok, _agent} <- agent_module.get_conversation_enabled_agent(id) do
         %{"agent_id" => id, "source" => Atom.to_string(source)}
       else
         _ -> nil

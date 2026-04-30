@@ -611,6 +611,50 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert selected_id == provider_agent.id
     end
 
+    test "falls back to provider default when channel assignment is conversation-disabled" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      channel_agent = insert_configured_agent(true, false)
+      provider_agent = insert_configured_agent(true)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+        })
+
+      insert_retrieval_channel(config.id,
+        channel_id: "room-conv-disabled",
+        channel_name: "conv-disabled",
+        team_id: "team-1",
+        team_name: "Team",
+        configured_agent_id: channel_agent.id
+      )
+
+      incoming = %ChatIncoming{
+        text: "route fallback",
+        external_room_id: "room-conv-disabled",
+        external_thread_id: nil,
+        external_message_id: "msg-conv-disabled",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+      assert_received {:node_router_run_pipeline_event, event}
+
+      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
+      assert selected_id == provider_agent.id
+    end
+
     test "keeps legacy pipeline path when no explicit or global selection is configured" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
@@ -2227,7 +2271,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     |> Repo.insert!()
   end
 
-  defp insert_configured_agent(active) do
+  defp insert_configured_agent(active, conversation_enabled \\ true) do
     unique = System.unique_integer([:positive, :monotonic])
 
     credential =
@@ -2246,7 +2290,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: true,
+        conversation_enabled: conversation_enabled,
         active: active,
         advanced_options: %{}
       })

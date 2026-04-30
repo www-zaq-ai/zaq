@@ -7,6 +7,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.{Event, NodeRouter}
   alias Zaq.TestSupport.OpenAIStub
 
   defmodule StubAgent do
@@ -230,13 +231,20 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     first_outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
     assert first_outgoing.metadata.error == false
 
-    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{job: prompt_v2})
+    assert_receive {:openai_request, "POST", _path1, "", body1}, 1_000
+    assert String.contains?(body1, prompt_v1)
+
+    update_event =
+      Event.new(
+        %{id: configured_agent.id, attrs: %{job: prompt_v2}},
+        :agent,
+        opts: [action: :configured_agent_updated]
+      )
+
+    assert {:ok, %{agent: updated_agent}} = NodeRouter.dispatch(update_event).response
 
     second_outgoing = Executor.run(incoming, agent_id: to_string(updated_agent.id))
     assert second_outgoing.metadata.error == false
-
-    assert_receive {:openai_request, "POST", _path1, "", body1}, 1_000
-    assert String.contains?(body1, prompt_v1)
 
     assert_receive {:openai_request, "POST", _path2, "", body2}, 1_000
     assert String.contains?(body2, prompt_v2)

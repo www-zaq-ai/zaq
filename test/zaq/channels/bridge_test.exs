@@ -18,6 +18,12 @@ defmodule Zaq.Channels.BridgeTest do
     end
   end
 
+  defmodule StubAgentSelection do
+    def get_conversation_enabled_agent(10), do: {:error, :conversation_disabled}
+    def get_conversation_enabled_agent(20), do: {:ok, %{id: 20}}
+    def get_conversation_enabled_agent(_), do: {:error, :agent_not_found}
+  end
+
   test "calls override conversations module directly" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
     metadata = %{answer: "ok"}
@@ -50,5 +56,16 @@ defmodule Zaq.Channels.BridgeTest do
     assert_received {:dispatch_called, event}
     assert event.next_hop.destination == :engine
     assert event.opts[:action] == :persist_from_incoming
+  end
+
+  test "first_active_selection/2 returns first conversation-enabled candidate" do
+    candidates = [
+      {:channel_assignment, 10},
+      {:provider_default, 20},
+      {:global_default, 30}
+    ]
+
+    assert %{"agent_id" => 20, "source" => "provider_default"} =
+             Bridge.first_active_selection(candidates, StubAgentSelection)
   end
 end

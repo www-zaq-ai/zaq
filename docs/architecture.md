@@ -158,6 +158,20 @@ Configured-agent execution path:
   - explicit selection -> `Zaq.Agent.Executor.run/2`
 - `Zaq.Agent.Executor` routes to a deterministic `Jido.AgentServer` name derived from configured agent id
 
+### Configured Agent Runtime Lifecycle
+
+- `Zaq.Agent.ServerManager.sync_runtime/1` reconciles tracked servers against current configured-agent state.
+- For structural runtime changes, reconciliation is **stop-only**: stale servers are terminated and removed from manager tracking, then recreated lazily on the next message (`ensure_server/2`).
+- Runtime sync responses include `stopped_server_ids` so BO/API callers can surface operational impact.
+- Hot runtime patching remains the preferred path for non-structural updates when a compatible runtime is already running.
+
+Field behavior categories:
+
+- **Hot patch only**: `job`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`
+- **Stop now, recreate on next message**: `model`, `credential_id`, `strategy`, `advanced_options`, `idle_time_seconds`, `memory_context_max_size`
+- **Routing-only flag (no runtime restart/patch by itself)**: `conversation_enabled`
+- **Drain and stop**: `active = false`
+
 ---
 
 ## Ingestion Pipeline

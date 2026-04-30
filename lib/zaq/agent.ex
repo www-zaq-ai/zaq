@@ -85,6 +85,22 @@ defmodule Zaq.Agent do
     end
   end
 
+  @doc """
+  Returns an agent eligible for conversation-channel routing.
+
+  Eligibility requires both `active == true` and `conversation_enabled == true`.
+  """
+  @spec get_conversation_enabled_agent(integer() | String.t()) ::
+          {:ok, ConfiguredAgent.t()} | {:error, atom()}
+  def get_conversation_enabled_agent(id) do
+    case get_agent(id) do
+      %ConfiguredAgent{active: true, conversation_enabled: true} = agent -> {:ok, agent}
+      %ConfiguredAgent{active: false} -> {:error, :inactive_agent}
+      %ConfiguredAgent{conversation_enabled: false} -> {:error, :conversation_disabled}
+      nil -> {:error, :agent_not_found}
+    end
+  end
+
   @spec create_agent(map()) :: {:ok, ConfiguredAgent.t()} | {:error, Changeset.t()}
   def create_agent(attrs) do
     %ConfiguredAgent{}

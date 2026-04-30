@@ -93,6 +93,24 @@ defmodule Zaq.AgentTest do
 
     assert {:error, :inactive_agent} = Agent.get_active_agent(inactive_agent.id)
     assert {:error, :agent_not_found} = Agent.get_active_agent(9_999_999)
+    assert {:ok, _agent} = Agent.get_conversation_enabled_agent(active_conversation.id)
+    assert {:error, :inactive_agent} = Agent.get_conversation_enabled_agent(inactive_agent.id)
+
+    {:ok, bo_only_agent} =
+      Agent.create_agent(%{
+        name: "Agent BO Only #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:error, :conversation_disabled} =
+             Agent.get_conversation_enabled_agent(bo_only_agent.id)
 
     {disabled_conversation, _} =
       Agent.filter_agents(%{"conversation_enabled" => "disabled"}, page: 1, per_page: 50)

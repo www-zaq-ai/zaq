@@ -227,6 +227,223 @@ defmodule Zaq.Agent.ServerManagerTest do
     refute pid_before == pid_after
   end
 
+  test "ensure_server does not restart when only job changes" do
+    credential =
+      ai_credential_fixture(%{
+        name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Server Job Hot Patch Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Prompt v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    pid_before = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_before)
+
+    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{job: "Prompt v2"})
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+
+    pid_after = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_after)
+    assert pid_before == pid_after
+  end
+
+  test "ensure_server does not restart when only enabled_tool_keys changes" do
+    credential =
+      ai_credential_fixture(%{
+        name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Server Tools Hot Patch Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Prompt",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    pid_before = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_before)
+
+    {:ok, updated_agent} =
+      Agent.update_agent(configured_agent, %{
+        enabled_tool_keys: ["answering.ask_for_clarification"]
+      })
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+
+    pid_after = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_after)
+    assert pid_before == pid_after
+  end
+
+  test "ensure_server does not restart when only conversation_enabled changes" do
+    credential =
+      ai_credential_fixture(%{
+        name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Server Conversation Flag Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Prompt",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    pid_before = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_before)
+
+    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{conversation_enabled: true})
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+
+    pid_after = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_after)
+    assert pid_before == pid_after
+  end
+
+  test "ensure_server restarts when idle_time_seconds changes" do
+    credential =
+      ai_credential_fixture(%{
+        name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Server Idle Restart Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Prompt",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        idle_time_seconds: 1800,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    pid_before = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_before)
+
+    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{idle_time_seconds: 900})
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+
+    pid_after = Jido.AgentServer.whereis(registry, key)
+
+    assert is_pid(pid_after)
+    refute pid_before == pid_after
+  end
+
+  test "ensure_server restarts when memory_context_max_size changes" do
+    credential =
+      ai_credential_fixture(%{
+        name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Server Context Restart Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Prompt",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        memory_context_max_size: 5000,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    pid_before = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_before)
+
+    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{memory_context_max_size: 3000})
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+
+    pid_after = Jido.AgentServer.whereis(registry, key)
+
+    assert is_pid(pid_after)
+    refute pid_before == pid_after
+  end
+
   test "stop_server accepts string id and removes runtime server" do
     credential =
       ai_credential_fixture(%{
@@ -342,7 +559,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:reply, {:error, :provider_not_found}, ^init_state} =
              ServerManager.handle_call(
-               {:ensure_server, configured_agent, server_id, nil},
+               {:ensure_server, configured_agent, server_id},
                self(),
                init_state
              )
@@ -743,6 +960,52 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert runtime.mcp.warnings == []
   end
 
+  test "sync_runtime stops stale servers and returns stopped_server_ids" do
+    credential =
+      ai_credential_fixture(%{
+        name:
+          "Sync Runtime Stop-Only Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Sync Runtime Stop-Only Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "sync stop",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    server_id = "agent:mattermost:person:#{configured_agent.id}"
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(configured_agent, server_id)
+
+    pid = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid)
+    monitor_ref = Process.monitor(pid)
+
+    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{model: "gpt-4.1"})
+
+    assert {:ok,
+            %{
+              runtime: %{strategy: :stopped_pending_lazy_restart},
+              stopped_server_ids: [^server_id],
+              synced_servers: []
+            }} = ServerManager.sync_runtime(updated_agent)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
+    refute is_pid(Jido.AgentServer.whereis(registry, key))
+  end
+
   test "stop_server/1 stops all tracked servers for configured agent" do
     credential =
       ai_credential_fixture(%{
@@ -900,24 +1163,16 @@ defmodule Zaq.Agent.ServerManagerTest do
       configured_agent
     end
 
-    test "injects conversation history when incoming carries conversation_id" do
+    test "injects conversation history for BO conversations" do
       person = insert_person_for_sm()
       conv = insert_conversation_for_sm(person.id, "bo")
       insert_message_for_sm(conv, "user", "hello from this conversation")
 
       configured_agent = make_agent_for_routing("HistConv")
-      server_id = "routing_conv_test_#{System.unique_integer([:positive])}"
-
-      incoming = %Incoming{
-        content: "q",
-        channel_id: "c",
-        provider: :web,
-        person_id: person.id,
-        metadata: %{conversation_id: conv.id}
-      }
+      server_id = "routing_conv_test_:bo:conv:#{conv.id}"
 
       assert {:ok, server_ref} =
-               ServerManager.ensure_server(configured_agent, server_id, incoming)
+               ServerManager.ensure_server(configured_agent, server_id)
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
@@ -933,17 +1188,10 @@ defmodule Zaq.Agent.ServerManagerTest do
       insert_message_for_sm(conv, "user", "person-channel message")
 
       configured_agent = make_agent_for_routing("HistPerson")
-      server_id = "routing_person_test_#{System.unique_integer([:positive])}"
-
-      incoming = %Incoming{
-        content: "q",
-        channel_id: "c",
-        provider: :web,
-        person_id: person.id
-      }
+      server_id = "routing_person_test_:bo:person:#{person.id}"
 
       assert {:ok, server_ref} =
-               ServerManager.ensure_server(configured_agent, server_id, incoming)
+               ServerManager.ensure_server(configured_agent, server_id)
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)

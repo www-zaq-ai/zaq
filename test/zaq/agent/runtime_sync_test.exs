@@ -87,7 +87,9 @@ defmodule Zaq.Agent.RuntimeSyncTest do
         advanced_options: %{"temperature" => 0.1},
         active: true,
         job: "job",
-        strategy: "react"
+        strategy: "react",
+        idle_time_seconds: 1800,
+        memory_context_max_size: 5000
       }
     end
 
@@ -113,6 +115,19 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
   defmodule StubServerManagerError do
     def sync_runtime(_agent), do: {:error, :sync_runtime_failed}
+    def stop_server(_id), do: :ok
+  end
+
+  defmodule StubServerManagerStoppedPending do
+    def sync_runtime(_agent) do
+      {:ok,
+       %{
+         runtime: %{strategy: :stopped_pending_lazy_restart},
+         synced_servers: [],
+         stopped_server_ids: ["configured_agent_79"]
+       }}
+    end
+
     def stop_server(_id), do: :ok
   end
 
@@ -669,10 +684,34 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                  advanced_options: %{"temperature" => 0.1},
                  active: true,
                  job: "job",
-                 strategy: "react"
+                 strategy: "react",
+                 idle_time_seconds: 1800,
+                 memory_context_max_size: 5000
                },
                agent_module: StubAgentNoRuntimeChangeModule,
                server_manager_module: StubServerManagerForPatch
+             )
+  end
+
+  test "configured_agent_updated treats idle_time_seconds change as runtime change" do
+    assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
+             RuntimeSync.configured_agent_updated(
+               79,
+               %{idle_time_seconds: 900},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapter
+             )
+  end
+
+  test "configured_agent_updated treats memory_context_max_size change as runtime change" do
+    assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
+             RuntimeSync.configured_agent_updated(
+               79,
+               %{memory_context_max_size: 3000},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapter
              )
   end
 
@@ -710,6 +749,20 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                agent_module: StubAgentNoRuntimeChangeModule,
                server_manager_module: StubServerManagerError
              )
+  end
+
+  test "configured_agent_updated returns stopped_pending_lazy_restart when sync stops stale servers" do
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.configured_agent_updated(
+               79,
+               %{model: "gpt-4.1"},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerStoppedPending
+             )
+
+    assert runtime.strategy == :stopped_pending_lazy_restart
+    assert runtime.stopped_server_ids == ["configured_agent_79"]
+    assert runtime.unsync_results == []
   end
 
   test "configured_agent_updated propagates unsync failures" do

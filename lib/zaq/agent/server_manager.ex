@@ -30,6 +30,36 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   @spec sync_runtime(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
+  @doc """
+  Reconciles tracked runtime servers for a configured agent.
+
+  For each tracked `server_id`, this function:
+
+  1. Ensures a live server exists for the current config (`do_ensure_server/3`).
+  2. Re-hydrates runtime state (configured tools + MCP assignments).
+
+  ## Field update behavior (as implemented today)
+
+  These behaviors are evaluated through `RuntimeSync.configured_agent_updated/3` and
+  `RuntimeSync.no_runtime_change?/2` plus this module's `fingerprint/1`.
+
+  - `:name`, `:description` -> no runtime effect (`:no_runtime_change`).
+
+  - `:job`, `:enabled_tool_keys`, `:enabled_mcp_endpoint_ids` -> hot runtime patch only;
+    no restart because these fields are runtime-tracked but are not part of the
+    server fingerprint.
+
+  - `:model`, `:credential_id`, `:strategy`,
+    `:advanced_options`, `:idle_time_seconds`, `:memory_context_max_size` -> forced shutdown for tracked servers -
+    Lazy restart will carry new settings, because these fields are both
+    runtime-tracked and part of the fingerprint.
+
+  - `:active` -> when `false`, does not call `sync_runtime/1`; servers are drained/stopped
+    by `RuntimeSync` (`:drain_and_stop`).
+
+  - `:conversation_enabled` -> conversation-channel routing flag only; no runtime patch and
+    no server restart.
+  """
   def sync_runtime(%ConfiguredAgent{} = configured_agent) do
     GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
@@ -271,12 +301,11 @@ defmodule Zaq.Agent.ServerManager do
     :erlang.phash2({
       configured_agent.model,
       configured_agent.credential_id,
-      configured_agent.job,
       configured_agent.strategy,
-      configured_agent.enabled_tool_keys,
       configured_agent.advanced_options,
       configured_agent.active,
-      configured_agent.conversation_enabled
+      configured_agent.idle_time_seconds,
+      configured_agent.memory_context_max_size
     })
     |> Integer.to_string()
   end
@@ -386,7 +415,9 @@ defmodule Zaq.Agent.ServerManager do
   defp do_sync_runtime(configured_agent, state) do
     case tracked_server_ids(state, configured_agent.id) do
       [] ->
-        {:ok, %{runtime: %{strategy: :no_running_servers}, synced_servers: []}, state}
+        {:ok,
+         %{runtime: %{strategy: :no_running_servers}, synced_servers: [], stopped_server_ids: []},
+         state}
 
       server_ids ->
         sync_existing_servers(configured_agent, state, server_ids)
@@ -394,9 +425,11 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp sync_existing_servers(configured_agent, state, server_ids) do
+    expected_fingerprint = fingerprint(configured_agent)
+
     sync_result =
       Enum.reduce_while(server_ids, {:ok, state, []}, fn server_id, {:ok, acc_state, acc} ->
-        case sync_single_runtime(configured_agent, acc_state, server_id) do
+        case sync_single_runtime(configured_agent, acc_state, server_id, expected_fingerprint) do
           {:ok, response, next_state} ->
             synced_server = %{
               server_id: server_id,
@@ -406,38 +439,72 @@ defmodule Zaq.Agent.ServerManager do
 
             {:cont, {:ok, next_state, [synced_server | acc]}}
 
+          {:stopped, stopped_server_id, next_state} ->
+            stopped = %{server_id: stopped_server_id, status: :stopped_pending_lazy_restart}
+            {:cont, {:ok, next_state, [stopped | acc]}}
+
+          {:stale, stale_server_id, next_state} ->
+            stale = %{server_id: stale_server_id, status: :stale_untracked}
+            {:cont, {:ok, next_state, [stale | acc]}}
+
           {:error, reason, next_state} ->
             {:halt, {:error, reason, next_state}}
         end
       end)
 
     case sync_result do
-      {:ok, next_state, [first | _] = synced_servers} ->
-        {:ok,
-         %{
-           server_ref: first.server_ref,
-           runtime: first.runtime,
-           synced_servers: Enum.reverse(synced_servers)
-         }, next_state}
+      {:ok, next_state, entries} ->
+        synced_servers = Enum.filter(entries, &Map.has_key?(&1, :runtime))
+
+        stopped_server_ids =
+          entries
+          |> Enum.filter(&(Map.get(&1, :status) == :stopped_pending_lazy_restart))
+          |> Enum.map(& &1.server_id)
+          |> Enum.reverse()
+
+        case synced_servers do
+          [first | _] ->
+            {:ok,
+             %{
+               server_ref: first.server_ref,
+               runtime: first.runtime,
+               synced_servers: Enum.reverse(synced_servers),
+               stopped_server_ids: stopped_server_ids
+             }, next_state}
+
+          [] ->
+            {:ok,
+             %{
+               runtime: %{strategy: :stopped_pending_lazy_restart},
+               synced_servers: [],
+               stopped_server_ids: stopped_server_ids
+             }, next_state}
+        end
 
       {:error, reason, next_state} ->
         {:error, reason, next_state}
     end
   end
 
-  defp sync_single_runtime(configured_agent, state, server_id) do
-    case do_ensure_server(configured_agent, state, server_id) do
-      {:ok, ensured_server_id, next_state} ->
-        case hydrate_mcp_assignments(configured_agent, ensured_server_id) do
+  defp sync_single_runtime(configured_agent, state, server_id, expected_fingerprint) do
+    current_fingerprint = Map.get(state.fingerprints, server_id)
+
+    case safe_whereis(server_id) do
+      pid when is_pid(pid) and current_fingerprint == expected_fingerprint ->
+        case hydrate_mcp_assignments(configured_agent, server_id) do
           {:ok, runtime} ->
-            {:ok, %{server_ref: server_ref(ensured_server_id), runtime: runtime}, next_state}
+            {:ok, %{server_ref: server_ref(server_id), runtime: runtime}, state}
 
           {:error, reason} ->
-            {:error, reason, next_state}
+            {:error, reason, state}
         end
 
-      {:error, reason, next_state} ->
-        {:error, reason, next_state}
+      pid when is_pid(pid) ->
+        _ = stop_server_if_running(server_id)
+        {:stopped, server_id, untrack_server(state, server_id)}
+
+      _ ->
+        {:stale, server_id, untrack_server(state, server_id)}
     end
   end
 

@@ -151,20 +151,12 @@ User question (BO Chat / Channel)
 - `runtime_config/1` is the canonical runtime-config builder (other modules should delegate, not duplicate logic)
 
 ### Server Manager (`Zaq.Agent.ServerManager`)
-- Ensures server presence and fingerprint-based restart when configured-agent runtime inputs change.
-- Stop strategy is drain-aware:
-  - if requests are in-flight, server enters drain mode and a forced stop is scheduled.
-  - if idle, server is terminated immediately.
-- Drain timeout is controlled by `:zaq, :agent_server_drain_timeout_ms` (default `1500`).
-- Test-only deterministic drain can be enabled with `:zaq, :agent_server_force_drain`.
-- Restart strategy is stop then start. This introduces a short replacement window where the old process is gone before the new process is registered.
-- Duplicate start attempts are tolerated (`{:already_started, _}` is treated as success), so concurrent ensure calls remain idempotent.
-- Current behavior prioritizes correctness and idempotency over zero-downtime replacement.
+- Ensures server presence and reconciles tracked runtimes.
+- Runtime lifecycle details (hot patch vs stop-only + lazy restart) are documented in [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
+- Channel reachability policy for `conversation_enabled` is documented in [Channels Service → Conversation Agent Eligibility](channels.md#conversation-agent-eligibility).
 
 ### Runtime Sync Strategy (Hot Patch vs Restart)
-- Preferred path is hot runtime patching for MCP assignment updates on already-running servers.
-- Full server restart is used when fingerprinted core runtime inputs change (model/credential/job/strategy/tool/options/flags).
-- This keeps MCP assignment changes lightweight while preserving a deterministic restart path for structural runtime changes.
+- Runtime sync strategy is summarized in [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
 
 ### Atom Safety + Capacity Guards
 - MCP runtime endpoint ids create atoms at runtime; safeguards are enforced before registration.

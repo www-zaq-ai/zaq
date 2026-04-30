@@ -129,6 +129,14 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     end
   end
 
+  describe "load_context/2" do
+    test "returns empty context when spawn opts are nil" do
+      result = HistoryLoader.load_context(%{})
+      assert %AIContext{} = result
+      assert AIContext.empty?(result)
+    end
+  end
+
   describe "load/3" do
     test "returns empty context when no conversations exist for that person" do
       person = insert_person()

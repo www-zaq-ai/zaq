@@ -74,17 +74,28 @@ defmodule Zaq.Agent.Factory do
   """
   @spec build_initial_context(ConfiguredAgent.t(), String.t()) :: AIContext.t()
   def build_initial_context(%ConfiguredAgent{} = configured_agent, server_id) do
-    [_agent, provider, type, id] = String.split(server_id, ":")
+    spawn_opts = spawn_opts_from_server_id(server_id)
 
     HistoryLoader.load_context(
-      %{
-        conversation_id: if(type == "conv", do: id, else: nil),
-        person_id: if(type == "person", do: id, else: nil),
-        channel_type: provider
-      },
+      spawn_opts,
       max_tokens: configured_agent.memory_context_max_size || 5_000
     )
   end
+
+  defp spawn_opts_from_server_id(server_id) when is_binary(server_id) do
+    case String.split(server_id, ":") do
+      [_agent, provider, "conv", id] when provider != "" and id != "" ->
+        %{conversation_id: id, person_id: nil, channel_type: provider}
+
+      [_agent, provider, "person", id] when provider != "" and id != "" ->
+        %{conversation_id: nil, person_id: id, channel_type: provider}
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp spawn_opts_from_server_id(_server_id), do: nil
 
   @doc """
   Sends a query to a running agent server with the configured agent's LLM and tool settings.

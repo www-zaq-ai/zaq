@@ -3,6 +3,7 @@ defmodule Zaq.Agent.FactoryTest do
 
   import Zaq.SystemConfigFixtures
 
+  alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent
   alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
@@ -244,6 +245,24 @@ defmodule Zaq.Agent.FactoryTest do
     assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
     assert body =~ "mcp_probe_tool"
     assert body =~ "read_file"
+  end
+
+  test "build_initial_context returns empty context for non-scoped server ids" do
+    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+
+    result = Factory.build_initial_context(configured_agent, "configured_agent_123")
+
+    assert %AIContext{} = result
+    assert AIContext.empty?(result)
+  end
+
+  test "build_initial_context returns empty context for malformed scoped server ids" do
+    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+
+    result = Factory.build_initial_context(configured_agent, "agent::person:42")
+
+    assert %AIContext{} = result
+    assert AIContext.empty?(result)
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do

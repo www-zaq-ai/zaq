@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   alias Ecto.Changeset
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.ServerManager
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
@@ -420,6 +421,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
+        "idle_time_seconds" => "900",
         "active" => "true"
       }
     )
@@ -479,6 +481,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
+        "idle_time_seconds" => "900",
         "active" => "true"
       }
     )
@@ -617,6 +620,65 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_submit()
 
     assert render(view) =~ "Agent updated"
+    assert render(view) =~ "#{name} Updated"
+  end
+
+  test "edit notice includes stopped runtime server count when update kills servers", %{
+    conn: conn
+  } do
+    credential =
+      ai_credential_fixture(%{
+        name: "Notice Count Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    name = "Notice Count Agent #{System.unique_integer([:positive])}"
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: name,
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    server_id = "agent:mattermost:person:#{agent.id}"
+    assert {:ok, _ref} = ServerManager.ensure_server(agent, server_id)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "#{name} Updated",
+        "description" => "after",
+        "job" => "You are v2",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "idle_time_seconds" => "900",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~
+             "Agent updated. 1 runtime server stopped; it will restart on next message."
+
     assert render(view) =~ "#{name} Updated"
   end
 

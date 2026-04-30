@@ -334,7 +334,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
           |> maybe_put_runtime_warnings(payload)
           |> assign(:selected_agent, updated)
           |> assign(:advanced_options_error, nil)
-          |> assign(:form_notice, "Agent updated")
+          |> assign(:form_notice, update_notice(payload))
           |> assign(:advanced_options_json, pretty_json(updated.advanced_options || %{}))
           |> assign_changeset(Agent.change_agent(updated))
           |> assign(:model_options, model_options_for_credential(updated.credential_id, socket))
@@ -742,6 +742,35 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     |> map_get(:mcp_runtime, %{})
     |> map_get(:warnings, [])
   end
+
+  defp update_notice(payload) when is_map(payload) do
+    stopped = stopped_server_count(payload)
+
+    case stopped do
+      0 ->
+        "Agent updated"
+
+      1 ->
+        "Agent updated. 1 runtime server stopped; it will restart on next message."
+
+      n ->
+        "Agent updated. #{n} runtime servers stopped; they will restart on next message."
+    end
+  end
+
+  defp update_notice(_), do: "Agent updated"
+
+  defp stopped_server_count(payload) when is_map(payload) do
+    payload
+    |> Map.get(:runtime, %{})
+    |> map_get(:stopped_server_ids, [])
+    |> case do
+      ids when is_list(ids) -> length(ids)
+      _ -> 0
+    end
+  end
+
+  defp stopped_server_count(_), do: 0
 
   defp map_get(map, key, default) when is_map(map) do
     Map.get(map, key, Map.get(map, to_string(key), default))

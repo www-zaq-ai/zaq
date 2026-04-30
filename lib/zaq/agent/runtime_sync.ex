@@ -250,19 +250,55 @@ defmodule Zaq.Agent.RuntimeSync do
       true ->
         {added, removed} = mcp_assignment_diff(previous, agent)
 
-        with {:ok, %{server_ref: server_ref, runtime: runtime}} <-
-               server_manager.sync_runtime(agent),
-             {:ok, unsync_results} <- unsync_removed_endpoints(server_ref, removed, opts) do
-          {:ok,
-           %{
-             strategy: :hot_runtime_patch,
-             tools_runtime: map_get(runtime, :tools, %{}),
-             mcp_runtime: map_get(runtime, :mcp, %{}),
-             added_mcp_endpoint_ids: added,
-             removed_mcp_endpoint_ids: removed,
-             unsync_results: unsync_results
-           }}
+        case server_manager.sync_runtime(agent) do
+          {:ok, %{server_ref: server_ref, runtime: runtime} = sync_result} ->
+            build_hot_runtime_patch_result(
+              server_ref,
+              runtime,
+              sync_result,
+              added,
+              removed,
+              opts
+            )
+
+          {:ok, %{runtime: %{strategy: :stopped_pending_lazy_restart}} = sync_result} ->
+            {:ok,
+             %{
+               strategy: :stopped_pending_lazy_restart,
+               added_mcp_endpoint_ids: added,
+               removed_mcp_endpoint_ids: removed,
+               unsync_results: [],
+               stopped_server_ids: map_get(sync_result, :stopped_server_ids, [])
+             }}
+
+          {:ok, %{runtime: %{strategy: :no_running_servers}} = sync_result} ->
+            {:ok,
+             %{
+               strategy: :no_running_servers,
+               added_mcp_endpoint_ids: added,
+               removed_mcp_endpoint_ids: removed,
+               unsync_results: [],
+               stopped_server_ids: map_get(sync_result, :stopped_server_ids, [])
+             }}
+
+          {:error, _reason} = error ->
+            error
         end
+    end
+  end
+
+  defp build_hot_runtime_patch_result(server_ref, runtime, sync_result, added, removed, opts) do
+    with {:ok, unsync_results} <- unsync_removed_endpoints(server_ref, removed, opts) do
+      {:ok,
+       %{
+         strategy: :hot_runtime_patch,
+         tools_runtime: map_get(runtime, :tools, %{}),
+         mcp_runtime: map_get(runtime, :mcp, %{}),
+         added_mcp_endpoint_ids: added,
+         removed_mcp_endpoint_ids: removed,
+         unsync_results: unsync_results,
+         stopped_server_ids: map_get(sync_result, :stopped_server_ids, [])
+       }}
     end
   end
 
@@ -331,7 +367,9 @@ defmodule Zaq.Agent.RuntimeSync do
       :advanced_options,
       :active,
       :job,
-      :strategy
+      :strategy,
+      :idle_time_seconds,
+      :memory_context_max_size
     ]
 
     Enum.all?(fields, fn field -> Map.get(previous, field) == Map.get(current, field) end)
@@ -340,12 +378,34 @@ defmodule Zaq.Agent.RuntimeSync do
   defp patch_impacted_agent(agent, endpoint_id, status, opts) do
     server_manager = Keyword.get(opts, :server_manager_module, ServerManager)
 
-    with {:ok, %{server_ref: server_ref, runtime: runtime}} <- server_manager.sync_runtime(agent) do
-      if status == "enabled" do
-        {:ok, endpoint_runtime_result(runtime, endpoint_id)}
-      else
-        unsync_endpoint_for_agent(server_ref, endpoint_id, opts)
-      end
+    case server_manager.sync_runtime(agent) do
+      {:ok, %{server_ref: server_ref, runtime: runtime}} ->
+        if status == "enabled" do
+          {:ok, endpoint_runtime_result(runtime, endpoint_id)}
+        else
+          unsync_endpoint_for_agent(server_ref, endpoint_id, opts)
+        end
+
+      {:ok,
+       %{runtime: %{strategy: :stopped_pending_lazy_restart}, stopped_server_ids: stopped_ids}} ->
+        {:ok,
+         %{
+           endpoint_id: endpoint_id,
+           status: :skipped,
+           reason: :server_stopped_pending_lazy_restart,
+           stopped_server_ids: stopped_ids
+         }}
+
+      {:ok, %{runtime: %{strategy: :no_running_servers}}} ->
+        {:ok,
+         %{
+           endpoint_id: endpoint_id,
+           status: :skipped,
+           reason: :no_running_servers
+         }}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
