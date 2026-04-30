@@ -329,6 +329,53 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert state.socket.assigns.status_message == "fetching docs"
   end
 
+  test "status_update :validating assigns status and renders indicator", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {:status_update, nil, :validating, "checking input"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.status == :validating and assigns.status_message == "checking input"
+    end)
+
+    html = render(view)
+    assert html =~ "Validating"
+    assert html =~ "checking input"
+  end
+
+  test "status_update :answering assigns status and renders indicator", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {:status_update, nil, :answering, "generating response"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.status == :answering and assigns.status_message == "generating response"
+    end)
+
+    html = render(view)
+    assert html =~ "Answering"
+    assert html =~ "generating response"
+  end
+
+  test "status_update unknown stage atom does not crash", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {:status_update, nil, :unknown_stage, "some message"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.status == :unknown_stage
+    end)
+
+    assert render(view)
+  end
+
   test "title_updated updates matching sidebar conversation", %{conn: conn, user: user} do
     {:ok, conv} =
       Conversations.create_conversation(%{

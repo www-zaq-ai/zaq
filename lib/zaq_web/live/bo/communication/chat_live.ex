@@ -13,7 +13,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
   alias Zaq.Agent.{CitationNormalizer, History}
-  alias Zaq.Channels.{Router, WebBridge}
+  alias Zaq.Channels.Router
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Ingestion.ContentSource
@@ -523,7 +523,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
             history: history,
             skip_permissions: bo_user_without_person,
             telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
-            on_status: WebBridge.on_status_callback(session_id, request_id),
             node_router: node_router()
           ]
         ]

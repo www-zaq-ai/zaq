@@ -20,15 +20,12 @@ defmodule Zaq.Agent.Pipeline do
   ## Options
 
     * `:history`            — conversation history map (default: `%{}`)
-    * `:on_status`          — 2-arity fn `(stage, message) :: :ok` for progress
-                              callbacks; used by LiveView to push status updates
-                              (default: silent no-op)
     * `:hooks`              — Hooks module override (default: `Zaq.Hooks`)
     * `:node_router`        — NodeRouter module override
     * `:retrieval`          — Retrieval module override
     * `:document_processor` — DocumentProcessor module override
     * `:answering`          — Answering module override
-    * `:prompt_guard`       — PromptGuard module override
+    * `:prompt_guard`       — PromptGuard module override (used for output safety check only)
     * `:prompt_template`    — PromptTemplate module override
 
   ## Returns
@@ -93,24 +90,20 @@ defmodule Zaq.Agent.Pipeline do
   defp do_run(%Incoming{} = incoming, opts) do
     content = incoming.content
     history = Keyword.get(opts, :history, %{})
-    on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
     ctx = %{trace_id: generate_trace_id(), node: node()}
     hooks = hooks_mod(opts)
 
-    with {:ok, clean_msg} <- prompt_guard(opts).validate(content),
-         :ok <- record_message_telemetry(opts),
+    with :ok <- record_message_telemetry(opts),
          {:ok, retrieval_payload} <-
-           hooks.dispatch_sync(:retrieval, %{content: clean_msg}, ctx),
-         :ok <- on_status.(:retrieving, "ZAQ is searching your knowledge base…"),
-         {:ok, retrieval_result} <- do_retrieval(retrieval_payload.content, history, opts),
+           hooks.dispatch_sync(:retrieval, %{content: content}, ctx),
+         {:ok, retrieval_result} <-
+           do_retrieval(retrieval_payload.content, history, opts, incoming),
          :ok <- hooks.dispatch_async(:retrieval_complete, retrieval_result, ctx),
-         :ok <- on_status.(:retrieving, retrieval_result.positive_answer),
          {:ok, answering_payload} <-
            hooks.dispatch_sync(:answering, retrieval_result, ctx),
          {:ok, extraction_result} <- do_query_extraction(answering_payload, opts),
-         :ok <- on_status.(:answering, "Formulating your answer…"),
          {:ok, answer_result} <-
-           do_answering(incoming, clean_msg, extraction_result, answering_payload, history, opts),
+           do_answering(incoming, content, extraction_result, answering_payload, history, opts),
          {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.body) do
       :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
       sources = build_sources(extraction_result)
@@ -145,12 +138,6 @@ defmodule Zaq.Agent.Pipeline do
     else
       {:halt, _payload} ->
         error_result("Request was halted by a pipeline hook.")
-
-      {:error, :prompt_injection} ->
-        error_result("I can only help with ZAQ-related questions.")
-
-      {:error, :role_play_attempt} ->
-        error_result("I can only help with ZAQ-related questions.")
 
       {:error, {:leaked, _phrase}} ->
         Logger.warning("[Pipeline] PromptGuard: output leak detected, blocking response")
@@ -196,8 +183,16 @@ defmodule Zaq.Agent.Pipeline do
   # Pipeline steps
   # ---------------------------------------------------------------------------
 
-  defp do_retrieval(clean_msg, history, opts) do
-    case node_router(opts).call(:agent, retrieval_mod(opts), :ask, [clean_msg, [history: history]]) do
+  defp do_retrieval(clean_msg, history, opts, incoming) do
+    status_context = %{
+      session_id: incoming.metadata[:session_id],
+      request_id: incoming.metadata[:request_id]
+    }
+
+    case node_router(opts).call(:agent, retrieval_mod(opts), :ask, [
+           clean_msg,
+           [history: history, status_context: status_context]
+         ]) do
       {:ok,
        %{
          "query" => query,
