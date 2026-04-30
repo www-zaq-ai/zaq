@@ -144,5 +144,4 @@ defmodule Zaq.Agent.HistoryLoader do
         ctx
     end)
   end
-
 end

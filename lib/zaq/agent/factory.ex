@@ -17,9 +17,10 @@ defmodule Zaq.Agent.Factory do
     ],
     tools: []
 
-  alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Agent.ProviderSpec
+  alias Jido.AI.Context, as: AIContext
+  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec}
   alias Zaq.Agent.Tools.Registry
+  alias Zaq.Engine.Messages.Incoming
   alias Zaq.System
 
   def strategy_opts do
@@ -64,6 +65,36 @@ defmodule Zaq.Agent.Factory do
        }}
     end
   end
+
+  @doc """
+  Builds the initial `Jido.AI.Context` for a cold-started agent by loading recent history.
+
+  Routes to conversation history when `incoming.metadata.conversation_id` is present,
+  otherwise loads by `person_id` + normalized provider. Returns an empty context when
+  `incoming` is `nil` or the relevant identifiers are absent.
+  """
+  @spec build_initial_context(Incoming.t() | nil, ConfiguredAgent.t()) :: AIContext.t()
+  def build_initial_context(nil, _configured_agent), do: AIContext.new()
+
+  def build_initial_context(%Incoming{} = incoming, %ConfiguredAgent{} = configured_agent) do
+    HistoryLoader.load_context(
+      %{
+        conversation_id: incoming.metadata[:conversation_id],
+        person_id: incoming.person_id,
+        channel_type: normalize_provider(incoming.provider)
+      },
+      max_tokens: configured_agent.memory_context_max_size || 5_000
+    )
+  end
+
+  @doc false
+  def normalize_provider(:web), do: "bo"
+
+  def normalize_provider(provider) when is_atom(provider),
+    do: provider |> Atom.to_string() |> String.replace(":", "_")
+
+  def normalize_provider(provider) when is_binary(provider),
+    do: String.replace(provider, ":", "_")
 
   @doc """
   Sends a query to a running agent server with the configured agent's LLM and tool settings.
