@@ -1457,7 +1457,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  transport: :webhook
                )
 
-      assert_received {:pipeline_run, "hello raw", _opts}
+      # Processing is async (Task.start) — use assert_receive with a timeout
+      assert_receive {:pipeline_run, "hello raw", _opts}, 1000
     end
 
     test "thread reply payload triggers reply hook (subscribed thread)", %{
@@ -1475,19 +1476,25 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  transport: :webhook
                )
 
-      assert_received {:reply_received, %{root_id: "root-1", message: "reply raw"}}
+      # Processing is async (Task.start) — use assert_receive with a timeout
+      assert_receive {:reply_received, %{root_id: "root-1", message: "reply raw"}}, 1000
       refute_received {:pipeline_run, _, _}
     end
 
-    test "reaction payload returns adapter unsupported error", %{
-      config: config,
-      bridge_id: bridge_id
-    } do
-      assert {:error, :unsupported_event} =
+    test "reaction payload is silently dropped (async processing, unsupported events are not propagated)",
+         %{
+           config: config,
+           bridge_id: bridge_id
+         } do
+      # from_listener/3 is fire-and-forget (Task.start) — unsupported events are
+      # handled internally and logged; the caller always gets :ok back.
+      assert :ok =
                JidoChatBridge.from_listener(config, %{"type" => "reaction"},
                  bridge_id: bridge_id,
                  transport: :webhook
                )
+
+      refute_receive {:pipeline_run, _, _}, 200
     end
 
     test "from_listener/3 can auto-start runtime via default bridge id", %{config: config} do
@@ -1501,8 +1508,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  []
                )
 
+      # Wait for the async task to start the runtime and process the message
+      assert_receive {:pipeline_run, "auto-start", _opts}, 1000
       assert {:ok, _runtime} = Supervisor.lookup_runtime(bridge_id)
-      assert_received {:pipeline_run, "auto-start", _opts}
 
       assert :ok = JidoChatBridge.stop_runtime(config)
     end
