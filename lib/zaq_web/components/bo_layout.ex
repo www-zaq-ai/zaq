@@ -972,13 +972,11 @@ defmodule ZaqWeb.Components.BOLayout do
   end
 
   defp load_update_badge_enabled do
-    try do
-      System.get_config("ui.update_badge_enabled") == "true"
-    rescue
-      DBConnection.OwnershipError -> false
-      DBConnection.ConnectionError -> false
-    catch
-      :exit, _reason -> false
-    end
+    System.get_config("ui.update_badge_enabled") == "true"
+  rescue
+    DBConnection.OwnershipError -> false
+    DBConnection.ConnectionError -> false
+  catch
+    :exit, _reason -> false
   end
 end
