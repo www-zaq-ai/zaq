@@ -1,6 +1,8 @@
 defmodule Zaq.Utils.ParseUtilsTest do
   use ExUnit.Case, async: true
 
+  doctest Zaq.Utils.ParseUtils
+
   alias Zaq.Utils.ParseUtils
 
   describe "parse_int/2" do

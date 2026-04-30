@@ -1,6 +1,8 @@
 defmodule Zaq.Agent.ExecutorTest do
   use ExUnit.Case, async: true
 
+  doctest Zaq.Agent.Executor
+
   alias Zaq.Agent.Executor
   alias Zaq.Engine.Messages.Incoming
 

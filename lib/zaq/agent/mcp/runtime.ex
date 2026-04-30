@@ -14,6 +14,29 @@ defmodule Zaq.Agent.MCP.Runtime do
   @max_runtime_endpoints 2000
   @atom_usage_threshold 0.85
 
+  @doc """
+  Converts a DB endpoint integer ID to a stable runtime atom used by the Jido MCP registry.
+
+  Reuses an already-internalized atom when possible. When a new atom must be created it
+  first checks the atom budget (rejects above #{trunc(@atom_usage_threshold * 100)}% of
+  the VM limit) and the endpoint cap (rejects above #{@max_runtime_endpoints} endpoints).
+
+  Returns `{:ok, atom}` or `{:error, reason}` where reason is one of
+  `:invalid_endpoint_id`, `{:atom_budget_exceeded, map}`, or `{:endpoint_cap_reached, map}`.
+
+  ## Examples
+
+      iex> {:ok, id} = Zaq.Agent.MCP.Runtime.runtime_endpoint_id(42)
+      iex> id
+      :mcp_42
+
+      iex> Zaq.Agent.MCP.Runtime.runtime_endpoint_id(0)
+      {:error, :invalid_endpoint_id}
+
+      iex> Zaq.Agent.MCP.Runtime.runtime_endpoint_id(-1)
+      {:error, :invalid_endpoint_id}
+
+  """
   @spec runtime_endpoint_id(integer(), keyword()) :: {:ok, atom()} | {:error, term()}
   def runtime_endpoint_id(id, opts \\ [])
 
@@ -34,6 +57,24 @@ defmodule Zaq.Agent.MCP.Runtime do
 
   def runtime_endpoint_id(_id, _opts), do: {:error, :invalid_endpoint_id}
 
+  @doc """
+  Extracts the DB integer ID from a runtime endpoint atom (inverse of `runtime_endpoint_id/2`).
+
+  Returns `{:ok, integer}` or `{:error, :invalid_runtime_endpoint_id}` if the atom is not
+  a valid `mcp_<id>` runtime atom.
+
+  ## Examples
+
+      iex> Zaq.Agent.MCP.Runtime.db_endpoint_id(:mcp_42)
+      {:ok, 42}
+
+      iex> Zaq.Agent.MCP.Runtime.db_endpoint_id(:something_else)
+      {:error, :invalid_runtime_endpoint_id}
+
+      iex> Zaq.Agent.MCP.Runtime.db_endpoint_id(:zaq_mcp_test)
+      {:error, :invalid_runtime_endpoint_id}
+
+  """
   @spec db_endpoint_id(atom()) :: {:ok, integer()} | {:error, :invalid_runtime_endpoint_id}
   def db_endpoint_id(runtime_endpoint_id)
       when is_atom(runtime_endpoint_id) and runtime_endpoint_id != @test_endpoint_id do
@@ -44,6 +85,15 @@ defmodule Zaq.Agent.MCP.Runtime do
 
   def db_endpoint_id(_), do: {:error, :invalid_runtime_endpoint_id}
 
+  @doc """
+  Builds the raw attribute map passed to `SignalAdapter.register_endpoint/3`.
+
+  Resolves the transport (`:stdio` for local, `:streamable_http` for remote), injects
+  decrypted secrets, and wraps everything under `:endpoint_id` / `:endpoint` keys expected
+  by the `mcp.endpoint.register` signal handler.
+
+  Returns `{:ok, attrs}` or `{:error, reason}` (e.g. `:unsupported_type`, `:invalid_url`).
+  """
   @spec build_endpoint_attrs(atom(), Endpoint.t()) :: {:ok, map()} | {:error, term()}
   def build_endpoint_attrs(endpoint_id, %Endpoint{} = endpoint) when is_atom(endpoint_id) do
     with {:ok, transport} <- transport_for(endpoint) do
@@ -61,6 +111,16 @@ defmodule Zaq.Agent.MCP.Runtime do
     end
   end
 
+  @doc """
+  Connects to an MCP endpoint and lists its available tools without persisting anything.
+
+  Used by the BO to validate a new or updated endpoint configuration before saving.
+  Registers the endpoint under the ephemeral `#{inspect(@test_endpoint_id)}` atom,
+  calls `ListTools`, then unregisters regardless of outcome. Retries once on transient
+  errors (capabilities not yet ready, client transport startup race).
+
+  Returns `{:ok, map}` with the tools list on success, or `{:error, reason}`.
+  """
   @spec test_list_tools(Endpoint.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def test_list_tools(%Endpoint{} = endpoint, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, endpoint.timeout_ms || 5000)
@@ -98,6 +158,14 @@ defmodule Zaq.Agent.MCP.Runtime do
     end
   end
 
+  @doc """
+  Builds a `Jido.MCP.Endpoint` struct from a ZAQ `Endpoint` schema record.
+
+  Used internally by `test_list_tools/2` to construct the ephemeral test endpoint.
+  Prefer `build_endpoint_attrs/2` when registering via `SignalAdapter`.
+
+  Returns `{:ok, %Jido.MCP.Endpoint{}}` or `{:error, reason}`.
+  """
   @spec build_endpoint(atom(), Endpoint.t()) :: {:ok, Jido.MCP.Endpoint.t()} | {:error, term()}
   def build_endpoint(endpoint_id, %Endpoint{} = endpoint) when is_atom(endpoint_id) do
     with {:ok, transport} <- transport_for(endpoint) do

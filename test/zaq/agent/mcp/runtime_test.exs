@@ -1,6 +1,8 @@
 defmodule Zaq.Agent.MCP.RuntimeTest do
   use Zaq.DataCase, async: false
 
+  doctest Zaq.Agent.MCP.Runtime
+
   alias Anubis.MCP.Error, as: MCPError
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Agent.MCP.Runtime

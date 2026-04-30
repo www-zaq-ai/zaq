@@ -1,6 +1,21 @@
 defmodule Zaq.Agent.RuntimeSync do
   @moduledoc """
-  Executor-side orchestration for configured agent and MCP runtime updates.
+  Bridges configuration changes to live agent runtime state on the executor node.
+
+  Handles three concerns:
+
+  - **Agent lifecycle** — `configured_agent_created/2`, `configured_agent_updated/3`,
+    and `configured_agent_deleted/2` persist DB changes and synchronously apply the
+    corresponding runtime effect (start, hot-patch tools/MCP, or drain-and-stop).
+
+  - **MCP endpoint lifecycle** — `mcp_endpoint_updated/2` persists endpoint changes
+    (create, update, enable predefined, delete) and fans out the runtime effect to
+    all active agents that reference the endpoint.
+
+  - **Runtime sync primitives** — `sync_agent_runtime/3`,
+    `sync_agent_configured_tools/3`, and `sync_agent_mcp_assignments/3` reconcile
+    a live agent server's tool set and MCP endpoint registrations against the current
+    DB configuration.
   """
 
   require Logger
@@ -14,6 +29,12 @@ defmodule Zaq.Agent.RuntimeSync do
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Tools.Registry
 
+  @doc """
+  Syncs both configured tools and MCP endpoint assignments for a running agent server.
+
+  Returns `{:ok, %{tools: tools_result, mcp: mcp_result}}` on success, or
+  `{:error, reason}` if either sync step fails.
+  """
   @spec sync_agent_runtime(ConfiguredAgent.t(), GenServer.server(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def sync_agent_runtime(%ConfiguredAgent{} = agent, server_ref, opts \\ []) do
@@ -23,6 +44,14 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
+  @doc """
+  Syncs MCP endpoint assignments from the agent's `enabled_mcp_endpoint_ids` to a running server.
+
+  Iterates each endpoint ID and registers + syncs tools for enabled endpoints, skipping
+  disabled or missing ones. Returns `{:ok, map}` with `synced_endpoint_ids`,
+  `skipped_endpoint_ids`, `warnings`, and `results`. Halts and returns `{:error, reason}`
+  on the first hard failure.
+  """
   @spec sync_agent_mcp_assignments(ConfiguredAgent.t(), GenServer.server(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def sync_agent_mcp_assignments(%ConfiguredAgent{} = agent, server_ref, opts \\ []) do
@@ -74,6 +103,13 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
+  @doc """
+  Reconciles the tool set on a running agent server against the agent's `enabled_tool_keys`.
+
+  Adds tools that are desired but not registered, and removes tools that are registered but
+  no longer desired (only those owned by the managed registry). Returns `{:ok, map}` with
+  `added_tools`, `removed_tools`, `add_results`, and `remove_results`.
+  """
   @spec sync_agent_configured_tools(ConfiguredAgent.t(), GenServer.server(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def sync_agent_configured_tools(%ConfiguredAgent{} = agent, server_ref, opts \\ []) do
@@ -104,6 +140,11 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
+  @doc """
+  Persists a new configured agent and starts its runtime.
+
+  Returns `{:ok, %{agent: agent, runtime: runtime}}` or `{:error, reason}`.
+  """
   @spec configured_agent_created(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def configured_agent_created(attrs, opts \\ []) when is_map(attrs) do
     agent_module = Keyword.get(opts, :agent_module, Agent)
@@ -114,6 +155,13 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
+  @doc """
+  Persists updates to a configured agent and hot-patches its runtime.
+
+  Skips the runtime patch if no runtime-relevant fields changed. Stops the server if the
+  agent is set to inactive. Returns `{:ok, %{agent: updated, runtime: runtime}}` or
+  `{:error, reason}`.
+  """
   @spec configured_agent_updated(integer(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def configured_agent_updated(id, attrs, opts \\ []) when is_integer(id) and is_map(attrs) do
     agent_module = Keyword.get(opts, :agent_module, Agent)
@@ -125,6 +173,12 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
+  @doc """
+  Deletes a configured agent from the database and signals its server to drain and stop.
+
+  Returns `{:ok, %{agent: deleted, runtime: %{strategy: :drain_and_stop}}}` or
+  `{:error, reason}`.
+  """
   @spec configured_agent_deleted(integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def configured_agent_deleted(id, opts \\ []) when is_integer(id) do
     agent_module = Keyword.get(opts, :agent_module, Agent)
@@ -136,6 +190,13 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
+  @doc """
+  Persists an MCP endpoint change and propagates it to all active agents using that endpoint.
+
+  `request` must include an `:action` key (`:create`, `:update`, `:enable_predefined`, or
+  `:delete`) plus any required `:id` / `:attrs` fields. Returns
+  `{:ok, %{endpoint: endpoint, runtime: runtime}}` or `{:error, reason}`.
+  """
   @spec mcp_endpoint_updated(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def mcp_endpoint_updated(request, opts \\ []) when is_map(request) do
     with {:ok, endpoint} <- persist_mcp_endpoint_update(request, opts),

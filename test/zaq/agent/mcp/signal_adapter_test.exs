@@ -1,6 +1,8 @@
 defmodule Zaq.Agent.MCP.SignalAdapterTest do
   use Zaq.DataCase, async: false
 
+  doctest Zaq.Agent.MCP.SignalAdapter
+
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Agent

@@ -140,9 +140,22 @@ defmodule Zaq.Agent.MCP do
     # }
   }
 
+  @doc """
+  Returns the compile-time catalog of built-in predefined MCP endpoints.
+
+  Each entry is keyed by a stable `predefined_id` string and carries display metadata
+  (`name`, `icon`, `description`, `editable`) plus `defaults` used when enabling the
+  endpoint via `enable_predefined/1`.
+  """
   @spec predefined_catalog() :: map()
   def predefined_catalog, do: @predefined
 
+  @doc """
+  Returns all persisted MCP endpoints ordered by name ascending.
+
+  Does not include unpersisted predefined entries. Use `filter_mcp_endpoints/2`
+  when you need the merged catalog view for the BO listing page.
+  """
   @spec list_mcp_endpoints() :: [Endpoint.t()]
   def list_mcp_endpoints do
     Endpoint
@@ -150,6 +163,22 @@ defmodule Zaq.Agent.MCP do
     |> Repo.all()
   end
 
+  @doc """
+  Returns a paginated, filtered view of MCP endpoints for the BO listing page.
+
+  Merges persisted DB entries with any predefined entries not yet in the DB, then applies
+  `name` (case-insensitive substring), `type` (`"local"` | `"remote"` | `"all"`), and
+  `status` (`"enabled"` | `"disabled"` | `"all"`) filters from the `filters` map.
+  Results are sorted by name (case-insensitive) before pagination.
+
+  Returns `{entries, total_count}` where each entry is a flat display map (see private
+  `entry_from_endpoint/1` for the shape). Secrets are not decrypted in this view.
+
+  ## Options
+
+  - `:page` — 1-based page number (default: `1`)
+  - `:per_page` — entries per page (default: `20`)
+  """
   @spec filter_mcp_endpoints(map(), keyword()) :: {[map()], non_neg_integer()}
   def filter_mcp_endpoints(filters, opts \\ []) do
     page = Keyword.get(opts, :page, 1)
@@ -172,22 +201,48 @@ defmodule Zaq.Agent.MCP do
     {page_entries, total}
   end
 
+  @doc """
+  Fetches a persisted MCP endpoint by ID, raising `Ecto.NoResultsError` if not found.
+  """
   @spec get_mcp_endpoint!(integer() | String.t()) :: Endpoint.t()
   def get_mcp_endpoint!(id), do: Repo.get!(Endpoint, id)
 
+  @doc """
+  Fetches a persisted MCP endpoint by ID, returning `nil` if not found.
+  """
   @spec get_mcp_endpoint(integer() | String.t()) :: Endpoint.t() | nil
   def get_mcp_endpoint(id), do: Repo.get(Endpoint, id)
 
+  @doc """
+  Fetches a persisted MCP endpoint by its `predefined_id` string, returning `nil` if not found.
+
+  Used to check whether a predefined entry has already been enabled before deciding
+  whether to insert or update in `enable_predefined/1`.
+  """
   @spec get_by_predefined_id(String.t()) :: Endpoint.t() | nil
   def get_by_predefined_id(predefined_id) when is_binary(predefined_id) do
     Repo.get_by(Endpoint, predefined_id: predefined_id)
   end
 
+  @doc """
+  Returns an `Ecto.Changeset` for tracking form changes without persisting.
+
+  Used by LiveView forms to validate and display errors before the user submits.
+  Does not encrypt secrets — encryption runs only on `create_mcp_endpoint/1` and
+  `update_mcp_endpoint/2`.
+  """
   @spec change_mcp_endpoint(Endpoint.t(), map()) :: Changeset.t()
   def change_mcp_endpoint(%Endpoint{} = endpoint, attrs \\ %{}) do
     Endpoint.changeset(endpoint, attrs)
   end
 
+  @doc """
+  Inserts a new MCP endpoint after encrypting all secret fields.
+
+  Secret fields (`secret_headers`, `secret_environments`) are encrypted via
+  `Zaq.Types.EncryptedString` before insert. Returns `{:ok, endpoint}` or
+  `{:error, changeset}` on validation or encryption failure.
+  """
   @spec create_mcp_endpoint(map()) :: {:ok, Endpoint.t()} | {:error, Changeset.t()}
   def create_mcp_endpoint(attrs \\ %{}) do
     %Endpoint{}
@@ -196,6 +251,13 @@ defmodule Zaq.Agent.MCP do
     |> Repo.insert()
   end
 
+  @doc """
+  Updates a persisted MCP endpoint, encrypting secrets and validating editability.
+
+  Rejects updates to non-editable predefined endpoints (returns `{:error, changeset}`
+  with a `:base` error). Blank secret values preserve the existing encrypted value
+  rather than overwriting with an empty string.
+  """
   @spec update_mcp_endpoint(Endpoint.t(), map()) :: {:ok, Endpoint.t()} | {:error, Changeset.t()}
   def update_mcp_endpoint(%Endpoint{} = endpoint, attrs) do
     endpoint
@@ -205,6 +267,13 @@ defmodule Zaq.Agent.MCP do
     |> Repo.update()
   end
 
+  @doc """
+  Deletes a persisted MCP endpoint after validating it can be removed.
+
+  Returns `{:error, changeset}` with a `:base` error if:
+  - The endpoint is a non-editable predefined entry
+  - The endpoint is currently assigned to one or more configured agents (lists them by name)
+  """
   @spec delete_mcp_endpoint(Endpoint.t()) :: {:ok, Endpoint.t()} | {:error, Changeset.t()}
   def delete_mcp_endpoint(%Endpoint{} = endpoint) do
     endpoint
@@ -217,6 +286,13 @@ defmodule Zaq.Agent.MCP do
     end
   end
 
+  @doc """
+  Enables a predefined MCP endpoint by its catalog ID, upserting it in the DB.
+
+  Looks up the predefined catalog entry, merges its defaults with `status: "enabled"`,
+  then inserts if no persisted record exists or updates the existing one.
+  Returns `{:error, :unknown_predefined_mcp}` if `predefined_id` is not in the catalog.
+  """
   @spec enable_predefined(String.t()) :: {:ok, Endpoint.t()} | {:error, Changeset.t() | atom()}
   def enable_predefined(predefined_id) when is_binary(predefined_id) do
     case Map.get(@predefined, predefined_id) do
@@ -240,6 +316,15 @@ defmodule Zaq.Agent.MCP do
     end
   end
 
+  @doc """
+  Connects to an MCP endpoint and lists its available tools without persisting anything.
+
+  Accepts either a loaded `Endpoint` struct or a DB ID (integer or string). Resolves the
+  struct when an ID is given, returning `{:error, :endpoint_not_found}` if missing.
+  Delegates to `Runtime.test_list_tools/2` for the actual connection and tool discovery.
+
+  Used by the BO to validate endpoint configuration before saving.
+  """
   @spec test_list_tools(Endpoint.t() | integer() | String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def test_list_tools(endpoint_or_id, opts \\ []) do

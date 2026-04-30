@@ -14,6 +14,32 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
 
+  @doc """
+  Derives a stable scope string from an incoming message used to key the Jido agent server.
+
+  Priority order:
+  1. `person_id` — converted to string when present
+  2. `metadata.session_id` — used when `person_id` is nil and session ID is a non-empty string
+  3. `"anonymous"` — fallback for all other cases
+
+  ## Examples
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: 7})
+      "7"
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{session_id: "sess_abc"}})
+      "sess_abc"
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{}})
+      "anonymous"
+
+  """
   @spec derive_scope(Incoming.t()) :: String.t()
   def derive_scope(%Incoming{person_id: person_id}) when not is_nil(person_id),
     do: to_string(person_id)
@@ -23,6 +49,28 @@ defmodule Zaq.Agent.Executor do
 
   def derive_scope(_), do: "anonymous"
 
+  @doc """
+  Runs the full agent execution pipeline for an incoming message.
+
+  Loads the configured agent (or the default answering agent when no `:agent_id` opt is
+  given), ensures its Jido server is running, sends a typing indicator, submits the
+  question via `Factory.ask_with_config/4`, waits up to 45 s for the answer, then
+  records telemetry and returns a normalized `Outgoing.t()`.
+
+  On any `{:error, reason}` in the pipeline the error is logged, an error telemetry
+  event is emitted, and a safe fallback `Outgoing.t()` is returned — this function
+  never raises.
+
+  ## Options
+
+  - `:agent_id` — integer ID of the configured agent to use; omit for the default answering agent
+  - `:scope` — explicit server scope string; derived from `derive_scope/1` when absent on the answering path
+  - `:question` — override the question text; defaults to `incoming.content`
+  - `:system_prompt` — override the agent's `job` field for this run only
+  - `:person_id` — passed into the retrieval context for permission scoping
+  - `:team_ids` — list of team IDs passed into the retrieval context
+  - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
+  """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
     started_at = System.monotonic_time(:millisecond)

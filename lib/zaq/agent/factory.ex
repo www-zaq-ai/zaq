@@ -29,9 +29,28 @@ defmodule Zaq.Agent.Factory do
 
   # Replace with per-agent advanced LLM opts so each ConfiguredAgent carries its own
   # temperature/top_p/logprobs config instead of falling back to the global system LLM config.
-  @doc "Sampling opts for ReqLLM generation calls from the system LLM config."
+  @doc """
+  Returns LLM sampling opts (temperature, top_p, etc.) from the system LLM config.
+
+  Called by `runtime_config/1` as the baseline for every agent until per-agent advanced
+  options are surfaced in the BO UI. Reads live from `Zaq.System.get_llm_config/0` on
+  each call — no caching.
+  """
   def generation_opts, do: System.get_llm_config() |> ProviderSpec.generation_opts()
 
+  @doc """
+  Resolves the runtime configuration map for a configured agent.
+
+  Resolves tool modules from `enabled_tool_keys` via `Tools.Registry`, merges system-level
+  LLM sampling opts with any per-agent overrides from `ProviderSpec`, and returns the
+  agent's `job` field as the system prompt.
+
+  Returns `{:ok, %{tools: [...], llm_opts: [...], system_prompt: binary()}}` or
+  `{:error, reason}` if tool resolution fails.
+
+  This is the fallback path used by `ask_with_config/4` when the live server has no cached
+  `runtime_config` in its state (e.g. first call after a cold start).
+  """
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
     with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
@@ -46,6 +65,21 @@ defmodule Zaq.Agent.Factory do
     end
   end
 
+  @doc """
+  Sends a query to a running agent server with the configured agent's LLM and tool settings.
+
+  Reads `runtime_config` from the server's live state when available, falling back to
+  `runtime_config/1` on a cold server. Ensures the system prompt is set before dispatching,
+  retrying up to 4 times with a 20 ms backoff if `set_system_prompt` fails.
+
+  Returns `{:ok, request_handle}` that callers pass to `await/2`, or `{:error, reason}`.
+
+  ## Options
+
+  - `:timeout` — ask timeout in milliseconds; defaults to `30_000`
+  - `:context` — map passed into retrieval for permission scoping (`:person_id`, `:team_ids`)
+  - Any other opts are forwarded to `Jido.AI.Agent.ask/3`
+  """
   @spec ask_with_config(GenServer.server(), String.t(), ConfiguredAgent.t(), keyword()) ::
           {:ok, Jido.AI.Request.Handle.t()} | {:error, term()}
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
