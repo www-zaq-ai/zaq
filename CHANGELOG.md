@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.8.0](https://github.com/www-zaq-ai/zaq/compare/v0.7.3...v0.8.0) (2026-04-30)
+
+
+### Features
+
+* **agent:** enable custom AI agents declaration through the BO with chatting ability to a specific agent ([70ad5a8](https://github.com/www-zaq-ai/zaq/commit/70ad5a8f45b6fab2812c9cbb412449fd56f3d53f))
+* **agent:** implement per-person Jido server spawning with unified routing across Pipeline and Executor ([e9c4413](https://github.com/www-zaq-ai/zaq/commit/e9c4413fe335eb18cf53f66d0e3b78dce706aea5))
+* **agents:** Make tools selection friendlier ([b623b8f](https://github.com/www-zaq-ai/zaq/commit/b623b8fd8e825d7a01807598530cfda8b5d28d41))
+* **agent:** unify answering path through Executor as single execution boundary ([9c426d8](https://github.com/www-zaq-ai/zaq/commit/9c426d869472c6cb03a0ce84f8754b58cfb9cf41))
+* **AI Agent:** Add MCP support to AI Agents with runtime configuration capabilities ([6d1d27e](https://github.com/www-zaq-ai/zaq/commit/6d1d27e819d5b749136d9520b3cd6fffe892cba4))
+* **AI Agent:** implement draining strategy when stopping an Agent' server ([f61add4](https://github.com/www-zaq-ai/zaq/commit/f61add41188fcdfa13d5a0f8efe2c6e7e9e1e7d8))
+* **AI Agents:** Wire communication channels to custom AI Agents ([51dac43](https://github.com/www-zaq-ai/zaq/commit/51dac43c1e4fc45bd3141eb55dcc7f74ac80355a))
+* **AI agents:** wire more Jido.Action into AI Agents tools selection ([164adb4](https://github.com/www-zaq-ai/zaq/commit/164adb4200d18cc7ed4607f4728b40013eb3ecbb))
+* **AI Agents:** Wire tool calling abilities into AI agents, wire logs from jido telemetry into console ([ccda430](https://github.com/www-zaq-ai/zaq/commit/ccda43064b6ecf5597ac1ba4c1cf2084d18c5336))
+* **chat:** add content filter with [@mention](https://github.com/mention) autocomplete, folder scoping, and interactive file tokens ([4c1b0d6](https://github.com/www-zaq-ai/zaq/commit/4c1b0d692bbf67efa2dc11d5514e6775a1353647))
+* **chat:** allow selecting a folder as a content filter from autocomplete ([fb96773](https://github.com/www-zaq-ai/zaq/commit/fb967736bef6c6e858811fcc91f6fc39459a02ed))
+* **ingestion:** add PPTX to Markdown conversion support ([dcf58a6](https://github.com/www-zaq-ai/zaq/commit/dcf58a6dbe55e58dbb0f7339997cbbe6eff301b1))
+* **ingestion:** add PPTX upload support with PowerPoint icon ([4e471d0](https://github.com/www-zaq-ai/zaq/commit/4e471d094296e76ded86b4ac150aa2ca5413aa63))
+* **MCP:** enable administration of MCPs with connectivity test ([a6cd73f](https://github.com/www-zaq-ai/zaq/commit/a6cd73f7bab7efd1ac29ebc97ad6958b3a0c4ed9))
+* **MCP:** wire MCP to agent at runtime ([831ec45](https://github.com/www-zaq-ai/zaq/commit/831ec450f2decb051c51bfdb27bddf5b87112606))
+
+
+### Bug Fixes
+
+* **agent:** harden permission model, remove silent nil bypass, and clean up LLM config ([276467b](https://github.com/www-zaq-ai/zaq/commit/276467b06a8120ecf06bdd7164c404a9f333bef3))
+* **AI Agents:** properly surface agents mapping config to email mailboxes ([4b53827](https://github.com/www-zaq-ai/zaq/commit/4b5382724b5460696d92f0d8b32b70df85af141c))
+* **answering:** wire logprobs to confidence scoring and fix stream crash ([5e9e569](https://github.com/www-zaq-ai/zaq/commit/5e9e5695a3568d9b74cebdea8dde8e009c1255f8))
+* **filter-content:** address PR review findings — safe atom coercion, NodeRouter error logging, ConnectorRegistry tests, dotted-folder heuristic, and ingestion docs ([f813c72](https://github.com/www-zaq-ai/zaq/commit/f813c729af9f9d9c01df6af75ddf7fe459d183bf))
+* **flash:** add auto-dismiss to BO flash with configurable duration and cover it with one e2e test ([13c8a5b](https://github.com/www-zaq-ai/zaq/commit/13c8a5b03d1b03e9ece2f39e66efda20b686c94e))
+* **ingestion:** replace Task.async_stream :infinity timeouts with bounded defaults (90s chunks, 10s file stats) ([efb1823](https://github.com/www-zaq-ai/zaq/commit/efb1823af2898de463e3efd1f9483e9cdb09c8a8))
+* **local-installation:** update zaq-local ([ef762b5](https://github.com/www-zaq-ai/zaq/commit/ef762b54a0c0f72dab374dc9cc706cf3d3f09610))
+* **mattermost:** restart listener on config changes ([ca06960](https://github.com/www-zaq-ai/zaq/commit/ca06960435ee2a1c2ea5c6021f6589f512126b52))
+* **MCP:** one client_info name per mcp endpoint to avoid collisions, hide incompatible predefined MCPs for now ([16048f2](https://github.com/www-zaq-ai/zaq/commit/16048f29bcc7353e4db4862d3698d28a727d56c1))
+* **retrieval:** disable json mode when conversation history is present ([cbe974a](https://github.com/www-zaq-ai/zaq/commit/cbe974ac0b4052cee289a147a385419d27ad6c2f))
+* **source-filtering:** enhance the search filter with js functionality ([1abc960](https://github.com/www-zaq-ai/zaq/commit/1abc9602592eec6cac736f9e8db80a9f1487e2e8))
+* **telemetry:** trunc dimension label to avoid overflow ([44b39e9](https://github.com/www-zaq-ai/zaq/commit/44b39e9632c3abb6d20d7dd2f9b27d3eb581894c))
+
 ## [0.7.3](https://github.com/www-zaq-ai/zaq/compare/v0.7.2...v0.7.3) (2026-04-21)
 
 
