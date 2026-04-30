@@ -78,7 +78,7 @@ defmodule Zaq.Agent.Factory do
 
   - `:timeout` — ask timeout in milliseconds; defaults to `30_000`
   - `:context` — map passed into retrieval for permission scoping (`:person_id`, `:team_ids`)
-  - Any other opts are forwarded to `Jido.AI.Agent.ask/3`
+  - Any other opts are forwarded to the underlying `Jido.AI.Agent` ask call
   """
   @spec ask_with_config(GenServer.server(), String.t(), ConfiguredAgent.t(), keyword()) ::
           {:ok, Jido.AI.Request.Handle.t()} | {:error, term()}
