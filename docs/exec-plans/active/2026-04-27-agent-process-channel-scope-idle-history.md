@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-27
 **Author:** Claude
-**Status:** `completed`
+**Status:** `in-progress`
 **Related debt:** —
 **PR(s):** —
 
@@ -12,7 +12,7 @@
 
 Three open items from the agent process issue on branch `feat/agent-process`:
 
-1. **Per-channel scoping** — an agent server must be spawned per `(agent, person, channel)` triplet, not just per `(agent, person)`. A person talking to agent "Yo" via Mattermost gets `"Yo:mattermost-2"`, via email gets `"Yo:email-2"`. This prevents cross-channel history bleed.
+1. **Per-channel scoping** — an agent server must be spawned per `(agent, person, channel)` triplet, not just per `(agent, person)`. A person talking to agent "Yo" via Mattermost gets `"Yo:mattermost:2"`, via email gets `"Yo:email:2"`. This prevents cross-channel history bleed.
 2. **Per-agent idle TTL** — the existing 30-min default idle TTL must be configurable per agent in the BO admin UI. Each server is shut down after its own configured idle period.
 3. **History reload on restart** — when a killed process is re-spawned, the last N messages for that `(person, channel)` pair are loaded from the DB and injected as `initial_state.history`, bounded by a configurable `memory_context_max_size` (default 5,000 tokens).
 
@@ -56,13 +56,13 @@ Existing code reviewed:
 `Executor.derive_scope/1` currently returns `person_id` as a bare string. Extend it to prepend the normalized provider:
 
 ```
-derive_scope(%Incoming{provider: :mattermost, person_id: 2}) → "mattermost-2"
-derive_scope(%Incoming{provider: :web, metadata: %{session_id: "abc"}}) → "bo-abc"
+derive_scope(%Incoming{provider: :mattermost, person_id: 2}) → "mattermost:2"
+derive_scope(%Incoming{provider: :web, metadata: %{session_id: "abc"}}) → "bo:abc"
 ```
 
-The server ID construction in `ensure_agent_server/3` already does `"#{name}:#{scope}"`, so server IDs become `"Yo:mattermost-2"` and `"answering_mattermost-2"` automatically without touching that line.
+The server ID construction in `ensure_agent_server/3` already does `"#{name}:#{scope}"`, so server IDs become `"Yo:mattermost:2"` and `"answering:mattermost:2"` automatically without touching that line.
 
-`normalize_provider/1` is a private helper in `Executor` that converts the provider atom/string to a safe, lowercase, hyphen-free identifier (`:"email:imap"` → `"email_imap"`, `:web` → `"bo"`, atoms → `Atom.to_string/1`).
+`normalize_provider/1` is a private helper in `Executor` that converts the provider atom/string to a safe, lowercase, colon-free identifier (`:"email:imap"` → `"email_imap"`, `:web` → `"bo"`, atoms → `Atom.to_string/1`). The only colon in the server ID is the separator between agent name, channel, and identity.
 
 ### Step 2 — New fields on ConfiguredAgent
 
@@ -106,15 +106,17 @@ History is only loaded on spawn (cold start). Live Jido state is authoritative w
 
 - [ ] **Step 1 — `Executor` scope tests**
   - Module: `Zaq.Agent.Executor`
+  - Current state: `derive_scope/1` returns bare `"7"` / `"sess_abc"` / `"anonymous"` — no provider prefix. Must be updated to include provider.
   - Tests to write:
-    - [ ] `derive_scope/1 returns "mattermost-2" for person_id=2, provider=:mattermost`
-    - [ ] `derive_scope/1 returns "email_imap-5" for person_id=5, provider=:"email:imap"`
-    - [ ] `derive_scope/1 returns "bo-<session>" for person_id=nil, provider=:web, metadata has session_id`
+    - [ ] `derive_scope/1 returns "mattermost:2" for person_id=2, provider=:mattermost`
+    - [ ] `derive_scope/1 returns "email_imap:5" for person_id=5, provider=:"email:imap"`
+    - [ ] `derive_scope/1 returns "bo:<session>" for person_id=nil, provider=:web, metadata has session_id`
     - [ ] `derive_scope/1 returns "anonymous" when person_id nil and no session_id`
-    - [ ] `ensure_agent_server/3 passes "AgentName:mattermost-2" as server_id to ensure_server_by_id`
+    - [ ] `ensure_agent_server/3 passes "AgentName:mattermost:2" as server_id to ensure_server_by_id`
 
 - [ ] **Step 2 — `ConfiguredAgent` changeset tests**
   - Module: `Zaq.Agent.ConfiguredAgent`
+  - Current state: `idle_time_seconds` and `memory_context_max_size` are **absent from schema and `@optional_fields`**. Migration exists but changeset doesn't cast these fields yet.
   - Tests to write:
     - [ ] `changeset/2 accepts idle_time_seconds as positive integer`
     - [ ] `changeset/2 accepts memory_context_max_size as positive integer`
@@ -122,48 +124,45 @@ History is only loaded on spawn (cold start). Live Jido state is authoritative w
 
 - [ ] **Step 3 — `ServerManager` idle TTL tests**
   - Module: `Zaq.Agent.ServerManager`
+  - Current state: no `timers` in state, no `schedule_idle_timer`, no `agent_idle_ttl_ms`. `ensure_server/2` is the only server spawn entry point (no `ensure_server_by_id/3`).
   - Tests to write:
-    - [ ] `ensure_server_by_id/2 schedules idle timer using configured_agent.idle_time_seconds`
-    - [ ] `ensure_server_by_id/2 uses system default when idle_time_seconds is nil`
-    - [ ] `ensure_server_by_id/2 cancels and resets timer on repeated call before expiry`
+    - [ ] `ensure_server/2 schedules idle timer using configured_agent.idle_time_seconds`
+    - [ ] `ensure_server/2 uses system default when idle_time_seconds is nil`
+    - [ ] `ensure_server/2 cancels and resets timer on repeated call before expiry`
     - [ ] `handle_info :expire_server removes entry from state.timers`
     - [ ] `stop_server/1 cancels timer and removes from state.timers`
 
-- [ ] **Step 4 — `HistoryLoader` tests**
-  - Module: `Zaq.Agent.HistoryLoader` (new)
-  - Tests to write:
-    - [ ] `load/3 returns an empty %Jido.AI.Context{} when no conversations exist`
-    - [ ] `load/3 returns a context whose entries are truncated to stay within max_tokens`
-    - [ ] `load/3 context.entries are newest-first (Jido.AI.Context.append prepends); to_messages/1 reversal produces chronological LLM messages`
-    - [ ] `load/3 maps "user" DB role to Entry with role: :user`
-    - [ ] `load/3 maps "assistant" DB role to Entry with role: :assistant`
-    - [ ] `load/3 uses default 5000 tokens when max_tokens not supplied`
-    - [ ] `load/3 returns context with empty entries for nil person_id`
+- [x] **Step 4 — `HistoryLoader` tests**
+  - Module: `Zaq.Agent.HistoryLoader`
+  - Current state: module exists at `lib/zaq/agent/history_loader.ex` with correct implementation. Tests at `test/zaq/agent/history_loader_test.exs`.
 
 - [ ] **Step 5 — `ServerManager` history-on-restart tests**
   - Tests to write:
-    - [ ] `ensure_server_by_id/3 injects loaded context into initial_state[:context] when process is dead`
-    - [ ] `ensure_server_by_id/3 does NOT call HistoryLoader when process already alive`
+    - [ ] `ensure_server/2 injects loaded context into initial_state[:context] when process is dead`
+    - [ ] `ensure_server/2 does NOT call HistoryLoader when process already alive`
 
 ---
 
 ### GREEN Phase — implementation
 
 - [ ] **Step 6 — `Executor`: channel-aware `derive_scope/1`**
-  - Add private `normalize_provider/1` helper.
-  - Rewrite scope clauses:
-    - non-nil `person_id`: `"#{normalize_provider(provider)}-#{person_id}"`
-    - nil `person_id` + BO: `"bo-#{session_id}"`
+  - Current state: `derive_scope/1` returns bare `to_string(person_id)`, `sid`, or `"anonymous"`. No provider prefix.
+  - Add private `normalize_provider/1` helper (`:web` → `"bo"`, `:"email:imap"` → `"email_imap"`, atoms → `Atom.to_string`).
+  - Rewrite scope clauses to include provider:
+    - non-nil `person_id`: `"#{normalize_provider(provider)}:#{person_id}"`
+    - nil `person_id` + session: `"bo:#{session_id}"`
     - fallback: `"anonymous"`
-  - No changes to `ensure_agent_server/3` — server ID format is already `"#{name}:#{scope}"`.
+  - Update doctests to match new format (`"7"` → `"test:7"` etc).
+  - No changes to `ensure_agent_server/3` — server ID format `"#{name}:#{scope}"` already correct, producing e.g. `"Yo:mattermost:2"`.
   - Module: `Zaq.Agent.Executor`
   - Temporary code? No
   - Coverage target: `>= 95%`
 
-- [ ] **Step 7 — Migration + `ConfiguredAgent` schema**
-  - `mix ecto.gen.migration add_idle_time_and_memory_context_to_configured_agents`
-  - Adds `idle_time_seconds :integer, null: true` and `memory_context_max_size :integer, null: true`.
-  - `ConfiguredAgent`: add both fields to schema and to `@optional_fields` in changeset.
+- [ ] **Step 7 — `ConfiguredAgent` schema + changeset** *(migration already done)*
+  - Migration `20260427200302_add_idle_time_and_memory_context_to_configured_agents.exs` exists.
+  - Still needed: add `field :idle_time_seconds, :integer` and `field :memory_context_max_size, :integer` to schema block.
+  - Add both to `@optional_fields`.
+  - Add `|> validate_number(:idle_time_seconds, greater_than: 0)` and `|> validate_number(:memory_context_max_size, greater_than: 0)` to changeset.
   - Module: `Zaq.Agent.ConfiguredAgent`
   - Temporary code? No
   - Coverage target: `>= 95%`
@@ -185,47 +184,39 @@ History is only loaded on spawn (cold start). Live Jido state is authoritative w
   - Coverage target: `>= 95%`
 
 - [ ] **Step 8 — `ServerManager`: per-agent idle TTL**
+  - Current state: no `timers` in state, no timer logic. `ensure_server/2` is the entry point (2-arg: `configured_agent, server_id`).
   - Add `timers: %{}` to state in `init/1`.
-  - Add private `schedule_idle_timer/3 (state, server_id, configured_agent)`:
-    - Cancels existing timer if present.
-    - Computes TTL from `configured_agent.idle_time_seconds` or system default.
+  - Add private `schedule_idle_timer(state, server_id, configured_agent)`:
+    - Cancels existing timer via `Process.cancel_timer/1` if present in `state.timers`.
+    - Computes TTL: `(configured_agent.idle_time_seconds || system_default_ms / 1_000) * 1_000`.
     - Sends `Process.send_after(self(), {:expire_server, server_id}, ttl_ms)`.
-    - Returns updated state.
-  - Call `schedule_idle_timer` at the end of both `handle_call({:ensure_server_by_id, ...})` success branches (server already running AND newly spawned).
-  - Extend `handle_info({:expire_server, server_id})` to `Map.delete(state.timers, server_id)`.
-  - Extend `handle_call({:stop_server_by_raw_id, server_id})` to cancel + delete timer.
+    - Returns updated state with new ref in `state.timers`.
+  - Add private `cancel_timer(state, server_id)` to cancel + delete from `state.timers`.
+  - Add private `agent_idle_ttl_ms(configured_agent)` returning per-agent TTL or system default.
+  - Call `schedule_idle_timer` at the end of BOTH success branches in `handle_call({:ensure_server, ...})` (server already running AND newly spawned).
+  - Extend `handle_info({:expire_server, server_id})` to delete from `state.timers`.
+  - Extend `handle_call({:stop_server, ...})` to call `cancel_timer` for each stopped server.
   - Module: `Zaq.Agent.ServerManager`
   - Temporary code? No
   - Coverage target: `>= 95%`
 
-- [ ] **Step 9 — `HistoryLoader`: DB→`Jido.AI.Context` conversion**
-  - New module `Zaq.Agent.HistoryLoader`.
-  - `load(person_id, channel_type, opts \\ []) :: Jido.AI.Context.t()`:
-    - `max_tokens` opt, default `5_000`.
-    - Returns an empty `%Jido.AI.Context{}` immediately if `person_id` is `nil`.
-    - Queries `Conversations` for active convos matching `person_id` + `channel_type`, `order_by: [desc: inserted_at]`.
-    - Preloads messages for those convos ordered `desc: inserted_at`, accumulates until token budget exhausted (using `TokenEstimator.estimate/1` per message).
-    - **Reverses the accumulated list to chronological order (oldest first) before appending** — `Jido.AI.Context.append` prepends each entry (`[entry | entries]`), so to get the right LLM order after `to_messages/1` reversal, we must feed messages oldest-first. Verified: `to_messages/1` calls `Enum.reverse(thread.entries)` to produce chronological order.
-    - Builds a `%Jido.AI.Context{}` by calling `Jido.AI.Context.new()` then appending entries in chronological order:
-      - DB role `"user"` → `Context.append_user(ctx, content)`
-      - DB role `"assistant"` → `Context.append_assistant(ctx, content)`
-    - Returns the `%Jido.AI.Context{}` struct.
-  - **Do NOT use `History.build/1` or `History.entry_key/2`** — those are for the non-Jido retrieval path only (see `retrieval.ex` and `chat_live.ex`). `Jido.AI.Context` uses `Entry` structs, not `ReqLLM.Message`.
-  - `Zaq.Agent.History` is NOT deprecated — it remains the correct tool for `retrieval.ex` and the BO `chat_live.ex` WebBridge path.
-  - Uses `Repo` directly — read-only internal query; no NodeRouter call needed since history loading is inside the agent node.
-  - Module: `Zaq.Agent.HistoryLoader` (new file)
-  - Temporary code? No
-  - Coverage target: `>= 95%`
+- [x] **Step 9 — `HistoryLoader`: DB→`Jido.AI.Context` conversion** *(DONE)*
+  - `lib/zaq/agent/history_loader.ex` exists with correct implementation:
+    - `load(nil, _, _)` and `load(_, nil, _)` return `AIContext.new()` immediately.
+    - Fetches messages via subquery on `Conversation.person_id + channel_type`, `limit: 500`, `desc: inserted_at`.
+    - Accumulates within token budget using `TokenEstimator.estimate/1`.
+    - Result of `accumulate_within_budget` is already in reverse-chronological order (desc fetch, halt early); `build_context` reduces directly — appending oldest-first produces correct `Jido.AI.Context` entry order.
+    - DB role `"user"` → `%AIContext.Entry{role: :user}`, `"assistant"` → `%AIContext.Entry{role: :assistant}`.
+  - Tests at `test/zaq/agent/history_loader_test.exs`.
 
-- [ ] **Step 10 — `ServerManager`: inject context on cold spawn**
-  - Change public signature: `ensure_server_by_id(configured_agent, server_id, spawn_opts \\ %{})`.
-  - `spawn_opts` carries `%{person_id: integer | nil, channel_type: string | nil}`.
-  - GenServer call message: `{:ensure_server_by_id, configured_agent, server_id, spawn_opts}`.
-  - In the handler, when `safe_whereis` returns nil:
-    - Call `HistoryLoader.load(person_id, channel_type, max_tokens: configured_agent.memory_context_max_size || 5_000)`.
-    - Merge the returned `%Jido.AI.Context{}` into `initial_state` as the `:context` key: `Map.put(initial_state, :context, context)`.
-    - **Key**: the Jido ReAct strategy's `init/1` reads `agent.state.context` and calls `AIContext.coerce/1` on it. Passing it under `:context` in `initial_state` (which merges into `agent.state`) is the correct and only supported injection point. Do not use `:history`.
-  - Update `Executor.ensure_agent_server/3` to pass `%{person_id: incoming.person_id, channel_type: normalize_channel_type(incoming.provider)}` as `spawn_opts`.
+- [ ] **Step 10 — `ServerManager`: inject context on cold spawn + `Executor` spawn_opts**
+  - Current state: `spawn_agent_server/2` takes `(configured_agent, server_id)` only — no `person_id`/`channel_type` available for `HistoryLoader.load`.
+  - In `ServerManager`: extend `spawn_agent_server` to accept `spawn_opts \\ %{}` carrying `%{person_id: ..., channel_type: ...}`. On cold spawn only (when `safe_whereis` returns nil), call `HistoryLoader.load(person_id, channel_type, max_tokens: configured_agent.memory_context_max_size || 5_000)` and merge result into `initial_state` under `:context`.
+  - In `do_ensure_server/3`: thread `spawn_opts` through to `start_server/5` and down to `spawn_agent_server/3`.
+  - Extend the public `ensure_server/2` call message to carry spawn_opts: `{:ensure_server, configured_agent, server_id, spawn_opts}`. Keep `ensure_server/2` public signature backward-compatible by defaulting `spawn_opts` to `%{}`.
+  - In `Executor.ensure_agent_server/3`: pass `%{person_id: Keyword.get(opts, :person_id), channel_type: normalize_channel_type(incoming.provider)}` as spawn_opts. Requires threading `incoming` into `ensure_agent_server` (make it a 4-arg private function or pull from opts).
+  - Also thread `person_id` + `channel_type` into `opts` from `ensure_scope_for_answering_path/2` (already sets `:scope`; extend to also set `:person_id` and `:channel_type`).
+  - **Key**: injection key is `:context` in `initial_state` — Jido ReAct `init/1` reads `agent.state.context` via `AIContext.coerce/1`.
   - Module: `Zaq.Agent.ServerManager`, `Zaq.Agent.Executor`
   - Temporary code? No
   - Coverage target: `>= 95%`
@@ -240,7 +231,7 @@ History is only loaded on spawn (cold start). Live Jido state is authoritative w
 |---|---|---|
 | Include provider in `derive_scope/1` rather than in a separate arg | `derive_scope` is the single canonical scope source; adding a second parallel derivation path would split responsibility. Embedding provider in scope is minimal and self-contained. | 2026-04-27 |
 | `:web` provider normalized to `"bo"` | `:web` is an internal provider atom, not user-facing. `"bo"` matches the existing `"bo"` language used throughout the codebase for the back-office channel. | 2026-04-27 |
-| `:"email:imap"` normalized to `"email_imap"` (colon → underscore) | Colons in server IDs would conflict with the `":"` separator already used between agent name and scope. Underscores are safe in all Jido registry key contexts. | 2026-04-27 |
+| `:"email:imap"` normalized to `"email_imap"` (colon → underscore) | The format is `"AgentName:channel:identity"` — colons are the segment separator. A provider atom like `:"email:imap"` contains an internal colon that would create a 4-segment ambiguity. Normalizing to `"email_imap"` keeps all server IDs unambiguously 3-segment. | 2026-04-27 |
 | Timer cancel+reschedule on every `ensure_server_by_id` call | Each call represents an inbound message. Resetting the timer on activity gives "idle since last message" semantics, which is the user's intent. A single one-shot timer scheduled only at spawn would not reset on activity. | 2026-04-27 |
 | `HistoryLoader` as a new module (not added to `Conversations` context) | `Conversations` owns conversation CRUD. Loading history specifically for agent memory initialization is an agent-domain concern. A separate module keeps responsibilities clear and the agent domain self-contained. | 2026-04-27 |
 | History only injected on cold spawn, not on every call | Jido accumulates history in process state as the conversation progresses. Injecting from DB on every call would overwrite live in-memory turns. DB is authoritative only when the process is cold. | 2026-04-27 |
@@ -268,11 +259,13 @@ History is only loaded on spawn (cold start). Live Jido state is authoritative w
 - [ ] Integration tests cover key branches/paths
 - [ ] Coverage for every added/modified file is `>= 95%`
 - [ ] `mix precommit` passes
-- [ ] `derive_scope/1` includes provider in all scope strings
-- [ ] Server IDs are `"AgentName:provider-person_id"` format throughout
-- [ ] `configured_agents` migration applied cleanly
-- [ ] Idle timer resets on every incoming message
+- [x] `configured_agents` migration exists (`20260427200302_...`)
+- [x] `HistoryLoader` module implemented and tested
+- [x] Both new fields visible and editable in BO agent admin form (`agents_live.html.heex`)
+- [ ] `derive_scope/1` includes provider in all scope strings (`"bo-5"`, `"mattermost-2"`)
+- [ ] Server IDs are `"AgentName:channel:person_id"` format throughout (e.g. `"Yo:mattermost:2"`, `"Yo:bo:5"`)
+- [ ] `configured_agent.ex` schema + `@optional_fields` + changeset include `idle_time_seconds` and `memory_context_max_size`
+- [ ] Idle timer scheduled and reset on every `ensure_server` call in `ServerManager`
 - [ ] History injected as `initial_state[:context]` (`%Jido.AI.Context{}`) only on cold spawn
-- [ ] Both new fields visible and editable in BO agent admin form
 - [ ] Relevant docs updated
 - [ ] Plan moved to `docs/exec-plans/completed/`

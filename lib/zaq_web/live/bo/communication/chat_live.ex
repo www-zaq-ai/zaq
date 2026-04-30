@@ -123,6 +123,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       session_id = socket.assigns.session_id
       request_id = user_msg.id
 
+      {conversation_id, socket} =
+        case resolve_or_create_conversation(socket) do
+          {:ok, conv_id} -> {conv_id, assign(socket, :current_conversation_id, conv_id)}
+          _err -> {nil, socket}
+        end
+
       Task.start(fn ->
         run_pipeline_async(
           session_id,
@@ -131,7 +137,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           socket.assigns.history,
           socket.assigns.current_user,
           socket.assigns.selected_agent_id,
-          active_filters
+          active_filters,
+          conversation_id
         )
       end)
 
@@ -484,7 +491,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          history,
          current_user,
          selected_agent_id,
-         active_filters
+         active_filters,
+         conversation_id
        ) do
     source_filter = Enum.map(active_filters, & &1.source_prefix)
 
@@ -493,8 +501,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       channel_id: "bo",
       author_id: current_user.id,
       provider: :web,
+      person_id: Map.get(current_user, :person_id),
       content_filter: source_filter,
-      metadata: %{session_id: session_id, request_id: request_id, user_content: user_msg}
+      metadata: %{
+        session_id: session_id,
+        request_id: request_id,
+        user_content: user_msg,
+        conversation_id: conversation_id
+      }
     }
 
     # Explicit: BO-authenticated users with no person record get full access.
@@ -581,7 +595,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
        ) do
     user_id = if current_user, do: current_user.id, else: nil
 
-    case resolve_conversation(current_user, current_conversation_id) do
+    fetch_result =
+      if is_nil(current_conversation_id) do
+        resolve_conversation(current_user, nil)
+      else
+        case node_router().call(
+               :engine,
+               Zaq.Engine.Conversations,
+               :get_conversation,
+               [current_conversation_id]
+             ) do
+          %{} = conv -> {:ok, conv}
+          _ -> {:error, :not_found}
+        end
+      end
+
+    case fetch_result do
       {:ok, conv} ->
         add_messages_to_conversation(
           conv,
@@ -595,6 +624,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       err ->
         Logger.warning("ChatLive: failed to persist conversation: #{inspect(err)}")
         :error
+    end
+  end
+
+  defp resolve_or_create_conversation(socket) do
+    case resolve_conversation(socket.assigns.current_user, socket.assigns.current_conversation_id) do
+      {:ok, conv} -> {:ok, conv.id}
+      err -> err
     end
   end
 

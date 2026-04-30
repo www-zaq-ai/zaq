@@ -36,6 +36,99 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     Repo.insert!(struct(Message, attrs))
   end
 
+  describe "load_for_conversation/2" do
+    test "returns empty context for nil conversation_id" do
+      result = HistoryLoader.load_for_conversation(nil)
+      assert %AIContext{} = result
+      assert AIContext.empty?(result)
+    end
+
+    test "returns empty context for empty string conversation_id" do
+      result = HistoryLoader.load_for_conversation("")
+      assert %AIContext{} = result
+      assert AIContext.empty?(result)
+    end
+
+    test "returns only messages from the given conversation" do
+      person = insert_person()
+      conv_a = insert_conversation(person.id, "bo")
+      conv_b = insert_conversation(person.id, "bo")
+      insert_message(conv_a, "user", "from conv A")
+      insert_message(conv_b, "user", "from conv B")
+
+      result = HistoryLoader.load_for_conversation(conv_a.id)
+      messages = AIContext.to_messages(result)
+
+      assert length(messages) == 1
+      assert String.ends_with?(hd(messages).content, "from conv A")
+    end
+
+    test "does not include messages from other conversations" do
+      person = insert_person()
+      conv_a = insert_conversation(person.id, "bo")
+      conv_b = insert_conversation(person.id, "bo")
+      insert_message(conv_b, "user", "should not appear")
+
+      result = HistoryLoader.load_for_conversation(conv_a.id)
+      assert AIContext.empty?(result)
+    end
+
+    test "returns messages in chronological order" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+      t1 = ~U[2026-04-01 10:00:00.000000Z]
+      t2 = ~U[2026-04-01 10:01:00.000000Z]
+      insert_message(conv, "user", "first", t1)
+      insert_message(conv, "assistant", "second", t2)
+
+      result = HistoryLoader.load_for_conversation(conv.id)
+      messages = AIContext.to_messages(result)
+
+      assert length(messages) == 2
+      [m1, m2] = messages
+      assert String.ends_with?(m1.content, "first")
+      assert m2.content == "second"
+    end
+
+    test "respects max_tokens budget" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+
+      insert_message(
+        conv,
+        "user",
+        "one two three four five six seven eight nine ten",
+        ~U[2026-04-01 10:00:00.000000Z]
+      )
+
+      insert_message(
+        conv,
+        "assistant",
+        "one two three four five six seven eight nine ten",
+        ~U[2026-04-01 10:01:00.000000Z]
+      )
+
+      result = HistoryLoader.load_for_conversation(conv.id, max_tokens: 15)
+      messages = AIContext.to_messages(result)
+
+      assert length(messages) == 1
+      assert hd(messages).role == :assistant
+    end
+
+    test "is bounded to 500 rows from the DB" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+
+      for i <- 1..510 do
+        insert_message(conv, "user", "message #{i}")
+      end
+
+      result = HistoryLoader.load_for_conversation(conv.id, max_tokens: 1_000_000)
+      messages = AIContext.to_messages(result)
+      assert length(messages) <= 500
+    end
+  end
+
   describe "load/3" do
     test "returns empty context when no conversations exist for that person" do
       person = insert_person()

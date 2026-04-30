@@ -19,6 +19,35 @@ defmodule Zaq.Agent.HistoryLoader do
   @max_db_fetch 500
 
   @doc """
+  Loads the most recent messages for the given `conversation_id`, accumulates
+  them up to `max_tokens`, and returns a `Jido.AI.Context`.
+
+  Returns an empty context immediately when `conversation_id` is `nil` or `""`.
+
+  ## Options
+
+    * `:max_tokens` — token budget (default: #{@default_max_tokens})
+  """
+  @spec load_for_conversation(String.t() | nil, keyword()) :: AIContext.t()
+  def load_for_conversation(conversation_id, opts \\ [])
+  def load_for_conversation(nil, _opts), do: AIContext.new()
+  def load_for_conversation("", _opts), do: AIContext.new()
+
+  def load_for_conversation(conversation_id, opts) do
+    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
+
+    from(m in Message,
+      where: m.conversation_id == ^conversation_id,
+      order_by: [desc: m.inserted_at],
+      limit: @max_db_fetch,
+      select: %{role: m.role, content: m.content, inserted_at: m.inserted_at}
+    )
+    |> Repo.all()
+    |> accumulate_within_budget(max_tokens)
+    |> build_context()
+  end
+
+  @doc """
   Loads the most recent messages for the given `person_id` + `channel_type`
   pair, accumulates them up to `max_tokens`, and returns a `Jido.AI.Context`.
 

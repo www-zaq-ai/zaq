@@ -267,7 +267,14 @@ defmodule Zaq.Agent.ServerManagerTest do
   test "init starts no servers — supervision tree is empty on start" do
     # init/1 no longer pre-spawns any servers; all spawning is lazy per-message.
     assert {:ok, state} = ServerManager.init([])
-    assert state == %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}}
+
+    assert state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             timers: %{}
+           }
   end
 
   test "ensure_server uses credential lookup when credential is not preloaded" do
@@ -323,12 +330,19 @@ defmodule Zaq.Agent.ServerManagerTest do
       advanced_options: %{}
     }
 
-    init_state = %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}}
+    init_state = %{
+      fingerprints: %{},
+      agent_servers: %{},
+      server_to_agent: %{},
+      draining: %{},
+      timers: %{}
+    }
+
     server_id = "configured_agent_123456"
 
     assert {:reply, {:error, :provider_not_found}, ^init_state} =
              ServerManager.handle_call(
-               {:ensure_server, configured_agent, server_id},
+               {:ensure_server, configured_agent, server_id, %{}},
                self(),
                init_state
              )
@@ -353,7 +367,8 @@ defmodule Zaq.Agent.ServerManagerTest do
                fingerprints: %{},
                agent_servers: %{},
                server_to_agent: %{},
-               draining: %{}
+               draining: %{},
+               timers: %{}
              }
     end
   end
@@ -821,6 +836,113 @@ defmodule Zaq.Agent.ServerManagerTest do
     pid2 = Jido.AgentServer.whereis(registry, server_id)
     assert is_pid(pid1)
     assert pid1 == pid2
+  end
+
+  describe "spawn_opts conversation_id routing" do
+    alias Jido.AI.Context, as: AIContext
+    alias Zaq.Accounts.Person
+    alias Zaq.Engine.Conversations.{Conversation, Message}
+    alias Zaq.Repo
+
+    defp insert_person_for_sm do
+      Repo.insert!(%Person{
+        full_name: "SM Test Person #{System.unique_integer([:positive])}",
+        status: "active"
+      })
+    end
+
+    defp insert_conversation_for_sm(person_id, channel_type) do
+      %Conversation{}
+      |> Conversation.changeset(%{
+        channel_user_id: "user_#{System.unique_integer([:positive])}",
+        channel_type: channel_type,
+        person_id: person_id,
+        status: "active"
+      })
+      |> Repo.insert!()
+    end
+
+    defp insert_message_for_sm(conversation, role, content) do
+      Repo.insert!(
+        struct(Message, %{
+          conversation_id: conversation.id,
+          role: role,
+          content: content,
+          inserted_at: DateTime.utc_now()
+        })
+      )
+    end
+
+    defp make_agent_for_routing(name_suffix) do
+      credential =
+        ai_credential_fixture(%{
+          name: "Routing Cred #{name_suffix} #{System.unique_integer([:positive, :monotonic])}",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          api_key: "x"
+        })
+
+      {:ok, configured_agent} =
+        Agent.create_agent(%{
+          name: "Routing Agent #{name_suffix} #{System.unique_integer([:positive])}",
+          description: "",
+          job: "routing test",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: false,
+          active: true,
+          advanced_options: %{}
+        })
+
+      configured_agent
+    end
+
+    test "spawn_agent_server loads history from conversation when conversation_id in spawn_opts" do
+      person = insert_person_for_sm()
+      conv = insert_conversation_for_sm(person.id, "bo")
+      insert_message_for_sm(conv, "user", "hello from this conversation")
+
+      configured_agent = make_agent_for_routing("HistConv")
+      server_id = "routing_conv_test_#{System.unique_integer([:positive])}"
+
+      assert {:ok, server_ref} =
+               ServerManager.ensure_server(configured_agent, server_id, %{
+                 conversation_id: conv.id,
+                 person_id: person.id,
+                 channel_type: "bo"
+               })
+
+      assert {:ok, status} = Jido.AgentServer.status(server_ref)
+      messages = AIContext.to_messages(status.raw_state.context)
+
+      assert Enum.any?(messages, fn m ->
+               String.ends_with?(m.content, "hello from this conversation")
+             end)
+    end
+
+    test "spawn_agent_server falls back to load/3 when no conversation_id in spawn_opts" do
+      person = insert_person_for_sm()
+      conv = insert_conversation_for_sm(person.id, "bo")
+      insert_message_for_sm(conv, "user", "person-channel message")
+
+      configured_agent = make_agent_for_routing("HistPerson")
+      server_id = "routing_person_test_#{System.unique_integer([:positive])}"
+
+      assert {:ok, server_ref} =
+               ServerManager.ensure_server(configured_agent, server_id, %{
+                 person_id: person.id,
+                 channel_type: "bo"
+               })
+
+      assert {:ok, status} = Jido.AgentServer.status(server_ref)
+      messages = AIContext.to_messages(status.raw_state.context)
+
+      assert Enum.any?(messages, fn m ->
+               String.ends_with?(m.content, "person-channel message")
+             end)
+    end
   end
 
   test "drain timeout kills in-flight server and next message uses replacement pid" do

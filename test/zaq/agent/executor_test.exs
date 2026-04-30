@@ -11,7 +11,7 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(configured_agent, server_id) do
+    def ensure_server(configured_agent, server_id, _spawn_opts) do
       send(self(), {:ensure_server, configured_agent, server_id})
       {:ok, :stub_server_scoped}
     end
@@ -41,13 +41,61 @@ defmodule Zaq.Agent.ExecutorTest do
   @base_incoming %Incoming{content: "q", channel_id: "c", provider: :web}
 
   describe "derive_scope/1" do
-    test "uses person_id when present" do
-      assert Executor.derive_scope(%{@base_incoming | person_id: 42}) == "42"
+    test "returns bo:conv:<id> when metadata.conversation_id is set on :web provider" do
+      incoming = %{@base_incoming | provider: :web, metadata: %{conversation_id: "conv-42"}}
+      assert Executor.derive_scope(incoming) == "bo:conv:conv-42"
     end
 
-    test "falls back to session_id when person_id is nil" do
+    test "conversation_id takes priority over person_id for :web provider" do
+      incoming = %{
+        @base_incoming
+        | provider: :web,
+          person_id: 7,
+          metadata: %{conversation_id: "conv-99"}
+      }
+
+      assert Executor.derive_scope(incoming) == "bo:conv:conv-99"
+    end
+
+    test "ignores conversation_id for non-web providers (falls through to person_id)" do
+      incoming = %{
+        @base_incoming
+        | provider: :mattermost,
+          person_id: 3,
+          metadata: %{conversation_id: "conv-1"}
+      }
+
+      assert Executor.derive_scope(incoming) == "mattermost:3"
+    end
+
+    test "empty conversation_id falls through to person_id for :web" do
+      incoming = %{
+        @base_incoming
+        | provider: :web,
+          person_id: 5,
+          metadata: %{conversation_id: ""}
+      }
+
+      assert Executor.derive_scope(incoming) == "bo:5"
+    end
+
+    test "includes channel and person_id" do
+      assert Executor.derive_scope(%{@base_incoming | person_id: 42}) == "bo:42"
+    end
+
+    test "normalizes mattermost provider" do
+      assert Executor.derive_scope(%{@base_incoming | person_id: 2, provider: :mattermost}) ==
+               "mattermost:2"
+    end
+
+    test "normalizes colon-containing provider (email:imap → email_imap)" do
+      assert Executor.derive_scope(%{@base_incoming | person_id: 5, provider: :"email:imap"}) ==
+               "email_imap:5"
+    end
+
+    test "falls back to bo:<session_id> when person_id is nil" do
       incoming = %{@base_incoming | person_id: nil, metadata: %{session_id: "sess-abc"}}
-      assert Executor.derive_scope(incoming) == "sess-abc"
+      assert Executor.derive_scope(incoming) == "bo:sess-abc"
     end
 
     test "returns 'anonymous' when both are absent" do
@@ -58,7 +106,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
   describe "run/2 — answering agent (no agent_id)" do
     defmodule StubSMAnswering do
-      def ensure_server(_agent, server_id) do
+      def ensure_server(_agent, server_id, _spawn_opts) do
         send(self(), {:ensure_server, server_id})
         {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
       end
@@ -90,7 +138,7 @@ defmodule Zaq.Agent.ExecutorTest do
       def runtime_config(_agent), do: {:ok, %{system_prompt: "", tools: [], llm_opts: []}}
     end
 
-    test "routes through answering configured agent, scoped per person" do
+    test "routes through answering configured agent, scoped per person and channel" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 5}
 
       result =
@@ -98,12 +146,11 @@ defmodule Zaq.Agent.ExecutorTest do
           answering_module: StubFactoryAnswering,
           factory_module: StubFactoryAnswering,
           server_manager_module: StubSMAnswering,
-          node_router: StubNodeRouter,
-          scope: "5"
+          node_router: StubNodeRouter
         )
 
       assert %Zaq.Engine.Messages.Outgoing{} = result
-      assert_received {:ensure_server, "answering:5"}
+      assert_received {:ensure_server, "answering:bo:5"}
     end
 
     test "uses 'anonymous' scope when person_id and session_id are absent" do
@@ -128,7 +175,7 @@ defmodule Zaq.Agent.ExecutorTest do
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter,
-          scope: "7"
+          scope: "bo:7"
         )
 
       assert %Zaq.Engine.Messages.Outgoing{} = result
@@ -148,7 +195,7 @@ defmodule Zaq.Agent.ExecutorTest do
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter,
-          scope: "8"
+          scope: "bo:8"
         )
 
       # nil confidence (no logprobs) must NOT be coerced to 0.0 —
@@ -158,7 +205,7 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   describe "run/2 :scope opt" do
-    test "uses agent name as server id — {agent_name}:{scope}" do
+    test "with explicit :scope uses agent name as server id — {agent_name}:{scope}" do
       opts = Keyword.put(@base_opts, :scope, "99")
 
       Executor.run(@incoming, opts)
@@ -166,10 +213,11 @@ defmodule Zaq.Agent.ExecutorTest do
       assert_received {:ensure_server, _configured_agent, "Stub Agent:99"}
     end
 
-    test "without :scope opt still uses scoped server id contract" do
+    test "without :scope derives scope from incoming (channel:identity)" do
+      # @incoming has provider: :web → "bo", no person_id → "anonymous"
       Executor.run(@incoming, @base_opts)
 
-      assert_received {:ensure_server, _configured_agent, "Stub Agent:"}
+      assert_received {:ensure_server, _configured_agent, "Stub Agent:anonymous"}
     end
   end
 end

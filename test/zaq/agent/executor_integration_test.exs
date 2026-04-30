@@ -14,7 +14,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(_configured_agent, _server_id), do: {:ok, :stub_server}
+    def ensure_server(_configured_agent, _server_id, _spawn_opts \\ %{}), do: {:ok, :stub_server}
   end
 
   defmodule StubFactoryResult do

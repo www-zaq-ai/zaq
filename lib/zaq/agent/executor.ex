@@ -17,22 +17,31 @@ defmodule Zaq.Agent.Executor do
   @doc """
   Derives a stable scope string from an incoming message used to key the Jido agent server.
 
+  Format: `"channel:identity"` where channel is the normalized provider and identity is
+  `person_id`, `session_id`, or `"anonymous"`.
+
   Priority order:
-  1. `person_id` — converted to string when present
-  2. `metadata.session_id` — used when `person_id` is nil and session ID is a non-empty string
-  3. `"anonymous"` — fallback for all other cases
+  1. `:web` provider + `metadata.conversation_id` — `"bo:conv:<id>"` (BO per-conversation isolation)
+  2. `person_id` — `"<channel>:<person_id>"` when present
+  3. `metadata.session_id` — `"bo:<session_id>"` when `person_id` is nil and session ID is a non-empty string
+  4. `"anonymous"` — fallback for all other cases
 
   ## Examples
 
       iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | metadata: %{conversation_id: "conv-42"}})
+      "bo:conv:conv-42"
+
+      iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
       iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: 7})
-      "7"
+      "test:7"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
       iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{session_id: "sess_abc"}})
-      "sess_abc"
+      "bo:sess_abc"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
@@ -41,11 +50,17 @@ defmodule Zaq.Agent.Executor do
 
   """
   @spec derive_scope(Incoming.t()) :: String.t()
-  def derive_scope(%Incoming{person_id: person_id}) when not is_nil(person_id),
-    do: to_string(person_id)
+  def derive_scope(%Incoming{provider: :web, metadata: %{conversation_id: id}})
+      when is_binary(id) and id != "",
+      do: "bo:conv:#{id}"
 
-  def derive_scope(%Incoming{metadata: %{session_id: sid}}) when is_binary(sid) and sid != "",
-    do: sid
+  def derive_scope(%Incoming{person_id: person_id, provider: provider})
+      when not is_nil(person_id),
+      do: "#{normalize_provider(provider)}:#{person_id}"
+
+  def derive_scope(%Incoming{metadata: %{session_id: sid}})
+      when is_binary(sid) and sid != "",
+      do: "bo:#{sid}"
 
   def derive_scope(_), do: "anonymous"
 
@@ -132,8 +147,15 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp ensure_agent_server(server_manager_module, configured_agent, opts) do
-    server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "")}"
-    server_manager_module.ensure_server(configured_agent, server_id)
+    server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
+
+    spawn_opts = %{
+      person_id: Keyword.get(opts, :person_id),
+      channel_type: Keyword.get(opts, :channel_type),
+      conversation_id: Keyword.get(opts, :conversation_id)
+    }
+
+    server_manager_module.ensure_server(configured_agent, server_id, spawn_opts)
   end
 
   defp load_selected_agent(opts, agent_module, _factory_module) do
@@ -146,12 +168,24 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp ensure_scope_for_answering_path(opts, incoming) do
-    if Keyword.get(opts, :agent_id) == nil and Keyword.get(opts, :scope) == nil do
-      Keyword.put(opts, :scope, derive_scope(incoming))
-    else
-      opts
-    end
+    opts
+    |> Keyword.put_new(:person_id, incoming.person_id)
+    |> Keyword.put_new(:channel_type, normalize_provider(incoming.provider))
+    |> Keyword.put_new(:conversation_id, incoming.metadata[:conversation_id])
+    |> then(fn opts ->
+      if is_nil(Keyword.get(opts, :scope)),
+        do: Keyword.put(opts, :scope, derive_scope(incoming)),
+        else: opts
+    end)
   end
+
+  defp normalize_provider(:web), do: "bo"
+
+  defp normalize_provider(provider) when is_atom(provider),
+    do: provider |> Atom.to_string() |> String.replace(":", "_")
+
+  defp normalize_provider(provider) when is_binary(provider),
+    do: String.replace(provider, ":", "_")
 
   defp apply_system_prompt_override(configured_agent, opts) do
     case Keyword.get(opts, :system_prompt) do
