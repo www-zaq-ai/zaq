@@ -4,7 +4,17 @@
 [![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://www-zaq-ai.github.io/zaq/)
 [![Run](https://img.shields.io/badge/quick%20run-local%20setup-orange)](https://github.com/www-zaq-ai/zaq/wiki/Local-Installation)
 
-AI-powered sovereign company brain. ZAQ OSS lets you access your organization's knowledge base and provides instant, cited answers to people and AI agents.
+ZAQ OSS is an AI-powered, sovereign company brain. It connects to your organization’s knowledge bases and delivers instant, cited answers to both people and AI agents.
+
+Built around communication channels (e.g Mattermost, Slack, Teams, Telegram, Discord...) ZAQ integrates directly with your existing tools. It also natively supports email via IMAP and SMTP, making it compatible with virtually any mail server.
+
+ZAQ enables hybrid setups, combining end-to-end sovereign and non-sovereign streams from a single platform. While enforcing data sovereignty and confidentiality at the source.
+
+All data access is governed by a deterministic permission system: the AI can only access what each user is allowed to see.
+
+ZAQ also lets you create AI agents, equip them with tools and MCPs, and automate workflows while staying aligned with your internal knowledge and access controls.
+
+With ZAQ dashboard monitor your data quality and it's impact on your AI performance in real time.
 
 <img height="400" alt="Zaq Chat" src="https://github.com/user-attachments/assets/333d65d8-da9d-46f3-9a68-6689b58cb1b7" />
 
