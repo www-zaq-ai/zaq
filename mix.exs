@@ -92,11 +92,11 @@ defmodule Zaq.MixProject do
       {:httpoison, "~> 2.3"},
       {:earmark, "~> 1.4.48"},
       {:nimble_csv, "~> 1.2"},
-      {:llm_db, "~> 2026.4"},
       {:mailroom, "~> 0.7.1"},
       {:lingua, "~> 0.3.6"},
 
       # Jido Ecosystem
+      {:llm_db, "~> 2026.4", runtime: false},
       {:jido_chat, github: "agentjido/jido_chat", branch: "main"},
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
       {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
