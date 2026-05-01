@@ -68,7 +68,8 @@ defmodule Zaq.Agent.Status do
         function: :broadcast,
         args: [Zaq.PubSub, "chat:#{session_id}", {:status_update, request_id, stage, message}]
       },
-      :bo
+      :bo,
+      type: :async
     )
     |> node_router.dispatch()
 

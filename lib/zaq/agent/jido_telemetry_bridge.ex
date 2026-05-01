@@ -34,7 +34,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
     max_payload_chars: 2000
   }
 
-  @default_mcp_prefixes ["mcp__", "mcp_"]
+  # @default_mcp_prefixes ["mcp__", "mcp_"]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -82,7 +82,6 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   @spec handle_event([atom()], map(), map(), map()) :: :ok
   def handle_event(event, measurements, metadata, cfg) do
     cfg = normalize_callback_config(cfg)
-
     maybe_broadcast_status(event, metadata)
 
     if skip_event?(event, cfg) do
@@ -214,7 +213,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   defp maybe_broadcast_status([:jido, :ai, :llm, :start], metadata) do
     case resolve_ctx(metadata) do
       nil -> :ok
-      ctx -> Status.broadcast(ctx, :thinking, "Thinking…", ctx.node_router)
+      ctx -> Status.broadcast(ctx, :answering, "Thinking…", ctx.node_router)
     end
 
     :ok
@@ -228,10 +227,8 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
       ctx ->
         tool_name = Map.get(metadata, :tool_name) || "unknown"
-        stage = tool_stage(tool_name)
-        Status.broadcast(ctx, stage, "Calling #{tool_name}…", ctx.node_router)
-        existing = Process.get(:zaq_tool_calls, [])
-        Process.put(:zaq_tool_calls, existing ++ [%{name: tool_name, type: stage}])
+        # stage = tool_stage(tool_name)
+        Status.broadcast(ctx, :retrieving, "Calling #{tool_name}…", ctx.node_router)
     end
 
     :ok
@@ -269,13 +266,13 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp conversation_id_from_spawn_opts(_), do: nil
 
-  defp tool_stage(tool_name) when is_binary(tool_name) do
-    mcp_prefixes = Application.get_env(:zaq, :mcp_tool_prefixes, @default_mcp_prefixes)
+  # defp tool_stage(tool_name) when is_binary(tool_name) do
+  #   mcp_prefixes = Application.get_env(:zaq, :mcp_tool_prefixes, @default_mcp_prefixes)
 
-    if Enum.any?(mcp_prefixes, &String.starts_with?(tool_name, &1)),
-      do: :mcp_call,
-      else: :tool_call
-  end
+  #   if Enum.any?(mcp_prefixes, &String.starts_with?(tool_name, &1)),
+  #     do: :mcp_call,
+  #     else: :tool_call
+  # end
 
-  defp tool_stage(_), do: :tool_call
+  # defp tool_stage(_), do: :tool_call
 end

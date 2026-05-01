@@ -63,8 +63,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "find elixir"}, context)
       assert result.count == 2
-      assert String.contains?(result.chunks, "Elixir runs on the BEAM VM.")
-      assert String.contains?(result.chunks, "Source: docs/elixir.md")
+
+      [first_chunk | _] = result.chunks
+      assert String.contains?(first_chunk["content"], "Elixir runs on the BEAM VM.")
+      assert String.contains?(first_chunk["source"], "docs/elixir.md")
     end
 
     test "returns error message when NodeRouter returns error" do
@@ -79,7 +81,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "nothing here"}, context)
       assert result.count == 0
-      assert result.chunks == ""
+      assert result.chunks == []
     end
   end
 

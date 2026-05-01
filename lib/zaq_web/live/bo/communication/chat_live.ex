@@ -429,66 +429,95 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if request_id != socket.assigns.current_request_id do
       {:noreply, socket}
     else
-      history = socket.assigns.history
-      current_user = socket.assigns[:current_user]
+      {:noreply, apply_pipeline_result(socket, result, user_msg)}
+    end
+  end
 
-      raw_sources =
-        Map.get(result, :sources) ||
-          Map.get(result.metadata, :sources) ||
-          Map.get(result.metadata, "sources") ||
-          []
+  defp apply_pipeline_result(socket, result, user_msg) do
+    history = socket.assigns.history
+    current_user = socket.assigns[:current_user]
 
-      %{body: normalized_body, sources: normalized_sources} =
-        CitationNormalizer.normalize(trim_body(result.body), raw_sources)
+    %{body: normalized_body, sources: normalized_sources} =
+      CitationNormalizer.normalize(trim_body(result.body), extract_sources(result))
 
-      bot_msg = %{
-        id: generate_id(),
-        role: :bot,
-        body: normalized_body,
-        confidence: Map.get(result.metadata, :confidence_score),
-        timestamp: DateTime.utc_now(),
-        error: result.metadata[:error] || false,
-        feedback: nil,
-        sources: normalized_sources,
-        tool_calls: Map.get(result.metadata, :tool_calls, []) || [],
-        live: true
-      }
+    bot_msg = build_bot_message(result, normalized_body, normalized_sources)
 
-      {socket, bot_msg} =
-        if result.metadata[:error] do
-          {socket, bot_msg}
-        else
-          maybe_persist_conversation(
-            socket,
-            bot_msg,
-            user_msg,
-            result,
-            current_user,
-            normalized_body,
-            normalized_sources
-          )
-        end
+    {socket, bot_msg} =
+      maybe_persist_bot_message(
+        socket,
+        bot_msg,
+        user_msg,
+        result,
+        current_user,
+        normalized_body,
+        normalized_sources
+      )
 
-      updated_history =
-        if result.metadata[:error] || Map.get(result.metadata, :confidence_score) == 0.0 do
-          history
-        else
-          now = DateTime.utc_now()
+    updated_history = update_history(history, result.metadata, user_msg, normalized_body)
 
-          history
-          |> Map.put(History.entry_key(now, :user), %{"body" => user_msg, "type" => "user"})
-          |> Map.put(History.entry_key(now, :bot), %{"body" => normalized_body, "type" => "bot"})
-        end
+    socket
+    |> update(:messages, &(&1 ++ [bot_msg]))
+    |> assign(:status, :idle)
+    |> assign(:status_message, "")
+    |> assign(:history, updated_history)
+    |> assign(:current_request_id, nil)
+  end
 
-      socket =
-        socket
-        |> update(:messages, &(&1 ++ [bot_msg]))
-        |> assign(:status, :idle)
-        |> assign(:status_message, "")
-        |> assign(:history, updated_history)
-        |> assign(:current_request_id, nil)
+  defp extract_sources(result) do
+    Map.get(result, :sources) ||
+      Map.get(result.metadata, :sources) ||
+      Map.get(result.metadata, "sources") ||
+      []
+  end
 
-      {:noreply, socket}
+  defp build_bot_message(result, normalized_body, normalized_sources) do
+    %{
+      id: generate_id(),
+      role: :bot,
+      body: normalized_body,
+      confidence: Map.get(result.metadata, :confidence_score),
+      timestamp: DateTime.utc_now(),
+      error: result.metadata[:error] || false,
+      feedback: nil,
+      sources: normalized_sources,
+      tool_calls: Map.get(result.metadata, :tool_calls, []) || [],
+      live: true
+    }
+  end
+
+  defp maybe_persist_bot_message(
+         socket,
+         bot_msg,
+         user_msg,
+         result,
+         current_user,
+         normalized_body,
+         normalized_sources
+       ) do
+    if result.metadata[:error] do
+      {socket, bot_msg}
+    else
+      maybe_persist_conversation(
+        socket,
+        bot_msg,
+        user_msg,
+        result,
+        current_user,
+        normalized_body,
+        normalized_sources
+      )
+    end
+  end
+
+  defp update_history(history, metadata, user_msg, normalized_body) do
+    if metadata[:error] || Map.get(metadata, :confidence_score) == 0.0 do
+      history
+    else
+      now = DateTime.utc_now()
+
+      history
+      |> Map.put(History.entry_key(now, :user), %{"body" => user_msg, "type" => "user"})
+      |> Map.put(History.entry_key(now, :bot), %{"body" => normalized_body, "type" => "bot"})
     end
   end
 

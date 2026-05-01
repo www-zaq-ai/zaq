@@ -57,23 +57,24 @@ defmodule Zaq.Agent.Api do
   def handle_event(%Event{} = event, :run_pipeline, _context) do
     case event.request do
       %Incoming{} = incoming ->
-        prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
         status_mod = Keyword.get(event.opts, :status_module, Status)
         node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
+
+        _ =
+          status_mod.broadcast(
+            incoming,
+            :validating,
+            "Checking your request…",
+            node_router_mod
+          )
+
+        prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
 
         case prompt_guard_mod.validate(incoming.content) do
           {:error, _reason} ->
             %{event | response: guard_error_outgoing(incoming)}
 
           {:ok, _} ->
-            :ok =
-              status_mod.broadcast(
-                incoming,
-                :validating,
-                "Checking your request…",
-                node_router_mod
-              )
-
             dispatch_pipeline(event, incoming)
         end
 

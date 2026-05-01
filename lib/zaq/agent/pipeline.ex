@@ -226,7 +226,9 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_extraction(%{query: query}, opts) do
+  defp do_extraction(%{query: query} = retrieval_result, opts) do
+    negative_answer = Map.get(retrieval_result, :negative_answer)
+
     context = %{
       person_id: Keyword.get(opts, :person_id),
       team_ids: Keyword.get(opts, :team_ids, []),
@@ -238,8 +240,17 @@ defmodule Zaq.Agent.Pipeline do
     }
 
     case SearchKnowledgeBase.run(%{query: query}, context) do
-      {:ok, %{chunks: chunks}} -> {:ok, chunks}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{chunks: []}} when is_binary(negative_answer) ->
+        {:error, :no_results, negative_answer}
+
+      {:ok, %{chunks: chunks}} ->
+        {:ok, chunks}
+
+      {:error, _reason} when is_binary(negative_answer) ->
+        {:error, :no_results, negative_answer}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

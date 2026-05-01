@@ -127,6 +127,13 @@ defmodule Zaq.Agent.Executor do
                context: %{
                  person_id: Keyword.get(opts, :person_id),
                  team_ids: Keyword.get(opts, :team_ids, [])
+               },
+               extra_refs: %{
+                 zaq_status_context: %{
+                   session_id: incoming.metadata[:session_id],
+                   request_id: incoming.metadata[:request_id],
+                   node_router: node_router(opts)
+                 }
                }
              ),
            {:ok, answer} <- factory_module.await(request, timeout: 45_000) do

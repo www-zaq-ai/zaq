@@ -277,11 +277,53 @@ defmodule Zaq.Agent.ServerManager do
     # Server shutdown is immediate here; graceful drain is coordinated by begin_stop/2.
     case safe_whereis(server_id) do
       pid when is_pid(pid) ->
-        DynamicSupervisor.terminate_child(@dynamic_supervisor, pid)
+        monitor_ref = Process.monitor(pid)
+
+        case DynamicSupervisor.terminate_child(@dynamic_supervisor, pid) do
+          :ok ->
+            await_process_down(pid, monitor_ref)
+
+          {:error, :not_found} ->
+            force_kill_if_alive(pid)
+            await_process_down(pid, monitor_ref)
+
+          {:error, :noproc} ->
+            force_kill_if_alive(pid)
+            await_process_down(pid, monitor_ref)
+
+          {:error, _reason} ->
+            force_kill_if_alive(pid)
+            await_process_down(pid, monitor_ref)
+        end
 
       _ ->
         :ok
     end
+  end
+
+  defp await_process_down(pid, monitor_ref) do
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+    after
+      500 ->
+        force_kill_if_alive(pid)
+
+        receive do
+          {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+        after
+          500 ->
+            Process.demonitor(monitor_ref, [:flush])
+            :ok
+        end
+    end
+  end
+
+  defp force_kill_if_alive(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
+      Process.exit(pid, :kill)
+    end
+
+    :ok
   end
 
   defp safe_whereis(server_id) do

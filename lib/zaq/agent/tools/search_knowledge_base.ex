@@ -41,12 +41,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     # return only public data (skip_permissions: false, person_id: nil).
     skip_permissions = Map.get(context, :skip_permissions, false)
 
-    opts = [
-      person_id: person_id,
-      team_ids: team_ids,
-      skip_permissions: skip_permissions,
-      source_filter: source_filter
-    ]
+    opts =
+      [
+        person_id: person_id,
+        team_ids: team_ids,
+        skip_permissions: skip_permissions,
+        source_filter: source_filter
+      ]
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
     try do
       case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do

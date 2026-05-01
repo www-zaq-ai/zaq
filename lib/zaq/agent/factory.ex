@@ -127,6 +127,43 @@ defmodule Zaq.Agent.Factory do
     end
   end
 
+  @impl true
+  def on_before_cmd(agent, {:ai_react_start, params} = action) do
+    maybe_put_status_context(params)
+    super(agent, action)
+  end
+
+  def on_before_cmd(agent, action), do: super(agent, action)
+
+  @impl true
+  def on_after_cmd(agent, {:ai_react_cancel, _params} = action, directives) do
+    Process.delete(:zaq_status_context)
+    super(agent, action, directives)
+  end
+
+  def on_after_cmd(agent, {:ai_react_request_error, _params} = action, directives) do
+    Process.delete(:zaq_status_context)
+    super(agent, action, directives)
+  end
+
+  def on_after_cmd(agent, action, directives), do: super(agent, action, directives)
+
+  defp maybe_put_status_context(params) when is_map(params) do
+    refs = Map.get(params, :extra_refs, %{})
+
+    case Map.get(refs, :zaq_status_context) do
+      %{session_id: session_id, request_id: request_id} = ctx
+      when is_binary(session_id) and session_id != "" and
+             is_binary(request_id) and request_id != "" ->
+        Process.put(:zaq_status_context, ctx)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_put_status_context(_), do: :ok
+
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do
       {:ok, %{raw_state: %{runtime_config: %{} = config}}} ->

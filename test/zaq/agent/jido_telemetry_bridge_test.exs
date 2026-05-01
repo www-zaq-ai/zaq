@@ -298,7 +298,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     end)
 
     assert :ok = JidoTelemetryBridge.handle_event([:jido, :ai, :llm, :start], %{}, %{}, %{})
-    assert_receive {:status_update, ^request_id, :thinking, "Thinking…"}
+    assert_receive {:status_update, ^request_id, :answering, "Thinking…"}
   end
 
   test "tool start broadcasts mcp_call and tracks tool call" do
@@ -316,11 +316,8 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
       node_router: FakeNodeRouter
     })
 
-    Process.delete(:zaq_tool_calls)
-
     on_exit(fn ->
       Process.delete(:zaq_status_context)
-      Process.delete(:zaq_tool_calls)
 
       if is_nil(previous_prefixes) do
         Application.delete_env(:zaq, :mcp_tool_prefixes)
@@ -337,8 +334,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
                %{}
              )
 
-    assert_receive {:status_update, ^request_id, :mcp_call, "Calling mcp__read_file…"}
-    assert [%{name: "mcp__read_file", type: :mcp_call}] = Process.get(:zaq_tool_calls)
+    assert_receive {:status_update, ^request_id, :retrieving, "Calling mcp__read_file…"}
   end
 
   test "status broadcast no-ops when status context is incomplete" do

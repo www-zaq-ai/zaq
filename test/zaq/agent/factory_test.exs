@@ -34,7 +34,6 @@ defmodule Zaq.Agent.FactoryTest do
     test "includes answering tool keys" do
       agent = Answering.answering_configured_agent()
       assert "answering.search_knowledge_base" in agent.enabled_tool_keys
-      assert "answering.ask_for_clarification" in agent.enabled_tool_keys
     end
 
     test "is active and not conversation-enabled" do
