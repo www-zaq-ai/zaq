@@ -198,6 +198,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 ### Jido Telemetry Bridge (`Zaq.Agent.JidoTelemetryBridge`)
 - Attaches to Jido AI telemetry events (`request`, `llm`, `tool`, `tool.execute`) on the agent node
 - Bridges selected telemetry events into BO status broadcasts (`:thinking`, `:tool_call`, `:mcp_call`) when `:zaq_status_context` is present
+- When `include_llm_deltas: true`, maps LLM reasoning deltas to `Status.broadcast(..., :retrieving, ...)` so chat can stream reasoning progress
 - Writes level-aware console logs:
   - `info`: compact lifecycle summaries
   - `debug`: sanitized payload details

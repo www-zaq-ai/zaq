@@ -7,7 +7,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Agent.{Answering, Retrieval}
+  alias Zaq.Agent.{Answering, Retrieval, ServerManager}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Outgoing
@@ -1570,6 +1570,127 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
   end
 
+  test "mcp tool timeout inside ask/3 returns clean UI error", %{conn: conn} do
+    {mcp_child_spec, mcp_endpoint} = mcp_timeout_server(self())
+    start_supervised!(mcp_child_spec)
+
+    {child_spec, endpoint} =
+      Zaq.TestSupport.OpenAIStub.server(
+        fn conn, body ->
+          payload = Jason.decode!(body)
+
+          has_tool_output =
+            body =~ "function_call_output" or
+              Enum.any?(
+                Map.get(payload, "input", []),
+                &match?(%{"type" => "function_call_output"}, &1)
+              )
+
+          tool_name =
+            payload
+            |> Map.get("tools", [])
+            |> then(fn tools ->
+              Enum.find_value(tools, fn tool ->
+                name = Map.get(tool, "name") || get_in(tool, ["function", "name"])
+                if is_binary(name) and String.starts_with?(name, "mcp__"), do: name
+              end) ||
+                Enum.find_value(tools, fn tool ->
+                  name = Map.get(tool, "name") || get_in(tool, ["function", "name"])
+                  if is_binary(name), do: name
+                end)
+            end)
+
+          if has_tool_output do
+            {200, streamed_reply(conn.request_path, "final", "gpt-4.1-mini")}
+          else
+            {200,
+             tool_call_reply(
+               conn.request_path,
+               tool_name || "mcp__slow_tool",
+               "{}",
+               "gpt-4.1-mini"
+             )}
+          end
+        end,
+        self()
+      )
+
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Chat MCP Timeout Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    {:ok, mcp_endpoint_record} =
+      Zaq.Agent.MCP.create_mcp_endpoint(%{
+        name: "Timeout MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 120,
+        url: mcp_endpoint <> "/mcp"
+      })
+
+    {:ok, configured_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Chat MCP Timeout Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Use tools when needed.",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_mcp_endpoint_ids: [mcp_endpoint_record.id],
+        conversation_enabled: true,
+        active: true,
+        advanced_options: %{"stream" => false}
+      })
+
+    on_exit(fn ->
+      _ = ServerManager.stop_server(configured_agent)
+    end)
+
+    Application.put_env(:zaq, :pipeline_executor_module, Zaq.Agent.Executor)
+
+    conversation_id = Ecto.UUID.generate()
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :create_conversation, fn [_attrs] ->
+      {:ok, %{id: conversation_id, user_id: nil}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :update_conversation, fn [_conv, attrs] ->
+      {:ok, %{id: conversation_id, user_id: attrs.user_id}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :add_message, fn [_conv, attrs] ->
+      case attrs.role do
+        "assistant" -> {:ok, %{id: "bot-mcp-timeout"}}
+        "user" -> {:ok, %{id: "user-mcp-timeout"}}
+      end
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :list_conversations, [])
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view
+    |> form("#chat-agent-select-form", %{"agent_id" => to_string(configured_agent.id)})
+    |> render_change()
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "Run MCP timeout tool"})
+
+    assert_eventually(fn ->
+      html = render(view)
+
+      String.contains?(html, "final") and
+        not String.contains?(html, "mcp_runtime_call_exit") and
+        not String.contains?(html, "{:error")
+    end)
+  end
+
   test "pipeline_result with nil body trims gracefully without crashing", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
@@ -1923,5 +2044,183 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     value = fun.()
     assert value != nil
     value
+  end
+
+  defp streamed_reply("/v1/chat/completions", text, model) do
+    chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{"content" => text}, "finish_reason" => nil}]
+      })
+
+    done_chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "stop"}],
+        "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 1, "total_tokens" => 6}
+      })
+
+    "data: #{chunk}\n\ndata: #{done_chunk}\n\ndata: [DONE]\n\n"
+  end
+
+  defp streamed_reply(_path, text, model) do
+    delta_event = Jason.encode!(%{"delta" => text})
+
+    completed_event =
+      Jason.encode!(%{
+        "response" => %{
+          "id" => "resp_test",
+          "model" => model,
+          "usage" => %{"input_tokens" => 5, "output_tokens" => 1, "total_tokens" => 6}
+        }
+      })
+
+    [
+      "event: response.output_text.delta\n",
+      "data: #{delta_event}\n\n",
+      "event: response.completed\n",
+      "data: #{completed_event}\n\n"
+    ]
+    |> IO.iodata_to_binary()
+  end
+
+  defp tool_call_reply("/v1/chat/completions", _tool_name, _arguments_json, model) do
+    done_chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-tool",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "tool_calls"}]
+      })
+
+    "data: #{done_chunk}\n\ndata: [DONE]\n\n"
+  end
+
+  defp tool_call_reply(_path, tool_name, arguments_json, model) do
+    output_item =
+      Jason.encode!(%{
+        "item" => %{
+          "type" => "function_call",
+          "call_id" => "call_timeout_1",
+          "name" => tool_name,
+          "arguments" => arguments_json
+        }
+      })
+
+    completed_event =
+      Jason.encode!(%{
+        "response" => %{
+          "id" => "resp_tool_1",
+          "model" => model,
+          "status" => "completed",
+          "output" => [
+            %{
+              "type" => "function_call",
+              "id" => "call_timeout_1",
+              "name" => tool_name,
+              "arguments" => arguments_json
+            }
+          ],
+          "usage" => %{"input_tokens" => 5, "output_tokens" => 1, "total_tokens" => 6}
+        }
+      })
+
+    [
+      "event: response.output_item.added\n",
+      "data: #{output_item}\n\n",
+      "event: response.completed\n",
+      "data: #{completed_event}\n\n"
+    ]
+    |> IO.iodata_to_binary()
+  end
+
+  defp mcp_timeout_server(test_pid) do
+    port = free_port()
+
+    child_spec =
+      {Bandit,
+       plug:
+         {__MODULE__.MCPTimeoutPlug,
+          %{
+            test_pid: test_pid,
+            timeout_ms: 300,
+            tool_name: "slow_tool",
+            server_name: "mcp-timeout"
+          }},
+       scheme: :http,
+       port: port}
+
+    {child_spec, "http://127.0.0.1:#{port}"}
+  end
+
+  defp free_port do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
+  end
+
+  defmodule MCPTimeoutPlug do
+    import Plug.Conn
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      {:ok, body, conn} = read_body(conn)
+      payload = if body == "", do: %{}, else: Jason.decode!(body)
+      method = payload["method"]
+      id = payload["id"]
+
+      send(opts.test_pid, {:mcp_request, method, payload})
+
+      response =
+        case method do
+          "initialize" ->
+            %{
+              jsonrpc: "2.0",
+              id: id,
+              result: %{
+                protocolVersion: "2024-11-05",
+                serverInfo: %{name: opts.server_name, version: "1.0.0"},
+                capabilities: %{tools: %{listChanged: false}}
+              }
+            }
+
+          "tools/list" ->
+            %{
+              jsonrpc: "2.0",
+              id: id,
+              result: %{
+                tools: [
+                  %{
+                    name: opts.tool_name,
+                    description: "slow",
+                    inputSchema: %{type: "object", properties: %{}, additionalProperties: false}
+                  }
+                ]
+              }
+            }
+
+          "tools/call" ->
+            Process.sleep(opts.timeout_ms)
+
+            %{
+              jsonrpc: "2.0",
+              id: id,
+              result: %{content: [%{type: "text", text: "slow done"}], isError: false}
+            }
+
+          _ ->
+            %{jsonrpc: "2.0", id: id, result: %{}}
+        end
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(200, Jason.encode!(response))
+    end
   end
 end
