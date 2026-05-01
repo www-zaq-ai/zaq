@@ -77,6 +77,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
 
     services:
       postgres:
