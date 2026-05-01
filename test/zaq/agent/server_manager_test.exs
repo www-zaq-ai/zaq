@@ -1105,7 +1105,6 @@ defmodule Zaq.Agent.ServerManagerTest do
     alias Jido.AI.Context, as: AIContext
     alias Zaq.Accounts.Person
     alias Zaq.Engine.Conversations.{Conversation, Message}
-    alias Zaq.Engine.Messages.Incoming
     alias Zaq.Repo
 
     defp insert_person_for_sm do
