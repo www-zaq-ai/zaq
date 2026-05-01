@@ -195,13 +195,14 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   - endpoint hard cap: `2000` MCP endpoints
 - These checks are implemented in `Zaq.Agent.MCP.Runtime` and must remain centralized there.
 
-### Jido Observability Logger (`Zaq.Agent.JidoObservabilityLogger`)
+### Jido Telemetry Bridge (`Zaq.Agent.JidoTelemetryBridge`)
 - Attaches to Jido AI telemetry events (`request`, `llm`, `tool`, `tool.execute`) on the agent node
+- Bridges selected telemetry events into BO status broadcasts (`:thinking`, `:tool_call`, `:mcp_call`) when `:zaq_status_context` is present
 - Writes level-aware console logs:
   - `info`: compact lifecycle summaries
   - `debug`: sanitized payload details
   - `warning/error`: timeout and failure paths
-- Config (`:zaq, :jido_observability_logger`): `enabled`, `include_llm_deltas`, `max_payload_chars`
+- Config (`:zaq, :jido_telemetry_bridge`): `enabled`, `include_llm_deltas`, `max_payload_chars`
 
 ### LLM Configuration (`Zaq.Agent.LLM`)
 - Centralized config reader for all agent modules
@@ -302,7 +303,7 @@ lib/zaq/agent/
 ├── citation_normalizer.ex      # Rewrites [[source:...]] markers to numbered refs
 ├── factory.ex                  # Runtime-configured standard Jido agent
 ├── history.ex                  # Conversation history map helpers
-├── jido_observability_logger.ex # Console logger for Jido AI telemetry events
+├── jido_telemetry_bridge.ex # Jido telemetry logger + status bridge
 ├── logprobs_analyzer.ex        # Confidence scoring from logprobs
 ├── mcp/
 │   └── runtime.ex              # MCP runtime id mapping, guards, registration helpers

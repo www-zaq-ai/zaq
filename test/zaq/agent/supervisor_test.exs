@@ -6,7 +6,7 @@ defmodule Zaq.Agent.SupervisorTest do
     assert is_pid(Process.whereis(registry))
   end
 
-  test "jido observability logger is started" do
-    assert is_pid(Process.whereis(Zaq.Agent.JidoObservabilityLogger))
+  test "jido telemetry bridge is started" do
+    assert is_pid(Process.whereis(Zaq.Agent.JidoTelemetryBridge))
   end
 end

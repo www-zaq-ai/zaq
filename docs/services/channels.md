@@ -13,21 +13,21 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 
 ## Module Map
 
-| Module | File | Role |
-|---|---|---|
-| `Zaq.Channels.Router` | `lib/zaq/channels/router.ex` | Stateless outbound router — public entrypoint |
-| `Zaq.Channels.Bridge` | `lib/zaq/channels/bridge.ex` | Bridge behaviour + shared helpers |
-| `Zaq.Channels.JidoChatBridge` | `lib/zaq/channels/jido_chat_bridge.ex` | Provider bridge for jido_chat adapters |
-| `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder |
-| `Zaq.Channels.EmailBridge` | `lib/zaq/channels/email_bridge.ex` | Bridge for email (SMTP) delivery |
-| `Zaq.Channels.WebBridge` | `lib/zaq/channels/web_bridge.ex` | Bridge for web/ChatLive sessions via PubSub |
-| `Zaq.Channels.Supervisor` | `lib/zaq/channels/supervisor.ex` | DynamicSupervisor — process lifecycle |
-| `Zaq.Channels.ChannelConfig` | `lib/zaq/channels/channel_config.ex` | Ecto schema — connector configs |
-| `Zaq.Channels.RetrievalChannel` | `lib/zaq/channels/retrieval_channel.ex` | Ecto schema — per-channel subscriptions |
-| `Zaq.Channels.MattermostAdmin` | `lib/zaq/channels/mattermost_admin.ex` | Admin helpers for Mattermost UI |
-| `Zaq.Channels.SmtpHelpers` | `lib/zaq/channels/smtp_helpers.ex` | Internal SMTP settings key normalizer |
-| `Zaq.Engine.Messages.Incoming` | `lib/zaq/engine/messages/incoming.ex` | Canonical inbound message struct |
-| `Zaq.Engine.Messages.Outgoing` | `lib/zaq/engine/messages/outgoing.ex` | Canonical outbound message struct |
+| Module                              | File                                         | Role                                          |
+| ----------------------------------- | -------------------------------------------- | --------------------------------------------- |
+| `Zaq.Channels.Router`               | `lib/zaq/channels/router.ex`                 | Stateless outbound router — public entrypoint |
+| `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers             |
+| `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters        |
+| `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder             |
+| `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery              |
+| `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub   |
+| `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle         |
+| `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs               |
+| `Zaq.Channels.RetrievalChannel`     | `lib/zaq/channels/retrieval_channel.ex`      | Ecto schema — per-channel subscriptions       |
+| `Zaq.Channels.MattermostAdmin`      | `lib/zaq/channels/mattermost_admin.ex`       | Admin helpers for Mattermost UI               |
+| `Zaq.Channels.SmtpHelpers`          | `lib/zaq/channels/smtp_helpers.ex`           | Internal SMTP settings key normalizer         |
+| `Zaq.Engine.Messages.Incoming`      | `lib/zaq/engine/messages/incoming.ex`        | Canonical inbound message struct              |
+| `Zaq.Engine.Messages.Outgoing`      | `lib/zaq/engine/messages/outgoing.ex`        | Canonical outbound message struct             |
 
 ---
 
@@ -85,17 +85,17 @@ defstruct [
 
 ### Public API
 
-| Function | Description |
-|---|---|
-| `deliver/1` | Delivers `%Outgoing{}` to the correct bridge |
-| `send_typing/2` | Sends typing indicator through the provider bridge |
-| `add_reaction/4` | Adds a reaction through the provider bridge |
-| `remove_reaction/5` | Removes a reaction through the provider bridge |
-| `subscribe_thread_reply/3` | Subscribes to thread replies via provider bridge |
-| `unsubscribe_thread_reply/3` | Unsubscribes from thread replies via provider bridge |
-| `sync_config_runtime/2` | Synchronizes runtime processes when a channel config changes |
-| `test_connection/2` | Runs bridge-specific connection test |
-| `bridge_for/1` | Returns the configured bridge module for a provider |
+| Function                     | Description                                                  |
+| ---------------------------- | ------------------------------------------------------------ |
+| `deliver/1`                  | Delivers `%Outgoing{}` to the correct bridge                 |
+| `send_typing/2`              | Sends typing indicator through the provider bridge           |
+| `add_reaction/4`             | Adds a reaction through the provider bridge                  |
+| `remove_reaction/5`          | Removes a reaction through the provider bridge               |
+| `subscribe_thread_reply/3`   | Subscribes to thread replies via provider bridge             |
+| `unsubscribe_thread_reply/3` | Unsubscribes from thread replies via provider bridge         |
+| `sync_config_runtime/2`      | Synchronizes runtime processes when a channel config changes |
+| `test_connection/2`          | Runs bridge-specific connection test                         |
+| `bridge_for/1`               | Returns the configured bridge module for a provider          |
 
 ### Bridge resolution
 
@@ -196,25 +196,25 @@ Called by `Router.deliver/1`:
 
 Configured per provider via `:ingress_mode` in app config. Supported values:
 
-| Mode | Behavior |
-|---|---|
-| `:websocket` | Adapter starts a persistent WebSocket listener |
-| `:gateway` | Adapter starts a gateway listener |
-| `:polling` | Adapter starts a polling listener |
-| Any other / `nil` | No listener started; ingress is push-only |
+| Mode              | Behavior                                       |
+| ----------------- | ---------------------------------------------- |
+| `:websocket`      | Adapter starts a persistent WebSocket listener |
+| `:gateway`        | Adapter starts a gateway listener              |
+| `:polling`        | Adapter starts a polling listener              |
+| Any other / `nil` | No listener started; ingress is push-only      |
 
 ### Configurable modules (testability)
 
 All cross-service calls are overridable via Application env:
 
-| Key | Default |
-|---|---|
-| `:chat_bridge_pipeline_module` | `Zaq.Agent.Pipeline` |
-| `:chat_bridge_router_module` | `Zaq.Channels.Router` |
+| Key                                 | Default                    |
+| ----------------------------------- | -------------------------- |
+| `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`       |
+| `:chat_bridge_router_module`        | `Zaq.Channels.Router`      |
 | `:chat_bridge_conversations_module` | `Zaq.Engine.Conversations` |
-| `:chat_bridge_accounts_module` | `Zaq.Accounts` |
-| `:chat_bridge_permissions_module` | `Zaq.Accounts.Permissions` |
-| `:pipeline_hooks_module` | `Zaq.Hooks` |
+| `:chat_bridge_accounts_module`      | `Zaq.Accounts`             |
+| `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions` |
+| `:pipeline_hooks_module`            | `Zaq.Hooks`                |
 
 When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
 Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}`. `NodeRouter.call/4` remains temporary compatibility and is deprecated.
@@ -237,16 +237,16 @@ Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}`. `NodeRouter.call/4` remains 
 
 ### Public calls
 
-| Function | Description |
-|---|---|
+| Function                     | Description                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------- |
 | `process_listener_payload/4` | Transforms + processes an adapter payload (serialized, `:infinity` timeout) |
-| `subscribe_thread/4` | Adds a thread key to `chat.subscriptions` |
-| `unsubscribe_thread/4` | Removes a thread key from `chat.subscriptions` |
-| `send_reply/3` | Delegates to `JidoChatBridge.do_send_reply/2` |
-| `send_typing/4` | Delegates to `JidoChatBridge.send_typing/3` |
-| `add_reaction/6` | Delegates to `JidoChatBridge.add_reaction/5` |
-| `remove_reaction/6` | Delegates to `JidoChatBridge.remove_reaction/5` |
-| `refresh_config/2` | Replaces config and rebuilds handlers, preserving runtime state |
+| `subscribe_thread/4`         | Adds a thread key to `chat.subscriptions`                                   |
+| `unsubscribe_thread/4`       | Removes a thread key from `chat.subscriptions`                              |
+| `send_reply/3`               | Delegates to `JidoChatBridge.do_send_reply/2`                               |
+| `send_typing/4`              | Delegates to `JidoChatBridge.send_typing/3`                                 |
+| `add_reaction/6`             | Delegates to `JidoChatBridge.add_reaction/5`                                |
+| `remove_reaction/6`          | Delegates to `JidoChatBridge.remove_reaction/5`                             |
+| `refresh_config/2`           | Replaces config and rebuilds handlers, preserving runtime state             |
 
 ### Config refresh
 
@@ -296,7 +296,6 @@ Internal utility module used by the email bridge. Not part of the public API.
 
 - `to_internal/2` — converts ChatLive form params to `%Incoming{provider: :web}`. Expects params keys `:content`, `:channel_id`, `:session_id`, `:request_id`.
 - `send_reply/2` — broadcasts `{:pipeline_result, request_id, outgoing, user_content}` to the `"chat:<session_id>"` PubSub topic.
-- `on_status_callback/2` — returns a callback that broadcasts `{:status_update, request_id, stage, message}` to the session topic for pipeline progress updates.
 
 ---
 
@@ -314,14 +313,14 @@ bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
 
 ### Public API
 
-| Function | Description |
-|---|---|
-| `start_runtime/3` | Starts State + listener children for a bridge ID |
-| `stop_bridge_runtime/2` | Stops all children and removes ETS entry for a bridge ID |
-| `lookup_runtime/1` | Returns `{:ok, %{listener_pids, state_pid}}` or `{:error, :not_running}` |
-| `lookup_state_pid/1` | Returns `{:ok, pid}` or `{:error, :not_running}` |
-| `start_listener/1` | Convenience — delegates to `Router.sync_config_runtime/2` |
-| `stop_listener/1` | Convenience — delegates to `Router.sync_config_runtime/2` |
+| Function                | Description                                                              |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `start_runtime/3`       | Starts State + listener children for a bridge ID                         |
+| `stop_bridge_runtime/2` | Stops all children and removes ETS entry for a bridge ID                 |
+| `lookup_runtime/1`      | Returns `{:ok, %{listener_pids, state_pid}}` or `{:error, :not_running}` |
+| `lookup_state_pid/1`    | Returns `{:ok, pid}` or `{:error, :not_running}`                         |
+| `start_listener/1`      | Convenience — delegates to `Router.sync_config_runtime/2`                |
+| `stop_listener/1`       | Convenience — delegates to `Router.sync_config_runtime/2`                |
 
 ### Bootstrap
 
@@ -337,36 +336,36 @@ On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_ki
 
 ### Fields
 
-| Field | Type | Notes |
-|---|---|---|
-| `name` | string | Human label |
-| `provider` | string | One of: `mattermost`, `slack`, `teams`, `google_drive`, `sharepoint`, `email:smtp`, `telegram`, `discord` |
-| `kind` | string | `"ingestion"` or `"retrieval"` |
-| `url` | string | Base URL for the platform API |
-| `token` | EncryptedString | Bot token — stored encrypted via `Zaq.Types.EncryptedString` |
-| `enabled` | boolean | Default `true` |
-| `settings` | map | Provider-specific settings |
+| Field      | Type            | Notes                                                                                                     |
+| ---------- | --------------- | --------------------------------------------------------------------------------------------------------- |
+| `name`     | string          | Human label                                                                                               |
+| `provider` | string          | One of: `mattermost`, `slack`, `teams`, `google_drive`, `sharepoint`, `email:smtp`, `telegram`, `discord` |
+| `kind`     | string          | `"ingestion"` or `"retrieval"`                                                                            |
+| `url`      | string          | Base URL for the platform API                                                                             |
+| `token`    | EncryptedString | Bot token — stored encrypted via `Zaq.Types.EncryptedString`                                              |
+| `enabled`  | boolean         | Default `true`                                                                                            |
+| `settings` | map             | Provider-specific settings                                                                                |
 
 ### jido_chat settings
 
 jido_chat adapter fields live in `settings["jido_chat"]`:
 
-| Key | Helper | Description |
-|---|---|---|
-| `"bot_name"` | `jido_chat_bot_name/1` | Bot display name |
-| `"bot_user_id"` | `jido_chat_bot_user_id/1` | Bot user ID on the platform |
+| Key                  | Helper                    | Description                                                |
+| -------------------- | ------------------------- | ---------------------------------------------------------- |
+| `"bot_name"`         | `jido_chat_bot_name/1`    | Bot display name                                           |
+| `"bot_user_id"`      | `jido_chat_bot_user_id/1` | Bot user ID on the platform                                |
 | `"message_patterns"` | via `jido_chat_setting/3` | List of regex pattern strings for channel message matching |
-| `"ingress"` | via `jido_chat_setting/3` | Ingress mode overrides map |
+| `"ingress"`          | via `jido_chat_setting/3` | Ingress mode overrides map                                 |
 
 ### Query functions
 
-| Function | Description |
-|---|---|
-| `get_by_provider/1` | Returns enabled config for a provider |
-| `get_any_by_provider/1` | Returns config regardless of `enabled` state |
-| `upsert_by_provider/2` | Insert or update config for a provider |
-| `list_enabled_by_kind/2` | Enabled configs for a kind, filtered by provider list |
-| `get_by_channel_id/2` | Joins through `retrieval_channels` to find config for a platform channel ID |
+| Function                 | Description                                                                 |
+| ------------------------ | --------------------------------------------------------------------------- |
+| `get_by_provider/1`      | Returns enabled config for a provider                                       |
+| `get_any_by_provider/1`  | Returns config regardless of `enabled` state                                |
+| `upsert_by_provider/2`   | Insert or update config for a provider                                      |
+| `list_enabled_by_kind/2` | Enabled configs for a kind, filtered by provider list                       |
+| `get_by_channel_id/2`    | Joins through `retrieval_channels` to find config for a platform channel ID |
 
 ---
 
@@ -382,12 +381,12 @@ Unique constraint: `[channel_config_id, channel_id]`.
 
 ### Query functions
 
-| Function | Description |
-|---|---|
-| `list_active_by_config/1` | All active channels for a config ID |
-| `list_by_config/1` | All channels (active and inactive) for a config ID, ordered by name |
-| `get_by_config_and_channel/2` | Single channel by config ID and platform channel ID |
-| `active_channel_ids/1` | All active channel IDs for a provider string |
+| Function                      | Description                                                         |
+| ----------------------------- | ------------------------------------------------------------------- |
+| `list_active_by_config/1`     | All active channels for a config ID                                 |
+| `list_by_config/1`            | All channels (active and inactive) for a config ID, ordered by name |
+| `get_by_config_and_channel/2` | Single channel by config ID and platform channel ID                 |
+| `active_channel_ids/1`        | All active channel IDs for a provider string                        |
 
 When `list_active_by_config/1` returns non-empty results, the listener is started with those specific channel IDs. When empty, the listener receives `:all` — it subscribes to all channels.
 
@@ -397,13 +396,13 @@ When `list_active_by_config/1` returns non-empty results, the listener is starte
 
 `Zaq.Channels.MattermostAdmin` provides admin operations for the Mattermost channel configuration UI. Backed by `Jido.Chat.Mattermost.Transport.ReqClient`. Not intended for bot ingress/egress.
 
-| Function | Description |
-|---|---|
-| `send_message/2` | Sends a message to a channel (loads config from DB) |
-| `fetch_bot_user_id/2` | Fetches bot user ID via `/api/v4/users/me` |
-| `list_teams/1` | Lists teams the bot belongs to |
-| `list_public_channels/2` | Lists public channels for a team |
-| `clear_channel/1` | Deletes all posts in a channel (destructive) |
+| Function                 | Description                                         |
+| ------------------------ | --------------------------------------------------- |
+| `send_message/2`         | Sends a message to a channel (loads config from DB) |
+| `fetch_bot_user_id/2`    | Fetches bot user ID via `/api/v4/users/me`          |
+| `list_teams/1`           | Lists teams the bot belongs to                      |
+| `list_public_channels/2` | Lists public channels for a team                    |
+| `clear_channel/1`        | Deletes all posts in a channel (destructive)        |
 
 ---
 

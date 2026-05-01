@@ -1,6 +1,10 @@
-defmodule Zaq.Agent.JidoObservabilityLogger do
+defmodule Zaq.Agent.JidoTelemetryBridge do
   @moduledoc """
-  Logs Jido AI telemetry events with level-aware detail.
+  Single bridge for Jido AI telemetry events.
+
+  Handles two responsibilities from one telemetry handler:
+  - logs level-aware observability events,
+  - broadcasts BO status updates for key LLM/tool lifecycle events.
   """
 
   use GenServer
@@ -8,8 +12,9 @@ defmodule Zaq.Agent.JidoObservabilityLogger do
   require Logger
 
   alias Jido.AI.Observe
+  alias Zaq.Agent.{Factory, Status}
 
-  @handler_id "zaq-agent-jido-observability-logger"
+  @handler_id "zaq-agent-jido-telemetry-bridge"
 
   @request_events for event <- [:start, :complete, :failed, :rejected, :cancelled],
                       do: [:jido, :ai, :request, event]
@@ -28,6 +33,8 @@ defmodule Zaq.Agent.JidoObservabilityLogger do
     include_llm_deltas: false,
     max_payload_chars: 2000
   }
+
+  @default_mcp_prefixes ["mcp__", "mcp_"]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -51,7 +58,7 @@ defmodule Zaq.Agent.JidoObservabilityLogger do
 
           {:error, reason} ->
             Logger.warning(
-              "Jido observability logger disabled: telemetry attach failed: #{inspect(reason)}"
+              "Jido telemetry bridge disabled: telemetry attach failed: #{inspect(reason)}"
             )
 
             false
@@ -75,6 +82,8 @@ defmodule Zaq.Agent.JidoObservabilityLogger do
   @spec handle_event([atom()], map(), map(), map()) :: :ok
   def handle_event(event, measurements, metadata, cfg) do
     cfg = normalize_callback_config(cfg)
+
+    maybe_broadcast_status(event, metadata)
 
     if skip_event?(event, cfg) do
       :ok
@@ -105,7 +114,7 @@ defmodule Zaq.Agent.JidoObservabilityLogger do
 
   defp config do
     app_config =
-      case Application.get_env(:zaq, :jido_observability_logger, %{}) do
+      case Application.get_env(:zaq, :jido_telemetry_bridge, %{}) do
         value when is_map(value) -> value
         value when is_list(value) -> Map.new(value)
         _ -> %{}
@@ -201,4 +210,72 @@ defmodule Zaq.Agent.JidoObservabilityLogger do
   end
 
   defp truncate_term(value, _max_chars), do: value
+
+  defp maybe_broadcast_status([:jido, :ai, :llm, :start], metadata) do
+    case resolve_ctx(metadata) do
+      nil -> :ok
+      ctx -> Status.broadcast(ctx, :thinking, "Thinking…", ctx.node_router)
+    end
+
+    :ok
+  end
+
+  defp maybe_broadcast_status(event, metadata)
+       when event in [[:jido, :ai, :tool, :start], [:jido, :ai, :tool, :execute, :start]] do
+    case resolve_ctx(metadata) do
+      nil ->
+        :ok
+
+      ctx ->
+        tool_name = Map.get(metadata, :tool_name) || "unknown"
+        stage = tool_stage(tool_name)
+        Status.broadcast(ctx, stage, "Calling #{tool_name}…", ctx.node_router)
+        existing = Process.get(:zaq_tool_calls, [])
+        Process.put(:zaq_tool_calls, existing ++ [%{name: tool_name, type: stage}])
+    end
+
+    :ok
+  end
+
+  defp maybe_broadcast_status(_event, _metadata), do: :ok
+
+  defp resolve_ctx(metadata) do
+    proc_ctx = Process.get(:zaq_status_context)
+
+    session_id = proc_ctx_value(proc_ctx, :session_id) || session_id_from_metadata(metadata)
+    request_id = proc_ctx_value(proc_ctx, :request_id)
+    node_router = proc_ctx_value(proc_ctx, :node_router) || Zaq.NodeRouter
+
+    with id when is_binary(id) and id != "" <- session_id,
+         req when is_binary(req) and req != "" <- request_id do
+      %{session_id: id, request_id: req, node_router: node_router}
+    else
+      _ -> nil
+    end
+  end
+
+  defp proc_ctx_value(nil, _key), do: nil
+  defp proc_ctx_value(proc_ctx, key), do: Map.get(proc_ctx, key)
+
+  defp session_id_from_metadata(metadata) do
+    metadata
+    |> Map.get(:agent_id)
+    |> Factory.spawn_opts_from_server_id()
+    |> conversation_id_from_spawn_opts()
+  end
+
+  defp conversation_id_from_spawn_opts(%{conversation_id: id}) when is_binary(id) and id != "",
+    do: id
+
+  defp conversation_id_from_spawn_opts(_), do: nil
+
+  defp tool_stage(tool_name) when is_binary(tool_name) do
+    mcp_prefixes = Application.get_env(:zaq, :mcp_tool_prefixes, @default_mcp_prefixes)
+
+    if Enum.any?(mcp_prefixes, &String.starts_with?(tool_name, &1)),
+      do: :mcp_call,
+      else: :tool_call
+  end
+
+  defp tool_stage(_), do: :tool_call
 end
