@@ -301,6 +301,60 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert_receive {:status_update, ^request_id, :answering, "Thinking…"}
   end
 
+  test "llm.delta broadcasts reasoning as retrieving when enabled" do
+    session_id = "bridge-session-#{System.unique_integer([:positive])}"
+    request_id = "bridge-req-#{System.unique_integer([:positive])}"
+
+    Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
+
+    Process.put(:zaq_status_context, %{
+      session_id: session_id,
+      request_id: request_id,
+      node_router: FakeNodeRouter
+    })
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :llm, :delta],
+               %{},
+               %{delta: %{reasoning: "Checking sources"}},
+               %{include_llm_deltas: true, max_payload_chars: 80}
+             )
+
+    assert_receive {:status_update, ^request_id, :retrieving, "Checking sources"}
+  end
+
+  test "llm.delta does not broadcast retrieving when reasoning is missing" do
+    session_id = "bridge-session-#{System.unique_integer([:positive])}"
+    request_id = "bridge-req-#{System.unique_integer([:positive])}"
+
+    Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
+
+    Process.put(:zaq_status_context, %{
+      session_id: session_id,
+      request_id: request_id,
+      node_router: FakeNodeRouter
+    })
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :llm, :delta],
+               %{},
+               %{delta: %{content: "Visible answer token"}},
+               %{include_llm_deltas: true, max_payload_chars: 80}
+             )
+
+    refute_receive {:status_update, ^request_id, :retrieving, _}
+  end
+
   test "tool start broadcasts mcp_call and tracks tool call" do
     previous_prefixes = Application.get_env(:zaq, :mcp_tool_prefixes)
     Application.put_env(:zaq, :mcp_tool_prefixes, ["mcp__"])

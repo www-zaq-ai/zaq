@@ -82,7 +82,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   @spec handle_event([atom()], map(), map(), map()) :: :ok
   def handle_event(event, measurements, metadata, cfg) do
     cfg = normalize_callback_config(cfg)
-    maybe_broadcast_status(event, metadata)
+    maybe_broadcast_status(event, measurements, metadata, cfg)
 
     if skip_event?(event, cfg) do
       :ok
@@ -210,7 +210,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp truncate_term(value, _max_chars), do: value
 
-  defp maybe_broadcast_status([:jido, :ai, :llm, :start], metadata) do
+  defp maybe_broadcast_status([:jido, :ai, :llm, :start], _measurements, metadata, _cfg) do
     case resolve_ctx(metadata) do
       nil -> :ok
       ctx -> Status.broadcast(ctx, :answering, "Thinking…", ctx.node_router)
@@ -219,7 +219,19 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
     :ok
   end
 
-  defp maybe_broadcast_status(event, metadata)
+  defp maybe_broadcast_status([:jido, :ai, :llm, :delta], measurements, metadata, cfg) do
+    if cfg.include_llm_deltas do
+      case {resolve_ctx(metadata), reasoning_delta_text(measurements, metadata)} do
+        {nil, _} -> :ok
+        {_, nil} -> :ok
+        {ctx, text} -> Status.broadcast(ctx, :retrieving, text, ctx.node_router)
+      end
+    end
+
+    :ok
+  end
+
+  defp maybe_broadcast_status(event, _measurements, metadata, _cfg)
        when event in [[:jido, :ai, :tool, :start], [:jido, :ai, :tool, :execute, :start]] do
     case resolve_ctx(metadata) do
       nil ->
@@ -234,7 +246,49 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
     :ok
   end
 
-  defp maybe_broadcast_status(_event, _metadata), do: :ok
+  defp maybe_broadcast_status(_event, _measurements, _metadata, _cfg), do: :ok
+
+  defp reasoning_delta_text(measurements, metadata) do
+    metadata
+    |> find_reasoning_delta()
+    |> case do
+      nil -> find_reasoning_delta(measurements)
+      value -> value
+    end
+    |> normalize_reasoning_text()
+  end
+
+  defp find_reasoning_delta(data) when is_map(data) do
+    data[:reasoning_delta] || data["reasoning_delta"] || data[:reasoning] || data["reasoning"] ||
+      data[:delta_reasoning] || data["delta_reasoning"] ||
+      get_in(data, [:delta, :reasoning]) || get_in(data, ["delta", "reasoning"]) ||
+      get_in(data, [:delta, :reasoning_delta]) || get_in(data, ["delta", "reasoning_delta"]) ||
+      get_in(data, [:output, :reasoning]) || get_in(data, ["output", "reasoning"])
+  end
+
+  defp find_reasoning_delta(_), do: nil
+
+  defp normalize_reasoning_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp normalize_reasoning_text(%{text: text}), do: normalize_reasoning_text(text)
+  defp normalize_reasoning_text(%{"text" => text}), do: normalize_reasoning_text(text)
+
+  defp normalize_reasoning_text(list) when is_list(list) do
+    text =
+      list
+      |> Enum.map(&normalize_reasoning_text/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+
+    normalize_reasoning_text(text)
+  end
+
+  defp normalize_reasoning_text(_), do: nil
 
   defp resolve_ctx(metadata) do
     proc_ctx = Process.get(:zaq_status_context)
