@@ -220,7 +220,9 @@ defmodule Zaq.Agent.Api do
         nil ->
           pipeline_module.run(
             incoming,
-            Keyword.put(pipeline_opts, :scope, Executor.derive_scope(incoming))
+            pipeline_opts
+            |> Keyword.put(:scope, Executor.derive_scope(incoming))
+            |> Keyword.put(:event, event)
           )
 
         selected_id ->
@@ -228,7 +230,8 @@ defmodule Zaq.Agent.Api do
             agent_id: selected_id,
             scope: Executor.derive_scope(incoming),
             history: Keyword.get(pipeline_opts, :history, %{}),
-            telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{})
+            telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
+            event: event
           )
       end
 

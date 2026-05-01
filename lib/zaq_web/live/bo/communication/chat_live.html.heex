@@ -241,6 +241,35 @@
                   >
                     <:actions>
                       <button
+                        :if={length(Map.get(item, :tool_calls, [])) > 0}
+                        phx-click="toggle_tool_calls"
+                        phx-value-id={item.id}
+                        class={[
+                          "p-1.5 rounded-lg transition-all",
+                          if(@tool_calls_open_for == item.id,
+                            do: "bg-[#e8f7fb] text-[#03b6d4]",
+                            else: "hover:bg-[#eeece8]"
+                          )
+                        ]}
+                        style={if @tool_calls_open_for != item.id, do: "color:#b8b5ae;", else: ""}
+                        title="Show tool calls"
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="12" y1="8" x2="12" y2="12"></line>
+                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                      </button>
+                      <button
                         phx-click="copy_message"
                         phx-value-text={item.body}
                         class="p-1.5 rounded-lg transition-all hover:bg-[#eeece8]"
@@ -320,12 +349,51 @@
                       </button>
                     </:actions>
                   </ZaqWeb.Components.ChatMessage.assistant_bubble>
+                  <%!-- Tool calls inline panel --%>
+                  <%= if @tool_calls_open_for == item.id and length(Map.get(item, :tool_calls, [])) > 0 do %>
+                    <div class="mt-2 ml-10 bg-white border border-[#e8e6e1] rounded-xl px-4 py-3 shadow-sm">
+                      <p
+                        class="font-mono text-[0.62rem] uppercase tracking-widest mb-2"
+                        style="color:#b8b5ae;"
+                      >
+                        Tools used
+                      </p>
+                      <ol class="space-y-1.5">
+                        <%= for {tc, i} <- Enum.with_index(Map.get(item, :tool_calls, []), 1) do %>
+                          <li class="flex items-center gap-2">
+                            <span
+                              class="font-mono text-[0.62rem] w-4 text-right flex-shrink-0"
+                              style="color:#c8c5be;"
+                            >
+                              {i}.
+                            </span>
+                            <span class={[
+                              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.62rem] font-mono font-medium flex-shrink-0",
+                              if(
+                                Map.get(tc, :type, tc["type"]) == :mcp_call or
+                                  Map.get(tc, :type, tc["type"]) == "mcp_call",
+                                do: "bg-purple-50 text-purple-600",
+                                else: "bg-[#e8f7fb] text-[#03b6d4]"
+                              )
+                            ]}>
+                              {if Map.get(tc, :type, tc["type"]) in [:mcp_call, "mcp_call"],
+                                do: "MCP",
+                                else: "tool"}
+                            </span>
+                            <span class="font-mono text-[0.75rem] truncate" style="color:#3b3935;">
+                              {Map.get(tc, :name, tc["name"])}
+                            </span>
+                          </li>
+                        <% end %>
+                      </ol>
+                    </div>
+                  <% end %>
                 <% end %>
               <% end %>
             <% end %>
 
             <%!-- Thinking indicator --%>
-            <%= if @status in [:validating, :thinking, :retrieving, :answering] do %>
+            <%= if @status in [:validating, :thinking, :retrieving, :answering, :tool_call, :mcp_call] do %>
               <div class="flex justify-start animate-slide-in-left">
                 <div class="flex gap-3">
                   <img
@@ -337,14 +405,30 @@
                     <div class="flex items-center gap-3 mb-2">
                       <div class={[
                         "flex items-center gap-1.5 text-[0.68rem] font-mono transition-colors",
-                        if(@status in [:validating, :thinking, :retrieving, :answering],
+                        if(
+                          @status in [
+                            :validating,
+                            :thinking,
+                            :retrieving,
+                            :answering,
+                            :tool_call,
+                            :mcp_call
+                          ],
                           do: "text-[#03b6d4]",
                           else: "text-[#c8c5be]"
                         )
                       ]}>
                         <div class={[
                           "w-1.5 h-1.5 rounded-full",
-                          if(@status in [:validating, :thinking, :retrieving, :answering],
+                          if(
+                            @status in [
+                              :validating,
+                              :thinking,
+                              :retrieving,
+                              :answering,
+                              :tool_call,
+                              :mcp_call
+                            ],
                             do: "bg-[#03b6d4]",
                             else: "bg-[#e0ddd8]"
                           )
@@ -352,14 +436,15 @@
                       </div>
                       <div class={[
                         "flex items-center gap-1.5 text-[0.68rem] font-mono transition-colors",
-                        if(@status in [:retrieving, :answering],
+                        if(@status in [:retrieving, :answering, :thinking, :tool_call, :mcp_call],
                           do: "text-[#03b6d4]",
                           else: "text-[#c8c5be]"
                         )
                       ]}>
                         <div class={[
                           "w-1.5 h-1.5 rounded-full",
-                          if(@status in [:retrieving, :answering],
+                          if(
+                            @status in [:retrieving, :answering, :thinking, :tool_call, :mcp_call],
                             do: "bg-[#03b6d4]",
                             else: "bg-[#e0ddd8]"
                           )
@@ -367,12 +452,25 @@
                       </div>
                       <div class={[
                         "flex items-center gap-1.5 text-[0.68rem] font-mono transition-colors",
-                        if(@status == :answering, do: "text-[#03b6d4]", else: "text-[#c8c5be]")
+                        if(@status in [:answering, :thinking, :tool_call, :mcp_call],
+                          do: "text-[#03b6d4]",
+                          else: "text-[#c8c5be]"
+                        )
                       ]}>
                         <div class={[
                           "w-1.5 h-1.5 rounded-full",
-                          if(@status == :answering, do: "bg-[#03b6d4]", else: "bg-[#e0ddd8]")
+                          if(@status in [:answering, :thinking, :tool_call, :mcp_call],
+                            do: "bg-[#03b6d4]",
+                            else: "bg-[#e0ddd8]"
+                          )
                         ]} /> Answering
+                      </div>
+                      <div
+                        :if={@status in [:tool_call, :mcp_call]}
+                        class="flex items-center gap-1.5 text-[0.68rem] font-mono text-[#03b6d4] transition-colors"
+                      >
+                        <div class="w-1.5 h-1.5 rounded-full bg-[#03b6d4]" />
+                        {if @status == :mcp_call, do: "MCP", else: "Tool"}
                       </div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -630,31 +728,69 @@
                   phx-hook="AutoExpand"
                   autocomplete="off"
                   placeholder="Ask a question… Type @ to filter by source  (Enter ↵ send · Shift+Enter new line)"
-                  disabled={@status in [:validating, :thinking, :retrieving, :answering]}
+                  disabled={
+                    @status in [
+                      :validating,
+                      :thinking,
+                      :retrieving,
+                      :answering,
+                      :tool_call,
+                      :mcp_call
+                    ]
+                  }
                   class={[
                     "w-full text-[0.85rem] rounded-xl border px-4 py-2.5 resize-none overflow-hidden leading-relaxed",
                     "focus:outline-none focus:ring-2 transition-all duration-200",
-                    if(@status in [:validating, :thinking, :retrieving, :answering],
+                    if(
+                      @status in [
+                        :validating,
+                        :thinking,
+                        :retrieving,
+                        :answering,
+                        :tool_call,
+                        :mcp_call
+                      ],
                       do: "cursor-not-allowed",
                       else: ""
                     )
                   ]}
                   style={
-                    if @status in [:validating, :thinking, :retrieving, :answering],
-                      do: "background:#faf9f7; border-color:#e8e6e1; color:#b8b5ae;",
-                      else: "background:#ffffff; border-color:#e0ddd8; color:#2c2b28;"
+                    if @status in [
+                         :validating,
+                         :thinking,
+                         :retrieving,
+                         :answering,
+                         :tool_call,
+                         :mcp_call
+                       ],
+                       do: "background:#faf9f7; border-color:#e8e6e1; color:#b8b5ae;",
+                       else: "background:#ffffff; border-color:#e0ddd8; color:#2c2b28;"
                   }
                 ><%= @input_value %></textarea>
               </div>
               <button
                 type="submit"
                 disabled={
-                  @status in [:validating, :thinking, :retrieving, :answering] or
+                  @status in [
+                    :validating,
+                    :thinking,
+                    :retrieving,
+                    :answering,
+                    :tool_call,
+                    :mcp_call
+                  ] or
                     @input_value == ""
                 }
                 class="flex-shrink-0 w-10 h-10 rounded-xl grid place-items-center transition-all duration-200"
                 style={
-                  if @status in [:validating, :thinking, :retrieving, :answering] or
+                  if @status in [
+                       :validating,
+                       :thinking,
+                       :retrieving,
+                       :answering,
+                       :tool_call,
+                       :mcp_call
+                     ] or
                        @input_value == "",
                      do: "background:#f0ede8; color:#c8c5be; cursor:not-allowed;",
                      else:

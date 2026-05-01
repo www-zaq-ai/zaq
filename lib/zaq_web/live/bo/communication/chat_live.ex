@@ -74,6 +74,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:active_filters, [])
      |> assign(:filter_suggestions, [])
      |> assign(:filter_query, "")
+     |> assign(:tool_calls_open_for, nil)
      |> assign(:suggested_questions, [
        "What is ZAQ and what does it do?",
        "Which integrations does ZAQ support?",
@@ -325,6 +326,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("noop", _params, socket), do: {:noreply, socket}
 
+  def handle_event("toggle_tool_calls", %{"id" => id}, socket) do
+    current = socket.assigns.tool_calls_open_for
+
+    tool_calls_open_for = if current == id, do: nil, else: id
+
+    {:noreply, assign(socket, :tool_calls_open_for, tool_calls_open_for)}
+  end
+
   def handle_event("toggle_feedback_reason", %{"reason" => reason}, socket) do
     reasons = socket.assigns.feedback_reasons
 
@@ -441,6 +450,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         error: result.metadata[:error] || false,
         feedback: nil,
         sources: normalized_sources,
+        tool_calls: Map.get(result.metadata, :tool_calls, []) || [],
         live: true
       }
 
@@ -669,6 +679,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       %{role: "user", content: user_msg}
     ])
 
+    tool_calls = Map.get(result.metadata, :tool_calls, []) || []
+
     bot_msg_result =
       node_router().call(:engine, Zaq.Engine.Conversations, :add_message, [
         conv,
@@ -680,7 +692,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           prompt_tokens: Map.get(result.metadata, :prompt_tokens),
           completion_tokens: Map.get(result.metadata, :completion_tokens),
           total_tokens: Map.get(result.metadata, :total_tokens),
-          sources: normalized_sources
+          sources: normalized_sources,
+          metadata: if(tool_calls != [], do: %{"tool_calls" => tool_calls}, else: %{})
         }
       ])
 
@@ -822,6 +835,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp db_message_to_ui(%{role: "assistant"} = msg) do
     content = msg.content || ""
     ratings = Map.get(msg, :ratings, [])
+    db_metadata = Map.get(msg, :metadata, %{}) || %{}
+    tool_calls = Map.get(db_metadata, "tool_calls", []) || []
 
     %{
       id: generate_id(),
@@ -832,7 +847,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       timestamp: msg.inserted_at,
       error: false,
       feedback: infer_feedback_from_ratings(ratings),
-      sources: normalize_sources(msg.sources || [])
+      sources: normalize_sources(msg.sources || []),
+      tool_calls: tool_calls
     }
   end
 

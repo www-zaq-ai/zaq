@@ -17,12 +17,21 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
       query: [type: :string, required: true, doc: "The refined search query to look up"]
     ]
 
+  alias Zaq.Agent.Status
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
 
   def run(%{query: query}, context) do
+    Status.broadcast(
+      Map.get(context, :status_context),
+      :retrieving,
+      "ZAQ is searching your knowledge base…",
+      Map.get(context, :node_router, NodeRouter)
+    )
+
     person_id = Map.get(context, :person_id)
     team_ids = Map.get(context, :team_ids, [])
+    source_filter = Map.get(context, :source_filter)
     node_router_mod = Map.get(context, :node_router, NodeRouter)
     doc_proc_mod = Map.get(context, :document_processor, DocumentProcessor)
 
@@ -31,25 +40,21 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     # If the query has no identified person and is not explicitly an admin,
     # return only public data (skip_permissions: false, person_id: nil).
     skip_permissions = Map.get(context, :skip_permissions, false)
-    opts = [person_id: person_id, team_ids: team_ids, skip_permissions: skip_permissions]
+
+    opts = [
+      person_id: person_id,
+      team_ids: team_ids,
+      skip_permissions: skip_permissions,
+      source_filter: source_filter
+    ]
 
     try do
       case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do
-        {:ok, chunks} ->
-          formatted = Enum.map_join(chunks, "\n\n", &format_chunk/1)
-          {:ok, %{chunks: formatted, count: length(chunks)}}
-
-        {:error, reason} ->
-          {:error, "Knowledge base search failed: #{inspect(reason)}"}
+        {:ok, chunks} -> {:ok, %{chunks: chunks, count: length(chunks)}}
+        {:error, reason} -> {:error, "Knowledge base search failed: #{inspect(reason)}"}
       end
     rescue
-      e ->
-        {:error, "Knowledge base search error: #{Exception.message(e)}"}
+      e -> {:error, "Knowledge base search error: #{Exception.message(e)}"}
     end
   end
-
-  defp format_chunk(%{"content" => content, "source" => source}),
-    do: "Source: #{source}\n#{content}"
-
-  defp format_chunk(%{"content" => content}), do: content
 end

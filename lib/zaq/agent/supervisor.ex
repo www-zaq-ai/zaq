@@ -19,7 +19,8 @@ defmodule Zaq.Agent.Supervisor do
       {Jido, name: Zaq.Agent.Jido, otp_app: :zaq},
       {DynamicSupervisor, strategy: :one_for_one, name: Zaq.Agent.AgentServerSupervisor},
       {Zaq.Agent.ServerManager, []},
-      {Zaq.Agent.JidoObservabilityLogger, []}
+      {Zaq.Agent.JidoObservabilityLogger, []},
+      {Zaq.Agent.StatusBroadcaster, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

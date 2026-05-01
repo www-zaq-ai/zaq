@@ -82,7 +82,7 @@ defmodule Zaq.Agent.Factory do
     )
   end
 
-  defp spawn_opts_from_server_id(server_id) when is_binary(server_id) do
+  def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
     case String.split(server_id, ":") do
       [_agent, provider, "conv", id] when provider != "" and id != "" ->
         %{conversation_id: id, person_id: nil, channel_type: provider}
@@ -95,7 +95,7 @@ defmodule Zaq.Agent.Factory do
     end
   end
 
-  defp spawn_opts_from_server_id(_server_id), do: nil
+  def spawn_opts_from_server_id(_server_id), do: nil
 
   @doc """
   Sends a query to a running agent server with the configured agent's LLM and tool settings.

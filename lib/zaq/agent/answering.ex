@@ -55,7 +55,7 @@ defmodule Zaq.Agent.Answering do
       id: :answering,
       name: "answering",
       strategy: "react",
-      enabled_tool_keys: ["answering.search_knowledge_base", "answering.ask_for_clarification"],
+      enabled_tool_keys: ["answering.search_knowledge_base"],
       conversation_enabled: false,
       active: true,
       advanced_options: ProviderSpec.default_advanced_options(cfg),

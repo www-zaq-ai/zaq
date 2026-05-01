@@ -13,6 +13,29 @@ defmodule Zaq.Agent.Status do
   alias Zaq.{Engine.Messages.Incoming, Event}
 
   @doc """
+  Extracts session context from a `%Zaq.Event{}` for ETS registration in `StatusRegistry`.
+
+  Returns `%{session_id, request_id, node_router}` when the event carries a valid
+  `%Incoming{}` request with both fields present, or `nil` for a nil event or missing fields.
+  Never raises.
+  """
+  @spec context_from_event(Event.t() | nil) :: map() | nil
+  def context_from_event(%Event{request: %Incoming{metadata: meta}} = event) do
+    session_id = meta[:session_id]
+    request_id = meta[:request_id]
+
+    if is_binary(session_id) and session_id != "" and
+         is_binary(request_id) and request_id != "" do
+      node_router = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
+      %{session_id: session_id, request_id: request_id, node_router: node_router}
+    else
+      nil
+    end
+  end
+
+  def context_from_event(_), do: nil
+
+  @doc """
   Broadcasts a pipeline stage event to the originating chat session.
 
   Accepts an `%Incoming{}` struct, a plain map with `:session_id` and

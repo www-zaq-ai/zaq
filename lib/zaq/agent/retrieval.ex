@@ -12,7 +12,7 @@ defmodule Zaq.Agent.Retrieval do
   require Logger
 
   alias ReqLLM.{Context, Generation, Response}
-  alias Zaq.Agent.{History, ProviderSpec, Status}
+  alias Zaq.Agent.{History, ProviderSpec}
   alias Zaq.Agent.PromptTemplate
   alias Zaq.System
 
@@ -28,13 +28,6 @@ defmodule Zaq.Agent.Retrieval do
   Returns `{:ok, decoded_json}` on success.
   """
   def ask(question, opts \\ []) do
-    Status.broadcast(
-      Keyword.get(opts, :status_context),
-      :retrieving,
-      "ZAQ is searching your knowledge base…",
-      Keyword.get(opts, :node_router, Zaq.NodeRouter)
-    )
-
     Logger.info("Retrieval: Received question: #{question}")
 
     system_prompt =

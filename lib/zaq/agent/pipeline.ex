@@ -44,6 +44,7 @@ defmodule Zaq.Agent.Pipeline do
   require Logger
   alias Zaq.Accounts.People
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
 
@@ -93,6 +94,13 @@ defmodule Zaq.Agent.Pipeline do
     ctx = %{trace_id: generate_trace_id(), node: node()}
     hooks = hooks_mod(opts)
 
+    status_context = %{
+      session_id: incoming.metadata[:session_id],
+      request_id: incoming.metadata[:request_id]
+    }
+
+    opts = Keyword.put(opts, :status_context, status_context)
+
     with :ok <- record_message_telemetry(opts),
          {:ok, retrieval_payload} <-
            hooks.dispatch_sync(:retrieval, %{content: content}, ctx),
@@ -101,7 +109,7 @@ defmodule Zaq.Agent.Pipeline do
          :ok <- hooks.dispatch_async(:retrieval_complete, retrieval_result, ctx),
          {:ok, answering_payload} <-
            hooks.dispatch_sync(:answering, retrieval_result, ctx),
-         {:ok, extraction_result} <- do_query_extraction(answering_payload, opts),
+         {:ok, extraction_result} <- do_extraction(answering_payload, opts),
          {:ok, answer_result} <-
            do_answering(incoming, content, extraction_result, answering_payload, history, opts),
          {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.body) do
@@ -183,15 +191,10 @@ defmodule Zaq.Agent.Pipeline do
   # Pipeline steps
   # ---------------------------------------------------------------------------
 
-  defp do_retrieval(clean_msg, history, opts, incoming) do
-    status_context = %{
-      session_id: incoming.metadata[:session_id],
-      request_id: incoming.metadata[:request_id]
-    }
-
+  defp do_retrieval(clean_msg, history, opts, _incoming) do
     case node_router(opts).call(:agent, retrieval_mod(opts), :ask, [
            clean_msg,
-           [history: history, status_context: status_context]
+           [history: history]
          ]) do
       {:ok,
        %{
@@ -223,29 +226,20 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_query_extraction(%{query: query, negative_answer: negative_answer}, opts) do
-    person_id = Keyword.get(opts, :person_id)
-    team_ids = Keyword.get(opts, :team_ids, [])
-    skip_permissions = Keyword.get(opts, :skip_permissions, false)
-    source_filter = Keyword.get(opts, :source_filter, [])
+  defp do_extraction(%{query: query}, opts) do
+    context = %{
+      person_id: Keyword.get(opts, :person_id),
+      team_ids: Keyword.get(opts, :team_ids, []),
+      source_filter: Keyword.get(opts, :source_filter),
+      skip_permissions: Keyword.get(opts, :skip_permissions, false),
+      node_router: node_router(opts),
+      document_processor: document_processor_mod(opts),
+      status_context: Keyword.get(opts, :status_context)
+    }
 
-    case node_router(opts).call(
-           :ingestion,
-           document_processor_mod(opts),
-           :query_extraction,
-           [
-             query,
-             [
-               person_id: person_id,
-               team_ids: team_ids,
-               skip_permissions: skip_permissions,
-               source_filter: source_filter
-             ]
-           ]
-         ) do
-      {:ok, results} when results != [] -> {:ok, results}
-      {:ok, []} -> {:error, :no_results, negative_answer}
-      {:error, _} -> {:error, :no_results, negative_answer}
+    case SearchKnowledgeBase.run(%{query: query}, context) do
+      {:ok, %{chunks: chunks}} -> {:ok, chunks}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -279,7 +273,8 @@ defmodule Zaq.Agent.Pipeline do
         team_ids: team_ids,
         history: history,
         telemetry_dimensions: telemetry_dimensions(opts),
-        node_router: node_router(opts)
+        node_router: node_router(opts),
+        event: Keyword.get(opts, :event)
       )
 
     {:ok, outgoing}
