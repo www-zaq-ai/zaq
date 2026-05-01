@@ -1244,18 +1244,21 @@ defmodule Zaq.Agent.ServerManagerTest do
       end
     end)
 
+    parent = self()
+
     handler = fn conn, body ->
       payload = Jason.decode!(body)
       content = extract_request_content(payload)
 
       if String.contains?(content, "SLOW_REQUEST") do
+        send(parent, :slow_request_in_flight)
         Process.sleep(10_000)
       end
 
       {200, streamed_reply(conn.request_path, "ok", "gpt-4.1-mini")}
     end
 
-    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    {child_spec, endpoint} = OpenAIStub.server(handler, parent)
     start_supervised!(child_spec)
 
     credential =
@@ -1288,8 +1291,6 @@ defmodule Zaq.Agent.ServerManagerTest do
     pid_before = Jido.AgentServer.whereis(registry, server_id)
     assert is_pid(pid_before)
 
-    parent = self()
-
     {:ok, _slow_pid} =
       Task.start(fn ->
         result =
@@ -1310,7 +1311,7 @@ defmodule Zaq.Agent.ServerManagerTest do
         send(parent, {:slow_result, result})
       end)
 
-    Process.sleep(50)
+    assert_receive :slow_request_in_flight, 5_000
 
     assert :ok = ServerManager.stop_server(configured_agent, server_id)
 
