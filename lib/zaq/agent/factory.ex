@@ -117,7 +117,7 @@ defmodule Zaq.Agent.Factory do
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
       when is_binary(query) do
     with {:ok, config} <- server_runtime_config(server, configured_agent),
-         :ok <- ensure_system_prompt(server, Map.get(config, :system_prompt, "")) do
+         :ok <- ensure_system_prompt(server, configured_agent.job || "") do
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
