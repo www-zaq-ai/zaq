@@ -8,12 +8,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Agent.{Answering, Retrieval, ServerManager}
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
+  alias Zaq.TestSupport.OpenAIStub
   alias ZaqWeb.Helpers.DateFormat
 
   defmodule NodeRouterFake do
@@ -1575,7 +1577,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     start_supervised!(mcp_child_spec)
 
     {child_spec, endpoint} =
-      Zaq.TestSupport.OpenAIStub.server(
+      OpenAIStub.server(
         fn conn, body ->
           payload = Jason.decode!(body)
 
@@ -1626,7 +1628,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       })
 
     {:ok, mcp_endpoint_record} =
-      Zaq.Agent.MCP.create_mcp_endpoint(%{
+      MCP.create_mcp_endpoint(%{
         name: "Timeout MCP #{System.unique_integer([:positive])}",
         type: "remote",
         status: "enabled",

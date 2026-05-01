@@ -259,14 +259,37 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   end
 
   defp find_reasoning_delta(data) when is_map(data) do
-    data[:reasoning_delta] || data["reasoning_delta"] || data[:reasoning] || data["reasoning"] ||
-      data[:delta_reasoning] || data["delta_reasoning"] ||
-      get_in(data, [:delta, :reasoning]) || get_in(data, ["delta", "reasoning"]) ||
-      get_in(data, [:delta, :reasoning_delta]) || get_in(data, ["delta", "reasoning_delta"]) ||
-      get_in(data, [:output, :reasoning]) || get_in(data, ["output", "reasoning"])
+    direct_reasoning_keys()
+    |> Enum.find_value(&Map.get(data, &1))
+    |> case do
+      nil -> Enum.find_value(nested_reasoning_paths(), &get_in(data, &1))
+      value -> value
+    end
   end
 
   defp find_reasoning_delta(_), do: nil
+
+  defp direct_reasoning_keys do
+    [
+      :reasoning_delta,
+      "reasoning_delta",
+      :reasoning,
+      "reasoning",
+      :delta_reasoning,
+      "delta_reasoning"
+    ]
+  end
+
+  defp nested_reasoning_paths do
+    [
+      [:delta, :reasoning],
+      ["delta", "reasoning"],
+      [:delta, :reasoning_delta],
+      ["delta", "reasoning_delta"],
+      [:output, :reasoning],
+      ["output", "reasoning"]
+    ]
+  end
 
   defp normalize_reasoning_text(value) when is_binary(value) do
     case String.trim(value) do

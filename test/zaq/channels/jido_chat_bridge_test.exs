@@ -5,6 +5,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat
   alias Jido.Chat.Author
   alias Jido.Chat.Incoming, as: ChatIncoming
+  alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
@@ -12,6 +13,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
+  alias Zaq.TestSupport.OpenAIStub
 
   # ── Stub modules ──────────────────────────────────────────────────────
 
@@ -535,7 +537,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealRunPipelineNodeRouter)
 
       {child_spec, endpoint} =
-        Zaq.TestSupport.OpenAIStub.server(
+        OpenAIStub.server(
           fn conn, body ->
             payload = Jason.decode!(body)
 
@@ -590,7 +592,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         })
 
       {:ok, mcp_endpoint_record} =
-        Zaq.Agent.MCP.create_mcp_endpoint(%{
+        MCP.create_mcp_endpoint(%{
           name: "Bridge Timeout MCP #{System.unique_integer([:positive])}",
           type: "remote",
           status: "enabled",
@@ -614,7 +616,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         })
 
       on_exit(fn ->
-        _ = Zaq.Agent.ServerManager.stop_server(configured_agent)
+        _ = ServerManager.stop_server(configured_agent)
       end)
 
       config =
