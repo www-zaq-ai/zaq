@@ -185,10 +185,16 @@ defmodule Zaq.Engine.Conversations do
              latency_ms: result.latency_ms,
              prompt_tokens: result.prompt_tokens,
              completion_tokens: result.completion_tokens,
-             total_tokens: result.total_tokens
+             total_tokens: result.total_tokens,
+             metadata: assistant_metadata(result)
            }) do
       :ok
     end
+  end
+
+  defp assistant_metadata(result) when is_map(result) do
+    tool_calls = Map.get(result, :tool_calls) || Map.get(result, "tool_calls") || []
+    %{"tool_calls" => tool_calls}
   end
 
   defp touch_conversation(%Conversation{} = conv) do

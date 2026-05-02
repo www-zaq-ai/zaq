@@ -74,7 +74,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:active_filters, [])
      |> assign(:filter_suggestions, [])
      |> assign(:filter_query, "")
-     |> assign(:tool_calls_open_for, nil)
+     |> assign(:tool_calls_modal_for, nil)
+     |> assign(:tool_calls_modal_entries, [])
+     |> assign(:expanded_tool_call_ids, MapSet.new())
      |> assign(:suggested_questions, [
        "What is ZAQ and what does it do?",
        "Which integrations does ZAQ support?",
@@ -326,12 +328,38 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("noop", _params, socket), do: {:noreply, socket}
 
-  def handle_event("toggle_tool_calls", %{"id" => id}, socket) do
-    current = socket.assigns.tool_calls_open_for
+  def handle_event("open_tool_calls_modal", %{"id" => id}, socket) do
+    message = Enum.find(socket.assigns.messages, &(Map.get(&1, :id) == id))
 
-    tool_calls_open_for = if current == id, do: nil, else: id
+    tool_calls =
+      if is_map(message), do: normalize_tool_calls(Map.get(message, :tool_calls, [])), else: []
 
-    {:noreply, assign(socket, :tool_calls_open_for, tool_calls_open_for)}
+    {:noreply,
+     socket
+     |> assign(:tool_calls_modal_for, id)
+     |> assign(:tool_calls_modal_entries, tool_calls)
+     |> assign(:expanded_tool_call_ids, MapSet.new())}
+  end
+
+  def handle_event("close_tool_calls_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:tool_calls_modal_for, nil)
+     |> assign(:tool_calls_modal_entries, [])
+     |> assign(:expanded_tool_call_ids, MapSet.new())}
+  end
+
+  def handle_event("toggle_tool_call_details", %{"tool_id" => tool_id}, socket) do
+    expanded = socket.assigns.expanded_tool_call_ids
+
+    updated =
+      if MapSet.member?(expanded, tool_id) do
+        MapSet.delete(expanded, tool_id)
+      else
+        MapSet.put(expanded, tool_id)
+      end
+
+    {:noreply, assign(socket, :expanded_tool_call_ids, updated)}
   end
 
   def handle_event("toggle_feedback_reason", %{"reason" => reason}, socket) do
@@ -480,7 +508,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       error: result.metadata[:error] || false,
       feedback: nil,
       sources: normalized_sources,
-      tool_calls: Map.get(result.metadata, :tool_calls, []) || [],
+      tool_calls: Map.get(result.metadata, :tool_calls, []) |> normalize_tool_calls(),
       live: true
     }
   end
@@ -538,6 +566,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     incoming = %Incoming{
       content: user_msg,
       channel_id: "bo",
+      message_id: request_id,
       author_id: current_user.id,
       provider: :web,
       person_id: Map.get(current_user, :person_id),
@@ -865,7 +894,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     content = msg.content || ""
     ratings = Map.get(msg, :ratings, [])
     db_metadata = Map.get(msg, :metadata, %{}) || %{}
-    tool_calls = Map.get(db_metadata, "tool_calls", []) || []
+    tool_calls = db_metadata |> Map.get("tool_calls", []) |> normalize_tool_calls()
 
     %{
       id: generate_id(),
@@ -892,6 +921,29 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       confidence: nil,
       sources: []
     }
+
+  defp normalize_tool_calls(tool_calls) when is_list(tool_calls) do
+    tool_calls
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn tc ->
+      %{
+        tool_call_id: Map.get(tc, :tool_call_id) || Map.get(tc, "tool_call_id"),
+        tool_name: Map.get(tc, :tool_name) || Map.get(tc, "tool_name"),
+        timestamp: Map.get(tc, :timestamp) || Map.get(tc, "timestamp"),
+        params: Map.get(tc, :params) || Map.get(tc, "params"),
+        response: Map.get(tc, :response) || Map.get(tc, "response"),
+        response_time_ms: Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms"),
+        status: Map.get(tc, :status) || Map.get(tc, "status")
+      }
+    end)
+    |> Enum.sort_by(fn tc -> tool_call_sort_key(tc.response_time_ms) end, :desc)
+  end
+
+  defp normalize_tool_calls(_), do: []
+
+  defp tool_call_sort_key(ms) when is_integer(ms), do: ms
+  defp tool_call_sort_key(ms) when is_float(ms), do: ms
+  defp tool_call_sort_key(_), do: -1
 
   defp build_history_from_db_messages(messages) do
     messages

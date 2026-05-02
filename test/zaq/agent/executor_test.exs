@@ -19,7 +19,27 @@ defmodule Zaq.Agent.ExecutorTest do
 
   defmodule StubFactory do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, timeout: 45_000), do: {:ok, %{result: "stubbed answer"}}
+    def await(:request, _opts), do: {:ok, %{result: "stubbed answer"}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
+  defmodule StubFactoryWithToolTrace do
+    def ask_with_config(_server, _content, _configured_agent, opts \\ []) do
+      extra_refs = Keyword.get(opts, :extra_refs, %{})
+      trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
+
+      if is_map(trace_ctx) do
+        send(self(), {:trace_ctx, trace_ctx})
+      end
+
+      {:ok, :request}
+    end
+
+    def await(:request, _opts) do
+      send(self(), {:zaq_tool_traces, "req-123", [%{tool_name: "read_file", status: "ok"}]})
+      {:ok, %{result: "stubbed answer"}}
+    end
+
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
@@ -218,6 +238,30 @@ defmodule Zaq.Agent.ExecutorTest do
       Executor.run(@incoming, @base_opts)
 
       assert_received {:ensure_server, _configured_agent, "Stub Agent:anonymous"}
+    end
+  end
+
+  describe "run/2 tool trace metadata" do
+    test "adds tool_calls from telemetry message" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        metadata: %{request_id: "req-123"}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryWithToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert_received {:trace_ctx, %{request_id: "req-123", collector_pid: pid}}
+      assert pid == self()
+      assert outgoing.metadata[:tool_calls] == [%{tool_name: "read_file", status: "ok"}]
     end
   end
 end

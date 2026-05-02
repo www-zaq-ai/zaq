@@ -15,6 +15,8 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   alias Zaq.Agent.{Factory, Status}
 
   @handler_id "zaq-agent-jido-telemetry-bridge"
+  @tool_trace_table :zaq_tool_trace_events
+  @tool_trace_lock_table :zaq_tool_trace_locks
 
   @request_events for event <- [:start, :complete, :failed, :rejected, :cancelled],
                       do: [:jido, :ai, :request, event]
@@ -82,6 +84,8 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   @spec handle_event([atom()], map(), map(), map()) :: :ok
   def handle_event(event, measurements, metadata, cfg) do
     cfg = normalize_callback_config(cfg)
+    track_tool_event(event, measurements, metadata)
+    maybe_publish_tool_traces(event, metadata)
     maybe_broadcast_status(event, measurements, metadata, cfg)
 
     if skip_event?(event, cfg) do
@@ -133,6 +137,122 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   end
 
   defp normalize_callback_config(_), do: @default_config
+
+  defp track_tool_event(event, measurements, metadata)
+       when event in [[:jido, :ai, :tool, :start], [:jido, :ai, :tool, :execute, :start]] do
+    with request_id when is_binary(request_id) and request_id != "" <- request_id(metadata),
+         tool_call_id when is_binary(tool_call_id) and tool_call_id != "" <-
+           tool_call_id(metadata),
+         tool_name when is_binary(tool_name) and tool_name != "" <- tool_name(metadata) do
+      merge_trace(request_id, tool_call_id, tool_name, fn current ->
+        current
+        |> Map.put(
+          :timestamp,
+          prefer_present(Map.get(current, :timestamp), iso8601_now())
+        )
+        |> Map.put(
+          :params,
+          prefer_present(extract_tool_params(metadata, measurements), Map.get(current, :params))
+        )
+        |> Map.put(
+          :response,
+          prefer_present(
+            extract_tool_response(metadata, measurements),
+            Map.get(current, :response)
+          )
+        )
+        |> Map.put(
+          :response_time_ms,
+          prefer_present(response_time_ms(measurements), Map.get(current, :response_time_ms))
+        )
+      end)
+
+      remember_request_context(request_id)
+    else
+      _ -> :ok
+    end
+  end
+
+  defp track_tool_event(event, measurements, metadata)
+       when event in [
+              [:jido, :ai, :tool, :complete],
+              [:jido, :ai, :tool, :execute, :stop],
+              [:jido, :ai, :tool, :error],
+              [:jido, :ai, :tool, :timeout],
+              [:jido, :ai, :tool, :execute, :exception]
+            ] do
+    with request_id when is_binary(request_id) and request_id != "" <- request_id(metadata),
+         tool_call_id when is_binary(tool_call_id) and tool_call_id != "" <-
+           tool_call_id(metadata),
+         tool_name when is_binary(tool_name) and tool_name != "" <- tool_name(metadata) do
+      status = if success_event?(event), do: "ok", else: "error"
+
+      merge_trace(request_id, tool_call_id, tool_name, fn current ->
+        current
+        |> Map.put(
+          :timestamp,
+          prefer_present(Map.get(current, :timestamp), iso8601_now())
+        )
+        |> Map.put(
+          :params,
+          prefer_present(
+            extract_tool_params(metadata, measurements),
+            Map.get(current, :params)
+          )
+        )
+        |> Map.put(
+          :response,
+          prefer_present(
+            extract_tool_response(metadata, measurements),
+            Map.get(current, :response)
+          )
+        )
+        |> Map.put(
+          :response_time_ms,
+          prefer_present(response_time_ms(measurements), Map.get(current, :response_time_ms))
+        )
+        |> Map.put(:status, status)
+      end)
+
+      remember_request_context(request_id)
+    else
+      _ -> :ok
+    end
+  end
+
+  defp track_tool_event(_event, _measurements, _metadata), do: :ok
+
+  defp maybe_publish_tool_traces(event, metadata)
+       when event in [
+              [:jido, :ai, :request, :complete],
+              [:jido, :ai, :request, :failed],
+              [:jido, :ai, :request, :cancelled],
+              [:jido, :ai, :request, :rejected]
+            ] do
+    case request_id(metadata) do
+      request_id when is_binary(request_id) and request_id != "" ->
+        traces = list_request_traces(request_id)
+
+        proc_ctx = Process.get(:zaq_status_context)
+        ctx_request_id = proc_ctx_value(proc_ctx, :request_id)
+
+        case {get_request_context(request_id), ctx_request_id} do
+          {%{collector_pid: collector_pid}, ctx_req_id}
+          when is_pid(collector_pid) and is_binary(ctx_req_id) and ctx_req_id != "" ->
+            send(collector_pid, {:zaq_tool_traces, ctx_req_id, traces})
+
+          _ ->
+            :ok
+        end
+
+        clear_request_traces(request_id)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_publish_tool_traces(_event, _metadata), do: :ok
 
   defp events(include_llm_deltas) do
     llm_events =
@@ -312,6 +432,289 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   end
 
   defp normalize_reasoning_text(_), do: nil
+
+  defp prefer_present(new_value, current_value) do
+    if empty_value?(new_value), do: current_value, else: new_value
+  end
+
+  defp empty_value?(nil), do: true
+  defp empty_value?(""), do: true
+  defp empty_value?(value) when is_binary(value), do: String.trim(value) == ""
+  defp empty_value?(value) when is_map(value), do: map_size(value) == 0
+  defp empty_value?(value) when is_list(value), do: value == []
+  defp empty_value?(_), do: false
+
+  defp success_event?(event),
+    do: event in [[:jido, :ai, :tool, :complete], [:jido, :ai, :tool, :execute, :stop]]
+
+  defp response_time_ms(measurements) when is_map(measurements) do
+    Map.get(measurements, :duration_ms) || Map.get(measurements, "duration_ms")
+  end
+
+  defp response_time_ms(_), do: nil
+
+  defp extract_tool_params(metadata, measurements) do
+    direct = Map.get(metadata, :params) || Map.get(metadata, "params")
+
+    if empty_value?(direct) do
+      extract_first(
+        [
+          metadata,
+          measurements
+        ],
+        [
+          :tool_args,
+          "tool_args",
+          :args,
+          "args",
+          :params,
+          "params",
+          :input,
+          "input",
+          :payload,
+          "payload"
+        ]
+      )
+      |> sanitize_payload()
+    else
+      sanitize_payload(direct)
+    end
+  end
+
+  defp extract_tool_response(metadata, measurements) do
+    direct = Map.get(metadata, :result) || Map.get(metadata, "result")
+
+    if empty_value?(direct) do
+      extract_first(
+        [
+          metadata,
+          measurements
+        ],
+        [
+          :tool_result,
+          "tool_result",
+          :result,
+          "result",
+          :response,
+          "response",
+          :output,
+          "output",
+          :error,
+          "error",
+          :exception,
+          "exception"
+        ]
+      )
+      |> sanitize_payload()
+    else
+      sanitize_payload(direct)
+    end
+  end
+
+  defp sanitize_payload(nil), do: nil
+  defp sanitize_payload(value) when is_binary(value), do: value
+  defp sanitize_payload(value) when is_boolean(value), do: value
+  defp sanitize_payload(value) when is_integer(value), do: value
+  defp sanitize_payload(value) when is_float(value), do: value
+
+  defp sanitize_payload(value) when is_atom(value), do: Atom.to_string(value)
+
+  defp sanitize_payload(value) when is_list(value) do
+    Enum.map(value, &sanitize_payload/1)
+  end
+
+  defp sanitize_payload(value) when is_tuple(value) do
+    value
+    |> Tuple.to_list()
+    |> Enum.map(&sanitize_payload/1)
+  end
+
+  defp sanitize_payload(%_{} = value) do
+    value
+    |> Map.from_struct()
+    |> sanitize_payload()
+  end
+
+  defp sanitize_payload(value) when is_map(value) do
+    Map.new(value, fn {k, v} -> {to_string(k), sanitize_payload(v)} end)
+  end
+
+  defp sanitize_payload(value), do: inspect(value)
+
+  defp extract_first(sources, keys) do
+    Enum.find_value(sources, fn source ->
+      if is_map(source) do
+        Enum.find_value(keys, fn key -> Map.get(source, key) end)
+      end
+    end)
+  end
+
+  defp request_id(metadata) when is_map(metadata) do
+    Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
+  end
+
+  defp request_id(_), do: nil
+
+  defp tool_call_id(metadata) when is_map(metadata) do
+    (Map.get(metadata, :tool_call_id) || Map.get(metadata, "tool_call_id"))
+    |> normalize_tool_call_id()
+  end
+
+  defp tool_call_id(_), do: nil
+
+  defp normalize_tool_call_id(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed in ["", "nil"], do: nil, else: trimmed
+  end
+
+  defp normalize_tool_call_id(nil), do: nil
+  defp normalize_tool_call_id(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_tool_call_id(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_tool_call_id(_), do: nil
+
+  defp tool_name(metadata) when is_map(metadata) do
+    case Map.get(metadata, :tool_name) || Map.get(metadata, "tool_name") do
+      value when is_binary(value) -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      _ -> nil
+    end
+  end
+
+  defp tool_name(_), do: nil
+
+  defp new_trace_entry(request_id, tool_call_id, tool_name) do
+    %{
+      request_id: request_id,
+      tool_call_id: tool_call_id,
+      tool_name: tool_name,
+      timestamp: nil,
+      params: nil,
+      response: nil,
+      response_time_ms: nil,
+      status: "started"
+    }
+  end
+
+  defp iso8601_now do
+    DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+  end
+
+  defp ensure_trace_table do
+    case :ets.whereis(@tool_trace_table) do
+      :undefined ->
+        :ets.new(@tool_trace_table, [:named_table, :public, :set, read_concurrency: true])
+
+      _ ->
+        @tool_trace_table
+    end
+  end
+
+  defp ensure_trace_lock_table do
+    case :ets.whereis(@tool_trace_lock_table) do
+      :undefined ->
+        :ets.new(@tool_trace_lock_table, [:named_table, :public, :set])
+
+      _ ->
+        @tool_trace_lock_table
+    end
+  end
+
+  defp merge_trace(request_id, tool_call_id, tool_name, merge_fn) when is_function(merge_fn, 1) do
+    table = ensure_trace_table()
+    key = {:tool, request_id, tool_call_id}
+
+    with_trace_lock(key, fn ->
+      current =
+        case :ets.lookup(table, key) do
+          [{^key, trace}] -> trace
+          _ -> new_trace_entry(request_id, tool_call_id, tool_name)
+        end
+
+      updated = merge_fn.(current)
+      :ets.insert(table, {key, updated})
+    end)
+
+    :ok
+  end
+
+  defp with_trace_lock(key, fun) when is_function(fun, 0) do
+    lock_table = ensure_trace_lock_table()
+    acquire_trace_lock(lock_table, key, 0)
+
+    try do
+      fun.()
+    after
+      :ets.delete(lock_table, key)
+    end
+  end
+
+  defp acquire_trace_lock(lock_table, key, attempts) when attempts < 200 do
+    if :ets.insert_new(lock_table, {key, true}) do
+      :ok
+    else
+      Process.sleep(1)
+      acquire_trace_lock(lock_table, key, attempts + 1)
+    end
+  end
+
+  defp acquire_trace_lock(lock_table, key, _attempts) do
+    :ets.insert(lock_table, {key, true})
+    :ok
+  end
+
+  defp remember_request_context(request_id) do
+    table = ensure_trace_table()
+
+    context =
+      case Process.get(:zaq_tool_trace_context) do
+        %{collector_pid: collector_pid} when is_pid(collector_pid) ->
+          %{collector_pid: collector_pid}
+
+        _ ->
+          nil
+      end
+
+    if context do
+      :ets.insert(table, {{:request_context, request_id}, context})
+    end
+
+    :ok
+  end
+
+  defp get_request_context(request_id) do
+    table = ensure_trace_table()
+
+    case :ets.lookup(table, {:request_context, request_id}) do
+      [{{:request_context, ^request_id}, ctx}] -> ctx
+      _ -> nil
+    end
+  end
+
+  defp list_request_traces(request_id) do
+    table = ensure_trace_table()
+
+    table
+    |> :ets.match({{:tool, request_id, :"$1"}, :"$2"})
+    |> Enum.map(fn [tool_call_id, trace] ->
+      trace
+      |> Map.put_new(:tool_call_id, tool_call_id)
+      |> Map.drop([:request_id])
+    end)
+    |> Enum.sort_by(&Map.get(&1, :timestamp, ""))
+  end
+
+  defp clear_request_traces(request_id) do
+    table = ensure_trace_table()
+
+    table
+    |> :ets.match({{:tool, request_id, :"$1"}, :"$2"})
+    |> Enum.each(fn [tool_call_id, _trace] ->
+      :ets.delete(table, {:tool, request_id, tool_call_id})
+    end)
+
+    :ets.delete(table, {:request_context, request_id})
+    :ok
+  end
 
   defp resolve_ctx(metadata) do
     proc_ctx = Process.get(:zaq_status_context)

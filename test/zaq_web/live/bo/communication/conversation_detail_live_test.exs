@@ -32,7 +32,27 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
         content: "**ZAQ** is an AI company brain. [1]",
         model: "gpt-4",
         confidence_score: 0.9,
-        sources: [%{"index" => 1, "path" => "guide.md"}]
+        sources: [%{"index" => 1, "path" => "guide.md"}],
+        metadata: %{
+          "tool_calls" => [
+            %{
+              "tool_call_id" => "call-a",
+              "tool_name" => "read_file",
+              "timestamp" => "2026-05-02T10:00:00Z",
+              "params" => %{"path" => "guide.md"},
+              "response" => %{"ok" => true},
+              "response_time_ms" => 35
+            },
+            %{
+              "tool_call_id" => "call-b",
+              "tool_name" => "search_code",
+              "timestamp" => "2026-05-02T10:00:01Z",
+              "params" => %{"query" => "ZAQ"},
+              "response" => %{"matches" => 3},
+              "response_time_ms" => 85
+            }
+          ]
+        }
       })
 
     {conv, assistant_msg}
@@ -68,17 +88,47 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
     end
   end
 
-  describe "rate_message" do
-    test "rates an assistant message", %{conn: conn, user: user} do
+  describe "assistant actions" do
+    test "records positive feedback for an assistant message", %{conn: conn, user: user} do
       {conv, assistant_msg} = create_conv_with_messages(user.id)
       {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
 
       view
-      |> element("button[phx-value-id='#{assistant_msg.id}'][phx-value-rating='5']")
+      |> element("button[phx-value-id='#{assistant_msg.id}'][phx-value-type='positive']")
       |> render_click()
 
       rating = Conversations.get_rating(assistant_msg, %{user_id: user.id})
       assert rating.rating == 5
+    end
+
+    test "opens and submits negative feedback modal", %{conn: conn, user: user} do
+      {conv, assistant_msg} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      view
+      |> element("button[phx-value-id='#{assistant_msg.id}'][phx-value-type='negative']")
+      |> render_click()
+
+      assert has_element?(view, "#feedback-modal")
+
+      view
+      |> element("button[phx-click='toggle_feedback_reason'][phx-value-reason='Not accurate']")
+      |> render_click()
+
+      view
+      |> element("textarea[name='comment']")
+      |> render_change(%{"comment" => "Missing context"})
+
+      view
+      |> element("button[phx-click='submit_feedback']")
+      |> render_click()
+
+      refute has_element?(view, "#feedback-modal")
+
+      rating = Conversations.get_rating(assistant_msg, %{user_id: user.id})
+      assert rating.rating == 1
+      assert rating.comment =~ "Not accurate"
+      assert rating.comment =~ "Missing context"
     end
   end
 
@@ -136,6 +186,43 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
 
       assert has_element?(view, "#file-preview-modal")
       assert has_element?(view, "#file-preview-modal p", "File not found")
+    end
+  end
+
+  describe "tool calls popin" do
+    test "shows info icon, opens popin, sorts by response time, and expands details", %{
+      conn: conn,
+      user: user
+    } do
+      {conv, assistant_msg} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      assert has_element?(view, ~s([data-testid="tool-calls-info-#{assistant_msg.id}"]))
+
+      view
+      |> element(~s([data-testid="tool-calls-info-#{assistant_msg.id}"]))
+      |> render_click()
+
+      assert has_element?(view, ~s([data-testid="tool-calls-popin"]))
+
+      html = render(view)
+      assert String.contains?(html, "Search Code")
+      assert String.contains?(html, "Read File")
+
+      {search_idx, _} = :binary.match(html, "Search Code")
+      {read_idx, _} = :binary.match(html, "Read File")
+      assert search_idx < read_idx
+
+      view
+      |> element(~s([data-testid="tool-call-row-call-b"]))
+      |> render_click()
+
+      details = render(view)
+      assert details =~ "Timestamp:"
+      assert details =~ "Params"
+      assert details =~ "Response"
+      assert details =~ "Response time:"
+      assert details =~ "85 ms"
     end
   end
 end

@@ -240,154 +240,22 @@
                     source_click_event="open_preview_modal"
                   >
                     <:actions>
-                      <button
-                        :if={length(Map.get(item, :tool_calls, [])) > 0}
-                        phx-click="toggle_tool_calls"
-                        phx-value-id={item.id}
-                        class={[
-                          "p-1.5 rounded-lg transition-all",
-                          if(@tool_calls_open_for == item.id,
-                            do: "bg-[#e8f7fb] text-[#03b6d4]",
-                            else: "hover:bg-[#eeece8]"
-                          )
-                        ]}
-                        style={if @tool_calls_open_for != item.id, do: "color:#b8b5ae;", else: ""}
-                        title="Show tool calls"
-                      >
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <line x1="12" y1="8" x2="12" y2="12"></line>
-                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                      </button>
-                      <button
-                        phx-click="copy_message"
-                        phx-value-text={item.body}
-                        class="p-1.5 rounded-lg transition-all hover:bg-[#eeece8]"
-                        style="color:#b8b5ae;"
-                        title="Copy"
-                      >
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <rect x="9" y="9" width="13" height="13" rx="2"></rect>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1">
-                          </path>
-                        </svg>
-                      </button>
-                      <button
-                        phx-click="feedback"
-                        phx-value-id={item.id}
-                        phx-value-type="positive"
-                        class={[
-                          "p-1.5 rounded-lg transition-all",
-                          if(item[:feedback] == :positive,
-                            do: "bg-emerald-50 text-emerald-500",
-                            else: "hover:bg-[#eeece8]"
-                          )
-                        ]}
-                        style={if item[:feedback] != :positive, do: "color:#b8b5ae;", else: ""}
-                        title="Good response"
-                      >
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
-                          </path>
-                        </svg>
-                      </button>
-                      <button
-                        phx-click="feedback"
-                        phx-value-id={item.id}
-                        phx-value-type="negative"
-                        class={[
-                          "p-1.5 rounded-lg transition-all",
-                          if(item[:feedback] == :negative,
-                            do: "bg-red-50 text-red-400",
-                            else: "hover:bg-[#eeece8]"
-                          )
-                        ]}
-                        style={if item[:feedback] != :negative, do: "color:#b8b5ae;", else: ""}
-                        title="Poor response"
-                      >
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17">
-                          </path>
-                        </svg>
-                      </button>
+                      <ZaqWeb.Components.ChatMessage.tool_calls_info_button
+                        tool_calls={Map.get(item, :tool_calls, [])}
+                        message_id={item.id}
+                        open_event="open_tool_calls_modal"
+                      />
+                      <ZaqWeb.Components.ChatMessage.copy_action_button text={item.body} />
+                      <ZaqWeb.Components.ChatMessage.feedback_positive_button
+                        message_id={item.id}
+                        feedback={item[:feedback]}
+                      />
+                      <ZaqWeb.Components.ChatMessage.feedback_negative_button
+                        message_id={item.id}
+                        feedback={item[:feedback]}
+                      />
                     </:actions>
                   </ZaqWeb.Components.ChatMessage.assistant_bubble>
-                  <%!-- Tool calls inline panel --%>
-                  <%= if @tool_calls_open_for == item.id and length(Map.get(item, :tool_calls, [])) > 0 do %>
-                    <div class="mt-2 ml-10 bg-white border border-[#e8e6e1] rounded-xl px-4 py-3 shadow-sm">
-                      <p
-                        class="font-mono text-[0.62rem] uppercase tracking-widest mb-2"
-                        style="color:#b8b5ae;"
-                      >
-                        Tools used
-                      </p>
-                      <ol class="space-y-1.5">
-                        <%= for {tc, i} <- Enum.with_index(Map.get(item, :tool_calls, []), 1) do %>
-                          <li class="flex items-center gap-2">
-                            <span
-                              class="font-mono text-[0.62rem] w-4 text-right flex-shrink-0"
-                              style="color:#c8c5be;"
-                            >
-                              {i}.
-                            </span>
-                            <span class={[
-                              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.62rem] font-mono font-medium flex-shrink-0",
-                              if(
-                                Map.get(tc, :type, tc["type"]) == :mcp_call or
-                                  Map.get(tc, :type, tc["type"]) == "mcp_call",
-                                do: "bg-purple-50 text-purple-600",
-                                else: "bg-[#e8f7fb] text-[#03b6d4]"
-                              )
-                            ]}>
-                              {if Map.get(tc, :type, tc["type"]) in [:mcp_call, "mcp_call"],
-                                do: "MCP",
-                                else: "tool"}
-                            </span>
-                            <span class="font-mono text-[0.75rem] truncate" style="color:#3b3935;">
-                              {Map.get(tc, :name, tc["name"])}
-                            </span>
-                          </li>
-                        <% end %>
-                      </ol>
-                    </div>
-                  <% end %>
                 <% end %>
               <% end %>
             <% end %>
@@ -516,6 +384,15 @@
             </div>
           </div>
         <% end %>
+
+        <ZaqWeb.Components.ChatMessage.tool_calls_popin
+          visible={is_binary(@tool_calls_modal_for)}
+          message_id={@tool_calls_modal_for}
+          tool_calls={@tool_calls_modal_entries}
+          expanded_ids={@expanded_tool_call_ids}
+          close_event="close_tool_calls_modal"
+          toggle_event="toggle_tool_call_details"
+        />
 
         <%!-- Input bar --%>
         <div class="flex-shrink-0 border-t border-[#e8e6e1] bg-white px-6 py-3.5">

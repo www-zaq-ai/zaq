@@ -131,18 +131,21 @@ defmodule Zaq.Agent.Executor do
                extra_refs: %{
                  zaq_status_context: %{
                    session_id: incoming.metadata[:session_id],
-                   request_id: incoming.metadata[:request_id],
+                   request_id: incoming.message_id,
                    node_router: node_router(opts)
-                 }
+                 },
+                 zaq_tool_trace_context: tool_trace_context(incoming)
                }
              ),
-           {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
+           {:ok, answer} <- factory_module.await(request, timeout: 120_000) do
+        tool_calls = collect_tool_calls(incoming)
+
         confidence =
           LogprobsAnalyzer.confidence_from_metadata_or_nil(%{
             logprobs: LogprobsAnalyzer.from_response(answer)
           })
 
-        result = success_result(answer, configured_agent, started_at, confidence)
+        result = success_result(answer, configured_agent, started_at, confidence, tool_calls)
         :ok = record_success_telemetry(result, dims)
         Outgoing.from_pipeline_result(incoming, result)
       else
@@ -198,7 +201,7 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp success_result(answer, configured_agent, started_at, confidence) do
+  defp success_result(answer, configured_agent, started_at, confidence, tool_calls) do
     answer_text = normalize_answer(answer)
     metrics = extract_metrics(answer, started_at)
 
@@ -212,6 +215,7 @@ defmodule Zaq.Agent.Executor do
       error: false,
       configured_agent_id: configured_agent.id,
       configured_agent_name: configured_agent.name,
+      tool_calls: tool_calls,
       sources: []
     }
   end
@@ -330,5 +334,29 @@ defmodule Zaq.Agent.Executor do
 
   defp status_mod(opts) do
     Keyword.get(opts, :status_module, Zaq.Agent.Status)
+  end
+
+  defp tool_trace_context(%Incoming{} = incoming) do
+    request_id = incoming.message_id
+
+    if is_binary(request_id) and request_id != "" do
+      %{request_id: request_id, collector_pid: self()}
+    else
+      nil
+    end
+  end
+
+  defp collect_tool_calls(%Incoming{} = incoming) do
+    request_id = incoming.message_id
+
+    if is_binary(request_id) and request_id != "" do
+      receive do
+        {:zaq_tool_traces, ^request_id, traces} when is_list(traces) -> traces
+      after
+        50 -> []
+      end
+    else
+      []
+    end
   end
 end

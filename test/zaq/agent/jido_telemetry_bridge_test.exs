@@ -391,6 +391,305 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert_receive {:status_update, ^request_id, :retrieving, "Calling mcp__read_file…"}
   end
 
+  test "request completion publishes aggregated tool traces to collector process" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.put(:zaq_status_context, %{request_id: request_id})
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "tool-1",
+                 tool_name: "read_file",
+                 args: %{path: "a.txt"}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :stop],
+               %{duration_ms: 21},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "tool-1",
+                 tool_name: "read_file",
+                 result: %{ok: true}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    assert_receive {:zaq_tool_traces, ^request_id, [trace]}
+    assert trace.tool_call_id == "tool-1"
+    assert trace.tool_name == "read_file"
+    assert trace.response_time_ms == 21
+    assert trace.status == "ok"
+    assert is_binary(trace.timestamp)
+  end
+
+  test "later empty payload events do not override existing params/response" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.put(:zaq_status_context, %{request_id: request_id})
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :stop],
+               %{duration_ms: 1002},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "tool-keep",
+                 tool_name: "sleep_action",
+                 args: %{"duration_ms" => 1000},
+                 result: {:ok, %{duration_ms: 1000}, []}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :complete],
+               %{},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "tool-keep",
+                 tool_name: "sleep_action"
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    assert_receive {:zaq_tool_traces, ^request_id, [trace]}
+    assert trace.tool_call_id == "tool-keep"
+    assert trace.params == %{"duration_ms" => 1000}
+    assert trace.response == ["ok", %{"duration_ms" => 1000}, []]
+    assert trace.response_time_ms == 1002
+  end
+
+  test "keeps params/response scoped per tool_call_id for multiple calls" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.put(:zaq_status_context, %{request_id: request_id})
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :start],
+               %{duration_ms: 0},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "call-1",
+                 tool_name: "sleep_action",
+                 params: %{"duration_ms" => 1000}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :stop],
+               %{duration_ms: 1000},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "call-1",
+                 tool_name: "sleep_action",
+                 result: {:ok, %{duration_ms: 1000}, []}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :start],
+               %{duration_ms: 0},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "call-2",
+                 tool_name: "sleep_action",
+                 params: %{"duration_ms" => 2000}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :stop],
+               %{duration_ms: 2000},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "call-2",
+                 tool_name: "sleep_action",
+                 result: {:ok, %{duration_ms: 2000}, []}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    assert_receive {:zaq_tool_traces, ^request_id, traces}
+    assert length(traces) == 2
+
+    trace_1 = Enum.find(traces, &(&1.tool_call_id == "call-1"))
+    trace_2 = Enum.find(traces, &(&1.tool_call_id == "call-2"))
+
+    assert trace_1.params == %{"duration_ms" => 1000}
+    assert trace_1.response == ["ok", %{"duration_ms" => 1000}, []]
+    assert trace_1.response_time_ms == 1000
+
+    assert trace_2.params == %{"duration_ms" => 2000}
+    assert trace_2.response == ["ok", %{"duration_ms" => 2000}, []]
+    assert trace_2.response_time_ms == 2000
+  end
+
+  test "tool.start after tool.execute.start does not wipe params" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.put(:zaq_status_context, %{request_id: request_id})
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    call_id = "chatcmpl-tool-ordered-1"
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :start],
+               %{duration_ms: 0},
+               %{
+                 request_id: request_id,
+                 tool_call_id: call_id,
+                 tool_name: "sleep_action",
+                 params: %{"duration_ms" => 1000}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{duration_ms: 0},
+               %{
+                 request_id: request_id,
+                 tool_call_id: call_id,
+                 tool_name: "sleep_action"
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :stop],
+               %{duration_ms: 1000},
+               %{
+                 request_id: request_id,
+                 tool_call_id: call_id,
+                 tool_name: "sleep_action",
+                 result: {:ok, %{duration_ms: 1000}, []}
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :complete],
+               %{duration_ms: 1002},
+               %{
+                 request_id: request_id,
+                 tool_call_id: call_id,
+                 tool_name: "sleep_action"
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    assert_receive {:zaq_tool_traces, ^request_id, [trace]}
+    assert trace.tool_call_id == call_id
+    assert trace.params == %{"duration_ms" => 1000}
+    assert trace.response == ["ok", %{"duration_ms" => 1000}, []]
+    assert trace.response_time_ms == 1002
+    assert is_binary(trace.timestamp)
+  end
+
+  test "request completion does not publish when ctx request_id is missing even if metadata has request_id" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.delete(:zaq_status_context)
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{},
+               %{request_id: request_id, tool_call_id: "tool-1", tool_name: "read_file"},
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    refute_receive {:zaq_tool_traces, _, _}
+  end
+
   test "status broadcast no-ops when status context is incomplete" do
     Process.delete(:zaq_status_context)
 

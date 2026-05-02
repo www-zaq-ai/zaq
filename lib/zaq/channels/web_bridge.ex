@@ -25,6 +25,7 @@ defmodule Zaq.Channels.WebBridge do
     %Incoming{
       content: params[:content],
       channel_id: params[:channel_id] || "bo",
+      message_id: params[:request_id],
       provider: :web,
       metadata: Map.take(params, [:session_id, :request_id, :user_content])
     }

@@ -138,11 +138,19 @@ defmodule Zaq.Agent.Factory do
   @impl true
   def on_after_cmd(agent, {:ai_react_cancel, _params} = action, directives) do
     Process.delete(:zaq_status_context)
+    Process.delete(:zaq_tool_trace_context)
     super(agent, action, directives)
   end
 
   def on_after_cmd(agent, {:ai_react_request_error, _params} = action, directives) do
     Process.delete(:zaq_status_context)
+    Process.delete(:zaq_tool_trace_context)
+    super(agent, action, directives)
+  end
+
+  def on_after_cmd(agent, {:ai_react_finish, _params} = action, directives) do
+    Process.delete(:zaq_status_context)
+    Process.delete(:zaq_tool_trace_context)
     super(agent, action, directives)
   end
 
@@ -152,17 +160,34 @@ defmodule Zaq.Agent.Factory do
     refs = Map.get(params, :extra_refs, %{})
 
     case Map.get(refs, :zaq_status_context) do
-      %{session_id: session_id, request_id: request_id} = ctx
-      when is_binary(session_id) and session_id != "" and
-             is_binary(request_id) and request_id != "" ->
+      %{session_id: _session_id, request_id: request_id} = ctx
+      when is_binary(request_id) and request_id != "" ->
         Process.put(:zaq_status_context, ctx)
+
+      _ ->
+        :ok
+    end
+
+    maybe_put_tool_trace_context(refs)
+  end
+
+  defp maybe_put_status_context(_), do: :ok
+
+  defp maybe_put_tool_trace_context(refs) when is_map(refs) do
+    case Map.get(refs, :zaq_tool_trace_context) do
+      %{request_id: request_id, collector_pid: collector_pid}
+      when is_binary(request_id) and request_id != "" and is_pid(collector_pid) ->
+        Process.put(:zaq_tool_trace_context, %{
+          request_id: request_id,
+          collector_pid: collector_pid
+        })
 
       _ ->
         :ok
     end
   end
 
-  defp maybe_put_status_context(_), do: :ok
+  defp maybe_put_tool_trace_context(_), do: :ok
 
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do

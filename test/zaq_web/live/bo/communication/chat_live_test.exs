@@ -1183,6 +1183,143 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
+  test "tool call info icon appears only when assistant metadata has tool_calls", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Q"})
+
+    {:ok, _} =
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "A with tools",
+        metadata: %{
+          "tool_calls" => [
+            %{
+              "tool_call_id" => "tool-a",
+              "tool_name" => "search_code",
+              "timestamp" => "2026-05-02T10:00:00Z",
+              "params" => %{"query" => "zaq"},
+              "response" => %{"matches" => 2},
+              "response_time_ms" => 80
+            }
+          ]
+        }
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "A without tools"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+
+      bot_ids_with_tool_calls =
+        state.socket.assigns.messages
+        |> Enum.filter(&(Map.get(&1, :role) == :bot and length(Map.get(&1, :tool_calls, [])) > 0))
+        |> Enum.map(& &1.id)
+
+      bot_ids_without_tool_calls =
+        state.socket.assigns.messages
+        |> Enum.filter(
+          &(Map.get(&1, :role) == :bot and length(Map.get(&1, :tool_calls, [])) == 0)
+        )
+        |> Enum.map(& &1.id)
+
+      Enum.all?(bot_ids_with_tool_calls, fn id ->
+        has_element?(view, ~s([data-testid="tool-calls-info-#{id}"]))
+      end) and
+        Enum.all?(bot_ids_without_tool_calls, fn id ->
+          not has_element?(view, ~s([data-testid="tool-calls-info-#{id}"]))
+        end)
+    end)
+  end
+
+  test "tool calls popin opens and expands details in chat", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Q"})
+
+    {:ok, _} =
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "A",
+        metadata: %{
+          "tool_calls" => [
+            %{
+              "tool_call_id" => "slow",
+              "tool_name" => "read_file",
+              "timestamp" => "2026-05-02T10:00:01Z",
+              "params" => %{"path" => "a.md"},
+              "response" => %{"ok" => true},
+              "response_time_ms" => 90
+            },
+            %{
+              "tool_call_id" => "fast",
+              "tool_name" => "search_code",
+              "timestamp" => "2026-05-02T10:00:00Z",
+              "params" => %{"query" => "A"},
+              "response" => %{"matches" => 1},
+              "response_time_ms" => 10
+            }
+          ]
+        }
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+
+      Enum.any?(state.socket.assigns.messages, fn msg ->
+        Map.get(msg, :role) == :bot and length(Map.get(msg, :tool_calls, [])) > 0
+      end)
+    end)
+
+    state = :sys.get_state(view.pid)
+
+    bot_id =
+      state.socket.assigns.messages
+      |> Enum.find(&(Map.get(&1, :role) == :bot and length(Map.get(&1, :tool_calls, [])) > 0))
+      |> Map.fetch!(:id)
+
+    view
+    |> element(~s([data-testid="tool-calls-info-#{bot_id}"]))
+    |> render_click()
+
+    assert has_element?(view, ~s([data-testid="tool-calls-popin"]))
+
+    html = render(view)
+    {read_idx, _} = :binary.match(html, "Read File")
+    {search_idx, _} = :binary.match(html, "Search Code")
+    assert read_idx < search_idx
+
+    view
+    |> element(~s([data-testid="tool-call-row-slow"]))
+    |> render_click()
+
+    details = render(view)
+    assert details =~ "Timestamp:"
+    assert details =~ "Params"
+    assert details =~ "Response"
+    assert details =~ "Response time:"
+    assert details =~ "90 ms"
+  end
+
   # ── Content filter event tests ───────────────────────────────────────────────
 
   test "filter_autocomplete with non-empty query calls NodeRouter and assigns suggestions", %{
