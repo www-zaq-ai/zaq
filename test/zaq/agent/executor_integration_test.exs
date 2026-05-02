@@ -20,19 +20,19 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
   defmodule StubFactoryResult do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, timeout: 45_000), do: {:ok, %{result: "from-result"}}
+    def await(:request, _opts), do: {:ok, %{result: "from-result"}}
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryAnswer do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, timeout: 45_000), do: {:ok, %{answer: "from-answer"}}
+    def await(:request, _opts), do: {:ok, %{answer: "from-answer"}}
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryOther do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, timeout: 45_000), do: {:ok, %{unexpected: 123}}
+    def await(:request, _opts), do: {:ok, %{unexpected: 123}}
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 

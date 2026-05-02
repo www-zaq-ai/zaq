@@ -247,6 +247,7 @@ defmodule Zaq.Agent.ExecutorTest do
         content: "hello",
         channel_id: "bo-test",
         provider: :web,
+        message_id: "req-123",
         metadata: %{request_id: "req-123"}
       }
 

@@ -106,7 +106,7 @@
 
 @font-face {
   font-family: "ZAQ Sans";
-  src: url("../fonts/Roboto/Roboto-VariableFont_wdth,wght.ttf") format("truetype");
+  src: url("/fonts/Roboto/Roboto-VariableFont_wdth,wght.ttf") format("truetype");
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
@@ -114,7 +114,7 @@
 
 @font-face {
   font-family: "ZAQ Sans";
-  src: url("../fonts/Roboto/Roboto-Italic-VariableFont_wdth,wght.ttf") format("truetype");
+  src: url("/fonts/Roboto/Roboto-Italic-VariableFont_wdth,wght.ttf") format("truetype");
   font-style: italic;
   font-weight: 100 900;
   font-display: swap;
