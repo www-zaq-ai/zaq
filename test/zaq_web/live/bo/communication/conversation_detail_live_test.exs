@@ -89,6 +89,15 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
   end
 
   describe "assistant actions" do
+    test "pushes clipboard event when copying a message", %{conn: conn, user: user} do
+      {conv, _assistant_msg} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      render_hook(view, "copy_message", %{"text" => "Copy me"})
+
+      assert_push_event(view, "clipboard", %{text: "Copy me"})
+    end
+
     test "records positive feedback for an assistant message", %{conn: conn, user: user} do
       {conv, assistant_msg} = create_conv_with_messages(user.id)
       {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
@@ -172,6 +181,26 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       |> render_click()
 
       assert Conversations.list_shares(conv) == []
+    end
+
+    test "revoke_share no-ops when share does not exist", %{conn: conn, user: user} do
+      {conv, _} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      render_hook(view, "revoke_share", %{"id" => "missing-share-id"})
+
+      assert Conversations.list_shares(conv) == []
+    end
+  end
+
+  describe "misc events" do
+    test "noop event leaves the view responsive", %{conn: conn, user: user} do
+      {conv, _} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      render_hook(view, "noop", %{})
+
+      assert has_element?(view, "a", "History")
     end
   end
 

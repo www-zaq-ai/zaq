@@ -690,6 +690,36 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     refute_receive {:zaq_tool_traces, _, _}
   end
 
+  test "request terminal events with blank request_id metadata no-op" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.put(:zaq_status_context, %{request_id: request_id})
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: ""},
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :failed],
+               %{},
+               %{},
+               %{}
+             )
+
+    refute_receive {:zaq_tool_traces, _, _}
+  end
+
   test "status broadcast no-ops when status context is incomplete" do
     Process.delete(:zaq_status_context)
 

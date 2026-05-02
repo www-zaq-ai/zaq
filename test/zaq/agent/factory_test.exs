@@ -264,6 +264,34 @@ defmodule Zaq.Agent.FactoryTest do
     assert AIContext.empty?(result)
   end
 
+  describe "spawn_opts_from_server_id/1" do
+    test "parses conversation-scoped ids" do
+      assert Factory.spawn_opts_from_server_id("agent:web:conv:123") == %{
+               conversation_id: "123",
+               person_id: nil,
+               channel_type: "web"
+             }
+    end
+
+    test "parses person-scoped ids" do
+      assert Factory.spawn_opts_from_server_id("agent:web:person:42") == %{
+               conversation_id: nil,
+               person_id: "42",
+               channel_type: "web"
+             }
+    end
+
+    test "returns empty map for malformed binary ids" do
+      assert Factory.spawn_opts_from_server_id("configured_agent_123") == %{}
+      assert Factory.spawn_opts_from_server_id("agent::conv:") == %{}
+    end
+
+    test "returns nil for non-binary ids" do
+      assert Factory.spawn_opts_from_server_id(nil) == nil
+      assert Factory.spawn_opts_from_server_id(123) == nil
+    end
+  end
+
   defp streamed_reply("/v1/chat/completions", text, model) do
     chunk =
       Jason.encode!(%{
