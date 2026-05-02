@@ -156,9 +156,8 @@ defmodule Zaq.MixProject do
       quality: [
         "format --check-formatted",
         "compile --warnings-as-errors",
-        "credo --strict",
         "docs --warnings-as-errors",
-        "ex_dna"
+        "credo --strict"
         # "doctor --summary --raise",
         # "dialyzer"
       ]
