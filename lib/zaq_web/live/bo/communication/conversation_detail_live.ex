@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   use ZaqWeb, :live_view
 
   alias Zaq.NodeRouter
+  alias ZaqWeb.Live.BO.Communication.MessageHelpers
   alias ZaqWeb.Live.BO.PreviewHelpers
 
   import ZaqWeb.Helpers.DateFormat, only: [format_date: 1, inject_date_separators: 2]
@@ -59,10 +60,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     msg = find_message(socket.assigns.messages, id)
 
     if msg do
-      rater_attrs =
-        if current_user,
-          do: %{user_id: current_user.id, rating: 5},
-          else: %{channel_user_id: "bo_anonymous", rating: 5}
+      rater_attrs = MessageHelpers.positive_rater_attrs(current_user)
 
       NodeRouter.call(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
         msg.id,
@@ -74,12 +72,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   end
 
   def handle_event("feedback", %{"id" => id, "type" => "negative"}, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_feedback_modal, true)
-     |> assign(:feedback_message_id, id)
-     |> assign(:feedback_reasons, [])
-     |> assign(:feedback_comment, "")}
+    {:noreply, MessageHelpers.open_feedback_modal(socket, id)}
   end
 
   def handle_event("close_feedback_modal", _params, socket) do
@@ -87,12 +80,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   end
 
   def handle_event("toggle_feedback_reason", %{"reason" => reason}, socket) do
-    reasons = socket.assigns.feedback_reasons
-
-    updated =
-      if reason in reasons,
-        do: List.delete(reasons, reason),
-        else: reasons ++ [reason]
+    updated = MessageHelpers.toggle_reason(socket.assigns.feedback_reasons, reason)
 
     {:noreply, assign(socket, :feedback_reasons, updated)}
   end
@@ -110,25 +98,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     msg = find_message(socket.assigns.messages, id)
 
     if msg do
-      full_comment =
-        [Enum.join(reasons, ", "), comment]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      rater_attrs =
-        if current_user,
-          do: %{
-            user_id: current_user.id,
-            rating: 1,
-            comment: full_comment,
-            feedback_reasons: reasons
-          },
-          else: %{
-            channel_user_id: "bo_anonymous",
-            rating: 1,
-            comment: full_comment,
-            feedback_reasons: reasons
-          }
+      rater_attrs = MessageHelpers.negative_rater_attrs(current_user, reasons, comment)
 
       NodeRouter.call(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
         msg.id,
@@ -180,14 +150,9 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   end
 
   def handle_event("toggle_tool_call_details", %{"tool_id" => tool_id}, socket) do
-    expanded = socket.assigns.expanded_tool_call_ids
-
     updated =
-      if MapSet.member?(expanded, tool_id) do
-        MapSet.delete(expanded, tool_id)
-      else
-        MapSet.put(expanded, tool_id)
-      end
+      socket.assigns.expanded_tool_call_ids
+      |> MessageHelpers.toggle_tool_call_details(tool_id)
 
     {:noreply, assign(socket, :expanded_tool_call_ids, updated)}
   end
@@ -247,31 +212,8 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     |> normalize_tool_calls()
   end
 
-  defp normalize_tool_calls(tool_calls) when is_list(tool_calls) do
-    tool_calls
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(fn tc ->
-      %{
-        tool_call_id: Map.get(tc, :tool_call_id) || Map.get(tc, "tool_call_id"),
-        tool_name: Map.get(tc, :tool_name) || Map.get(tc, "tool_name"),
-        timestamp: Map.get(tc, :timestamp) || Map.get(tc, "timestamp"),
-        params: Map.get(tc, :params) || Map.get(tc, "params"),
-        response: Map.get(tc, :response) || Map.get(tc, "response"),
-        response_time_ms: Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms"),
-        status: Map.get(tc, :status) || Map.get(tc, "status")
-      }
-    end)
-    |> Enum.sort_by(fn tc -> tool_call_sort_key(tc.response_time_ms) end, :desc)
-  end
+  defp normalize_tool_calls(tool_calls), do: MessageHelpers.normalize_tool_calls(tool_calls)
 
-  defp normalize_tool_calls(_), do: []
-
-  defp tool_call_sort_key(ms) when is_integer(ms), do: ms
-  defp tool_call_sort_key(ms) when is_float(ms), do: ms
-  defp tool_call_sort_key(_), do: -1
-
-  defp infer_feedback_from_ratings([]), do: nil
-  defp infer_feedback_from_ratings([%{rating: r} | _]) when r >= 4, do: :positive
-  defp infer_feedback_from_ratings([%{rating: r} | _]) when r <= 2, do: :negative
-  defp infer_feedback_from_ratings(_), do: nil
+  defp infer_feedback_from_ratings(ratings),
+    do: MessageHelpers.infer_feedback_from_ratings(ratings)
 end

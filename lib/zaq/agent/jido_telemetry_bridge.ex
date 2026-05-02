@@ -146,25 +146,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
          tool_name when is_binary(tool_name) and tool_name != "" <- tool_name(metadata) do
       merge_trace(request_id, tool_call_id, tool_name, fn current ->
         current
-        |> Map.put(
-          :timestamp,
-          prefer_present(Map.get(current, :timestamp), iso8601_now())
-        )
-        |> Map.put(
-          :params,
-          prefer_present(extract_tool_params(metadata, measurements), Map.get(current, :params))
-        )
-        |> Map.put(
-          :response,
-          prefer_present(
-            extract_tool_response(metadata, measurements),
-            Map.get(current, :response)
-          )
-        )
-        |> Map.put(
-          :response_time_ms,
-          prefer_present(response_time_ms(measurements), Map.get(current, :response_time_ms))
-        )
+        |> merge_tool_event_fields(metadata, measurements)
       end)
 
       remember_request_context(request_id)
@@ -189,28 +171,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
       merge_trace(request_id, tool_call_id, tool_name, fn current ->
         current
-        |> Map.put(
-          :timestamp,
-          prefer_present(Map.get(current, :timestamp), iso8601_now())
-        )
-        |> Map.put(
-          :params,
-          prefer_present(
-            extract_tool_params(metadata, measurements),
-            Map.get(current, :params)
-          )
-        )
-        |> Map.put(
-          :response,
-          prefer_present(
-            extract_tool_response(metadata, measurements),
-            Map.get(current, :response)
-          )
-        )
-        |> Map.put(
-          :response_time_ms,
-          prefer_present(response_time_ms(measurements), Map.get(current, :response_time_ms))
-        )
+        |> merge_tool_event_fields(metadata, measurements)
         |> Map.put(:status, status)
       end)
 
@@ -541,12 +502,31 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp sanitize_payload(value), do: inspect(value)
 
+  defp merge_tool_event_fields(current, metadata, measurements) do
+    current
+    |> Map.put(:timestamp, prefer_present(Map.get(current, :timestamp), iso8601_now()))
+    |> Map.put(
+      :params,
+      prefer_present(extract_tool_params(metadata, measurements), Map.get(current, :params))
+    )
+    |> Map.put(
+      :response,
+      prefer_present(extract_tool_response(metadata, measurements), Map.get(current, :response))
+    )
+    |> Map.put(
+      :response_time_ms,
+      prefer_present(response_time_ms(measurements), Map.get(current, :response_time_ms))
+    )
+  end
+
   defp extract_first(sources, keys) do
-    Enum.find_value(sources, fn source ->
-      if is_map(source) do
-        Enum.find_value(keys, fn key -> Map.get(source, key) end)
-      end
-    end)
+    sources
+    |> Enum.filter(&is_map/1)
+    |> Enum.find_value(&extract_first_from_source(&1, keys))
+  end
+
+  defp extract_first_from_source(source, keys) do
+    Enum.find_value(keys, fn key -> Map.get(source, key) end)
   end
 
   defp request_id(metadata) when is_map(metadata) do

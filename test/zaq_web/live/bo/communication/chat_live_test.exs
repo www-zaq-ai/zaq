@@ -1224,14 +1224,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
       bot_ids_with_tool_calls =
         state.socket.assigns.messages
-        |> Enum.filter(&(Map.get(&1, :role) == :bot and length(Map.get(&1, :tool_calls, [])) > 0))
+        |> Enum.filter(&(Map.get(&1, :role) == :bot and Map.get(&1, :tool_calls, []) != []))
         |> Enum.map(& &1.id)
 
       bot_ids_without_tool_calls =
         state.socket.assigns.messages
-        |> Enum.filter(
-          &(Map.get(&1, :role) == :bot and length(Map.get(&1, :tool_calls, [])) == 0)
-        )
+        |> Enum.filter(&(Map.get(&1, :role) == :bot and Map.get(&1, :tool_calls, []) == []))
         |> Enum.map(& &1.id)
 
       Enum.all?(bot_ids_with_tool_calls, fn id ->
@@ -1286,7 +1284,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       state = :sys.get_state(view.pid)
 
       Enum.any?(state.socket.assigns.messages, fn msg ->
-        Map.get(msg, :role) == :bot and length(Map.get(msg, :tool_calls, [])) > 0
+        Map.get(msg, :role) == :bot and Map.get(msg, :tool_calls, []) != []
       end)
     end)
 
@@ -1294,7 +1292,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     bot_id =
       state.socket.assigns.messages
-      |> Enum.find(&(Map.get(&1, :role) == :bot and length(Map.get(&1, :tool_calls, [])) > 0))
+      |> Enum.find(&(Map.get(&1, :role) == :bot and Map.get(&1, :tool_calls, []) != []))
       |> Map.fetch!(:id)
 
     view
