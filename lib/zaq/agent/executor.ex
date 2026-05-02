@@ -123,9 +123,16 @@ defmodule Zaq.Agent.Executor do
              ),
            {:ok, request} <-
              factory_module.ask_with_config(server_id, question, configured_agent,
-               context: %{
+               tool_context: %{
                  person_id: Keyword.get(opts, :person_id),
-                 team_ids: Keyword.get(opts, :team_ids, [])
+                 team_ids: Keyword.get(opts, :team_ids, []),
+                 source_filter: Keyword.get(opts, :source_filter),
+                 skip_permissions: Keyword.get(opts, :skip_permissions, false),
+                 node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter),
+                 status_context: %{
+                   session_id: incoming.metadata[:session_id],
+                   request_id: incoming.metadata[:request_id]
+                 }
                },
                extra_refs: %{
                  zaq_status_context: %{

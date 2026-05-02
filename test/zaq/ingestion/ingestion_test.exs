@@ -5,7 +5,17 @@ defmodule Zaq.IngestionTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, FileExplorer, IngestChunkJob, IngestJob}
+
+  alias Zaq.Ingestion.{
+    Chunk,
+    Document,
+    DocumentAccess,
+    DocumentChunker,
+    FileExplorer,
+    IngestChunkJob,
+    IngestJob
+  }
+
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -713,7 +723,7 @@ defmodule Zaq.IngestionTest do
       person = create_person()
       {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
 
-      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [], [doc.id])
       assert doc.id in result
     end
 
@@ -723,7 +733,7 @@ defmodule Zaq.IngestionTest do
       person = create_person()
       {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
 
-      result = Ingestion.list_permitted_document_ids(person.id, [team.id], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [team.id], [doc.id])
       assert doc.id in result
     end
 
@@ -731,7 +741,7 @@ defmodule Zaq.IngestionTest do
       doc = create_doc_with_source("not-permitted.md")
       person = create_person()
 
-      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [], [doc.id])
       refute doc.id in result
     end
 
@@ -739,7 +749,7 @@ defmodule Zaq.IngestionTest do
       doc = create_doc_with_source("nonexistent-person.md")
       non_existing_person_id = -1
 
-      result = Ingestion.list_permitted_document_ids(non_existing_person_id, [], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(non_existing_person_id, [], [doc.id])
       assert result == []
     end
 
@@ -747,7 +757,7 @@ defmodule Zaq.IngestionTest do
       doc = create_doc_with_source("nonexistent-team.md")
       person = create_person()
 
-      result = Ingestion.list_permitted_document_ids(person.id, [-1, -2], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [-1, -2], [doc.id])
       assert result == []
     end
 
@@ -756,7 +766,7 @@ defmodule Zaq.IngestionTest do
       person = create_person()
       {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
 
-      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id, doc.id, doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [], [doc.id, doc.id, doc.id])
       assert Enum.count(result, &(&1 == doc.id)) == 1
     end
 
@@ -771,7 +781,10 @@ defmodule Zaq.IngestionTest do
         Ingestion.set_document_permission(denied_doc.id, :person, other_person.id, ["read"])
 
       result =
-        Ingestion.list_permitted_document_ids(person.id, [], [permitted_doc.id, denied_doc.id])
+        DocumentAccess.list_permitted_document_ids(person.id, [], [
+          permitted_doc.id,
+          denied_doc.id
+        ])
 
       assert permitted_doc.id in result
       refute denied_doc.id in result
@@ -1053,7 +1066,7 @@ defmodule Zaq.IngestionTest do
       {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
       person = create_person()
 
-      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [], [doc.id])
       assert doc.id in result
     end
 
@@ -1061,7 +1074,7 @@ defmodule Zaq.IngestionTest do
       doc = create_doc_with_source("not-pub-#{System.unique_integer()}.md")
       person = create_person()
 
-      result = Ingestion.list_permitted_document_ids(person.id, [], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [], [doc.id])
       refute doc.id in result
     end
 
@@ -1070,7 +1083,7 @@ defmodule Zaq.IngestionTest do
       {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
       person = create_person()
 
-      result = Ingestion.list_permitted_document_ids(person.id, [-99], [doc.id])
+      result = DocumentAccess.list_permitted_document_ids(person.id, [-99], [doc.id])
       assert doc.id in result
     end
   end

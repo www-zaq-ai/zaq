@@ -71,7 +71,7 @@ defmodule Zaq.Agent.Retrieval do
             {:error, reason}
 
           content ->
-            decode_retrieval_content(content)
+            decode_retrieval_content(content, question)
         end
 
       {:error, reason} ->
@@ -90,15 +90,26 @@ defmodule Zaq.Agent.Retrieval do
     end
   end
 
-  defp decode_retrieval_content(content) do
+  # When the LLM returns non-JSON (e.g. a plain prose response), fall back to
+  # using the original question as the search query so the answering step can
+  # still run. This happens with some models that ignore the JSON instruction.
+  defp decode_retrieval_content(content, original_question) do
     case content |> extract_json() |> Jason.decode() do
       {:ok, answer} ->
         {:ok, answer}
 
       {:error, decode_error} ->
-        reason = "Failed to process question: #{Exception.message(decode_error)}"
-        Logger.error("Retrieval failed: #{reason}")
-        {:error, reason}
+        Logger.warning(
+          "Retrieval: LLM returned non-JSON, falling back to raw question. Error: #{Exception.message(decode_error)}"
+        )
+
+        {:ok,
+         %{
+           "query" => original_question,
+           "language" => "en",
+           "positive_answer" => nil,
+           "negative_answer" => nil
+         }}
     end
   end
 
