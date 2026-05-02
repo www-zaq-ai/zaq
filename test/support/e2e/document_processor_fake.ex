@@ -6,7 +6,7 @@ defmodule Zaq.E2E.DocumentProcessorFake do
   import Ecto.Query
 
   alias Zaq.E2E.ProcessorState
-  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, Sidecar}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, FileExplorer, Sidecar}
   alias Zaq.Repo
 
   @impl true
@@ -168,7 +168,7 @@ defmodule Zaq.E2E.DocumentProcessorFake do
 
   defp filter_by_permissions(docs, person_id, team_ids) do
     doc_ids = Enum.map(docs, fn {_, d} -> d.id end)
-    permitted = Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, doc_ids)
+    permitted = DocumentAccess.list_permitted_document_ids(person_id, team_ids, doc_ids)
     permitted_set = MapSet.new(permitted)
 
     Enum.map(docs, fn {score, doc} ->

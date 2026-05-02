@@ -183,7 +183,8 @@ defmodule Zaq.Agent.Pipeline do
 
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")
-        error_result("Sorry, something went wrong. Please try again.")
+        user_message = pipeline_error_message(reason)
+        error_result(user_message)
     end
   end
 
@@ -258,6 +259,8 @@ defmodule Zaq.Agent.Pipeline do
     language = Map.get(retrieval, :language, "en")
     person_id = Keyword.get(opts, :person_id)
     team_ids = Keyword.get(opts, :team_ids, [])
+    source_filter = Keyword.get(opts, :source_filter)
+    skip_permissions = Keyword.get(opts, :skip_permissions, false)
 
     retrieved_data =
       Enum.map(query_results, fn %{"content" => chunk_content, "source" => source} ->
@@ -282,6 +285,8 @@ defmodule Zaq.Agent.Pipeline do
         question: content,
         person_id: person_id,
         team_ids: team_ids,
+        source_filter: source_filter,
+        skip_permissions: skip_permissions,
         history: history,
         telemetry_dimensions: telemetry_dimensions(opts),
         node_router: node_router(opts),
@@ -340,6 +345,22 @@ defmodule Zaq.Agent.Pipeline do
       error: false
     }
   end
+
+  defp pipeline_error_message(reason) when is_binary(reason) do
+    cond do
+      String.contains?(reason, "Failed to process question") ->
+        "I had trouble understanding your question. Please try rephrasing it."
+
+      String.contains?(reason, "Knowledge base search") ->
+        "I couldn't search the knowledge base right now. Please try again in a moment."
+
+      true ->
+        "Something went wrong while answering your question. Please try again."
+    end
+  end
+
+  defp pipeline_error_message(_reason),
+    do: "Something went wrong while answering your question. Please try again."
 
   defp error_result(answer) do
     %{

@@ -93,7 +93,7 @@ defmodule Zaq.Agent.RetrievalTest do
       assert {:ok, %{"queries" => []}} = Retrieval.ask("", system_prompt: "Prompt")
     end
 
-    test "returns error on invalid JSON content returned by the model" do
+    test "falls back to raw question when model returns invalid JSON" do
       handler = fn _conn, _body ->
         {200, OpenAIStub.chat_completion("not-json")}
       end
@@ -103,8 +103,9 @@ defmodule Zaq.Agent.RetrievalTest do
 
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
-      assert String.starts_with?(message, "Failed to process question:")
+      assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert result["query"] == "Question"
+      assert result["language"] == "en"
     end
 
     test "returns error when model response content is nil" do
