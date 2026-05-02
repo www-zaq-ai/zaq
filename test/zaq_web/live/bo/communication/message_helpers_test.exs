@@ -24,4 +24,29 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
              }
     end
   end
+
+  describe "normalize_tool_calls/1" do
+    test "returns empty list for non-list input" do
+      assert MessageHelpers.normalize_tool_calls(nil) == []
+      assert MessageHelpers.normalize_tool_calls(%{}) == []
+    end
+
+    test "sorts floats before unknown response time values" do
+      tool_calls = [
+        %{"tool_call_id" => "bad", "response_time_ms" => "n/a"},
+        %{"tool_call_id" => "float", "response_time_ms" => 12.5}
+      ]
+
+      [first, second] = MessageHelpers.normalize_tool_calls(tool_calls)
+      assert first.tool_call_id == "float"
+      assert second.tool_call_id == "bad"
+    end
+  end
+
+  describe "toggle_tool_call_details/2" do
+    test "removes existing tool id from expanded set" do
+      expanded = MapSet.new(["tool-1"])
+      assert MessageHelpers.toggle_tool_call_details(expanded, "tool-1") == MapSet.new()
+    end
+  end
 end

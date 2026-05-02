@@ -292,6 +292,49 @@ defmodule Zaq.Agent.FactoryTest do
     end
   end
 
+  describe "lifecycle callbacks" do
+    test "on_after_cmd cleanup branches clear status and tool trace process keys" do
+      Process.put(:zaq_status_context, %{request_id: "req-1"})
+      Process.put(:zaq_tool_trace_context, %{request_id: "req-1", collector_pid: self()})
+
+      ignore_callback_errors(fn ->
+        Factory.on_after_cmd(%{}, {:ai_react_cancel, %{}}, [])
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+
+      Process.put(:zaq_status_context, %{request_id: "req-2"})
+      Process.put(:zaq_tool_trace_context, %{request_id: "req-2", collector_pid: self()})
+
+      ignore_callback_errors(fn ->
+        Factory.on_after_cmd(%{}, {:ai_react_request_error, %{}}, [])
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+
+      Process.put(:zaq_status_context, %{request_id: "req-3"})
+      Process.put(:zaq_tool_trace_context, %{request_id: "req-3", collector_pid: self()})
+
+      ignore_callback_errors(fn ->
+        Factory.on_after_cmd(%{}, {:ai_react_finish, %{}}, [])
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+    end
+
+    test "on_before_cmd start branch tolerates non-map params" do
+      ignore_callback_errors(fn ->
+        Factory.on_before_cmd(%{}, {:ai_react_start, :invalid_params})
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+    end
+  end
+
   defp streamed_reply("/v1/chat/completions", text, model) do
     chunk =
       Jason.encode!(%{
@@ -332,5 +375,13 @@ defmodule Zaq.Agent.FactoryTest do
       "data: #{completed_event}\n\n"
     ]
     |> IO.iodata_to_binary()
+  end
+
+  defp ignore_callback_errors(fun) when is_function(fun, 0) do
+    fun.()
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 end

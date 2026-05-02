@@ -733,4 +733,158 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
 
     assert Process.get(:zaq_tool_calls) in [nil, []]
   end
+
+  test "init logs warning and disables bridge when telemetry handler already attached" do
+    handler_id = "zaq-agent-jido-telemetry-bridge"
+    :telemetry.detach(handler_id)
+
+    previous = Application.get_env(:zaq, :jido_telemetry_bridge)
+
+    on_exit(fn ->
+      :telemetry.detach(handler_id)
+
+      if is_nil(previous) do
+        Application.delete_env(:zaq, :jido_telemetry_bridge)
+      else
+        Application.put_env(:zaq, :jido_telemetry_bridge, previous)
+      end
+    end)
+
+    Application.put_env(:zaq, :jido_telemetry_bridge, %{enabled: true})
+
+    assert {:ok, %{enabled?: true}} = JidoTelemetryBridge.init([])
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert {:ok, %{enabled?: false}} = JidoTelemetryBridge.init([])
+      end)
+
+    assert log =~ "telemetry attach failed"
+  end
+
+  test "llm.delta reasoning extraction supports fallback map/list forms" do
+    session_id = "bridge-session-#{System.unique_integer([:positive])}"
+    request_id = "bridge-req-#{System.unique_integer([:positive])}"
+
+    Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
+
+    Process.put(:zaq_status_context, %{
+      session_id: session_id,
+      request_id: request_id,
+      node_router: FakeNodeRouter
+    })
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :llm, :delta],
+               %{reasoning: %{text: "from measurements"}},
+               %{},
+               %{include_llm_deltas: true}
+             )
+
+    assert_receive {:status_update, ^request_id, :retrieving, "from measurements"}
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :llm, :delta],
+               %{},
+               %{delta: %{reasoning: [%{"text" => "part"}, " ", "two"]}},
+               %{include_llm_deltas: true}
+             )
+
+    assert_receive {:status_update, ^request_id, :retrieving, "part two"}
+  end
+
+  test "tool trace keeps prior values when new values are empty and handles non-map measurements" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.put(:zaq_status_context, %{request_id: request_id})
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{duration_ms: 11},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "tool-empty",
+                 tool_name: :read_file,
+                 params: %{
+                   path: "a.txt",
+                   ratio: 1.2
+                 }
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :stop],
+               %{},
+               %{
+                 request_id: request_id,
+                 tool_call_id: 7,
+                 tool_name: :read_file,
+                 params: "",
+                 result: ""
+               },
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    assert_receive {:zaq_tool_traces, ^request_id, traces}
+    trace = Enum.find(traces, &(&1.tool_call_id == "tool-empty"))
+    assert trace != nil
+
+    assert trace.tool_name == "read_file"
+    assert trace.params["ratio"] == 1.2
+    assert trace.params["path"] == "a.txt"
+    assert trace.response_time_ms == 11
+  end
+
+  test "invalid tool ids and names are ignored without publishing traces" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    Process.put(:zaq_status_context, %{request_id: request_id})
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{},
+               %{request_id: request_id, tool_call_id: [], tool_name: 99},
+               %{}
+             )
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :complete],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    refute_receive {:zaq_tool_traces, ^request_id, _}
+  end
 end
