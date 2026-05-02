@@ -119,6 +119,7 @@ defmodule Zaq.MixProject do
       {:git_hooks, "~> 0.8", only: :dev, runtime: false},
       {:git_ops, "~> 2.9", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:doctor, "~> 0.22", only: [:dev], runtime: false},
       {:excoveralls, "~> 0.18.5", only: :test},
       {:mox, "~> 1.2", only: :test}
     ]
@@ -158,7 +159,7 @@ defmodule Zaq.MixProject do
         "compile --warnings-as-errors",
         "docs --warnings-as-errors",
         "credo --strict"
-        # "doctor --summary --raise",
+        # "doctor --summary --raise"
         # "dialyzer"
       ]
     ]
