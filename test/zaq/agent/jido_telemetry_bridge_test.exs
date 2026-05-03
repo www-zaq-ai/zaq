@@ -858,7 +858,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert trace.response_time_ms == 11
   end
 
-  test "invalid tool ids and names are ignored without publishing traces" do
+  test "invalid tool ids and names are ignored and publish empty traces" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
     Process.put(:zaq_status_context, %{request_id: request_id})
@@ -885,6 +885,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
                %{}
              )
 
-    refute_receive {:zaq_tool_traces, ^request_id, _}
+    assert_receive {:zaq_tool_traces, ^request_id, traces}
+    assert traces == []
   end
 end

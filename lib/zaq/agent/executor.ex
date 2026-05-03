@@ -93,7 +93,9 @@ defmodule Zaq.Agent.Executor do
     agent_module = Keyword.get(opts, :agent_module, Agent)
     server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
     factory_module = Keyword.get(opts, :factory_module, Factory)
-    dims = telemetry_dimensions(opts, incoming)
+    opts = ensure_scope_for_answering_path(opts, incoming)
+    selected_agent_result = load_selected_agent(opts, agent_module, factory_module)
+    dims = telemetry_dimensions(incoming, selected_agent_result)
 
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
@@ -103,11 +105,8 @@ defmodule Zaq.Agent.Executor do
       |> Keyword.get(:question, incoming.content)
       |> timestamp_question()
 
-    opts = ensure_scope_for_answering_path(opts, incoming)
-
     result =
-      with {:ok, configured_agent} <-
-             load_selected_agent(opts, agent_module, factory_module),
+      with {:ok, configured_agent} <- selected_agent_result,
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
            {:ok, server_id} <-
              ensure_agent_server(server_manager_module, configured_agent, opts),
@@ -132,7 +131,8 @@ defmodule Zaq.Agent.Executor do
                  zaq_status_context: %{
                    session_id: incoming.metadata[:session_id],
                    request_id: incoming.message_id,
-                   node_router: node_router(opts)
+                   node_router: node_router(opts),
+                   telemetry_dimensions: dims
                  },
                  zaq_tool_trace_context: tool_trace_context(incoming)
                }
@@ -275,18 +275,6 @@ defmodule Zaq.Agent.Executor do
       do: Telemetry.record("qa.answer.latency_ms", result.latency_ms, dims),
       else: :ok
 
-    if is_integer(result.prompt_tokens),
-      do: Telemetry.record("qa.tokens.prompt", result.prompt_tokens, dims),
-      else: :ok
-
-    if is_integer(result.completion_tokens),
-      do: Telemetry.record("qa.tokens.completion", result.completion_tokens, dims),
-      else: :ok
-
-    if is_integer(result.total_tokens),
-      do: Telemetry.record("qa.tokens.total", result.total_tokens, dims),
-      else: :ok
-
     if is_number(result.confidence_score) do
       :ok = Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
 
@@ -303,14 +291,33 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp telemetry_dimensions(opts, incoming) do
-    opts
-    |> Keyword.get(:telemetry_dimensions, %{})
-    |> Map.merge(%{
-      provider: incoming.provider,
-      channel_id: incoming.channel_id,
-      execution_path: "custom_agent"
-    })
+  defp telemetry_dimensions(incoming, selected_agent_result) do
+    base = incoming_telemetry_dimensions(incoming)
+
+    runtime =
+      case selected_agent_result do
+        {:ok, configured_agent} ->
+          %{
+            execution_path: "custom_agent",
+            configured_agent_id: configured_agent.id,
+            configured_agent_name: configured_agent.name
+          }
+
+        _ ->
+          %{execution_path: "custom_agent"}
+      end
+
+    Map.merge(base, runtime)
+  end
+
+  defp incoming_telemetry_dimensions(%Incoming{} = incoming) do
+    incoming.metadata
+    |> Map.get("telemetry_dimensions", %{})
+    |> Enum.reduce(%{}, fn
+      {key, value}, acc when is_binary(key) -> Map.put(acc, String.to_atom(key), value)
+      {key, value}, acc when is_atom(key) -> Map.put(acc, key, value)
+      _, acc -> acc
+    end)
   end
 
   defp error_type(reason) when is_atom(reason), do: Atom.to_string(reason)

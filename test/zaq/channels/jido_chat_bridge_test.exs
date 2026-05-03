@@ -374,7 +374,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert msg.author_id == "u1"
       assert msg.author_name == "alice"
       assert msg.provider == :mattermost
-      assert msg.metadata == %{raw: "data"}
+      assert msg.metadata[:raw] == "data"
+
+      assert msg.metadata["telemetry_dimensions"] == %{
+               "channel_id" => "room1",
+               "channel_config_id" => "unknown",
+               "channel_type" => "mattermost",
+               "provider" => "mattermost"
+             }
     end
 
     test "sets provider from argument" do
@@ -418,7 +425,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
-      assert msg.metadata == %{}
+
+      assert msg.metadata["telemetry_dimensions"] == %{
+               "channel_id" => "room3",
+               "channel_config_id" => "unknown",
+               "channel_type" => "mattermost",
+               "provider" => "mattermost"
+             }
     end
   end
 

@@ -50,4 +50,31 @@ defmodule Zaq.Engine.Messages.IncomingTest do
     assert :channel_id in enforced
     assert :provider in enforced
   end
+
+  test "new/1 injects telemetry dimensions in metadata" do
+    msg =
+      Incoming.new(%{
+        content: "hello",
+        channel_id: "ch1",
+        provider: :mattermost,
+        metadata: %{"foo" => "bar"}
+      })
+
+    assert msg.metadata["foo"] == "bar"
+
+    assert msg.metadata["telemetry_dimensions"] == %{
+             "channel_type" => "mattermost",
+             "channel_config_id" => "unknown",
+             "provider" => "mattermost",
+             "channel_id" => "ch1"
+           }
+  end
+
+  test "new/1 normalizes bo and email channel types" do
+    bo = Incoming.new(%{content: "hello", channel_id: "bo", provider: :web})
+    email = Incoming.new(%{content: "hello", channel_id: "mail", provider: "email"})
+
+    assert bo.metadata["telemetry_dimensions"]["channel_type"] == "bo"
+    assert email.metadata["telemetry_dimensions"]["channel_type"] == "email:imap"
+  end
 end

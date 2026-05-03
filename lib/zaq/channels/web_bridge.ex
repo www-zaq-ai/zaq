@@ -22,13 +22,13 @@ defmodule Zaq.Channels.WebBridge do
   """
   @spec to_internal(map(), map()) :: Incoming.t()
   def to_internal(params, _connection_details \\ %{}) do
-    %Incoming{
+    Incoming.new(%{
       content: params[:content],
       channel_id: params[:channel_id] || "bo",
       message_id: params[:request_id],
       provider: :web,
       metadata: Map.take(params, [:session_id, :request_id, :user_content])
-    }
+    })
   end
 
   @doc """

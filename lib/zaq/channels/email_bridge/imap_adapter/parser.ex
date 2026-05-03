@@ -22,9 +22,10 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
 
     from = sender(raw_email)
 
-    %Incoming{
+    Incoming.new(%{
       content: bodies.text,
       channel_id: from.address,
+      channel_config_id: "email",
       author_id: from.address,
       author_name: from.name,
       thread_id: thread_key,
@@ -41,7 +42,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
           reply_from,
           bodies.html
         )
-    }
+    })
   rescue
     error -> {:error, {:invalid_email_payload, Exception.message(error)}}
   end

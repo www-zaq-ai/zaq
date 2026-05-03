@@ -27,9 +27,14 @@ defmodule Zaq.Agent.ExecutorTest do
     def ask_with_config(_server, _content, _configured_agent, opts \\ []) do
       extra_refs = Keyword.get(opts, :extra_refs, %{})
       trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
+      status_ctx = Map.get(extra_refs, :zaq_status_context)
 
       if is_map(trace_ctx) do
         send(self(), {:trace_ctx, trace_ctx})
+      end
+
+      if is_map(status_ctx) do
+        send(self(), {:status_ctx, status_ctx})
       end
 
       {:ok, :request}
@@ -263,6 +268,33 @@ defmodule Zaq.Agent.ExecutorTest do
       assert_received {:trace_ctx, %{request_id: "req-123", collector_pid: pid}}
       assert pid == self()
       assert outgoing.metadata[:tool_calls] == [%{tool_name: "read_file", status: "ok"}]
+    end
+
+    test "injects canonical incoming telemetry dimensions plus execution fields in status context" do
+      incoming =
+        Incoming.new(%{
+          content: "hello",
+          channel_id: "bo-test",
+          provider: :web,
+          message_id: "req-124",
+          metadata: %{request_id: "req-124"}
+        })
+
+      _outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryWithToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert_received {:status_ctx, %{telemetry_dimensions: dims}}
+      assert dims[:channel_type] == "bo"
+      assert dims[:channel_config_id] == "unknown"
+      assert dims[:execution_path] == "custom_agent"
+      assert dims[:configured_agent_id] == 77
+      assert dims[:configured_agent_name] == "Stub Agent"
     end
   end
 end

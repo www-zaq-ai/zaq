@@ -66,7 +66,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     labels = labels_for_range(normalized.range)
     local_rows = load_rollups(labels.from, "local")
 
-    llm_api_calls = sum_points(local_rows, "qa.tokens.total", labels.labels, :value_count)
+    llm_api_calls = llm_call_count_points(local_rows, labels.labels)
     input_tokens = sum_points(local_rows, "qa.tokens.prompt", labels.labels, :value_sum)
     output_tokens = sum_points(local_rows, "qa.tokens.completion", labels.labels, :value_sum)
 
@@ -464,7 +464,7 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     local_rows = load_rollups(labels.from, "local")
 
     documents_ingested = sum_metric(local_rows, "ingestion.completed.count")
-    llm_api_calls = sum_metric_count(local_rows, "qa.tokens.total")
+    llm_api_calls = llm_call_count(local_rows)
     avg_response_time_ms = weighted_average_metric(local_rows, "qa.answer.latency_ms")
 
     metric_cards_chart = %{
@@ -847,6 +847,26 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     end)
     |> Enum.map(fn {label, value} -> %{label: label, value: Float.round(value, 2)} end)
     |> Enum.sort_by(& &1.value, :desc)
+  end
+
+  defp llm_call_count(rows) do
+    count = sum_metric_count(rows, "qa.llm.call.count")
+
+    if count > 0 do
+      count
+    else
+      sum_metric_count(rows, "qa.tokens.total")
+    end
+  end
+
+  defp llm_call_count_points(rows, labels) do
+    points = sum_points(rows, "qa.llm.call.count", labels, :value_sum)
+
+    if Enum.any?(points, &(&1 > 0)) do
+      points
+    else
+      sum_points(rows, "qa.tokens.total", labels, :value_count)
+    end
   end
 
   defp confidence_distribution_axes(rows, buckets) do

@@ -13,6 +13,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   alias Jido.AI.Observe
   alias Zaq.Agent.{Factory, Status}
+  alias Zaq.Engine.Telemetry
 
   @handler_id "zaq-agent-jido-telemetry-bridge"
   @tool_trace_table :zaq_tool_trace_events
@@ -84,8 +85,10 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   @spec handle_event([atom()], map(), map(), map()) :: :ok
   def handle_event(event, measurements, metadata, cfg) do
     cfg = normalize_callback_config(cfg)
+    remember_request_context_from_metadata(metadata)
     track_tool_event(event, measurements, metadata)
     maybe_publish_tool_traces(event, metadata)
+    maybe_record_business_metrics(event, measurements, metadata)
     maybe_broadcast_status(event, measurements, metadata, cfg)
 
     if skip_event?(event, cfg) do
@@ -214,6 +217,46 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   end
 
   defp maybe_publish_tool_traces(_event, _metadata), do: :ok
+
+  defp maybe_record_business_metrics([:jido, :ai, :llm, :start], _measurements, metadata) do
+    Telemetry.record("qa.llm.call.count", 1, telemetry_dimensions(metadata))
+  end
+
+  defp maybe_record_business_metrics([:jido, :ai, :request, :complete], measurements, metadata) do
+    dims = telemetry_dimensions(metadata)
+
+    maybe_record_token_metric("qa.tokens.prompt", Map.get(measurements, :input_tokens), dims)
+    maybe_record_token_metric("qa.tokens.completion", Map.get(measurements, :output_tokens), dims)
+    maybe_record_token_metric("qa.tokens.total", Map.get(measurements, :total_tokens), dims)
+
+    :ok
+  end
+
+  defp maybe_record_business_metrics(_event, _measurements, _metadata), do: :ok
+
+  defp maybe_record_token_metric(_metric_key, value, _dims) when not is_integer(value), do: :ok
+
+  defp maybe_record_token_metric(metric_key, value, dims),
+    do: Telemetry.record(metric_key, value, dims)
+
+  defp remember_request_context_from_metadata(metadata) do
+    case request_id(metadata) do
+      request_id when is_binary(request_id) and request_id != "" ->
+        remember_request_context(request_id)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp telemetry_dimensions(metadata) do
+    request_id = request_id(metadata)
+
+    case request_id && get_request_context(request_id) do
+      %{telemetry_dimensions: dims} when is_map(dims) -> dims
+      _ -> %{}
+    end
+  end
 
   defp events(include_llm_deltas) do
     llm_events =
@@ -645,13 +688,25 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   defp remember_request_context(request_id) do
     table = ensure_trace_table()
 
+    status_dims =
+      Process.get(:zaq_status_context)
+      |> proc_ctx_value(:telemetry_dimensions)
+      |> normalize_telemetry_dimensions()
+
     context =
       case Process.get(:zaq_tool_trace_context) do
-        %{collector_pid: collector_pid} when is_pid(collector_pid) ->
-          %{collector_pid: collector_pid}
+        %{collector_pid: collector_pid} = tool_trace_ctx when is_pid(collector_pid) ->
+          %{
+            collector_pid: collector_pid,
+            telemetry_dimensions: Map.get(tool_trace_ctx, :telemetry_dimensions, status_dims)
+          }
 
         _ ->
-          nil
+          if map_size(status_dims) > 0 do
+            %{telemetry_dimensions: status_dims}
+          else
+            nil
+          end
       end
 
     if context do
@@ -660,6 +715,14 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
     :ok
   end
+
+  defp normalize_telemetry_dimensions(dimensions) when is_map(dimensions) do
+    dimensions
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp normalize_telemetry_dimensions(_), do: %{}
 
   defp get_request_context(request_id) do
     table = ensure_trace_table()

@@ -528,21 +528,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
        ) do
     source_filter = Enum.map(active_filters, & &1.source_prefix)
 
-    incoming = %Incoming{
-      content: user_msg,
-      channel_id: "bo",
-      message_id: request_id,
-      author_id: current_user.id,
-      provider: :web,
-      person_id: Map.get(current_user, :person_id),
-      content_filter: source_filter,
-      metadata: %{
-        session_id: session_id,
-        request_id: request_id,
-        user_content: user_msg,
-        conversation_id: conversation_id
-      }
-    }
+    incoming =
+      Incoming.new(%{
+        content: user_msg,
+        channel_id: "bo",
+        message_id: request_id,
+        author_id: current_user.id,
+        provider: :web,
+        person_id: Map.get(current_user, :person_id),
+        content_filter: source_filter,
+        metadata: %{
+          session_id: session_id,
+          request_id: request_id,
+          user_content: user_msg,
+          conversation_id: conversation_id
+        }
+      })
 
     # Explicit: BO-authenticated users with no person record get full access.
     # This is a deliberate policy decision, not a nil shortcut.
@@ -555,7 +556,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           pipeline_opts: [
             history: history,
             skip_permissions: bo_user_without_person,
-            telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
             node_router: node_router()
           ]
         ]
