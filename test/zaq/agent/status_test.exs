@@ -3,6 +3,7 @@ defmodule Zaq.Agent.StatusTest do
 
   alias Zaq.Agent.Status
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Event
 
   # Executes the event's request locally — avoids real RPC in unit tests.
   defmodule FakeNodeRouter do
@@ -76,6 +77,54 @@ defmodule Zaq.Agent.StatusTest do
   describe "broadcast/4 with nil" do
     test "returns :ok and does not crash" do
       assert :ok = Status.broadcast(nil, :validating, "x", FakeNodeRouter)
+    end
+  end
+
+  describe "context_from_event/1" do
+    test "extracts context when request carries valid session and request ids" do
+      event =
+        Event.new(
+          %Incoming{
+            content: "hi",
+            channel_id: "bo",
+            provider: :web,
+            metadata: %{session_id: "s1", request_id: "r1"}
+          },
+          :agent,
+          opts: [node_router: FakeNodeRouter]
+        )
+
+      assert %{session_id: "s1", request_id: "r1", node_router: FakeNodeRouter} =
+               Status.context_from_event(event)
+    end
+
+    test "returns nil when event is nil or missing required ids" do
+      assert Status.context_from_event(nil) == nil
+
+      missing_session =
+        Event.new(
+          %Incoming{
+            content: "hi",
+            channel_id: "bo",
+            provider: :web,
+            metadata: %{request_id: "r1"}
+          },
+          :agent
+        )
+
+      missing_request =
+        Event.new(
+          %Incoming{
+            content: "hi",
+            channel_id: "bo",
+            provider: :web,
+            metadata: %{session_id: "s1"}
+          },
+          :agent
+        )
+
+      assert Status.context_from_event(missing_session) == nil
+      assert Status.context_from_event(missing_request) == nil
     end
   end
 end
