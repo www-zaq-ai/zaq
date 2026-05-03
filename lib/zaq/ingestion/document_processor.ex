@@ -193,8 +193,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Strips bytes that are not part of a valid UTF-8 sequence.
   # Needed when ingesting files produced by external tools (e.g. the Python
   # PDF pipeline) that may emit Latin-1 or other non-UTF-8 encodings.
-  defp sanitize_bm25_query(text) do
+  @doc false
+  def sanitize_bm25_query(text) do
     text
+    |> sanitize_utf8()
     |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
     |> String.replace(~r/\s+/, " ")
     |> String.trim()

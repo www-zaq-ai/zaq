@@ -16,6 +16,7 @@ config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 
 config :git_hooks,
   auto_install: true,
+  project_path: Path.expand("..", __DIR__),
   verbose: true,
   hooks: [
     pre_commit: [

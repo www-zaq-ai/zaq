@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.DocumentProcessorTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   import Mox
 
@@ -2183,6 +2184,52 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                  end)
         end
       )
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # sanitize_bm25_query/1 — property tests
+  # ---------------------------------------------------------------------------
+
+  describe "sanitize_bm25_query/1" do
+    test "original failing case: apostrophe in contraction" do
+      assert DocumentProcessor.sanitize_bm25_query("what's happening") == "what s happening"
+    end
+
+    property "never raises on any binary input" do
+      check all(input <- StreamData.binary()) do
+        # Must not raise even on raw non-UTF-8 bytes; the function guards with a Unicode regex
+        assert is_binary(DocumentProcessor.sanitize_bm25_query(input))
+      end
+    end
+
+    property "output contains only letters, digits, and single spaces" do
+      check all(input <- StreamData.string(:printable)) do
+        result = DocumentProcessor.sanitize_bm25_query(input)
+        assert result == "" or String.match?(result, ~r/^[\p{L}\p{N} ]+$/u)
+      end
+    end
+
+    property "output has no consecutive whitespace" do
+      check all(input <- StreamData.string(:printable)) do
+        result = DocumentProcessor.sanitize_bm25_query(input)
+        refute String.match?(result, ~r/\s{2,}/)
+      end
+    end
+
+    property "output is always trimmed" do
+      check all(input <- StreamData.string(:printable)) do
+        result = DocumentProcessor.sanitize_bm25_query(input)
+        assert result == String.trim(result)
+      end
+    end
+
+    property "idempotent: sanitizing twice gives the same result" do
+      check all(input <- StreamData.string(:printable)) do
+        once = DocumentProcessor.sanitize_bm25_query(input)
+        twice = DocumentProcessor.sanitize_bm25_query(once)
+        assert once == twice
+      end
     end
   end
 end

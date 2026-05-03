@@ -94,6 +94,7 @@ defmodule Zaq.MixProject do
       {:nimble_csv, "~> 1.2"},
       {:mailroom, "~> 0.7.1"},
       {:lingua, "~> 0.3.6"},
+      {:stream_data, "~> 1.3"},
 
       # Jido Ecosystem
       {:llm_db, "~> 2026.4", runtime: false},
