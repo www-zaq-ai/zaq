@@ -1,6 +1,7 @@
 # ZAQ
 
 [![Coverage Status](https://img.shields.io/coveralls/github/www-zaq-ai/zaq?branch=main)](https://coveralls.io/github/www-zaq-ai/zaq?branch=main)
+[![Discord](https://img.shields.io/discord/1488938719959322624?color=7289da&logo=discord&logoColor=white&label=discord)](https://discord.gg/rDUeWP5GbD)
 [![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://www-zaq-ai.github.io/zaq/)
 [![Run](https://img.shields.io/badge/quick%20run-local%20setup-orange)](https://github.com/www-zaq-ai/zaq/wiki/Local-Installation)
 
