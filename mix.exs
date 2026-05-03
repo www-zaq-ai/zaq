@@ -105,11 +105,11 @@ defmodule Zaq.MixProject do
       # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
-      {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
+      {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "feat/logprobs", override: true},
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
-      {:req_llm, github: "agentjido/req_llm", branch: "main", override: true},
+      {:req_llm, github: "www-zaq-ai/req_llm", branch: "main", override: true},
 
       # Dev/Test
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},

@@ -158,7 +158,7 @@ defmodule Zaq.Agent.ProviderSpec do
         opts
       end
 
-    if cfg.supports_logprobs and reqllm_provider(cfg.provider) == :openai do
+    if cfg.supports_logprobs and not fixed_url_provider?(cfg.provider) do
       Keyword.put(opts, :provider_options, openai_logprobs: true)
     else
       opts
