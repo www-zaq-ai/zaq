@@ -137,6 +137,7 @@ defmodule Zaq.Agent.Executor do
                  zaq_tool_trace_context: tool_trace_context(incoming)
                }
              ),
+           # With tool calling, multiple turns can occur in a single request, high timeout avoids false negatives
            {:ok, answer} <- factory_module.await(request, timeout: 120_000) do
         tool_calls = collect_tool_calls(incoming)
 
@@ -353,6 +354,7 @@ defmodule Zaq.Agent.Executor do
       receive do
         {:zaq_tool_traces, ^request_id, traces} when is_list(traces) -> traces
       after
+        # The message is supposed to be already in the mailbox at this stage
         50 -> []
       end
     else

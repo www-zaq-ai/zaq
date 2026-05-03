@@ -1304,7 +1304,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     html = render(view)
     {read_idx, _} = :binary.match(html, "Read File")
     {search_idx, _} = :binary.match(html, "Search Code")
-    assert read_idx < search_idx
+    assert search_idx < read_idx
 
     view
     |> element(~s([data-testid="tool-call-row-slow"]))

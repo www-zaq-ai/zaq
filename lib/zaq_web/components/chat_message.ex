@@ -315,7 +315,10 @@ defmodule ZaqWeb.Components.ChatMessage do
 
         <div class="overflow-y-auto pr-1" style="max-height: calc(85vh - 90px);">
           <ul class="space-y-2">
-            <li :for={tc <- @tool_calls} class="border border-[#e8e6e1] rounded-xl overflow-hidden">
+            <li
+              :for={tc <- sort_tool_calls_chronologically(@tool_calls)}
+              class="border border-[#e8e6e1] rounded-xl overflow-hidden"
+            >
               <button
                 type="button"
                 phx-click={@toggle_event}
@@ -583,6 +586,23 @@ defmodule ZaqWeb.Components.ChatMessage do
       _ -> inspect(value, pretty: true, limit: :infinity)
     end
   end
+
+  defp sort_tool_calls_chronologically(tool_calls) when is_list(tool_calls) do
+    Enum.sort_by(tool_calls, &tool_call_timestamp_sort_key/1, :asc)
+  end
+
+  defp sort_tool_calls_chronologically(_), do: []
+
+  defp tool_call_timestamp_sort_key(tc) when is_map(tc) do
+    timestamp = Map.get(tc, :timestamp) || Map.get(tc, "timestamp")
+
+    case DateTime.from_iso8601(to_string(timestamp || "")) do
+      {:ok, dt, _offset} -> {0, DateTime.to_unix(dt, :microsecond)}
+      _ -> {1, 0}
+    end
+  end
+
+  defp tool_call_timestamp_sort_key(_), do: {1, 0}
 
   defp build_body_html(content, []), do: Phoenix.HTML.html_escape(content)
 

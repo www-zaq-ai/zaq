@@ -1,6 +1,15 @@
 defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
   @moduledoc """
   Shared helpers for BO communication message feedback and tool calls.
+
+  Used by:
+  - `ZaqWeb.Live.BO.Communication.ChatLive`
+  - `ZaqWeb.Live.BO.Communication.ConversationDetailLive`
+
+  Provides common functions for:
+  - Feedback rating attributes (positive/negative)
+  - Tool call data normalization
+  - Modal state management helpers
   """
 
   def positive_rater_attrs(current_user) do
@@ -52,7 +61,6 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
         status: Map.get(tc, :status) || Map.get(tc, "status")
       }
     end)
-    |> Enum.sort_by(fn tc -> tool_call_sort_key(tc.response_time_ms) end, :desc)
   end
 
   def normalize_tool_calls(_), do: []
@@ -75,8 +83,4 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
       MapSet.put(expanded, tool_id)
     end
   end
-
-  defp tool_call_sort_key(ms) when is_integer(ms), do: ms
-  defp tool_call_sort_key(ms) when is_float(ms), do: ms
-  defp tool_call_sort_key(_), do: -1
 end

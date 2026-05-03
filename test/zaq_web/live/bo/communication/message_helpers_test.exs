@@ -31,15 +31,17 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
       assert MessageHelpers.normalize_tool_calls(%{}) == []
     end
 
-    test "sorts floats before unknown response time values" do
+    test "normalizes key fields without applying ordering" do
       tool_calls = [
         %{"tool_call_id" => "bad", "response_time_ms" => "n/a"},
         %{"tool_call_id" => "float", "response_time_ms" => 12.5}
       ]
 
       [first, second] = MessageHelpers.normalize_tool_calls(tool_calls)
-      assert first.tool_call_id == "float"
-      assert second.tool_call_id == "bad"
+      assert first.tool_call_id == "bad"
+      assert second.tool_call_id == "float"
+      assert first.response_time_ms == "n/a"
+      assert second.response_time_ms == 12.5
     end
   end
 

@@ -240,7 +240,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
 
       {search_idx, _} = :binary.match(html, "Search Code")
       {read_idx, _} = :binary.match(html, "Read File")
-      assert search_idx < read_idx
+      assert read_idx < search_idx
 
       view
       |> element(~s([data-testid="tool-call-row-call-b"]))
