@@ -125,6 +125,44 @@ defmodule Zaq.Engine.Telemetry.BufferCollectorTest do
     assert {:error, :noproc} = Buffer.flush({:global, :missing_buffer_process}, 100)
   end
 
+  test "flush/2 returns timeout error when server does not reply in time" do
+    defmodule SlowFlushServer do
+      use GenServer
+
+      def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok)
+      def init(:ok), do: {:ok, :ok}
+
+      def handle_call(:flush, _from, state) do
+        Process.sleep(50)
+        {:reply, :ok, state}
+      end
+    end
+
+    {:ok, pid} = SlowFlushServer.start_link([])
+    assert {:error, :timeout} = Buffer.flush(pid, 5)
+    GenServer.stop(pid)
+  end
+
+  test "buffer flush keeps buffered points when insert fails" do
+    name = {:global, {:telemetry_buffer_bad_point, System.unique_integer([:positive])}}
+
+    pid =
+      start_supervised!({Buffer, name: name, flush_interval_ms: 60_000, max_batch_size: 1_000})
+
+    Sandbox.allow(Repo, self(), pid)
+
+    assert :ok =
+             Buffer.enqueue(name, %{
+               metric_key: "qa.message.count",
+               value: 1,
+               occurred_at: "invalid-datetime"
+             })
+
+    assert :ok = Buffer.flush(name)
+
+    refute Repo.exists?(from p in Point, where: p.metric_key == "qa.message.count")
+  end
+
   test "collector records phoenix stop events" do
     assert {:ok, _} = SystemConfig.set_config("telemetry.capture_infra_metrics", true)
     reload_collector_policy()

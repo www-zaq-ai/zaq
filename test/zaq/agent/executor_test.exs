@@ -48,6 +48,22 @@ defmodule Zaq.Agent.ExecutorTest do
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
+  defmodule StubFactoryNoToolTrace do
+    def ask_with_config(_server, _content, _configured_agent, opts \\ []) do
+      extra_refs = Keyword.get(opts, :extra_refs, %{})
+      trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
+
+      if is_map(trace_ctx) do
+        send(self(), {:trace_ctx, trace_ctx})
+      end
+
+      {:ok, :request}
+    end
+
+    def await(:request, _opts), do: {:ok, %{result: "stubbed answer"}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
   defmodule StubNodeRouter do
     def call(:channels, Zaq.Channels.Router, :send_typing, _args), do: :ok
     def call(_role, module, function, args), do: apply(module, function, args)
@@ -295,6 +311,59 @@ defmodule Zaq.Agent.ExecutorTest do
       assert dims[:execution_path] == "custom_agent"
       assert dims[:configured_agent_id] == 77
       assert dims[:configured_agent_name] == "Stub Agent"
+    end
+
+    test "keeps atom telemetry keys and ignores unsupported key types" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: "req-atom",
+        metadata: %{
+          "telemetry_dimensions" => %{
+            "channel_config_id" => "123",
+            {1, 2} => "ignored",
+            channel_type: "bo"
+          },
+          request_id: "req-atom"
+        }
+      }
+
+      _outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryWithToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert_received {:status_ctx, %{telemetry_dimensions: dims}}
+      assert dims[:channel_type] == "bo"
+      assert dims[:channel_config_id] == "123"
+      refute Map.has_key?(dims, {1, 2})
+    end
+
+    test "does not inject trace context when message_id is blank and collects no tool calls" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: "",
+        metadata: %{request_id: "req-empty"}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryNoToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      refute_received {:trace_ctx, _}
+      assert outgoing.metadata[:tool_calls] == []
     end
   end
 end

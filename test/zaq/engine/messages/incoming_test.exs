@@ -77,4 +77,55 @@ defmodule Zaq.Engine.Messages.IncomingTest do
     assert bo.metadata["telemetry_dimensions"]["channel_type"] == "bo"
     assert email.metadata["telemetry_dimensions"]["channel_type"] == "email:imap"
   end
+
+  test "new/1 normalizes channel_config_id variants" do
+    blank =
+      Incoming.new(%{
+        content: "hello",
+        channel_id: "ch1",
+        provider: :web,
+        metadata: %{"channel_config_id" => "   "}
+      })
+
+    integer =
+      Incoming.new(%{
+        content: "hello",
+        channel_id: "ch1",
+        provider: :web,
+        channel_config_id: 42
+      })
+
+    invalid =
+      Incoming.new(%{
+        content: "hello",
+        channel_id: "ch1",
+        provider: :web,
+        channel_config_id: %{bad: true}
+      })
+
+    assert blank.metadata["telemetry_dimensions"]["channel_config_id"] == "unknown"
+    assert integer.metadata["telemetry_dimensions"]["channel_config_id"] == "42"
+    assert invalid.metadata["telemetry_dimensions"]["channel_config_id"] == "unknown"
+  end
+
+  test "new/1 falls back to api channel type for unsupported provider type" do
+    msg = Incoming.new(%{content: "hello", channel_id: "ch1", provider: 123})
+
+    assert msg.metadata["telemetry_dimensions"]["channel_type"] == "api"
+    assert msg.metadata["telemetry_dimensions"]["provider"] == "123"
+  end
+
+  test "new/1 normalizes metadata and content_filter" do
+    msg =
+      Incoming.new(%{
+        content: "hello",
+        channel_id: "ch1",
+        provider: :mattermost,
+        metadata: "not-a-map",
+        content_filter: ["ok", 1, nil, "safe"]
+      })
+
+    assert is_map(msg.metadata)
+    assert msg.content_filter == ["ok", "safe"]
+  end
 end
