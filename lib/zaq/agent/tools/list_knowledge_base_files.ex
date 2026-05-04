@@ -1,4 +1,4 @@
-defmodule Zaq.Agent.Tools.CountDocuments do
+defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
   @moduledoc """
   ReAct tool: counts and lists the documents the user has access to in the
   ZAQ knowledge base.
@@ -12,7 +12,7 @@ defmodule Zaq.Agent.Tools.CountDocuments do
   """
 
   use Jido.Action,
-    name: "count_documents",
+    name: "list_knowledge_base_files",
     description: """
     Count and list all files visible to this user, tagged as ingested
     (in the knowledge base) or not yet ingested. Use this when the user asks
@@ -33,7 +33,7 @@ defmodule Zaq.Agent.Tools.CountDocuments do
     Status.broadcast(
       Map.get(context, :status_context),
       :retrieving,
-      "ZAQ is counting your documents…",
+      "ZAQ is listing your knowledge base files…",
       Map.get(context, :node_router, NodeRouter)
     )
 
