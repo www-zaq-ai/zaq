@@ -5,7 +5,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat
   alias Jido.Chat.Author
   alias Jido.Chat.Incoming, as: ChatIncoming
-  alias Zaq.Agent.{MCP, ServerManager}
+  alias Zaq.Agent.{JidoTelemetryBridge, MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
@@ -655,7 +655,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         text: "trigger mcp timeout",
         external_room_id: "room-mcp-timeout",
         external_thread_id: nil,
-        external_message_id: "msg-timeout-1",
+        external_message_id: "msg-timeout-#{System.unique_integer([:positive, :monotonic])}",
         author: %Author{user_id: "u-timeout", user_name: "alice"},
         metadata: %{}
       }
@@ -671,7 +671,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       recovery_incoming = %ChatIncoming{
         incoming
         | text: "hello after timeout",
-          external_message_id: "msg-ok-2"
+          external_message_id: "msg-ok-#{System.unique_integer([:positive, :monotonic])}"
       }
 
       assert :ok = JidoChatBridge.handle_from_listener(config, recovery_incoming, [])
@@ -680,6 +680,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "persists full tool_calls metadata after a tool-call pipeline run" do
+      handler_id = "zaq-agent-jido-telemetry-bridge"
+      :telemetry.detach(handler_id)
+      assert {:ok, %{enabled?: true}} = JidoTelemetryBridge.init([])
+
+      on_exit(fn ->
+        :ok = JidoTelemetryBridge.terminate(:normal, %{enabled?: true})
+      end)
+
       {mcp_child_spec, mcp_endpoint} = mcp_server(self(), timeout_ms: 0, tool_name: "lookup_tool")
       start_supervised!(mcp_child_spec)
 
@@ -770,13 +778,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         |> Map.put(:provider, :mattermost)
 
       channel_id = "room-tool-persist-#{System.unique_integer([:positive])}"
+      message_id = "msg-tool-persist-#{System.unique_integer([:positive, :monotonic])}"
 
       incoming =
         ChatIncoming.new(%{
           text: "run tool and persist",
           external_room_id: channel_id,
           external_thread_id: nil,
-          external_message_id: "msg-tool-persist-1",
+          external_message_id: message_id,
           author: Author.new(%{user_id: "u-persist", user_name: "alice"}),
           metadata: %{}
         })
