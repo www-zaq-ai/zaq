@@ -242,6 +242,7 @@ defmodule Zaq.Agent.Api do
   defp guard_error_outgoing(%Incoming{} = incoming) do
     Outgoing.from_pipeline_result(incoming, %{
       answer: "I can only help with ZAQ-related questions.",
+      error_reason: :guard_blocked,
       confidence_score: 0.0,
       latency_ms: nil,
       prompt_tokens: nil,

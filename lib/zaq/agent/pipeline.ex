@@ -145,11 +145,11 @@ defmodule Zaq.Agent.Pipeline do
       result
     else
       {:halt, _payload} ->
-        error_result("Request was halted by a pipeline hook.")
+        error_result(:halted)
 
       {:error, {:leaked, _phrase}} ->
         Logger.warning("[Pipeline] PromptGuard: output leak detected, blocking response")
-        error_result("I can only help with ZAQ-related questions.")
+        error_result(:leaked)
 
       {:error, :no_results, negative_answer} ->
         :ok = record_no_answer_telemetry(opts)
@@ -183,8 +183,7 @@ defmodule Zaq.Agent.Pipeline do
 
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")
-        user_message = pipeline_error_message(reason)
-        error_result(user_message)
+        error_result(reason)
     end
   end
 
@@ -320,6 +319,7 @@ defmodule Zaq.Agent.Pipeline do
       prompt_tokens: outgoing.metadata[:prompt_tokens],
       completion_tokens: outgoing.metadata[:completion_tokens],
       total_tokens: outgoing.metadata[:total_tokens],
+      tool_calls: Map.get(outgoing.metadata, :tool_calls, []),
       error: false
     }
   end
@@ -346,25 +346,12 @@ defmodule Zaq.Agent.Pipeline do
     }
   end
 
-  defp pipeline_error_message(reason) when is_binary(reason) do
-    cond do
-      String.contains?(reason, "Failed to process question") ->
-        "I had trouble understanding your question. Please try rephrasing it."
+  @generic_error_message "Something went wrong while answering your question. Please try again."
 
-      String.contains?(reason, "Knowledge base search") ->
-        "I couldn't search the knowledge base right now. Please try again in a moment."
-
-      true ->
-        "Something went wrong while answering your question. Please try again."
-    end
-  end
-
-  defp pipeline_error_message(_reason),
-    do: "Something went wrong while answering your question. Please try again."
-
-  defp error_result(answer) do
+  defp error_result(reason) do
     %{
-      answer: answer,
+      answer: @generic_error_message,
+      error_reason: reason,
       confidence_score: 0.0,
       latency_ms: nil,
       prompt_tokens: nil,

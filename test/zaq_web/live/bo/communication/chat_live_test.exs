@@ -782,7 +782,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
-    assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
+    assert_eventually(fn ->
+      render(view) =~ "Something went wrong while answering your question. Please try again."
+    end)
   end
 
   test "date separator appears in message list after loading a conversation", %{
@@ -832,7 +834,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
-    assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
+    assert_eventually(fn ->
+      render(view) =~ "Something went wrong while answering your question. Please try again."
+    end)
   end
 
   test "query extraction empty uses retrieval negative answer", %{conn: conn} do

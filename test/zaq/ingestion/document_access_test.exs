@@ -143,8 +143,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   # ---------------------------------------------------------------------------
 
   describe "count_accessible_documents/1" do
-    test "counts docs with no permission rows (public by default)" do
-      _doc = create_doc(uid("open"))
+    test "counts tagged-public docs" do
+      doc = create_doc(uid("open"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
       count = DocumentAccess.count_accessible_documents(person_id: create_person().id)
       assert count >= 1
     end
@@ -230,8 +231,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert admin_count >= 0
     end
 
-    test "nil person_id with no teams counts only public-by-default docs" do
-      _open = create_doc(uid("nil-open"))
+    test "nil person_id with no teams counts only tagged-public docs" do
+      open_doc = create_doc(uid("nil-open"))
+      {:ok, _} = Ingestion.add_document_tag(open_doc.id, "public")
       locked = create_doc(uid("nil-locked"))
       {:ok, _} = grant(locked.id, :person, create_person().id)
 
@@ -253,6 +255,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   describe "list_accessible_documents/1" do
     test "returns source and title for accessible docs" do
       doc = create_doc(uid("list-basic"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
       person = create_person()
 
       result = DocumentAccess.list_accessible_documents(person_id: person.id)
@@ -416,6 +419,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       p = System.unique_integer([:positive])
       folder = "sf-perm-#{p}"
       open_doc = create_doc("#{folder}/open.md")
+      {:ok, _} = Ingestion.add_document_tag(open_doc.id, "public")
       locked_doc = create_doc("#{folder}/locked.md")
       person = create_person()
       other = create_person()
@@ -428,7 +432,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
           source_filter: [folder]
         )
 
-      # open_doc has no permissions (public by default), locked_doc is restricted
+      # open_doc is tagged public, locked_doc is restricted to other
       assert count == 1
 
       listed =
