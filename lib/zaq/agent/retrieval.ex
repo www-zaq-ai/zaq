@@ -81,36 +81,34 @@ defmodule Zaq.Agent.Retrieval do
     end
   end
 
-  # Extracts raw JSON from a response that may be wrapped in markdown code fences
-  # or surrounded by prose (e.g. llama3.2 tends to wrap JSON in ```json ... ```).
-  defp extract_json(text) do
-    case Regex.run(~r/```(?:json)?\s*([\s\S]*?)```/s, text, capture: :all_but_first) do
-      [json] -> String.trim(json)
-      nil -> text
+  defp decode_retrieval_content(content, original_question) do
+    query = parse_md_field(content, "Query") || original_question
+    language = parse_md_field(content, "Language") |> parse_language_code()
+    positive_answer = parse_md_field(content, "Positive Answer")
+    negative_answer = parse_md_field(content, "Negative Answer")
+
+    {:ok,
+     %{
+       "query" => query,
+       "language" => language,
+       "positive_answer" => positive_answer,
+       "negative_answer" => negative_answer
+     }}
+  end
+
+  # Extracts the value after "**Field:**" on a single line, trimmed.
+  defp parse_md_field(text, field) do
+    case Regex.run(~r/\*\*#{Regex.escape(field)}:\*\*\s*(.+)/u, text, capture: :all_but_first) do
+      [value] -> String.trim(value)
+      nil -> nil
     end
   end
 
-  # When the LLM returns non-JSON (e.g. a plain prose response), fall back to
-  # using the original question as the search query so the answering step can
-  # still run. This happens with some models that ignore the JSON instruction.
-  defp decode_retrieval_content(content, original_question) do
-    case content |> extract_json() |> Jason.decode() do
-      {:ok, answer} ->
-        {:ok, answer}
+  # Takes only the first word (the ISO 639-3 code) and drops any trailing prose.
+  defp parse_language_code(nil), do: "eng"
 
-      {:error, decode_error} ->
-        Logger.warning(
-          "Retrieval: LLM returned non-JSON, falling back to raw question. Error: #{Exception.message(decode_error)}"
-        )
-
-        {:ok,
-         %{
-           "query" => original_question,
-           "language" => "en",
-           "positive_answer" => nil,
-           "negative_answer" => nil
-         }}
-    end
+  defp parse_language_code(value) do
+    value |> String.split() |> List.first() |> then(&(&1 || "eng"))
   end
 
   defp normalized_text(nil), do: nil
