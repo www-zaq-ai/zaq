@@ -362,6 +362,12 @@
                 >
                   {msg}
                 </p>
+                <div
+                  :if={@selected_model_supports_tools == false}
+                  class="mt-2 rounded-lg border border-[#f3d9d5] bg-[#fff6f4] px-3 py-2 font-mono text-[0.64rem] text-[#a35246]"
+                >
+                  Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model.
+                </div>
               </div>
             </div>
 
@@ -375,10 +381,30 @@
                   type="button"
                   phx-click="open_mcp_picker"
                   class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
-                  disabled={unselected_mcp_options == []}
+                  disabled={@selected_model_supports_tools == false}
                 >
                   + Add MCP
                 </button>
+              </div>
+              <div
+                :if={@mcp_notice || @mcp_endpoints == []}
+                class="mb-2 rounded-lg border border-[#efece6] bg-[#faf8f5] px-3 py-2 font-mono text-[0.64rem] text-[#7e7a73]"
+              >
+                <span :if={@mcp_notice}>{@mcp_notice}</span>
+                <span :if={@mcp_notice}>
+                  <a href={~p"/bo/system-config?tab=mcp"} class="underline hover:text-[#3e3b36]">
+                    Open MCP settings
+                  </a>
+                  .
+                </span>
+                <span :if={!@mcp_notice}>
+                  No MCP endpoints are configured. Activate one in <a
+                    href={~p"/bo/system-config?tab=mcp"}
+                    class="underline hover:text-[#3e3b36]"
+                  >
+                    System Config
+                  </a>.
+                </span>
               </div>
               <input type="hidden" name="configured_agent[enabled_mcp_endpoint_ids][]" value="" />
               <input
@@ -387,12 +413,6 @@
                 name="configured_agent[enabled_mcp_endpoint_ids][]"
                 value={endpoint_id}
               />
-              <div
-                :if={@mcp_endpoints == []}
-                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
-              >
-                No MCP endpoints are configured.
-              </div>
               <.selected_mcp_panel
                 :if={@mcp_endpoints != []}
                 mcp_endpoints={@mcp_endpoints}
@@ -422,12 +442,6 @@
                 >
                   + Add tools
                 </button>
-              </div>
-              <div
-                :if={@selected_model_supports_tools == false}
-                class="mb-2 rounded-lg border border-[#f3d9d5] bg-[#fff6f4] px-3 py-2 font-mono text-[0.64rem] text-[#a35246]"
-              >
-                Selected model does not support tool calling. Update the model before enabling tools.
               </div>
               <input type="hidden" name="configured_agent[enabled_tool_keys][]" value="" />
               <input
