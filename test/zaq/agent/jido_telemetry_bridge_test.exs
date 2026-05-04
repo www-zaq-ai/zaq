@@ -301,6 +301,11 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert_receive {:status_update, ^request_id, :answering, "Thinking…"}
   end
 
+  test "llm.start returns :ok without broadcasting when context is missing" do
+    assert :ok =
+             JidoTelemetryBridge.handle_event([:jido, :ai, :llm, :start], %{}, %{}, %{})
+  end
+
   test "llm.delta broadcasts reasoning as retrieving when enabled" do
     session_id = "bridge-session-#{System.unique_integer([:positive])}"
     request_id = "bridge-req-#{System.unique_integer([:positive])}"
