@@ -47,6 +47,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:tools_picker_value, "")
       |> assign(:mcp_picker_open, false)
       |> assign(:mcp_picker_value, "")
+      |> assign(:mcp_notice, nil)
       |> assign(:mcp_endpoints, MCP.list_mcp_endpoints())
       |> refresh_agents()
 
@@ -81,7 +82,36 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   def handle_event("open_mcp_picker", _params, socket) do
-    {:noreply, assign(socket, :mcp_picker_open, true)}
+    enabled_unselected_mcp_options =
+      socket.assigns.mcp_endpoints
+      |> Enum.filter(&(&1.status == "enabled"))
+      |> Enum.reject(&(&1.id in selected_mcp_endpoint_ids(socket)))
+
+    cond do
+      socket.assigns.selected_model_supports_tools == false ->
+        {:noreply,
+         socket
+         |> assign(:mcp_picker_open, false)
+         |> assign(
+           :mcp_notice,
+           "Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model."
+         )}
+
+      enabled_unselected_mcp_options == [] ->
+        {:noreply,
+         socket
+         |> assign(:mcp_picker_open, false)
+         |> assign(
+           :mcp_notice,
+           "No active MCP endpoints found. Activate one in System Config."
+         )}
+
+      true ->
+        {:noreply,
+         socket
+         |> assign(:mcp_notice, nil)
+         |> assign(:mcp_picker_open, true)}
+    end
   end
 
   def handle_event("close_mcp_picker", _params, socket) do
@@ -395,6 +425,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     socket
     |> assign(:changeset, changeset)
     |> assign(:selected_model_supports_tools, selected_model_supports_tools(changeset, socket))
+    |> assign(:mcp_notice, nil)
     |> assign(:form, to_form(changeset, as: :configured_agent))
   end
 
