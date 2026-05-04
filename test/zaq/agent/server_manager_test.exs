@@ -303,7 +303,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     {:ok, updated_agent} =
       Agent.update_agent(configured_agent, %{
-        enabled_tool_keys: ["answering.count_documents"]
+        enabled_tool_keys: ["answering.list_knowledge_base_files"]
       })
 
     assert {:ok, _server_ref} =

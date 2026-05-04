@@ -153,11 +153,11 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.SearchKnowledgeBase
     },
     %{
-      key: "answering.count_documents",
-      label: "Count documents",
+      key: "answering.list_knowledge_base_files",
+      label: "List knowledge base files",
       description:
         "Count and list documents accessible to the user in the knowledge base (answering-only)",
-      module: Zaq.Agent.Tools.CountDocuments
+      module: Zaq.Agent.Tools.ListKnowledgeBaseFiles
     }
   ]
 

@@ -30,7 +30,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.square",
              "advanced.lua_eval",
              "answering.search_knowledge_base",
-             "answering.count_documents"
+             "answering.list_knowledge_base_files"
            ]
   end
 
@@ -65,7 +65,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.square",
              "advanced.lua_eval",
              "answering.search_knowledge_base",
-             "answering.count_documents"
+             "answering.list_knowledge_base_files"
            ]
   end
 
