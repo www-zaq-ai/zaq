@@ -194,7 +194,37 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_change()
 
     html = render(view)
-    assert html =~ "Selected model does not support tool calling"
+
+    assert html =~
+             "Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model."
+
+    assert has_element?(view, "#add-tools-button[disabled]")
+    assert has_element?(view, "#add-mcp-button[disabled]")
+  end
+
+  test "clicking add MCP with no enabled endpoints shows quick message and settings link", %{
+    conn: conn
+  } do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, _disabled_endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Disabled MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "disabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_click(element(view, "#add-mcp-button"))
+
+    html = render(view)
+    assert html =~ "No active MCP endpoints found. Activate one in System Config."
+    assert has_element?(view, ~s(a[href="/bo/system-config?tab=mcp"]))
   end
 
   test "clicking a row opens edit form", %{conn: conn} do

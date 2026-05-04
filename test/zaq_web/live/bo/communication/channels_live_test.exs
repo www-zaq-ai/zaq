@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   import Mox
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
+  import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
   alias Zaq.Channels.ChannelConfig
@@ -157,6 +158,18 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     assert has_element?(view, "#provider-default-agent-select")
     assert has_element?(view, "#retrieval-channel-agent-select-#{retrieval.id}")
+  end
+
+  test "agent routing options exclude conversation-disabled agents", %{conn: conn} do
+    config = insert_channel_config(%{})
+    _retrieval = insert_retrieval_channel(config)
+    _enabled_agent = create_conversation_agent(true, "channels-enabled")
+    disabled_agent = create_conversation_agent(false, "channels-disabled")
+
+    {:ok, view, html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    assert has_element?(view, "#provider-default-agent-select")
+    refute html =~ disabled_agent.name
   end
 
   test "toggles and deletes a config", %{conn: conn} do
@@ -796,5 +809,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       active: true
     })
     |> Repo.insert!()
+  end
+
+  defp create_conversation_agent(conversation_enabled, name_suffix) do
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Channels #{name_suffix} #{:erlang.unique_integer([:positive])}",
+        description: "test",
+        job: "You are a test agent",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: conversation_enabled,
+        active: true,
+        advanced_options: %{}
+      })
+
+    agent
   end
 end

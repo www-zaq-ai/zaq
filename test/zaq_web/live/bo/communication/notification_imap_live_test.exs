@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
   import Mox
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
+  import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
   alias Zaq.Channels.ChannelConfig
@@ -83,6 +84,15 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
     assert has_element?(view, "#imap-provider-default-agent-select")
     assert has_element?(view, "#imap-mailbox-agent-assignments")
+  end
+
+  test "agent routing options exclude conversation-disabled agents", %{conn: conn} do
+    _enabled_agent = create_conversation_agent(true, "imap-enabled")
+    disabled_agent = create_conversation_agent(false, "imap-disabled")
+
+    {:ok, _view, html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    refute html =~ disabled_agent.name
   end
 
   test "mailbox assignment controls track selected mailboxes only", %{conn: conn} do
@@ -181,6 +191,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
   test "save persists provider default, filters mailbox agent ids, and mounts with decrypted fallback defaults",
        %{conn: conn} do
     insert_smtp_enabled()
+    enabled_agent = create_conversation_agent(true, "imap-save-enabled")
+    disabled_agent = create_conversation_agent(false, "imap-save-disabled")
 
     channel =
       insert_imap_channel(%{
@@ -212,8 +224,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
         "ssl" => "true",
         "username" => "zaq@example.com",
         "password" => "secret",
-        "provider_default_agent_id" => "42",
-        "mailbox_agent_ids" => %{"" => "77", "INBOX" => "88", "Support" => "bad"},
+        "provider_default_agent_id" => to_string(disabled_agent.id),
+        "mailbox_agent_ids" => %{
+          "" => to_string(disabled_agent.id),
+          "INBOX" => to_string(enabled_agent.id),
+          "Support" => "bad"
+        },
         "selected_mailboxes" => ["INBOX"],
         "mark_as_read" => "true",
         "poll_interval" => "30000",
@@ -222,8 +238,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     })
 
     updated = Repo.get!(ChannelConfig, channel.id)
-    assert ChannelConfig.get_provider_default_agent_id(updated) == 42
-    assert get_in(updated.settings, ["imap", "agent_routing", "mailboxes"]) == %{"INBOX" => 88}
+    assert ChannelConfig.get_provider_default_agent_id(updated) == nil
+
+    assert get_in(updated.settings, ["imap", "agent_routing", "mailboxes"]) ==
+             %{"INBOX" => enabled_agent.id}
   end
 
   test "handle_info formats generic binary and atom reasons", %{conn: conn} do
@@ -691,6 +709,31 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
         enabled: true,
         settings: %{"relay" => "smtp.example.com", "port" => "587"}
       })
+  end
+
+  defp create_conversation_agent(conversation_enabled, name_suffix) do
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "IMAP #{name_suffix} #{:erlang.unique_integer([:positive])}",
+        description: "test",
+        job: "You are a test agent",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: conversation_enabled,
+        active: true,
+        advanced_options: %{}
+      })
+
+    agent
   end
 
   defp assert_eventually(fun, attempts \\ 20)
