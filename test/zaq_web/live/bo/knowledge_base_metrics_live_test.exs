@@ -5,10 +5,35 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Engine.Telemetry
+
+  defmodule NodeRouterFake do
+    def call(role, mod, fun, args) do
+      handler = :persistent_term.get({__MODULE__, :handler}, nil)
+
+      if is_function(handler, 4) do
+        handler.(role, mod, fun, args)
+      else
+        Zaq.NodeRouter.call(role, mod, fun, args)
+      end
+    end
+
+    def put_handler(handler) when is_function(handler, 4),
+      do: :persistent_term.put({__MODULE__, :handler}, handler)
+
+    def clear_handler, do: :persistent_term.erase({__MODULE__, :handler})
+  end
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "knowledge_base_metrics_admin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+
+    Application.put_env(:zaq, :knowledge_base_metrics_live_node_router_module, NodeRouterFake)
+
+    on_exit(fn ->
+      NodeRouterFake.clear_handler()
+      Application.delete_env(:zaq, :knowledge_base_metrics_live_node_router_module)
+    end)
 
     %{conn: init_test_session(conn, %{user_id: user.id})}
   end
@@ -66,5 +91,41 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLiveTest do
       assert has_element?(view, "#knowledge-base-metrics-selected-range", range)
       assert has_element?(view, "#knowledge-base-metrics-range-#{range}[data-active='true']")
     end
+  end
+
+  test "falls back to default payload when telemetry call returns non-map", %{conn: conn} do
+    NodeRouterFake.put_handler(fn :engine, Telemetry, :load_knowledge_base_metrics, [_filters] ->
+      :error
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/dashboard/knowledge-base-metrics")
+
+    assert has_element?(view, "#knowledge-base-metrics-total-chunks-card", "0")
+    assert has_element?(view, "#knowledge-base-metrics-average-chunks-card", "0")
+  end
+
+  test "falls back to default payload when telemetry call raises", %{conn: conn} do
+    NodeRouterFake.put_handler(fn :engine, Telemetry, :load_knowledge_base_metrics, [_filters] ->
+      raise "boom"
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/dashboard/knowledge-base-metrics")
+
+    assert has_element?(view, "#knowledge-base-metrics-total-chunks-card", "0")
+    assert has_element?(view, "#knowledge-base-metrics-average-chunks-card", "0")
+  end
+
+  test "falls back to default metric card when chart shape is invalid", %{conn: conn} do
+    NodeRouterFake.put_handler(fn :engine, Telemetry, :load_knowledge_base_metrics, [filters] ->
+      filters
+      |> Telemetry.load_knowledge_base_metrics()
+      |> Map.put(:total_chunks_created_chart, %{})
+      |> Map.put(:average_chunks_per_document_chart, %{})
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/dashboard/knowledge-base-metrics")
+
+    assert has_element?(view, "#knowledge-base-metrics-total-chunks-card")
+    assert has_element?(view, "#knowledge-base-metrics-average-chunks-card")
   end
 end

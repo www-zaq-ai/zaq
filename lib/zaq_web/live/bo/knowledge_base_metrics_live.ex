@@ -74,13 +74,16 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLive do
   end
 
   defp load_knowledge_base_metrics_data(filters) do
-    case NodeRouter.call(:engine, Telemetry, :load_knowledge_base_metrics, [filters]) do
+    case node_router_module().call(:engine, Telemetry, :load_knowledge_base_metrics, [filters]) do
       %{} = payload -> payload
       _ -> default_payload(filters)
     end
   rescue
     _ -> default_payload(filters)
   end
+
+  defp node_router_module,
+    do: Application.get_env(:zaq, :knowledge_base_metrics_live_node_router_module, NodeRouter)
 
   defp default_payload(filters) do
     labels = labels_for_range(Map.get(filters, :range, "7d"))
