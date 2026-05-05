@@ -6,6 +6,14 @@ defmodule ZaqWeb.Live.BO.LoginLiveTest do
 
   alias Zaq.Accounts
 
+  setup tags do
+    unless tags[:bootstrap_only] do
+      _user = user_fixture(%{username: "bo_login_non_bootstrap"})
+    end
+
+    :ok
+  end
+
   test "renders login form when no user is in session", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/login")
 
@@ -35,5 +43,10 @@ defmodule ZaqWeb.Live.BO.LoginLiveTest do
     _ = render_hook(view, "validate", %{"username" => "alice", "password" => "secret"})
 
     assert has_element?(view, ~s(input[name="username"][value="alice"]))
+  end
+
+  @tag :bootstrap_only
+  test "auto logs in bootstrap admin and redirects to bootstrap session route", %{conn: conn} do
+    assert {:error, {:live_redirect, %{to: "/bo/bootstrap-login"}}} = live(conn, ~p"/bo/login")
   end
 end

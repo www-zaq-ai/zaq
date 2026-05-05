@@ -110,6 +110,22 @@ defmodule Zaq.Accounts do
     |> Repo.update()
   end
 
+  def complete_bootstrap_onboarding(user, attrs) do
+    user
+    |> User.bootstrap_onboarding_changeset(attrs)
+    |> Repo.update()
+  end
+
+  def bootstrap_admin_pending_onboarding do
+    case Repo.all(from(u in User, limit: 2, order_by: [asc: u.id])) do
+      [%User{} = user] ->
+        if bootstrap_admin_pending?(user), do: Repo.preload(user, :role), else: nil
+
+      _ ->
+        nil
+    end
+  end
+
   def change_user_password(actor, user, attrs) do
     attrs = normalize_password_attrs(attrs)
 
@@ -195,6 +211,11 @@ defmodule Zaq.Accounts do
         Map.get(attrs, :new_password_confirmation) ||
           Map.get(attrs, "new_password_confirmation")
     }
+  end
+
+  defp bootstrap_admin_pending?(%User{} = user) do
+    user.username == "admin" and not is_nil(user.inserted_at) and
+      user.inserted_at == user.updated_at
   end
 
   defp authorize_password_change(%User{id: actor_id}, %User{id: target_id})
