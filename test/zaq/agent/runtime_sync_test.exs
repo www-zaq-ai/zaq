@@ -295,7 +295,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "sync_agent_configured_tools registers missing configured tools" do
-    agent = %ConfiguredAgent{enabled_tool_keys: ["files.read_file"], enabled_mcp_endpoint_ids: []}
+    agent = %ConfiguredAgent{enabled_tool_keys: ["basic.sleep"], enabled_mcp_endpoint_ids: []}
 
     list_tools_fn = fn :server_ref -> {:ok, []} end
 
@@ -316,16 +316,16 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                unregister_tool_fn: unregister_tool_fn
              )
 
-    assert "read_file" in result.added_tools
+    assert "sleep_action" in result.added_tools
     assert result.removed_tools == []
-    assert_receive {:register_tool_called, Jido.Tools.Files.ReadFile}
+    assert_receive {:register_tool_called, Jido.Tools.Basic.Sleep}
     refute_receive {:unregister_tool_called, _}
   end
 
   test "sync_agent_configured_tools removes stale managed tools and keeps non-managed tools" do
     agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_mcp_endpoint_ids: []}
 
-    list_tools_fn = fn :server_ref -> {:ok, [Jido.Tools.Files.ReadFile, RuntimeCustomTool]} end
+    list_tools_fn = fn :server_ref -> {:ok, [Jido.Tools.Basic.Sleep, RuntimeCustomTool]} end
 
     register_tool_fn = fn :server_ref, module ->
       send(self(), {:register_tool_called, module})
@@ -345,8 +345,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              )
 
     assert result.added_tools == []
-    assert "read_file" in result.removed_tools
-    assert_receive {:unregister_tool_called, "read_file"}
+    assert "sleep_action" in result.removed_tools
+    assert_receive {:unregister_tool_called, "sleep_action"}
     refute_receive {:unregister_tool_called, "runtime_custom_tool"}
     refute_receive {:register_tool_called, _}
   end

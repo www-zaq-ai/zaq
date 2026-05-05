@@ -142,8 +142,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       assert is_list(payload["tools"])
 
       assert Enum.any?(payload["tools"], fn tool ->
-               Map.get(tool, "name") == "read_file" or
-                 get_in(tool, ["function", "name"]) == "read_file"
+               Map.get(tool, "name") == "sleep_action" or
+                 get_in(tool, ["function", "name"]) == "sleep_action"
              end)
 
       {200, streamed_reply(conn.request_path, "Tool configured", "gpt-4.1-mini")}
@@ -168,7 +168,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: ["files.read_file"],
+        enabled_tool_keys: ["basic.sleep"],
         conversation_enabled: false,
         active: true,
         advanced_options: %{"stream" => false}
