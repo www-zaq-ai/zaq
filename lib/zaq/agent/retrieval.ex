@@ -13,7 +13,6 @@ defmodule Zaq.Agent.Retrieval do
 
   alias ReqLLM.{Context, Generation, Response}
   alias Zaq.Agent.{History, ProviderSpec}
-  alias Zaq.Agent.PromptTemplate
   alias Zaq.System
 
   @doc """
@@ -30,10 +29,21 @@ defmodule Zaq.Agent.Retrieval do
   def ask(question, opts \\ []) do
     Logger.info("Retrieval: Received question: #{question}")
 
-    system_prompt =
-      Keyword.get_lazy(opts, :system_prompt, fn ->
-        PromptTemplate.get_active!("retrieval")
-      end)
+    system_prompt = """
+    You are a professional vector search expert tasked with building an optimal semantic query.
+
+    LANGUAGE RULES (VERY IMPORTANT)
+    - The **Query** you generate MUST ALWAYS be in English, even if the user writes in another language.
+    - Detect the language of the last user message and set it in **Language**. Default to "eng" if unsure.
+    - **Positive Answer** and **Negative Answer** must be written in the detected language.
+
+    Based on the conversation, reply in this exact format and nothing else:
+
+    **Query:** <one line of English search keywords>
+    **Language:** <ISO 639-3 code only, e.g. "eng". No extra text.>
+    **Positive Answer:** <friendly message inviting the user to wait while an answer is being formulated>
+    **Negative Answer:** <short friendly message explaining no information was found, suggest rephrasing>
+    """
 
     history =
       Keyword.get(opts, :history, [])
