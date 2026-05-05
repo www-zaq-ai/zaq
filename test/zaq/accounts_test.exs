@@ -3,8 +3,11 @@
 defmodule Zaq.AccountsTest do
   use Zaq.DataCase
 
+  import Ecto.Query
+
   alias Zaq.Accounts
   alias Zaq.Accounts.{Role, User}
+  alias Zaq.Repo
 
   import Zaq.AccountsFixtures
 
@@ -298,6 +301,94 @@ defmodule Zaq.AccountsTest do
       assert user.must_change_password == true
 
       on_exit(fn -> Application.delete_env(:zaq, :super_admin) end)
+    end
+  end
+
+  describe "bootstrap_admin_pending_onboarding/0" do
+    test "returns admin when only bootstrap admin exists" do
+      admin = Accounts.get_user_by_username("admin")
+
+      assert %User{} = pending = Accounts.bootstrap_admin_pending_onboarding()
+      assert pending.id == admin.id
+    end
+
+    test "returns nil when more than one user exists" do
+      _other = user_fixture()
+
+      assert is_nil(Accounts.bootstrap_admin_pending_onboarding())
+    end
+
+    test "returns nil when single user is not admin" do
+      admin = Accounts.get_user_by_username("admin")
+      Repo.update_all(from(u in User, where: u.id == ^admin.id), set: [username: "not_admin"])
+
+      assert is_nil(Accounts.bootstrap_admin_pending_onboarding())
+    end
+
+    test "returns nil when timestamps differ" do
+      admin = Accounts.get_user_by_username("admin")
+
+      new_time = NaiveDateTime.add(admin.updated_at, 1, :second)
+      Repo.update_all(from(u in User, where: u.id == ^admin.id), set: [updated_at: new_time])
+
+      assert is_nil(Accounts.bootstrap_admin_pending_onboarding())
+    end
+  end
+
+  describe "complete_bootstrap_onboarding/2" do
+    test "updates password and email when user email is missing" do
+      user = user_fixture()
+      Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+      user = Accounts.get_user!(user.id)
+
+      assert {:ok, updated} =
+               Accounts.complete_bootstrap_onboarding(user, %{
+                 email: "admin@zaq.local",
+                 password: "StrongPass1!"
+               })
+
+      assert updated.email == "admin@zaq.local"
+      refute updated.must_change_password
+      assert Bcrypt.verify_pass("StrongPass1!", updated.password_hash)
+    end
+
+    test "rejects missing email when user email is missing" do
+      user = user_fixture()
+      Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+      user = Accounts.get_user!(user.id)
+
+      assert {:error, changeset} =
+               Accounts.complete_bootstrap_onboarding(user, %{
+                 password: "StrongPass1!"
+               })
+
+      assert "can't be blank" in errors_on(changeset).email
+    end
+
+    test "rejects invalid email when user email is missing" do
+      user = user_fixture()
+      Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+      user = Accounts.get_user!(user.id)
+
+      assert {:error, changeset} =
+               Accounts.complete_bootstrap_onboarding(user, %{
+                 email: "not-an-email",
+                 password: "StrongPass1!"
+               })
+
+      assert "must be a valid email address" in errors_on(changeset).email
+    end
+
+    test "allows password update without email when user already has email" do
+      user = user_fixture(%{email: "person@example.com"})
+
+      assert {:ok, updated} =
+               Accounts.complete_bootstrap_onboarding(user, %{
+                 password: "StrongPass1!"
+               })
+
+      assert updated.email == "person@example.com"
+      refute updated.must_change_password
     end
   end
 end

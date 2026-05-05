@@ -8,9 +8,17 @@ defmodule ZaqWeb.Live.BO.LoginLive do
   def mount(_params, session, socket) do
     case session["user_id"] do
       nil ->
-        {:ok,
-         socket
-         |> assign(:form, to_form(%{"username" => "", "password" => ""}))}
+        case Accounts.bootstrap_admin_pending_onboarding() do
+          nil ->
+            {:ok,
+             socket
+             |> assign(:form, to_form(%{"username" => "", "password" => ""}))}
+
+          _user ->
+            {:ok,
+             socket
+             |> push_navigate(to: ~p"/bo/bootstrap-login")}
+        end
 
       user_id ->
         user = Accounts.get_user!(user_id)

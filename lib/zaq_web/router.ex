@@ -45,6 +45,7 @@ defmodule ZaqWeb.Router do
     pipe_through :browser
 
     live "/login", Live.BO.LoginLive
+    get "/bootstrap-login", BOSessionController, :bootstrap_login
     live "/forgot-password", Live.BO.System.ForgotPasswordLive
     live "/reset-password/:token", Live.BO.System.ResetPasswordLive
     post "/session", BOSessionController, :create

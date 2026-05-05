@@ -6,18 +6,22 @@ defmodule ZaqWeb.BOSessionControllerTest do
   import Zaq.AccountsFixtures
   alias Zaq.Accounts
 
-  setup do
-    role = role_fixture(%{name: "super_admin"})
+  setup tags do
+    if tags[:bootstrap_only] do
+      %{}
+    else
+      role = role_fixture(%{name: "super_admin"})
 
-    user =
-      user_fixture(%{
-        role: role,
-        username: "testadmin"
-      })
+      user =
+        user_fixture(%{
+          role: role,
+          username: "testadmin"
+        })
 
-    {:ok, user} = Accounts.change_password(user, %{password: "ValidPass123!"})
+      {:ok, user} = Accounts.change_password(user, %{password: "ValidPass123!"})
 
-    %{user: user}
+      %{user: user}
+    end
   end
 
   describe "POST /bo/session" do
@@ -82,6 +86,27 @@ defmodule ZaqWeb.BOSessionControllerTest do
 
       assert redirected_to(conn) == ~p"/bo/login"
       refute get_session(conn, :user_id)
+    end
+  end
+
+  describe "GET /bo/bootstrap-login" do
+    @tag :bootstrap_only
+    test "sets session and redirects to change-password in bootstrap state", %{conn: conn} do
+      admin = Accounts.get_user_by_username("admin")
+
+      conn = get(conn, ~p"/bo/bootstrap-login")
+
+      assert redirected_to(conn) == ~p"/bo/change-password"
+      assert get_session(conn, :user_id) == admin.id
+    end
+
+    test "redirects to login when bootstrap state is not matched", %{conn: conn} do
+      _user = user_fixture(%{username: "not_admin"})
+
+      conn = get(conn, ~p"/bo/bootstrap-login")
+
+      assert redirected_to(conn) == ~p"/bo/login"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid username or password"
     end
   end
 end
