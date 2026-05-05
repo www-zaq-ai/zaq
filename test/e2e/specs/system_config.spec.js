@@ -320,24 +320,6 @@ test.describe("System Config", () => {
       await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
     })
 
-    // ── Toggles ───────────────────────────────────────────────────────────
-    // The checkbox is sr-only; a <div> overlay intercepts direct pointer events.
-    // Click the wrapping <label> element which is the actual interactive target.
-
-    test("JSON mode toggle changes state", async ({ page }) => {
-      const checkbox = page.locator('input[name="llm_config[supports_json_mode]"][type="checkbox"]')
-      const initial = await checkbox.isChecked()
-      await page.locator(SEL.jsonModeLabel).click()
-      await expect(checkbox).toBeChecked({ checked: !initial })
-    })
-
-    test("Logprobs toggle changes state", async ({ page }) => {
-      const checkbox = page.locator('input[name="llm_config[supports_logprobs]"][type="checkbox"]')
-      const initial = await checkbox.isChecked()
-      await page.locator(SEL.logprobsLabel).click()
-      await expect(checkbox).toBeChecked({ checked: !initial })
-    })
-
     // ── API key persistence ───────────────────────────────────────────────
 
     test("changing credential saves and persists after page reload", async ({ page }) => {

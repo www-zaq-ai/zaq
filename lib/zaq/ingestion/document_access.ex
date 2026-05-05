@@ -51,7 +51,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   end
 
   @doc """
-  Counts top-level documents the caller is permitted to access.
+  Counts documents the caller is permitted to access.
 
   Unlike `list_permitted_document_ids/3`, documents with no permission rows at
   all are treated as public (accessible to everyone).
