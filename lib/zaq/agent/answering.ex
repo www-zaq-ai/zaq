@@ -59,7 +59,7 @@ defmodule Zaq.Agent.Answering do
         "answering.search_knowledge_base",
         "answering.list_knowledge_base_files"
       ],
-      conversation_enabled: false,
+      conversation_enabled: true,
       active: true,
       advanced_options: ProviderSpec.default_advanced_options(cfg),
       model: cfg.model,

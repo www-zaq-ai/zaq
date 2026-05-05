@@ -14,12 +14,21 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
   use Jido.Action,
     name: "list_knowledge_base_files",
     description: """
-    Count and list all files visible to this user, tagged as ingested
-    (in the knowledge base) or not yet ingested. Use this when the user asks
-    how many documents they have, what files are in the knowledge base, which
-    files have been ingested, or wants a summary of available files.
-    If a source filter (file chip) is active, only files from that folder or
-    file are included.
+    List and count all files the user can access, showing which are ingested
+    into the knowledge base and which are not yet indexed.
+
+    USE THIS TOOL when the user:
+    - asks how many documents or files they have ("how many files do I have?")
+    - wants to see what is in their knowledge base ("what files are in ZAQ?")
+    - asks which files have or have not been ingested/indexed
+    - wants a directory-style overview of available files
+
+    DO NOT use this tool to answer questions about the content of documents —
+    use the search tool for that. This tool returns file metadata (name, path,
+    ingestion status, preview URL), not document content.
+
+    If a source filter (file chip such as @folder) is active, only files under
+    that path are returned.
     """,
     schema: []
 

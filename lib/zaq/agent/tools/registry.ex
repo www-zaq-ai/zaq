@@ -14,48 +14,55 @@ defmodule Zaq.Agent.Tools.Registry do
         }
 
   @tools [
-    %{
-      key: "files.read_file",
-      label: "Read file",
-      description: "Read file contents from a path",
-      module: Jido.Tools.Files.ReadFile
-    },
-    %{
-      key: "files.write_file",
-      label: "Write file",
-      description: "Write content to a file path",
-      module: Jido.Tools.Files.WriteFile
-    },
-    %{
-      key: "files.copy_file",
-      label: "Copy file",
-      description: "Copy a file to another path",
-      module: Jido.Tools.Files.CopyFile
-    },
-    %{
-      key: "files.move_file",
-      label: "Move file",
-      description: "Move or rename a file path",
-      module: Jido.Tools.Files.MoveFile
-    },
-    %{
-      key: "files.delete_file",
-      label: "Delete file",
-      description: "Delete a file or directory path",
-      module: Jido.Tools.Files.DeleteFile
-    },
-    %{
-      key: "files.make_directory",
-      label: "Make directory",
-      description: "Create a directory path",
-      module: Jido.Tools.Files.MakeDirectory
-    },
-    %{
-      key: "files.list_directory",
-      label: "List directory",
-      description: "List entries in a directory path",
-      module: Jido.Tools.Files.ListDirectory
-    },
+    ## Requires permission
+    # %{
+    #   key: "files.read_file",
+    #   label: "Read file",
+    #   description: "Read file contents from a path",
+    #   module: Jido.Tools.Files.ReadFile
+    # },
+    ## Requires permission
+    # %{
+    #   key: "files.write_file",
+    #   label: "Write file",
+    #   description: "Write content to a file path",
+    #   module: Jido.Tools.Files.WriteFile
+    # },
+    ## Requires permission
+    # %{
+    #   key: "files.copy_file",
+    #   label: "Copy file",
+    #   description: "Copy a file to another path",
+    #   module: Jido.Tools.Files.CopyFile
+    # },
+    ## Requires permission
+    # %{
+    #   key: "files.move_file",
+    #   label: "Move file",
+    #   description: "Move or rename a file path",
+    #   module: Jido.Tools.Files.MoveFile
+    # },
+    ## Requires permission
+    # %{
+    #   key: "files.delete_file",
+    #   label: "Delete file",
+    #   description: "Delete a file or directory path",
+    #   module: Jido.Tools.Files.DeleteFile
+    # },
+    # ## we need to see if we can call an action `ListDirectory` before doing it,
+    # %{
+    #   key: "files.make_directory",
+    #   label: "Make directory",
+    #   description: "Create a directory path",
+    #   module: Jido.Tools.Files.MakeDirectory
+    # },
+    ## Requires permission
+    # %{
+    #   key: "files.list_directory",
+    #   label: "List directory",
+    #   description: "List entries in a directory path",
+    #   module: Jido.Tools.Files.ListDirectory
+    # },
     %{
       key: "basic.sleep",
       label: "Sleep",
