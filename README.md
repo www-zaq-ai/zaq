@@ -290,9 +290,8 @@ mix zaq.python.fetch --commit <sha> # pin to commit
 During `mix ecto.migrate` (or release migrations at container startup), ZAQ seeds default roles and a bootstrap Back Office account:
 
 - Username: `admin`
-- Password: `admin`
 
-After login, you will be redirected to `/bo/change-password` and must set a new password.
+On first open, you will be redirected to `/bo/change-password` to set an email and a new password for your user.
 If an `admin` user already exists, seeding leaves that user unchanged.
 
 ## Role-Based Node Configuration
