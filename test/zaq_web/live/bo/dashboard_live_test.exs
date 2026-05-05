@@ -33,9 +33,6 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
     test "renders KPI metric cards with expected labels and routes", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
-      assert has_element?(view, "#dashboard-metric-total-users[href='/bo/users']")
-      assert has_element?(view, "#dashboard-metric-total-users", "Total users count")
-
       assert has_element?(view, "#dashboard-metric-documents-ingested[href='/bo/ingestion']")
 
       assert has_element?(

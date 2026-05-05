@@ -3,7 +3,6 @@
 defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.Accounts
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.License.FeatureStore
@@ -26,10 +25,6 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     license_data = FeatureStore.license_data()
     telemetry_metrics = load_main_dashboard_metrics()
 
-    user_card = build_user_metric_card(Accounts.count_users())
-
-    metric_cards = [user_card | telemetry_metrics]
-
     days_left =
       case license_data do
         nil ->
@@ -45,11 +40,11 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     {:ok,
      assign(socket,
        current_path: "/bo/dashboard",
-       license_data: license_data,
-       days_left: days_left,
-       services: refresh_services(),
-       metric_cards: metric_cards
-     )}
+        license_data: license_data,
+        days_left: days_left,
+        services: refresh_services(),
+        metric_cards: telemetry_metrics
+      )}
   end
 
   # -- Node event handlers --
@@ -154,31 +149,4 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     |> Map.get(:metrics, [])
   end
 
-  defp build_user_metric_card(user_count) do
-    %{
-      id: "dashboard-metric-total-users-chart",
-      kind: :metric_cards,
-      title: "Main dashboard local metrics",
-      labels: [],
-      series: [],
-      summary: %{
-        metrics: [
-          %{
-            id: "dashboard-metric-total-users",
-            label: "Total users count",
-            value: user_count,
-            unit: nil,
-            trend: nil,
-            hint: "organization users",
-            meta: %{href: "/bo/users"}
-          }
-        ]
-      },
-      meta: %{range: @kpi_range}
-    }
-    |> DashboardChart.new()
-    |> Map.get(:summary, %{})
-    |> Map.get(:metrics, [])
-    |> List.first()
-  end
 end
