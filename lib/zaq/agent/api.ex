@@ -14,6 +14,7 @@ defmodule Zaq.Agent.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Pipeline
@@ -241,7 +242,7 @@ defmodule Zaq.Agent.Api do
 
   defp guard_error_outgoing(%Incoming{} = incoming) do
     Outgoing.from_pipeline_result(incoming, %{
-      answer: "I can only help with ZAQ-related questions.",
+      answer: ErrorMessage.from_reason(:guard_blocked),
       error_reason: :guard_blocked,
       confidence_score: 0.0,
       latency_ms: nil,

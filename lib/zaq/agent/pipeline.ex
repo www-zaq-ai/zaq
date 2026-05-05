@@ -42,6 +42,7 @@ defmodule Zaq.Agent.Pipeline do
 
   require Logger
   alias Zaq.Accounts.People
+  alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -341,11 +342,9 @@ defmodule Zaq.Agent.Pipeline do
     }
   end
 
-  @generic_error_message "Something went wrong while answering your question. Please try again."
-
   defp error_result(reason) do
     %{
-      answer: @generic_error_message,
+      answer: ErrorMessage.from_reason(reason),
       error_reason: reason,
       confidence_score: 0.0,
       latency_ms: nil,

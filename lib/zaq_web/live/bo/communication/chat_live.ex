@@ -12,7 +12,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
-  alias Zaq.Agent.{CitationNormalizer, History}
+  alias Zaq.Agent.{CitationNormalizer, ErrorMessage, History}
   alias Zaq.Channels.Router
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
@@ -430,15 +430,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     history = socket.assigns.history
     current_user = socket.assigns[:current_user]
 
-    display_body =
-      if result.metadata[:error] do
-        translate_pipeline_error(result.metadata[:error_reason])
-      else
-        result.body
-      end
-
     %{body: normalized_body, sources: normalized_sources} =
-      CitationNormalizer.normalize(trim_body(display_body), extract_sources(result))
+      CitationNormalizer.normalize(trim_body(result.body), extract_sources(result))
 
     bot_msg = build_bot_message(result, normalized_body, normalized_sources)
 
@@ -590,7 +583,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp build_outgoing_from_event(%Event{response: {:error, reason}}, incoming) do
     Outgoing.from_pipeline_result(incoming, %{
-      answer: "Something went wrong while answering your question. Please try again.",
+      answer: ErrorMessage.from_reason(:dispatch_error),
       error_reason: :dispatch_error,
       confidence_score: nil,
       latency_ms: nil,
@@ -605,7 +598,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp build_outgoing_from_event(_event, incoming) do
     Outgoing.from_pipeline_result(incoming, %{
-      answer: "Something went wrong while answering your question. Please try again.",
+      answer: ErrorMessage.from_reason(:dispatch_error),
       error_reason: :dispatch_error,
       confidence_score: nil,
       latency_ms: nil,
@@ -927,18 +920,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp infer_feedback_from_ratings(ratings),
     do: MessageHelpers.infer_feedback_from_ratings(ratings)
-
-  defp translate_pipeline_error(reason) when reason in [:leaked, :guard_blocked],
-    do: "I can only help with ZAQ-related questions."
-
-  defp translate_pipeline_error(:halted),
-    do: "Request was halted by a pipeline hook."
-
-  defp translate_pipeline_error(:dispatch_error),
-    do: "Sorry, something went wrong. Please try again."
-
-  defp translate_pipeline_error(_),
-    do: "Something went wrong while answering your question. Please try again."
 
   defp trim_body(body) when is_binary(body) do
     String.trim(body)

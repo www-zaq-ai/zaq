@@ -32,14 +32,14 @@ Use `ExUnitProperties`/`StreamData` when at least one condition applies:
 - Security boundaries depend on defaults/guards (`nil` identity, permission filtering, prompt safety checks).
 - Code paths are branch-heavy and example tests would miss edge combinations.
 
-### Required for Agent Domain
+### Required for Any Domain
 
-When touching `lib/zaq/agent/`, add or update property tests for applicable invariants, especially:
+When touching any production code path, add or update property tests for applicable invariants, especially:
 
 - Permission/scope safety invariants (nil identity must not grant elevated access).
-- Normalization invariants (provider/query/citation/filter normalization is stable and safe).
+- Normalization invariants (query/path/provider/filter/text normalization is stable and safe).
 - Output-shape invariants (result maps/structs preserve required keys and types).
-- Runtime-id/adapter invariants (deterministic mappings, no malformed IDs accepted).
+- Mapping/adapter invariants (deterministic mappings, no malformed IDs or invalid transitions accepted).
 
 If property tests are not added for an applicable change, document why in the PR.
 
@@ -89,4 +89,3 @@ defmodule Zaq.SomeModulePropertyTest do
   end
 end
 ```
-

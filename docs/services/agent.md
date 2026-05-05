@@ -117,7 +117,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 ## Modules
 
 ### Pipeline (`Zaq.Agent.Pipeline`)
-- `run/2` — shared answering pipeline for all retrieval channels (Mattermost, Slack, chat widget, …)
+- `run/2` — shared answering pipeline for all retrieval channels (Mattermost, Slack, chat widget, …). **Deprecated as a direct caller API**: invoke through `Zaq.Agent.Api` via `NodeRouter.dispatch/1` (`:run_pipeline`) instead of calling `Pipeline.run/2` from feature code.
 - Runs: retrieve → extract → answer → output safety check (input validation happens in `Api` before routing)
 - Returns a stable map: `:answer`, `:confidence_score`, `:latency_ms`, `:prompt_tokens`, `:completion_tokens`, `:total_tokens`, `:error`
 - On no-answer emits telemetry via `Zaq.Engine.Telemetry.record("qa.no_answer.count", 1, ...)`
@@ -380,7 +380,7 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 - **`Api` is the security boundary** — `PromptGuard.validate/1` runs once in `Api` before routing; neither `Pipeline` nor `Executor` call it for input validation; Pipeline still calls `output_safe?/1` on the LLM response
 - **Status ownership follows work ownership** — each module broadcasts its own stage signal (`Api` → `:validating`, `Retrieval` → `:retrieving`, `Executor` → `:answering`); orchestrators (`Pipeline`) broadcast nothing
 - **Status broadcasts route via NodeRouter** — `Status.broadcast/4` calls `NodeRouter.call(:bo, ...)` so the PubSub broadcast runs on the BO node where `ChatLive` is subscribed; the 4th `node_router` arg is injectable (default `Zaq.NodeRouter`) so unit tests pass a `FakeNodeRouter` that calls `apply/3` locally
-- **Pipeline is the single entrypoint for RAG** — all channels call `Zaq.Agent.Pipeline.run/2`; no channel implements its own retrieve-answer logic
+- **`Api` is the only supported entrypoint** — route with `NodeRouter.dispatch/1` to `Zaq.Agent.Api` (`:run_pipeline`); direct `Pipeline.run/2` calls are deprecated outside agent internals
 - **All sub-modules injectable** — Pipeline accepts module overrides for every dependency, enabling isolated unit tests without mocking globals
 - **Hook system** — sync and async hooks dispatched at pipeline stage boundaries; external features attach via hooks without modifying core pipeline logic
 - **Provider policy has one home** — provider normalization and URL behavior live in `ProviderSpec`; callers use `Factory` entrypoints only

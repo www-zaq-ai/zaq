@@ -10,7 +10,7 @@ defmodule Zaq.Agent.Executor do
   require Logger
 
   alias Zaq.Agent
-  alias Zaq.Agent.{Answering, Factory, LogprobsAnalyzer, ServerManager}
+  alias Zaq.Agent.{Answering, ErrorMessage, Factory, LogprobsAnalyzer, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Utils.DateUtils
@@ -230,7 +230,11 @@ defmodule Zaq.Agent.Executor do
 
   defp error_result(reason) do
     %{
-      answer: "Sorry, something went wrong while executing the selected agent.",
+      answer:
+        ErrorMessage.from_reason(
+          reason,
+          "Sorry, something went wrong while executing the selected agent."
+        ),
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,
