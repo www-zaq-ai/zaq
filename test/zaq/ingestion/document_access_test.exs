@@ -136,6 +136,44 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert allowed.id in result
       refute denied.id in result
     end
+
+    test "nil person_id with non-empty team_ids matches via team permission" do
+      doc = create_doc(uid("nil-team-perm"))
+      team = create_team()
+      {:ok, _} = grant(doc.id, :team, team.id)
+
+      result = DocumentAccess.list_permitted_document_ids(nil, [team.id], [doc.id])
+      assert doc.id in result
+    end
+
+    test "nil person_id with non-empty team_ids excludes unmatched teams" do
+      doc = create_doc(uid("nil-team-no-match"))
+      team = create_team()
+      other_team = create_team()
+      {:ok, _} = grant(doc.id, :team, other_team.id)
+
+      result = DocumentAccess.list_permitted_document_ids(nil, [team.id], [doc.id])
+      refute doc.id in result
+    end
+
+    test "person_id and team_ids — includes docs via either match" do
+      person = create_person()
+      team = create_team()
+      person_doc = create_doc(uid("both-person"))
+      team_doc = create_doc(uid("both-team"))
+      {:ok, _} = grant(person_doc.id, :person, person.id)
+      {:ok, _} = grant(team_doc.id, :team, team.id)
+
+      result =
+        DocumentAccess.list_permitted_document_ids(
+          person.id,
+          [team.id],
+          [person_doc.id, team_doc.id]
+        )
+
+      assert person_doc.id in result
+      assert team_doc.id in result
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -229,6 +267,27 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert chunk_sources == []
       assert count >= 0
       assert admin_count >= 0
+    end
+
+    test "nil person_id with non-empty team_ids counts team-accessible docs" do
+      doc = create_doc(uid("nil-team-count"))
+      team = create_team()
+      other = create_person()
+      {:ok, _} = grant(doc.id, :person, other.id)
+
+      count_before =
+        DocumentAccess.count_accessible_documents(person_id: nil, team_ids: [team.id])
+
+      {:ok, _} = grant(doc.id, :team, team.id)
+      count_after = DocumentAccess.count_accessible_documents(person_id: nil, team_ids: [team.id])
+
+      assert count_after == count_before + 1
+    end
+
+    test "no opts defaults work without error" do
+      count = DocumentAccess.count_accessible_documents()
+      assert is_integer(count)
+      assert count >= 0
     end
 
     test "nil person_id with no teams counts only tagged-public docs" do
@@ -344,11 +403,91 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       chunk_entries = Enum.filter(result, fn d -> String.contains?(d.source, "list-chunk") end)
       assert chunk_entries == []
     end
+
+    test "nil person_id with non-empty team_ids returns team-accessible docs" do
+      doc = create_doc(uid("list-nil-team"))
+      team = create_team()
+      other = create_person()
+      {:ok, _} = grant(doc.id, :person, other.id)
+
+      before_sources =
+        DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [team.id])
+        |> Enum.map(& &1.source)
+
+      refute doc.source in before_sources
+
+      {:ok, _} = grant(doc.id, :team, team.id)
+
+      after_sources =
+        DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [team.id])
+        |> Enum.map(& &1.source)
+
+      assert doc.source in after_sources
+    end
   end
 
   # ---------------------------------------------------------------------------
   # source_filter support
   # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # list_files_with_ingestion_status/1 — permission-scoped (no filesystem walk)
+  # ---------------------------------------------------------------------------
+
+  describe "list_files_with_ingestion_status/1 — permission-scoped" do
+    test "returns accessible docs tagged ingested: true" do
+      doc = create_doc(uid("lfwis-person"))
+      person = create_person()
+      {:ok, _} = grant(doc.id, :person, person.id)
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry != nil
+      assert entry.ingested == true
+    end
+
+    test "excludes inaccessible docs" do
+      doc = create_doc(uid("lfwis-denied"))
+      other = create_person()
+      person = create_person()
+      {:ok, _} = grant(doc.id, :person, other.id)
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
+      refute Enum.any?(result, fn r -> r.source == doc.source end)
+    end
+
+    test "returns public docs tagged ingested: true" do
+      doc = create_doc(uid("lfwis-pub"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      person = create_person()
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry != nil
+      assert entry.ingested == true
+    end
+
+    test "with source_filter restricts results to matching folder" do
+      p = System.unique_integer([:positive])
+      folder = "lfwis-sf-#{p}"
+      in_doc = create_doc("#{folder}/file.md")
+      {:ok, _} = Ingestion.add_document_tag(in_doc.id, "public")
+      out_doc = create_doc("other-lfwis-#{p}/file.md")
+      {:ok, _} = Ingestion.add_document_tag(out_doc.id, "public")
+
+      result =
+        DocumentAccess.list_files_with_ingestion_status(
+          skip_permissions: false,
+          source_filter: [folder],
+          person_id: nil,
+          team_ids: []
+        )
+
+      sources = Enum.map(result, & &1.source)
+      assert in_doc.source in sources
+      refute out_doc.source in sources
+    end
+  end
 
   describe "source_filter — count_accessible_documents/1" do
     test "nil source_filter returns all accessible docs" do
