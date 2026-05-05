@@ -4,6 +4,7 @@
   page_title="Agents"
   current_path={@current_path}
   features_version={@features_version}
+  auto_dismiss={false}
 >
   <div class="mx-auto max-w-[1500px] space-y-5">
     <section class="rounded-xl border border-[#e6e2db] bg-white px-5 py-4">
@@ -233,6 +234,7 @@
             id="configured-agent-form"
             phx-change="validate"
             phx-submit="save"
+            phx-hook="ScrollToFirstError"
             class="mt-4 space-y-4"
           >
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
