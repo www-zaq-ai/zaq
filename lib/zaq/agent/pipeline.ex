@@ -25,7 +25,6 @@ defmodule Zaq.Agent.Pipeline do
     * `:retrieval`          — Retrieval module override
     * `:document_processor` — DocumentProcessor module override
     * `:answering`          — Answering module override
-    * `:prompt_guard`       — PromptGuard module override (used for output safety check only)
     * `:prompt_template`    — PromptTemplate module override
 
   ## Returns
@@ -111,17 +110,17 @@ defmodule Zaq.Agent.Pipeline do
            hooks.dispatch_sync(:answering, retrieval_result, ctx),
          {:ok, extraction_result} <- do_extraction(answering_payload, opts),
          {:ok, answer_result} <-
-           do_answering(incoming, content, extraction_result, answering_payload, history, opts),
-         {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.body) do
+           do_answering(incoming, content, extraction_result, answering_payload, history, opts) do
       :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
       sources = build_sources(extraction_result)
+      answer = answer_result.body
 
       result =
-        if answering_mod(opts).no_answer?(safe_answer) do
+        if answering_mod(opts).no_answer?(answer) do
           :ok = record_no_answer_telemetry(opts)
 
           answer_result
-          |> result_from_answering(answering_mod(opts).clean_answer(safe_answer), 0.0)
+          |> result_from_answering(answering_mod(opts).clean_answer(answer), 0.0)
           |> Map.merge(%{
             content: content,
             generated_query: retrieval_result.query,
@@ -131,7 +130,7 @@ defmodule Zaq.Agent.Pipeline do
         else
           confidence_score = answer_result.metadata[:confidence_score]
 
-          result_from_answering(answer_result, safe_answer, confidence_score)
+          result_from_answering(answer_result, answer, confidence_score)
           |> Map.put(:sources, sources)
         end
 
@@ -146,10 +145,6 @@ defmodule Zaq.Agent.Pipeline do
     else
       {:halt, _payload} ->
         error_result(:halted)
-
-      {:error, {:leaked, _phrase}} ->
-        Logger.warning("[Pipeline] PromptGuard: output leak detected, blocking response")
-        error_result(:leaked)
 
       {:error, :no_results, negative_answer} ->
         :ok = record_no_answer_telemetry(opts)
@@ -406,14 +401,6 @@ defmodule Zaq.Agent.Pipeline do
       opts,
       :answering,
       Application.get_env(:zaq, :pipeline_answering_module, Zaq.Agent.Answering)
-    )
-  end
-
-  defp prompt_guard(opts) do
-    Keyword.get(
-      opts,
-      :prompt_guard,
-      Application.get_env(:zaq, :pipeline_prompt_guard_module, Zaq.Agent.PromptGuard)
     )
   end
 

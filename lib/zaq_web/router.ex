@@ -33,13 +33,6 @@ defmodule ZaqWeb.Router do
     live "/s/:token", Live.SharedConversationLive
   end
 
-  scope "/api", ZaqWeb do
-    pipe_through :api
-
-    post "/ask", AgentController, :ask
-    post "/ingest", AgentController, :ingest
-  end
-
   # BO - Public
   scope "/bo", ZaqWeb do
     pipe_through :browser

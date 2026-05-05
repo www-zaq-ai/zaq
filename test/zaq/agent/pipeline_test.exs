@@ -36,11 +36,6 @@ defmodule Zaq.Agent.PipelineTest do
     end
   end
 
-  defmodule StubPromptGuard do
-    def validate(content), do: {:ok, content}
-    def output_safe?(answer), do: {:ok, answer}
-  end
-
   defmodule StubPromptTemplate do
     def render(_slug, _assigns), do: "system prompt"
   end
@@ -154,7 +149,6 @@ defmodule Zaq.Agent.PipelineTest do
     identity_plug: StubIdentityPlug,
     hooks: StubHooks,
     node_router: StubNodeRouter,
-    prompt_guard: StubPromptGuard,
     prompt_template: StubPromptTemplate,
     retrieval: StubRetrieval,
     document_processor: StubDocumentProcessor,
