@@ -5,7 +5,7 @@
 The Ingestion service processes documents into searchable, embeddable chunks stored
 in PostgreSQL with PGVector. It supports async (Oban) and inline processing modes,
 hybrid search (full-text + vector with RRF fusion), real-time job status via PubSub,
-and a Python-based pre-processing pipeline for PDF, DOCX, XLSX, and image files.
+and a Python-based pre-processing pipeline for PDF, DOCX, PPTX, XLSX, CSV, and image files.
 
 ---
 
@@ -13,10 +13,12 @@ and a Python-based pre-processing pipeline for PDF, DOCX, XLSX, and image files.
 
 ```
 File path
-  → Zaq.Ingestion.ingest_file/5             ← creates IngestJob, queues Oban worker
+  → Zaq.Ingestion.ingest_file/3             ← creates IngestJob, queues Oban worker
   → IngestWorker.perform/1                  ← document-level orchestrator
-      → [Python.Pipeline.run/1]             ← optional: PDF/DOCX/XLSX → clean Markdown
-      → DocumentProcessor.prepare_file_chunks/3
+      → [Python.Pipeline.run/2]             ← optional: PDF → clean Markdown
+      → [DocxToMd/PptxToMd/XlsxToMd]        ← optional: office docs → Markdown sidecar
+      → [CSV parsing / image-to-text]       ← optional: CSV/images → Markdown
+      → DocumentProcessor.prepare_file_chunks/1
           → File.read/1                     ← read file content
           → Document.upsert/1               ← upsert document record
           → DocumentChunker.parse_layout/2  ← detect sections (headings, tables, figures)
@@ -24,7 +26,7 @@ File path
           → persist ingest_chunk_jobs rows  ← one persisted child job per chunk
       → enqueue IngestChunkWorker jobs      ← queue: :ingestion_chunks
   → IngestChunkWorker.perform/1             ← chunk-level processor
-      → store_chunk_with_metadata/5         ← for each chunk:
+      → store_chunk_with_metadata/3         ← for each chunk:
           → ChunkTitle.ask/1                ← LLM generates descriptive title
           → EmbeddingClient.embed/1         ← generate vector embedding
           → Chunk.changeset + Repo.insert   ← store to DB with PGVector halfvec
@@ -60,7 +62,7 @@ File path
 - `directory_snapshot/3` — lists entries and combines with DB document/job state (delegates to `DirectorySnapshot.build/4`)
 
 **Content filter / source search**
-- `list_document_sources/1` — search indexed document sources by query string; returns a list of `ContentSource` structs for use in chat content filtering; delegates to `DocumentProcessor.list_document_sources/1` via NodeRouter
+- `list_document_sources/1` — builds @-mention source choices from configured connectors + indexed document sources; supports name search and folder browse semantics
 
 **Access control**
 - `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; files with no permissions record are public by default
@@ -69,6 +71,14 @@ File path
 - `list_folder_permissions/2` — unique set of person/team permissions across all documents under a folder
 - `set_document_permission/4` — upsert a permission record for `type \in [:person, :team]`
 - `delete_document_permission/1` — remove a permission by ID
+- `set_folder_public/2`, `unset_folder_public/2` — manage folder-level public-tag policy persistence and propagation
+- `list_documents_under_folder/2` — list docs under a folder path
+- `add_document_tag/2`, `remove_document_tag/2` — per-document tag mutations
+- `delete_folder_target_permission/3` — remove one permission record when pruning folder-level grants
+
+### NodeRouter Boundary (`Zaq.Ingestion.Api`)
+- Ingestion role boundary used by `Zaq.NodeRouter.dispatch/1`
+- Uses shared internal boundary handling (`Zaq.InternalBoundaries.default_handle_event/3`)
 
 ### Oban Worker (`Zaq.Ingestion.IngestWorker`)
 - Queue: `:ingestion`, max 3 attempts, 5s × attempt backoff
@@ -105,21 +115,38 @@ File path
 
 ### Document Processor (`Zaq.Ingestion.DocumentProcessor`)
 - `process_single_file/1` — full pipeline: read → upsert doc → chunk → embed → store
-- `prepare_file_chunks/3` — parses document and returns persisted chunk payloads for child jobs
-- `process_folder/1` — processes all `*.md` files in a directory
-- `store_chunk_with_metadata/5` — generates LLM title, embeds, validates dimension, inserts
+- `prepare_file_chunks/1` — parses document and returns persisted chunk payloads for child jobs
+- `process_folder/1` — processes supported files in a directory (`.md .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg`)
+- `store_chunk_with_metadata/3` — generates LLM title, embeds, validates dimension, inserts
 - `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60); accepts optional `:source_filter` list of path prefixes — files matched by exact source, folders matched by `LIKE prefix/%`
-- `list_document_sources/1` — searches distinct document sources by query string; returns `ContentSource` structs sorted by relevance; used by the chat autocomplete dropdown
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
-- `query_extraction/1` — token-limited context builder for the answering agent (max 5,000 tokens)
-- Current limitation: `prepare_file_chunks/3` materializes all chunk payloads in memory before persistence/scheduling
+- `query_extraction/2` — token-limited context builder for the answering agent (max context window from `Zaq.System.get_llm_config/0`)
+- Uses `LanguageDetector` to choose per-chunk text-search language config with confidence threshold fallback
+- Current limitation: `prepare_file_chunks/1` materializes all chunk payloads in memory before persistence/scheduling
+
+### Document Access (`Zaq.Ingestion.DocumentAccess`)
+- Centralized permission-filtered queries for counts/listings and source-filter handling
+- Permission model:
+  - documents tagged `"public"` are accessible
+  - documents with matching person/team permissions are accessible
+  - documents with no permission rows are treated as public by default in full-access scans
+  - `skip_permissions: true` bypasses filtering for admin/internal callers
+- Exposes `build_source_filter_condition/1` used for consistent folder/file filter semantics
 
 ### Content Source (`Zaq.Ingestion.ContentSource`)
 - Struct representing a user-selected content filter applied to a chat message
 - Fields: `:connector` (string, e.g. volume name), `:source_prefix` (path prefix used in DB query), `:label` (display name shown in UI), `:type` (`:connector | :folder | :file | :current_folder`)
-- `parse/1` — converts a map with string keys into a `ContentSource` struct; returns `nil` on invalid input
+- `from_source/1` — parses a `Document.source` string into a `ContentSource`; returns `nil` on invalid input
 - Used by `ChatLive` to pass `:source_filter` to the agent pipeline, which is forwarded to `DocumentProcessor.hybrid_search/2`
+
+### Folder Settings (`Zaq.Ingestion.FolderSetting`)
+- Persists folder-level tag policies (`volume_name + folder_path + tags`) used to reapply tags across re-ingests
+- Upsert/get API used by `set_folder_public/2` and `unset_folder_public/2`
+
+### Language Detector (`Zaq.Ingestion.LanguageDetector`)
+- Wraps Lingua detection for chunk text-search language selection
+- Falls back to `"simple"` when token-count is too small or confidence is below threshold
 
 ### Connector Registry (`Zaq.Ingestion.ConnectorRegistry`)
 - Config-driven registry of active ingestion connectors; no runtime registration, no ETS table
@@ -144,6 +171,7 @@ File path
 ### Python Step Modules (`Zaq.Ingestion.Python.Steps.*`)
 - `PdfToMd` — converts PDF to Markdown with image extraction
 - `DocxToMd` — converts DOCX to Markdown
+- `PptxToMd` — converts PPTX to Markdown
 - `XlsxToMd` — converts XLSX to Markdown
 - `ImageDedup` — removes duplicate extracted images
 - `CleanMd` — post-processes raw Markdown output
@@ -190,7 +218,7 @@ File path
 ### Schemas
 
 **`Zaq.Ingestion.Document`**
-- Fields: `source` (unique), `content`, `title`, `content_type`, `metadata`, `role_id`, `shared_role_ids`
+- Fields: `source` (unique), `content`, `title`, `content_type`, `metadata`, `tags`
 - `upsert/1` — conflict on `source`, replaces content/title/metadata
 - `get_by_source/1` — lookup by source string
 - `delete/1` — deletes document and cascades to chunks
@@ -237,6 +265,7 @@ File path
 
 ```
 lib/zaq/ingestion/
+├── api.ex                        # NodeRouter ingestion boundary handler
 ├── python/
 │   ├── pipeline.ex               # PDF → clean Markdown orchestrator
 │   ├── runner.ex                 # Base wrapper for Python script execution
@@ -247,20 +276,24 @@ lib/zaq/ingestion/
 │       ├── image_to_text.ex      # Vision API image description
 │       ├── inject_descriptions.ex # Inject image descriptions into Markdown
 │       ├── pdf_to_md.ex          # PDF → Markdown with image extraction
+│       ├── pptx_to_md.ex         # PPTX → Markdown conversion
 │       └── xlsx_to_md.ex         # XLSX → Markdown conversion
 ├── chunk.ex                      # Ecto schema for chunks with PGVector halfvec embedding
 ├── delete_service.ex             # File + document deletion with sidecar handling
 ├── directory_snapshot.ex         # Combines FS entries with DB state for LiveView
 ├── document.ex                   # Ecto schema for ingested documents
+├── document_access.ex            # Permission-filtered document query helpers
 ├── document_chunker.ex           # Layout-aware Markdown → sections → chunks
 ├── document_processor.ex         # Full pipeline: read, chunk, embed, store, search
 ├── file_explorer.ex              # Multi-volume filesystem utilities
+├── folder_setting.ex             # Folder-level tag policy persistence
 ├── ingest_chunk_job.ex           # Ecto schema for persisted child chunk jobs
 ├── ingest_chunk_worker.ex        # Oban worker for chunk-level processing/retries
 ├── ingest_job.ex                 # Ecto schema for ingestion job tracking
 ├── ingest_worker.ex              # Oban worker for async job processing
 ├── ingestion.ex                  # Public API: trigger, query, retry, cancel, delete, rename, permissions
 ├── job_lifecycle.ex              # IngestJob state transitions + PubSub broadcast
+├── language_detector.ex          # Lingua-based chunk language detection
 ├── oban_telemetry.ex             # Oban telemetry setup
 ├── permission.ex                 # Ecto schema for person/team document access permissions
 ├── rename_service.ex             # File rename with DB source update + rollback
@@ -334,11 +367,27 @@ All variables above are optional overrides; only change them if your deployment 
 - **Upsert on source** — re-ingesting the same file replaces content, old chunks are deleted first
 - **ChunkTitle via LLM** — every chunk gets an LLM-generated title prepended to improve retrieval quality
 - **Dimension validation** — embedding dimension is checked against `EmbeddingClient.dimension()` before insert
-- **Python pre-processing pipeline** — non-Markdown files (PDF, DOCX, XLSX) are converted to Markdown by Python scripts before the Elixir chunking pipeline; image descriptions are injected via Scaleway Vision API when a key is configured
+- **Python pre-processing pipeline** — non-Markdown files are converted to Markdown before chunking; image descriptions are injected via Scaleway Vision API when a key is configured
+- **Multi-format conversion path** — non-Markdown files (`PDF`, `DOCX`, `PPTX`, `XLSX`, `CSV`, images) are normalized to Markdown before chunking
 - **Sidecar Markdown pattern** — binary files (`.pdf`, `.docx`, etc.) store their converted `.md` as a linked sidecar document; renames/deletes cascade to the sidecar
 - **Volume-prefixed sources** — document sources are prefixed with volume name (`"documents/path/to/file.md"`) in multi-volume mode for namespace isolation
 - **JobLifecycle extracted** — all IngestJob state transitions go through `JobLifecycle` to ensure PubSub broadcast is never missed
+- **Permissions centralized for search/listing** — `DocumentAccess` is the canonical query surface for permission-scoped document visibility
 - **HTML parsing not implemented** — `DocumentChunker.parse_layout/2` raises on `:html` format
+
+## Testing and Property Invariants
+
+Follow `docs/testing-approach.md` for ingestion changes. Add property tests when logic touches normalization, mapping, counters, filtering, or retry/state transitions.
+
+Ingestion invariants that should be property-tested when affected:
+
+- **Source/path round-trip** (`SourcePath`): canonical source conversion remains stable under valid input transformations.
+- **Rename/delete consistency** (`RenameService`, `DeleteService`, `Sidecar`): sidecar/source remapping never produces mismatched document/source pairs.
+- **Chunking bounds** (`DocumentChunker`): emitted chunks respect configured token bounds and preserve deterministic ordering/indexing.
+- **Job counter/state consistency** (`IngestChunkWorker`, `JobLifecycle`): parent totals and terminal statuses remain coherent for any mix of completed/failed chunk states.
+- **Permission safety defaults** (`Permission` and access checks): missing permission rows keep files public by default unless explicit restrictions exist.
+
+If a change touches one of these areas and no property test is added, document the reason in the PR.
 
 ---
 
@@ -348,7 +397,7 @@ All variables above are optional overrides; only change them if your deployment 
 - [ ] Support non-markdown file types (PDF, DOCX) natively via `DocumentProcessor.Behaviour` (Python pipeline is a bridge)
 - [ ] Add chunk deduplication (same content, different source)
 - [ ] Expose ingestion progress as percentage in `IngestJob`
-- [ ] Batch/stream `prepare_file_chunks/3` payload persistence for very large documents
+- [ ] Batch/stream `prepare_file_chunks/1` payload persistence for very large documents
 
 ### Nice to Have
 - [ ] Implement HTML parsing in `DocumentChunker`

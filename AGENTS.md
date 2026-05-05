@@ -19,6 +19,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 | Code quality standards, debt prevention         | `docs/code-quality.md`  |
 | Dev setup, tool usage, sub-agents               | `docs/dev-setup.md`     |
 | Elixir, Mix, Ecto, Test guidelines              | `docs/elixir.md`        |
+| Production testing strategy & property testing  | `docs/testing-approach.md` |
 | Phoenix, LiveView, HTML, JS/CSS, UI/UX          | `docs/phoenix.md`       |
 | BO layout, design tokens, colors, components    | `docs/bo-components.md` |
 
@@ -57,6 +58,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 - **Never push directly to `main`** — all changes go through a PR.
 - **Run `mix precommit`** before every commit. Never replace it with ad-hoc checks.
 - **Target at least 90% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
+- **Apply `docs/testing-approach.md` on every code change** — add property tests when invariants or broad input spaces are touched.
 - **All cross-service BO calls go through `NodeRouter.call/4`** — never direct module calls.
 - **Before adding a function to any module, read its `@moduledoc`** — confirm the function fits the module's stated responsibility. If it doesn't belong, find the correct module first.
 - **Check `docs/exec-plans/active/`** before starting any complex or multi-step task.

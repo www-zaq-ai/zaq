@@ -57,6 +57,10 @@
 
 ## Tests
 
+- Start from `docs/testing-approach.md` for policy (test pyramid + property-testing requirements).
+- Use `ExUnitProperties`/`StreamData` when testing invariants, broad input spaces, or normalization/safety rules.
+- For invariant-heavy changes, add at least one property test in addition to example-based tests.
+
 - **Always use `start_supervised!/1`** to start processes in tests — guarantees cleanup between tests.
 - **Avoid** `Process.sleep/1` and `Process.alive?/1` in tests.
 - Instead of sleeping to wait for a process to finish, use `Process.monitor/1` and assert on the DOWN message:
