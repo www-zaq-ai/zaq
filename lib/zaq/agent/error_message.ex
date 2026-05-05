@@ -18,6 +18,9 @@ defmodule Zaq.Agent.ErrorMessage do
   def from_reason(:halted, _fallback),
     do: "Request was halted by a pipeline hook."
 
+  def from_reason(reason, _fallback) when reason in [:no_results, :blocked],
+    do: "I couldn't find relevant information to answer your question."
+
   def from_reason(:dispatch_error, _fallback),
     do: "Sorry, something went wrong. Please try again."
 

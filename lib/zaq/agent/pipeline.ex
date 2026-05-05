@@ -121,7 +121,7 @@ defmodule Zaq.Agent.Pipeline do
           :ok = record_no_answer_telemetry(opts)
 
           answer_result
-          |> result_from_answering(answering_mod(opts).clean_answer(answer), 0.0)
+          |> result_from_answering(ErrorMessage.from_reason(:no_results), 0.0)
           |> Map.merge(%{
             content: content,
             generated_query: retrieval_result.query,
@@ -166,7 +166,7 @@ defmodule Zaq.Agent.Pipeline do
         :ok = record_no_answer_telemetry(opts)
 
         result =
-          "I couldn't find relevant information to answer your question."
+          ErrorMessage.from_reason(:no_results)
           |> success_result(0.0)
           |> Map.merge(%{
             content: content,

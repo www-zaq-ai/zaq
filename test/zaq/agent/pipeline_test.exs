@@ -99,6 +99,11 @@ defmodule Zaq.Agent.PipelineTest do
     def clean_answer(answer), do: answer
   end
 
+  defmodule StubNoAnswerAnswering do
+    def no_answer?(_answer), do: true
+    def clean_answer(answer), do: answer
+  end
+
   defmodule StubExecutor do
     def run(%Zaq.Engine.Messages.Incoming{} = incoming, _opts) do
       %Zaq.Engine.Messages.Outgoing{
@@ -250,6 +255,22 @@ defmodule Zaq.Agent.PipelineTest do
 
       assert result.metadata.answer == "The answer is 42."
       assert result.metadata.confidence_score == 0.9
+      assert result.metadata.error == false
+    end
+
+    test "uses retrieval negative_answer message when retrieval returns no results" do
+      opts = Keyword.put(@base_opts, :retrieval, StubNoResultsRetrieval)
+      result = Pipeline.run(@incoming, opts)
+
+      assert result.body == "no info found"
+      assert result.metadata.error == false
+    end
+
+    test "uses centralized no_results message when answering returns no-answer signal" do
+      opts = Keyword.put(@base_opts, :answering, StubNoAnswerAnswering)
+      result = Pipeline.run(@incoming, opts)
+
+      assert result.body == "I couldn't find relevant information to answer your question."
       assert result.metadata.error == false
     end
   end
