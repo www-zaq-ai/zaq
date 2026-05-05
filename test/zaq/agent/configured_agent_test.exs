@@ -64,7 +64,7 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
       model: "gpt-4.1-mini",
       credential_id: credential.id,
       strategy: "react",
-      enabled_tool_keys: ["files.read_file"],
+      enabled_tool_keys: ["basic.sleep"],
       conversation_enabled: true,
       active: true,
       advanced_options: %{"temperature" => 0.2}
@@ -117,7 +117,7 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: ["files.read_file", "files.unknown", "files.unknown"]
+        enabled_tool_keys: ["basic.sleep", "files.unknown", "files.unknown"]
       })
 
     refute changeset.valid?

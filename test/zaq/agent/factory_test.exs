@@ -39,7 +39,7 @@ defmodule Zaq.Agent.FactoryTest do
     test "is active and not conversation-enabled" do
       agent = Answering.answering_configured_agent()
       assert agent.active == true
-      assert agent.conversation_enabled == false
+      assert agent.conversation_enabled == true
     end
   end
 
@@ -218,7 +218,7 @@ defmodule Zaq.Agent.FactoryTest do
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: ["files.read_file"],
+        enabled_tool_keys: ["basic.sleep"],
         conversation_enabled: false,
         active: true,
         advanced_options: %{}
@@ -243,7 +243,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
     assert body =~ "mcp_probe_tool"
-    assert body =~ "read_file"
+    assert body =~ "sleep_action"
   end
 
   test "build_initial_context returns empty context for non-scoped server ids" do

@@ -70,9 +70,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     html = render(view)
     assert html =~ "Add tools"
-    assert html =~ "Read file"
-    assert html =~ "Write file"
-    assert html =~ "List directory"
+    assert html =~ "Lua eval"
+    assert html =~ "Search knowledge base"
+    assert html =~ "List knowledge base files"
   end
 
   test "renders MCP section above tools and supports add/remove", %{conn: conn} do
@@ -813,7 +813,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
           "model" => "gpt-4.1-mini",
           "credential_id" => to_string(credential.id),
           "strategy" => "react",
-          "enabled_tool_keys" => "files.read_file",
+          "enabled_tool_keys" => "basic.sleep",
           "advanced_options_json" => "",
           "conversation_enabled" => "false",
           "active" => "true"
@@ -1076,7 +1076,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: ["files.read_file"],
+        enabled_tool_keys: ["basic.sleep"],
         conversation_enabled: false,
         active: true,
         advanced_options: %{}
@@ -1092,13 +1092,13 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     html = render(view)
     assert html =~ "Enabled tools"
-    assert html =~ "Read file"
+    assert html =~ "Sleep"
 
     view
     |> element("#agent-tools-picker-modal button[phx-click=\"remove_tool\"]")
     |> render_click()
 
-    refute has_element?(view, ~s([data-selected-tool-key="files.read_file"]))
+    refute has_element?(view, ~s([data-selected-tool-key="basic.sleep"]))
   end
 
   test "picker open/close and empty add events are no-ops", %{conn: conn} do

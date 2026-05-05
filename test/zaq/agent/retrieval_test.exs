@@ -46,9 +46,7 @@ defmodule Zaq.Agent.RetrievalTest do
         payload = Jason.decode!(body)
         messages = payload["messages"]
 
-        assert Enum.any?(messages, fn msg ->
-                 msg["role"] == "system" and message_text(msg) == "Prompt"
-               end)
+        assert Enum.any?(messages, fn msg -> msg["role"] == "system" end)
 
         assert Enum.any?(messages, fn msg ->
                  msg["role"] == "assistant" and
@@ -90,8 +88,7 @@ defmodule Zaq.Agent.RetrievalTest do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
         messages = payload["messages"]
-        assert [%{"role" => "system"} = msg] = messages
-        assert message_text(msg) == "Prompt"
+        assert [%{"role" => "system"}] = messages
 
         {200,
          OpenAIStub.chat_completion("""

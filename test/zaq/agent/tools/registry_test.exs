@@ -7,13 +7,6 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     keys = Registry.tools() |> Enum.map(& &1.key)
 
     assert keys == [
-             "files.read_file",
-             "files.write_file",
-             "files.copy_file",
-             "files.move_file",
-             "files.delete_file",
-             "files.make_directory",
-             "files.list_directory",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -35,20 +28,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
   end
 
   test "valid_tool_key? validates known and unknown keys" do
-    assert Registry.valid_tool_key?("files.read_file")
+    assert Registry.valid_tool_key?("basic.sleep")
     refute Registry.valid_tool_key?("files.unknown")
     refute Registry.valid_tool_key?(nil)
   end
 
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
-             "files.read_file",
-             "files.write_file",
-             "files.copy_file",
-             "files.move_file",
-             "files.delete_file",
-             "files.make_directory",
-             "files.list_directory",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -72,26 +58,26 @@ defmodule Zaq.Agent.Tools.RegistryTest do
   test "resolve_modules returns mapped modules in key order" do
     assert {:ok, modules} =
              Registry.resolve_modules([
-               "files.write_file",
+               "basic.sleep",
                "basic.log",
                "arithmetic.add",
                "advanced.lua_eval",
-               "files.read_file",
-               "files.read_file"
+               "arithmetic.multiply",
+               "arithmetic.multiply"
              ])
 
     assert modules == [
-             Jido.Tools.Files.WriteFile,
+             Jido.Tools.Basic.Sleep,
              Jido.Tools.Basic.Log,
              Jido.Tools.Arithmetic.Add,
              Jido.Tools.LuaEval,
-             Jido.Tools.Files.ReadFile
+             Jido.Tools.Arithmetic.Multiply
            ]
   end
 
   test "resolve_modules returns unknown tool keys" do
     assert {:error, {:unknown_tools, ["files.unknown", "other.missing"]}} =
-             Registry.resolve_modules(["files.unknown", "files.read_file", "other.missing"])
+             Registry.resolve_modules(["files.unknown", "basic.sleep", "other.missing"])
   end
 
   test "resolve_modules on non-list input returns empty unknown set" do
