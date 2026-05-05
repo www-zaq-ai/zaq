@@ -50,13 +50,31 @@ defmodule Zaq.Ingestion.RenameService do
 
     volume_name
     |> SourcePath.source_candidates(old_relative)
-    |> Enum.each(fn old_prefix ->
+    |> Enum.reduce(Multi.new(), fn old_prefix, multi ->
       new_prefix = SourcePath.remap_source(old_prefix, volume_name, new_relative)
-      Document.rename_source_prefix(old_prefix, new_prefix)
-      Document.rename_metadata_source_prefix(old_prefix, new_prefix)
-    end)
 
-    :ok
+      multi
+      |> Multi.update_all(
+        {:source, old_prefix},
+        Document.rename_source_prefix_query(old_prefix, new_prefix),
+        []
+      )
+      |> Multi.update_all(
+        {:sidecar_source, old_prefix},
+        Document.rename_metadata_key_query("sidecar_source", old_prefix, new_prefix),
+        []
+      )
+      |> Multi.update_all(
+        {:source_document_source, old_prefix},
+        Document.rename_metadata_key_query("source_document_source", old_prefix, new_prefix),
+        []
+      )
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, _} -> :ok
+      {:error, _op, reason, _changes} -> {:error, reason}
+    end
   end
 
   defp build_plan(volume_name, old_relative, new_relative, volumes) do

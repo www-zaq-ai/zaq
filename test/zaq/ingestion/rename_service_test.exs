@@ -64,9 +64,6 @@ defmodule Zaq.Ingestion.RenameServiceTest do
     test "updates document source paths inside the renamed folder", %{doc: doc} do
       assert :ok = RenameService.rename_entry("default", "zaq", "product")
 
-      # The document must be findable at the new path after folder rename.
-      # This fails today because rename_by_type(:directory) only renames on the
-      # filesystem and does not update Document.source in the database.
       updated_doc = Document.get_by_source("product/doc.md")
       assert updated_doc != nil, "Document should be reachable at the renamed path"
       assert updated_doc.id == doc.id
@@ -97,6 +94,21 @@ defmodule Zaq.Ingestion.RenameServiceTest do
       perm = Repo.get_by(Permission, document_id: updated_doc.id, person_id: person.id)
       assert perm != nil, "Permission should survive the folder rename"
       assert perm.access_rights == ["read"]
+    end
+
+    test "leaves filesystem and DB unchanged when rename fails", %{doc: doc} do
+      # Renaming to a path whose parent does not exist causes File.rename to
+      # return {:error, :enoent}, exercising the failure branch.
+      assert {:error, _} = RenameService.rename_entry("default", "zaq", "nonexistent/product")
+
+      # Filesystem: the original directory must still be present.
+      assert File.exists?(Path.join(@test_base, "zaq/doc.md"))
+      refute File.exists?(Path.join(@test_base, "nonexistent"))
+
+      # DB: all sources must still point to the original paths.
+      assert Document.get_by_source("zaq/doc.md") != nil
+      assert Document.get_by_source("nonexistent/doc.md") == nil
+      assert doc.id == Document.get_by_source("zaq/doc.md").id
     end
   end
 end

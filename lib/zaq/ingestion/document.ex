@@ -99,11 +99,10 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @doc """
-  Bulk-renames document sources that begin with `old_prefix/` by replacing the
-  prefix with `new_prefix`. Used when a folder is renamed on the filesystem.
-  Returns `{count, nil}`.
+  Returns a query that bulk-renames document sources beginning with `old_prefix/`.
+  Intended for use inside an `Ecto.Multi` — does not execute any DB call.
   """
-  def rename_source_prefix(old_prefix, new_prefix) do
+  def rename_source_prefix_query(old_prefix, new_prefix) do
     from(d in __MODULE__,
       where: like(d.source, ^"#{old_prefix}/%"),
       update: [
@@ -118,34 +117,29 @@ defmodule Zaq.Ingestion.Document do
         ]
       ]
     )
-    |> Repo.update_all([])
   end
 
   @doc """
-  Bulk-renames the `sidecar_source` and `source_document_source` metadata
-  pointers that begin with `old_prefix/`. Keeps sidecar cross-references valid
-  after a folder rename. Returns `{count, nil}` for each updated key.
+  Returns a query that bulk-renames one JSONB metadata key (e.g. `"sidecar_source"`)
+  whose value begins with `old_prefix/`. Intended for use inside an `Ecto.Multi`.
   """
-  def rename_metadata_source_prefix(old_prefix, new_prefix) do
-    for key <- ["sidecar_source", "source_document_source"] do
-      from(d in __MODULE__,
-        where: like(fragment("?->>?::text", d.metadata, ^key), ^"#{old_prefix}/%"),
-        update: [
-          set: [
-            metadata:
-              fragment(
-                "metadata || jsonb_build_object(?::text, ? || substring(metadata->>?::text from char_length(?::text) + 1))",
-                ^key,
-                ^new_prefix,
-                ^key,
-                ^old_prefix
-              ),
-            updated_at: ^DateTime.utc_now()
-          ]
+  def rename_metadata_key_query(key, old_prefix, new_prefix) do
+    from(d in __MODULE__,
+      where: like(fragment("?->>?::text", d.metadata, ^key), ^"#{old_prefix}/%"),
+      update: [
+        set: [
+          metadata:
+            fragment(
+              "metadata || jsonb_build_object(?::text, ? || substring(metadata->>?::text from char_length(?::text) + 1))",
+              ^key,
+              ^new_prefix,
+              ^key,
+              ^old_prefix
+            ),
+          updated_at: ^DateTime.utc_now()
         ]
-      )
-      |> Repo.update_all([])
-    end
+      ]
+    )
   end
 
   @doc """
