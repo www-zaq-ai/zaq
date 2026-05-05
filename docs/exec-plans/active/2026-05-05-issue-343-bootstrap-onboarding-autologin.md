@@ -66,7 +66,7 @@ Keep onboarding logic centralized in `Zaq.Accounts` and reuse existing BO auth/s
 
 ## Steps
 
-- [ ] Step 1: Add bootstrap-state detection API in Accounts
+- [x] Step 1: Add bootstrap-state detection API in Accounts
   - Module placement check: `Zaq.Accounts` owns auth/user lookup rules; `@moduledoc` covers auth and bootstrap behavior.
   - Temporary code? no
   - Tests to add before implementation:
@@ -80,7 +80,7 @@ Keep onboarding logic centralized in `Zaq.Accounts` and reuse existing BO auth/s
     - [ ] Edge external API mocks only: none
   - Coverage target for files touched in this step: `>= 95%`
 
-- [ ] Step 2: Auto-login bootstrap admin from BO login page
+- [x] Step 2: Auto-login bootstrap admin from BO login page
   - Module placement check: `ZaqWeb.Live.BO.LoginLive` owns login-screen mount and redirect behavior; `@moduledoc` responsibility is consistent.
   - Temporary code? no
   - Tests to add before implementation:
@@ -93,7 +93,7 @@ Keep onboarding logic centralized in `Zaq.Accounts` and reuse existing BO auth/s
     - [ ] Edge external API mocks only: none
   - Coverage target for files touched in this step: `>= 95%`
 
-- [ ] Step 3: Extend change-password flow with conditional mandatory email
+- [x] Step 3: Extend change-password flow with conditional mandatory email
   - Module placement check:
     - `ZaqWeb.Live.BO.System.ChangePasswordLive` owns form state and submit flow
     - `Zaq.Accounts` + `Zaq.Accounts.User` own validation/persistence rules
@@ -132,6 +132,7 @@ Record decisions made during implementation. Future agents need this context.
 | Detect bootstrap auto-login using strict DB state checks (`count==1`, `username==admin`, `inserted_at==updated_at`) | Avoid accidental privilege escalation and keep behavior limited to pristine first-run systems | 2026-05-05 |
 | Keep auto-login in `LoginLive` and not in global auth plug | Limits impact to explicit BO entrypoint and avoids hidden behavior on every protected route | 2026-05-05 |
 | Extend existing change-password flow instead of adding new onboarding page | Reuses current enforced path and minimizes UI/permission surface | 2026-05-05 |
+| Route bootstrap auto-login through `GET /bo/bootstrap-login` controller action | LiveView cannot write session directly; controller sets `:user_id` then redirects to enforced change-password flow | 2026-05-05 |
 
 ---
 

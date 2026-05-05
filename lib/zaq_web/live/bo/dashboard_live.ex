@@ -40,11 +40,11 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     {:ok,
      assign(socket,
        current_path: "/bo/dashboard",
-        license_data: license_data,
-        days_left: days_left,
-        services: refresh_services(),
-        metric_cards: telemetry_metrics
-      )}
+       license_data: license_data,
+       days_left: days_left,
+       services: refresh_services(),
+       metric_cards: telemetry_metrics
+     )}
   end
 
   # -- Node event handlers --
@@ -148,5 +148,4 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     |> Map.get(:summary, %{})
     |> Map.get(:metrics, [])
   end
-
 end
