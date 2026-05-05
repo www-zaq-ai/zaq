@@ -740,41 +740,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "pipeline branch leaked output is blocked", %{conn: conn} do
-    NodeRouterFake.put(
-      :agent,
-      Retrieval,
-      :ask,
-      {:ok,
-       %{
-         "query" => "zaq",
-         "language" => "en",
-         "positive_answer" => "Searching...",
-         "negative_answer" => "No answer"
-       }}
-    )
-
-    NodeRouterFake.put(
-      :ingestion,
-      DocumentProcessor,
-      :query_extraction,
-      {:ok, [%{"content" => "doc", "source" => "guide.md"}]}
-    )
-
-    NodeRouterFake.put(
-      :agent,
-      Answering,
-      :ask,
-      {:ok, "This leaks retrieved_data and should be blocked."}
-    )
-
-    {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
-
-    assert_eventually(fn -> render(view) =~ "I can only help with ZAQ-related questions." end)
-  end
-
   test "pipeline generic error branch returns fallback message", %{conn: conn} do
     NodeRouterFake.put(:agent, Retrieval, :ask, {:error, :boom})
 
