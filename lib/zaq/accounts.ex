@@ -110,12 +110,28 @@ defmodule Zaq.Accounts do
     |> Repo.update()
   end
 
+  @doc """
+  Completes the bootstrap onboarding by updating the admin user's password and email.
+
+  Only used during the initial bootstrap flow when the admin user has not yet
+  completed onboarding. Sets `must_change_password` to false.
+  """
   def complete_bootstrap_onboarding(user, attrs) do
     user
     |> User.bootstrap_onboarding_changeset(attrs)
     |> Repo.update()
   end
 
+  @doc """
+  Returns the bootstrap admin user if the instance is in pristine bootstrap state.
+
+  Bootstrap state is defined as:
+  - Exactly one user exists in the database
+  - That user's username is "admin"
+  - The user has never been modified (inserted_at == updated_at)
+
+  Returns nil if any condition is not met.
+  """
   def bootstrap_admin_pending_onboarding do
     case Repo.all(from(u in User, limit: 2, order_by: [asc: u.id])) do
       [%User{} = user] ->

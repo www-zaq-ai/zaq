@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.LoginLiveTest do
   alias Zaq.Accounts
 
   setup tags do
+    # Create a non-bootstrap user to prevent auto-login from triggering during tests
     unless tags[:bootstrap_only] do
       _user = user_fixture(%{username: "bo_login_non_bootstrap"})
     end

@@ -42,6 +42,12 @@ defmodule Zaq.Accounts.User do
     |> hash_password()
   end
 
+  @doc """
+  Creates a changeset for bootstrap onboarding, conditionally requiring email.
+
+  If the user already has an email, only password is validated.
+  If the user has no email, both email and password are required and validated.
+  """
   def bootstrap_onboarding_changeset(user, attrs) do
     user
     |> cast(attrs, [:email, :password])
