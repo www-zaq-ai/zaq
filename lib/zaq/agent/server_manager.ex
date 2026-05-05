@@ -1,9 +1,36 @@
 defmodule Zaq.Agent.ServerManager do
   @moduledoc """
-  Starts and maintains one long-lived AgentServer per configured agent scope.
+  Lifecycle manager for long-lived Jido AgentServer processes.
 
-  The scope is determined upstream and passed in as a `server_id` string — it
-  can represent any granularity (agent-wide, per-person, per-channel, etc.).
+  This module owns server process orchestration for configured agents, keyed by
+  a caller-provided `server_id` scope (for example per conversation, person, or
+  channel identity).
+
+  Key concerns handled here:
+
+  - Ensure/create semantics (`ensure_server/2`) with fingerprint-based reuse or
+    replacement.
+  - Initial spawn wiring through `Zaq.Agent.Factory` +
+    `Zaq.Agent.ProviderSpec` (model spec, runtime config, initial context).
+  - Runtime hydration and refresh of tools/MCP assignments via
+    `Zaq.Agent.RuntimeSync`.
+  - Runtime reconciliation for existing tracked servers (`sync_runtime/1`),
+    including lazy restart behavior when fingerprint-relevant settings change.
+  - Graceful/forced draining and stop semantics for in-flight requests.
+  - Internal tracking of server ownership, monitors, and cleanup on process down.
+
+  Interaction boundaries:
+
+  - Used by `Zaq.Agent.Executor` to obtain a server reference before execution.
+  - Uses `Factory.runtime_config/1` and `Factory.build_initial_context/2` to
+    initialize agent state.
+  - Uses `ProviderSpec.build/1` as the single source of provider/model runtime
+    spec assembly.
+  - Uses `RuntimeSync.sync_agent_runtime/3` to apply/update runtime tool and MCP
+    state on live servers.
+
+  The manager keeps minimal state required for lifecycle tracking and delegates
+  behavior-specific runtime mutations to dedicated modules.
   """
 
   use GenServer

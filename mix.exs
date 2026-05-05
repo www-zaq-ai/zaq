@@ -168,7 +168,21 @@ defmodule Zaq.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md"] ++ (Path.wildcard("docs/*.md") |> Enum.sort())
+      extras: ["README.md", "CHANGELOG.md"],
+      groups_for_modules: [
+        Channels: [~r/^Zaq\.Channels(\.|$)/],
+        Agent: [~r/^Zaq\.Agent(\.|$)/],
+        Engine: [~r/^Zaq\.Engine(\.|$)/],
+        BackOffice: [
+          ~r/^Zaq\.Bo(\.|$)/,
+          ~r/^ZaqWeb\.Components(\.|$)/,
+          ~r/^ZaqWeb\.Live\.BO(\.|$)/
+        ],
+        Ingestion: [~r/^Zaq\.Ingestion(\.|$)/],
+        System: [~r/^Zaq\.System(\.|$)/],
+        Accounts: [~r/^Zaq\.Accounts(\.|$)/],
+        License: [~r/^Zaq\.License(\.|$)/]
+      ]
     ]
   end
 end

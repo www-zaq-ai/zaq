@@ -1,10 +1,35 @@
 defmodule Zaq.Agent.Factory do
   @moduledoc """
-  Jido AI agent implementation shared by all configured agents.
+  Runtime agent implementation used by every configured ZAQ agent.
 
-  One Factory server is spawned per agent scope. Provides `ask_with_config/4`
-  to send a query with per-agent tool and LLM opts resolved at call time.
-  The built-in answering agent configuration lives in `Zaq.Agent.Answering`.
+  This module is the execution bridge between `Zaq.Agent.Executor` and the
+  underlying `Jido.AI.Agent` process managed by `Zaq.Agent.ServerManager`.
+
+  Key concerns handled here:
+
+  - Runtime config assembly per configured agent via `runtime_config/1`:
+    resolves enabled tool modules (`Zaq.Agent.Tools.Registry`), builds effective
+    LLM options (system defaults from `Zaq.System` merged with per-agent
+    overrides from `Zaq.Agent.ProviderSpec`), and derives the system prompt.
+  - Cold-start memory hydration via `build_initial_context/2`, delegating to
+    `Zaq.Agent.HistoryLoader` using scope information encoded in server IDs.
+  - Safe request dispatch via `ask_with_config/4`, including server-state
+    runtime-config fallback and best-effort system prompt synchronization before
+    each ask.
+  - Request-scoped runtime context propagation for status updates and tool trace
+    collection, using process-local keys consumed by surrounding pipeline code.
+
+  Typical flow:
+
+  1. `Zaq.Agent.ServerManager` calls `runtime_config/1` and
+     `build_initial_context/2` when spawning a server.
+  2. `Zaq.Agent.Executor` calls `ask_with_config/4` to run an incoming question.
+  3. The request runs through Jido with the resolved tools, model opts, and
+     synchronized prompt.
+
+  The built-in default answering configuration is provided by
+  `Zaq.Agent.Answering`; this module executes that config exactly like any other
+  configured agent.
   """
 
   use Jido.AI.Agent,

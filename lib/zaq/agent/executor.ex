@@ -2,9 +2,29 @@ defmodule Zaq.Agent.Executor do
   @moduledoc """
   Single execution boundary for all agent runs.
 
-  Handles both the default answering path (when no agent is selected) and
-  explicit BO-configured agents. Responsible for scope derivation, Jido server
-  lifecycle, typing indicators, telemetry, and result normalization.
+  This module orchestrates the full request lifecycle for both:
+
+  - the default answering configuration (`Zaq.Agent.Answering`) and
+  - explicitly selected BO-configured agents.
+
+  Key concerns handled here:
+
+  - Scope derivation (`derive_scope/1`) so requests are routed to the correct
+    long-lived Jido server identity (conversation/person/session/anonymous).
+  - Agent selection and per-run overrides (for example temporary
+    `:system_prompt`).
+  - Server orchestration through `Zaq.Agent.ServerManager.ensure_server/2`.
+  - Query execution via `Zaq.Agent.Factory.ask_with_config/4` and await.
+  - User-facing side effects: typing signal (`Zaq.Channels.Router` through
+    `Zaq.NodeRouter`) and answering status broadcasts (`Zaq.Agent.Status`).
+  - Observability: execution counters, latency/confidence metrics, and
+    normalized error classification through `Zaq.Engine.Telemetry`.
+  - Output normalization into `Zaq.Engine.Messages.Outgoing` so downstream
+    channel adapters receive a consistent payload shape.
+
+  In short, `Executor` is the workflow coordinator; it does not build provider
+  specs or runtime tool config itself. Those responsibilities stay in
+  `ProviderSpec`/`Factory`, while `ServerManager` owns process lifecycle.
   """
 
   require Logger
