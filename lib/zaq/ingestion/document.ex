@@ -99,6 +99,56 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @doc """
+  Bulk-renames document sources that begin with `old_prefix/` by replacing the
+  prefix with `new_prefix`. Used when a folder is renamed on the filesystem.
+  Returns `{count, nil}`.
+  """
+  def rename_source_prefix(old_prefix, new_prefix) do
+    from(d in __MODULE__,
+      where: like(d.source, ^"#{old_prefix}/%"),
+      update: [
+        set: [
+          source:
+            fragment(
+              "? || substring(source from char_length(?) + 1)",
+              ^new_prefix,
+              ^old_prefix
+            ),
+          updated_at: ^DateTime.utc_now()
+        ]
+      ]
+    )
+    |> Repo.update_all([])
+  end
+
+  @doc """
+  Bulk-renames the `sidecar_source` and `source_document_source` metadata
+  pointers that begin with `old_prefix/`. Keeps sidecar cross-references valid
+  after a folder rename. Returns `{count, nil}` for each updated key.
+  """
+  def rename_metadata_source_prefix(old_prefix, new_prefix) do
+    for key <- ["sidecar_source", "source_document_source"] do
+      from(d in __MODULE__,
+        where: like(fragment("?->>?::text", d.metadata, ^key), ^"#{old_prefix}/%"),
+        update: [
+          set: [
+            metadata:
+              fragment(
+                "metadata || jsonb_build_object(?::text, ? || substring(metadata->>?::text from char_length(?::text) + 1))",
+                ^key,
+                ^new_prefix,
+                ^key,
+                ^old_prefix
+              ),
+            updated_at: ^DateTime.utc_now()
+          ]
+        ]
+      )
+      |> Repo.update_all([])
+    end
+  end
+
+  @doc """
   Builds an Ecto `dynamic` OR-condition matching documents whose source starts
   with any of the given prefixes (i.e. `source LIKE "prefix/%"`).
   """

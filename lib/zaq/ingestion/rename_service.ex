@@ -14,7 +14,9 @@ defmodule Zaq.Ingestion.RenameService do
   end
 
   defp rename_by_type(:directory, volume_name, old_path, new_path, _volumes) do
-    FileExplorer.rename(volume_name, old_path, new_path)
+    with :ok <- FileExplorer.rename(volume_name, old_path, new_path) do
+      rename_document_sources(volume_name, old_path, new_path)
+    end
   end
 
   defp rename_by_type(:file, volume_name, old_path, new_path, volumes) do
@@ -40,6 +42,21 @@ defmodule Zaq.Ingestion.RenameService do
       end
       |> normalize_error()
     end
+  end
+
+  defp rename_document_sources(volume_name, old_path, new_path) do
+    old_relative = SourcePath.normalize_relative(old_path)
+    new_relative = SourcePath.normalize_relative(new_path)
+
+    volume_name
+    |> SourcePath.source_candidates(old_relative)
+    |> Enum.each(fn old_prefix ->
+      new_prefix = SourcePath.remap_source(old_prefix, volume_name, new_relative)
+      Document.rename_source_prefix(old_prefix, new_prefix)
+      Document.rename_metadata_source_prefix(old_prefix, new_prefix)
+    end)
+
+    :ok
   end
 
   defp build_plan(volume_name, old_relative, new_relative, volumes) do
