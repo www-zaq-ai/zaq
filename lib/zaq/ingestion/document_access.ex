@@ -100,7 +100,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   end
 
   @doc """
-  Lists top-level documents the caller is permitted to access.
+  Lists documents the caller is permitted to access.
 
   Applies the same permission model as `count_accessible_documents/1`.
   Accepts the same options including `:source_filter`.
