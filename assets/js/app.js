@@ -63,10 +63,13 @@ const liveSocket = new LiveSocket("/live", Socket, {
     },
     FlashAutoDismiss: {
       mounted() {
+        this.el.scrollIntoView({ behavior: "smooth", block: "nearest" })
         const duration = parseInt(this.el.dataset.autoDismissDuration, 10)
-        this._timer = setTimeout(() => {
-          this.el.querySelector("[data-flash-dismiss]")?.click()
-        }, duration)
+        if (duration > 0) {
+          this._timer = setTimeout(() => {
+            this.el.querySelector("[data-flash-dismiss]")?.click()
+          }, duration)
+        }
       },
       destroyed() {
         clearTimeout(this._timer)
@@ -320,6 +323,14 @@ const liveSocket = new LiveSocket("/live", Socket, {
       destroyed() {
         if (this._outsideClick) document.removeEventListener('click', this._outsideClick, true)
         clearTimeout(this._searchTimer)
+      }
+    },
+    ScrollToFirstError: {
+      updated() {
+        const firstError = this.el.querySelector('[class*="text-[#a35246]"]')
+        if (firstError && firstError.textContent.trim()) {
+          firstError.scrollIntoView({ behavior: "smooth", block: "nearest" })
+        }
       }
     },
     DetailsKeepOpen: {

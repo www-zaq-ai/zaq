@@ -234,7 +234,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   def handle_event("save", %{"configured_agent" => attrs}, socket) do
     case parse_form_attrs(attrs) do
       {:ok, parsed_attrs} ->
-        save_agent(assign(socket, :form_notice, nil), parsed_attrs)
+        save_agent(socket |> assign(:form_notice, nil) |> clear_flash(:error), parsed_attrs)
 
       {:error, message, parsed_attrs} ->
         base = current_form_agent(socket)
@@ -458,6 +458,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     |> assign(:advanced_options_json, "{}")
     |> assign(:advanced_options_error, nil)
     |> assign(:form_notice, nil)
+    |> assign(:form_error, nil)
     |> assign(:tools_picker_open, false)
     |> assign(:tools_picker_value, "")
     |> assign(:mcp_picker_open, false)
