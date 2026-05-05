@@ -29,6 +29,7 @@ defmodule Zaq.Agent.Retrieval do
   def ask(question, opts \\ []) do
     Logger.info("Retrieval: Received question: #{question}")
 
+    # This is intentionally hardcoded because we don't want to expose the flexibility of changing the prompt structure
     system_prompt = """
     You are a professional vector search expert tasked with building an optimal semantic query.
 
