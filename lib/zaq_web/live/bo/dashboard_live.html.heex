@@ -5,7 +5,7 @@
   current_path={@current_path}
   features_version={@features_version}
 >
-  <div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
     <div :for={metric <- @metric_cards} class="space-y-2">
       <.link
         id={metric.id}
