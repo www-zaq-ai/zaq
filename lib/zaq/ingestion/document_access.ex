@@ -37,7 +37,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   @spec list_permitted_document_ids(term(), [term()], [term()]) :: [term()]
   def list_permitted_document_ids(person_id, team_ids, doc_ids) do
     via_permission =
-      build_permission_query(person_id, team_ids, doc_ids)
+      Permission.build_permission_query(person_id, team_ids, doc_ids)
       |> Repo.all()
 
     via_public =
@@ -147,7 +147,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   # All three access conditions unified in one named-binding dynamic to avoid
   # mixing positional and named bindings in the same where expression.
   defp build_accessible_where(person_id, team_ids) do
-    perm_cond = build_perm_join_condition(person_id, team_ids)
+    perm_cond = Permission.build_perm_join_condition(person_id, team_ids)
 
     dynamic(
       [doc: d, perm: p],
@@ -197,15 +197,22 @@ defmodule Zaq.Ingestion.DocumentAccess do
       end
 
     roots
-    |> Enum.flat_map(fn root ->
-      root
-      |> Path.join("**")
-      |> Path.wildcard()
-      |> Enum.reject(&File.dir?/1)
-      |> Enum.map(&abs_path_to_source/1)
-      |> Enum.reject(&is_nil/1)
-    end)
+    |> Enum.flat_map(&list_files_recursive/1)
+    |> Enum.map(&abs_path_to_source/1)
+    |> Enum.reject(&is_nil/1)
     |> filter_by_source_filter(source_filter)
+  end
+
+  defp list_files_recursive(dir) do
+    case File.ls(dir) do
+      {:ok, entries} -> Enum.flat_map(entries, &expand_entry(dir, &1))
+      {:error, _} -> []
+    end
+  end
+
+  defp expand_entry(dir, entry) do
+    full_path = Path.join(dir, entry)
+    if File.dir?(full_path), do: list_files_recursive(full_path), else: [full_path]
   end
 
   defp filter_by_source_filter(sources, nil), do: sources
@@ -260,37 +267,4 @@ defmodule Zaq.Ingestion.DocumentAccess do
       end
     end)
   end
-
-  defp build_permission_query(nil, team_ids, _doc_ids) when team_ids == [] do
-    from(p in Permission, where: false, select: p.document_id)
-  end
-
-  defp build_permission_query(nil, team_ids, doc_ids) do
-    from(p in Permission,
-      where: p.document_id in ^doc_ids and p.team_id in ^team_ids,
-      select: p.document_id,
-      distinct: true
-    )
-  end
-
-  defp build_permission_query(person_id, team_ids, doc_ids) do
-    from(p in Permission,
-      where:
-        p.document_id in ^doc_ids and
-          (p.person_id == ^person_id or p.team_id in ^team_ids),
-      select: p.document_id,
-      distinct: true
-    )
-  end
-
-  defp build_perm_join_condition(nil, []), do: dynamic([perm: p], false)
-
-  defp build_perm_join_condition(nil, team_ids),
-    do: dynamic([perm: p], p.team_id in ^team_ids)
-
-  defp build_perm_join_condition(person_id, []),
-    do: dynamic([perm: p], p.person_id == ^person_id)
-
-  defp build_perm_join_condition(person_id, team_ids),
-    do: dynamic([perm: p], p.person_id == ^person_id or p.team_id in ^team_ids)
 end

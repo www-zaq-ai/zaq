@@ -236,4 +236,45 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
       assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Output format — LLM usability
+  # ---------------------------------------------------------------------------
+
+  describe "run/2 — output format" do
+    test "tool result is JSON-encodable (LLM can receive it)" do
+      context = %{person_id: 1, node_router: StubRouter}
+
+      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, encoded} = Jason.encode(result)
+      decoded = Jason.decode!(encoded)
+
+      assert is_integer(decoded["total"])
+      assert is_integer(decoded["ingested_count"])
+      assert is_list(decoded["documents"])
+    end
+
+    test "each document in output has source, ingested, and preview_url keys" do
+      context = %{person_id: 1, node_router: StubRouter}
+
+      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+
+      Enum.each(result.documents, fn doc ->
+        assert Map.has_key?(doc, :source)
+        assert Map.has_key?(doc, :ingested)
+        assert Map.has_key?(doc, :preview_url)
+      end)
+    end
+
+    test "ingested_count matches number of ingested: true documents in JSON output" do
+      context = %{person_id: 1, node_router: StubRouter}
+
+      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, encoded} = Jason.encode(result)
+      decoded = Jason.decode!(encoded)
+
+      ingested_in_list = Enum.count(decoded["documents"], & &1["ingested"])
+      assert decoded["ingested_count"] == ingested_in_list
+    end
+  end
 end

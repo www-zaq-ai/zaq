@@ -9,6 +9,15 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
 
   Each document in the response includes a `:preview_url` the UI renders as a
   clickable link so the user can open the file directly.
+
+  ## Expected context keys
+
+  - `:person_id` — ID of the requesting person; `nil` returns only public docs.
+  - `:team_ids` — list of team IDs the person belongs to (default `[]`).
+  - `:skip_permissions` — when `true`, bypasses permission filtering (admin use).
+  - `:source_filter` — list of source path prefixes to restrict results; `nil` means all.
+  - `:status_context` — passed to `Status.broadcast/4` for streaming progress events.
+  - `:node_router` — override the NodeRouter module (default `Zaq.NodeRouter`).
   """
 
   use Jido.Action,
@@ -61,17 +70,21 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
       ]
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
-    try do
-      documents =
-        node_router_mod.call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts])
-        |> unwrap_router_result()
-        |> Enum.map(&enrich_with_preview/1)
+    router_result =
+      node_router_mod.call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts])
 
-      ingested_count = Enum.count(documents, & &1.ingested)
+    case router_result do
+      {:error, reason} ->
+        {:error, "Document count failed: #{inspect(reason)}"}
 
-      {:ok, %{total: length(documents), ingested_count: ingested_count, documents: documents}}
-    rescue
-      e -> {:error, "Document count failed: #{Exception.message(e)}"}
+      result ->
+        documents =
+          result
+          |> unwrap_ok()
+          |> Enum.map(&enrich_with_preview/1)
+
+        ingested_count = Enum.count(documents, & &1.ingested)
+        {:ok, %{total: length(documents), ingested_count: ingested_count, documents: documents}}
     end
   end
 
@@ -79,6 +92,6 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
     Map.put(doc, :preview_url, "#{@preview_base}/#{source}")
   end
 
-  defp unwrap_router_result({:ok, value}), do: value
-  defp unwrap_router_result(value), do: value
+  defp unwrap_ok({:ok, value}), do: value
+  defp unwrap_ok(value), do: value
 end
