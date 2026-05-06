@@ -20,7 +20,10 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
      |> assign(:preview_open, false)
      |> assign(:preview_data, nil)
      |> assign(:launch_modal_open, false)
-     |> assign(:selected_ingestion_strategy, ".md")}
+     |> assign(:selected_ingestion_strategy, ".md")
+     |> assign(:preview_expanded_paths, MapSet.new())
+     |> assign(:share_target_options, UrlCrawlerPreview.share_target_options())
+     |> assign(:share_targets, [])}
   end
 
   @impl true
@@ -76,6 +79,17 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
     {:noreply, assign(socket, preview_open: false)}
   end
 
+  def handle_event("toggle_preview_branch", %{"path" => path}, socket) do
+    expanded_paths =
+      if MapSet.member?(socket.assigns.preview_expanded_paths, path) do
+        MapSet.delete(socket.assigns.preview_expanded_paths, path)
+      else
+        MapSet.put(socket.assigns.preview_expanded_paths, path)
+      end
+
+    {:noreply, assign(socket, :preview_expanded_paths, expanded_paths)}
+  end
+
   def handle_event("toggle_preview_item", %{"id" => id}, socket) do
     preview_data =
       update_in(socket.assigns.preview_data.tree_items, fn items ->
@@ -87,7 +101,7 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   end
 
   def handle_event("open_launch_modal", _params, socket) do
-    {:noreply, assign(socket, launch_modal_open: true, preview_open: false)}
+    {:noreply, assign(socket, launch_modal_open: true, preview_open: false, share_targets: [])}
   end
 
   def handle_event("close_launch_modal", _params, socket) do
@@ -96,6 +110,27 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
 
   def handle_event("set_ingestion_strategy", %{"strategy" => strategy}, socket) do
     {:noreply, assign(socket, :selected_ingestion_strategy, strategy)}
+  end
+
+  def handle_event("add_share_target", %{"value" => value}, socket) do
+    case UrlCrawlerPreview.parse_share_target(value) do
+      nil ->
+        {:noreply, socket}
+
+      entry ->
+        share_targets =
+          if Enum.any?(socket.assigns.share_targets, &(&1.value == entry.value)) do
+            socket.assigns.share_targets
+          else
+            socket.assigns.share_targets ++ [entry]
+          end
+
+        {:noreply, assign(socket, :share_targets, share_targets)}
+    end
+  end
+
+  def handle_event("remove_share_target", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :share_targets, Enum.reject(socket.assigns.share_targets, &(&1.value == value)))}
   end
 
   def handle_event("run_crawl", _params, socket) do
@@ -122,7 +157,7 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
      socket
      |> assign(:analyzing, false)
      |> assign(:preview_open, true)
-     |> assign(:preview_data, preview_data)}
+     |> assign_preview_state(preview_data)}
   end
 
   def depth_options, do: Enum.map(1..5, &{"#{&1}", &1})
@@ -136,6 +171,8 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   end
 
   def tree_path_text(item), do: Enum.join(item.tree_path || [], " / ")
+  def preview_tree_rows(preview_data, expanded_paths), do: UrlCrawlerPreview.tree_rows(preview_data.tree_items, expanded_paths)
+  def selected_count(preview_data), do: length(preview_data.tree_items)
 
   def rule_title("include_paths"), do: "Include paths"
   def rule_title("exclude_paths"), do: "Exclude paths"
@@ -254,6 +291,12 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   defp checkbox_enabled?(_params, _key, _fallback), do: false
 
   def strategy_options, do: UrlCrawlerPreview.strategy_options()
+
+  defp assign_preview_state(socket, preview_data) do
+    socket
+    |> assign(:preview_data, preview_data)
+    |> assign(:preview_expanded_paths, UrlCrawlerPreview.default_expanded_paths(preview_data.tree_items))
+  end
 
   defp form_params(value) when is_map(value) do
     Map.new(value, fn {key, val} -> {to_string(key), form_params(val)} end)

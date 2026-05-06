@@ -158,6 +158,45 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
     ]
   end
 
+  def share_target_options do
+    [
+      {"team: Product", "team:product"},
+      {"team: Sales", "team:sales"},
+      {"team: Support", "team:support"},
+      {"Alice Martin (alice@zaq.ai)", "person:alice"},
+      {"Nora Smith (nora@zaq.ai)", "person:nora"}
+    ]
+  end
+
+  def parse_share_target("team:" <> id) do
+    label = Enum.find_value(share_target_options(), fn {label, value} -> if value == "team:" <> id, do: label end)
+    %{value: "team:" <> id, label: label || id, type: :team}
+  end
+
+  def parse_share_target("person:" <> id) do
+    label = Enum.find_value(share_target_options(), fn {label, value} -> if value == "person:" <> id, do: label end)
+    %{value: "person:" <> id, label: label || id, type: :person}
+  end
+
+  def parse_share_target(_), do: nil
+
+  def default_expanded_paths(items) do
+    items
+    |> Enum.flat_map(fn item ->
+      item.tree_path
+      |> Enum.drop(-1)
+      |> Enum.scan([], fn segment, acc -> acc ++ [segment] end)
+      |> Enum.map(&path_key/1)
+    end)
+    |> MapSet.new()
+  end
+
+  def tree_rows(items, expanded_paths) do
+    items
+    |> build_tree()
+    |> Enum.flat_map(&flatten_node(&1, expanded_paths))
+  end
+
   def crawl_output_file_details(relative_path) do
     runs_by_configuration()
     |> Map.values()
@@ -206,6 +245,58 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
   def frequency_label("weekly"), do: "Weekly"
   def frequency_label("monthly"), do: "Monthly"
   def frequency_label(other), do: other
+
+  defp build_tree(items) do
+    items
+    |> Enum.reduce(%{}, fn item, acc -> insert_tree_node(acc, item.tree_path, item) end)
+    |> Map.values()
+    |> Enum.sort_by(&{&1.kind != :branch, &1.label})
+  end
+
+  defp insert_tree_node(tree, [label], item) do
+    Map.put(tree, path_key(item.tree_path), %{
+      kind: :leaf,
+      key: path_key(item.tree_path),
+      label: label,
+      depth: length(item.tree_path) - 1,
+      item: item
+    })
+  end
+
+  defp insert_tree_node(tree, [label | rest], item) do
+    key =
+      item.tree_path
+      |> Enum.take(length(item.tree_path) - length(rest))
+      |> path_key()
+
+    node = Map.get(tree, key, %{kind: :branch, key: key, label: label, depth: path_depth(key), children: %{}})
+    children = insert_tree_node(node.children, rest, item)
+    Map.put(tree, key, %{node | children: children})
+  end
+
+  defp flatten_tree(nodes, expanded_paths) do
+    nodes
+    |> Enum.flat_map(fn node -> flatten_node(node, expanded_paths) end)
+  end
+
+  defp flatten_node(%{kind: :leaf, item: item, depth: depth, key: key}, _expanded_paths) do
+    [%{kind: :leaf, key: key, depth: depth, item: item}]
+  end
+
+  defp flatten_node(%{kind: :branch, key: key, label: label, depth: depth, children: children}, expanded_paths) do
+    expanded? = MapSet.member?(expanded_paths, key)
+    branch = %{kind: :branch, key: key, label: label, depth: depth, expanded?: expanded?, children_count: map_size(children)}
+
+    if expanded? do
+      [branch | flatten_tree(children |> Map.values() |> Enum.sort_by(&{&1.kind != :branch, &1.label}), expanded_paths)]
+    else
+      [branch]
+    end
+  end
+
+  defp path_depth(""), do: 0
+  defp path_depth(key), do: length(String.split(key, "/")) - 1
+  defp path_key(parts), do: Enum.join(parts, "/")
 
   defp drafts do
     %{
@@ -573,36 +664,36 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
     case kind do
       :new ->
         [
-          %{id: "docs-getting-started", title: "Getting started", url: "https://docs.zaq.ai/guides/getting-started", type: "html", depth_level: 2, tree_path: ["Docs", "Guides", "Getting started"], parent_title: "Guides", metadata: ["selected", "html"]},
-          %{id: "docs-auth-api", title: "Auth API", url: "https://docs.zaq.ai/api/auth", type: "html", depth_level: 2, tree_path: ["Docs", "API", "Auth API"], parent_title: "API", metadata: ["selected", "html"]},
-          %{id: "docs-architecture-pdf", title: "Architecture PDF", url: "https://docs.zaq.ai/files/architecture.pdf", type: "pdf", depth_level: 2, tree_path: ["Files", "Architecture PDF"], parent_title: "Files", metadata: ["selected", "pdf"]}
+          %{id: "docs-getting-started", title: "Getting started", url: "https://docs.zaq.ai/guides/getting-started", type: "html", depth_level: 2, tree_path: ["Docs", "Guides", "Getting started"], parent_title: "Guides", metadata: ["selected", "included", "group: guides", "parent: Guides"]},
+          %{id: "docs-auth-api", title: "Auth API", url: "https://docs.zaq.ai/api/auth", type: "html", depth_level: 2, tree_path: ["Docs", "API", "Auth API"], parent_title: "API", metadata: ["selected", "included", "group: api", "parent: API"]},
+          %{id: "docs-architecture-pdf", title: "Architecture PDF", url: "https://docs.zaq.ai/files/architecture.pdf", type: "pdf", depth_level: 2, tree_path: ["Files", "Architecture PDF"], parent_title: "Files", metadata: ["selected", "included", "format: pdf", "parent: Files"]}
         ]
 
       :marketing ->
         [
-          %{id: "marketing-homepage", title: "Homepage", url: "https://www.zaq.ai/", type: "html", depth_level: 1, tree_path: ["Product", "Homepage"], parent_title: "Product", metadata: ["selected", "html"]},
-          %{id: "marketing-kb", title: "Knowledge Base", url: "https://www.zaq.ai/product/knowledge-base", type: "html", depth_level: 2, tree_path: ["Product", "Features", "Knowledge Base"], parent_title: "Features", metadata: ["selected", "html"]},
-          %{id: "marketing-pricing", title: "Pricing", url: "https://www.zaq.ai/pricing", type: "html", depth_level: 1, tree_path: ["Commercial", "Pricing"], parent_title: "Commercial", metadata: ["selected", "html"]}
+          %{id: "marketing-homepage", title: "Homepage", url: "https://www.zaq.ai/", type: "html", depth_level: 1, tree_path: ["Product", "Homepage"], parent_title: "Product", metadata: ["selected", "included", "group: product", "parent: Product"]},
+          %{id: "marketing-kb", title: "Knowledge Base", url: "https://www.zaq.ai/product/knowledge-base", type: "html", depth_level: 2, tree_path: ["Product", "Features", "Knowledge Base"], parent_title: "Features", metadata: ["selected", "included", "group: features", "parent: Features"]},
+          %{id: "marketing-pricing", title: "Pricing", url: "https://www.zaq.ai/pricing", type: "html", depth_level: 1, tree_path: ["Commercial", "Pricing"], parent_title: "Commercial", metadata: ["selected", "included", "group: commercial", "parent: Commercial"]}
         ]
 
       :docs ->
         [
-          %{id: "docs-guides-start", title: "Getting started", url: "https://docs.zaq.ai/guides/getting-started", type: "html", depth_level: 2, tree_path: ["Guides", "Getting started"], parent_title: "Guides", metadata: ["selected", "html"]},
-          %{id: "docs-guides-arch", title: "Architecture", url: "https://docs.zaq.ai/architecture", type: "html", depth_level: 1, tree_path: ["Guides", "Architecture"], parent_title: "Guides", metadata: ["selected", "html"]},
-          %{id: "docs-api-auth", title: "Authentication", url: "https://docs.zaq.ai/api/auth", type: "html", depth_level: 2, tree_path: ["API", "Authentication"], parent_title: "API", metadata: ["selected", "html"]}
+          %{id: "docs-guides-start", title: "Getting started", url: "https://docs.zaq.ai/guides/getting-started", type: "html", depth_level: 2, tree_path: ["Guides", "Getting started"], parent_title: "Guides", metadata: ["selected", "included", "group: guides", "parent: Guides"]},
+          %{id: "docs-guides-arch", title: "Architecture", url: "https://docs.zaq.ai/architecture", type: "html", depth_level: 1, tree_path: ["Guides", "Architecture"], parent_title: "Guides", metadata: ["selected", "included", "group: guides", "parent: Guides"]},
+          %{id: "docs-api-auth", title: "Authentication", url: "https://docs.zaq.ai/api/auth", type: "html", depth_level: 2, tree_path: ["API", "Authentication"], parent_title: "API", metadata: ["selected", "included", "group: api", "parent: API"]}
         ]
 
       :investor ->
         [
-          %{id: "investor-overview", title: "Overview", url: "https://investors.zaq.ai/overview", type: "html", depth_level: 1, tree_path: ["Approved", "Overview"], parent_title: "Approved", metadata: ["selected", "html"]},
-          %{id: "investor-governance", title: "Governance", url: "https://investors.zaq.ai/governance", type: "html", depth_level: 1, tree_path: ["Approved", "Governance"], parent_title: "Approved", metadata: ["selected", "html"]},
-          %{id: "investor-pdf", title: "Investor packet PDF", url: "https://investors.zaq.ai/files/investor-packet.pdf", type: "pdf", depth_level: 2, tree_path: ["Approved", "Files", "Investor packet PDF"], parent_title: "Files", metadata: ["selected", "pdf"]}
+          %{id: "investor-overview", title: "Overview", url: "https://investors.zaq.ai/overview", type: "html", depth_level: 1, tree_path: ["Approved", "Overview"], parent_title: "Approved", metadata: ["selected", "included", "group: approved", "parent: Approved"]},
+          %{id: "investor-governance", title: "Governance", url: "https://investors.zaq.ai/governance", type: "html", depth_level: 1, tree_path: ["Approved", "Governance"], parent_title: "Approved", metadata: ["selected", "included", "group: approved", "parent: Approved"]},
+          %{id: "investor-pdf", title: "Investor packet PDF", url: "https://investors.zaq.ai/files/investor-packet.pdf", type: "pdf", depth_level: 2, tree_path: ["Approved", "Files", "Investor packet PDF"], parent_title: "Files", metadata: ["selected", "included", "format: pdf", "parent: Files"]}
         ]
 
       :support ->
         [
-          %{id: "support-faq", title: "FAQ home", url: "https://support.zaq.ai/faq", type: "html", depth_level: 1, tree_path: ["Support", "FAQ home"], parent_title: "Support", metadata: ["selected", "html"]},
-          %{id: "support-api", title: "API support", url: "https://support.zaq.ai/articles/api-support", type: "html", depth_level: 2, tree_path: ["Support", "Articles", "API support"], parent_title: "Articles", metadata: ["selected", "html"]}
+          %{id: "support-faq", title: "FAQ home", url: "https://support.zaq.ai/faq", type: "html", depth_level: 1, tree_path: ["Support", "FAQ home"], parent_title: "Support", metadata: ["selected", "included", "group: support", "parent: Support"]},
+          %{id: "support-api", title: "API support", url: "https://support.zaq.ai/articles/api-support", type: "html", depth_level: 2, tree_path: ["Support", "Articles", "API support"], parent_title: "Articles", metadata: ["selected", "included", "group: articles", "parent: Articles"]}
         ]
     end
   end

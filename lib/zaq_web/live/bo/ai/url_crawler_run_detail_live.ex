@@ -19,7 +19,20 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerRunDetailLive do
      |> assign(:page_title, "Run Detail")
      |> assign(:current_path, "/bo/ingestion")
      |> assign(:configuration, configuration)
-     |> assign(:run, run)}
+     |> assign(:run, run)
+     |> assign(:expanded_paths, UrlCrawlerPreview.default_expanded_paths(run.approved_page_list))}
+  end
+
+  @impl true
+  def handle_event("toggle_branch", %{"path" => path}, socket) do
+    expanded_paths =
+      if MapSet.member?(socket.assigns.expanded_paths, path) do
+        MapSet.delete(socket.assigns.expanded_paths, path)
+      else
+        MapSet.put(socket.assigns.expanded_paths, path)
+      end
+
+    {:noreply, assign(socket, :expanded_paths, expanded_paths)}
   end
 
   @impl true
@@ -41,4 +54,5 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerRunDetailLive do
 
   def status_classes(status), do: UrlCrawlerPreview.status_classes(status)
   def status_label(status), do: UrlCrawlerPreview.status_label(status)
+  def tree_rows(run, expanded_paths), do: UrlCrawlerPreview.tree_rows(run.approved_page_list, expanded_paths)
 end
