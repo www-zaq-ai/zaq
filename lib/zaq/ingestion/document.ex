@@ -125,12 +125,12 @@ defmodule Zaq.Ingestion.Document do
   """
   def rename_metadata_key_query(key, old_prefix, new_prefix) do
     from(d in __MODULE__,
-      where: like(fragment("?->>?::text", d.metadata, ^key), ^"#{old_prefix}/%"),
+      where: like(fragment("?->>(?::text)", d.metadata, ^key), ^"#{old_prefix}/%"),
       update: [
         set: [
           metadata:
             fragment(
-              "metadata || jsonb_build_object(?::text, ? || substring(metadata->>?::text from char_length(?::text) + 1))",
+              "metadata || jsonb_build_object((?::text), ? || substring(metadata->>(?::text) from char_length((?::text)) + 1))",
               ^key,
               ^new_prefix,
               ^key,

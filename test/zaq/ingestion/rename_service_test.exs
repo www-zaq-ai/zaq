@@ -111,4 +111,52 @@ defmodule Zaq.Ingestion.RenameServiceTest do
       assert doc.id == Document.get_by_source("zaq/doc.md").id
     end
   end
+
+  describe "rename_entry/3 saga rollback" do
+    test "compensates FS rename when DB step fails for a file rename", %{
+      source_doc: source_doc,
+      sidecar_doc: sidecar_doc
+    } do
+      # Create a conflicting document at the target source so the DB Multi fails
+      # with a unique constraint violation after the FS rename has already run.
+      {:ok, _blocker} =
+        Document.create(%{source: "zaq/report2.pdf", content: "blocker"})
+
+      File.write!(Path.join(@test_base, "zaq/report2.pdf"), "%PDF-1.0 blocker")
+
+      assert {:error, _} =
+               RenameService.rename_entry("default", "zaq/report.pdf", "zaq/report2.pdf")
+
+      # FS compensation must have run: original file is back, target does not
+      # exist under the name that would have been produced by the main rename.
+      assert File.exists?(Path.join(@test_base, "zaq/report.pdf")),
+             "Saga compensation must restore the original file"
+
+      # DB: source rows must still point to old paths.
+      assert Repo.get!(Document, source_doc.id).source == "zaq/report.pdf"
+      assert Repo.get!(Document, sidecar_doc.id).source == "zaq/report.md"
+    end
+
+    test "compensates first FS rename when second FS rename fails (sidecar missing on disk)", %{
+      source_doc: source_doc,
+      sidecar_doc: sidecar_doc
+    } do
+      # zaq/report.md is intentionally absent from disk (only in DB).
+      # The sidecar rename step will fail with :enoent, triggering compensation
+      # of the already-applied main file rename.
+
+      assert {:error, _} =
+               RenameService.rename_entry("default", "zaq/report.pdf", "zaq/report_new.pdf")
+
+      # Main FS rename should have been compensated.
+      assert File.exists?(Path.join(@test_base, "zaq/report.pdf")),
+             "First FS rename must be compensated when the sidecar rename fails"
+
+      refute File.exists?(Path.join(@test_base, "zaq/report_new.pdf"))
+
+      # DB must be untouched.
+      assert Repo.get!(Document, source_doc.id).source == "zaq/report.pdf"
+      assert Repo.get!(Document, sidecar_doc.id).source == "zaq/report.md"
+    end
+  end
 end

@@ -95,6 +95,7 @@ defmodule Zaq.MixProject do
       {:mailroom, "~> 0.7.1"},
       {:lingua, "~> 0.3.6"},
       {:stream_data, "~> 1.3"},
+      {:sage, "~> 0.6.3"},
 
       # Jido Ecosystem
       {:llm_db, "~> 2026.4", runtime: false},

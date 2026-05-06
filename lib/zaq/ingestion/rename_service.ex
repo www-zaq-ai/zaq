@@ -1,6 +1,8 @@
 defmodule Zaq.Ingestion.RenameService do
   @moduledoc false
 
+  require Logger
+
   alias Ecto.Multi
   alias Zaq.Ingestion.{Document, FileExplorer, Sidecar, SourcePath}
   alias Zaq.Repo
@@ -14,9 +16,13 @@ defmodule Zaq.Ingestion.RenameService do
   end
 
   defp rename_by_type(:directory, volume_name, old_path, new_path, _volumes) do
-    with :ok <- FileExplorer.rename(volume_name, old_path, new_path) do
-      rename_document_sources(volume_name, old_path, new_path)
-    end
+    old_relative = SourcePath.normalize_relative(old_path)
+    new_relative = SourcePath.normalize_relative(new_path)
+
+    rename_ops = [%{volume: volume_name, old_relative: old_relative, new_relative: new_relative}]
+    db_multi = build_directory_multi(volume_name, old_relative, new_relative)
+
+    rename_with_saga(rename_ops, db_multi)
   end
 
   defp rename_by_type(:file, volume_name, old_path, new_path, volumes) do
@@ -27,27 +33,53 @@ defmodule Zaq.Ingestion.RenameService do
       :ok
     else
       plan = build_plan(volume_name, old_relative, new_relative, volumes)
-
-      with {:ok, _renamed_ops} <- execute_rename_ops(plan.rename_ops),
-           :ok <- persist_document_updates(plan.source_update, plan.sidecar_update) do
-        :ok
-      else
-        {:error, reason} = error ->
-          rollback_rename_ops(Enum.reverse(plan.rename_ops), reason)
-          error
-
-        {:error, reason, renamed_ops} = error ->
-          rollback_rename_ops(renamed_ops, reason)
-          error
-      end
-      |> normalize_error()
+      db_multi = build_file_multi(plan.source_update, plan.sidecar_update)
+      rename_with_saga(plan.rename_ops, db_multi)
     end
   end
 
-  defp rename_document_sources(volume_name, old_path, new_path) do
-    old_relative = SourcePath.normalize_relative(old_path)
-    new_relative = SourcePath.normalize_relative(new_path)
+  defp rename_with_saga(rename_ops, db_multi) do
+    saga =
+      Enum.reduce(rename_ops, Sage.new(), fn op, sage ->
+        Sage.run(
+          sage,
+          {:fs, op.volume, op.old_relative},
+          fn _, _ -> fs_rename_step(op.volume, op.old_relative, op.new_relative) end,
+          fn _, _, _ -> fs_compensate_step(op.volume, op.old_relative, op.new_relative) end
+        )
+      end)
+      |> Sage.run(:db, fn _, _ ->
+        case Repo.transaction(db_multi) do
+          {:ok, _} -> {:ok, :ok}
+          {:error, _, reason, _} -> {:error, reason}
+        end
+      end)
 
+    case Sage.execute(saga) do
+      {:ok, _, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fs_rename_step(volume, old_relative, new_relative) do
+    case FileExplorer.rename(volume, old_relative, new_relative) do
+      :ok -> {:ok, :ok}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp fs_compensate_step(volume, old_relative, new_relative) do
+    case FileExplorer.rename(volume, new_relative, old_relative) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Saga FS compensation failed for #{old_relative}: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp build_directory_multi(volume_name, old_relative, new_relative) do
     volume_name
     |> SourcePath.source_candidates(old_relative)
     |> Enum.reduce(Multi.new(), fn old_prefix, multi ->
@@ -70,11 +102,12 @@ defmodule Zaq.Ingestion.RenameService do
         []
       )
     end)
-    |> Repo.transaction()
-    |> case do
-      {:ok, _} -> :ok
-      {:error, _op, reason, _changes} -> {:error, reason}
-    end
+  end
+
+  defp build_file_multi(source_update, sidecar_update) do
+    Multi.new()
+    |> maybe_update_document(:source_doc, source_update)
+    |> maybe_update_document(:sidecar_doc, sidecar_update)
   end
 
   defp build_plan(volume_name, old_relative, new_relative, volumes) do
@@ -156,19 +189,18 @@ defmodule Zaq.Ingestion.RenameService do
           | new_metadata: Sidecar.put_sidecar_source(source_doc.metadata, sidecar_new_source)
         }
 
-        sidecar_update =
-          %{
-            volume: sidecar_volume,
-            old_relative: sidecar_old_relative,
-            new_relative: sidecar_new_relative,
-            document: sidecar_doc,
-            new_source: sidecar_new_source,
-            new_metadata:
-              if(sidecar_doc,
-                do: Sidecar.put_source_document_source(sidecar_doc.metadata, source_new_source),
-                else: nil
-              )
-          }
+        sidecar_update = %{
+          volume: sidecar_volume,
+          old_relative: sidecar_old_relative,
+          new_relative: sidecar_new_relative,
+          document: sidecar_doc,
+          new_source: sidecar_new_source,
+          new_metadata:
+            if(sidecar_doc,
+              do: Sidecar.put_source_document_source(sidecar_doc.metadata, source_new_source),
+              else: nil
+            )
+        }
 
         {source_update, sidecar_update}
     end
@@ -177,34 +209,14 @@ defmodule Zaq.Ingestion.RenameService do
   defp maybe_add_sidecar_op(rename_ops, nil), do: rename_ops
 
   defp maybe_add_sidecar_op(rename_ops, sidecar_update) do
-    [
-      %{
-        volume: sidecar_update.volume,
-        old_relative: sidecar_update.old_relative,
-        new_relative: sidecar_update.new_relative
-      }
-      | rename_ops
-    ]
-  end
-
-  defp execute_rename_ops(rename_ops) do
-    Enum.reduce_while(rename_ops, {:ok, []}, fn op, {:ok, applied} ->
-      case FileExplorer.rename(op.volume, op.old_relative, op.new_relative) do
-        :ok -> {:cont, {:ok, [op | applied]}}
-        {:error, reason} -> {:halt, {:error, reason, applied}}
-      end
-    end)
-  end
-
-  defp persist_document_updates(source_update, sidecar_update) do
-    Multi.new()
-    |> maybe_update_document(:source_doc, source_update)
-    |> maybe_update_document(:sidecar_doc, sidecar_update)
-    |> Repo.transaction()
-    |> case do
-      {:ok, _changes} -> :ok
-      {:error, _step, reason, _changes} -> {:error, reason}
-    end
+    rename_ops ++
+      [
+        %{
+          volume: sidecar_update.volume,
+          old_relative: sidecar_update.old_relative,
+          new_relative: sidecar_update.new_relative
+        }
+      ]
   end
 
   defp maybe_update_document(multi, _name, nil), do: multi
@@ -219,16 +231,4 @@ defmodule Zaq.Ingestion.RenameService do
 
     Multi.update(multi, name, changeset)
   end
-
-  defp rollback_rename_ops(rename_ops, reason) do
-    Enum.each(rename_ops, fn op ->
-      _ = FileExplorer.rename(op.volume, op.new_relative, op.old_relative)
-    end)
-
-    {:error, reason}
-  end
-
-  defp normalize_error(:ok), do: :ok
-  defp normalize_error({:error, reason}), do: {:error, reason}
-  defp normalize_error({:error, reason, _ops}), do: {:error, reason}
 end
