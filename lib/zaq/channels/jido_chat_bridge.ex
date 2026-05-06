@@ -539,6 +539,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       channel_ids: channel_ids,
       bridge_id: bridge_id,
       ingress: ingress,
+      bridge_config: %{credentials: %{token: config.token}},
       sink_mfa: sink_mfa_for(config),
       sink_opts: [transport: ingress_mode, bridge_id: bridge_id]
     ]
