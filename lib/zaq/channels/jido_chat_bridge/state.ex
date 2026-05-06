@@ -59,7 +59,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   def refresh_config(pid, config) do
-    GenServer.call(pid, {:refresh_config, config})
+    GenServer.cast(pid, {:refresh_config, config})
   end
 
   def send_typing(pid, provider, channel_id, connection_details) do
@@ -98,33 +98,50 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     {:ok, adapter} = JidoChatBridge.adapter_for(config.provider)
     transport = sink_opts[:transport] || :websocket
 
-    result =
-      with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
-           incoming <- with_transport(incoming, transport),
-           thread_id <-
-             JidoChatBridge.thread_key(
-               incoming.channel_meta.adapter_name,
-               incoming.external_room_id,
-               incoming.external_thread_id || incoming.external_room_id
-             ),
-           {:ok, updated_chat, _} <-
-             Chat.process_message(
+    case Adapter.transform_incoming(adapter, payload) do
+      {:ok, incoming} ->
+        incoming = with_transport(incoming, transport)
+
+        thread_id =
+          JidoChatBridge.thread_key(
+            incoming.channel_meta.adapter_name,
+            incoming.external_room_id,
+            incoming.external_thread_id || incoming.external_room_id
+          )
+
+        case Chat.process_message(
                state.chat,
                incoming.channel_meta.adapter_name,
                thread_id,
                incoming,
                []
              ) do
-        {:ok, updated_chat}
-      end
+          {:ok, updated_chat, _} ->
+            {:noreply, %{state | config: config, chat: updated_chat}}
 
-    case result do
-      {:ok, updated_chat} ->
-        {:noreply, %{state | config: config, chat: updated_chat}}
+          {:error, _reason} ->
+            {:noreply, %{state | config: config}}
+        end
 
       {:error, _reason} ->
         {:noreply, %{state | config: config}}
     end
+  end
+
+  def handle_cast({:refresh_config, config}, state) do
+    provider = String.to_existing_atom(config.provider)
+    chat = build_chat(config, provider, %{})
+
+    chat = %{
+      chat
+      | subscriptions: state.chat.subscriptions,
+        dedupe: state.chat.dedupe,
+        dedupe_order: state.chat.dedupe_order,
+        thread_state: state.chat.thread_state,
+        channel_state: state.chat.channel_state
+    }
+
+    {:noreply, %{state | config: config, chat: chat}}
   end
 
   @impl GenServer
@@ -164,23 +181,6 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     {:reply,
      JidoChatBridge.remove_reaction(provider, channel_id, message_id, emoji, connection_details),
      state}
-  end
-
-  def handle_call({:refresh_config, config}, _from, state) do
-    provider = String.to_existing_atom(config.provider)
-    chat = build_chat(config, provider, %{})
-
-    # Preserve runtime state while replacing handlers/adapters from latest config.
-    chat = %{
-      chat
-      | subscriptions: state.chat.subscriptions,
-        dedupe: state.chat.dedupe,
-        dedupe_order: state.chat.dedupe_order,
-        thread_state: state.chat.thread_state,
-        channel_state: state.chat.channel_state
-    }
-
-    {:reply, :ok, %{state | config: config, chat: chat}}
   end
 
   defp with_transport(incoming, transport) do

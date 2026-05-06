@@ -146,7 +146,10 @@ defmodule Zaq.Channels.JidoChatBridge do
         handle_subscribed_message(incoming)
       end)
       |> Chat.on_new_message(~r/[\s\S]*/, fn thread, incoming ->
-        if incoming.channel_meta.is_dm and not incoming.author.is_me do
+        is_me = incoming.author && incoming.author.is_me
+        is_dm = incoming.channel_meta && incoming.channel_meta.is_dm
+
+        if is_dm and not is_me do
           handle_message_event(config, thread, incoming)
         end
       end)
@@ -286,9 +289,9 @@ defmodule Zaq.Channels.JidoChatBridge do
   def to_internal(%Chat.Incoming{} = incoming, provider) do
     Incoming.new(%{
       content: incoming.text,
-      channel_id: incoming.external_room_id,
-      thread_id: incoming.external_thread_id,
-      message_id: incoming.external_message_id,
+      channel_id: incoming.external_room_id && to_string(incoming.external_room_id),
+      thread_id: incoming.external_thread_id && to_string(incoming.external_thread_id),
+      message_id: incoming.external_message_id && to_string(incoming.external_message_id),
       author_id: incoming.author && incoming.author.user_id,
       author_name: incoming.author && incoming.author.user_name,
       provider: provider,

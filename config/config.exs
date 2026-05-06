@@ -25,6 +25,12 @@ config :zaq, :channels, %{
     ingress_mode: :gateway,
     sink_mfa: {Zaq.Channels.JidoChatBridge, :from_listener, []}
   },
+  telegram: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.Telegram.Adapter,
+    ingress_mode: :polling,
+    sink_mfa: {Zaq.Channels.JidoChatBridge, :from_listener, []}
+  },
   email: %{bridge: Zaq.Channels.EmailBridge},
   web: %{bridge: Zaq.Channels.WebBridge}
 }
