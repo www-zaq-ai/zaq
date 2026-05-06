@@ -213,7 +213,7 @@ defmodule Zaq.NodeRouterTest do
       assert result.hops == [result.next_hop]
     end
 
-    test "returns an event for async hops as well" do
+    test "returns the appended event immediately for async hops" do
       event = %Event{
         request: %{module: String, function: :upcase, args: ["hello"]},
         next_hop: %EventHop{destination: :bo, type: :async, timestamp: DateTime.utc_now()},
@@ -224,8 +224,41 @@ defmodule Zaq.NodeRouterTest do
       result = NodeRouter.dispatch(event)
 
       assert %Event{} = result
-      assert result.response == "HELLO"
+      assert result.response == nil
       assert result.hops == [result.next_hop]
+    end
+
+    test "executes async remote hops in background and returns immediately" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :agent,
+          type: :async,
+          opts: [action: :invoke]
+        )
+
+      parent = self()
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{} = routed, :invoke, _api_opts] ->
+            send(parent, {:async_remote_called, routed.trace_id})
+            %{routed | response: "HELLO FROM REMOTE"}
+        end
+      }
+
+      result = NodeRouter.dispatch(event, runtime)
+      trace_id = event.trace_id
+
+      assert %Event{} = result
+      assert result.trace_id == trace_id
+      assert result.response == nil
+      assert result.hops == [result.next_hop]
+      assert_receive {:async_remote_called, ^trace_id}
     end
 
     test "does not duplicate last hop when dispatching same event twice" do

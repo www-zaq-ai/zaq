@@ -187,10 +187,16 @@
 
       <:detail>
         <% selected_keys = @form[:enabled_tool_keys].value || [] %>
+        <% selected_mcp_ids = @form[:enabled_mcp_endpoint_ids].value || [] %>
         <% unselected_tool_options =
           @tools
           |> Enum.reject(&(&1.key in selected_keys))
           |> Enum.map(&{"#{&1.label} (#{&1.key})", &1.key}) %>
+        <% unselected_mcp_options =
+          @mcp_endpoints
+          |> Enum.filter(&(&1.status == "enabled"))
+          |> Enum.reject(&(&1.id in selected_mcp_ids))
+          |> Enum.map(&{"#{&1.name} (##{&1.id})", &1.id}) %>
 
         <section class="rounded-xl border border-[#e6e2db] bg-white p-4">
           <div class="flex items-center justify-between">
@@ -362,6 +368,47 @@
             <div>
               <div class="mb-2 flex items-center justify-between">
                 <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82]">
+                  MCP Endpoints
+                </label>
+                <button
+                  id="add-mcp-button"
+                  type="button"
+                  phx-click="open_mcp_picker"
+                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
+                  disabled={unselected_mcp_options == []}
+                >
+                  + Add MCP
+                </button>
+              </div>
+              <input type="hidden" name="configured_agent[enabled_mcp_endpoint_ids][]" value="" />
+              <input
+                :for={endpoint_id <- selected_mcp_ids}
+                type="hidden"
+                name="configured_agent[enabled_mcp_endpoint_ids][]"
+                value={endpoint_id}
+              />
+              <div
+                :if={@mcp_endpoints == []}
+                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+              >
+                No MCP endpoints are configured.
+              </div>
+              <.selected_mcp_panel
+                :if={@mcp_endpoints != []}
+                mcp_endpoints={@mcp_endpoints}
+                selected_endpoint_ids={selected_mcp_ids}
+              />
+              <p
+                :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
+                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+              >
+                {msg}
+              </p>
+            </div>
+
+            <div>
+              <div class="mb-2 flex items-center justify-between">
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82]">
                   Enabled Tools
                 </label>
                 <button
@@ -429,6 +476,51 @@
               >
                 {msg}
               </p>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Idle Timeout (seconds)
+                </label>
+                <input
+                  type="number"
+                  name="configured_agent[idle_time_seconds]"
+                  value={@form[:idle_time_seconds].value || ""}
+                  placeholder="Default: 1800"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                />
+                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                  Leave blank to use the system default (30 min).
+                </p>
+                <p
+                  :for={msg <- error_messages(@changeset, :idle_time_seconds)}
+                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                >
+                  {msg}
+                </p>
+              </div>
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Memory Context Size (tokens)
+                </label>
+                <input
+                  type="number"
+                  name="configured_agent[memory_context_max_size]"
+                  value={@form[:memory_context_max_size].value || ""}
+                  placeholder="Default: 5000"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                />
+                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                  Max conversation history tokens loaded on process restart.
+                </p>
+                <p
+                  :for={msg <- error_messages(@changeset, :memory_context_max_size)}
+                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                >
+                  {msg}
+                </p>
+              </div>
             </div>
 
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -542,6 +634,57 @@
             </div>
           </.form>
         </section>
+
+        <ZaqWeb.Components.BOModal.modal_shell
+          :if={@mcp_picker_open}
+          id="agent-mcp-picker-modal"
+          cancel_event="close_mcp_picker"
+          max_width_class="max-w-lg"
+          panel_class="p-6"
+        >
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+              Add MCP endpoint
+            </h3>
+            <button
+              type="button"
+              phx-click="close_mcp_picker"
+              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form phx-change="add_mcp_from_picker">
+            <.searchable_select
+              id="agent-mcp-picker-select"
+              name="endpoint_id"
+              value={@mcp_picker_value}
+              options={unselected_mcp_options}
+              placeholder="Search MCP endpoints..."
+              empty_label="Choose an endpoint to add..."
+              compact={true}
+            />
+          </form>
+
+          <div class="mt-4">
+            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+              Selected MCP endpoints
+            </p>
+            <.selected_mcp_panel
+              mcp_endpoints={@mcp_endpoints}
+              selected_endpoint_ids={selected_mcp_ids}
+            />
+          </div>
+        </ZaqWeb.Components.BOModal.modal_shell>
 
         <ZaqWeb.Components.BOModal.modal_shell
           :if={@tools_picker_open}

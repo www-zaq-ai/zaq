@@ -145,6 +145,18 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
       module: Jido.Tools.LuaEval
+    },
+    %{
+      key: "answering.search_knowledge_base",
+      label: "Search knowledge base",
+      description: "Search the ZAQ knowledge base with a refined query (answering-only)",
+      module: Zaq.Agent.Tools.SearchKnowledgeBase
+    },
+    %{
+      key: "answering.ask_for_clarification",
+      label: "Ask for clarification",
+      description: "Signal ambiguity and return a clarifying question (answering-only)",
+      module: Zaq.Agent.Tools.AskForClarification
     }
   ]
 

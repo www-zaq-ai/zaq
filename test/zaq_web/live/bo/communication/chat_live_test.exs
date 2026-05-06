@@ -85,6 +85,57 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end
   end
 
+  # FakeExecutor bridges the old NodeRouterFake(:agent, Answering, :ask) stub convention
+  # to the new Executor.run interface used by the pipeline since the Jido refactor.
+  defmodule FakeExecutor do
+    alias Zaq.Agent.Answering
+    alias Zaq.Agent.Executor
+    alias Zaq.Engine.Messages.{Incoming, Outgoing}
+
+    def run(%Incoming{} = incoming, opts) do
+      nr = Keyword.get(opts, :node_router, NodeRouterFake)
+
+      case nr.call(:agent, Answering, :ask, []) do
+        {:ok, %{answer: answer, confidence: %{score: score}}} ->
+          %Outgoing{
+            body: answer,
+            channel_id: incoming.channel_id,
+            provider: incoming.provider,
+            metadata: %{
+              confidence_score: score,
+              latency_ms: nil,
+              prompt_tokens: nil,
+              completion_tokens: nil,
+              total_tokens: nil,
+              error: false
+            }
+          }
+
+        {:ok, raw} when is_binary(raw) ->
+          %Outgoing{
+            body: raw,
+            channel_id: incoming.channel_id,
+            provider: incoming.provider,
+            metadata: %{
+              confidence_score: nil,
+              latency_ms: nil,
+              prompt_tokens: nil,
+              completion_tokens: nil,
+              total_tokens: nil,
+              error: false
+            }
+          }
+
+        {:error, {:missing_stub, _, _, _}} ->
+          # No stub registered — fall through to real executor (will fail with :provider_not_found)
+          Executor.run(incoming, opts)
+
+        {:error, _reason} = err ->
+          raise "FakeExecutor: unexpected answering stub error: #{inspect(err)}"
+      end
+    end
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -96,6 +147,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
 
     Application.put_env(:zaq, :chat_live_node_router_module, NodeRouterFake)
+    Application.put_env(:zaq, :pipeline_executor_module, FakeExecutor)
     :persistent_term.put(NodeRouterFake, %{})
     NodeRouterFake.reset_calls()
 
@@ -117,6 +169,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     on_exit(fn ->
       Application.delete_env(:zaq, :chat_live_node_router_module)
+      Application.delete_env(:zaq, :pipeline_executor_module)
       :persistent_term.erase(NodeRouterFake)
       :persistent_term.erase({NodeRouterFake, :calls})
       :persistent_term.erase({NodeRouterFake, :dispatches})
@@ -1079,6 +1132,706 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
           %{"index" => 4, "type" => "document", "path" => "path-only.md"}
         ]
     end)
+  end
+
+  # ── Content filter event tests ───────────────────────────────────────────────
+
+  test "filter_autocomplete with non-empty query calls NodeRouter and assigns suggestions", %{
+    conn: conn
+  } do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      [
+        %Zaq.Ingestion.ContentSource{
+          connector: "documents",
+          source_prefix: "documents/hr",
+          label: "hr",
+          type: :folder
+        }
+      ]
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_query == "hr" and length(assigns.filter_suggestions) == 1
+    end)
+
+    state = :sys.get_state(view.pid)
+    [suggestion] = state.socket.assigns.filter_suggestions
+    assert suggestion.source_prefix == "documents/hr"
+    assert suggestion.label == "hr"
+  end
+
+  test "filter_autocomplete with empty query clears suggestions and filter_query", %{conn: conn} do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      [
+        %Zaq.Ingestion.ContentSource{
+          connector: "documents",
+          source_prefix: "documents/hr",
+          label: "hr",
+          type: :folder
+        }
+      ]
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.filter_query == "hr"
+    end)
+
+    render_hook(view, "filter_autocomplete", %{"query" => ""})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_suggestions == [] and assigns.filter_query == ""
+    end)
+  end
+
+  test "filter_autocomplete with missing query key clears suggestions", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{})
+
+    state = :sys.get_state(view.pid)
+    assigns = state.socket.assigns
+    assert assigns.filter_suggestions == []
+    assert assigns.filter_query == ""
+  end
+
+  test "add_content_filter appends a new ContentSource to active_filters", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      length(assigns.active_filters) == 1
+    end)
+
+    state = :sys.get_state(view.pid)
+    [filter] = state.socket.assigns.active_filters
+    assert filter.source_prefix == "documents/hr"
+    assert filter.label == "hr"
+    assert filter.type == :folder
+    assert filter.connector == "documents"
+  end
+
+  test "add_content_filter clears filter_suggestions and filter_query after adding", %{
+    conn: conn
+  } do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      [
+        %Zaq.Ingestion.ContentSource{
+          connector: "documents",
+          source_prefix: "documents/hr",
+          label: "hr",
+          type: :folder
+        }
+      ]
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.filter_suggestions) == 1
+    end)
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_suggestions == [] and assigns.filter_query == ""
+    end)
+  end
+
+  test "add_content_filter does not add duplicate by source_prefix", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    params = %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    }
+
+    render_hook(view, "add_content_filter", params)
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    render_hook(view, "add_content_filter", params)
+
+    state = :sys.get_state(view.pid)
+    assert length(state.socket.assigns.active_filters) == 1
+  end
+
+  test "add_content_filter accepts file type atom", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr/policy.md",
+      "connector" => "documents",
+      "label" => "policy.md",
+      "type" => "file"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    state = :sys.get_state(view.pid)
+    [filter] = state.socket.assigns.active_filters
+    assert filter.type == :file
+  end
+
+  test "remove_content_filter removes the matching entry by source_prefix", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/legal",
+      "connector" => "documents",
+      "label" => "legal",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 2
+    end)
+
+    render_hook(view, "remove_content_filter", %{"source_prefix" => "documents/hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      length(assigns.active_filters) == 1 and
+        hd(assigns.active_filters).source_prefix == "documents/legal"
+    end)
+  end
+
+  test "remove_content_filter with non-existing source_prefix leaves filters unchanged", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    render_hook(view, "remove_content_filter", %{"source_prefix" => "documents/nonexistent"})
+
+    state = :sys.get_state(view.pid)
+    assert length(state.socket.assigns.active_filters) == 1
+  end
+
+  test "clear_content_filters resets active_filters to empty list", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "hr",
+      "type" => "folder"
+    })
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/legal",
+      "connector" => "documents",
+      "label" => "legal",
+      "type" => "connector"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 2
+    end)
+
+    render_hook(view, "clear_content_filters", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.active_filters == []
+    end)
+  end
+
+  test "noop event does not change any assigns", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    before_state = :sys.get_state(view.pid)
+    before_assigns = before_state.socket.assigns
+
+    render_hook(view, "noop", %{})
+
+    after_state = :sys.get_state(view.pid)
+    after_assigns = after_state.socket.assigns
+
+    assert after_assigns.active_filters == before_assigns.active_filters
+    assert after_assigns.filter_suggestions == before_assigns.filter_suggestions
+    assert after_assigns.filter_query == before_assigns.filter_query
+  end
+
+  test "filter_autocomplete when NodeRouter returns non-list falls back to empty suggestions", %{
+    conn: conn
+  } do
+    NodeRouterFake.put(:ingestion, Zaq.Ingestion, :list_document_sources, fn [_query] ->
+      {:error, :not_found}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "filter_autocomplete", %{"query" => "hr"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.filter_query == "hr" and assigns.filter_suggestions == []
+    end)
+  end
+
+  # ── New coverage tests ──────────────────────────────────────────────────────
+
+  test "close_feedback_modal hides the modal", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view
+    |> element(~s(button[phx-click="feedback"][phx-value-type="negative"]))
+    |> render_click()
+
+    assert has_element?(view, "#feedback-modal")
+    render_hook(view, "close_feedback_modal", %{})
+    refute has_element?(view, "#feedback-modal")
+  end
+
+  test "send_message with active filters serializes filter metadata into user message", %{
+    conn: conn
+  } do
+    NodeRouterFake.put(:agent, Zaq.Agent.Retrieval, :ask, {:ok, %{}})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/hr",
+      "connector" => "documents",
+      "label" => "HR Docs",
+      "type" => "folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "HR question"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      user_msg = Enum.find(state.socket.assigns.messages, &(&1.role == :user))
+
+      user_msg != nil and
+        user_msg.filters == [%{label: "HR Docs", source_prefix: "documents/hr", type: :folder}]
+    end)
+  end
+
+  test "title_updated leaves non-matching conversations unchanged", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo",
+        title: "Keep this title"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {:title_updated, "some-other-id", "Should not appear"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      existing = Enum.find(state.socket.assigns.conversations, &(&1.id == conv.id))
+      existing != nil and existing.title == "Keep this title"
+    end)
+  end
+
+  test "pipeline dispatch returning {:error, reason} produces fallback error message", %{
+    conn: conn
+  } do
+    NodeRouterFake.put_dispatch(fn event ->
+      %{event | response: {:error, :intentional_error}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
+
+    assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
+  end
+
+  test "pipeline dispatch returning unexpected value produces fallback error message", %{
+    conn: conn
+  } do
+    NodeRouterFake.put_dispatch(fn event ->
+      %{event | response: :unexpected_response}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
+
+    assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
+  end
+
+  test "pipeline_result with nil body trims gracefully without crashing", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {
+      :pipeline_result,
+      nil,
+      %{
+        body: nil,
+        channel_id: "bo",
+        provider: :web,
+        sources: [],
+        metadata: %{confidence_score: nil, error: true}
+      },
+      "question"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.messages) == 2
+    end)
+  end
+
+  defp pipeline_result_stubs(conv_id, user) do
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :create_conversation, fn [_attrs] ->
+      {:ok, %{id: conv_id, user_id: nil}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :update_conversation, fn [_conv, attrs] ->
+      {:ok, %{id: conv_id, user_id: attrs.user_id}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :add_message, fn [_conv, attrs] ->
+      cond do
+        Map.get(attrs, :metadata) == %{"welcome" => true} -> {:ok, %{id: "welcome-#{conv_id}"}}
+        attrs.role == "user" -> {:ok, %{id: "user-#{conv_id}"}}
+        attrs.role == "assistant" -> {:ok, %{id: "bot-#{conv_id}"}}
+      end
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :list_conversations, fn _ ->
+      Conversations.list_conversations(user_id: user.id, limit: 50)
+    end)
+  end
+
+  test "pipeline_result persists with nil confidence score", %{conn: conn, user: user} do
+    pipeline_result_stubs("conv-nil-conf", user)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {
+      :pipeline_result,
+      nil,
+      %{
+        body: "answer with nil confidence",
+        channel_id: "bo",
+        provider: :web,
+        sources: [],
+        metadata: %{confidence_score: nil, error: false}
+      },
+      "question"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == "conv-nil-conf"
+    end)
+  end
+
+  test "pipeline_result reuses existing current_conversation_id via resolve_conversation", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Q1"})
+    {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "A1"})
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :get_conversation, fn [id] ->
+      Conversations.get_conversation!(id)
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :add_message, fn [c, attrs] ->
+      Conversations.add_message(c, attrs)
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :list_conversations, fn _ ->
+      Conversations.list_conversations(user_id: user.id, limit: 50)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    send(view.pid, {
+      :pipeline_result,
+      nil,
+      %{
+        body: "Follow-up answer",
+        channel_id: "bo",
+        provider: :web,
+        sources: [],
+        metadata: %{confidence_score: 0.9, error: false}
+      },
+      "Follow-up question"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+
+      state.socket.assigns.current_conversation_id == conv.id and
+        Enum.any?(state.socket.assigns.messages, fn m ->
+          m.role == :bot and m.body == "Follow-up answer"
+        end)
+    end)
+  end
+
+  test "pipeline_result falls back to new conversation when get_conversation returns non-map", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "A1"})
+
+    # get_conversation returns non-map → triggers create_fresh_conversation fallback
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :get_conversation, fn [_id] ->
+      {:error, :not_found}
+    end)
+
+    pipeline_result_stubs("conv-fallback", user)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    send(view.pid, {
+      :pipeline_result,
+      nil,
+      %{
+        body: "answer",
+        channel_id: "bo",
+        provider: :web,
+        sources: [],
+        metadata: %{confidence_score: 0.9, error: false}
+      },
+      "question"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      Enum.any?(state.socket.assigns.messages, &(&1.role == :bot and &1.body == "answer"))
+    end)
+  end
+
+  test "pipeline_result when bot message persist fails still updates UI with nil db_id", %{
+    conn: conn,
+    user: user
+  } do
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :create_conversation, fn [_attrs] ->
+      {:ok, %{id: "conv-bot-fail", user_id: nil}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :update_conversation, fn [_conv, attrs] ->
+      {:ok, %{id: "conv-bot-fail", user_id: attrs.user_id}}
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :add_message, fn [_conv, attrs] ->
+      cond do
+        Map.get(attrs, :metadata) == %{"welcome" => true} -> {:ok, %{id: "welcome-bf"}}
+        attrs.role == "user" -> {:ok, %{id: "user-bf"}}
+        attrs.role == "assistant" -> {:error, :db_error}
+      end
+    end)
+
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :list_conversations, fn _ ->
+      Conversations.list_conversations(user_id: user.id, limit: 50)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(view.pid, {
+      :pipeline_result,
+      nil,
+      %{
+        body: "some answer",
+        channel_id: "bo",
+        provider: :web,
+        sources: [],
+        metadata: %{confidence_score: 0.8, error: false}
+      },
+      "question"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      bot = List.last(state.socket.assigns.messages)
+      bot.role == :bot and is_nil(Map.get(bot, :db_id))
+    end)
+  end
+
+  test "load_conversation infers positive feedback from message rated >= 4", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Q"})
+    {:ok, assistant_msg} = Conversations.add_message(conv, %{role: "assistant", content: "A"})
+
+    {:ok, _} =
+      Conversations.rate_message_by_id(assistant_msg.id, %{user_id: user.id, rating: 5})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+
+      Enum.any?(state.socket.assigns.messages, fn m ->
+        m.role == :bot and not Map.get(m, :welcome, false) and m.feedback == :positive
+      end)
+    end)
+  end
+
+  test "load_conversation infers negative feedback from message rated <= 2", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Q"})
+    {:ok, assistant_msg} = Conversations.add_message(conv, %{role: "assistant", content: "A"})
+
+    {:ok, _} =
+      Conversations.rate_message_by_id(assistant_msg.id, %{user_id: user.id, rating: 1})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+
+      Enum.any?(state.socket.assigns.messages, fn m ->
+        m.role == :bot and not Map.get(m, :welcome, false) and m.feedback == :negative
+      end)
+    end)
+  end
+
+  test "load_conversation shows nil feedback for middle rating (3)", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "Q"})
+    {:ok, assistant_msg} = Conversations.add_message(conv, %{role: "assistant", content: "A"})
+
+    {:ok, _} =
+      Conversations.rate_message_by_id(assistant_msg.id, %{user_id: user.id, rating: 3})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      assigns.current_conversation_id == conv.id and length(assigns.messages) == 3
+    end)
+
+    state = :sys.get_state(view.pid)
+
+    bot =
+      Enum.find(state.socket.assigns.messages, fn m ->
+        m.role == :bot and not Map.get(m, :welcome, false)
+      end)
+
+    assert is_nil(bot.feedback)
   end
 
   defp assert_eventually(fun, retries \\ 80)

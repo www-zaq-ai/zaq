@@ -3,8 +3,10 @@ defmodule Zaq.AgentTest do
 
   import Zaq.SystemConfigFixtures
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
@@ -91,6 +93,24 @@ defmodule Zaq.AgentTest do
 
     assert {:error, :inactive_agent} = Agent.get_active_agent(inactive_agent.id)
     assert {:error, :agent_not_found} = Agent.get_active_agent(9_999_999)
+    assert {:ok, _agent} = Agent.get_conversation_enabled_agent(active_conversation.id)
+    assert {:error, :inactive_agent} = Agent.get_conversation_enabled_agent(inactive_agent.id)
+
+    {:ok, bo_only_agent} =
+      Agent.create_agent(%{
+        name: "Agent BO Only #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:error, :conversation_disabled} =
+             Agent.get_conversation_enabled_agent(bo_only_agent.id)
 
     {disabled_conversation, _} =
       Agent.filter_agents(%{"conversation_enabled" => "disabled"}, page: 1, per_page: 50)
@@ -258,6 +278,57 @@ defmodule Zaq.AgentTest do
 
     assert Agent.provider_for_agent(%ConfiguredAgent{credential_id: credential.id}) == "novita_ai"
     assert {:ok, :openai} = Agent.runtime_provider_for_agent(agent)
+  end
+
+  test "validates enabled_mcp_endpoint_ids and can list agents by endpoint assignment" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Agent MCP Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Agent MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, assigned} =
+      Agent.create_agent(%{
+        name: "Agent With MCP #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_mcp_endpoint_ids: [endpoint.id],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert Enum.any?(Agent.list_agents_with_mcp_endpoint(endpoint.id), &(&1.id == assigned.id))
+
+    {:error, changeset} =
+      Agent.create_agent(%{
+        name: "Agent With Unknown MCP #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_mcp_endpoint_ids: [999_999_999],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert errors_on(changeset).enabled_mcp_endpoint_ids
+           |> to_string()
+           |> String.contains?("contains unknown MCP endpoint ids")
   end
 
   test "runtime provider returns provider_not_supported for known unsupported runtime" do
@@ -435,7 +506,10 @@ defmodule Zaq.AgentTest do
         advanced_options: %{}
       })
 
-    assert {:ok, {:via, Registry, {registry, key}}} = ServerManager.ensure_server(agent)
+    Sandbox.allow(Zaq.Repo, self(), Process.whereis(Zaq.Agent.ServerManager))
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(agent, "configured_agent_#{agent.id}")
 
     pid = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid)
@@ -593,7 +667,7 @@ defmodule Zaq.AgentTest do
         handler_id,
         [:zaq, :repo, :query],
         fn _event, _measurements, metadata, _config ->
-          send(test_pid, {:repo_query, metadata[:source]})
+          if self() == test_pid, do: send(test_pid, {:repo_query, metadata[:source]})
         end,
         nil
       )

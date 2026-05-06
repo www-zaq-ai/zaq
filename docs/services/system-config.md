@@ -42,6 +42,45 @@ These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
 Connection fields (`provider`, `endpoint`, `api_key`) are sourced from
 `ai_provider_credentials` referenced by each `*.credential_id`.
 
+## MCP Endpoint Runtime Configuration
+
+MCP endpoint changes from Back Office (`/bo/system-config`) are applied through
+an event-first boundary:
+
+- BO emits `NodeRouter.dispatch/1` action `:mcp_endpoint_updated` (destination `:agent`)
+- `Zaq.Agent.Api` receives the action and delegates to `Zaq.Agent.RuntimeSync`
+- `RuntimeSync` applies the required runtime updates for impacted configured agents
+
+This prevents BO LiveViews from calling runtime modules directly and keeps
+single-node/multi-node behavior consistent.
+
+### Signal Adapter Pattern
+
+The `:mcp_endpoint_updated` action acts as an adapter signal from configuration
+changes to runtime operations:
+
+- create/update/enable endpoint -> sync MCP assignment runtime state
+- disable/delete endpoint -> unsync runtime state for impacted agents
+
+### Hot Runtime Patch Strategy
+
+For MCP assignment-only changes, runtime sync prefers hot patching existing
+running agent servers (no full restart required).
+
+For structural configured-agent runtime changes (model/credential/job/strategy/
+tool/options/flags), normal fingerprint-based restart behavior still applies.
+
+### Atom and Capacity Guards
+
+MCP runtime endpoint ids are deterministic (`:"mcp_<id>"`) and managed by
+`Zaq.Agent.MCP.Runtime` with safety guardrails:
+
+- atom memory usage threshold: block new endpoint atom creation at `>= 85%`
+- endpoint hard cap: maximum `2000` MCP endpoints
+
+These checks exist to prevent atom-table exhaustion and uncontrolled runtime
+growth in long-lived nodes.
+
 ## Secret Persistence Standard (Strict, Global)
 
 All sensitive values (API keys, tokens, passwords) must follow one strict write path:

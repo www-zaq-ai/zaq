@@ -8,6 +8,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
   alias Ecto.Changeset
   alias Zaq.Accounts
+  alias Zaq.Agent.MCP
+  alias Zaq.Agent.ServerManager
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
@@ -71,6 +73,55 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Read file"
     assert html =~ "Write file"
     assert html =~ "List directory"
+  end
+
+  test "renders MCP section above tools and supports add/remove", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, enabled_endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Enabled MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, _disabled_endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Disabled MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "disabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    html = render(view)
+    {mcp_pos, _} = :binary.match(html, "MCP Endpoints")
+    {tools_pos, _} = :binary.match(html, "Enabled Tools")
+    assert mcp_pos < tools_pos
+
+    render_click(element(view, "#add-mcp-button"))
+
+    modal_html = render(view)
+    assert modal_html =~ "Enabled MCP"
+    refute modal_html =~ "Disabled MCP"
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => to_string(enabled_endpoint.id)})
+
+    assert has_element?(view, ~s([data-selected-mcp-endpoint-id="#{enabled_endpoint.id}"]))
+
+    view
+    |> element(
+      "#configured-agent-form button[phx-click='remove_mcp'][phx-value-id='#{enabled_endpoint.id}']"
+    )
+    |> render_click()
+
+    refute has_element?(view, ~s([data-selected-mcp-endpoint-id="#{enabled_endpoint.id}"]))
   end
 
   test "list hides delete button and shows status dot in name", %{conn: conn} do
@@ -370,6 +421,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
+        "idle_time_seconds" => "900",
         "active" => "true"
       }
     )
@@ -429,6 +481,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
+        "idle_time_seconds" => "900",
         "active" => "true"
       }
     )
@@ -567,6 +620,65 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_submit()
 
     assert render(view) =~ "Agent updated"
+    assert render(view) =~ "#{name} Updated"
+  end
+
+  test "edit notice includes stopped runtime server count when update kills servers", %{
+    conn: conn
+  } do
+    credential =
+      ai_credential_fixture(%{
+        name: "Notice Count Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    name = "Notice Count Agent #{System.unique_integer([:positive])}"
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: name,
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    server_id = "agent:mattermost:person:#{agent.id}"
+    assert {:ok, _ref} = ServerManager.ensure_server(agent, server_id)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "#{name} Updated",
+        "description" => "after",
+        "job" => "You are v2",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "idle_time_seconds" => "900",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~
+             "Agent updated. 1 runtime server stopped; it will restart on next message."
+
     assert render(view) =~ "#{name} Updated"
   end
 
@@ -959,6 +1071,73 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     refute has_element?(view, ~s([data-selected-tool-key="files.read_file"]))
   end
 
+  test "picker open/close and empty add events are no-ops", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Picker MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    render_click(element(view, "#new-agent-button"))
+
+    render_click(element(view, "#add-tools-button"))
+    assert has_element?(view, "#agent-tools-picker-modal")
+
+    render_click(
+      element(view, "#agent-tools-picker-modal button[phx-click='close_tools_picker']")
+    )
+
+    refute has_element?(view, "#agent-tools-picker-modal")
+
+    render_change(view, "add_tool_from_picker", %{"tool_key" => ""})
+    refute has_element?(view, "[data-selected-tool-key]")
+
+    render_click(element(view, "#add-mcp-button"))
+    assert has_element?(view, "#agent-mcp-picker-modal")
+
+    render_click(element(view, "#agent-mcp-picker-modal button[phx-click='close_mcp_picker']"))
+    refute has_element?(view, "#agent-mcp-picker-modal")
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => ""})
+    refute has_element?(view, "[data-selected-mcp-endpoint-id]")
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => to_string(endpoint.id)})
+    assert has_element?(view, ~s([data-selected-mcp-endpoint-id="#{endpoint.id}"]))
+  end
+
+  test "toggle_form_boolean updates conversation and active values", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    before = render(view)
+
+    render_click(
+      element(
+        view,
+        "button[phx-click='toggle_form_boolean'][phx-value-field='conversation_enabled']"
+      )
+    )
+
+    render_click(
+      element(view, "button[phx-click='toggle_form_boolean'][phx-value-field='active']")
+    )
+
+    after_html = render(view)
+
+    refute before == after_html
+  end
+
   defp attach_repo_query_telemetry(test_pid) do
     ref = make_ref()
     handler_id = {__MODULE__, :repo_query, ref}
@@ -968,7 +1147,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         handler_id,
         [:zaq, :repo, :query],
         fn _event, _measurements, metadata, _config ->
-          send(test_pid, {:repo_query, metadata[:source]})
+          if self() == test_pid, do: send(test_pid, {:repo_query, metadata[:source]})
         end,
         nil
       )

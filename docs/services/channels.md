@@ -114,6 +114,21 @@ The string `"email:smtp"` is mapped to the `:email` key before lookup. For `:web
 
 `sync_config_runtime/2` calls `bridge.start_runtime/1` or `bridge.stop_runtime/1` on the bridge if the function is exported. This is how the Supervisor delegates lifecycle to the bridge.
 
+### Conversation Agent Eligibility
+
+Conversation-channel routing only selects agents that are both:
+
+- `active == true`
+- `conversation_enabled == true`
+
+Selection is enforced in shared channel helper flow (`Zaq.Channels.Bridge.first_active_selection/2`) via agent eligibility lookup.
+
+Implication:
+
+- `conversation_enabled = false` means the agent is BO-only (not selectable from conversation channels).
+
+See also: [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
+
 ---
 
 ## Bridge Behaviour

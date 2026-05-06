@@ -118,6 +118,40 @@ defmodule ZaqWeb.CoreComponents do
   end
 
   @doc """
+  Renders a button with built-in click loading visuals.
+
+  Intended for actions that can take noticeable time. The button shows a spinner
+  and loading label while the click event is in flight, and a JS hook restores
+  disabled state once the response settles.
+  """
+  attr :label, :string, required: true
+  attr :loading_label, :string, default: "Loading..."
+  attr :class, :any, default: nil
+
+  attr :rest, :global,
+    include: ~w(id phx-click phx-value-id phx-value-predefined_id disabled title aria-label)
+
+  def loading_action_button(assigns) do
+    ~H"""
+    <button
+      phx-hook="LoadingActionButton"
+      class={[
+        "inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed",
+        "[&.phx-click-loading_.mcp-test-label]:hidden [&.phx-click-loading_.mcp-test-loading]:inline-flex",
+        @class
+      ]}
+      {@rest}
+    >
+      <span class="mcp-test-label">{@label}</span>
+      <span class="mcp-test-loading hidden items-center gap-1.5">
+        <.icon name="hero-arrow-path" class="h-3.5 w-3.5 animate-spin" />
+        <span>{@loading_label}</span>
+      </span>
+    </button>
+    """
+  end
+
+  @doc """
   Renders an input with label and error messages.
 
   A `Phoenix.HTML.FormField` may be passed as argument,

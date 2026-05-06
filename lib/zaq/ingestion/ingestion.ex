@@ -5,6 +5,8 @@ defmodule Zaq.Ingestion do
   """
 
   alias Zaq.Ingestion.{
+    ConnectorRegistry,
+    ContentSource,
     DeleteService,
     DirectorySnapshot,
     Document,
@@ -57,6 +59,183 @@ defmodule Zaq.Ingestion do
 
       {:ok, jobs}
     end
+  end
+
+  # --- Content filter autocomplete ---
+
+  @doc """
+  Returns up to 50 `%ContentSource{}` structs for the @ mention autocomplete.
+
+  Connector-level entries (one per configured connector) are always included first.
+  When `query` is given, only document sources matching the query string are returned.
+
+  Called via `NodeRouter.call(:ingestion, Zaq.Ingestion, :list_document_sources, [query])`.
+  Never call this directly from BO — use the NodeRouter boundary.
+  """
+  def list_document_sources(query \\ nil) do
+    connector_sources =
+      ConnectorRegistry.list_connectors()
+      |> then(fn connectors ->
+        if is_binary(query) and query != "",
+          do: Enum.filter(connectors, &String.contains?(&1.id, query)),
+          else: connectors
+      end)
+      |> Enum.map(fn %{id: id, label: label} ->
+        %ContentSource{connector: id, source_prefix: id, label: label, type: :connector}
+      end)
+
+    db_sources = list_db_sources(query)
+
+    (connector_sources ++ db_sources)
+    |> Enum.uniq_by(& &1.source_prefix)
+    |> Enum.take(50)
+  end
+
+  defp list_db_sources(query) do
+    case parse_query(query) do
+      :all -> name_search_sources(nil)
+      {:name, name} -> name_search_sources(name)
+      {:browse, folder_label, child_query} -> browse_sources(folder_label, child_query)
+    end
+  end
+
+  defp parse_query(nil), do: :all
+  defp parse_query(""), do: :all
+
+  defp parse_query(query) when is_binary(query) do
+    case String.split(query, "/", parts: 2) do
+      [folder, child] -> {:browse, folder, child}
+      [name] -> {:name, name}
+    end
+  end
+
+  # Name search — returns folders and files whose label matches the query.
+  defp name_search_sources(name) do
+    condition =
+      if name,
+        do:
+          dynamic(
+            [d],
+            like(d.source, ^"%#{name}%") and
+              fragment("(? ->> 'source_document_source') IS NULL", d.metadata)
+          ),
+        else: dynamic([d], fragment("(? ->> 'source_document_source') IS NULL", d.metadata))
+
+    from(d in Document,
+      where: ^condition,
+      select: d.source,
+      order_by: [asc: d.source],
+      limit: 200
+    )
+    |> Repo.all()
+    |> Enum.flat_map(fn source ->
+      if name,
+        do: derive_folder_prefixes(source) ++ [source],
+        else: derive_folder_prefixes(source)
+    end)
+    |> Enum.uniq()
+    |> Enum.map(&ContentSource.from_source/1)
+    |> Enum.reject(&is_nil/1)
+    |> then(fn sources ->
+      if name, do: Enum.filter(sources, &String.contains?(&1.label, name)), else: sources
+    end)
+    |> Enum.sort_by(&String.length(&1.source_prefix))
+    |> Enum.uniq_by(&{&1.connector, &1.label})
+  end
+
+  # Path browse — returns direct children (files + immediate subfolders) of the
+  # named folder.  Uses an exact prefix query so sibling folders never leak in.
+  # When child_query is empty (bare "@folder/"), prepends the folder itself as a
+  # :current_folder entry so the user can apply the whole folder as a filter.
+  defp browse_sources(folder_label, child_query) do
+    canonical_paths = find_canonical_paths(folder_label)
+
+    children =
+      canonical_paths
+      |> Enum.flat_map(fn canonical_path ->
+        prefix = canonical_path <> "/"
+
+        from(d in Document,
+          where:
+            like(d.source, ^"#{prefix}%") and
+              fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+          select: d.source,
+          order_by: [asc: d.source],
+          limit: 100
+        )
+        |> Repo.all()
+        |> extract_direct_children(canonical_path)
+        |> Enum.map(&ContentSource.from_source/1)
+        |> Enum.reject(&is_nil/1)
+      end)
+      |> Enum.uniq_by(& &1.source_prefix)
+      |> then(fn sources ->
+        if child_query != "",
+          do: Enum.filter(sources, &String.contains?(&1.label, child_query)),
+          else: sources
+      end)
+
+    if child_query == "" do
+      folder_self =
+        canonical_paths
+        |> Enum.map(&to_current_folder_source/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(& &1.label)
+
+      folder_self ++ children
+    else
+      children
+    end
+  end
+
+  defp to_current_folder_source(path) do
+    case ContentSource.from_source(path) do
+      nil -> nil
+      cs -> %{cs | type: :current_folder}
+    end
+  end
+
+  # Resolves folder_label to its canonical full path(s) in the documents table.
+  # Keeps the shallowest path per connector so @zaq/ always browses the top-level
+  # "zaq" folder, not a nested "zaq" that happens to exist deeper.
+  defp find_canonical_paths(folder_label) do
+    from(d in Document,
+      where:
+        (like(d.source, ^"#{folder_label}/%") or
+           like(d.source, ^"%/#{folder_label}/%")) and
+          fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+      select: d.source,
+      limit: 100
+    )
+    |> Repo.all()
+    |> Enum.flat_map(&derive_folder_prefixes/1)
+    |> Enum.uniq()
+    |> Enum.filter(fn prefix -> List.last(String.split(prefix, "/")) == folder_label end)
+    |> Enum.sort_by(&String.length/1)
+    |> Enum.uniq_by(fn path -> List.first(String.split(path, "/")) end)
+  end
+
+  # From a list of full source paths, extract one entry per immediate child of
+  # canonical_path — collapsing deeper files into their parent subfolder path.
+  defp extract_direct_children(sources, canonical_path) do
+    prefix_len = String.length(canonical_path) + 1
+
+    sources
+    |> Enum.map(fn source ->
+      rest = String.slice(source, prefix_len, String.length(source))
+      first_segment = rest |> String.split("/") |> List.first()
+      canonical_path <> "/" <> first_segment
+    end)
+    |> Enum.uniq()
+  end
+
+  # Returns all intermediate path prefixes for a source, excluding the leaf segment.
+  # "zaq/hr/policy.pdf" → ["zaq", "zaq/hr"]
+  defp derive_folder_prefixes(source) do
+    parts = String.split(source, "/", trim: true)
+
+    0..(length(parts) - 2)
+    |> Enum.map(fn i -> parts |> Enum.take(i + 1) |> Enum.join("/") end)
   end
 
   # --- Access control ---
@@ -250,13 +429,7 @@ defmodule Zaq.Ingestion do
 
   def list_permitted_document_ids(person_id, team_ids, doc_ids) do
     via_permission =
-      from(p in Permission,
-        where:
-          p.document_id in ^doc_ids and
-            (p.person_id == ^person_id or p.team_id in ^team_ids),
-        select: p.document_id,
-        distinct: true
-      )
+      build_permission_query(person_id, team_ids, doc_ids)
       |> Repo.all()
 
     via_public =
@@ -267,6 +440,28 @@ defmodule Zaq.Ingestion do
       |> Repo.all()
 
     Enum.uniq(via_permission ++ via_public)
+  end
+
+  defp build_permission_query(nil, team_ids, _doc_ids) when team_ids == [] do
+    from(p in Permission, where: false, select: p.document_id)
+  end
+
+  defp build_permission_query(nil, team_ids, doc_ids) do
+    from(p in Permission,
+      where: p.document_id in ^doc_ids and p.team_id in ^team_ids,
+      select: p.document_id,
+      distinct: true
+    )
+  end
+
+  defp build_permission_query(person_id, team_ids, doc_ids) do
+    from(p in Permission,
+      where:
+        p.document_id in ^doc_ids and
+          (p.person_id == ^person_id or p.team_id in ^team_ids),
+      select: p.document_id,
+      distinct: true
+    )
   end
 
   # --- Document tag management ---

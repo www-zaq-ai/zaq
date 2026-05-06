@@ -46,10 +46,8 @@ defmodule Zaq.Agent.Pipeline do
 
   require Logger
   alias Zaq.Accounts.People
-  alias Zaq.Agent.Answering
-  alias Zaq.Agent.Answering.Result
-  alias Zaq.Engine.Messages.Incoming
-  alias Zaq.Engine.Messages.Outgoing
+  alias Zaq.Agent.Executor
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
 
   @no_answer_signal "I don't have enough information to answer that question."
@@ -69,8 +67,14 @@ defmodule Zaq.Agent.Pipeline do
         person -> person.team_ids || []
       end
 
-    opts = Keyword.merge(opts, person_id: person_id, team_ids: team_ids)
-    result = do_run(incoming.content, opts)
+    opts =
+      Keyword.merge(opts,
+        person_id: person_id,
+        team_ids: team_ids,
+        source_filter: incoming.content_filter
+      )
+
+    result = do_run(incoming, opts)
     Outgoing.from_pipeline_result(incoming, result)
   end
 
@@ -82,11 +86,12 @@ defmodule Zaq.Agent.Pipeline do
       incoming.channel_id
     ])
 
-    identity_plug_mod(opts).call(incoming, opts)
+    incoming
   end
 
-  @spec do_run(String.t(), keyword()) :: map()
-  defp do_run(content, opts) do
+  @spec do_run(Incoming.t(), keyword()) :: map()
+  defp do_run(%Incoming{} = incoming, opts) do
+    content = incoming.content
     history = Keyword.get(opts, :history, %{})
     on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
     ctx = %{trace_id: generate_trace_id(), node: node()}
@@ -105,8 +110,8 @@ defmodule Zaq.Agent.Pipeline do
          {:ok, extraction_result} <- do_query_extraction(answering_payload, opts),
          :ok <- on_status.(:answering, "Formulating your answer…"),
          {:ok, answer_result} <-
-           do_answering(clean_msg, extraction_result, answering_payload, history, opts),
-         {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.answer) do
+           do_answering(incoming, clean_msg, extraction_result, answering_payload, history, opts),
+         {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.body) do
       :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
       sources = build_sources(extraction_result)
 
@@ -123,7 +128,7 @@ defmodule Zaq.Agent.Pipeline do
             sources: sources
           })
         else
-          confidence_score = answer_result.confidence_score || 1.0
+          confidence_score = answer_result.metadata[:confidence_score]
 
           result_from_answering(answer_result, safe_answer, confidence_score)
           |> Map.put(:sources, sources)
@@ -227,12 +232,21 @@ defmodule Zaq.Agent.Pipeline do
     person_id = Keyword.get(opts, :person_id)
     team_ids = Keyword.get(opts, :team_ids, [])
     skip_permissions = Keyword.get(opts, :skip_permissions, false)
+    source_filter = Keyword.get(opts, :source_filter, [])
 
     case node_router(opts).call(
            :ingestion,
            document_processor_mod(opts),
            :query_extraction,
-           [query, [person_id: person_id, team_ids: team_ids, skip_permissions: skip_permissions]]
+           [
+             query,
+             [
+               person_id: person_id,
+               team_ids: team_ids,
+               skip_permissions: skip_permissions,
+               source_filter: source_filter
+             ]
+           ]
          ) do
       {:ok, results} when results != [] -> {:ok, results}
       {:ok, []} -> {:error, :no_results, negative_answer}
@@ -240,8 +254,10 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_answering(content, query_results, retrieval, history, opts) do
+  defp do_answering(incoming, content, query_results, retrieval, history, opts) do
     language = Map.get(retrieval, :language, "en")
+    person_id = Keyword.get(opts, :person_id)
+    team_ids = Keyword.get(opts, :team_ids, [])
 
     retrieved_data =
       Enum.map(query_results, fn %{"content" => chunk_content, "source" => source} ->
@@ -257,39 +273,26 @@ defmodule Zaq.Agent.Pipeline do
         has_history: history != %{}
       })
 
-    answer_opts = [
-      history: history,
-      question: content,
-      telemetry_dimensions: telemetry_dimensions(opts)
-    ]
+    %Outgoing{} =
+      outgoing =
+      executor_module(opts).run(incoming,
+        agent_id: nil,
+        scope: Keyword.get(opts, :scope),
+        system_prompt: system_prompt,
+        question: content,
+        person_id: person_id,
+        team_ids: team_ids,
+        history: history,
+        telemetry_dimensions: telemetry_dimensions(opts),
+        node_router: node_router(opts)
+      )
 
-    ask_args =
-      if function_exported?(answering_mod(opts), :ask, 2) do
-        [system_prompt, answer_opts]
-      else
-        [system_prompt]
-      end
-
-    case node_router(opts).call(:agent, answering_mod(opts), :ask, ask_args) do
-      {:ok, answer} -> normalize_answer_result(answering_mod(opts), answer)
-      error -> error
-    end
+    {:ok, outgoing}
   end
 
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
-
-  defp normalize_answer_result(module, %Result{} = result) when module == Answering,
-    do: {:ok, result}
-
-  defp normalize_answer_result(module, result) do
-    if function_exported?(module, :normalize_result, 1) do
-      module.normalize_result(result)
-    else
-      Answering.normalize_result(result)
-    end
-  end
 
   defp telemetry_dimensions(opts) do
     Keyword.get(opts, :telemetry_dimensions, %{})
@@ -303,14 +306,14 @@ defmodule Zaq.Agent.Pipeline do
     Telemetry.record("qa.message.count", 1, telemetry_dimensions(opts))
   end
 
-  defp result_from_answering(%Result{} = result, answer, confidence_score) do
+  defp result_from_answering(%Outgoing{} = outgoing, answer, confidence_score) do
     %{
       answer: answer,
       confidence_score: confidence_score,
-      latency_ms: result.latency_ms,
-      prompt_tokens: result.prompt_tokens,
-      completion_tokens: result.completion_tokens,
-      total_tokens: result.total_tokens,
+      latency_ms: outgoing.metadata[:latency_ms],
+      prompt_tokens: outgoing.metadata[:prompt_tokens],
+      completion_tokens: outgoing.metadata[:completion_tokens],
+      total_tokens: outgoing.metadata[:total_tokens],
       error: false
     }
   end
@@ -355,14 +358,6 @@ defmodule Zaq.Agent.Pipeline do
 
   defp generate_trace_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-  end
-
-  defp identity_plug_mod(opts) do
-    Keyword.get(
-      opts,
-      :identity_plug,
-      Application.get_env(:zaq, :pipeline_identity_plug_module, Zaq.People.IdentityPlug)
-    )
   end
 
   defp hooks_mod(opts) do
@@ -410,6 +405,14 @@ defmodule Zaq.Agent.Pipeline do
       opts,
       :prompt_guard,
       Application.get_env(:zaq, :pipeline_prompt_guard_module, Zaq.Agent.PromptGuard)
+    )
+  end
+
+  defp executor_module(opts) do
+    Keyword.get(
+      opts,
+      :executor_module,
+      Application.get_env(:zaq, :pipeline_executor_module, Executor)
     )
   end
 

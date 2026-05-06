@@ -4,7 +4,7 @@ defmodule Zaq.Agent do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Zaq.Agent.{ConfiguredAgent, ServerManager}
+  alias Zaq.Agent.{ConfiguredAgent, MCP, QueryFilters, ServerManager}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
@@ -36,6 +36,14 @@ defmodule Zaq.Agent do
     |> order_by([a], asc: a.name)
     |> preload(:credential)
     |> Repo.all()
+  end
+
+  @spec list_agents_with_mcp_endpoint(integer()) :: [ConfiguredAgent.t()]
+  def list_agents_with_mcp_endpoint(endpoint_id) when is_integer(endpoint_id) do
+    list_agents()
+    |> Enum.filter(fn %ConfiguredAgent{} = agent ->
+      endpoint_id in (agent.enabled_mcp_endpoint_ids || [])
+    end)
   end
 
   @spec filter_agents(map(), keyword()) :: {[ConfiguredAgent.t()], non_neg_integer()}
@@ -77,6 +85,22 @@ defmodule Zaq.Agent do
     end
   end
 
+  @doc """
+  Returns an agent eligible for conversation-channel routing.
+
+  Eligibility requires both `active == true` and `conversation_enabled == true`.
+  """
+  @spec get_conversation_enabled_agent(integer() | String.t()) ::
+          {:ok, ConfiguredAgent.t()} | {:error, atom()}
+  def get_conversation_enabled_agent(id) do
+    case get_agent(id) do
+      %ConfiguredAgent{active: true, conversation_enabled: true} = agent -> {:ok, agent}
+      %ConfiguredAgent{active: false} -> {:error, :inactive_agent}
+      %ConfiguredAgent{conversation_enabled: false} -> {:error, :conversation_disabled}
+      nil -> {:error, :agent_not_found}
+    end
+  end
+
   @spec create_agent(map()) :: {:ok, ConfiguredAgent.t()} | {:error, Changeset.t()}
   def create_agent(attrs) do
     %ConfiguredAgent{}
@@ -105,7 +129,7 @@ defmodule Zaq.Agent do
       # long-lived agent server behind if the node crashes before cleanup.
       # A concurrent admin update can still reference the agent after this check;
       # in that case the BO delete can be retried safely.
-      _ = ServerManager.stop_server(agent.id)
+      _ = ServerManager.stop_server(agent)
 
       case usage_locations_for_agent(agent.id) do
         [] ->
@@ -167,6 +191,28 @@ defmodule Zaq.Agent do
     changeset
     |> validate_runtime_provider(provider)
     |> validate_tool_capability(provider)
+    |> validate_mcp_endpoint_assignments()
+  end
+
+  defp validate_mcp_endpoint_assignments(%Changeset{} = changeset) do
+    ids = Changeset.get_field(changeset, :enabled_mcp_endpoint_ids) || []
+
+    unknown_ids =
+      ids
+      |> Enum.uniq()
+      |> Enum.reject(fn endpoint_id ->
+        match?(%MCP.Endpoint{}, MCP.get_mcp_endpoint(endpoint_id))
+      end)
+
+    if unknown_ids == [] do
+      changeset
+    else
+      Changeset.add_error(
+        changeset,
+        :enabled_mcp_endpoint_ids,
+        "contains unknown MCP endpoint ids: #{Enum.join(unknown_ids, ", ")}"
+      )
+    end
   end
 
   defp validate_tool_capability(%Changeset{} = changeset, provider) do
@@ -356,18 +402,11 @@ defmodule Zaq.Agent do
 
     ConfiguredAgent
     |> order_by([a], asc: a.name)
-    |> maybe_filter_name(name)
+    |> QueryFilters.maybe_filter_ilike(name, :name)
     |> maybe_filter_model(model)
     |> maybe_filter_conversation(conversation)
     |> maybe_filter_active(active)
     |> maybe_filter_sovereign(sovereign)
-  end
-
-  defp maybe_filter_name(query, ""), do: query
-
-  defp maybe_filter_name(query, name) do
-    escaped = String.replace(name, "%", "\\%")
-    from(a in query, where: ilike(a.name, ^"%#{escaped}%"))
   end
 
   defp maybe_filter_model(query, ""), do: query

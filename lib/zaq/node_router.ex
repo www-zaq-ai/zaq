@@ -64,23 +64,11 @@ defmodule Zaq.NodeRouter do
     supervisor = Map.fetch!(@supervisor_map, role)
     api_module = Map.fetch!(@role_api_map, role)
     action = action_for(event)
+    hop_type = hop_type_for(event)
     current = current_node(runtime)
     target = find_node(supervisor, runtime) || current
 
-    if target == current do
-      api_module.handle_event(event, action, nil)
-    else
-      case rpc_call(runtime, target, api_module, :handle_event, [event, action, nil]) do
-        {:badrpc, reason} ->
-          %{event | response: {:error, {:rpc_failed, target, reason}}}
-
-        %Event{} = routed_event ->
-          routed_event
-
-        other ->
-          %{event | response: {:error, {:invalid_event_response, target, other}}}
-      end
-    end
+    do_dispatch(event, hop_type, api_module, action, current, target, runtime)
   end
 
   def dispatch(%Event{} = event, _runtime) do
@@ -166,6 +154,12 @@ defmodule Zaq.NodeRouter do
     |> then(& &1.(n, mod, fun, args))
   end
 
+  defp async_start(runtime, fun) when is_function(fun, 0) do
+    runtime
+    |> Map.get(:async_start_fn, &Task.Supervisor.start_child(Zaq.TaskSupervisor, &1))
+    |> then(& &1.(fun))
+  end
+
   defp action_for(%Event{opts: opts}) when is_list(opts) do
     case Keyword.get(opts, :action, :invoke) do
       action when is_atom(action) -> action
@@ -174,6 +168,42 @@ defmodule Zaq.NodeRouter do
   end
 
   defp action_for(_event), do: :invoke
+
+  defp hop_type_for(%Event{next_hop: %EventHop{type: type}}) when type in [:sync, :async],
+    do: type
+
+  defp hop_type_for(_event), do: :sync
+
+  defp do_dispatch(event, :sync, api_module, action, current, target, runtime) do
+    do_dispatch_sync(event, api_module, action, current, target, runtime)
+  end
+
+  defp do_dispatch(event, :async, api_module, action, current, target, runtime) do
+    _ =
+      async_start(runtime, fn ->
+        _ = do_dispatch_sync(event, api_module, action, current, target, runtime)
+        :ok
+      end)
+
+    event
+  end
+
+  defp do_dispatch_sync(event, api_module, action, current, target, runtime) do
+    if target == current do
+      api_module.handle_event(event, action, nil)
+    else
+      case rpc_call(runtime, target, api_module, :handle_event, [event, action, nil]) do
+        {:badrpc, reason} ->
+          %{event | response: {:error, {:rpc_failed, target, reason}}}
+
+        %Event{} = routed_event ->
+          routed_event
+
+        other ->
+          %{event | response: {:error, {:invalid_event_response, target, other}}}
+      end
+    end
+  end
 
   defp unwrap_call_response(%Event{response: {:error, {:rpc_failed, _, _}} = error}), do: error
   defp unwrap_call_response(%Event{response: response}), do: response

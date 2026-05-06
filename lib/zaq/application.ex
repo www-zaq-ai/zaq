@@ -3,6 +3,7 @@ defmodule Zaq.Application do
 
   use Application
   alias Zaq.Ingestion.ObanTelemetry
+  alias Zaq.System.UpdateBadgeWorker
 
   @impl true
   def start(_type, _args) do
@@ -53,9 +54,16 @@ defmodule Zaq.Application do
       end
 
     opts = [strategy: :one_for_one, name: Zaq.Supervisor]
-    result = Supervisor.start_link(children, opts)
-    LLMDB.load()
-    result
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, _pid} = ok ->
+        enqueue_release_badge_check_on_startup()
+        LLMDB.load()
+        ok
+
+      other ->
+        other
+    end
   end
 
   @impl true
@@ -77,5 +85,11 @@ defmodule Zaq.Application do
     else
       children
     end
+  end
+
+  defp enqueue_release_badge_check_on_startup do
+    %{"force" => true}
+    |> UpdateBadgeWorker.new()
+    |> Oban.insert()
   end
 end

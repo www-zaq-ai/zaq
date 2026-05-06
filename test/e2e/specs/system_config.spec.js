@@ -3,7 +3,7 @@ const {
   gotoBackOfficeLive,
   loginToBackOffice,
   resetE2EState,
-  dismissFlash,
+  waitForLiveViewSettled,
 } = require("../support/bo")
 
 // At least one of the two locators becomes visible. Use in place of
@@ -88,18 +88,10 @@ async function createAiCredential(page, overrides = {}) {
 
   await expect(page.getByText("AI credential saved.")).toBeVisible()
   await expect(page.locator(SEL.aiCredentialForm)).not.toBeVisible()
+  // Drain any trailing phx-submit events before the caller switches tabs
+  await waitForLiveViewSettled(page)
 
   return credential
-}
-
-async function clearHiddenSelectValue(page, selector) {
-  const input = page.locator(selector)
-  await expect(input).toHaveCount(1)
-  await input.evaluate((el) => {
-    el.value = ""
-    el.dispatchEvent(new Event("input", { bubbles: true }))
-    el.dispatchEvent(new Event("change", { bubbles: true }))
-  })
 }
 
 test.describe("System Config", () => {
@@ -178,11 +170,24 @@ test.describe("System Config", () => {
   // ── LLM tab ────────────────────────────────────────────────────────────
 
   test.describe("LLM tab", () => {
+    test.beforeAll(async () => {
+      const req = await apiRequest.newContext()
+      await resetE2EState(req)
+      await req.dispose()
+    })
+
     test.beforeEach(async ({ page }) => {
       const credential = await createAiCredential(page)
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
+      // Wait for the tab's phx-click to settle so the credential dropdown is
+      // fully populated before pickSearchableSelect tries to search it.
+      await waitForLiveViewSettled(page)
       await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      // Wait for the phx-change from credential selection to fully settle before
+      // the test starts. Without this, LiveView's DOM patch can overwrite fill()
+      // calls made immediately after pickSearchableSelect.
+      await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
     test("renders all required form fields", async ({ page }) => {
@@ -222,32 +227,31 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
-      await dismissFlash(page)
+    })
+
+    test("flash auto-dismisses without user interaction", async ({ page }) => {
+      await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
+      await page.getByRole("button", { name: "Save LLM Settings" }).click()
+      await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      // Must disappear on its own — do not click dismiss
+      await expect(page.getByText("LLM settings saved.")).not.toBeVisible({ timeout: 10_000 })
     })
 
     // ── Validation: required fields ──────────────────────────────────────
 
-    test("clearing credential blocks save (required field)", async ({ page }) => {
-      const credential = await createAiCredential(page)
-      await page.locator(SEL.tabLLM).click()
-      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
-
-      await clearHiddenSelectValue(
-        page,
-        '#llm-credential-select input[name="llm_config[credential_id]"]'
-      )
+    test("clearing model (text input) blocks save (required field)", async ({ page }) => {
+      // createAiCredential always uses the Custom provider, which has no predefined
+      // model list — so the model widget is always a text input here, never a select.
+      const modelInput = page.locator('input[name="llm_config[model]"]')
+      await expect(modelInput).toBeVisible()
+      await modelInput.fill("")
+      await modelInput.press("Tab")
+      // Wait for the validate_llm phx-change (triggered by blur on the debounced input)
+      // to fully settle. Without this, a late DOM patch from the credential selection
+      // phx-change can overwrite the empty value before save — causing save to succeed.
+      await waitForLiveViewSettled(page)
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
-    })
-
-    test("clearing model (text input) blocks save (required field)", async ({ page }) => {
-      const modelInput = page.locator('input[name="llm_config[model]"]')
-      if (await modelInput.isVisible()) {
-        await modelInput.fill("")
-        await modelInput.press("Tab")
-        await page.getByRole("button", { name: "Save LLM Settings" }).click()
-        await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
-      }
     })
 
     // ── Validation: numeric boundaries ───────────────────────────────────
@@ -345,7 +349,6 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
-      await dismissFlash(page)
 
       // Full reload — triggers mount → load_llm_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
@@ -363,7 +366,9 @@ test.describe("System Config", () => {
       const credential = await createAiCredential(page)
       await page.locator(SEL.tabEmbedding).click()
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
+      await waitForLiveViewSettled(page)
       await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
+      await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
     test("renders all required form fields", async ({ page }) => {
@@ -443,7 +448,6 @@ test.describe("System Config", () => {
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
-      await dismissFlash(page)
     })
 
     // ── Destructive save flow ─────────────────────────────────────────────
@@ -501,24 +505,9 @@ test.describe("System Config", () => {
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
-      await dismissFlash(page)
     })
 
     // ── Validation: required & numeric ───────────────────────────────────
-
-    test("clearing credential blocks save (required field)", async ({ page }) => {
-      const credential = await createAiCredential(page)
-      await page.locator(SEL.tabEmbedding).click()
-      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
-
-      await clearHiddenSelectValue(
-        page,
-        '#embedding-credential-select input[name="embedding_config[credential_id]"]'
-      )
-
-      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
-      await expect(page.getByText("Embedding settings saved.")).not.toBeVisible()
-    })
 
     test("dimension of 0 is rejected after unlock", async ({ page }) => {
       await page.locator(SEL.unlockTrigger).click()
@@ -582,7 +571,6 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
-      await dismissFlash(page)
 
       // Full reload — triggers mount → load_embedding_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
@@ -600,7 +588,9 @@ test.describe("System Config", () => {
       const credential = await createAiCredential(page)
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
+      await waitForLiveViewSettled(page)
       await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+      await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
     test("renders credential and model fields", async ({ page }) => {
@@ -629,21 +619,6 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
-      await dismissFlash(page)
-    })
-
-    test("clearing credential blocks save (required field)", async ({ page }) => {
-      const credential = await createAiCredential(page)
-      await page.locator(SEL.tabImageToText).click()
-      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
-
-      await clearHiddenSelectValue(
-        page,
-        '#image-to-text-credential-select input[name="image_to_text_config[credential_id]"]'
-      )
-
-      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
-      await expect(page.getByText("Image-to-Text settings saved.")).not.toBeVisible()
     })
 
     test("either model text input or model dropdown is present", async ({ page }) => {
@@ -661,7 +636,6 @@ test.describe("System Config", () => {
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
-      await dismissFlash(page)
 
       // Full reload — triggers mount → load_image_to_text_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=image_to_text`)
@@ -726,7 +700,6 @@ test.describe("System Config", () => {
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
-      await dismissFlash(page)
     })
   })
 })

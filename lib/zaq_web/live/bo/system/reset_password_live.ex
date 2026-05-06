@@ -18,7 +18,7 @@ defmodule ZaqWeb.Live.BO.System.ResetPasswordLive do
          |> assign(:token_valid, true)
          |> assign(:form, to_form(form_params))
          |> assign(:error_message, nil)
-         |> assign_password_feedback(form_params)}
+         |> PasswordHelpers.assign_password_feedback(form_params)}
 
       {:error, _} ->
         {:ok,
@@ -36,24 +36,24 @@ defmodule ZaqWeb.Live.BO.System.ResetPasswordLive do
   end
 
   def handle_event("validate", params, socket) do
-    form_params = password_form_params(params)
+    form_params = PasswordHelpers.password_form_params(params)
 
     {:noreply,
      socket
      |> assign(:form, to_form(form_params))
-     |> assign_password_feedback(form_params)
+     |> PasswordHelpers.assign_password_feedback(form_params)
      |> assign(:error_message, nil)}
   end
 
   def handle_event("reset_password", params, socket) do
-    form_params = password_form_params(params)
+    form_params = PasswordHelpers.password_form_params(params)
     password = form_params["password"]
     confirmation = form_params["password_confirmation"]
 
     socket =
       socket
       |> assign(:form, to_form(form_params))
-      |> assign_password_feedback(form_params)
+      |> PasswordHelpers.assign_password_feedback(form_params)
 
     if password != confirmation do
       {:noreply, assign(socket, :error_message, "Passwords do not match")}
@@ -69,17 +69,6 @@ defmodule ZaqWeb.Live.BO.System.ResetPasswordLive do
           {:noreply, assign(socket, :error_message, format_changeset_errors(changeset))}
       end
     end
-  end
-
-  defp password_form_params(params) do
-    %{
-      "password" => Map.get(params, "password", ""),
-      "password_confirmation" => Map.get(params, "password_confirmation", "")
-    }
-  end
-
-  defp assign_password_feedback(socket, params) do
-    PasswordHelpers.assign_password_feedback(socket, params)
   end
 
   defp format_changeset_errors(changeset) do

@@ -3,6 +3,8 @@
 defmodule ZaqWeb.Router do
   use ZaqWeb, :router
 
+  import JidoStudio.Router
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -18,6 +20,10 @@ defmodule ZaqWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+  end
+
+  pipeline :api_stream do
+    plug :fetch_query_params
   end
 
   scope "/", ZaqWeb do
@@ -107,6 +113,8 @@ defmodule ZaqWeb.Router do
 
       live "/people", Live.BO.System.PeopleLive
     end
+
+    jido_studio("/studio")
   end
 
   if Application.compile_env(:zaq, :e2e_routes, false) do
@@ -119,7 +127,14 @@ defmodule ZaqWeb.Router do
       # Describe-level teardown and filesystem helpers. Documented in
       # docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md.
       post "/reset", E2EController, :reset_all
+      post "/system-config", E2EController, :set_system_config
       post "/ingestion/touch_file", E2EController, :touch_file
+    end
+
+    scope "/e2e", ZaqWeb do
+      pipe_through :api_stream
+
+      post "/llm/v1/chat/completions", E2EController, :fake_llm
     end
   end
 

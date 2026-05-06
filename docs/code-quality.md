@@ -43,7 +43,11 @@
 
 ## Technical Debt Controls
 
-- Any temporary shortcut must include a `TODO` with a linked issue and clear removal condition.
+- Any temporary shortcut must be marked with an inline comment — Credo blocks bare `TODO` tags, so use this format instead:
+  ```elixir
+  # Temporary: <why it's here now>. Move to <target module/function> once <condition>.
+  # Tracked: <issue number or brief description>
+  ```
 - Remove dead code and stale branches when replacing behavior — do not keep inactive paths "just in case".
 - If a change intentionally diverges from established patterns, document the rationale in the PR description.
 - Track all known debt in `docs/exec-plans/tech-debt-tracker.md`.

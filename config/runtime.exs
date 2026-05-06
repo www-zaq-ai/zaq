@@ -117,7 +117,8 @@ if config_env() == :prod do
          {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
          {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
          {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
-         {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker}
+         {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker},
+         {"0 3 * * *", Zaq.System.UpdateBadgeWorker}
        ]}
     ],
     crontab: []

@@ -16,6 +16,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias Zaq.Channels.{Router, WebBridge}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
+  alias Zaq.Ingestion.ContentSource
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
   alias ZaqWeb.Live.BO.PreviewHelpers
@@ -70,6 +71,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:current_conversation_id, nil)
      |> assign(:available_agents, list_chat_agents())
      |> assign(:selected_agent_id, "")
+     |> assign(:active_filters, [])
+     |> assign(:filter_suggestions, [])
+     |> assign(:filter_query, "")
      |> assign(:suggested_questions, [
        "What is ZAQ and what does it do?",
        "Which integrations does ZAQ support?",
@@ -92,11 +96,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if trimmed == "" do
       {:noreply, socket}
     else
+      active_filters = socket.assigns.active_filters
+
       user_msg = %{
         id: generate_id(),
         role: :user,
         body: trimmed,
-        timestamp: DateTime.utc_now()
+        timestamp: DateTime.utc_now(),
+        filters:
+          Enum.map(active_filters, fn f ->
+            %{label: f.label, source_prefix: f.source_prefix, type: f.type}
+          end)
       }
 
       socket =
@@ -106,9 +116,18 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         |> assign(:status, :thinking)
         |> assign(:status_message, "ZAQ is analyzing your question…")
         |> assign(:current_request_id, user_msg.id)
+        |> assign(:active_filters, [])
+        |> assign(:filter_suggestions, [])
+        |> assign(:filter_query, "")
 
       session_id = socket.assigns.session_id
       request_id = user_msg.id
+
+      {conversation_id, socket} =
+        case resolve_or_create_conversation(socket) do
+          {:ok, conv_id} -> {conv_id, assign(socket, :current_conversation_id, conv_id)}
+          _err -> {nil, socket}
+        end
 
       Task.start(fn ->
         run_pipeline_async(
@@ -117,7 +136,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           trimmed,
           socket.assigns.history,
           socket.assigns.current_user,
-          socket.assigns.selected_agent_id
+          socket.assigns.selected_agent_id,
+          active_filters,
+          conversation_id
         )
       end)
 
@@ -225,6 +246,81 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("close_feedback_modal", _params, socket) do
     {:noreply, assign(socket, :show_feedback_modal, false)}
+  end
+
+  def handle_event("filter_autocomplete", %{"query" => query}, socket)
+      when is_binary(query) and byte_size(query) > 0 do
+    suggestions =
+      case node_router().call(:ingestion, Zaq.Ingestion, :list_document_sources, [query]) do
+        list when is_list(list) ->
+          list
+
+        error ->
+          Logger.warning("filter_autocomplete: list_document_sources failed: #{inspect(error)}")
+          []
+      end
+
+    {:noreply, assign(socket, filter_suggestions: suggestions, filter_query: query)}
+  end
+
+  def handle_event("filter_autocomplete", _params, socket) do
+    {:noreply, assign(socket, filter_suggestions: [], filter_query: "")}
+  end
+
+  def handle_event("add_content_filter", params, socket) do
+    %{
+      "source_prefix" => source_prefix,
+      "connector" => connector,
+      "label" => label,
+      "type" => type_str
+    } = params
+
+    type =
+      case type_str do
+        "connector" -> :connector
+        "folder" -> :folder
+        "file" -> :file
+        "current_folder" -> :current_folder
+        _ -> nil
+      end
+
+    if is_nil(type) do
+      {:noreply, socket}
+    else
+      filter = %ContentSource{
+        connector: connector,
+        source_prefix: source_prefix,
+        label: label,
+        type: type
+      }
+
+      active_filters = socket.assigns.active_filters
+
+      socket =
+        if Enum.any?(active_filters, &(&1.source_prefix == source_prefix)) do
+          socket
+        else
+          update(socket, :active_filters, &(&1 ++ [filter]))
+        end
+
+      {:noreply,
+       socket
+       |> assign(:filter_suggestions, [])
+       |> assign(:filter_query, "")}
+    end
+  end
+
+  def handle_event("remove_content_filter", %{"source_prefix" => source_prefix}, socket) do
+    {:noreply,
+     update(
+       socket,
+       :active_filters,
+       &Enum.reject(&1, fn f -> f.source_prefix == source_prefix end)
+     )}
+  end
+
+  def handle_event("clear_content_filters", _params, socket) do
+    {:noreply, assign(socket, :active_filters, [])}
   end
 
   def handle_event("noop", _params, socket), do: {:noreply, socket}
@@ -364,7 +460,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         end
 
       updated_history =
-        if result.metadata[:error] || Map.get(result.metadata, :confidence_score, 0.0) == 0.0 do
+        if result.metadata[:error] || Map.get(result.metadata, :confidence_score) == 0.0 do
           history
         else
           now = DateTime.utc_now()
@@ -394,14 +490,25 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          user_msg,
          history,
          current_user,
-         selected_agent_id
+         selected_agent_id,
+         active_filters,
+         conversation_id
        ) do
+    source_filter = Enum.map(active_filters, & &1.source_prefix)
+
     incoming = %Incoming{
       content: user_msg,
       channel_id: "bo",
       author_id: current_user.id,
       provider: :web,
-      metadata: %{session_id: session_id, request_id: request_id, user_content: user_msg}
+      person_id: Map.get(current_user, :person_id),
+      content_filter: source_filter,
+      metadata: %{
+        session_id: session_id,
+        request_id: request_id,
+        user_content: user_msg,
+        conversation_id: conversation_id
+      }
     }
 
     # Explicit: BO-authenticated users with no person record get full access.
@@ -488,7 +595,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
        ) do
     user_id = if current_user, do: current_user.id, else: nil
 
-    case resolve_conversation(current_user, current_conversation_id) do
+    fetch_result =
+      if is_nil(current_conversation_id) do
+        resolve_conversation(current_user, nil)
+      else
+        case node_router().call(
+               :engine,
+               Zaq.Engine.Conversations,
+               :get_conversation,
+               [current_conversation_id]
+             ) do
+          %{} = conv -> {:ok, conv}
+          _ -> {:error, :not_found}
+        end
+      end
+
+    case fetch_result do
       {:ok, conv} ->
         add_messages_to_conversation(
           conv,
@@ -502,6 +624,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       err ->
         Logger.warning("ChatLive: failed to persist conversation: #{inspect(err)}")
         :error
+    end
+  end
+
+  defp resolve_or_create_conversation(socket) do
+    case resolve_conversation(socket.assigns.current_user, socket.assigns.current_conversation_id) do
+      {:ok, conv} -> {:ok, conv.id}
+      err -> err
     end
   end
 
@@ -700,7 +829,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       db_id: msg.id,
       role: :bot,
       body: trim_body(content),
-      confidence: msg.confidence_score || 0.0,
+      confidence: msg.confidence_score,
       timestamp: msg.inserted_at,
       error: false,
       feedback: infer_feedback_from_ratings(ratings),

@@ -3,7 +3,6 @@ defmodule Zaq.Agent.PipelineTest do
 
   import Ecto.Query
 
-  alias Zaq.Agent.Answering.Result
   alias Zaq.Agent.Pipeline
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
@@ -101,42 +100,50 @@ defmodule Zaq.Agent.PipelineTest do
   end
 
   defmodule StubAnswering do
-    def ask(_prompt, _opts) do
-      {:ok,
-       %Result{
-         answer: "The answer is 42.",
-         confidence_score: 0.9,
-         latency_ms: 100,
-         prompt_tokens: 10,
-         completion_tokens: 5,
-         total_tokens: 15
-       }}
-    end
-
-    def normalize_result(%Result{} = result), do: {:ok, result}
     def no_answer?(_answer), do: false
     def clean_answer(answer), do: answer
   end
 
-  # Sends the opts received by ask/2 to the test process for inspection.
-  defmodule SpyAnswering do
-    def ask(_prompt, opts) do
-      send(:pipeline_test_pid, {:answering_opts, opts})
-
-      {:ok,
-       %Result{
-         answer: "spy answer",
-         confidence_score: 0.9,
-         latency_ms: 50,
-         prompt_tokens: 5,
-         completion_tokens: 3,
-         total_tokens: 8
-       }}
+  defmodule StubExecutor do
+    def run(%Zaq.Engine.Messages.Incoming{} = incoming, _opts) do
+      %Zaq.Engine.Messages.Outgoing{
+        body: "The answer is 42.",
+        channel_id: incoming.channel_id,
+        provider: incoming.provider,
+        metadata: %{
+          answer: "The answer is 42.",
+          confidence_score: 0.9,
+          latency_ms: 100,
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+          error: false
+        }
+      }
     end
+  end
 
-    def normalize_result(%Result{} = result), do: {:ok, result}
-    def no_answer?(_answer), do: false
-    def clean_answer(answer), do: answer
+  # Sends the opts received by run/2 to the test process for inspection.
+  defmodule SpyExecutor do
+    def run(%Zaq.Engine.Messages.Incoming{} = incoming, opts) do
+      send(:pipeline_test_pid, {:executor_opts, opts})
+
+      %Zaq.Engine.Messages.Outgoing{
+        body: "spy answer",
+        channel_id: incoming.channel_id,
+        provider: incoming.provider,
+        metadata: %{
+          answer: "spy answer",
+          confidence_score: 0.9,
+          latency_ms: 50,
+          prompt_tokens: 5,
+          completion_tokens: 3,
+          total_tokens: 8,
+          error: false,
+          person_id: incoming.person_id
+        }
+      }
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -151,7 +158,8 @@ defmodule Zaq.Agent.PipelineTest do
     prompt_template: StubPromptTemplate,
     retrieval: StubRetrieval,
     document_processor: StubDocumentProcessor,
-    answering: StubAnswering
+    answering: StubAnswering,
+    executor_module: StubExecutor
   ]
 
   setup do
@@ -254,14 +262,9 @@ defmodule Zaq.Agent.PipelineTest do
 
   describe "run/2 typing dispatch" do
     test "dispatches typing via router before continuing" do
-      result =
-        Pipeline.run(
-          @incoming,
-          Keyword.put(@base_opts, :identity_plug, SpyIdentityPlug)
-        )
+      result = Pipeline.run(@incoming, @base_opts)
 
       assert_receive {:typing_called, :test, "test"}, 1000
-      assert_receive :identity_called, 1000
       assert %Outgoing{} = result
       assert result.metadata.error == false
     end
@@ -300,24 +303,65 @@ defmodule Zaq.Agent.PipelineTest do
     end
   end
 
-  describe "do_answering passes current question to Answering.ask" do
-    # Regression for: pipeline renamed :question to :content in answer_opts but
-    # Answering.ask still reads Keyword.get(opts, :question). With history present,
-    # question was nil so maybe_add_user_message was skipped — the LangChain chain
-    # ended with the last bot message and the LLM replied to the previous message
-    # instead of the current one.
+  # ---------------------------------------------------------------------------
+  # New tests: identity plug removed; :server threaded from opts
+  # ---------------------------------------------------------------------------
 
-    test "question key in answering opts equals incoming content (no history)" do
-      opts = Keyword.put(@base_opts, :answering, SpyAnswering)
+  describe "pre_do_run" do
+    test "does not call identity_plug" do
+      # After the refactor, identity resolution happens in Api, not Pipeline.
+      # SpyIdentityPlug must NOT be called during Pipeline.run.
+      opts = Keyword.put(@base_opts, :identity_plug, SpyIdentityPlug)
+      opts = Keyword.put(opts, :server, :stub_server_ref)
+
+      Pipeline.run(@incoming, opts)
+
+      refute_received :identity_called
+    end
+  end
+
+  describe "do_answering executor delegation" do
+    test "delegates answering step to executor_module with system_prompt" do
+      opts = Keyword.put(@base_opts, :executor_module, SpyExecutor)
+
+      Pipeline.run(@incoming, opts)
+
+      assert_receive {:executor_opts, executor_opts}, 1_000
+      assert Keyword.get(executor_opts, :agent_id) == nil
+      assert is_binary(Keyword.get(executor_opts, :system_prompt))
+    end
+  end
+
+  describe "run/2 does not overwrite person_id" do
+    test "passes person_id from incoming to executor" do
+      incoming_with_person = %Incoming{
+        content: "What is the answer?",
+        channel_id: "test",
+        provider: :test,
+        person_id: 42
+      }
+
+      opts = Keyword.put(@base_opts, :executor_module, SpyExecutor)
+
+      Pipeline.run(incoming_with_person, opts)
+
+      assert_receive {:executor_opts, executor_opts}, 1_000
+      assert Keyword.get(executor_opts, :person_id) == 42
+    end
+  end
+
+  describe "do_answering passes current question to executor" do
+    test "question opt in executor opts equals incoming content (no history)" do
+      opts = Keyword.put(@base_opts, :executor_module, SpyExecutor)
 
       incoming = %Incoming{content: "What is the answer?", channel_id: "ch", provider: :test}
       Pipeline.run(incoming, opts)
 
-      assert_receive {:answering_opts, answering_opts}, 1000
-      assert Keyword.get(answering_opts, :question) == "What is the answer?"
+      assert_receive {:executor_opts, executor_opts}, 1000
+      assert Keyword.get(executor_opts, :question) == "What is the answer?"
     end
 
-    test "question key in answering opts equals incoming content when history is present" do
+    test "question opt in executor opts equals incoming content when history is present" do
       history = %{
         "2026-01-01T00:00:00Z_1_user" => %{"body" => "previous question", "type" => "user"},
         "2026-01-01T00:00:00Z_2_bot" => %{"body" => "previous answer", "type" => "bot"}
@@ -325,16 +369,14 @@ defmodule Zaq.Agent.PipelineTest do
 
       opts =
         @base_opts
-        |> Keyword.put(:answering, SpyAnswering)
+        |> Keyword.put(:executor_module, SpyExecutor)
         |> Keyword.put(:history, history)
 
       incoming = %Incoming{content: "follow-up question", channel_id: "ch", provider: :test}
       Pipeline.run(incoming, opts)
 
-      assert_receive {:answering_opts, answering_opts}, 1000
-      # Before the fix, this was nil — the LLM received no current user message
-      # and replied to the last history bot message instead of the new question.
-      assert Keyword.get(answering_opts, :question) == "follow-up question"
+      assert_receive {:executor_opts, executor_opts}, 1000
+      assert Keyword.get(executor_opts, :question) == "follow-up question"
     end
   end
 

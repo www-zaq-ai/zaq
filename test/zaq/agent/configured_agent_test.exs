@@ -6,6 +6,49 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Repo
 
+  describe "idle_time_seconds and memory_context_max_size" do
+    test "changeset accepts positive integer for idle_time_seconds" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{idle_time_seconds: 3600})
+      assert changeset.changes[:idle_time_seconds] == 3600
+    end
+
+    test "changeset accepts positive integer for memory_context_max_size" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{memory_context_max_size: 2000})
+      assert changeset.changes[:memory_context_max_size] == 2000
+    end
+
+    test "changeset accepts nil for both fields" do
+      changeset =
+        ConfiguredAgent.changeset(%ConfiguredAgent{}, %{
+          idle_time_seconds: nil,
+          memory_context_max_size: nil
+        })
+
+      refute Keyword.has_key?(changeset.errors, :idle_time_seconds)
+      refute Keyword.has_key?(changeset.errors, :memory_context_max_size)
+    end
+
+    test "changeset rejects zero idle_time_seconds" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{idle_time_seconds: 0})
+      assert "must be greater than 0" in errors_on(changeset).idle_time_seconds
+    end
+
+    test "changeset rejects negative idle_time_seconds" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{idle_time_seconds: -1})
+      assert "must be greater than 0" in errors_on(changeset).idle_time_seconds
+    end
+
+    test "changeset rejects zero memory_context_max_size" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{memory_context_max_size: 0})
+      assert "must be greater than 0" in errors_on(changeset).memory_context_max_size
+    end
+
+    test "changeset rejects negative memory_context_max_size" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{memory_context_max_size: -5})
+      assert "must be greater than 0" in errors_on(changeset).memory_context_max_size
+    end
+  end
+
   test "changeset accepts valid attributes" do
     credential =
       ai_credential_fixture(%{
@@ -79,6 +122,27 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
 
     refute changeset.valid?
     assert "contains unknown tools: files.unknown" in errors_on(changeset).enabled_tool_keys
+  end
+
+  test "changeset normalizes enabled_mcp_endpoint_ids" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Configured Agent MCP Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    changeset =
+      ConfiguredAgent.changeset(%ConfiguredAgent{}, %{
+        name: "Agent #{System.unique_integer([:positive])}",
+        job: "do thing",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_mcp_endpoint_ids: [1, 2, 1]
+      })
+
+    assert changeset.valid?
+    assert Ecto.Changeset.get_field(changeset, :enabled_mcp_endpoint_ids) == [1, 2]
   end
 
   test "database constraints are surfaced by the changeset" do

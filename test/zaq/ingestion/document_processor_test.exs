@@ -738,7 +738,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       Zaq.System.set_config("llm.max_context_window", 1)
 
-      assert {:ok, []} = DocumentProcessor.query_extraction("token heavy")
+      assert {:ok, []} = DocumentProcessor.query_extraction("token heavy", skip_permissions: true)
     end
   end
 
@@ -985,7 +985,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Repo.insert!()
       end
 
-      assert {:ok, results} = DocumentProcessor.query_extraction("searchable content")
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("searchable content", skip_permissions: true)
+
       assert is_list(results)
 
       Enum.each(results, fn r ->
@@ -1023,10 +1025,15 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> TokenEstimator.estimate()
 
       Zaq.System.set_config("llm.max_context_window", boundary_tokens)
-      assert {:ok, []} = DocumentProcessor.query_extraction("deterministic payload")
+
+      assert {:ok, []} =
+               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
 
       Zaq.System.set_config("llm.max_context_window", boundary_tokens + 1)
-      assert {:ok, [first | _]} = DocumentProcessor.query_extraction("deterministic payload")
+
+      assert {:ok, [first | _]} =
+               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
+
       assert first["content"] == "Boundary-only chunk with deterministic payload."
     end
   end
@@ -1380,14 +1387,23 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert Enum.any?(results, &(&1["document_id"] == doc.id))
     end
 
-    test "with person_id nil, no permission filtering is applied", %{doc: _doc} do
+    test "person with access can retrieve document content", %{doc: doc} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          "full_name" => "Accessor #{unique}",
+          "email" => "accessor#{unique}@test.com"
+        })
+
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+
       {:ok, results} =
         DocumentProcessor.query_extraction("Restricted access content",
-          person_id: nil,
+          person_id: person.id,
           team_ids: []
         )
 
-      # nil person_id triggers the no-filter clause
       assert is_list(results)
     end
 
@@ -1811,7 +1827,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
           else: Application.put_env(:zaq, Zaq.Ingestion, original)
       end)
 
-      assert {:ok, results} = DocumentProcessor.query_extraction("fox jumps")
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("fox jumps", skip_permissions: true)
+
       assert is_list(results)
     end
 

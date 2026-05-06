@@ -6,7 +6,50 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Agent.MCP
   alias Zaq.System
+
+  defmodule MCPTestStub do
+    def test_list_tools(_endpoint_id, _opts), do: {:ok, %{status: :ok}}
+  end
+
+  defmodule MCPTestNotReadyStub do
+    def test_list_tools(_endpoint_id, _opts) do
+      {:error,
+       %{
+         message: "Internal error",
+         status: :error,
+         type: :protocol,
+         details: "Server capabilities not set"
+       }}
+    end
+  end
+
+  defmodule MCPTestUnauthorizedStub do
+    def test_list_tools(_endpoint_id, _opts) do
+      {:error,
+       %{
+         message: "Send Failure",
+         status: :error,
+         type: :transport,
+         details:
+           "{:http_error, 401, \"unauthorized: unauthorized: AuthenticateToken authentication failed\\n\"}"
+       }}
+    end
+  end
+
+  defmodule MCPTestOtherResponseStub do
+    def test_list_tools(_endpoint_id, _opts), do: :unexpected
+  end
+
+  defmodule MCPTestAlreadyRegisteredStub do
+    def test_list_tools(_endpoint_id, _opts), do: {:error, :endpoint_already_registered}
+  end
+
+  defmodule MCPTestRuntimeExitStub do
+    def test_list_tools(_endpoint_id, _opts),
+      do: {:error, {:mcp_runtime_call_exit, {:shutdown, :noproc}}}
+  end
 
   setup %{conn: conn} do
     user = user_fixture(%{email: "admin@example.com", username: "testadmin_sc"})
@@ -76,9 +119,561 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, _view, ai_credentials_html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       assert ai_credentials_html =~ "AI Credentials"
 
+      {:ok, _view, mcp_html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      assert mcp_html =~ "MCP Administration"
+
       {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
       assert global_html =~ "Global Configuration"
       assert global_html =~ "Default Zaq Agent"
+    end
+  end
+
+  describe "MCP administration" do
+    setup do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      :ok
+    end
+
+    test "switches to MCP tab", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("button[phx-value-tab='mcp']")
+      |> render_click()
+
+      assert_patch(view, ~p"/bo/system-config?tab=mcp")
+      assert render(view) =~ "MCP Administration"
+    end
+
+    test "creates MCP endpoint from modal", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Remote MCP",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://localhost:8000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "X-App", "value" => "zaq"}},
+            "secret_headers_rows" => %{
+              "0" => %{"key" => "Authorization", "value" => "Bearer test"}
+            },
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP endpoint saved"
+
+      {entries, _total} =
+        MCP.filter_mcp_endpoints(%{"name" => "Remote MCP"}, page: 1, per_page: 10)
+
+      endpoint = Enum.find(entries, &(&1.name == "Remote MCP"))
+      assert endpoint
+      assert endpoint.headers["X-App"] == "zaq"
+      assert is_binary(endpoint.secret_headers["Authorization"])
+      refute endpoint.secret_headers["Authorization"] == "Bearer test"
+    end
+
+    test "MCP modal toggles local and remote fields", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      assert has_element?(view, "input[name='mcp_endpoint[command]']")
+      refute has_element?(view, "input[name='mcp_endpoint[url]']")
+      assert has_element?(view, "input[name='mcp_endpoint[args_rows][0][value]']")
+      refute has_element?(view, "input[name='mcp_endpoint[headers_rows][0][key]']")
+      assert render(view) =~ "max-h-[90vh]"
+
+      assert has_element?(
+               view,
+               "button[aria-label='Remove row'][phx-value-collection='args'][class*='text-red-500']"
+             )
+
+      render_change(view, "validate_mcp_endpoint", %{
+        "mcp_endpoint" => %{
+          "name" => "Remote Draft",
+          "type" => "remote",
+          "status" => "enabled",
+          "timeout_ms" => "5000",
+          "url" => "http://localhost:9000/mcp",
+          "command" => "",
+          "predefined_id" => "",
+          "headers_rows" => %{"0" => %{"key" => "X-Test", "value" => "1"}},
+          "secret_headers_rows" => %{"0" => %{"key" => "Authorization", "value" => "Bearer x"}},
+          "args_rows" => %{"0" => %{"value" => ""}},
+          "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "settings_text" => "{}"
+        }
+      })
+
+      assert has_element?(view, "input[name='mcp_endpoint[url]']")
+      refute has_element?(view, "input[name='mcp_endpoint[command]']")
+      assert has_element?(view, "input[name='mcp_endpoint[headers_rows][0][key]']")
+      assert has_element?(view, "input[name='mcp_endpoint[secret_headers_rows][0][value]']")
+      refute has_element?(view, "input[name='mcp_endpoint[args_rows][0][value]']")
+
+      assert has_element?(
+               view,
+               "button[aria-label='Remove row'][phx-value-collection='headers'][class*='text-red-500']"
+             )
+    end
+
+    test "adds and removes remote header rows", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      render_change(view, "validate_mcp_endpoint", %{
+        "mcp_endpoint" => %{
+          "name" => "Remote Draft",
+          "type" => "remote",
+          "status" => "enabled",
+          "timeout_ms" => "5000",
+          "url" => "http://localhost:9000/mcp",
+          "command" => "",
+          "predefined_id" => "",
+          "headers_rows" => %{"0" => %{"key" => "X-Test", "value" => "1"}},
+          "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "args_rows" => %{"0" => %{"value" => ""}},
+          "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "settings_text" => "{}"
+        }
+      })
+
+      assert has_element?(view, "input[name='mcp_endpoint[headers_rows][0][key]']")
+      refute has_element?(view, "input[name='mcp_endpoint[headers_rows][1][key]']")
+
+      view
+      |> element("button[phx-click='add_mcp_row'][phx-value-collection='headers']")
+      |> render_click()
+
+      assert has_element?(view, "input[name='mcp_endpoint[headers_rows][1][key]']")
+
+      view
+      |> element(
+        "button[phx-click='remove_mcp_row'][phx-value-collection='headers'][phx-value-index='1']"
+      )
+      |> render_click()
+
+      refute has_element?(view, "input[name='mcp_endpoint[headers_rows][1][key]']")
+      assert has_element?(view, "input[name='mcp_endpoint[headers_rows][0][key]']")
+    end
+
+    test "edit modal shows previously saved secret values", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Remote Secret MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp",
+          secret_headers: %{"Authorization" => "Bearer persisted"},
+          secret_environments: %{"API_TOKEN" => "token-persisted"}
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "input[name='mcp_endpoint[secret_headers_rows][0][value]'][value='Bearer persisted']"
+             )
+    end
+
+    test "tests MCP endpoint through NodeRouter action", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Testable MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test succeeded."
+      refute has_element?(view, "#mcp-test-button-#{endpoint.id}[disabled]")
+    end
+
+    test "shows friendly message when MCP server capabilities are not ready", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestNotReadyStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Not Ready MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test failed: server handshake not ready yet"
+    end
+
+    test "shows friendly unauthorized message when MCP authentication fails", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestUnauthorizedStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Unauthorized MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test failed: unauthorized (401)."
+      refute has_element?(view, "#mcp-test-button-#{endpoint.id}[disabled]")
+    end
+
+    test "filters MCP endpoints by name and resets page", %{conn: conn} do
+      assert {:ok, _} =
+               MCP.create_mcp_endpoint(%{
+                 name: "Filterable Endpoint",
+                 type: "remote",
+                 status: "enabled",
+                 timeout_ms: 5000,
+                 url: "http://localhost:8000/mcp"
+               })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        render_change(view, "filter_mcp_endpoints", %{
+          "mcp_filter_name" => "filterable",
+          "mcp_filter_type" => "all",
+          "mcp_filter_status" => "all"
+        })
+
+      assert html =~ "Filterable Endpoint"
+    end
+
+    test "close_mcp_endpoint_modal hides modal after opening", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      assert has_element?(view, "#mcp-endpoint-modal")
+
+      render_click(view, "close_mcp_endpoint_modal", %{})
+      refute has_element?(view, "#mcp-endpoint-modal")
+    end
+
+    test "open/cancel delete confirm toggles MCP delete modal", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Delete Toggle MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      refute has_element?(view, "#mcp-endpoint-delete-confirm")
+
+      render_click(view, "open_delete_mcp_endpoint_confirm", %{})
+      assert has_element?(view, "#mcp-endpoint-delete-confirm")
+
+      render_click(view, "cancel_delete_mcp_endpoint", %{})
+      refute has_element?(view, "#mcp-endpoint-delete-confirm")
+    end
+
+    test "changes MCP page with valid and invalid values", %{conn: conn} do
+      {:ok, _} =
+        MCP.create_mcp_endpoint(%{
+          name: "Paging MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html = render_click(view, "change_mcp_page", %{"page" => "2"})
+      assert html =~ "MCP Administration"
+
+      html = render_click(view, "change_mcp_page", %{"page" => "not-a-number"})
+      assert html =~ "MCP Administration"
+    end
+
+    test "saves MCP endpoint in edit mode", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Editable MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Editable MCP Updated",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "6000",
+            "url" => "http://localhost:9000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP endpoint saved"
+      assert MCP.get_mcp_endpoint!(endpoint.id).name == "Editable MCP Updated"
+    end
+
+    test "save MCP endpoint shows validation errors on invalid data", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "0",
+            "url" => "",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP Administration"
+      assert has_element?(view, "#mcp-endpoint-modal")
+    end
+
+    test "enable predefined MCP opens edit modal for editable predefined endpoint", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "github_mcp"})
+
+      assert html =~ "Predefined MCP enabled."
+      assert has_element?(view, "#mcp-endpoint-modal")
+      assert has_element?(view, "input[name='mcp_endpoint[name]']")
+    end
+
+    test "confirm delete MCP endpoint removes endpoint", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Delete Me MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      render_click(view, "open_delete_mcp_endpoint_confirm", %{})
+      html = render_click(view, "confirm_delete_mcp_endpoint", %{})
+
+      assert html =~ "MCP endpoint deleted"
+      assert_raise Ecto.NoResultsError, fn -> MCP.get_mcp_endpoint!(endpoint.id) end
+    end
+
+    test "enable predefined mcp failure shows error flash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "unknown"})
+      assert html =~ "Failed to enable MCP"
+    end
+
+    test "shows fallback message for unexpected MCP test response", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Other Response MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test returned"
+    end
+
+    test "shows stale-endpoint message when endpoint already registered", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestAlreadyRegisteredStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Already Registered MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "stale test endpoint state detected"
+    end
+
+    test "shows client-disconnect message for mcp runtime call exit", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestRuntimeExitStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Runtime Exit MCP",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP client disconnected during request"
     end
   end
 
@@ -1298,6 +1893,52 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "image-to-text-config-form"
       refute html =~ "Image-to-Text settings saved."
+    end
+  end
+
+  describe "global default agent saving" do
+    test "accepts empty global_default_agent_id and saves", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html =
+        render_submit(view, "save_global_default_agent", %{
+          "global_default_agent_id" => ""
+        })
+
+      assert html =~ "Global default agent saved."
+    end
+  end
+
+  describe "MCP test endpoint failure mapping" do
+    test "shows generic fallback message for unexpected MCP error", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Fallback MCP #{:erlang.unique_integer([:positive])}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test returned"
     end
   end
 end

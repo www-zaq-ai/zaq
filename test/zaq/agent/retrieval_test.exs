@@ -1,7 +1,7 @@
 defmodule Zaq.Agent.RetrievalTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Agent.{LLM, PromptTemplate, Retrieval}
+  alias Zaq.Agent.{PromptTemplate, Retrieval}
   alias Zaq.TestSupport.OpenAIStub
 
   describe "ask/2" do
@@ -20,11 +20,10 @@ defmodule Zaq.Agent.RetrievalTest do
       :ok
     end
 
-    test "adds JSON mode when provider supports it" do
+    test "never sends response_format regardless of supports_json_mode config" do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
-
-        assert payload["response_format"] == %{"type" => "json_object"}
+        refute Map.has_key?(payload, "response_format")
         {200, OpenAIStub.chat_completion(~s({"queries":["elixir beam"]}))}
       end
 
@@ -35,24 +34,6 @@ defmodule Zaq.Agent.RetrievalTest do
 
       assert {:ok, %{"queries" => ["elixir beam"]}} =
                Retrieval.ask("What does Elixir run on?", system_prompt: "Return JSON")
-
-      assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}
-    end
-
-    test "does not add JSON mode when provider does not support it" do
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        refute Map.has_key?(payload, "response_format")
-        {200, OpenAIStub.chat_completion(~s({"queries":["docs"]}))}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-
-      OpenAIStub.seed_llm_config(endpoint, supports_json_mode: false)
-
-      assert {:ok, %{"queries" => ["docs"]}} =
-               Retrieval.ask("Where are docs?", system_prompt: "Return JSON")
     end
 
     test "builds history from map for user and bot with non-binary bodies" do
@@ -151,7 +132,7 @@ defmodule Zaq.Agent.RetrievalTest do
 
       # This test requires a running LLM endpoint.
       # Skip in CI or when no LLM is configured.
-      case LLM.endpoint() do
+      case Zaq.System.get_llm_config().endpoint do
         nil ->
           :skipped
 
@@ -172,7 +153,7 @@ defmodule Zaq.Agent.RetrievalTest do
         history: []
       ]
 
-      case LLM.endpoint() do
+      case Zaq.System.get_llm_config().endpoint do
         nil ->
           :skipped
 

@@ -111,4 +111,27 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
         []
     end)
   end
+
+  @doc """
+  Extracts logprobs from a response map returned by `factory_module.await/2`.
+  Returns the logprobs list or `nil` if not present.
+  """
+  @spec from_response(term()) :: list() | nil
+  def from_response(%{logprobs: logprobs}) when is_list(logprobs), do: logprobs
+  def from_response(%{provider_meta: %{logprobs: logprobs}}) when is_list(logprobs), do: logprobs
+
+  def from_response(%{provider_meta: %{"logprobs" => logprobs}}) when is_list(logprobs),
+    do: logprobs
+
+  def from_response(%{result: result}), do: from_response(result)
+  def from_response(_), do: nil
+
+  @logprobs_error_terms ~w(logprob log_prob logprobs log_probs)
+
+  @doc "Returns true if the error reason indicates the model does not support logprobs."
+  @spec logprobs_unsupported_error?(term()) :: boolean()
+  def logprobs_unsupported_error?(reason) do
+    text = inspect(reason) |> String.downcase()
+    Enum.any?(@logprobs_error_terms, &String.contains?(text, &1))
+  end
 end

@@ -62,7 +62,8 @@ config :zaq, Oban,
        {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
-       {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker}
+       {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker},
+       {"0 3 * * *", Zaq.System.UpdateBadgeWorker}
      ]}
   ],
   shutdown_grace_period: :timer.seconds(10)
@@ -117,6 +118,9 @@ config :logger, :default_formatter,
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+
+config :jido_studio,
+  jido_instance: Zaq.Agent.Jido
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

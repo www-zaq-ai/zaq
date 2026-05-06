@@ -27,6 +27,8 @@
 - **Always** use the `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for icons — **never** use `Heroicons` modules.
 - **Always** use the imported `<.input>` component for form inputs from `core_components.ex`.
 - For revealable password/token/secret fields, use `<.secret_input>` from `core_components.ex` instead of inlining eye-toggle markup.
+- For Back Office add/edit popins, use `ZaqWeb.Components.BOModal.form_dialog` so max-height and internal scrolling are enforced by default.
+- For dynamic multi-value form rows (args, headers, env maps), prefer reusable row components over duplicating row markup.
 - If you override default input classes, no default classes are inherited — your custom classes must fully style the input.
 
 ---

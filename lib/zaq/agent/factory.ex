@@ -1,48 +1,125 @@
 defmodule Zaq.Agent.Factory do
   @moduledoc """
-  Standard Jido agent used for BO-managed configured agents.
+  Jido AI agent implementation shared by all configured agents.
 
-  All configured agents execute through this module. Per-agent specifics are
-  applied at runtime (server model/runtime state and request tool/llm options).
+  One Factory server is spawned per agent scope. Provides `ask_with_config/4`
+  to send a query with per-agent tool and LLM opts resolved at call time.
+  The built-in answering agent configuration lives in `Zaq.Agent.Answering`.
   """
 
   use Jido.AI.Agent,
     name: "agent_factory",
     description: "Runtime-configured standard ZAQ agent",
     request_policy: :reject,
+    plugins: [
+      {Jido.MCP.Plugins.MCP, %{allowed_endpoints: :all}},
+      Jido.MCP.JidoAI.Plugins.MCPAI
+    ],
     tools: []
 
-  alias Zaq.Agent.ConfiguredAgent
+  alias Jido.AI.Context, as: AIContext
+  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
-  require Logger
 
   def strategy_opts do
     super()
     |> Keyword.delete(:model)
   end
 
+  # Replace with per-agent advanced LLM opts so each ConfiguredAgent carries its own
+  # temperature/top_p/logprobs config instead of falling back to the global system LLM config.
+  @doc """
+  Returns LLM sampling opts (temperature, top_p, etc.) from the system LLM config.
+
+  Called by `runtime_config/1` as the baseline for every agent until per-agent advanced
+  options are surfaced in the BO UI. Reads live from `Zaq.System.get_llm_config/0` on
+  each call — no caching.
+  """
+  def generation_opts, do: System.get_llm_config() |> ProviderSpec.generation_opts()
+
+  @doc """
+  Resolves the runtime configuration map for a configured agent.
+
+  Resolves tool modules from `enabled_tool_keys` via `Tools.Registry`, merges system-level
+  LLM sampling opts with any per-agent overrides from `ProviderSpec`, and returns the
+  agent's `job` field as the system prompt.
+
+  Returns `{:ok, %{tools: [...], llm_opts: [...], system_prompt: binary()}}` or
+  `{:error, reason}` if tool resolution fails.
+
+  This is the fallback path used by `ask_with_config/4` when the live server has no cached
+  `runtime_config` in its state (e.g. first call after a cold start).
+  """
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
     with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
       {:ok,
        %{
          tools: tools,
-         llm_opts: llm_opts(configured_agent),
+         # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
+         # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
+         llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
          system_prompt: configured_agent.job || ""
        }}
     end
   end
 
+  @doc """
+  Builds the initial `Jido.AI.Context` for a cold-started agent by loading recent history.
+
+  Routes to conversation history when `incoming.metadata.conversation_id` is present,
+  otherwise loads by `person_id` + normalized provider. Returns an empty context when
+  `incoming` is `nil` or the relevant identifiers are absent.
+  """
+  @spec build_initial_context(ConfiguredAgent.t(), String.t()) :: AIContext.t()
+  def build_initial_context(%ConfiguredAgent{} = configured_agent, server_id) do
+    spawn_opts = spawn_opts_from_server_id(server_id)
+
+    HistoryLoader.load_context(
+      spawn_opts,
+      max_tokens: configured_agent.memory_context_max_size || 5_000
+    )
+  end
+
+  defp spawn_opts_from_server_id(server_id) when is_binary(server_id) do
+    case String.split(server_id, ":") do
+      [_agent, provider, "conv", id] when provider != "" and id != "" ->
+        %{conversation_id: id, person_id: nil, channel_type: provider}
+
+      [_agent, provider, "person", id] when provider != "" and id != "" ->
+        %{conversation_id: nil, person_id: id, channel_type: provider}
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp spawn_opts_from_server_id(_server_id), do: nil
+
+  @doc """
+  Sends a query to a running agent server with the configured agent's LLM and tool settings.
+
+  Reads `runtime_config` from the server's live state when available, falling back to
+  `runtime_config/1` on a cold server. Ensures the system prompt is set before dispatching,
+  retrying up to 4 times with a 20 ms backoff if `set_system_prompt` fails.
+
+  Returns `{:ok, request_handle}` that callers pass to `await/2`, or `{:error, reason}`.
+
+  ## Options
+
+  - `:timeout` — ask timeout in milliseconds; defaults to `30_000`
+  - `:context` — map passed into retrieval for permission scoping (`:person_id`, `:team_ids`)
+  - Any other opts are forwarded to the underlying `Jido.AI.Agent` ask call
+  """
   @spec ask_with_config(GenServer.server(), String.t(), ConfiguredAgent.t(), keyword()) ::
           {:ok, Jido.AI.Request.Handle.t()} | {:error, term()}
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
       when is_binary(query) do
     with {:ok, config} <- server_runtime_config(server, configured_agent),
-         :ok <- ensure_system_prompt(server, Map.get(config, :system_prompt, "")) do
+         :ok <- ensure_system_prompt(server, configured_agent.job || "") do
       ask_opts =
         opts
-        |> Keyword.put(:tools, Map.get(config, :tools, []))
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
         |> Keyword.put_new(:timeout, 30_000)
 
@@ -95,52 +172,4 @@ defmodule Zaq.Agent.Factory do
         do_set_system_prompt(server, prompt, attempts_left - 1)
     end
   end
-
-  defp llm_opts(%ConfiguredAgent{} = configured_agent) do
-    credential = credential(configured_agent)
-
-    configured_agent
-    |> advanced_options_as_keyword()
-    |> maybe_put(:api_key, credential && credential.api_key)
-    |> maybe_put(:base_url, credential && credential.endpoint)
-  end
-
-  defp advanced_options_as_keyword(%ConfiguredAgent{advanced_options: options})
-       when is_map(options) do
-    options
-    |> Enum.reduce([], fn {key, value}, acc ->
-      case normalize_option_key(key) do
-        nil -> acc
-        atom_key -> [{atom_key, value} | acc]
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp advanced_options_as_keyword(_), do: []
-
-  defp credential(%ConfiguredAgent{credential: credential}) when not is_nil(credential),
-    do: credential
-
-  defp credential(%ConfiguredAgent{credential_id: credential_id})
-       when is_integer(credential_id) do
-    System.get_ai_provider_credential(credential_id)
-  end
-
-  defp credential(_), do: nil
-
-  defp normalize_option_key(key) when is_atom(key), do: key
-
-  defp normalize_option_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError ->
-      Logger.warning("Ignoring unsupported advanced option key: #{inspect(key)}")
-      nil
-  end
-
-  defp normalize_option_key(_), do: nil
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

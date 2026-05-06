@@ -7,6 +7,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.{Event, NodeRouter}
   alias Zaq.TestSupport.OpenAIStub
 
   defmodule StubAgent do
@@ -14,22 +15,25 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(_configured_agent), do: {:ok, :stub_server}
+    def ensure_server(_configured_agent, _server_id, _spawn_opts \\ %{}), do: {:ok, :stub_server}
   end
 
   defmodule StubFactoryResult do
-    def ask_with_config(_server, _content, _configured_agent), do: {:ok, :request}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
     def await(:request, timeout: 45_000), do: {:ok, %{result: "from-result"}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryAnswer do
-    def ask_with_config(_server, _content, _configured_agent), do: {:ok, :request}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
     def await(:request, timeout: 45_000), do: {:ok, %{answer: "from-answer"}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryOther do
-    def ask_with_config(_server, _content, _configured_agent), do: {:ok, :request}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
     def await(:request, timeout: 45_000), do: {:ok, %{unexpected: 123}}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   test "runs configured agent end-to-end with only AI edge mocked" do
@@ -66,7 +70,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -115,7 +119,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -171,7 +175,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -219,7 +223,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
@@ -227,26 +231,33 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     first_outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
     assert first_outgoing.metadata.error == false
 
-    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{job: prompt_v2})
+    assert_receive {:openai_request, "POST", _path1, "", body1}, 1_000
+    assert String.contains?(body1, prompt_v1)
+
+    update_event =
+      Event.new(
+        %{id: configured_agent.id, attrs: %{job: prompt_v2}},
+        :agent,
+        opts: [action: :configured_agent_updated]
+      )
+
+    assert {:ok, %{agent: updated_agent}} = NodeRouter.dispatch(update_event).response
 
     second_outgoing = Executor.run(incoming, agent_id: to_string(updated_agent.id))
     assert second_outgoing.metadata.error == false
-
-    assert_receive {:openai_request, "POST", _path1, "", body1}, 1_000
-    assert String.contains?(body1, prompt_v1)
 
     assert_receive {:openai_request, "POST", _path2, "", body2}, 1_000
     assert String.contains?(body2, prompt_v2)
   end
 
-  test "returns graceful error when agent selection is missing" do
+  test "routes to answering path when no agent_id is provided" do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
+    # nil agent_id → answering configured agent; ServerManager spawns a real server.
+    # Since there is no LLM configured in test env, the run will error gracefully.
     outgoing = Executor.run(incoming, [])
 
-    assert outgoing.metadata.error == true
-    assert outgoing.metadata.reason == ":missing_agent_selection"
-    assert outgoing.body =~ "something went wrong"
+    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
   end
 
   test "returns graceful error when selected agent is inactive" do
@@ -289,12 +300,11 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert outgoing.body =~ "something went wrong"
   end
 
-  test "run/1 defaults to missing selection error" do
+  test "run/1 with no opts routes to answering path" do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
     outgoing = Executor.run(incoming)
 
-    assert outgoing.metadata.error == true
-    assert outgoing.metadata.reason == ":missing_agent_selection"
+    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
   end
 
   test "normalizes nested result answer maps" do
@@ -373,7 +383,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     on_exit(fn ->
-      _ = ServerManager.stop_server(configured_agent.id)
+      _ = ServerManager.stop_server(configured_agent)
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}

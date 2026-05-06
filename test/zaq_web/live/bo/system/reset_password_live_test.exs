@@ -57,6 +57,49 @@ defmodule ZaqWeb.Live.BO.System.ResetPasswordLiveTest do
 
       assert html =~ "Passwords do not match"
     end
+
+    test "validate updates form feedback and clears stale errors", %{conn: conn} do
+      user = user_with_password()
+      token = Accounts.generate_password_reset_token(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/bo/reset-password/#{token}")
+
+      _ =
+        lv
+        |> form("#reset-password-form", %{
+          password: "BrandNew99!",
+          password_confirmation: "Different99!"
+        })
+        |> render_submit()
+
+      html =
+        lv
+        |> form("#reset-password-form", %{
+          password: "BrandNew99!",
+          password_confirmation: "BrandNew99!"
+        })
+        |> render_change()
+
+      refute html =~ "Passwords do not match"
+      assert html =~ "Set New Password"
+    end
+
+    test "shows formatted changeset errors for invalid password", %{conn: conn} do
+      user = user_with_password()
+      token = Accounts.generate_password_reset_token(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/bo/reset-password/#{token}")
+
+      html =
+        lv
+        |> form("#reset-password-form", %{
+          password: "weak",
+          password_confirmation: "weak"
+        })
+        |> render_submit()
+
+      assert html =~ "password"
+    end
   end
 
   describe "with an invalid token" do

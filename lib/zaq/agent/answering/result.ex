@@ -7,6 +7,7 @@ defmodule Zaq.Agent.Answering.Result do
 
   @type t :: %__MODULE__{
           answer: String.t(),
+          clarification: String.t() | nil,
           confidence_score: float() | nil,
           latency_ms: integer() | nil,
           prompt_tokens: integer() | nil,
@@ -17,6 +18,7 @@ defmodule Zaq.Agent.Answering.Result do
   @enforce_keys [:answer]
   defstruct [
     :answer,
+    :clarification,
     :confidence_score,
     :latency_ms,
     :prompt_tokens,

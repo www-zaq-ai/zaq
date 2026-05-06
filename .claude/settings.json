@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Checking function ownership...",
+            "command": "input=$(cat); file=$(echo \"$input\" | jq -r '.tool_input.file_path // \"\"'); if echo \"$file\" | grep -qE '\\.exs?$'; then old=$(echo \"$input\" | jq -r '.tool_input.old_string // \"\"'); new=$(echo \"$input\" | jq -r '.tool_input.new_string // \"\"'); old_n=$(echo \"$old\" | grep -cE '^[[:space:]]*defp? ' 2>/dev/null || true); new_n=$(echo \"$new\" | grep -cE '^[[:space:]]*defp? ' 2>/dev/null || true); if [ \"$new_n\" -gt \"$old_n\" ]; then printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"FUNCTION OWNERSHIP CHECK: You are adding a new function to an Elixir module. Before writing: (1) Re-read this module @moduledoc — what is its stated responsibility? (2) Does this function fit that responsibility? (3) If not, stop and add it to the correct module instead.\"}}'; fi; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

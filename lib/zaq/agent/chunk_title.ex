@@ -6,7 +6,9 @@ defmodule Zaq.Agent.ChunkTitle do
 
   require Logger
 
-  alias Zaq.Agent.{LLM, LLMRunner}
+  alias ReqLLM.{Context, Generation, Response}
+  alias Zaq.Agent.ProviderSpec
+  alias Zaq.System
   alias Zaq.Utils.TextUtils
 
   @behaviour Zaq.Agent.ChunkTitleBehaviour
@@ -16,20 +18,12 @@ defmodule Zaq.Agent.ChunkTitle do
   @doc """
   Generates a descriptive title for a document chunk.
 
-  ## Options
-
-    * `:model` — override the configured LLM model.
-
   ## Examples
 
       iex> ChunkTitle.ask("Welcome to Northwind Industries! Founded in 1987 by Eleanor Vance...")
       {:ok, "Northwind Industries Founded 1987 Eleanor Vance"}
   """
-  def ask(content, opts \\ []) do
-    llm_config =
-      LLM.chat_config(Keyword.take(opts, [:model]))
-      |> Map.drop([:top_p])
-
+  def ask(content, _opts \\ []) do
     Logger.info("ChunkTitle: Generating title for chunk")
 
     prompt = """
@@ -56,33 +50,30 @@ defmodule Zaq.Agent.ChunkTitle do
     #{content}
     """
 
-    case LLMRunner.run(
-           llm_config: llm_config,
-           question: prompt,
-           error_prefix: "Failed to generate title"
-         ) do
-      {:ok, updated_chain} ->
-        case LLMRunner.content_result(updated_chain) do
-          {:ok, content} ->
+    cfg = System.get_llm_config()
+    gen_opts = ProviderSpec.generation_opts(cfg) |> Keyword.delete(:top_p)
+
+    case Generation.generate_text(ProviderSpec.build(cfg), [Context.user(prompt)], gen_opts) do
+      {:ok, response} ->
+        case normalized_text(Response.text(response)) do
+          nil ->
+            error_reason = "Failed to generate title: Empty assistant response content"
+            Logger.error("ChunkTitle failed: #{error_reason}")
+            {:error, error_reason}
+
+          text ->
             title =
-              content
-              |> String.trim()
-              |> remove_quotes()
-              |> remove_prefix()
-              |> enforce_word_limit(@max_words)
+              text
+              |> TextUtils.normalize_generated_title(@max_words)
 
             Logger.info("ChunkTitle: Generated title: #{title}")
             {:ok, title}
-
-          {:error, reason} ->
-            error_reason = "Failed to generate title: #{reason}"
-            Logger.error("ChunkTitle failed: #{error_reason}")
-            {:error, error_reason}
         end
 
       {:error, reason} ->
-        Logger.error("ChunkTitle failed: #{reason}")
-        {:error, reason}
+        error_reason = "Failed to generate title: #{inspect(reason)}"
+        Logger.error("ChunkTitle failed: #{error_reason}")
+        {:error, error_reason}
     end
   end
 
@@ -91,20 +82,8 @@ defmodule Zaq.Agent.ChunkTitle do
   """
   def max_words, do: @max_words
 
-  # Remove surrounding quotes
-  defp remove_quotes(text) do
-    text
-    |> String.replace(~r/^["']/, "")
-    |> String.replace(~r/["']$/, "")
-    |> String.trim()
-  end
+  defp normalized_text(nil), do: nil
 
-  # Remove common prefixes that LLMs might add
-  defp remove_prefix(text) do
-    text
-    |> String.replace(~r/^(Title:|Here is|Here's|The title is:?)\s*/i, "")
-    |> String.trim()
-  end
-
-  defp enforce_word_limit(text, max_words), do: TextUtils.enforce_word_limit(text, max_words)
+  defp normalized_text(text) when is_binary(text),
+    do: if(String.trim(text) == "", do: nil, else: text)
 end

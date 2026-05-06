@@ -36,15 +36,18 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   attr :content, :string, required: true
   attr :timestamp, :any, required: true
+  attr :filters, :list, default: []
 
   slot :actions
 
   def user_bubble(assigns) do
+    assigns = assign(assigns, :body_html, build_body_html(assigns.content, assigns.filters))
+
     ~H"""
     <div class="flex justify-end animate-slide-in-right group">
       <div class="max-w-[70%]">
         <div class="text-white px-4 py-3 rounded-2xl rounded-br-none shadow-sm zaq-bg-user-bubble">
-          <p class="text-[0.85rem] leading-relaxed whitespace-pre-wrap">{@content}</p>
+          <p class="text-[0.85rem] leading-relaxed whitespace-pre-wrap">{@body_html}</p>
         </div>
         <div class="flex items-center justify-end gap-2 mt-1 pr-1 msg-actions">
           <span class="text-[0.62rem] zaq-text-muted">{format_time(@timestamp)}</span>
@@ -327,4 +330,31 @@ defmodule ZaqWeb.Components.ChatMessage do
   end
 
   defp humanize_memory_label(_), do: "LLM general knowledge"
+
+  defp build_body_html(content, []), do: Phoenix.HTML.html_escape(content)
+
+  defp build_body_html(content, filters) do
+    mention_map = Map.new(filters, fn f -> {"@#{f.label}", f} end)
+
+    html =
+      Regex.split(~r/(@\S+)/, content, include_captures: true)
+      |> Enum.map_join("", fn part ->
+        case Map.fetch(mention_map, part) do
+          {:ok, %{type: :file, source_prefix: sp}} ->
+            safe_label = part |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+            safe_path = sp |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+            ~s(<button type="button" phx-click="open_preview_modal" phx-value-path="#{safe_path}" class="underline cursor-pointer hover:opacity-80 transition-opacity">#{safe_label}</button>)
+
+          {:ok, _folder_or_connector} ->
+            safe_label = part |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+            ~s(<span class="underline opacity-80">#{safe_label}</span>)
+
+          :error ->
+            part |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+        end
+      end)
+
+    Phoenix.HTML.raw(html)
+  end
 end

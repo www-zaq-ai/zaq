@@ -117,6 +117,134 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert html =~ "disabled"
   end
 
+  # ── user_bubble with filters (build_body_html) ───────────────────────────────
+
+  test "user_bubble with file filter renders clickable button with phx-click open_preview_modal" do
+    filters = [
+      %Zaq.Ingestion.ContentSource{
+        connector: "documents",
+        source_prefix: "documents/hr/policy.md",
+        label: "policy.md",
+        type: :file
+      }
+    ]
+
+    html =
+      render_component(&ChatMessage.user_bubble/1,
+        content: "Check @policy.md for details",
+        timestamp: ~N[2026-04-15 09:30:00],
+        filters: filters
+      )
+
+    assert html =~ ~s(phx-click="open_preview_modal")
+    assert html =~ ~s(phx-value-path="documents/hr/policy.md")
+    assert html =~ "@policy.md"
+    refute html =~ ~s(<span class="underline opacity-80">@policy.md</span>)
+  end
+
+  test "user_bubble with folder filter renders underlined span without phx-click" do
+    filters = [
+      %Zaq.Ingestion.ContentSource{
+        connector: "documents",
+        source_prefix: "documents/hr",
+        label: "hr",
+        type: :folder
+      }
+    ]
+
+    html =
+      render_component(&ChatMessage.user_bubble/1,
+        content: "Look in @hr folder",
+        timestamp: ~N[2026-04-15 09:30:00],
+        filters: filters
+      )
+
+    assert html =~ ~s(<span class="underline opacity-80">@hr</span>)
+    refute html =~ "phx-click"
+  end
+
+  test "user_bubble with connector filter renders underlined span without phx-click" do
+    filters = [
+      %Zaq.Ingestion.ContentSource{
+        connector: "sharepoint",
+        source_prefix: "sharepoint",
+        label: "sharepoint",
+        type: :connector
+      }
+    ]
+
+    html =
+      render_component(&ChatMessage.user_bubble/1,
+        content: "Search @sharepoint for files",
+        timestamp: ~N[2026-04-15 09:30:00],
+        filters: filters
+      )
+
+    assert html =~ ~s(<span class="underline opacity-80">@sharepoint</span>)
+    refute html =~ "phx-click"
+  end
+
+  test "user_bubble with filters but no @mention in content renders text normally" do
+    filters = [
+      %Zaq.Ingestion.ContentSource{
+        connector: "documents",
+        source_prefix: "documents/hr",
+        label: "hr",
+        type: :folder
+      }
+    ]
+
+    html =
+      render_component(&ChatMessage.user_bubble/1,
+        content: "Plain text with no mention",
+        timestamp: ~N[2026-04-15 09:30:00],
+        filters: filters
+      )
+
+    assert html =~ "Plain text with no mention"
+    refute html =~ "phx-click"
+    refute html =~ "underline opacity-80"
+  end
+
+  test "user_bubble with multiple filters, only one matching mention is highlighted" do
+    filters = [
+      %Zaq.Ingestion.ContentSource{
+        connector: "documents",
+        source_prefix: "documents/hr",
+        label: "hr",
+        type: :folder
+      },
+      %Zaq.Ingestion.ContentSource{
+        connector: "documents",
+        source_prefix: "documents/legal/contract.md",
+        label: "contract.md",
+        type: :file
+      }
+    ]
+
+    html =
+      render_component(&ChatMessage.user_bubble/1,
+        content: "Review @hr policies",
+        timestamp: ~N[2026-04-15 09:30:00],
+        filters: filters
+      )
+
+    assert html =~ ~s(<span class="underline opacity-80">@hr</span>)
+    refute html =~ "contract.md"
+  end
+
+  test "user_bubble with no filters renders content HTML-escaped as-is" do
+    html =
+      render_component(&ChatMessage.user_bubble/1,
+        content: "<script>alert(1)</script>",
+        timestamp: ~N[2026-04-15 09:30:00],
+        filters: []
+      )
+
+    refute html =~ "<script>"
+    assert html =~ "&lt;script&gt;"
+  end
+
   test "source chips support atom-key maps, id links, and non-binary memory labels" do
     html =
       render_component(&ChatMessage.assistant_bubble/1,

@@ -107,11 +107,13 @@ async function dismissFlash(page) {
 
   for (let i = 0; i < count; i += 1) {
     const item = flash.nth(i);
-    const close = item.locator("button[aria-label='close']");
+    const close = item.getByRole("button", { name: /close|dismiss/i });
     if (await close.count()) {
-      await close.click().catch(() => {});
+      await close.first().click().catch(() => {});
     }
   }
+
+  await expect(flash).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
 }
 
 // Small helper for the common "server just processed a phx event" wait.
@@ -129,6 +131,17 @@ async function resetE2EState(request, options = {}) {
   const res = await request.post(`${baseURL}/e2e/reset`);
   if (!res.ok()) {
     throw new Error(`/e2e/reset returned ${res.status()} ${await res.text()}`);
+  }
+}
+
+async function setE2ESystemConfig(request, key, value, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/system-config`, {
+    data: { key, value },
+  });
+
+  if (!res.ok()) {
+    throw new Error(`/e2e/system-config returned ${res.status()} ${await res.text()}`);
   }
 }
 
@@ -153,5 +166,6 @@ module.exports = {
   dismissFlash,
   normalizeBaseURL,
   resetE2EState,
+  setE2ESystemConfig,
   touchE2EFile,
 };

@@ -39,12 +39,12 @@ defmodule Zaq.Agent.ChunkTitleTest do
       assert title == "One Two Three Four Five Six Seven Eight"
     end
 
-    test "uses model override and expected endpoint path" do
+    test "uses configured model and omits top_p" do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
-        assert payload["model"] == "custom-model"
+        assert payload["model"] == "base-model"
         refute Map.has_key?(payload, "top_p")
-        {200, OpenAIStub.chat_completion("Custom Model Title")}
+        {200, OpenAIStub.chat_completion("Base Model Title")}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
@@ -52,7 +52,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
 
       OpenAIStub.seed_llm_config(endpoint, model: "base-model")
 
-      assert {:ok, "Custom Model Title"} = ChunkTitle.ask("chunk content", model: "custom-model")
+      assert {:ok, "Base Model Title"} = ChunkTitle.ask("chunk content")
       assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}
     end
 

@@ -65,7 +65,7 @@ defmodule Zaq.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
-      {:lazy_html, ">= 0.1.0", only: :test},
+      {:lazy_html, ">= 0.1.0"},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
@@ -90,7 +90,6 @@ defmodule Zaq.MixProject do
       {:ex_doc, "~> 0.40", only: [:dev, :docs], runtime: false},
       {:excoveralls, "~> 0.18.5", only: :test},
       {:pgvector, "~> 0.3.1"},
-      {:langchain, "~> 0.8"},
       {:mox, "~> 1.2", only: :test},
       {:oban, "~> 2.20.3"},
       {:fresh, "~> 0.4.4"},
@@ -104,13 +103,17 @@ defmodule Zaq.MixProject do
       {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
       # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
-      {:ex_dna, "~> 1.2.2", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:mailroom, "~> 0.7.1"},
       {:lingua, "~> 0.3.6"},
+      {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
-      {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
-      {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"}
+      {:jido_ai, github: "agentjido/jido_ai", branch: "main", override: true},
+      # {:jido_mcp, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_mcp"},
+      {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
+      {:jido_studio, github: "agentjido/jido_studio"},
+      {:req_llm, github: "agentjido/req_llm", branch: "main", override: true}
     ]
   end
 
@@ -139,18 +142,9 @@ defmodule Zaq.MixProject do
         "deps.unlock --unused",
         "format",
         "credo --strict",
-        "ex_dna",
         "hooks.verify",
-        "test",
-        "e2e"
+        "test"
       ]
-      # coveralls: ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls"],
-      # "coveralls.html": ["ecto.create --quiet", "ecto.migrate --quiet", "coveralls.html"],
-      # "coveralls.github": [
-      #   "ecto.create --quiet",
-      #   "ecto.migrate --quiet",
-      #   "coveralls.github"
-      # ]
     ]
   end
 

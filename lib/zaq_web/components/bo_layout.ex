@@ -6,13 +6,17 @@ defmodule ZaqWeb.Components.BOLayout do
   """
   use Phoenix.Component
   alias Zaq.License.FeatureStore
+  alias Zaq.System
   use ZaqWeb, :verified_routes
 
   attr :current_user, :map, required: true
   attr :page_title, :string, default: "Dashboard"
   attr :current_path, :string, default: ""
   attr :flash, :map, default: %{}
+  attr :auto_dismiss, :boolean, default: true
+  attr :auto_dismiss_duration, :integer, default: 5000
   attr :features_version, :integer, default: 0
+  attr :update_badge_enabled, :boolean, default: nil
   slot :inner_block, required: true
 
   def bo_layout(assigns) do
@@ -26,9 +30,16 @@ defmodule ZaqWeb.Components.BOLayout do
 
     nav_sections = nav_sections(assigns.current_path, assigns.features_version)
 
+    update_badge_enabled =
+      case assigns.update_badge_enabled do
+        value when is_boolean(value) -> value
+        _ -> load_update_badge_enabled()
+      end
+
     assigns =
       assigns
       |> assign(:app_version, app_version)
+      |> assign(:update_badge_enabled, update_badge_enabled)
       |> assign(:nav_sections, nav_sections)
       |> assign(:nav_section_ids, Enum.map(nav_sections, & &1.id))
 
@@ -84,6 +95,32 @@ defmodule ZaqWeb.Components.BOLayout do
                   padding: 0.5rem;
                   gap: 0;
                   align-items: center;
+                }
+
+                .version-update-badge {
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  width: 0.9rem;
+                  height: 0.9rem;
+                  border-radius: 9999px;
+                  background: #ef4444;
+                  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+                  animation: versionBadgePulse 3.2s ease-in-out infinite;
+                }
+
+                @keyframes versionBadgePulse {
+                  0%, 100% {
+                    opacity: 0.35;
+                    transform: scale(0.92);
+                    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.2);
+                  }
+
+                  50% {
+                    opacity: 1;
+                    transform: scale(1);
+                    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+                  }
                 }
 
                 /* Section dropdown */
@@ -313,6 +350,18 @@ defmodule ZaqWeb.Components.BOLayout do
             <span class="sidebar-version font-mono text-[0.65rem] text-white/40">
               v{@app_version}
             </span>
+            <a
+              :if={@update_badge_enabled}
+              id="sidebar-version-update-badge"
+              href="https://github.com/www-zaq-ai/zaq/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="ml-2"
+              title="A newer version is available"
+              aria-label="Open ZAQ releases"
+            >
+              <span class="version-update-badge" />
+            </a>
           </div>
         </div>
       </aside>
@@ -473,7 +522,10 @@ defmodule ZaqWeb.Components.BOLayout do
         <div class="p-8">
           <div
             :if={Phoenix.Flash.get(@flash, :info)}
+            id="flash-info"
             class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+            phx-hook={@auto_dismiss && "FlashAutoDismiss"}
+            data-auto-dismiss-duration={@auto_dismiss_duration}
           >
             <svg
               class="w-4 h-4 shrink-0"
@@ -488,6 +540,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <button
               phx-click="lv:clear-flash"
               phx-value-key="info"
+              data-flash-dismiss
               class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
               aria-label="Dismiss"
             >
@@ -504,7 +557,10 @@ defmodule ZaqWeb.Components.BOLayout do
           </div>
           <div
             :if={Phoenix.Flash.get(@flash, :error)}
+            id="flash-error"
             class="mb-4 rounded-xl bg-red-100 border border-red-200 text-red-600 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+            phx-hook={@auto_dismiss && "FlashAutoDismiss"}
+            data-auto-dismiss-duration={@auto_dismiss_duration}
           >
             <svg
               class="w-4 h-4 shrink-0"
@@ -519,6 +575,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <button
               phx-click="lv:clear-flash"
               phx-value-key="error"
+              data-flash-dismiss
               class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
               aria-label="Dismiss"
             >
@@ -912,5 +969,14 @@ defmodule ZaqWeb.Components.BOLayout do
   defp communication_section_active?(current_path) do
     String.starts_with?(current_path, "/bo/channels") or
       current_path in ["/bo/chat", "/bo/history"]
+  end
+
+  defp load_update_badge_enabled do
+    System.get_config("ui.update_badge_enabled") == "true"
+  rescue
+    DBConnection.OwnershipError -> false
+    DBConnection.ConnectionError -> false
+  catch
+    :exit, _reason -> false
   end
 end

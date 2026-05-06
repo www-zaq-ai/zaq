@@ -611,6 +611,50 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert selected_id == provider_agent.id
     end
 
+    test "falls back to provider default when channel assignment is conversation-disabled" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      channel_agent = insert_configured_agent(true, false)
+      provider_agent = insert_configured_agent(true)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+        })
+
+      insert_retrieval_channel(config.id,
+        channel_id: "room-conv-disabled",
+        channel_name: "conv-disabled",
+        team_id: "team-1",
+        team_name: "Team",
+        configured_agent_id: channel_agent.id
+      )
+
+      incoming = %ChatIncoming{
+        text: "route fallback",
+        external_room_id: "room-conv-disabled",
+        external_thread_id: nil,
+        external_message_id: "msg-conv-disabled",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+      assert_received {:node_router_run_pipeline_event, event}
+
+      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
+      assert selected_id == provider_agent.id
+    end
+
     test "keeps legacy pipeline path when no explicit or global selection is configured" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
@@ -1457,7 +1501,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  transport: :webhook
                )
 
-      assert_received {:pipeline_run, "hello raw", _opts}
+      # Processing is async (Task.start) — use assert_receive with a timeout
+      assert_receive {:pipeline_run, "hello raw", _opts}, 1000
     end
 
     test "thread reply payload triggers reply hook (subscribed thread)", %{
@@ -1475,19 +1520,25 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  transport: :webhook
                )
 
-      assert_received {:reply_received, %{root_id: "root-1", message: "reply raw"}}
+      # Processing is async (Task.start) — use assert_receive with a timeout
+      assert_receive {:reply_received, %{root_id: "root-1", message: "reply raw"}}, 1000
       refute_received {:pipeline_run, _, _}
     end
 
-    test "reaction payload returns adapter unsupported error", %{
-      config: config,
-      bridge_id: bridge_id
-    } do
-      assert {:error, :unsupported_event} =
+    test "reaction payload is silently dropped (async processing, unsupported events are not propagated)",
+         %{
+           config: config,
+           bridge_id: bridge_id
+         } do
+      # from_listener/3 is fire-and-forget (Task.start) — unsupported events are
+      # handled internally and logged; the caller always gets :ok back.
+      assert :ok =
                JidoChatBridge.from_listener(config, %{"type" => "reaction"},
                  bridge_id: bridge_id,
                  transport: :webhook
                )
+
+      refute_receive {:pipeline_run, _, _}, 200
     end
 
     test "from_listener/3 can auto-start runtime via default bridge id", %{config: config} do
@@ -1501,8 +1552,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  []
                )
 
+      # Wait for the async task to start the runtime and process the message
+      assert_receive {:pipeline_run, "auto-start", _opts}, 1000
       assert {:ok, _runtime} = Supervisor.lookup_runtime(bridge_id)
-      assert_received {:pipeline_run, "auto-start", _opts}
 
       assert :ok = JidoChatBridge.stop_runtime(config)
     end
@@ -2219,7 +2271,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     |> Repo.insert!()
   end
 
-  defp insert_configured_agent(active) do
+  defp insert_configured_agent(active, conversation_enabled \\ true) do
     unique = System.unique_integer([:positive, :monotonic])
 
     credential =
@@ -2238,7 +2290,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: true,
+        conversation_enabled: conversation_enabled,
         active: active,
         advanced_options: %{}
       })

@@ -3,7 +3,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   Runtime state holder for one `JidoChatBridge` instance (`bridge_id`).
 
   This process owns the authoritative `%Jido.Chat{}` struct for the bridge and
-  applies all incoming mutations sequentially via `GenServer.call/3`.
+  applies all incoming mutations sequentially through the GenServer message queue.
 
   Why this process exists:
 
@@ -40,8 +40,10 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     GenServer.start_link(__MODULE__, opts)
   end
 
+  # based on the `sink_opts` we might be using GenServer.call
+  # Refering back to slack implementation: https://github.com/agentjido/jido_chat_slack/blob/f072de707c08540a08398436db5d7c668e778514/lib/jido/chat/slack/socket_mode_worker.ex#L162
   def process_listener_payload(pid, config, payload, sink_opts) do
-    GenServer.call(pid, {:process_listener_payload, config, payload, sink_opts}, :infinity)
+    GenServer.cast(pid, {:process_listener_payload, config, payload, sink_opts})
   end
 
   def subscribe_thread(pid, provider, channel_id, thread_id) do
@@ -92,11 +94,11 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   @impl GenServer
-  def handle_call({:process_listener_payload, config, payload, sink_opts}, _from, state) do
+  def handle_cast({:process_listener_payload, config, payload, sink_opts}, state) do
     {:ok, adapter} = JidoChatBridge.adapter_for(config.provider)
     transport = sink_opts[:transport] || :websocket
 
-    reply =
+    result =
       with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
            incoming <- with_transport(incoming, transport),
            thread_id <-
@@ -116,15 +118,16 @@ defmodule Zaq.Channels.JidoChatBridge.State do
         {:ok, updated_chat}
       end
 
-    case reply do
+    case result do
       {:ok, updated_chat} ->
-        {:reply, :ok, %{state | config: config, chat: updated_chat}}
+        {:noreply, %{state | config: config, chat: updated_chat}}
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, %{state | config: config}}
+      {:error, _reason} ->
+        {:noreply, %{state | config: config}}
     end
   end
 
+  @impl GenServer
   def handle_call({:subscribe_thread, provider, channel_id, thread_id}, _from, state) do
     key = JidoChatBridge.thread_key(provider, channel_id, thread_id)
     {:reply, :ok, %{state | chat: Chat.subscribe(state.chat, key)}}

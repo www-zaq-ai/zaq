@@ -3,7 +3,6 @@ defmodule ZaqWeb.AgentController do
 
   require Logger
 
-  alias Zaq.Agent.Answering
   alias Zaq.Engine.Telemetry
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
@@ -102,7 +101,10 @@ defmodule ZaqWeb.AgentController do
     if function_exported?(module, :normalize_result, 1) do
       module.normalize_result(result)
     else
-      Answering.normalize_result(result)
+      case result do
+        %{answer: answer} when is_binary(answer) -> {:ok, result}
+        _ -> {:error, :invalid_result}
+      end
     end
   end
 

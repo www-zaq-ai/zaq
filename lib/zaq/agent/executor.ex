@@ -1,16 +1,92 @@
 defmodule Zaq.Agent.Executor do
   @moduledoc """
-  Executes explicit BO-selected configured agents.
+  Single execution boundary for all agent runs.
+
+  Handles both the default answering path (when no agent is selected) and
+  explicit BO-configured agents. Responsible for scope derivation, Jido server
+  lifecycle, typing indicators, telemetry, and result normalization.
   """
 
   require Logger
 
   alias Zaq.Agent
-  alias Zaq.Agent.Factory
-  alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.{Answering, Factory, LogprobsAnalyzer, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
+  alias Zaq.Utils.DateUtils
 
+  @doc """
+  Derives a stable scope string from an incoming message used to key the Jido agent server.
+
+  Format: `"channel:type:identity"` where channel is the normalized provider and identity is
+  `person_id`, `session_id`, or `"anonymous"`.
+
+  Priority order:
+  1. `:web` provider + `metadata.conversation_id` — `"bo:conv:<id>"` (BO per-conversation isolation)
+  2. `person_id` — `"<channel>:person:<person_id>"` when present
+  3. `metadata.session_id` — `"bo:session:<session_id>"` when `person_id` is nil and session ID is a non-empty string
+  4. `"anonymous"` — fallback for all other cases
+
+  ## Examples
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | metadata: %{conversation_id: "conv-42"}})
+      "bo:conv:conv-42"
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: 7})
+      "test:person:7"
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{session_id: "sess_abc"}})
+      "bo:session:sess_abc"
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{}})
+      "anonymous"
+
+  """
+  @spec derive_scope(Incoming.t()) :: String.t()
+  def derive_scope(%Incoming{provider: :web, metadata: %{conversation_id: id}})
+      when is_binary(id) and id != "",
+      do: "bo:conv:#{id}"
+
+  def derive_scope(%Incoming{person_id: person_id, provider: provider})
+      when not is_nil(person_id),
+      do: "#{normalize_provider(provider)}:person:#{person_id}"
+
+  def derive_scope(%Incoming{metadata: %{session_id: sid}})
+      when is_binary(sid) and sid != "",
+      do: "bo:session:#{sid}"
+
+  def derive_scope(_), do: "anonymous"
+
+  @doc """
+  Runs the full agent execution pipeline for an incoming message.
+
+  Loads the configured agent (or the default answering agent when no `:agent_id` opt is
+  given), ensures its Jido server is running, sends a typing indicator, submits the
+  question via `Factory.ask_with_config/4`, waits up to 45 s for the answer, then
+  records telemetry and returns a normalized `Outgoing.t()`.
+
+  On any `{:error, reason}` in the pipeline the error is logged, an error telemetry
+  event is emitted, and a safe fallback `Outgoing.t()` is returned — this function
+  never raises.
+
+  ## Options
+
+  - `:agent_id` — integer ID of the configured agent to use; omit for the default answering agent
+  - `:scope` — explicit server scope string; derived from `derive_scope/1` when absent on the answering path
+  - `:question` — override the question text; defaults to `incoming.content`
+  - `:system_prompt` — override the agent's `job` field for this run only
+  - `:person_id` — passed into the retrieval context for permission scoping
+  - `:team_ids` — list of team IDs passed into the retrieval context
+  - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
+  """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
     started_at = System.monotonic_time(:millisecond)
@@ -22,48 +98,99 @@ defmodule Zaq.Agent.Executor do
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
-    with {:ok, configured_agent} <- load_selected_agent(opts, agent_module),
-         {:ok, server_id} <- server_manager_module.ensure_server(configured_agent),
-         # Send the start typing event through the router for automatic routing
-         node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
-           incoming.provider,
-           incoming.channel_id
-         ]),
-         {:ok, request} <-
-           factory_module.ask_with_config(server_id, incoming.content, configured_agent),
-         {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
-      result = success_result(answer, configured_agent, started_at)
-      :ok = record_success_telemetry(result, dims)
-      Outgoing.from_pipeline_result(incoming, result)
-    else
-      {:error, reason} ->
-        Logger.error("Configured agent execution failed: #{inspect(reason)}")
+    question =
+      opts
+      |> Keyword.get(:question, incoming.content)
+      |> timestamp_question()
 
-        :ok =
-          Telemetry.record(
-            "qa.custom_agent.execution.error",
-            1,
-            Map.put(dims, :error_type, error_type(reason))
-          )
+    opts = ensure_scope_for_answering_path(opts, incoming)
 
-        Outgoing.from_pipeline_result(incoming, error_result(reason))
-    end
+    result =
+      with {:ok, configured_agent} <-
+             load_selected_agent(opts, agent_module, factory_module),
+           configured_agent <- apply_system_prompt_override(configured_agent, opts),
+           {:ok, server_id} <-
+             ensure_agent_server(server_manager_module, configured_agent, opts),
+           node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
+             incoming.provider,
+             incoming.channel_id
+           ]),
+           {:ok, request} <-
+             factory_module.ask_with_config(server_id, question, configured_agent,
+               context: %{
+                 person_id: Keyword.get(opts, :person_id),
+                 team_ids: Keyword.get(opts, :team_ids, [])
+               }
+             ),
+           {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
+        confidence =
+          LogprobsAnalyzer.confidence_from_metadata_or_nil(%{
+            logprobs: LogprobsAnalyzer.from_response(answer)
+          })
+
+        result = success_result(answer, configured_agent, started_at, confidence)
+        :ok = record_success_telemetry(result, dims)
+        Outgoing.from_pipeline_result(incoming, result)
+      else
+        {:error, reason} ->
+          Logger.error("Configured agent execution failed: #{inspect(reason)}")
+
+          :ok =
+            Telemetry.record(
+              "qa.custom_agent.execution.error",
+              1,
+              Map.put(dims, :error_type, error_type(reason))
+            )
+
+          Outgoing.from_pipeline_result(incoming, error_result(reason))
+      end
+
+    result
   end
 
-  defp load_selected_agent(opts, agent_module) do
+  defp ensure_agent_server(server_manager_module, configured_agent, opts) do
+    server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
+    server_manager_module.ensure_server(configured_agent, server_id)
+  end
+
+  defp load_selected_agent(opts, agent_module, _factory_module) do
+    answering_module = Keyword.get(opts, :answering_module, Answering)
+
     case Keyword.get(opts, :agent_id) do
-      nil -> {:error, :missing_agent_selection}
+      nil -> {:ok, answering_module.answering_configured_agent()}
       agent_id -> agent_module.get_active_agent(agent_id)
     end
   end
 
-  defp success_result(answer, configured_agent, started_at) do
+  defp ensure_scope_for_answering_path(opts, incoming) do
+    if is_nil(Keyword.get(opts, :scope)),
+      do: Keyword.put(opts, :scope, derive_scope(incoming)),
+      else: opts
+  end
+
+  @doc false
+  def normalize_provider(:web), do: "bo"
+
+  def normalize_provider(provider) when is_atom(provider),
+    do: provider |> Atom.to_string() |> String.replace(":", "_")
+
+  def normalize_provider(provider) when is_binary(provider),
+    do: String.replace(provider, ":", "_")
+
+  defp apply_system_prompt_override(configured_agent, opts) do
+    case Keyword.get(opts, :system_prompt) do
+      prompt when is_binary(prompt) and prompt != "" -> %{configured_agent | job: prompt}
+      _ -> configured_agent
+    end
+  end
+
+  defp success_result(answer, configured_agent, started_at, confidence) do
     answer_text = normalize_answer(answer)
     metrics = extract_metrics(answer, started_at)
 
     %{
       answer: answer_text,
-      confidence_score: metrics.confidence_score,
+      confidence_score: confidence || metrics.confidence_score,
       latency_ms: metrics.latency_ms,
       prompt_tokens: metrics.prompt_tokens,
       completion_tokens: metrics.completion_tokens,
@@ -141,7 +268,20 @@ defmodule Zaq.Agent.Executor do
       do: Telemetry.record("qa.tokens.total", result.total_tokens, dims),
       else: :ok
 
-    :ok
+    if is_number(result.confidence_score) do
+      :ok = Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
+
+      bucket =
+        cond do
+          result.confidence_score >= 0.9 -> "qa.answer.confidence.bucket.gt_90"
+          result.confidence_score >= 0.7 -> "qa.answer.confidence.bucket.gt_70"
+          true -> "qa.answer.confidence.bucket.lt_70"
+        end
+
+      Telemetry.record(bucket, 1, dims)
+    else
+      :ok
+    end
   end
 
   defp telemetry_dimensions(opts, incoming) do
@@ -166,4 +306,11 @@ defmodule Zaq.Agent.Executor do
       Application.get_env(:zaq, :pipeline_node_router_module, Zaq.NodeRouter)
     )
   end
+
+  defp timestamp_question(content) when is_binary(content) do
+    ts = DateUtils.format_ts(DateTime.utc_now())
+    "[#{ts}] #{content}"
+  end
+
+  defp timestamp_question(content), do: content
 end

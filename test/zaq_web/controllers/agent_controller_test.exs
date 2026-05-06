@@ -119,11 +119,11 @@ defmodule ZaqWeb.AgentControllerTest do
 
   defmodule AnsweringStub do
     def ask([%{"content" => "ctx:query:clean:no_answer"}], history: _history) do
-      {:ok, %{answer: "NO_ANSWER: No answer available", confidence: %{score: 0.42}}}
+      {:ok, %{answer: "NO_ANSWER: No answer available", confidence_score: 0.42}}
     end
 
     def ask(_query_results, history: _history) do
-      {:ok, %{answer: "safe answer", confidence: %{score: 0.88}}}
+      {:ok, %{answer: "safe answer", confidence_score: 0.88}}
     end
 
     def no_answer?("NO_ANSWER: " <> _rest), do: true

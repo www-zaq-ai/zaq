@@ -81,6 +81,19 @@
           </button>
           <button
             phx-click="switch_tab"
+            phx-value-tab="mcp"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :mcp,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            MCP
+          </button>
+          <button
+            phx-click="switch_tab"
             phx-value-tab="global"
             class={[
               "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
@@ -129,6 +142,21 @@
         modal={@ai_credential_modal}
         delete_confirm_modal={@ai_credential_delete_confirm_modal}
         action={@ai_credential_action}
+      />
+      <.mcp_panel
+        :if={@active_tab == :mcp}
+        entries={@mcp_endpoints}
+        total_count={@mcp_total_count}
+        page={@mcp_page}
+        per_page={@mcp_per_page}
+        filter_name={@mcp_filter_name}
+        filter_type={@mcp_filter_type}
+        filter_status={@mcp_filter_status}
+        form={@mcp_endpoint_form}
+        rows={@mcp_endpoint_rows}
+        modal={@mcp_endpoint_modal}
+        action={@mcp_endpoint_action}
+        delete_confirm_modal={@mcp_endpoint_delete_confirm_modal}
       />
       <.global_panel
         :if={@active_tab == :global}

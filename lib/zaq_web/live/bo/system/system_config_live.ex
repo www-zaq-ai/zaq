@@ -5,12 +5,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   alias Phoenix.LiveView.JS
   alias Zaq.Agent
+  alias Zaq.Agent.MCP
+  alias Zaq.Event
+  alias Zaq.NodeRouter
   alias Zaq.System
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
+  alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
+  alias ZaqWeb.Components.BOModal
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -25,10 +30,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:embedding_unlock_modal, false)
      |> assign(:embedding_save_confirm_modal, false)
      |> assign(:pending_embedding_params, nil)
+     |> assign(:mcp_endpoint_modal, false)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)
+     |> assign(:mcp_endpoint_action, :new)
+     |> assign(:mcp_endpoint_id, nil)
+     |> assign(:mcp_filter_name, "")
+     |> assign(:mcp_filter_type, "all")
+     |> assign(:mcp_filter_status, "all")
+     |> assign(:mcp_page, 1)
+     |> assign(:mcp_per_page, 20)
      |> assign(:global_agent_options, global_agent_options())
      |> assign(:global_default_agent_id, System.get_global_default_agent_id())
      |> load_ai_credential_form()
      |> load_ai_credentials()
+     |> load_mcp_endpoint_form()
+     |> load_mcp_endpoints()
      |> load_telemetry_form()
      |> load_llm_form()
      |> load_embedding_form()
@@ -36,7 +52,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(telemetry llm embedding image_to_text ai_credentials global) do
+      when tab in ~w(telemetry llm embedding image_to_text ai_credentials mcp global) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -400,6 +416,256 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
+  # ── MCP Administration ──────────────────────────────────────────────────
+
+  def handle_event("filter_mcp_endpoints", params, socket) do
+    {:noreply,
+     socket
+     |> assign(:mcp_filter_name, Map.get(params, "mcp_filter_name", ""))
+     |> assign(:mcp_filter_type, Map.get(params, "mcp_filter_type", "all"))
+     |> assign(:mcp_filter_status, Map.get(params, "mcp_filter_status", "all"))
+     |> assign(:mcp_page, 1)
+     |> load_mcp_endpoints()}
+  end
+
+  def handle_event("change_mcp_page", %{"page" => page}, socket) do
+    {:noreply,
+     socket
+     |> assign(:mcp_page, ParseUtils.parse_int(page, socket.assigns.mcp_page))
+     |> load_mcp_endpoints()}
+  end
+
+  def handle_event("new_mcp_endpoint", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:mcp_endpoint_action, :new)
+     |> assign(:mcp_endpoint_id, nil)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)
+     |> assign(:mcp_endpoint_modal, true)
+     |> load_mcp_endpoint_form()}
+  end
+
+  def handle_event("edit_mcp_endpoint", %{"id" => id}, socket) do
+    endpoint = MCP.get_mcp_endpoint!(id)
+
+    {:noreply,
+     socket
+     |> assign(:mcp_endpoint_action, :edit)
+     |> assign(:mcp_endpoint_id, endpoint.id)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)
+     |> assign(:mcp_endpoint_modal, true)
+     |> assign(:mcp_endpoint_form, to_form(MCP.change_mcp_endpoint(endpoint), as: :mcp_endpoint))
+     |> assign(:mcp_endpoint_rows, mcp_rows(endpoint))}
+  end
+
+  def handle_event("close_mcp_endpoint_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:mcp_endpoint_modal, false)
+     |> assign(:mcp_endpoint_delete_confirm_modal, false)}
+  end
+
+  def handle_event("open_delete_mcp_endpoint_confirm", _params, socket) do
+    {:noreply, assign(socket, :mcp_endpoint_delete_confirm_modal, true)}
+  end
+
+  def handle_event("cancel_delete_mcp_endpoint", _params, socket) do
+    {:noreply, assign(socket, :mcp_endpoint_delete_confirm_modal, false)}
+  end
+
+  def handle_event("confirm_delete_mcp_endpoint", _params, socket) do
+    event =
+      Event.new(%{action: :delete, id: socket.assigns.mcp_endpoint_id}, :agent,
+        opts: [action: :mcp_endpoint_updated]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, %{endpoint: endpoint} = payload} ->
+        socket =
+          socket
+          |> assign(:mcp_endpoint_delete_confirm_modal, false)
+          |> assign(:mcp_endpoint_modal, false)
+          |> load_mcp_endpoints()
+          |> put_flash(:info, "MCP endpoint deleted (#{endpoint.name}).")
+          |> maybe_put_mcp_runtime_warnings(payload)
+
+        {:noreply, socket}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_delete_confirm_modal, false)
+         |> assign(
+           :mcp_endpoint_form,
+           to_form(Map.put(changeset, :action, :validate), as: :mcp_endpoint)
+         )}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_delete_confirm_modal, false)
+         |> put_flash(:error, "Failed to delete MCP endpoint: #{inspect(reason)}")}
+
+      other ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_delete_confirm_modal, false)
+         |> put_flash(:error, "Failed to delete MCP endpoint: #{inspect(other)}")}
+    end
+  end
+
+  def handle_event("enable_predefined_mcp", %{"predefined_id" => predefined_id}, socket) do
+    event =
+      Event.new(%{action: :enable_predefined, predefined_id: predefined_id}, :agent,
+        opts: [action: :mcp_endpoint_updated]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, %{endpoint: endpoint} = payload} ->
+        socket =
+          socket
+          |> load_mcp_endpoints()
+          |> put_flash(:info, "Predefined MCP enabled.")
+          |> maybe_put_mcp_runtime_warnings(payload)
+
+        predefined = endpoint.predefined_id && MCP.predefined_catalog()[endpoint.predefined_id]
+
+        socket =
+          if is_map(predefined) and predefined[:editable] do
+            socket
+            |> assign(:mcp_endpoint_action, :edit)
+            |> assign(:mcp_endpoint_id, endpoint.id)
+            |> assign(:mcp_endpoint_modal, true)
+            |> assign(:mcp_endpoint_delete_confirm_modal, false)
+            |> assign(
+              :mcp_endpoint_form,
+              to_form(MCP.change_mcp_endpoint(endpoint), as: :mcp_endpoint)
+            )
+            |> assign(:mcp_endpoint_rows, mcp_rows(endpoint))
+          else
+            socket
+          end
+
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to enable MCP: #{inspect(reason)}")}
+
+      other ->
+        {:noreply, put_flash(socket, :error, "Failed to enable MCP: #{inspect(other)}")}
+    end
+  end
+
+  def handle_event("validate_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
+    {rows, parsed} = build_mcp_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
+
+    changeset =
+      socket.assigns.mcp_endpoint_action
+      |> mcp_endpoint_for_action(socket.assigns.mcp_endpoint_id)
+      |> MCP.change_mcp_endpoint(parsed)
+      |> Map.put(:action, :validate)
+
+    {:noreply,
+     socket
+     |> assign(:mcp_endpoint_form, to_form(changeset, as: :mcp_endpoint))
+     |> assign(:mcp_endpoint_rows, rows)}
+  end
+
+  def handle_event("save_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
+    {rows, parsed} = build_mcp_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
+
+    request =
+      case socket.assigns.mcp_endpoint_action do
+        :edit ->
+          %{action: :update, id: socket.assigns.mcp_endpoint_id, attrs: parsed}
+
+        _ ->
+          %{action: :create, attrs: parsed}
+      end
+
+    event =
+      Event.new(request, :agent, opts: [action: :mcp_endpoint_updated])
+
+    result = NodeRouter.dispatch(event).response
+
+    case result do
+      {:ok, %{endpoint: endpoint} = payload} ->
+        socket =
+          socket
+          |> assign(:mcp_endpoint_modal, false)
+          |> load_mcp_endpoints()
+          |> put_flash(:info, "MCP endpoint saved (#{endpoint.name}).")
+          |> maybe_put_mcp_runtime_warnings(payload)
+
+        {:noreply, socket}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         socket
+         |> assign(
+           :mcp_endpoint_form,
+           to_form(Map.put(changeset, :action, :validate), as: :mcp_endpoint)
+         )
+         |> assign(:mcp_endpoint_rows, rows)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_rows, rows)
+         |> put_flash(:error, "Failed to save MCP endpoint: #{inspect(reason)}")}
+
+      other ->
+        {:noreply,
+         socket
+         |> assign(:mcp_endpoint_rows, rows)
+         |> put_flash(:error, "Failed to save MCP endpoint: #{inspect(other)}")}
+    end
+  end
+
+  def handle_event("add_mcp_row", %{"collection" => collection}, socket) do
+    {:noreply,
+     assign(socket, :mcp_endpoint_rows, add_mcp_row(socket.assigns.mcp_endpoint_rows, collection))}
+  end
+
+  def handle_event("remove_mcp_row", %{"collection" => collection, "index" => index}, socket) do
+    {:noreply,
+     assign(
+       socket,
+       :mcp_endpoint_rows,
+       remove_mcp_row(
+         socket.assigns.mcp_endpoint_rows,
+         collection,
+         ParseUtils.parse_int(index, 0)
+       )
+     )}
+  end
+
+  def handle_event("test_mcp_endpoint", %{"id" => id}, socket) do
+    endpoint_id = ParseUtils.parse_optional_int(id)
+
+    event =
+      Event.new(%{endpoint_id: endpoint_id}, :agent,
+        opts: [
+          action: :mcp_test_list_tools,
+          mcp_module: mcp_module(),
+          mcp_test_opts: [timeout: 5000]
+        ]
+      )
+
+    result = NodeRouter.dispatch(event)
+
+    case result.response do
+      {:ok, _payload} ->
+        {:noreply, put_flash(socket, :info, "MCP tools test succeeded.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, mcp_test_failure_message(reason))}
+
+      other ->
+        {:noreply, put_flash(socket, :error, "MCP tools test returned: #{inspect(other)}")}
+    end
+  end
+
   # ── Private ────────────────────────────────────────────────────────────
 
   defp do_save_embedding(socket, params) do
@@ -436,6 +702,342 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     changeset = System.change_ai_provider_credential(%Zaq.System.AIProviderCredential{}, %{})
     assign(socket, :ai_credential_form, to_form(changeset, as: :ai_credential))
   end
+
+  defp load_mcp_endpoints(socket) do
+    filters = %{
+      "name" => socket.assigns.mcp_filter_name,
+      "type" => socket.assigns.mcp_filter_type,
+      "status" => socket.assigns.mcp_filter_status
+    }
+
+    {entries, total} =
+      MCP.filter_mcp_endpoints(filters,
+        page: socket.assigns.mcp_page,
+        per_page: socket.assigns.mcp_per_page
+      )
+
+    socket
+    |> assign(:mcp_endpoints, entries)
+    |> assign(:mcp_total_count, total)
+  end
+
+  defp load_mcp_endpoint_form(socket) do
+    changeset =
+      MCP.change_mcp_endpoint(%MCP.Endpoint{}, %{
+        "type" => "local",
+        "status" => "disabled",
+        "timeout_ms" => 5000
+      })
+
+    socket
+    |> assign(:mcp_endpoint_form, to_form(changeset, as: :mcp_endpoint))
+    |> assign(:mcp_endpoint_rows, mcp_rows(%MCP.Endpoint{}))
+  end
+
+  defp mcp_endpoint_for_action(:edit, id), do: MCP.get_mcp_endpoint!(id)
+  defp mcp_endpoint_for_action(_, _), do: %MCP.Endpoint{}
+
+  defp build_mcp_endpoint_payload(params, rows_state) do
+    rows = mcp_rows_from_params(params, rows_state)
+    parsed = parse_mcp_endpoint_params(params, rows)
+    {rows, parsed}
+  end
+
+  defp mcp_rows(endpoint) do
+    %{
+      args: list_to_rows(endpoint.args || []),
+      headers: map_to_rows(endpoint.headers || %{}),
+      secret_headers: secret_map_to_rows(endpoint.secret_headers || %{}),
+      environments: map_to_rows(endpoint.environments || %{}),
+      secret_environments: secret_map_to_rows(endpoint.secret_environments || %{}),
+      settings: Jason.encode!(endpoint.settings || %{})
+    }
+  end
+
+  defp mcp_rows_from_params(params, fallback_rows) do
+    %{
+      args:
+        rows_from_params(
+          Map.get(params, "args_rows"),
+          Map.get(fallback_rows, :args, [blank_arg_row()])
+        ),
+      headers:
+        rows_from_params(
+          Map.get(params, "headers_rows"),
+          Map.get(fallback_rows, :headers, [blank_kv_row()])
+        ),
+      secret_headers:
+        rows_from_params(
+          Map.get(params, "secret_headers_rows"),
+          Map.get(fallback_rows, :secret_headers, [blank_kv_row()])
+        ),
+      environments:
+        rows_from_params(
+          Map.get(params, "environments_rows"),
+          Map.get(fallback_rows, :environments, [blank_kv_row()])
+        ),
+      secret_environments:
+        rows_from_params(
+          Map.get(params, "secret_environments_rows"),
+          Map.get(fallback_rows, :secret_environments, [blank_kv_row()])
+        ),
+      settings: Map.get(params, "settings_text", Map.get(fallback_rows, :settings, "{}"))
+    }
+  end
+
+  defp parse_mcp_endpoint_params(params, rows) do
+    type = Map.get(params, "type", "local")
+
+    base = %{
+      "name" => Map.get(params, "name", ""),
+      "type" => type,
+      "status" => Map.get(params, "status", "disabled"),
+      "timeout_ms" => Map.get(params, "timeout_ms", "5000"),
+      "command" => blank_to_nil(Map.get(params, "command", "")),
+      "url" => blank_to_nil(Map.get(params, "url", "")),
+      "predefined_id" => blank_to_nil(Map.get(params, "predefined_id", "")),
+      "args" => parse_arg_rows(Map.get(rows, :args, [])),
+      "headers" => parse_kv_rows(Map.get(rows, :headers, [])),
+      "secret_headers" => parse_kv_rows(Map.get(rows, :secret_headers, [])),
+      "environments" => parse_kv_rows(Map.get(rows, :environments, [])),
+      "secret_environments" => parse_kv_rows(Map.get(rows, :secret_environments, [])),
+      "settings" => parse_json_map(Map.get(rows, :settings, "{}"))
+    }
+
+    apply_mcp_type_scope(base, type)
+  end
+
+  defp parse_json_map(raw) when is_binary(raw) do
+    case String.trim(raw) do
+      "" ->
+        %{}
+
+      text ->
+        case Jason.decode(text) do
+          {:ok, %{} = map} -> map
+          _ -> %{}
+        end
+    end
+  end
+
+  defp parse_json_map(_), do: %{}
+
+  defp parse_arg_rows(rows) do
+    rows
+    |> Enum.map(fn row -> row["value"] || row[:value] || "" end)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp parse_kv_rows(rows) do
+    Enum.reduce(rows, %{}, fn row, acc ->
+      key = row["key"] || row[:key] || ""
+      value = row["value"] || row[:value] || ""
+      key = String.trim(key)
+      value = String.trim(value)
+
+      if key == "" do
+        acc
+      else
+        Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp rows_from_params(nil, fallback), do: normalize_rows(fallback)
+
+  defp rows_from_params(rows_map, fallback) when is_map(rows_map) do
+    rows =
+      rows_map
+      |> Enum.sort_by(fn {idx, _} -> ParseUtils.parse_int(idx, 0) end)
+      |> Enum.map(fn {_idx, row} ->
+        %{
+          "key" => Map.get(row, "key", ""),
+          "value" => Map.get(row, "value", "")
+        }
+      end)
+
+    normalize_rows(if rows == [], do: fallback, else: rows)
+  end
+
+  defp rows_from_params(_other, fallback), do: normalize_rows(fallback)
+
+  defp normalize_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.map(fn row ->
+      %{
+        "key" => row["key"] || row[:key] || "",
+        "value" => row["value"] || row[:value] || ""
+      }
+    end)
+    |> case do
+      [] -> [%{"key" => "", "value" => ""}]
+      list -> list
+    end
+  end
+
+  defp normalize_rows(_), do: [%{"key" => "", "value" => ""}]
+
+  defp list_to_rows(list) when is_list(list) do
+    rows = Enum.map(list, &%{"key" => "", "value" => &1})
+    if rows == [], do: [blank_arg_row()], else: rows
+  end
+
+  defp list_to_rows(_), do: [blank_arg_row()]
+
+  defp map_to_rows(map) when is_map(map) do
+    rows = Enum.map(map, fn {k, v} -> %{"key" => k, "value" => v} end)
+    if rows == [], do: [blank_kv_row()], else: rows
+  end
+
+  defp map_to_rows(_), do: [blank_kv_row()]
+
+  defp secret_map_to_rows(map) when is_map(map) do
+    rows =
+      Enum.map(map, fn {k, v} ->
+        %{"key" => k, "value" => decrypt_secret_for_form(v)}
+      end)
+
+    if rows == [], do: [blank_kv_row()], else: rows
+  end
+
+  defp secret_map_to_rows(_), do: [blank_kv_row()]
+
+  defp decrypt_secret_for_form(value) when is_binary(value) do
+    case EncryptedString.decrypt(value) do
+      {:ok, decrypted} -> decrypted
+      _ -> ""
+    end
+  end
+
+  defp decrypt_secret_for_form(_), do: ""
+
+  defp blank_kv_row, do: %{"key" => "", "value" => ""}
+  defp blank_arg_row, do: %{"key" => "", "value" => ""}
+
+  defp add_mcp_row(rows_map, collection) when is_map(rows_map) do
+    key = collection_to_key(collection)
+    existing = Map.get(rows_map, key, [blank_kv_row()])
+    blank = if key == :args, do: blank_arg_row(), else: blank_kv_row()
+    Map.put(rows_map, key, existing ++ [blank])
+  end
+
+  defp remove_mcp_row(rows_map, collection, index) when is_map(rows_map) do
+    key = collection_to_key(collection)
+    existing = Map.get(rows_map, key, [blank_kv_row()])
+
+    next =
+      existing
+      |> Enum.with_index()
+      |> Enum.reject(fn {_row, idx} -> idx == index end)
+      |> Enum.map(&elem(&1, 0))
+
+    fallback = if key == :args, do: [blank_arg_row()], else: [blank_kv_row()]
+    Map.put(rows_map, key, if(next == [], do: fallback, else: next))
+  end
+
+  defp collection_to_key("args"), do: :args
+  defp collection_to_key("headers"), do: :headers
+  defp collection_to_key("secret_headers"), do: :secret_headers
+  defp collection_to_key("environments"), do: :environments
+  defp collection_to_key("secret_environments"), do: :secret_environments
+  defp collection_to_key(_), do: :headers
+
+  defp apply_mcp_type_scope(attrs, "local") do
+    attrs
+    |> Map.put("url", nil)
+    |> Map.put("headers", %{})
+    |> Map.put("secret_headers", %{})
+  end
+
+  defp apply_mcp_type_scope(attrs, "remote") do
+    attrs
+    |> Map.put("command", nil)
+    |> Map.put("args", [])
+    |> Map.put("environments", %{})
+    |> Map.put("secret_environments", %{})
+  end
+
+  defp apply_mcp_type_scope(attrs, _), do: attrs
+
+  defp blank_to_nil(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
+
+  defp blank_to_nil(value), do: value
+
+  defp mcp_module do
+    Application.get_env(:zaq, :mcp_test_module, MCP)
+  end
+
+  defp mcp_test_failure_message(reason) do
+    cond do
+      mcp_capabilities_not_ready?(reason) ->
+        "MCP tools test failed: server handshake not ready yet (capabilities not set). Please retry in a moment."
+
+      mcp_endpoint_already_registered?(reason) ->
+        "MCP tools test failed: stale test endpoint state detected and was reset. Please retry."
+
+      mcp_unauthorized_error?(reason) ->
+        "MCP tools test failed: unauthorized (401). Please check MCP authentication headers/credentials."
+
+      mcp_runtime_call_exit?(reason) ->
+        "MCP tools test failed: MCP client disconnected during request. Please retry."
+
+      true ->
+        "MCP tools test failed: #{inspect(reason)}"
+    end
+  end
+
+  defp mcp_capabilities_not_ready?(reason) do
+    reason
+    |> inspect()
+    |> String.contains?("Server capabilities not set")
+  end
+
+  defp mcp_endpoint_already_registered?(reason) do
+    reason
+    |> inspect()
+    |> String.contains?("endpoint_already_registered")
+  end
+
+  defp mcp_unauthorized_error?(reason) do
+    rendered = inspect(reason)
+
+    String.contains?(rendered, "http_error, 401") or
+      String.contains?(rendered, "unauthorized") or
+      String.contains?(rendered, "AuthenticateToken authentication failed")
+  end
+
+  defp mcp_runtime_call_exit?(reason) do
+    reason
+    |> inspect()
+    |> String.contains?("mcp_runtime_call_exit")
+  end
+
+  defp maybe_put_mcp_runtime_warnings(socket, payload) when is_map(payload) do
+    warnings = mcp_runtime_warnings(payload)
+
+    if warnings == [] do
+      socket
+    else
+      put_flash(socket, :warning, "MCP runtime warnings: #{inspect(warnings)}")
+    end
+  end
+
+  defp maybe_put_mcp_runtime_warnings(socket, _), do: socket
+
+  defp mcp_runtime_warnings(payload) when is_map(payload) do
+    payload
+    |> mcp_map_get(:runtime, %{})
+    |> mcp_map_get(:warnings, [])
+  end
+
+  defp mcp_map_get(map, key, default) when is_map(map) do
+    Map.get(map, key, Map.get(map, to_string(key), default))
+  end
+
+  defp mcp_map_get(_map, _key, default), do: default
 
   defp load_llm_form(socket) do
     cfg = System.get_llm_config()
@@ -1523,6 +2125,523 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         </.form>
       </div>
     </div>
+    """
+  end
+
+  # ── MCP Administration Panel ────────────────────────────────────────────
+
+  attr :entries, :list, required: true
+  attr :total_count, :integer, required: true
+  attr :page, :integer, required: true
+  attr :per_page, :integer, required: true
+  attr :filter_name, :string, required: true
+  attr :filter_type, :string, required: true
+  attr :filter_status, :string, required: true
+  attr :form, :any, required: true
+  attr :rows, :map, required: true
+  attr :modal, :boolean, required: true
+  attr :action, :atom, required: true
+  attr :delete_confirm_modal, :boolean, required: true
+
+  defp mcp_panel(assigns) do
+    ~H"""
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa] flex items-center justify-between">
+        <div>
+          <h2 class="font-mono text-[0.95rem] font-bold text-black">MCP Administration</h2>
+          <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+            Manage Model Context Protocol endpoints and test tool loading.
+          </p>
+        </div>
+        <button
+          type="button"
+          phx-click="new_mcp_endpoint"
+          class="font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+        >
+          + Add MCP
+        </button>
+      </div>
+
+      <form
+        phx-change="filter_mcp_endpoints"
+        class="px-8 py-4 border-b border-black/[0.06] grid grid-cols-3 gap-3"
+      >
+        <input
+          type="text"
+          name="mcp_filter_name"
+          value={@filter_name}
+          phx-debounce="300"
+          placeholder="Search by name"
+          class="font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa]"
+        />
+        <select
+          name="mcp_filter_type"
+          class="font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa]"
+        >
+          <option value="all" selected={@filter_type == "all"}>All types</option>
+          <option value="local" selected={@filter_type == "local"}>Local</option>
+          <option value="remote" selected={@filter_type == "remote"}>Remote</option>
+        </select>
+        <select
+          name="mcp_filter_status"
+          class="font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa]"
+        >
+          <option value="all" selected={@filter_status == "all"}>All statuses</option>
+          <option value="enabled" selected={@filter_status == "enabled"}>Enabled</option>
+          <option value="disabled" selected={@filter_status == "disabled"}>Disabled</option>
+        </select>
+      </form>
+
+      <div :if={@entries == []} class="px-8 py-10 text-center">
+        <p class="font-mono text-[0.85rem] text-black/50">No MCP entries found.</p>
+      </div>
+
+      <div :if={@entries != []} class="divide-y divide-black/[0.06]">
+        <div :for={entry <- @entries} class="px-8 py-4 flex items-center justify-between gap-4">
+          <div class="min-w-0 flex items-start gap-3">
+            <div class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+              <ZaqWeb.Components.MCPEndpointIcons.icon
+                endpoint_key={entry.predefined_id}
+                class="h-7 w-7"
+              />
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <p class="font-mono text-[0.82rem] font-semibold text-black truncate">{entry.name}</p>
+                <span class={[
+                  "h-2 w-2 rounded-full",
+                  if(entry.status == "enabled", do: "bg-emerald-500", else: "bg-red-500")
+                ]} />
+              </div>
+              <p class="font-mono text-[0.7rem] text-black/45 mt-0.5">
+                {entry.type}<span :if={entry.predefined?}> · predefined</span>
+              </p>
+              <p :if={entry.description} class="font-mono text-[0.7rem] text-black/35 mt-0.5 truncate">
+                {entry.description}
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              :if={not entry.persisted? and entry.predefined?}
+              type="button"
+              phx-click="enable_predefined_mcp"
+              phx-value-predefined_id={entry.predefined_id}
+              class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
+            >
+              Enable
+              <span :if={entry.auto_enabled} class="ml-1" title="Immediately available">⚡</span>
+            </button>
+            <button
+              :if={entry.persisted?}
+              type="button"
+              phx-click="edit_mcp_endpoint"
+              phx-value-id={entry.id}
+              class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
+            >
+              Edit
+            </button>
+            <.loading_action_button
+              :if={entry.persisted?}
+              id={"mcp-test-button-#{entry.id}"}
+              phx-click="test_mcp_endpoint"
+              phx-value-id={entry.id}
+              label="Test"
+              loading_label="Testing..."
+              class="mcp-test-button font-mono text-[0.72rem] px-3 py-1.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3]"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div
+        :if={@total_count > 0}
+        class="px-8 py-3 border-t border-black/[0.06] flex items-center justify-between"
+      >
+        <span class="font-mono text-[0.68rem] text-black/40">
+          {@page * @per_page - @per_page + 1}–{min(@page * @per_page, @total_count)} of {@total_count}
+        </span>
+        <div class="flex gap-1">
+          <button
+            :if={@page > 1}
+            type="button"
+            phx-click="change_mcp_page"
+            phx-value-page={@page - 1}
+            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/12 text-black/60 hover:bg-black/5"
+          >
+            ← Prev
+          </button>
+          <button
+            :if={@page * @per_page < @total_count}
+            type="button"
+            phx-click="change_mcp_page"
+            phx-value-page={@page + 1}
+            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/12 text-black/60 hover:bg-black/5"
+          >
+            Next →
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <BOModal.form_dialog
+      :if={@modal}
+      id="mcp-endpoint-modal"
+      cancel_event="close_mcp_endpoint_modal"
+      title={if @action == :edit, do: "Edit MCP Endpoint", else: "New MCP Endpoint"}
+      max_width_class="max-w-3xl"
+    >
+      <.form
+        id="mcp-endpoint-form"
+        for={@form}
+        phx-change="validate_mcp_endpoint"
+        phx-submit="save_mcp_endpoint"
+        class="space-y-4"
+      >
+        <p
+          :for={{msg, opts} <- Keyword.get_values(@form.errors, :base)}
+          class="whitespace-pre-line font-mono text-[0.72rem] text-red-500 bg-red-50 border border-red-100 rounded-xl px-3 py-2"
+        >
+          {translate_error({msg, opts})}
+        </p>
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_160px_160px]">
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Name
+            </label>
+            <input
+              type="text"
+              name="mcp_endpoint[name]"
+              value={@form[:name].value}
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            />
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Status
+            </label>
+            <label class="h-11 px-1 inline-flex items-center gap-3 cursor-pointer">
+              <input
+                type="hidden"
+                name="mcp_endpoint[status]"
+                value={if @form[:status].value == "enabled", do: "enabled", else: "disabled"}
+              />
+              <input
+                type="checkbox"
+                checked={@form[:status].value == "enabled"}
+                class="sr-only peer"
+                phx-click={
+                  if @form[:status].value == "enabled" do
+                    JS.set_attribute({"value", "disabled"},
+                      to: "#mcp-endpoint-form input[name='mcp_endpoint[status]']"
+                    )
+                  else
+                    JS.set_attribute({"value", "enabled"},
+                      to: "#mcp-endpoint-form input[name='mcp_endpoint[status]']"
+                    )
+                  end
+                  |> JS.dispatch("change", to: "#mcp-endpoint-form")
+                }
+              />
+              <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm relative">
+              </div>
+              <span class="font-mono text-[0.78rem] text-black/70">
+                {if @form[:status].value == "enabled", do: "Enabled", else: "Disabled"}
+              </span>
+            </label>
+          </div>
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Timeout (ms)
+            </label>
+            <input
+              type="number"
+              min="1"
+              name="mcp_endpoint[timeout_ms]"
+              value={@form[:timeout_ms].value || 5000}
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            />
+          </div>
+        </div>
+
+        <input
+          type="hidden"
+          name="mcp_endpoint[predefined_id]"
+          value={@form[:predefined_id].value || ""}
+        />
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
+          <div>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Type
+            </label>
+            <select
+              name="mcp_endpoint[type]"
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            >
+              <option value="local" selected={@form[:type].value == "local"}>local</option>
+              <option value="remote" selected={@form[:type].value == "remote"}>remote</option>
+            </select>
+          </div>
+
+          <div :if={@form[:type].value == "local"}>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              Command
+            </label>
+            <input
+              type="text"
+              name="mcp_endpoint[command]"
+              value={@form[:command].value || ""}
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            />
+          </div>
+
+          <div :if={@form[:type].value == "remote"}>
+            <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+              URL
+            </label>
+            <input
+              type="text"
+              name="mcp_endpoint[url]"
+              value={@form[:url].value || ""}
+              class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+            />
+          </div>
+        </div>
+
+        <div :if={@form[:type].value == "local"} class="space-y-4">
+          <.mcp_args_rows rows={@rows.args} collection="args" label="Args" placeholder="--flag" />
+
+          <.mcp_kv_rows
+            rows={@rows.environments}
+            collection="environments"
+            label="Environments"
+            key_placeholder="KEY"
+            value_placeholder="value"
+          />
+
+          <.mcp_secret_kv_rows
+            rows={@rows.secret_environments}
+            collection="secret_environments"
+            label="Secret environments"
+            key_placeholder="SECRET_KEY"
+          />
+        </div>
+
+        <div :if={@form[:type].value == "remote"} class="space-y-4">
+          <.mcp_kv_rows
+            rows={@rows.headers}
+            collection="headers"
+            label="Headers"
+            key_placeholder="Header-Name"
+            value_placeholder="value"
+          />
+
+          <.mcp_secret_kv_rows
+            rows={@rows.secret_headers}
+            collection="secret_headers"
+            label="Secret headers"
+            key_placeholder="Authorization"
+          />
+        </div>
+
+        <div>
+          <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+            Settings (JSON)
+          </label>
+          <textarea
+            name="mcp_endpoint[settings_text]"
+            rows="4"
+            class="w-full font-mono text-[0.84rem] text-black border border-black/10 rounded-xl px-4 py-3 bg-[#fafafa]"
+          >{@rows.settings}</textarea>
+        </div>
+      </.form>
+
+      <:actions>
+        <button
+          :if={@action == :edit}
+          type="button"
+          phx-click="open_delete_mcp_endpoint_confirm"
+          class="inline-flex items-center gap-2 font-mono text-[0.8rem] px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+        >
+          <.icon name="hero-trash" class="h-4 w-4" /> Delete endpoint
+        </button>
+        <button
+          type="submit"
+          form="mcp-endpoint-form"
+          class="font-mono text-[0.8rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3]"
+        >
+          Save endpoint
+        </button>
+      </:actions>
+
+      <ZaqWeb.Components.BOModal.confirm_dialog
+        :if={@delete_confirm_modal}
+        id="mcp-endpoint-delete-confirm"
+        cancel_event="cancel_delete_mcp_endpoint"
+        confirm_event="confirm_delete_mcp_endpoint"
+        title="Delete MCP Endpoint?"
+        message="This action removes the endpoint. Associated runtime tools will be unsynced from active agents."
+        confirm_label="Delete"
+        cancel_label="Cancel"
+      />
+    </BOModal.form_dialog>
+    """
+  end
+
+  attr :rows, :list, required: true
+  attr :collection, :string, required: true
+  attr :label, :string, required: true
+  attr :placeholder, :string, default: ""
+
+  defp mcp_args_rows(assigns) do
+    ~H"""
+    <div>
+      <div class="mb-2 flex items-center justify-between">
+        <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider">
+          {@label}
+        </label>
+        <button
+          type="button"
+          phx-click="add_mcp_row"
+          phx-value-collection={@collection}
+          class="font-mono text-[0.68rem] px-2 py-1 rounded border border-black/10 text-black/60 hover:bg-black/[0.04]"
+        >
+          + Add
+        </button>
+      </div>
+      <div class="space-y-2">
+        <div
+          :for={{row, idx} <- Enum.with_index(@rows)}
+          class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+        >
+          <input
+            type="text"
+            name={"mcp_endpoint[#{@collection}_rows][#{idx}][value]"}
+            value={row["value"]}
+            placeholder={@placeholder}
+            class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa]"
+          />
+          <.mcp_row_delete_button collection={@collection} index={idx} />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :rows, :list, required: true
+  attr :collection, :string, required: true
+  attr :label, :string, required: true
+  attr :key_placeholder, :string, default: "KEY"
+  attr :value_placeholder, :string, default: "value"
+
+  defp mcp_kv_rows(assigns) do
+    ~H"""
+    <div>
+      <div class="mb-2 flex items-center justify-between">
+        <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider">
+          {@label}
+        </label>
+        <button
+          type="button"
+          phx-click="add_mcp_row"
+          phx-value-collection={@collection}
+          class="font-mono text-[0.68rem] px-2 py-1 rounded border border-black/10 text-black/60 hover:bg-black/[0.04]"
+        >
+          + Add
+        </button>
+      </div>
+      <div class="space-y-2">
+        <div
+          :for={{row, idx} <- Enum.with_index(@rows)}
+          class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2"
+        >
+          <input
+            type="text"
+            name={"mcp_endpoint[#{@collection}_rows][#{idx}][key]"}
+            value={row["key"]}
+            placeholder={@key_placeholder}
+            class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa]"
+          />
+          <input
+            type="text"
+            name={"mcp_endpoint[#{@collection}_rows][#{idx}][value]"}
+            value={row["value"]}
+            placeholder={@value_placeholder}
+            class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa]"
+          />
+          <.mcp_row_delete_button collection={@collection} index={idx} />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :rows, :list, required: true
+  attr :collection, :string, required: true
+  attr :label, :string, required: true
+  attr :key_placeholder, :string, default: "KEY"
+
+  defp mcp_secret_kv_rows(assigns) do
+    ~H"""
+    <div>
+      <div class="mb-2 flex items-center justify-between">
+        <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider">
+          {@label}
+        </label>
+        <button
+          type="button"
+          phx-click="add_mcp_row"
+          phx-value-collection={@collection}
+          class="font-mono text-[0.68rem] px-2 py-1 rounded border border-black/10 text-black/60 hover:bg-black/[0.04]"
+        >
+          + Add
+        </button>
+      </div>
+      <div class="space-y-2">
+        <div
+          :for={{row, idx} <- Enum.with_index(@rows)}
+          class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2"
+        >
+          <input
+            type="text"
+            name={"mcp_endpoint[#{@collection}_rows][#{idx}][key]"}
+            value={row["key"]}
+            placeholder={@key_placeholder}
+            class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa]"
+          />
+          <.secret_input
+            id={"mcp-#{@collection}-#{idx}"}
+            name={"mcp_endpoint[#{@collection}_rows][#{idx}][value]"}
+            value={row["value"]}
+            input_class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-lg h-10 px-3 pr-10 bg-[#fafafa]"
+            button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60"
+            wrapper_class="relative"
+          />
+          <.mcp_row_delete_button collection={@collection} index={idx} />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :collection, :string, required: true
+  attr :index, :integer, required: true
+
+  defp mcp_row_delete_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="remove_mcp_row"
+      phx-value-collection={@collection}
+      phx-value-index={@index}
+      aria-label="Remove row"
+      title="Remove row"
+      class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600"
+    >
+      <.icon name="hero-trash" class="h-4 w-4" />
+    </button>
     """
   end
 

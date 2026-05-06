@@ -11,6 +11,8 @@ Core pipeline modules remain stateless, but configured agents are now runtime-ma
 - `Zaq.Agent.ServerManager`
 
 `ServerManager` maintains one long-lived `Jido.AgentServer` per configured agent id.
+When `Executor` passes an explicit scope, that scope is encoded in `server_id`
+(`<agent_name>:<scope>`) and `ServerManager` manages that runtime too.
 
 LLM configuration is centralized in `Zaq.Agent.LLM` — no other module reads
 provider details directly.
@@ -19,6 +21,48 @@ provider details directly.
 All calls from BO go through `Zaq.NodeRouter` so they work correctly in both
 single-node and multi-node deployments. New routing should use
 `NodeRouter.dispatch/1` with `%Zaq.Event{next_hop: %Zaq.EventHop{destination: :agent}}`.
+
+---
+
+## Entry Point Decision Tree
+
+Before writing any new agent-service code, verify which entry point already covers your case:
+
+| I need to… | Use |
+|---|---|
+| Make an LLM call | `Factory.ask/2` or `Factory.ask_with_config/2` — never call ReqLLM or Jido directly |
+| Execute a configured agent | `Executor.run/2` — handles server presence, config loading, factory delegation |
+| Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
+| Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
+| Resolve provider credentials or endpoint URL | `get_ai_provider_credential/1` then `Factory.build_model_spec/1` — nowhere else |
+| Translate a provider name to a ReqLLM atom | `ProviderSpec.reqllm_provider/1` — called by `Factory`; other modules must not call it directly |
+
+If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
+
+---
+
+## Module Responsibility Map
+
+Use this to decide where new code belongs. When a function would violate the "Does NOT own" column, find the correct module first.
+
+| Module | Owns | Does NOT own |
+|---|---|---|
+| `ProviderSpec` | Provider-atom normalisation (`reqllm_provider/1`), fixed-URL detection, base-URL injection, `build/1` for configured agents | Agent lifecycle, LLM calls, credential storage |
+| `Factory` | Model spec assembly (`build_model_spec/0,1`), `ask/ask_with_config`, generation opts | Provider/URL logic (delegated to `ProviderSpec`), credential resolution, pipeline orchestration |
+| `Executor` | Configured-agent lifecycle, config loading, factory delegation | LLM call details, response struct construction |
+| `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
+| `Pipeline` | Orchestration of retrieval → answering steps, hook dispatch | LLM calls, response struct construction, agent-type branches |
+| `Answering` | Answer extraction, `Result` struct, telemetry | Agent lifecycle, provider/credential details |
+| `Api` | `NodeRouter` dispatch entrypoint, role boundary | Business logic of any kind |
+| `History` | Conversation turn storage and retrieval helpers | LLM calls, pipeline logic |
+
+**`ServerManager` state discipline**: state must be minimal. If a variable exists only to trigger future behavior, use `Process.send_after/3` instead of storing it in state.
+
+**Security**: `nil` person_id is never an implicit permission grant. Any function that filters data by person must default `skip_permissions: false` and require an explicit opt-in for admin access:
+```elixir
+skip_permissions = Map.get(context, :skip_permissions, false)
+# Never: skip_permissions = is_nil(person_id)
+```
 
 ---
 
@@ -68,12 +112,32 @@ User question (BO Chat / Channel)
   - no `event.assigns["agent_selection"]` -> `Pipeline.run/2`
   - explicit `event.assigns["agent_selection"]["agent_id"]` -> `Zaq.Agent.Executor.run/2`
 - `Zaq.Agent.Executor` loads and validates selected configured agent, ensures server presence, and executes through `Zaq.Agent.Factory`
+- Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
+  - `:configured_agent_updated`
+  - `:configured_agent_deleted`
+  - `:mcp_endpoint_updated`
 
 ### Configured Agents (`Zaq.Agent` context)
 - Schema: `Zaq.Agent.ConfiguredAgent` (`configured_agents` table)
 - BO CRUD route: `/bo/agents`
 - Chat selector route: `/bo/chat` top bar dropdown
-- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+
+### Runtime Sync (`Zaq.Agent.RuntimeSync`)
+- Owns runtime orchestration after configured-agent and MCP endpoint mutations.
+- Responsibilities:
+  - configured agent create/update/delete runtime handling
+  - MCP endpoint update fanout to impacted configured agents
+  - hydration/sync of MCP assignments into running agent runtimes
+  - unsync of MCP assignments when endpoint is disabled/deleted
+- Exposes a single orchestration boundary so BO code dispatches events and does not call low-level runtime modules directly.
+
+### MCP Runtime IDs + Signal Adapter (`Zaq.Agent.MCP.Runtime`)
+- Owns deterministic runtime endpoint id mapping:
+  - DB endpoint id `123` -> runtime id `:"mcp_123"`
+  - runtime id `:"mcp_123"` -> DB endpoint id `123`
+- Owns runtime registration/sync/unsync adapters used by RuntimeSync.
+- Implements the MCP signal adapter pattern: BO/system-config changes produce one agent-domain event (`:mcp_endpoint_updated`) that RuntimeSync translates into runtime operations.
 
 ### Tool Registry (`Zaq.Agent.Tools.Registry`)
 - Code-defined allowlist of tool keys and modules
@@ -84,6 +148,22 @@ User question (BO Chat / Channel)
 - Standard runtime agent for all configured agents
 - Supports per-request runtime tool/module selection and LLM options
 - Supports runtime server configuration via system-prompt signal
+- `runtime_config/1` is the canonical runtime-config builder (other modules should delegate, not duplicate logic)
+
+### Server Manager (`Zaq.Agent.ServerManager`)
+- Ensures server presence and reconciles tracked runtimes.
+- Runtime lifecycle details (hot patch vs stop-only + lazy restart) are documented in [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
+- Channel reachability policy for `conversation_enabled` is documented in [Channels Service → Conversation Agent Eligibility](channels.md#conversation-agent-eligibility).
+
+### Runtime Sync Strategy (Hot Patch vs Restart)
+- Runtime sync strategy is summarized in [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
+
+### Atom Safety + Capacity Guards
+- MCP runtime endpoint ids create atoms at runtime; safeguards are enforced before registration.
+- Guardrails:
+  - atom-memory usage threshold: `>= 85%` blocks new endpoint atom creation
+  - endpoint hard cap: `2000` MCP endpoints
+- These checks are implemented in `Zaq.Agent.MCP.Runtime` and must remain centralized there.
 
 ### Jido Observability Logger (`Zaq.Agent.JidoObservabilityLogger`)
 - Attaches to Jido AI telemetry events (`request`, `llm`, `tool`, `tool.execute`) on the agent node
@@ -196,10 +276,13 @@ lib/zaq/agent/
 ├── llm.ex                      # Centralized LLM config reader
 ├── llm_runner.ex               # Low-level LangChain LLMChain wrapper
 ├── logprobs_analyzer.ex        # Confidence scoring from logprobs
+├── mcp/
+│   └── runtime.ex              # MCP runtime id mapping, guards, registration helpers
 ├── pipeline.ex                 # Unified answering pipeline for all channels
 ├── prompt_guard.ex             # Prompt injection + leakage protection
 ├── prompt_template.ex          # Ecto schema + context for DB-stored prompts
 ├── retrieval.ex                # Query rewriting agent
+├── runtime_sync.ex             # Runtime orchestration for agent + MCP mutations
 ├── server_manager.ex           # Ensures one AgentServer per configured agent id
 ├── supervisor.ex               # Agent role supervisor with dynamic AgentServer tree
 ├── tools/
