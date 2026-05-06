@@ -9,7 +9,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
       upsert_prompt_template(%{
         slug: "retrieval",
         name: "Retrieval Prompt",
-        body: "You are a query rewriting assistant. Respond in JSON.",
+        body: "You are a query rewriting assistant. Reply in markdown format.",
         description: "System prompt for the retrieval agent",
         active: true
       })
@@ -17,31 +17,83 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
     :ok
   end
 
-  describe "ask/2 — extract_json with markdown code fences" do
-    test "decodes JSON wrapped in ```json ... ``` code fence" do
+  describe "ask/2 — markdown field parsing" do
+    test "parses all four markdown fields from LLM response" do
       handler = fn _conn, _body ->
-        {200, OpenAIStub.chat_completion(~s(```json\n{"queries":["elixir beam"]}\n```))}
+        {200,
+         OpenAIStub.chat_completion("""
+         **Query:** elixir beam scheduler
+         **Language:** eng
+         **Positive Answer:** Please wait while I search.
+         **Negative Answer:** No information found, try rephrasing.
+         """)}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:ok, %{"queries" => ["elixir beam"]}} =
-               Retrieval.ask("What does Elixir run on?", system_prompt: "Prompt")
+      assert {:ok, result} = Retrieval.ask("What is Elixir?", system_prompt: "Prompt")
+      assert result["query"] == "elixir beam scheduler"
+      assert result["language"] == "eng"
+      assert result["positive_answer"] == "Please wait while I search."
+      assert result["negative_answer"] == "No information found, try rephrasing."
     end
 
-    test "decodes JSON wrapped in plain ``` code fence" do
+    test "strips trailing prose from language field" do
       handler = fn _conn, _body ->
-        {200, OpenAIStub.chat_completion(~s(```\n{"queries":["test query"]}\n```))}
+        {200,
+         OpenAIStub.chat_completion("""
+         **Query:** some query
+         **Language:** und (undetermined, see note)
+         **Positive Answer:** Searching...
+         **Negative Answer:** Not found.
+         """)}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:ok, %{"queries" => ["test query"]}} =
-               Retrieval.ask("Some question?", system_prompt: "Prompt")
+      assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert result["language"] == "und"
+    end
+
+    test "defaults language to eng when field is missing" do
+      handler = fn _conn, _body ->
+        {200,
+         OpenAIStub.chat_completion("""
+         **Query:** some query
+         **Positive Answer:** Searching...
+         **Negative Answer:** Not found.
+         """)}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert result["language"] == "eng"
+    end
+
+    test "falls back to original question when query field is missing" do
+      handler = fn _conn, _body ->
+        {200,
+         OpenAIStub.chat_completion("""
+         **Language:** fra
+         **Positive Answer:** Searching...
+         **Negative Answer:** Not found.
+         """)}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:ok, result} = Retrieval.ask("Original question", system_prompt: "Prompt")
+      assert result["query"] == "Original question"
+      assert result["language"] == "fra"
     end
   end
 

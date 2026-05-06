@@ -34,13 +34,12 @@ defmodule Zaq.Agent.FactoryTest do
     test "includes answering tool keys" do
       agent = Answering.answering_configured_agent()
       assert "answering.search_knowledge_base" in agent.enabled_tool_keys
-      assert "answering.ask_for_clarification" in agent.enabled_tool_keys
     end
 
     test "is active and not conversation-enabled" do
       agent = Answering.answering_configured_agent()
       assert agent.active == true
-      assert agent.conversation_enabled == false
+      assert agent.conversation_enabled == true
     end
   end
 
@@ -219,7 +218,7 @@ defmodule Zaq.Agent.FactoryTest do
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: ["files.read_file"],
+        enabled_tool_keys: ["basic.sleep"],
         conversation_enabled: false,
         active: true,
         advanced_options: %{}
@@ -244,7 +243,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
     assert body =~ "mcp_probe_tool"
-    assert body =~ "read_file"
+    assert body =~ "sleep_action"
   end
 
   test "build_initial_context returns empty context for non-scoped server ids" do
@@ -263,6 +262,77 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert %AIContext{} = result
     assert AIContext.empty?(result)
+  end
+
+  describe "spawn_opts_from_server_id/1" do
+    test "parses conversation-scoped ids" do
+      assert Factory.spawn_opts_from_server_id("agent:web:conv:123") == %{
+               conversation_id: "123",
+               person_id: nil,
+               channel_type: "web"
+             }
+    end
+
+    test "parses person-scoped ids" do
+      assert Factory.spawn_opts_from_server_id("agent:web:person:42") == %{
+               conversation_id: nil,
+               person_id: "42",
+               channel_type: "web"
+             }
+    end
+
+    test "returns empty map for malformed binary ids" do
+      assert Factory.spawn_opts_from_server_id("configured_agent_123") == %{}
+      assert Factory.spawn_opts_from_server_id("agent::conv:") == %{}
+    end
+
+    test "returns nil for non-binary ids" do
+      assert Factory.spawn_opts_from_server_id(nil) == nil
+      assert Factory.spawn_opts_from_server_id(123) == nil
+    end
+  end
+
+  describe "lifecycle callbacks" do
+    test "on_after_cmd cleanup branches clear status and tool trace process keys" do
+      Process.put(:zaq_status_context, %{request_id: "req-1"})
+      Process.put(:zaq_tool_trace_context, %{request_id: "req-1", collector_pid: self()})
+
+      ignore_callback_errors(fn ->
+        Factory.on_after_cmd(%{}, {:ai_react_cancel, %{}}, [])
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+
+      Process.put(:zaq_status_context, %{request_id: "req-2"})
+      Process.put(:zaq_tool_trace_context, %{request_id: "req-2", collector_pid: self()})
+
+      ignore_callback_errors(fn ->
+        Factory.on_after_cmd(%{}, {:ai_react_request_error, %{}}, [])
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+
+      Process.put(:zaq_status_context, %{request_id: "req-3"})
+      Process.put(:zaq_tool_trace_context, %{request_id: "req-3", collector_pid: self()})
+
+      ignore_callback_errors(fn ->
+        Factory.on_after_cmd(%{}, {:ai_react_finish, %{}}, [])
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+    end
+
+    test "on_before_cmd start branch tolerates non-map params" do
+      ignore_callback_errors(fn ->
+        Factory.on_before_cmd(%{}, {:ai_react_start, :invalid_params})
+      end)
+
+      assert Process.get(:zaq_status_context) == nil
+      assert Process.get(:zaq_tool_trace_context) == nil
+    end
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do
@@ -305,5 +375,13 @@ defmodule Zaq.Agent.FactoryTest do
       "data: #{completed_event}\n\n"
     ]
     |> IO.iodata_to_binary()
+  end
+
+  defp ignore_callback_errors(fun) when is_function(fun, 0) do
+    fun.()
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 end

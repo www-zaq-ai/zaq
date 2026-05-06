@@ -20,7 +20,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, DocumentChunker}
   alias Zaq.Ingestion.{LanguageDetector, Sidecar, SourcePath}
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, PptxToMd, XlsxToMd}
@@ -193,6 +193,15 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Strips bytes that are not part of a valid UTF-8 sequence.
   # Needed when ingesting files produced by external tools (e.g. the Python
   # PDF pipeline) that may emit Latin-1 or other non-UTF-8 encodings.
+  @doc false
+  def sanitize_bm25_query(text) do
+    text
+    |> sanitize_utf8()
+    |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
   defp sanitize_utf8(binary), do: sanitize_utf8(binary, [])
   # Null bytes (U+0000) are valid UTF-8 but PostgreSQL text columns reject them.
   defp sanitize_utf8(<<0, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
@@ -820,7 +829,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
       base =
         Chunk
-        |> join(:inner, [c], d in Document, on: c.document_id == d.id)
+        |> join(:inner, [c], d in Document, on: c.document_id == d.id, as: :doc)
         |> where([c, _d], fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold))
         |> order_by([c, _d], asc: fragment("? <-> ?", c.embedding, ^embedding_vector))
         |> select([c, _d], %{
@@ -833,8 +842,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         if source_filter == [] do
           base
         else
-          condition = build_source_filter_condition(source_filter)
-          where(base, [_c, d], ^condition)
+          where(base, ^DocumentAccess.build_source_filter_condition(source_filter))
         end
 
       results = Repo.all(query)
@@ -848,16 +856,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
       {:ok, grouped}
     end
-  end
-
-  defp build_source_filter_condition(source_filter) do
-    Enum.reduce(source_filter, dynamic(false), fn prefix, acc ->
-      if String.contains?(prefix |> String.split("/") |> List.last(), ".") do
-        dynamic([_c, d], ^acc or d.source == ^prefix)
-      else
-        dynamic([_c, d], ^acc or like(d.source, ^"#{prefix}/%"))
-      end
-    end)
   end
 
   # ---------------------------------------------------------------------------
@@ -877,9 +875,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   folders and connectors are matched via prefix (`LIKE "prefix/%"`).
   """
   def bm25_search_group_by(query_text, limit, source_filter \\ []) do
+    safe_query = sanitize_bm25_query(query_text)
+
     base =
       from(c in Chunk,
-        where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
+        where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^safe_query),
         order_by: [desc: fragment("paradedb.score(?)", c.id)],
         limit: ^limit,
         select: %{
@@ -893,11 +893,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       if source_filter == [] do
         base
       else
-        condition = build_source_filter_condition(source_filter)
-
         base
-        |> join(:inner, [c], d in Document, on: c.document_id == d.id)
-        |> where([_c, d], ^condition)
+        |> join(:inner, [c], d in Document, on: c.document_id == d.id, as: :doc)
+        |> where(^DocumentAccess.build_source_filter_condition(source_filter))
       end
 
     results = Repo.all(query)
@@ -1117,7 +1115,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     permitted =
       doc_ids
       |> Enum.chunk_every(500)
-      |> Enum.flat_map(&Zaq.Ingestion.list_permitted_document_ids(person_id, team_ids, &1))
+      |> Enum.flat_map(&DocumentAccess.list_permitted_document_ids(person_id, team_ids, &1))
 
     permitted_set = MapSet.new(permitted)
 

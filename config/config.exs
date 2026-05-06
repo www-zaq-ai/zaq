@@ -33,7 +33,7 @@ config :zaq,
   ecto_repos: [Zaq.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :zaq, :jido_observability_logger,
+config :zaq, :jido_telemetry_bridge,
   enabled: true,
   include_llm_deltas: false,
   max_payload_chars: 2000

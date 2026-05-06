@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   use ZaqWeb, :live_view
 
   alias Zaq.NodeRouter
+  alias ZaqWeb.Live.BO.Communication.MessageHelpers
   alias ZaqWeb.Live.BO.PreviewHelpers
 
   import ZaqWeb.Helpers.DateFormat, only: [format_date: 1, inject_date_separators: 2]
@@ -33,6 +34,13 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
      |> assign(:messages, messages)
      |> assign(:shares, shares)
      |> assign(:show_share_dialog, false)
+     |> assign(:show_feedback_modal, false)
+     |> assign(:feedback_message_id, nil)
+     |> assign(:feedback_reasons, [])
+     |> assign(:feedback_comment, "")
+     |> assign(:tool_calls_modal_for, nil)
+     |> assign(:tool_calls_modal_entries, [])
+     |> assign(:expanded_tool_call_ids, MapSet.new())
      |> assign(:preview, nil)}
   rescue
     Ecto.NoResultsError ->
@@ -43,21 +51,65 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   end
 
   @impl true
-  def handle_event("rate_message", %{"id" => msg_id, "rating" => rating_str}, socket) do
-    current_user = socket.assigns[:current_user]
+  def handle_event("copy_message", %{"text" => text}, socket) do
+    {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
 
-    msg = find_message(socket.assigns.messages, msg_id)
+  def handle_event("feedback", %{"id" => id, "type" => "positive"}, socket) do
+    current_user = socket.assigns[:current_user]
+    msg = find_message(socket.assigns.messages, id)
 
     if msg do
-      rater_attrs =
-        if current_user,
-          do: %{user_id: current_user.id, rating: String.to_integer(rating_str)},
-          else: %{rating: String.to_integer(rating_str)}
+      rater_attrs = MessageHelpers.positive_rater_attrs(current_user)
 
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :rate_message, [msg, rater_attrs])
+      NodeRouter.call(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
+        msg.id,
+        rater_attrs
+      ])
     end
 
-    {:noreply, socket}
+    {:noreply, assign(socket, :messages, refresh_messages(socket.assigns.conversation))}
+  end
+
+  def handle_event("feedback", %{"id" => id, "type" => "negative"}, socket) do
+    {:noreply, MessageHelpers.open_feedback_modal(socket, id)}
+  end
+
+  def handle_event("close_feedback_modal", _params, socket) do
+    {:noreply, assign(socket, :show_feedback_modal, false)}
+  end
+
+  def handle_event("toggle_feedback_reason", %{"reason" => reason}, socket) do
+    updated = MessageHelpers.toggle_reason(socket.assigns.feedback_reasons, reason)
+
+    {:noreply, assign(socket, :feedback_reasons, updated)}
+  end
+
+  def handle_event("update_feedback_comment", %{"comment" => comment}, socket) do
+    {:noreply, assign(socket, :feedback_comment, comment)}
+  end
+
+  def handle_event("submit_feedback", _params, socket) do
+    id = socket.assigns.feedback_message_id
+    reasons = socket.assigns.feedback_reasons
+    comment = socket.assigns.feedback_comment
+    current_user = socket.assigns[:current_user]
+
+    msg = find_message(socket.assigns.messages, id)
+
+    if msg do
+      rater_attrs = MessageHelpers.negative_rater_attrs(current_user, reasons, comment)
+
+      NodeRouter.call(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
+        msg.id,
+        rater_attrs
+      ])
+    end
+
+    {:noreply,
+     socket
+     |> assign(:show_feedback_modal, false)
+     |> assign(:messages, refresh_messages(socket.assigns.conversation))}
   end
 
   def handle_event("open_share_dialog", _params, socket) do
@@ -75,6 +127,37 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   def handle_event("close_preview_modal", _params, socket) do
     {:noreply, PreviewHelpers.close_preview(socket)}
   end
+
+  def handle_event("open_tool_calls_modal", %{"id" => id}, socket) do
+    tool_calls =
+      socket.assigns.messages
+      |> find_message(id)
+      |> tool_calls_for_message()
+
+    {:noreply,
+     socket
+     |> assign(:tool_calls_modal_for, id)
+     |> assign(:tool_calls_modal_entries, tool_calls)
+     |> assign(:expanded_tool_call_ids, MapSet.new())}
+  end
+
+  def handle_event("close_tool_calls_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:tool_calls_modal_for, nil)
+     |> assign(:tool_calls_modal_entries, [])
+     |> assign(:expanded_tool_call_ids, MapSet.new())}
+  end
+
+  def handle_event("toggle_tool_call_details", %{"tool_id" => tool_id}, socket) do
+    updated =
+      socket.assigns.expanded_tool_call_ids
+      |> MessageHelpers.toggle_tool_call_details(tool_id)
+
+    {:noreply, assign(socket, :expanded_tool_call_ids, updated)}
+  end
+
+  def handle_event("noop", _params, socket), do: {:noreply, socket}
 
   def handle_event("share", %{"permission" => permission}, socket) do
     conv = socket.assigns.conversation
@@ -114,4 +197,23 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   end
 
   defp find_message(messages, id), do: Enum.find(messages, &(&1.id == id))
+
+  defp refresh_messages(conversation) do
+    messages = NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_messages, [conversation])
+    if is_list(messages), do: messages, else: []
+  end
+
+  defp tool_calls_for_message(nil), do: []
+
+  defp tool_calls_for_message(message) do
+    message
+    |> then(fn msg -> Map.get(msg, :metadata) || Map.get(msg, "metadata") || %{} end)
+    |> Map.get("tool_calls", [])
+    |> normalize_tool_calls()
+  end
+
+  defp normalize_tool_calls(tool_calls), do: MessageHelpers.normalize_tool_calls(tool_calls)
+
+  defp infer_feedback_from_ratings(ratings),
+    do: MessageHelpers.infer_feedback_from_ratings(ratings)
 end

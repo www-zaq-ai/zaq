@@ -14,7 +14,7 @@ defmodule Zaq.Agent.Answering do
 
   @answering_tools [
     Zaq.Agent.Tools.SearchKnowledgeBase,
-    Zaq.Agent.Tools.AskForClarification
+    Zaq.Agent.Tools.ListKnowledgeBaseFiles
   ]
 
   @no_answer_signals [
@@ -55,8 +55,11 @@ defmodule Zaq.Agent.Answering do
       id: :answering,
       name: "answering",
       strategy: "react",
-      enabled_tool_keys: ["answering.search_knowledge_base", "answering.ask_for_clarification"],
-      conversation_enabled: false,
+      enabled_tool_keys: [
+        "answering.search_knowledge_base",
+        "answering.list_knowledge_base_files"
+      ],
+      conversation_enabled: true,
       active: true,
       advanced_options: ProviderSpec.default_advanced_options(cfg),
       model: cfg.model,

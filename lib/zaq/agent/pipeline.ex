@@ -20,15 +20,11 @@ defmodule Zaq.Agent.Pipeline do
   ## Options
 
     * `:history`            — conversation history map (default: `%{}`)
-    * `:on_status`          — 2-arity fn `(stage, message) :: :ok` for progress
-                              callbacks; used by LiveView to push status updates
-                              (default: silent no-op)
     * `:hooks`              — Hooks module override (default: `Zaq.Hooks`)
     * `:node_router`        — NodeRouter module override
     * `:retrieval`          — Retrieval module override
     * `:document_processor` — DocumentProcessor module override
     * `:answering`          — Answering module override
-    * `:prompt_guard`       — PromptGuard module override
     * `:prompt_template`    — PromptTemplate module override
 
   ## Returns
@@ -46,7 +42,9 @@ defmodule Zaq.Agent.Pipeline do
 
   require Logger
   alias Zaq.Accounts.People
+  alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
 
@@ -93,34 +91,37 @@ defmodule Zaq.Agent.Pipeline do
   defp do_run(%Incoming{} = incoming, opts) do
     content = incoming.content
     history = Keyword.get(opts, :history, %{})
-    on_status = Keyword.get(opts, :on_status, fn _stage, _msg -> :ok end)
     ctx = %{trace_id: generate_trace_id(), node: node()}
     hooks = hooks_mod(opts)
 
-    with {:ok, clean_msg} <- prompt_guard(opts).validate(content),
-         :ok <- record_message_telemetry(opts),
+    status_context = %{
+      session_id: incoming.metadata[:session_id],
+      request_id: incoming.metadata[:request_id]
+    }
+
+    opts = Keyword.put(opts, :status_context, status_context)
+
+    with :ok <- record_message_telemetry(opts),
          {:ok, retrieval_payload} <-
-           hooks.dispatch_sync(:retrieval, %{content: clean_msg}, ctx),
-         :ok <- on_status.(:retrieving, "ZAQ is searching your knowledge base…"),
-         {:ok, retrieval_result} <- do_retrieval(retrieval_payload.content, history, opts),
+           hooks.dispatch_sync(:retrieval, %{content: content}, ctx),
+         {:ok, retrieval_result} <-
+           do_retrieval(retrieval_payload.content, history, opts, incoming),
          :ok <- hooks.dispatch_async(:retrieval_complete, retrieval_result, ctx),
-         :ok <- on_status.(:retrieving, retrieval_result.positive_answer),
          {:ok, answering_payload} <-
            hooks.dispatch_sync(:answering, retrieval_result, ctx),
-         {:ok, extraction_result} <- do_query_extraction(answering_payload, opts),
-         :ok <- on_status.(:answering, "Formulating your answer…"),
+         {:ok, extraction_result} <- do_extraction(answering_payload, opts),
          {:ok, answer_result} <-
-           do_answering(incoming, clean_msg, extraction_result, answering_payload, history, opts),
-         {:ok, safe_answer} <- prompt_guard(opts).output_safe?(answer_result.body) do
+           do_answering(incoming, content, extraction_result, answering_payload, history, opts) do
       :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
       sources = build_sources(extraction_result)
+      answer = answer_result.body
 
       result =
-        if answering_mod(opts).no_answer?(safe_answer) do
+        if answering_mod(opts).no_answer?(answer) do
           :ok = record_no_answer_telemetry(opts)
 
           answer_result
-          |> result_from_answering(answering_mod(opts).clean_answer(safe_answer), 0.0)
+          |> result_from_answering(ErrorMessage.from_reason(:no_results), 0.0)
           |> Map.merge(%{
             content: content,
             generated_query: retrieval_result.query,
@@ -130,7 +131,7 @@ defmodule Zaq.Agent.Pipeline do
         else
           confidence_score = answer_result.metadata[:confidence_score]
 
-          result_from_answering(answer_result, safe_answer, confidence_score)
+          result_from_answering(answer_result, answer, confidence_score)
           |> Map.put(:sources, sources)
         end
 
@@ -144,17 +145,7 @@ defmodule Zaq.Agent.Pipeline do
       result
     else
       {:halt, _payload} ->
-        error_result("Request was halted by a pipeline hook.")
-
-      {:error, :prompt_injection} ->
-        error_result("I can only help with ZAQ-related questions.")
-
-      {:error, :role_play_attempt} ->
-        error_result("I can only help with ZAQ-related questions.")
-
-      {:error, {:leaked, _phrase}} ->
-        Logger.warning("[Pipeline] PromptGuard: output leak detected, blocking response")
-        error_result("I can only help with ZAQ-related questions.")
+        error_result(:halted)
 
       {:error, :no_results, negative_answer} ->
         :ok = record_no_answer_telemetry(opts)
@@ -175,7 +166,7 @@ defmodule Zaq.Agent.Pipeline do
         :ok = record_no_answer_telemetry(opts)
 
         result =
-          "I couldn't find relevant information to answer your question."
+          ErrorMessage.from_reason(:no_results)
           |> success_result(0.0)
           |> Map.merge(%{
             content: content,
@@ -188,7 +179,7 @@ defmodule Zaq.Agent.Pipeline do
 
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")
-        error_result("Sorry, something went wrong. Please try again.")
+        error_result(reason)
     end
   end
 
@@ -196,8 +187,11 @@ defmodule Zaq.Agent.Pipeline do
   # Pipeline steps
   # ---------------------------------------------------------------------------
 
-  defp do_retrieval(clean_msg, history, opts) do
-    case node_router(opts).call(:agent, retrieval_mod(opts), :ask, [clean_msg, [history: history]]) do
+  defp do_retrieval(clean_msg, history, opts, _incoming) do
+    case node_router(opts).call(:agent, retrieval_mod(opts), :ask, [
+           clean_msg,
+           [history: history]
+         ]) do
       {:ok,
        %{
          "query" => query,
@@ -228,29 +222,31 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_query_extraction(%{query: query, negative_answer: negative_answer}, opts) do
-    person_id = Keyword.get(opts, :person_id)
-    team_ids = Keyword.get(opts, :team_ids, [])
-    skip_permissions = Keyword.get(opts, :skip_permissions, false)
-    source_filter = Keyword.get(opts, :source_filter, [])
+  defp do_extraction(%{query: query} = retrieval_result, opts) do
+    negative_answer = Map.get(retrieval_result, :negative_answer)
 
-    case node_router(opts).call(
-           :ingestion,
-           document_processor_mod(opts),
-           :query_extraction,
-           [
-             query,
-             [
-               person_id: person_id,
-               team_ids: team_ids,
-               skip_permissions: skip_permissions,
-               source_filter: source_filter
-             ]
-           ]
-         ) do
-      {:ok, results} when results != [] -> {:ok, results}
-      {:ok, []} -> {:error, :no_results, negative_answer}
-      {:error, _} -> {:error, :no_results, negative_answer}
+    context = %{
+      person_id: Keyword.get(opts, :person_id),
+      team_ids: Keyword.get(opts, :team_ids, []),
+      source_filter: Keyword.get(opts, :source_filter),
+      skip_permissions: Keyword.get(opts, :skip_permissions, false),
+      node_router: node_router(opts),
+      document_processor: document_processor_mod(opts),
+      status_context: Keyword.get(opts, :status_context)
+    }
+
+    case SearchKnowledgeBase.run(%{query: query}, context) do
+      {:ok, %{chunks: []}} when is_binary(negative_answer) ->
+        {:error, :no_results, negative_answer}
+
+      {:ok, %{chunks: chunks}} ->
+        {:ok, chunks}
+
+      {:error, _reason} when is_binary(negative_answer) ->
+        {:error, :no_results, negative_answer}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -258,6 +254,8 @@ defmodule Zaq.Agent.Pipeline do
     language = Map.get(retrieval, :language, "en")
     person_id = Keyword.get(opts, :person_id)
     team_ids = Keyword.get(opts, :team_ids, [])
+    source_filter = Keyword.get(opts, :source_filter)
+    skip_permissions = Keyword.get(opts, :skip_permissions, false)
 
     retrieved_data =
       Enum.map(query_results, fn %{"content" => chunk_content, "source" => source} ->
@@ -282,9 +280,12 @@ defmodule Zaq.Agent.Pipeline do
         question: content,
         person_id: person_id,
         team_ids: team_ids,
+        source_filter: source_filter,
+        skip_permissions: skip_permissions,
         history: history,
         telemetry_dimensions: telemetry_dimensions(opts),
-        node_router: node_router(opts)
+        node_router: node_router(opts),
+        event: Keyword.get(opts, :event)
       )
 
     {:ok, outgoing}
@@ -314,6 +315,7 @@ defmodule Zaq.Agent.Pipeline do
       prompt_tokens: outgoing.metadata[:prompt_tokens],
       completion_tokens: outgoing.metadata[:completion_tokens],
       total_tokens: outgoing.metadata[:total_tokens],
+      tool_calls: Map.get(outgoing.metadata, :tool_calls, []),
       error: false
     }
   end
@@ -340,9 +342,10 @@ defmodule Zaq.Agent.Pipeline do
     }
   end
 
-  defp error_result(answer) do
+  defp error_result(reason) do
     %{
-      answer: answer,
+      answer: ErrorMessage.from_reason(reason),
+      error_reason: reason,
       confidence_score: 0.0,
       latency_ms: nil,
       prompt_tokens: nil,
@@ -397,14 +400,6 @@ defmodule Zaq.Agent.Pipeline do
       opts,
       :answering,
       Application.get_env(:zaq, :pipeline_answering_module, Zaq.Agent.Answering)
-    )
-  end
-
-  defp prompt_guard(opts) do
-    Keyword.get(
-      opts,
-      :prompt_guard,
-      Application.get_env(:zaq, :pipeline_prompt_guard_module, Zaq.Agent.PromptGuard)
     )
   end
 

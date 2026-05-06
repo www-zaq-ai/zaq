@@ -6,13 +6,11 @@ defmodule Zaq.Agent.RetrievalTest do
 
   describe "ask/2" do
     setup do
-      # Seed/update the retrieval prompt template
       {:ok, _template} =
         upsert_prompt_template(%{
           slug: "retrieval",
           name: "Retrieval Prompt",
-          body:
-            "You are a query rewriting assistant. Rewrite the user question into search queries. Respond in JSON.",
+          body: "You are a query rewriting assistant. Reply in markdown format.",
           description: "System prompt for the retrieval agent",
           active: true
         })
@@ -24,7 +22,14 @@ defmodule Zaq.Agent.RetrievalTest do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
         refute Map.has_key?(payload, "response_format")
-        {200, OpenAIStub.chat_completion(~s({"queries":["elixir beam"]}))}
+
+        {200,
+         OpenAIStub.chat_completion("""
+         **Query:** elixir beam
+         **Language:** eng
+         **Positive Answer:** Please wait.
+         **Negative Answer:** No info found.
+         """)}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
@@ -32,8 +37,8 @@ defmodule Zaq.Agent.RetrievalTest do
 
       OpenAIStub.seed_llm_config(endpoint, supports_json_mode: true)
 
-      assert {:ok, %{"queries" => ["elixir beam"]}} =
-               Retrieval.ask("What does Elixir run on?", system_prompt: "Return JSON")
+      assert {:ok, %{"query" => "elixir beam", "language" => "eng"}} =
+               Retrieval.ask("What does Elixir run on?", system_prompt: "Return markdown")
     end
 
     test "builds history from map for user and bot with non-binary bodies" do
@@ -41,9 +46,7 @@ defmodule Zaq.Agent.RetrievalTest do
         payload = Jason.decode!(body)
         messages = payload["messages"]
 
-        assert Enum.any?(messages, fn msg ->
-                 msg["role"] == "system" and message_text(msg) == "Prompt"
-               end)
+        assert Enum.any?(messages, fn msg -> msg["role"] == "system" end)
 
         assert Enum.any?(messages, fn msg ->
                  msg["role"] == "assistant" and
@@ -58,7 +61,13 @@ defmodule Zaq.Agent.RetrievalTest do
                  msg["role"] == "user" and message_text(msg) == "Latest question"
                end)
 
-        {200, OpenAIStub.chat_completion(~s({"queries":["q"]}))}
+        {200,
+         OpenAIStub.chat_completion("""
+         **Query:** hello query
+         **Language:** eng
+         **Positive Answer:** Searching now.
+         **Negative Answer:** Nothing found.
+         """)}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
@@ -71,7 +80,7 @@ defmodule Zaq.Agent.RetrievalTest do
         "2" => %{"body" => %{"q" => "hello"}, "type" => "user"}
       }
 
-      assert {:ok, %{"queries" => ["q"]}} =
+      assert {:ok, %{"query" => "hello query"}} =
                Retrieval.ask("Latest question", system_prompt: "Prompt", history: history)
     end
 
@@ -79,10 +88,15 @@ defmodule Zaq.Agent.RetrievalTest do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
         messages = payload["messages"]
-        assert [%{"role" => "system"} = msg] = messages
-        assert message_text(msg) == "Prompt"
+        assert [%{"role" => "system"}] = messages
 
-        {200, OpenAIStub.chat_completion(~s({"queries":[]}))}
+        {200,
+         OpenAIStub.chat_completion("""
+         **Query:** fallback
+         **Language:** eng
+         **Positive Answer:** Searching.
+         **Negative Answer:** Not found.
+         """)}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
@@ -90,12 +104,12 @@ defmodule Zaq.Agent.RetrievalTest do
 
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:ok, %{"queries" => []}} = Retrieval.ask("", system_prompt: "Prompt")
+      assert {:ok, %{"query" => "fallback"}} = Retrieval.ask("", system_prompt: "Prompt")
     end
 
-    test "returns error on invalid JSON content returned by the model" do
+    test "falls back to raw question when model returns no markdown fields" do
       handler = fn _conn, _body ->
-        {200, OpenAIStub.chat_completion("not-json")}
+        {200, OpenAIStub.chat_completion("not a markdown response")}
       end
 
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
@@ -103,8 +117,9 @@ defmodule Zaq.Agent.RetrievalTest do
 
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
-      assert String.starts_with?(message, "Failed to process question:")
+      assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert result["query"] == "Question"
+      assert result["language"] == "eng"
     end
 
     test "returns error when model response content is nil" do
@@ -123,15 +138,12 @@ defmodule Zaq.Agent.RetrievalTest do
     end
 
     @tag :integration
-    test "returns {:ok, decoded_json} with a system prompt override" do
-      # Uses a system prompt override so we don't depend on LLM for unit tests.
-      # Integration tests with a real LLM can omit the override.
+    test "returns {:ok, result} with a system prompt override" do
       opts = [
-        system_prompt: "Respond with valid JSON: {\"queries\": [\"test\"]}"
+        system_prompt:
+          "Reply in this exact format:\n**Query:** test\n**Language:** eng\n**Positive Answer:** ok\n**Negative Answer:** none"
       ]
 
-      # This test requires a running LLM endpoint.
-      # Skip in CI or when no LLM is configured.
       case Zaq.System.get_llm_config().endpoint do
         nil ->
           :skipped
@@ -147,9 +159,9 @@ defmodule Zaq.Agent.RetrievalTest do
 
     @tag :integration
     test "build_history handles empty list" do
-      # Indirectly tested — passing empty history should not raise
       opts = [
-        system_prompt: "Respond with JSON: {\"queries\": [\"test\"]}",
+        system_prompt:
+          "Reply in this exact format:\n**Query:** test\n**Language:** eng\n**Positive Answer:** ok\n**Negative Answer:** none",
         history: []
       ]
 

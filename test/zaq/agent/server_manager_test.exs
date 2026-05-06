@@ -303,7 +303,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     {:ok, updated_agent} =
       Agent.update_agent(configured_agent, %{
-        enabled_tool_keys: ["answering.ask_for_clarification"]
+        enabled_tool_keys: ["answering.list_knowledge_base_files"]
       })
 
     assert {:ok, _server_ref} =
@@ -1003,7 +1003,30 @@ defmodule Zaq.Agent.ServerManagerTest do
             }} = ServerManager.sync_runtime(updated_agent)
 
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
-    refute is_pid(Jido.AgentServer.whereis(registry, key))
+    refute Process.alive?(pid)
+    assert_old_pid_not_registered(registry, key, pid)
+  end
+
+  defp assert_old_pid_not_registered(registry, key, old_pid, attempts_left \\ 20)
+
+  defp assert_old_pid_not_registered(_registry, _key, _old_pid, 0) do
+    flunk("registry still points to old pid after waiting for stale server cleanup")
+  end
+
+  defp assert_old_pid_not_registered(registry, key, old_pid, attempts_left) do
+    current = Jido.AgentServer.whereis(registry, key)
+
+    cond do
+      current == nil ->
+        :ok
+
+      current != old_pid ->
+        :ok
+
+      true ->
+        Process.sleep(20)
+        assert_old_pid_not_registered(registry, key, old_pid, attempts_left - 1)
+    end
   end
 
   test "stop_server/1 stops all tracked servers for configured agent" do
@@ -1264,7 +1287,6 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     pid_before = Jido.AgentServer.whereis(registry, server_id)
     assert is_pid(pid_before)
-
     parent = self()
 
     {:ok, _slow_pid} =
@@ -1304,12 +1326,37 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert is_pid(pid_after)
     refute pid_after == pid_before
 
-    assert {:ok, request} =
-             Factory.ask_with_config(server_ref_after, "FAST_REQUEST", configured_agent,
-               timeout: 15_000
-             )
+    assert {:ok, _answer} =
+             ask_and_await_with_retry(server_ref_after, configured_agent, "FAST_REQUEST", 5)
+  end
 
-    assert {:ok, _answer} = Factory.await(request, timeout: 20_000)
+  defp ask_and_await_with_retry(_server_ref, _configured_agent, _content, 0),
+    do: {:error, :retry_exhausted}
+
+  defp ask_and_await_with_retry(server_ref, configured_agent, content, attempts_left)
+       when attempts_left > 0 do
+    result =
+      with {:ok, request} <-
+             Factory.ask_with_config(server_ref, content, configured_agent, timeout: 15_000),
+           {:ok, _answer} = ok <- Factory.await(request, timeout: 20_000) do
+        ok
+      else
+        {:error, reason} = error ->
+          if attempts_left > 1 and finch_queue_timeout?(reason) do
+            Process.sleep(150)
+            ask_and_await_with_retry(server_ref, configured_agent, content, attempts_left - 1)
+          else
+            error
+          end
+      end
+
+    result
+  end
+
+  defp finch_queue_timeout?(reason) do
+    reason
+    |> inspect()
+    |> String.contains?("Finch was unable to provide a connection within the timeout")
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do

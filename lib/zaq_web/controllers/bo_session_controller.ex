@@ -22,6 +22,20 @@ defmodule ZaqWeb.BOSessionController do
     end
   end
 
+  def bootstrap_login(conn, _params) do
+    case Accounts.bootstrap_admin_pending_onboarding() do
+      %{must_change_password: true} = user ->
+        conn
+        |> put_session(:user_id, user.id)
+        |> redirect(to: ~p"/bo/change-password")
+
+      _ ->
+        conn
+        |> put_flash(:error, "Invalid username or password")
+        |> redirect(to: ~p"/bo/login")
+    end
+  end
+
   def delete(conn, _params) do
     conn
     |> clear_session()

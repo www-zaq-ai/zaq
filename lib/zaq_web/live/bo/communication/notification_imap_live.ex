@@ -206,9 +206,15 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     existing_settings = if(channel, do: channel.settings || %{}, else: %{})
 
     provider_default =
-      ParseUtils.parse_optional_int(Map.get(raw_params, "provider_default_agent_id"))
+      raw_params
+      |> Map.get("provider_default_agent_id")
+      |> sanitize_conversation_agent_id()
 
-    mailbox_agents = parse_mailbox_agents(Map.get(raw_params, "mailbox_agent_ids", %{}))
+    mailbox_agents =
+      raw_params
+      |> Map.get("mailbox_agent_ids", %{})
+      |> parse_mailbox_agents()
+      |> sanitize_mailbox_agents()
 
     routing_settings =
       existing_settings
@@ -265,7 +271,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   end
 
   defp agent_options do
-    Agent.list_active_agents()
+    Agent.list_conversation_enabled_agents()
     |> Enum.map(fn agent -> {agent.name, agent.id} end)
   end
 
@@ -283,6 +289,31 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   end
 
   defp parse_mailbox_agents(_), do: %{}
+
+  defp sanitize_mailbox_agents(mailbox_agents) when is_map(mailbox_agents) do
+    mailbox_agents
+    |> Enum.reduce(%{}, fn {mailbox, id}, acc ->
+      case sanitize_conversation_agent_id(id) do
+        nil -> acc
+        valid_id -> Map.put(acc, mailbox, valid_id)
+      end
+    end)
+  end
+
+  defp sanitize_mailbox_agents(_), do: %{}
+
+  defp sanitize_conversation_agent_id(raw_id) do
+    case ParseUtils.parse_optional_int(raw_id) do
+      nil ->
+        nil
+
+      id ->
+        case Agent.get_conversation_enabled_agent(id) do
+          {:ok, _agent} -> id
+          _ -> nil
+        end
+    end
+  end
 
   defp update_default_agent_id(routing, nil),
     do: Map.delete(normalize_map(routing), "default_agent_id")

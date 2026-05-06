@@ -14,6 +14,45 @@ config :zaq, Zaq.Repo,
 config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 # config :zaq, roles: [:bo]
 
+config :git_hooks,
+  auto_install: true,
+  project_path: Path.expand("..", __DIR__),
+  verbose: true,
+  hooks: [
+    pre_commit: [
+      tasks: [
+        {:mix_task, :quality}
+      ]
+    ],
+    commit_msg: [
+      tasks: [
+        {:cmd, "mix git_ops.check_message", include_hook_args: true}
+      ]
+    ],
+    pre_push: [
+      tasks: [
+        {:mix_task, :format, ["--check-formatted"]}
+      ]
+    ]
+  ]
+
+config :git_ops,
+  mix_project: Zaq.MixProject,
+  changelog_file: "CHANGELOG.md",
+  repository_url: "https://github.com/www-zaq-ai/zaq",
+  manage_mix_version?: true,
+  version_tag_prefix: "v",
+  types: [
+    feat: [header: "Features"],
+    fix: [header: "Bug Fixes"],
+    perf: [header: "Performance"],
+    refactor: [header: "Refactoring"],
+    docs: [hidden?: true],
+    test: [hidden?: true],
+    chore: [hidden?: true],
+    ci: [hidden?: true]
+  ]
+
 config :zaq, :base_url, "http://localhost:4000"
 
 config :zaq, Zaq.System.SecretConfig,
@@ -77,12 +116,12 @@ config :zaq, ZaqWeb.Endpoint,
     web_console_logger: true,
     patterns: [
       # Static assets, except user uploads
-      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$",
+      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
       # Gettext translations
-      ~r"priv/gettext/.*\.po$",
+      ~r"priv/gettext/.*\.po$"E,
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/zaq_web/router\.ex$",
-      ~r"lib/zaq_web/(controllers|live|components)/.*\.(ex|heex)$"
+      ~r"lib/zaq_web/router\.ex$"E,
+      ~r"lib/zaq_web/(controllers|live|components)/.*\.(ex|heex)$"E
     ]
   ]
 
@@ -109,3 +148,5 @@ config :phoenix_live_view,
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# config :zaq, :jido_telemetry_bridge, include_llm_deltas: true

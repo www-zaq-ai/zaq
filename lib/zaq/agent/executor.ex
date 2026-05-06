@@ -2,15 +2,35 @@ defmodule Zaq.Agent.Executor do
   @moduledoc """
   Single execution boundary for all agent runs.
 
-  Handles both the default answering path (when no agent is selected) and
-  explicit BO-configured agents. Responsible for scope derivation, Jido server
-  lifecycle, typing indicators, telemetry, and result normalization.
+  This module orchestrates the full request lifecycle for both:
+
+  - the default answering configuration (`Zaq.Agent.Answering`) and
+  - explicitly selected BO-configured agents.
+
+  Key concerns handled here:
+
+  - Scope derivation (`derive_scope/1`) so requests are routed to the correct
+    long-lived Jido server identity (conversation/person/session/anonymous).
+  - Agent selection and per-run overrides (for example temporary
+    `:system_prompt`).
+  - Server orchestration through `Zaq.Agent.ServerManager.ensure_server/2`.
+  - Query execution via `Zaq.Agent.Factory.ask_with_config/4` and await.
+  - User-facing side effects: typing signal (`Zaq.Channels.Router` through
+    `Zaq.NodeRouter`) and answering status broadcasts (`Zaq.Agent.Status`).
+  - Observability: execution counters, latency/confidence metrics, and
+    normalized error classification through `Zaq.Engine.Telemetry`.
+  - Output normalization into `Zaq.Engine.Messages.Outgoing` so downstream
+    channel adapters receive a consistent payload shape.
+
+  In short, `Executor` is the workflow coordinator; it does not build provider
+  specs or runtime tool config itself. Those responsibilities stay in
+  `ProviderSpec`/`Factory`, while `ServerManager` owns process lifecycle.
   """
 
   require Logger
 
   alias Zaq.Agent
-  alias Zaq.Agent.{Answering, Factory, LogprobsAnalyzer, ServerManager}
+  alias Zaq.Agent.{Answering, ErrorMessage, Factory, LogprobsAnalyzer, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Utils.DateUtils
@@ -93,7 +113,9 @@ defmodule Zaq.Agent.Executor do
     agent_module = Keyword.get(opts, :agent_module, Agent)
     server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
     factory_module = Keyword.get(opts, :factory_module, Factory)
-    dims = telemetry_dimensions(opts, incoming)
+    opts = ensure_scope_for_answering_path(opts, incoming)
+    selected_agent_result = load_selected_agent(opts, agent_module, factory_module)
+    dims = telemetry_dimensions(incoming, selected_agent_result)
 
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
@@ -103,11 +125,8 @@ defmodule Zaq.Agent.Executor do
       |> Keyword.get(:question, incoming.content)
       |> timestamp_question()
 
-    opts = ensure_scope_for_answering_path(opts, incoming)
-
     result =
-      with {:ok, configured_agent} <-
-             load_selected_agent(opts, agent_module, factory_module),
+      with {:ok, configured_agent} <- selected_agent_result,
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
            {:ok, server_id} <-
              ensure_agent_server(server_manager_module, configured_agent, opts),
@@ -115,20 +134,46 @@ defmodule Zaq.Agent.Executor do
              incoming.provider,
              incoming.channel_id
            ]),
+           :ok <-
+             status_mod(opts).broadcast(
+               incoming,
+               :answering,
+               "Formulating your answer…",
+               node_router(opts)
+             ),
            {:ok, request} <-
              factory_module.ask_with_config(server_id, question, configured_agent,
-               context: %{
+               tool_context: %{
                  person_id: Keyword.get(opts, :person_id),
-                 team_ids: Keyword.get(opts, :team_ids, [])
+                 team_ids: Keyword.get(opts, :team_ids, []),
+                 source_filter: Keyword.get(opts, :source_filter),
+                 skip_permissions: Keyword.get(opts, :skip_permissions, false),
+                 node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter),
+                 status_context: %{
+                   session_id: incoming.metadata[:session_id],
+                   request_id: incoming.metadata[:request_id]
+                 }
+               },
+               extra_refs: %{
+                 zaq_status_context: %{
+                   session_id: incoming.metadata[:session_id],
+                   request_id: incoming.message_id,
+                   node_router: node_router(opts),
+                   telemetry_dimensions: dims
+                 },
+                 zaq_tool_trace_context: tool_trace_context(incoming)
                }
              ),
-           {:ok, answer} <- factory_module.await(request, timeout: 45_000) do
+           # With tool calling, multiple turns can occur in a single request, high timeout avoids false negatives
+           {:ok, answer} <- factory_module.await(request, timeout: 120_000) do
+        tool_calls = collect_tool_calls(incoming)
+
         confidence =
           LogprobsAnalyzer.confidence_from_metadata_or_nil(%{
             logprobs: LogprobsAnalyzer.from_response(answer)
           })
 
-        result = success_result(answer, configured_agent, started_at, confidence)
+        result = success_result(answer, configured_agent, started_at, confidence, tool_calls)
         :ok = record_success_telemetry(result, dims)
         Outgoing.from_pipeline_result(incoming, result)
       else
@@ -184,7 +229,7 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp success_result(answer, configured_agent, started_at, confidence) do
+  defp success_result(answer, configured_agent, started_at, confidence, tool_calls) do
     answer_text = normalize_answer(answer)
     metrics = extract_metrics(answer, started_at)
 
@@ -198,13 +243,18 @@ defmodule Zaq.Agent.Executor do
       error: false,
       configured_agent_id: configured_agent.id,
       configured_agent_name: configured_agent.name,
+      tool_calls: tool_calls,
       sources: []
     }
   end
 
   defp error_result(reason) do
     %{
-      answer: "Sorry, something went wrong while executing the selected agent.",
+      answer:
+        ErrorMessage.from_reason(
+          reason,
+          "Sorry, something went wrong while executing the selected agent."
+        ),
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,
@@ -256,18 +306,6 @@ defmodule Zaq.Agent.Executor do
       do: Telemetry.record("qa.answer.latency_ms", result.latency_ms, dims),
       else: :ok
 
-    if is_integer(result.prompt_tokens),
-      do: Telemetry.record("qa.tokens.prompt", result.prompt_tokens, dims),
-      else: :ok
-
-    if is_integer(result.completion_tokens),
-      do: Telemetry.record("qa.tokens.completion", result.completion_tokens, dims),
-      else: :ok
-
-    if is_integer(result.total_tokens),
-      do: Telemetry.record("qa.tokens.total", result.total_tokens, dims),
-      else: :ok
-
     if is_number(result.confidence_score) do
       :ok = Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
 
@@ -284,14 +322,33 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp telemetry_dimensions(opts, incoming) do
-    opts
-    |> Keyword.get(:telemetry_dimensions, %{})
-    |> Map.merge(%{
-      provider: incoming.provider,
-      channel_id: incoming.channel_id,
-      execution_path: "custom_agent"
-    })
+  defp telemetry_dimensions(incoming, selected_agent_result) do
+    base = incoming_telemetry_dimensions(incoming)
+
+    runtime =
+      case selected_agent_result do
+        {:ok, configured_agent} ->
+          %{
+            execution_path: "custom_agent",
+            configured_agent_id: configured_agent.id,
+            configured_agent_name: configured_agent.name
+          }
+
+        _ ->
+          %{execution_path: "custom_agent"}
+      end
+
+    Map.merge(base, runtime)
+  end
+
+  defp incoming_telemetry_dimensions(%Incoming{} = incoming) do
+    incoming.metadata
+    |> Map.get("telemetry_dimensions", %{})
+    |> Enum.reduce(%{}, fn
+      {key, value}, acc when is_binary(key) -> Map.put(acc, String.to_atom(key), value)
+      {key, value}, acc when is_atom(key) -> Map.put(acc, key, value)
+      _, acc -> acc
+    end)
   end
 
   defp error_type(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -313,4 +370,33 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp timestamp_question(content), do: content
+
+  defp status_mod(opts) do
+    Keyword.get(opts, :status_module, Zaq.Agent.Status)
+  end
+
+  defp tool_trace_context(%Incoming{} = incoming) do
+    request_id = incoming.message_id
+
+    if is_binary(request_id) and request_id != "" do
+      %{request_id: request_id, collector_pid: self()}
+    else
+      nil
+    end
+  end
+
+  defp collect_tool_calls(%Incoming{} = incoming) do
+    request_id = incoming.message_id
+
+    if is_binary(request_id) and request_id != "" do
+      receive do
+        {:zaq_tool_traces, ^request_id, traces} when is_list(traces) -> traces
+      after
+        # The message is supposed to be already in the mailbox at this stage
+        50 -> []
+      end
+    else
+      []
+    end
+  end
 end

@@ -13,7 +13,6 @@ defmodule Zaq.Agent.Retrieval do
 
   alias ReqLLM.{Context, Generation, Response}
   alias Zaq.Agent.{History, ProviderSpec}
-  alias Zaq.Agent.PromptTemplate
   alias Zaq.System
 
   @doc """
@@ -30,10 +29,22 @@ defmodule Zaq.Agent.Retrieval do
   def ask(question, opts \\ []) do
     Logger.info("Retrieval: Received question: #{question}")
 
-    system_prompt =
-      Keyword.get_lazy(opts, :system_prompt, fn ->
-        PromptTemplate.get_active!("retrieval")
-      end)
+    # This is intentionally hardcoded because we don't want to expose the flexibility of changing the prompt structure
+    system_prompt = """
+    You are a professional vector search expert tasked with building an optimal semantic query.
+
+    LANGUAGE RULES (VERY IMPORTANT)
+    - The **Query** you generate MUST ALWAYS be in English, even if the user writes in another language.
+    - Detect the language of the last user message and set it in **Language**. Default to "eng" if unsure.
+    - **Positive Answer** and **Negative Answer** must be written in the detected language.
+
+    Based on the conversation, reply in this exact format and nothing else:
+
+    **Query:** <one line of English search keywords>
+    **Language:** <ISO 639-3 code only, e.g. "eng". No extra text.>
+    **Positive Answer:** <friendly message inviting the user to wait while an answer is being formulated>
+    **Negative Answer:** <short friendly message explaining no information was found, suggest rephrasing>
+    """
 
     history =
       Keyword.get(opts, :history, [])
@@ -71,7 +82,7 @@ defmodule Zaq.Agent.Retrieval do
             {:error, reason}
 
           content ->
-            decode_retrieval_content(content)
+            decode_retrieval_content(content, question)
         end
 
       {:error, reason} ->
@@ -81,25 +92,34 @@ defmodule Zaq.Agent.Retrieval do
     end
   end
 
-  # Extracts raw JSON from a response that may be wrapped in markdown code fences
-  # or surrounded by prose (e.g. llama3.2 tends to wrap JSON in ```json ... ```).
-  defp extract_json(text) do
-    case Regex.run(~r/```(?:json)?\s*([\s\S]*?)```/s, text, capture: :all_but_first) do
-      [json] -> String.trim(json)
-      nil -> text
+  defp decode_retrieval_content(content, original_question) do
+    query = parse_md_field(content, "Query") || original_question
+    language = parse_md_field(content, "Language") |> parse_language_code()
+    positive_answer = parse_md_field(content, "Positive Answer")
+    negative_answer = parse_md_field(content, "Negative Answer")
+
+    {:ok,
+     %{
+       "query" => query,
+       "language" => language,
+       "positive_answer" => positive_answer,
+       "negative_answer" => negative_answer
+     }}
+  end
+
+  # Extracts the value after "**Field:**" on a single line, trimmed.
+  defp parse_md_field(text, field) do
+    case Regex.run(~r/\*\*#{Regex.escape(field)}:\*\*\s*(.+)/u, text, capture: :all_but_first) do
+      [value] -> String.trim(value)
+      nil -> nil
     end
   end
 
-  defp decode_retrieval_content(content) do
-    case content |> extract_json() |> Jason.decode() do
-      {:ok, answer} ->
-        {:ok, answer}
+  # Takes only the first word (the ISO 639-3 code) and drops any trailing prose.
+  defp parse_language_code(nil), do: "eng"
 
-      {:error, decode_error} ->
-        reason = "Failed to process question: #{Exception.message(decode_error)}"
-        Logger.error("Retrieval failed: #{reason}")
-        {:error, reason}
-    end
+  defp parse_language_code(value) do
+    value |> String.split() |> List.first() |> then(&(&1 || "eng"))
   end
 
   defp normalized_text(nil), do: nil

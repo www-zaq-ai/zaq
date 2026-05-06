@@ -169,24 +169,17 @@ defmodule Zaq.Agent.ProviderSpec do
   Builds the default `advanced_options` map for a system LLM config.
 
   Enables `openai_logprobs` when the provider resolves to `:openai` and the
-  config reports logprob support. Adds `json_object` response format when the
-  config reports JSON-mode support.
+  config reports logprob support.
   """
   def default_advanced_options(%{supports_logprobs: true} = cfg) do
     if reqllm_provider(cfg.provider) == :openai do
       %{provider_options: [openai_logprobs: true]}
-      |> maybe_put_json_mode(cfg)
     else
-      maybe_put_json_mode(%{}, cfg)
+      %{}
     end
   end
 
-  def default_advanced_options(cfg), do: maybe_put_json_mode(%{}, cfg)
-
-  defp maybe_put_json_mode(opts, %{supports_json_mode: true}),
-    do: Map.put(opts, :response_format, %{type: "json_object"})
-
-  defp maybe_put_json_mode(opts, _cfg), do: opts
+  def default_advanced_options(_cfg), do: %{}
 
   @doc """
   Builds ReqLLM keyword opts for a configured agent.

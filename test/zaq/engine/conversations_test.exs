@@ -189,6 +189,54 @@ defmodule Zaq.Engine.ConversationsTest do
       messages = Conversations.list_messages(conv)
       assert Enum.count(messages, &(&1.role == "user")) == 2
       assert Enum.count(messages, &(&1.role == "assistant")) == 2
+
+      assistant_message = Enum.find(messages, &(&1.role == "assistant"))
+      assert assistant_message.metadata == %{"tool_calls" => []}
+    end
+
+    test "stores assistant tool_calls in message metadata" do
+      result = %{
+        answer: "Done.",
+        confidence_score: 0.91,
+        latency_ms: 88,
+        prompt_tokens: 10,
+        completion_tokens: 12,
+        total_tokens: 22,
+        tool_calls: [
+          %{
+            tool_name: "search_knowledge_base",
+            timestamp: "2026-05-02T10:00:00Z",
+            params: %{"query" => "zaq"},
+            response: %{"hits" => 3},
+            response_time_ms: 15,
+            status: "ok"
+          }
+        ]
+      }
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Find docs",
+        channel_id: "chan-1",
+        author_id: "user-1",
+        provider: :mattermost
+      }
+
+      assert :ok = Conversations.persist_from_incoming(incoming, result)
+
+      [conv] = Conversations.list_conversations(channel_type: "mattermost")
+      messages = Conversations.list_messages(conv)
+      assistant = Enum.find(messages, &(&1.role == "assistant"))
+
+      assert assistant.metadata["tool_calls"] == [
+               %{
+                 "tool_name" => "search_knowledge_base",
+                 "timestamp" => "2026-05-02T10:00:00Z",
+                 "params" => %{"query" => "zaq"},
+                 "response" => %{"hits" => 3},
+                 "response_time_ms" => 15,
+                 "status" => "ok"
+               }
+             ]
     end
   end
 

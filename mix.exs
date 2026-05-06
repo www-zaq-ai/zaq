@@ -4,7 +4,7 @@ defmodule Zaq.MixProject do
   def project do
     [
       app: :zaq,
-      version: "0.7.3",
+      version: "0.8.0",
       source_url: "https://github.com/www-zaq-ai/zaq",
       homepage_url: "https://www-zaq-ai.github.io/zaq/",
       elixir: "~> 1.15",
@@ -86,34 +86,42 @@ defmodule Zaq.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
-      {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.40", only: [:dev, :docs], runtime: false},
-      {:excoveralls, "~> 0.18.5", only: :test},
       {:pgvector, "~> 0.3.1"},
-      {:mox, "~> 1.2", only: :test},
       {:oban, "~> 2.20.3"},
       {:fresh, "~> 0.4.4"},
       {:httpoison, "~> 2.3"},
       {:earmark, "~> 1.4.48"},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:nimble_csv, "~> 1.2"},
-      {:llm_db, "~> 2026.4"},
+      {:mailroom, "~> 0.7.1"},
+      {:lingua, "~> 0.3.6"},
+      {:stream_data, "~> 1.3"},
+
+      # Jido Ecosystem
+      {:llm_db, "~> 2026.4", runtime: false},
       {:jido_chat, github: "agentjido/jido_chat", branch: "main"},
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
       {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
       # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
-      {:ex_dna, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
-      {:mailroom, "~> 0.7.1"},
-      {:lingua, "~> 0.3.6"},
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
-      {:jido_ai, github: "agentjido/jido_ai", branch: "main", override: true},
-      # {:jido_mcp, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_mcp"},
+      {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
+      # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
-      {:req_llm, github: "agentjido/req_llm", branch: "main", override: true}
+      {:req_llm, github: "agentjido/req_llm", branch: "main", override: true},
+
+      # Dev/Test
+      {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.40", only: [:dev, :docs], runtime: false},
+      {:ex_dna, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
+      {:git_hooks, "~> 0.8", only: :dev, runtime: false},
+      {:git_ops, "~> 2.9", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:doctor, "~> 0.22", only: [:dev], runtime: false},
+      {:excoveralls, "~> 0.18.5", only: :test},
+      {:mox, "~> 1.2", only: :test}
     ]
   end
 
@@ -144,6 +152,15 @@ defmodule Zaq.MixProject do
         "credo --strict",
         "hooks.verify",
         "test"
+      ],
+      q: ["quality"],
+      quality: [
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "docs --warnings-as-errors",
+        "credo --strict"
+        # "doctor --summary --raise"
+        # "dialyzer"
       ]
     ]
   end
@@ -151,7 +168,21 @@ defmodule Zaq.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md"] ++ (Path.wildcard("docs/*.md") |> Enum.sort())
+      extras: ["README.md", "CHANGELOG.md"],
+      groups_for_modules: [
+        Channels: [~r/^Zaq\.Channels(\.|$)/],
+        Agent: [~r/^Zaq\.Agent(\.|$)/],
+        Engine: [~r/^Zaq\.Engine(\.|$)/],
+        BackOffice: [
+          ~r/^Zaq\.Bo(\.|$)/,
+          ~r/^ZaqWeb\.Components(\.|$)/,
+          ~r/^ZaqWeb\.Live\.BO(\.|$)/
+        ],
+        Ingestion: [~r/^Zaq\.Ingestion(\.|$)/],
+        System: [~r/^Zaq\.System(\.|$)/],
+        Accounts: [~r/^Zaq\.Accounts(\.|$)/],
+        License: [~r/^Zaq\.License(\.|$)/]
+      ]
     ]
   end
 end

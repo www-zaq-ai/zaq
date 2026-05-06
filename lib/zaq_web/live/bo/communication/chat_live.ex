@@ -12,13 +12,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
-  alias Zaq.Agent.{CitationNormalizer, History}
-  alias Zaq.Channels.{Router, WebBridge}
+  alias Zaq.Agent.{CitationNormalizer, ErrorMessage, History}
+  alias Zaq.Channels.Router
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Ingestion.ContentSource
   alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
+  alias ZaqWeb.Live.BO.Communication.MessageHelpers
   alias ZaqWeb.Live.BO.PreviewHelpers
 
   import ZaqWeb.Helpers.DateFormat,
@@ -74,6 +75,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:active_filters, [])
      |> assign(:filter_suggestions, [])
      |> assign(:filter_query, "")
+     |> assign(:tool_calls_modal_for, nil)
+     |> assign(:tool_calls_modal_entries, [])
+     |> assign(:expanded_tool_call_ids, MapSet.new())
      |> assign(:suggested_questions, [
        "What is ZAQ and what does it do?",
        "Which integrations does ZAQ support?",
@@ -219,10 +223,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       end)
 
     if msg && Map.get(msg, :db_id) do
-      rater_attrs =
-        if current_user,
-          do: %{user_id: current_user.id, rating: 5},
-          else: %{channel_user_id: "bo_anonymous", rating: 5}
+      rater_attrs = MessageHelpers.positive_rater_attrs(current_user)
 
       NodeRouter.call(
         :engine,
@@ -236,12 +237,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   def handle_event("feedback", %{"id" => id, "type" => "negative"}, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_feedback_modal, true)
-     |> assign(:feedback_message_id, id)
-     |> assign(:feedback_reasons, [])
-     |> assign(:feedback_comment, "")}
+    {:noreply, MessageHelpers.open_feedback_modal(socket, id)}
   end
 
   def handle_event("close_feedback_modal", _params, socket) do
@@ -325,13 +321,37 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("noop", _params, socket), do: {:noreply, socket}
 
-  def handle_event("toggle_feedback_reason", %{"reason" => reason}, socket) do
-    reasons = socket.assigns.feedback_reasons
+  def handle_event("open_tool_calls_modal", %{"id" => id}, socket) do
+    message = Enum.find(socket.assigns.messages, &(Map.get(&1, :id) == id))
 
+    tool_calls =
+      if is_map(message), do: normalize_tool_calls(Map.get(message, :tool_calls, [])), else: []
+
+    {:noreply,
+     socket
+     |> assign(:tool_calls_modal_for, id)
+     |> assign(:tool_calls_modal_entries, tool_calls)
+     |> assign(:expanded_tool_call_ids, MapSet.new())}
+  end
+
+  def handle_event("close_tool_calls_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:tool_calls_modal_for, nil)
+     |> assign(:tool_calls_modal_entries, [])
+     |> assign(:expanded_tool_call_ids, MapSet.new())}
+  end
+
+  def handle_event("toggle_tool_call_details", %{"tool_id" => tool_id}, socket) do
     updated =
-      if reason in reasons,
-        do: List.delete(reasons, reason),
-        else: reasons ++ [reason]
+      socket.assigns.expanded_tool_call_ids
+      |> MessageHelpers.toggle_tool_call_details(tool_id)
+
+    {:noreply, assign(socket, :expanded_tool_call_ids, updated)}
+  end
+
+  def handle_event("toggle_feedback_reason", %{"reason" => reason}, socket) do
+    updated = MessageHelpers.toggle_reason(socket.assigns.feedback_reasons, reason)
 
     {:noreply, assign(socket, :feedback_reasons, updated)}
   end
@@ -361,25 +381,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       |> assign(:show_feedback_modal, false)
 
     if msg && Map.get(msg, :db_id) do
-      full_comment =
-        [Enum.join(reasons, ", "), comment]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      rater_attrs =
-        if current_user,
-          do: %{
-            user_id: current_user.id,
-            rating: 1,
-            comment: full_comment,
-            feedback_reasons: reasons
-          },
-          else: %{
-            channel_user_id: "bo_anonymous",
-            rating: 1,
-            comment: full_comment,
-            feedback_reasons: reasons
-          }
+      rater_attrs = MessageHelpers.negative_rater_attrs(current_user, reasons, comment)
 
       NodeRouter.call(
         :engine,
@@ -420,65 +422,95 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if request_id != socket.assigns.current_request_id do
       {:noreply, socket}
     else
-      history = socket.assigns.history
-      current_user = socket.assigns[:current_user]
+      {:noreply, apply_pipeline_result(socket, result, user_msg)}
+    end
+  end
 
-      raw_sources =
-        Map.get(result, :sources) ||
-          Map.get(result.metadata, :sources) ||
-          Map.get(result.metadata, "sources") ||
-          []
+  defp apply_pipeline_result(socket, result, user_msg) do
+    history = socket.assigns.history
+    current_user = socket.assigns[:current_user]
 
-      %{body: normalized_body, sources: normalized_sources} =
-        CitationNormalizer.normalize(trim_body(result.body), raw_sources)
+    %{body: normalized_body, sources: normalized_sources} =
+      CitationNormalizer.normalize(trim_body(result.body), extract_sources(result))
 
-      bot_msg = %{
-        id: generate_id(),
-        role: :bot,
-        body: normalized_body,
-        confidence: Map.get(result.metadata, :confidence_score),
-        timestamp: DateTime.utc_now(),
-        error: result.metadata[:error] || false,
-        feedback: nil,
-        sources: normalized_sources,
-        live: true
-      }
+    bot_msg = build_bot_message(result, normalized_body, normalized_sources)
 
-      {socket, bot_msg} =
-        if result.metadata[:error] do
-          {socket, bot_msg}
-        else
-          maybe_persist_conversation(
-            socket,
-            bot_msg,
-            user_msg,
-            result,
-            current_user,
-            normalized_body,
-            normalized_sources
-          )
-        end
+    {socket, bot_msg} =
+      maybe_persist_bot_message(
+        socket,
+        bot_msg,
+        user_msg,
+        result,
+        current_user,
+        normalized_body,
+        normalized_sources
+      )
 
-      updated_history =
-        if result.metadata[:error] || Map.get(result.metadata, :confidence_score) == 0.0 do
-          history
-        else
-          now = DateTime.utc_now()
+    updated_history = update_history(history, result.metadata, user_msg, normalized_body)
 
-          history
-          |> Map.put(History.entry_key(now, :user), %{"body" => user_msg, "type" => "user"})
-          |> Map.put(History.entry_key(now, :bot), %{"body" => normalized_body, "type" => "bot"})
-        end
+    socket
+    |> update(:messages, &(&1 ++ [bot_msg]))
+    |> assign(:status, :idle)
+    |> assign(:status_message, "")
+    |> assign(:history, updated_history)
+    |> assign(:current_request_id, nil)
+  end
 
-      socket =
-        socket
-        |> update(:messages, &(&1 ++ [bot_msg]))
-        |> assign(:status, :idle)
-        |> assign(:status_message, "")
-        |> assign(:history, updated_history)
-        |> assign(:current_request_id, nil)
+  defp extract_sources(result) do
+    Map.get(result, :sources) ||
+      Map.get(result.metadata, :sources) ||
+      Map.get(result.metadata, "sources") ||
+      []
+  end
 
-      {:noreply, socket}
+  defp build_bot_message(result, normalized_body, normalized_sources) do
+    %{
+      id: generate_id(),
+      role: :bot,
+      body: normalized_body,
+      confidence: Map.get(result.metadata, :confidence_score),
+      timestamp: DateTime.utc_now(),
+      error: result.metadata[:error] || false,
+      feedback: nil,
+      sources: normalized_sources,
+      tool_calls: Map.get(result.metadata, :tool_calls, []) |> normalize_tool_calls(),
+      live: true
+    }
+  end
+
+  defp maybe_persist_bot_message(
+         socket,
+         bot_msg,
+         user_msg,
+         result,
+         current_user,
+         normalized_body,
+         normalized_sources
+       ) do
+    if result.metadata[:error] do
+      {socket, bot_msg}
+    else
+      maybe_persist_conversation(
+        socket,
+        bot_msg,
+        user_msg,
+        result,
+        current_user,
+        normalized_body,
+        normalized_sources
+      )
+    end
+  end
+
+  defp update_history(history, metadata, user_msg, normalized_body) do
+    if metadata[:error] || Map.get(metadata, :confidence_score) == 0.0 do
+      history
+    else
+      now = DateTime.utc_now()
+
+      history
+      |> Map.put(History.entry_key(now, :user), %{"body" => user_msg, "type" => "user"})
+      |> Map.put(History.entry_key(now, :bot), %{"body" => normalized_body, "type" => "bot"})
     end
   end
 
@@ -496,20 +528,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
        ) do
     source_filter = Enum.map(active_filters, & &1.source_prefix)
 
-    incoming = %Incoming{
-      content: user_msg,
-      channel_id: "bo",
-      author_id: current_user.id,
-      provider: :web,
-      person_id: Map.get(current_user, :person_id),
-      content_filter: source_filter,
-      metadata: %{
-        session_id: session_id,
-        request_id: request_id,
-        user_content: user_msg,
-        conversation_id: conversation_id
-      }
-    }
+    incoming =
+      Incoming.new(%{
+        content: user_msg,
+        channel_id: "bo",
+        message_id: request_id,
+        author_id: current_user.id,
+        provider: :web,
+        person_id: Map.get(current_user, :person_id),
+        content_filter: source_filter,
+        metadata: %{
+          session_id: session_id,
+          request_id: request_id,
+          user_content: user_msg,
+          conversation_id: conversation_id
+        }
+      })
 
     # Explicit: BO-authenticated users with no person record get full access.
     # This is a deliberate policy decision, not a nil shortcut.
@@ -522,8 +556,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           pipeline_opts: [
             history: history,
             skip_permissions: bo_user_without_person,
-            telemetry_dimensions: %{channel_type: "bo", channel_config_id: "unknown"},
-            on_status: WebBridge.on_status_callback(session_id, request_id),
             node_router: node_router()
           ]
         ]
@@ -551,7 +583,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp build_outgoing_from_event(%Event{response: {:error, reason}}, incoming) do
     Outgoing.from_pipeline_result(incoming, %{
-      answer: "Sorry, something went wrong. Please try again.",
+      answer: ErrorMessage.from_reason(:dispatch_error),
+      error_reason: :dispatch_error,
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,
@@ -565,7 +598,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp build_outgoing_from_event(_event, incoming) do
     Outgoing.from_pipeline_result(incoming, %{
-      answer: "Sorry, something went wrong. Please try again.",
+      answer: ErrorMessage.from_reason(:dispatch_error),
+      error_reason: :dispatch_error,
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,
@@ -670,6 +704,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       %{role: "user", content: user_msg}
     ])
 
+    tool_calls = Map.get(result.metadata, :tool_calls, []) || []
+
     bot_msg_result =
       node_router().call(:engine, Zaq.Engine.Conversations, :add_message, [
         conv,
@@ -681,7 +717,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           prompt_tokens: Map.get(result.metadata, :prompt_tokens),
           completion_tokens: Map.get(result.metadata, :completion_tokens),
           total_tokens: Map.get(result.metadata, :total_tokens),
-          sources: normalized_sources
+          sources: normalized_sources,
+          metadata: if(tool_calls != [], do: %{"tool_calls" => tool_calls}, else: %{})
         }
       ])
 
@@ -823,6 +860,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp db_message_to_ui(%{role: "assistant"} = msg) do
     content = msg.content || ""
     ratings = Map.get(msg, :ratings, [])
+    db_metadata = Map.get(msg, :metadata, %{}) || %{}
+    tool_calls = db_metadata |> Map.get("tool_calls", []) |> normalize_tool_calls()
 
     %{
       id: generate_id(),
@@ -833,7 +872,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       timestamp: msg.inserted_at,
       error: false,
       feedback: infer_feedback_from_ratings(ratings),
-      sources: normalize_sources(msg.sources || [])
+      sources: normalize_sources(msg.sources || []),
+      tool_calls: tool_calls
     }
   end
 
@@ -848,6 +888,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       confidence: nil,
       sources: []
     }
+
+  defp normalize_tool_calls(tool_calls), do: MessageHelpers.normalize_tool_calls(tool_calls)
 
   defp build_history_from_db_messages(messages) do
     messages
@@ -876,10 +918,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     |> elem(0)
   end
 
-  defp infer_feedback_from_ratings([]), do: nil
-  defp infer_feedback_from_ratings([%{rating: r} | _]) when r >= 4, do: :positive
-  defp infer_feedback_from_ratings([%{rating: r} | _]) when r <= 2, do: :negative
-  defp infer_feedback_from_ratings(_), do: nil
+  defp infer_feedback_from_ratings(ratings),
+    do: MessageHelpers.infer_feedback_from_ratings(ratings)
 
   defp trim_body(body) when is_binary(body) do
     String.trim(body)

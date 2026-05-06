@@ -5,13 +5,16 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat
   alias Jido.Chat.Author
   alias Jido.Chat.Incoming, as: ChatIncoming
+  alias Zaq.Agent.{JidoTelemetryBridge, MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
+  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
+  alias Zaq.TestSupport.OpenAIStub
 
   # ── Stub modules ──────────────────────────────────────────────────────
 
@@ -91,6 +94,40 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       %{event | response: response}
     end
+  end
+
+  defmodule RealRunPipelineNodeRouter do
+    def dispatch(event) do
+      case event.opts[:action] do
+        :run_pipeline ->
+          Zaq.NodeRouter.dispatch(event, %{
+            current_node_fn: fn -> node() end,
+            node_list_fn: fn -> [] end
+          })
+
+        :deliver_outgoing ->
+          %{event | response: :ok}
+
+        :persist_from_incoming ->
+          %{event | response: :ok}
+
+        _ ->
+          %{event | response: {:error, :unsupported}}
+      end
+    end
+
+    def call(role, mod, fun, args), do: Zaq.NodeRouter.call(role, mod, fun, args)
+  end
+
+  defmodule RealAllActionsNodeRouter do
+    def dispatch(event) do
+      Zaq.NodeRouter.dispatch(event, %{
+        current_node_fn: fn -> node() end,
+        node_list_fn: fn -> [] end
+      })
+    end
+
+    def call(role, mod, fun, args), do: Zaq.NodeRouter.call(role, mod, fun, args)
   end
 
   defmodule CapturingNodeRouter do
@@ -349,7 +386,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert msg.author_id == "u1"
       assert msg.author_name == "alice"
       assert msg.provider == :mattermost
-      assert msg.metadata == %{raw: "data"}
+      assert msg.metadata[:raw] == "data"
+
+      assert msg.metadata["telemetry_dimensions"] == %{
+               "channel_id" => "room1",
+               "channel_config_id" => "unknown",
+               "channel_type" => "mattermost",
+               "provider" => "mattermost"
+             }
     end
 
     test "sets provider from argument" do
@@ -393,7 +437,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
-      assert msg.metadata == %{}
+
+      assert msg.metadata["telemetry_dimensions"] == %{
+               "channel_id" => "room3",
+               "channel_config_id" => "unknown",
+               "channel_type" => "mattermost",
+               "provider" => "mattermost"
+             }
     end
   end
 
@@ -500,6 +550,294 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         end)
 
       assert log =~ "Failed to process message"
+    end
+
+    test "mcp timeout inside ask/3 fails gracefully and next message recovers" do
+      {mcp_child_spec, mcp_endpoint} = mcp_timeout_server(self())
+      start_supervised!(mcp_child_spec)
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, StubConversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, RealRunPipelineNodeRouter)
+
+      {child_spec, endpoint} =
+        OpenAIStub.server(
+          fn conn, body ->
+            payload = Jason.decode!(body)
+
+            if body =~ "hello after timeout" do
+              {200, streamed_reply(conn.request_path, "recovered", "gpt-4.1-mini")}
+            else
+              has_tool_output =
+                body =~ "function_call_output" or
+                  Enum.any?(
+                    Map.get(payload, "input", []),
+                    &match?(%{"type" => "function_call_output"}, &1)
+                  )
+
+              tool_name =
+                payload
+                |> Map.get("tools", [])
+                |> then(fn tools ->
+                  Enum.find_value(tools, fn tool ->
+                    name = Map.get(tool, "name") || get_in(tool, ["function", "name"])
+                    if is_binary(name) and String.starts_with?(name, "mcp__"), do: name
+                  end) ||
+                    Enum.find_value(tools, fn tool ->
+                      name = Map.get(tool, "name") || get_in(tool, ["function", "name"])
+                      if is_binary(name), do: name
+                    end)
+                end)
+
+              if has_tool_output do
+                {200, streamed_reply(conn.request_path, "final", "gpt-4.1-mini")}
+              else
+                {200,
+                 tool_call_reply(
+                   conn.request_path,
+                   tool_name || "mcp__slow_tool",
+                   "{}",
+                   "gpt-4.1-mini"
+                 )}
+              end
+            end
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          name: "Bridge MCP Timeout Credential #{System.unique_integer([:positive, :monotonic])}",
+          provider: "openai",
+          endpoint: endpoint,
+          api_key: "test-key"
+        })
+
+      {:ok, mcp_endpoint_record} =
+        MCP.create_mcp_endpoint(%{
+          name: "Bridge Timeout MCP #{System.unique_integer([:positive])}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 120,
+          url: mcp_endpoint <> "/mcp"
+        })
+
+      {:ok, configured_agent} =
+        Zaq.Agent.create_agent(%{
+          name: "Bridge MCP Timeout Agent #{System.unique_integer([:positive])}",
+          description: "",
+          job: "Use tools when relevant.",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          enabled_mcp_endpoint_ids: [mcp_endpoint_record.id],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{"stream" => false}
+        })
+
+      on_exit(fn ->
+        _ = ServerManager.stop_server(configured_agent)
+      end)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => configured_agent.id}}
+        })
+        |> Map.put(:provider, :mattermost)
+
+      incoming = %ChatIncoming{
+        text: "trigger mcp timeout",
+        external_room_id: "room-mcp-timeout",
+        external_thread_id: nil,
+        external_message_id: "msg-timeout-#{System.unique_integer([:positive, :monotonic])}",
+        author: %Author{user_id: "u-timeout", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+
+      assert_receive {:router_deliver, first_outgoing}, 1_500
+      assert first_outgoing.metadata.error == false
+      assert is_binary(first_outgoing.body)
+      refute String.contains?(first_outgoing.body, "mcp_runtime_call_exit")
+      refute String.contains?(first_outgoing.body, "{:error")
+
+      recovery_incoming = %ChatIncoming{
+        incoming
+        | text: "hello after timeout",
+          external_message_id: "msg-ok-#{System.unique_integer([:positive, :monotonic])}"
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, recovery_incoming, [])
+      assert_receive {:router_deliver, second_outgoing}, 1_500
+      assert second_outgoing.metadata.error == false
+    end
+
+    test "persists full tool_calls metadata after a tool-call pipeline run" do
+      handler_id = "zaq-agent-jido-telemetry-bridge"
+      :telemetry.detach(handler_id)
+      assert {:ok, %{enabled?: true}} = JidoTelemetryBridge.init([])
+
+      on_exit(fn ->
+        :ok = JidoTelemetryBridge.terminate(:normal, %{enabled?: true})
+      end)
+
+      {mcp_child_spec, mcp_endpoint} = mcp_server(self(), timeout_ms: 0, tool_name: "lookup_tool")
+      start_supervised!(mcp_child_spec)
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, RealAllActionsNodeRouter)
+
+      {child_spec, endpoint} =
+        OpenAIStub.server(
+          fn conn, body ->
+            payload = Jason.decode!(body)
+
+            tool_name =
+              payload
+              |> Map.get("tools", [])
+              |> Enum.find_value(fn tool ->
+                name = Map.get(tool, "name") || get_in(tool, ["function", "name"])
+                if is_binary(name), do: name
+              end)
+
+            has_tool_output =
+              body =~ "function_call_output" or
+                Enum.any?(
+                  Map.get(payload, "input", []),
+                  &match?(%{"type" => "function_call_output"}, &1)
+                )
+
+            if has_tool_output do
+              {200, streamed_reply(conn.request_path, "final answer", "gpt-4.1-mini")}
+            else
+              {200,
+               tool_call_reply(
+                 conn.request_path,
+                 tool_name || "lookup_tool",
+                 ~s({"query":"zaq telemetry"}),
+                 "gpt-4.1-mini"
+               )}
+            end
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          name:
+            "Bridge Tool Persist Credential #{System.unique_integer([:positive, :monotonic])}",
+          provider: "openai",
+          endpoint: endpoint,
+          api_key: "test-key"
+        })
+
+      {:ok, mcp_endpoint_record} =
+        MCP.create_mcp_endpoint(%{
+          name: "Bridge Persist MCP #{System.unique_integer([:positive])}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 500,
+          url: mcp_endpoint <> "/mcp"
+        })
+
+      {:ok, configured_agent} =
+        Zaq.Agent.create_agent(%{
+          name: "Bridge Persist Tool Agent #{System.unique_integer([:positive])}",
+          description: "",
+          job: "Use tools when relevant.",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          enabled_mcp_endpoint_ids: [mcp_endpoint_record.id],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{"stream" => false}
+        })
+
+      on_exit(fn ->
+        _ = ServerManager.stop_server(configured_agent)
+      end)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => configured_agent.id}}
+        })
+        |> Map.put(:provider, :mattermost)
+
+      channel_id = "room-tool-persist-#{System.unique_integer([:positive])}"
+      message_id = "msg-tool-persist-#{System.unique_integer([:positive, :monotonic])}"
+
+      incoming =
+        ChatIncoming.new(%{
+          text: "run tool and persist",
+          external_room_id: channel_id,
+          external_thread_id: nil,
+          external_message_id: message_id,
+          author: Author.new(%{user_id: "u-persist", user_name: "alice"}),
+          metadata: %{}
+        })
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+
+      assert_receive {:router_deliver, outgoing}, 2_000
+      assert outgoing.metadata.error == false
+
+      assert_receive {:openai_request, "POST", _path1, "", body1}, 1_000
+      refute String.contains?(body1, "function_call_output")
+
+      assert_receive {:mcp_request, "tools/call", _tool_payload}, 1_000
+
+      assert_receive {:openai_request, "POST", _path2, "", body2}, 1_000
+
+      payload2 = Jason.decode!(body2)
+
+      assert Enum.any?(
+               Map.get(payload2, "input", []),
+               &match?(%{"type" => "function_call_output"}, &1)
+             )
+
+      [outgoing_tool_call | _] = outgoing.metadata.tool_calls
+      assert is_binary(outgoing_tool_call.tool_call_id)
+      assert outgoing_tool_call.status == "ok"
+      assert Map.has_key?(outgoing_tool_call, :params)
+      refute is_nil(outgoing_tool_call.response)
+
+      [conv] =
+        Conversations.list_conversations(
+          channel_type: "mattermost",
+          channel_user_id: "u-persist"
+        )
+
+      assistant =
+        Conversations.list_messages(conv)
+        |> Enum.find(&(&1.role == "assistant" and &1.content == outgoing.body))
+
+      assert assistant
+
+      [tool_call | _] = assistant.metadata["tool_calls"]
+      assert is_binary(tool_call["tool_call_id"])
+      assert is_binary(tool_call["tool_name"])
+      assert tool_call["status"] == "ok"
+      assert is_binary(tool_call["timestamp"])
+      assert {:ok, _ts, _offset} = DateTime.from_iso8601(tool_call["timestamp"])
+      assert Map.has_key?(tool_call, "params")
+      assert Map.has_key?(tool_call, "response")
+      refute is_nil(tool_call["response"])
+      assert is_integer(tool_call["response_time_ms"])
+      assert tool_call["response_time_ms"] >= 0
     end
 
     test "uses NodeRouter dispatch path when bridge modules are defaults" do
@@ -2296,5 +2634,191 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       })
 
     agent
+  end
+
+  defp streamed_reply("/v1/chat/completions", text, model) do
+    chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{"content" => text}, "finish_reason" => nil}]
+      })
+
+    done_chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "stop"}],
+        "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 1, "total_tokens" => 6}
+      })
+
+    "data: #{chunk}\n\ndata: #{done_chunk}\n\ndata: [DONE]\n\n"
+  end
+
+  defp streamed_reply(_path, text, model) do
+    delta_event = Jason.encode!(%{"delta" => text})
+
+    completed_event =
+      Jason.encode!(%{
+        "response" => %{
+          "id" => "resp_test",
+          "model" => model,
+          "usage" => %{"input_tokens" => 5, "output_tokens" => 1, "total_tokens" => 6}
+        }
+      })
+
+    [
+      "event: response.output_text.delta\n",
+      "data: #{delta_event}\n\n",
+      "event: response.completed\n",
+      "data: #{completed_event}\n\n"
+    ]
+    |> IO.iodata_to_binary()
+  end
+
+  defp tool_call_reply("/v1/chat/completions", _tool_name, _arguments_json, model) do
+    done_chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-tool",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "tool_calls"}]
+      })
+
+    "data: #{done_chunk}\n\ndata: [DONE]\n\n"
+  end
+
+  defp tool_call_reply(_path, tool_name, arguments_json, model) do
+    output_item =
+      Jason.encode!(%{
+        "item" => %{
+          "type" => "function_call",
+          "call_id" => "call_timeout_1",
+          "name" => tool_name,
+          "arguments" => arguments_json
+        }
+      })
+
+    completed_event =
+      Jason.encode!(%{
+        "response" => %{
+          "id" => "resp_tool_1",
+          "model" => model,
+          "status" => "completed",
+          "output" => [
+            %{
+              "type" => "function_call",
+              "id" => "call_timeout_1",
+              "name" => tool_name,
+              "arguments" => arguments_json
+            }
+          ],
+          "usage" => %{"input_tokens" => 5, "output_tokens" => 1, "total_tokens" => 6}
+        }
+      })
+
+    [
+      "event: response.output_item.added\n",
+      "data: #{output_item}\n\n",
+      "event: response.completed\n",
+      "data: #{completed_event}\n\n"
+    ]
+    |> IO.iodata_to_binary()
+  end
+
+  defp mcp_timeout_server(test_pid) do
+    mcp_server(test_pid, timeout_ms: 300, tool_name: "slow_tool", server_name: "mcp-timeout")
+  end
+
+  defp mcp_server(test_pid, opts) do
+    port = free_port()
+
+    timeout_ms = Keyword.get(opts, :timeout_ms, 0)
+    tool_name = Keyword.get(opts, :tool_name, "tool")
+    server_name = Keyword.get(opts, :server_name, "mcp-test")
+
+    child_spec =
+      {Bandit,
+       plug:
+         {__MODULE__.MCPTimeoutPlug,
+          %{
+            test_pid: test_pid,
+            timeout_ms: timeout_ms,
+            tool_name: tool_name,
+            server_name: server_name
+          }},
+       scheme: :http,
+       port: port}
+
+    {child_spec, "http://127.0.0.1:#{port}"}
+  end
+
+  defp free_port do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
+  end
+
+  defmodule MCPTimeoutPlug do
+    import Plug.Conn
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      {:ok, body, conn} = read_body(conn)
+      payload = if body == "", do: %{}, else: Jason.decode!(body)
+      method = payload["method"]
+      id = payload["id"]
+
+      send(opts.test_pid, {:mcp_request, method, payload})
+
+      response =
+        case method do
+          "initialize" ->
+            %{
+              jsonrpc: "2.0",
+              id: id,
+              result: %{
+                protocolVersion: "2024-11-05",
+                serverInfo: %{name: opts.server_name, version: "1.0.0"},
+                capabilities: %{tools: %{listChanged: false}}
+              }
+            }
+
+          "tools/list" ->
+            %{
+              jsonrpc: "2.0",
+              id: id,
+              result: %{
+                tools: [
+                  %{
+                    name: opts.tool_name,
+                    description: "slow",
+                    inputSchema: %{type: "object", properties: %{}, additionalProperties: false}
+                  }
+                ]
+              }
+            }
+
+          "tools/call" ->
+            Process.sleep(opts.timeout_ms)
+
+            %{
+              jsonrpc: "2.0",
+              id: id,
+              result: %{content: [%{type: "text", text: "slow done"}], isError: false}
+            }
+
+          _ ->
+            %{jsonrpc: "2.0", id: id, result: %{}}
+        end
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(200, Jason.encode!(response))
+    end
   end
 end

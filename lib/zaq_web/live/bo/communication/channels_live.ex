@@ -291,10 +291,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       ) do
     with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
          %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
+         {:ok, configured_agent_id} <- validate_conversation_agent_id(raw_id),
          {:ok, updated} <-
            ChannelConfig.set_provider_default_agent_id(
              config,
-             ParseUtils.parse_optional_int(raw_id)
+             configured_agent_id
            ) do
       sync_result =
         NodeRouter.call(:channels, Zaq.Channels.Router, :sync_config_runtime, [
@@ -323,9 +324,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       ) do
     with {:ok, rc_id} <- ParseUtils.parse_int_strict(id),
          %RetChannel{} = retrieval_channel <- Repo.get(RetChannel, rc_id),
+         {:ok, configured_agent_id} <- validate_conversation_agent_id(raw_id),
          {:ok, _updated} <-
            retrieval_channel
-           |> RetChannel.changeset(%{configured_agent_id: ParseUtils.parse_optional_int(raw_id)})
+           |> RetChannel.changeset(%{configured_agent_id: configured_agent_id})
            |> Repo.update() do
       config = first_enabled_config(socket)
 
@@ -714,8 +716,21 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     do: ChannelConfig.get_provider_default_agent_id(config)
 
   defp agent_options do
-    Agent.list_active_agents()
+    Agent.list_conversation_enabled_agents()
     |> Enum.map(fn agent -> {agent.name, agent.id} end)
+  end
+
+  defp validate_conversation_agent_id(raw_id) do
+    case ParseUtils.parse_optional_int(raw_id) do
+      nil ->
+        {:ok, nil}
+
+      id ->
+        case Agent.get_conversation_enabled_agent(id) do
+          {:ok, _agent} -> {:ok, id}
+          _ -> {:error, :invalid_agent}
+        end
+    end
   end
 
   defp fetch_and_assign_channels(socket, cfg, team_id) do

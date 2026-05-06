@@ -9,9 +9,7 @@ defmodule Zaq.RuntimeDeps do
   The defaults are production-safe implementations and can be overridden per environment.
   """
 
-  alias Zaq.Agent.{Answering, PromptGuard, Retrieval}
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
 
   @doc "Returns the NodeRouter module used for cross-service dispatch."
@@ -33,22 +31,6 @@ defmodule Zaq.RuntimeDeps do
   @doc "Returns the HTTP client module used by ChannelsLive post browsing."
   @spec http_client() :: module()
   def http_client, do: get(:channels_live_http_client, Req)
-
-  @doc "Returns the PromptGuard module used by AgentController."
-  @spec prompt_guard() :: module()
-  def prompt_guard, do: get(:agent_prompt_guard_module, PromptGuard)
-
-  @doc "Returns the Retrieval module used by AgentController."
-  @spec retrieval() :: module()
-  def retrieval, do: get(:agent_retrieval_module, Retrieval)
-
-  @doc "Returns the DocumentProcessor module used by AgentController ingestion endpoint."
-  @spec document_processor() :: module()
-  def document_processor, do: get(:agent_document_processor_module, DocumentProcessor)
-
-  @doc "Returns the Answering module used by AgentController."
-  @spec answering() :: module()
-  def answering, do: get(:agent_answering_module, Answering)
 
   @doc "Generic environment lookup helper with default fallback."
   @spec get(atom(), any()) :: any()

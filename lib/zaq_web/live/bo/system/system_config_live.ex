@@ -1194,7 +1194,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   # ── LLM-specific helpers ───────────────────────────────────────────────
 
-  defp llm_model_options(provider_id), do: model_options(provider_id, fn _ -> true end)
+  defp llm_model_options(provider_id), do: model_options(provider_id, &tool_calling_model?/1)
+
+  defp tool_calling_model?(m) do
+    caps = m.capabilities || %{}
+
+    case Map.get(caps, :tools) do
+      %{enabled: true} -> true
+      _ -> false
+    end
+  end
+
   defp llm_provider_path(provider_id, model_id), do: provider_path(provider_id, model_id)
 
   defp clamp_weight(val) when is_binary(val) do
@@ -1594,69 +1604,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
                 {translate_error({msg, opts})}
-              </p>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-4 border-t border-black/[0.06] pt-4">
-            <div>
-              <div class="flex items-center justify-between py-1">
-                <div>
-                  <p class="font-mono text-[0.82rem] font-semibold text-black">JSON Mode</p>
-                  <p class="font-mono text-[0.72rem] text-black/40 mt-0.5">
-                    Force structured JSON output.
-                  </p>
-                </div>
-                <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
-                  <input type="hidden" name="llm_config[supports_json_mode]" value="false" />
-                  <input
-                    type="checkbox"
-                    name="llm_config[supports_json_mode]"
-                    value="true"
-                    checked={@form[:supports_json_mode].value in [true, "true"]}
-                    class="sr-only peer"
-                  />
-                  <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm">
-                  </div>
-                </label>
-              </div>
-              <p
-                :if={
-                  @capabilities.json_mode == false &&
-                    @form[:supports_json_mode].value in [true, "true"]
-                }
-                class="font-mono text-[0.72rem] text-amber-600 mt-1"
-              >
-                Model doesn't support JSON mode — recommend turning off.
-              </p>
-            </div>
-            <div>
-              <div class="flex items-center justify-between py-1">
-                <div>
-                  <p class="font-mono text-[0.82rem] font-semibold text-black">Logprobs</p>
-                  <p class="font-mono text-[0.72rem] text-black/40 mt-0.5">
-                    Log-probability confidence scores.
-                  </p>
-                </div>
-                <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
-                  <input type="hidden" name="llm_config[supports_logprobs]" value="false" />
-                  <input
-                    type="checkbox"
-                    name="llm_config[supports_logprobs]"
-                    value="true"
-                    checked={@form[:supports_logprobs].value in [true, "true"]}
-                    class="sr-only peer"
-                  />
-                  <div class="w-11 h-6 bg-black/10 peer-checked:bg-[#03b6d4] rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5 after:shadow-sm">
-                  </div>
-                </label>
-              </div>
-              <p
-                :if={
-                  @capabilities.logprobs == false && @form[:supports_logprobs].value in [true, "true"]
-                }
-                class="font-mono text-[0.72rem] text-amber-600 mt-1"
-              >
-                Model doesn't support logprobs — recommend turning off.
               </p>
             </div>
           </div>

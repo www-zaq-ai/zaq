@@ -151,6 +151,223 @@ defmodule ZaqWeb.Components.ChatMessage do
     """
   end
 
+  attr :tool_calls, :list, default: []
+  attr :message_id, :string, required: true
+  attr :open_event, :string, required: true
+
+  def tool_calls_info_button(assigns) do
+    ~H"""
+    <button
+      :if={Enum.any?(@tool_calls)}
+      type="button"
+      phx-click={@open_event}
+      phx-value-id={@message_id}
+      class="p-1.5 rounded-lg transition-all hover:bg-[#eeece8]"
+      style="color:#b8b5ae;"
+      title="Show tool calls"
+      data-testid={"tool-calls-info-#{@message_id}"}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+    </button>
+    """
+  end
+
+  attr :text, :string, required: true
+  attr :class, :string, default: ""
+
+  def copy_action_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="copy_message"
+      phx-value-text={@text}
+      class={"p-1.5 rounded-lg transition-all hover:bg-[#eeece8] #{String.trim(@class)}"}
+      style="color:#b8b5ae;"
+      title="Copy"
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+    </button>
+    """
+  end
+
+  attr :message_id, :string, required: true
+  attr :feedback, :atom, default: nil
+
+  def feedback_positive_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="feedback"
+      phx-value-id={@message_id}
+      phx-value-type="positive"
+      class={[
+        "p-1.5 rounded-lg transition-all",
+        if(@feedback == :positive, do: "bg-emerald-50 text-emerald-500", else: "hover:bg-[#eeece8]")
+      ]}
+      style={if @feedback != :positive, do: "color:#b8b5ae;", else: ""}
+      title="Good response"
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
+        </path>
+      </svg>
+    </button>
+    """
+  end
+
+  attr :message_id, :string, required: true
+  attr :feedback, :atom, default: nil
+
+  def feedback_negative_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="feedback"
+      phx-value-id={@message_id}
+      phx-value-type="negative"
+      class={[
+        "p-1.5 rounded-lg transition-all",
+        if(@feedback == :negative, do: "bg-red-50 text-red-400", else: "hover:bg-[#eeece8]")
+      ]}
+      style={if @feedback != :negative, do: "color:#b8b5ae;", else: ""}
+      title="Poor response"
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17">
+        </path>
+      </svg>
+    </button>
+    """
+  end
+
+  attr :visible, :boolean, default: false
+  attr :message_id, :string, default: nil
+  attr :tool_calls, :list, default: []
+  attr :expanded_ids, :any, default: nil
+  attr :close_event, :string, required: true
+  attr :toggle_event, :string, required: true
+
+  def tool_calls_popin(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:expanded_ids, fn -> MapSet.new() end)
+
+    ~H"""
+    <div
+      :if={@visible and is_binary(@message_id)}
+      class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+      data-testid="tool-calls-popin"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl p-5 w-[min(800px,95vw)] max-h-[85vh] border border-black/10 overflow-hidden">
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-mono text-sm font-bold text-[#2c3a50]">Tool calls</p>
+          <button
+            type="button"
+            phx-click={@close_event}
+            class="font-mono text-[0.72rem] px-2 py-1 rounded-md border border-black/10 text-black/60 hover:bg-black/5"
+          >
+            Close
+          </button>
+        </div>
+
+        <div class="overflow-y-auto pr-1" style="max-height: calc(85vh - 90px);">
+          <ul class="space-y-2">
+            <li
+              :for={tc <- sort_tool_calls_chronologically(@tool_calls)}
+              class="border border-[#e8e6e1] rounded-xl overflow-hidden"
+            >
+              <button
+                type="button"
+                phx-click={@toggle_event}
+                phx-value-tool_id={tool_call_id(tc)}
+                class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#faf9f7]"
+                data-testid={"tool-call-row-#{tool_call_id(tc)}"}
+              >
+                <span class="font-mono text-[0.75rem] text-[#2c2b28] truncate">
+                  {friendly_tool_name(Map.get(tc, :tool_name) || Map.get(tc, "tool_name"))}
+                </span>
+                <span class="font-mono text-[0.62rem] text-[#9e9b94]">
+                  {format_response_time(
+                    Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms")
+                  )}
+                </span>
+              </button>
+
+              <div
+                :if={MapSet.member?(@expanded_ids, tool_call_id(tc))}
+                class="px-3 pb-3 pt-1 bg-[#fcfcfb] border-t border-[#f0ede8]"
+                data-testid={"tool-call-details-#{tool_call_id(tc)}"}
+              >
+                <p class="font-mono text-[0.68rem] text-[#7f7c76]">
+                  <span class="font-bold">Timestamp:</span>
+                  {format_detail_value(Map.get(tc, :timestamp) || Map.get(tc, "timestamp"))}
+                </p>
+                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2 mb-1">
+                  <span class="font-bold">Params</span>
+                </p>
+                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(Map.get(tc, :params) || Map.get(tc, "params"))}</pre>
+                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2 mb-1">
+                  <span class="font-bold">Response</span>
+                </p>
+                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(Map.get(tc, :response) || Map.get(tc, "response"))}</pre>
+                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2">
+                  <span class="font-bold">Response time:</span>
+                  {format_response_time(
+                    Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms")
+                  )}
+                </p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   # ---------------------------------------------------------------------------
   # Source card component
   # ---------------------------------------------------------------------------
@@ -330,6 +547,62 @@ defmodule ZaqWeb.Components.ChatMessage do
   end
 
   defp humanize_memory_label(_), do: "LLM general knowledge"
+
+  defp friendly_tool_name(tool_name) when is_binary(tool_name) and tool_name != "" do
+    tool_name
+    |> String.replace(~r/[_\.]+/, " ")
+    |> String.trim()
+    |> String.split(" ", trim: true)
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp friendly_tool_name(_), do: "Unknown tool"
+
+  defp tool_call_id(tc) do
+    id =
+      Map.get(tc, :tool_call_id) ||
+        Map.get(tc, "tool_call_id") ||
+        Map.get(tc, :timestamp) ||
+        Map.get(tc, "timestamp") ||
+        inspect(tc)
+
+    if is_binary(id), do: id, else: inspect(id)
+  end
+
+  defp format_response_time(ms) when is_integer(ms), do: "#{ms} ms"
+  defp format_response_time(ms) when is_float(ms), do: "#{Float.round(ms, 2)} ms"
+  defp format_response_time(_), do: "n/a"
+
+  defp format_detail_value(nil), do: "n/a"
+  defp format_detail_value(""), do: "n/a"
+  defp format_detail_value(value) when is_binary(value), do: value
+  defp format_detail_value(value), do: inspect(value)
+
+  defp pretty_json(nil), do: "null"
+
+  defp pretty_json(value) do
+    case Jason.encode(value, pretty: true) do
+      {:ok, json} -> json
+      _ -> inspect(value, pretty: true, limit: :infinity)
+    end
+  end
+
+  defp sort_tool_calls_chronologically(tool_calls) when is_list(tool_calls) do
+    Enum.sort_by(tool_calls, &tool_call_timestamp_sort_key/1, :asc)
+  end
+
+  defp sort_tool_calls_chronologically(_), do: []
+
+  defp tool_call_timestamp_sort_key(tc) when is_map(tc) do
+    timestamp = Map.get(tc, :timestamp) || Map.get(tc, "timestamp")
+
+    case DateTime.from_iso8601(to_string(timestamp || "")) do
+      {:ok, dt, _offset} -> {0, DateTime.to_unix(dt, :microsecond)}
+      _ -> {1, 0}
+    end
+  end
+
+  defp tool_call_timestamp_sort_key(_), do: {1, 0}
 
   defp build_body_html(content, []), do: Phoenix.HTML.html_escape(content)
 

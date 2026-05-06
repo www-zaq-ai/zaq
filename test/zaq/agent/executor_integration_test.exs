@@ -20,19 +20,19 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
   defmodule StubFactoryResult do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, timeout: 45_000), do: {:ok, %{result: "from-result"}}
+    def await(:request, _opts), do: {:ok, %{result: "from-result"}}
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryAnswer do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, timeout: 45_000), do: {:ok, %{answer: "from-answer"}}
+    def await(:request, _opts), do: {:ok, %{answer: "from-answer"}}
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule StubFactoryOther do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, timeout: 45_000), do: {:ok, %{unexpected: 123}}
+    def await(:request, _opts), do: {:ok, %{unexpected: 123}}
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
@@ -142,8 +142,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       assert is_list(payload["tools"])
 
       assert Enum.any?(payload["tools"], fn tool ->
-               Map.get(tool, "name") == "read_file" or
-                 get_in(tool, ["function", "name"]) == "read_file"
+               Map.get(tool, "name") == "sleep_action" or
+                 get_in(tool, ["function", "name"]) == "sleep_action"
              end)
 
       {200, streamed_reply(conn.request_path, "Tool configured", "gpt-4.1-mini")}
@@ -168,7 +168,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: ["files.read_file"],
+        enabled_tool_keys: ["basic.sleep"],
         conversation_enabled: false,
         active: true,
         advanced_options: %{"stream" => false}

@@ -276,4 +276,52 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert no_click_html =~ "href=\"/bo/preview/docs/plain.txt\""
     assert no_click_html =~ "disabled"
   end
+
+  test "tool_calls_popin initializes expanded_ids and hides details by default" do
+    html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: "msg-1",
+        tool_calls: [
+          %{
+            "tool_call_id" => "call-1",
+            "tool_name" => "search_code",
+            "timestamp" => "2026-05-02T10:00:00Z",
+            "params" => %{"query" => "ZAQ"},
+            "response" => %{"matches" => 2},
+            "response_time_ms" => 42
+          }
+        ],
+        expanded_ids: MapSet.new(),
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+
+    assert html =~ "data-testid=\"tool-calls-popin\""
+    assert html =~ "data-testid=\"tool-call-row-call-1\""
+    refute html =~ "data-testid=\"tool-call-details-call-1\""
+  end
+
+  test "tool_calls_popin does not render when hidden or message id is not binary" do
+    hidden_html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: false,
+        message_id: "msg-1",
+        tool_calls: [],
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+
+    non_binary_id_html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: nil,
+        tool_calls: [],
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+
+    refute hidden_html =~ "data-testid=\"tool-calls-popin\""
+    refute non_binary_id_html =~ "data-testid=\"tool-calls-popin\""
+  end
 end

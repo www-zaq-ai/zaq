@@ -1,10 +1,13 @@
 defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
   use ZaqWeb.ConnCase, async: true
 
+  import Ecto.Query
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.User
+  alias Zaq.Repo
 
   test "allows users with must_change_password to access change-password", %{conn: conn} do
     user = user_fixture(%{username: "must_change_password_user"})
@@ -109,5 +112,55 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     updated_user = Accounts.get_user!(user.id)
     refute updated_user.must_change_password
     assert is_binary(updated_user.password_hash)
+  end
+
+  test "shows mandatory email field when user email is missing", %{conn: conn} do
+    user = user_fixture(%{username: "must_change_password_missing_email"})
+    Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    assert has_element?(view, ~s(input[name="email"][required]))
+  end
+
+  test "requires valid email when user email is missing", %{conn: conn} do
+    user = user_fixture(%{username: "must_change_password_invalid_email"})
+    Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "email" => "invalid-email",
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    assert has_element?(view, "div.alert-error span", "must be a valid email address")
+  end
+
+  test "updates password and email then redirects when email is missing", %{conn: conn} do
+    user = user_fixture(%{username: "must_change_password_email_success"})
+    Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "email" => "admin@zaq.local",
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    assert_redirect(view, ~p"/bo/dashboard")
+
+    updated_user = Accounts.get_user!(user.id)
+    assert updated_user.email == "admin@zaq.local"
+    refute updated_user.must_change_password
   end
 end

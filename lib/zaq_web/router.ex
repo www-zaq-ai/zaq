@@ -33,18 +33,12 @@ defmodule ZaqWeb.Router do
     live "/s/:token", Live.SharedConversationLive
   end
 
-  scope "/api", ZaqWeb do
-    pipe_through :api
-
-    post "/ask", AgentController, :ask
-    post "/ingest", AgentController, :ingest
-  end
-
   # BO - Public
   scope "/bo", ZaqWeb do
     pipe_through :browser
 
     live "/login", Live.BO.LoginLive
+    get "/bootstrap-login", BOSessionController, :bootstrap_login
     live "/forgot-password", Live.BO.System.ForgotPasswordLive
     live "/reset-password/:token", Live.BO.System.ResetPasswordLive
     post "/session", BOSessionController, :create

@@ -40,22 +40,4 @@ defmodule Zaq.Channels.WebBridgeTest do
       assert_receive {:pipeline_result, "req-42", ^outgoing, "my question"}
     end
   end
-
-  describe "on_status_callback/2" do
-    test "returns a function that broadcasts {:status_update, ...} to PubSub" do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:session-xyz")
-
-      callback = WebBridge.on_status_callback("session-xyz", "req-1")
-      assert is_function(callback, 2)
-
-      callback.(:retrieving, "Searching…")
-
-      assert_receive {:status_update, "req-1", :retrieving, "Searching…"}
-    end
-
-    test "callback returns :ok" do
-      callback = WebBridge.on_status_callback("s", "r")
-      assert :ok = callback.(:answering, "Thinking…")
-    end
-  end
 end

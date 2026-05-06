@@ -39,8 +39,9 @@ Work through the plan steps one at a time:
 2. Implement the change.
 3. Write or update unit tests covering the change.
 4. Target at least 90% coverage for new development in the changed scope (unit/integration as appropriate).
-5. Run `mix test` — fix all failures before moving to the next step.
-6. Update the plan's steps checklist and decisions log as you go.
+5. Apply `docs/testing-approach.md`: add property tests when the change touches invariants, broad input spaces, normalization, or permission/safety defaults.
+6. Run `mix test` — fix all failures before moving to the next step.
+7. Update the plan's steps checklist and decisions log as you go.
 
 ### Rules during implementation
 - One PR per step when possible — keep PRs small and focused.

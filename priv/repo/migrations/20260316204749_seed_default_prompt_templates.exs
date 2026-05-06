@@ -1,24 +1,6 @@
 defmodule Zaq.Repo.Migrations.SeedDefaultPromptTemplates do
   use Ecto.Migration
 
-  @retrieval_body """
-  You are a professional vector search expert and are tasked with building an optimal semantic query.
-
-  LANGUAGE RULES (VERY IMPORTANT)
-  - The "query" you generate for the tool MUST ALWAYS be in English, even if the user writes in another language.
-  - Determine the language for the last user message and set it in the "language" field
-  - The "positive_answer" and "negative_answer" fields in the JSON should be written in the "language" language
-
-  1. Based on the conversation messages generate one "query" of English keywords.
-  2. in the "positive_answer" field write a summary of the user query and invite the user to wait a few seconds while a final answer is being formulated.
-  3. in the "negative_answer" field write a short and friendly message explaining there's no information. You may suggest the user rephrase or broaden the question
-  4. Produce a JSON object with:
-  - "positive_answer": your human readable answer in case results were found in the ISO 639-3 "language" (string)
-  - "negative_answer": your human readable answer in case no results were found in the ISO 639-3 "language" (string)
-  - "query": the generated query string (string)
-  - "language": the language of the last user message in ISO 639-3
-  """
-
   @answering_body """
   You are a response formulation agent that transforms search results into short, natural, and helpful answers for users.
   Your role is to intelligently bridge the gap between raw search results and user needs.
@@ -95,13 +77,6 @@ defmodule Zaq.Repo.Migrations.SeedDefaultPromptTemplates do
   """
 
   @default_templates [
-    %{
-      slug: "retrieval",
-      name: "Retrieval Agent",
-      description: "Query rewriting prompt for the retrieval agent.",
-      active: true,
-      body: @retrieval_body
-    },
     %{
       slug: "answering",
       name: "Answering Agent",

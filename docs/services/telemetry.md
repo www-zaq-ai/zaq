@@ -206,6 +206,18 @@ Notes:
 - unknown prefixes are intentionally ignored
 - keep metric keys lowercase, dot-separated, and domain-first (for example: `qa.answer.confidence`, `ingestion.documents.count`)
 
+### Canonical Dashboard Metric Sources
+
+- `qa.llm.call.count` is emitted from Jido telemetry event `[:jido, :ai, :llm, :start]`.
+- `qa.tokens.prompt` is emitted from `[:jido, :ai, :request, :complete]` measurement `input_tokens`.
+- `qa.tokens.completion` is emitted from `[:jido, :ai, :request, :complete]` measurement `output_tokens`.
+- `qa.tokens.total` is emitted from `[:jido, :ai, :request, :complete]` measurement `total_tokens`.
+- Conversations "Questions per channel" labels are built from telemetry rollup dimensions key
+  `channel_type` for metric `qa.message.count`.
+
+The LLM API Calls chart reads `qa.llm.call.count` and falls back to legacy
+`qa.tokens.total` point count when the new metric is absent in the selected window.
+
 ---
 
 ## Buffer Flush Behavior

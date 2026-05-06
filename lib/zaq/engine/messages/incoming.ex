@@ -6,6 +6,10 @@ defmodule Zaq.Engine.Messages.Incoming do
   payload to this struct before passing a message to any ZAQ component (Pipeline, Bridge,
   Conversations, etc.). Nothing inside ZAQ should depend on adapter-specific envelope types.
 
+  Use `new/1` as the canonical constructor. It normalizes payload shape and injects
+  telemetry dimensions into metadata so pipeline callers do not need to build telemetry
+  maps manually.
+
   For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
   """
 
@@ -38,4 +42,102 @@ defmodule Zaq.Engine.Messages.Incoming do
           metadata: map(),
           content_filter: [String.t()]
         }
+
+  @doc "Builds the canonical incoming payload and injects telemetry dimensions into metadata."
+  @spec new(map()) :: t()
+  def new(attrs) when is_map(attrs) do
+    metadata = normalize_metadata(Map.get(attrs, :metadata) || Map.get(attrs, "metadata"))
+
+    incoming = %__MODULE__{
+      content: fetch_required!(attrs, :content),
+      channel_id: fetch_required!(attrs, :channel_id),
+      provider: fetch_required!(attrs, :provider),
+      author_id: fetch_optional(attrs, :author_id),
+      author_name: fetch_optional(attrs, :author_name),
+      thread_id: fetch_optional(attrs, :thread_id),
+      message_id: fetch_optional(attrs, :message_id),
+      person_id: fetch_optional(attrs, :person_id),
+      is_dm: fetch_optional(attrs, :is_dm) == true,
+      content_filter: normalize_content_filter(fetch_optional(attrs, :content_filter)),
+      metadata: metadata
+    }
+
+    put_telemetry_dimensions(incoming, attrs)
+  end
+
+  defp put_telemetry_dimensions(%__MODULE__{} = incoming, attrs) do
+    dimensions = build_telemetry_dimensions(incoming, attrs)
+
+    metadata =
+      incoming.metadata
+      |> Map.put("telemetry_dimensions", dimensions)
+
+    %{incoming | metadata: metadata}
+  end
+
+  defp build_telemetry_dimensions(%__MODULE__{} = incoming, attrs) do
+    provider = normalize_channel_type(incoming.provider)
+    channel_config_id = resolve_channel_config_id(attrs, incoming.metadata)
+
+    %{
+      "channel_type" => provider,
+      "channel_config_id" => channel_config_id,
+      "provider" => to_string(incoming.provider),
+      "channel_id" => incoming.channel_id
+    }
+  end
+
+  defp resolve_channel_config_id(attrs, metadata) do
+    value =
+      fetch_optional(attrs, :channel_config_id) ||
+        Map.get(metadata, "channel_config_id") ||
+        Map.get(metadata, :channel_config_id)
+
+    normalize_channel_config_id(value)
+  end
+
+  defp normalize_channel_config_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "unknown"
+      val -> val
+    end
+  end
+
+  defp normalize_channel_config_id(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_channel_config_id(_), do: "unknown"
+
+  defp normalize_channel_type(:web), do: "bo"
+  defp normalize_channel_type(:email), do: "email:imap"
+  defp normalize_channel_type(provider) when is_atom(provider), do: Atom.to_string(provider)
+
+  defp normalize_channel_type(provider) when is_binary(provider) do
+    case provider do
+      "web" -> "bo"
+      "email" -> "email:imap"
+      other -> other
+    end
+  end
+
+  defp normalize_channel_type(_), do: "api"
+
+  defp normalize_metadata(metadata) when is_map(metadata), do: metadata
+  defp normalize_metadata(_), do: %{}
+
+  defp normalize_content_filter(list) when is_list(list) do
+    Enum.filter(list, &is_binary/1)
+  end
+
+  defp normalize_content_filter(_), do: []
+
+  defp fetch_required!(attrs, key) do
+    if Map.has_key?(attrs, key) || Map.has_key?(attrs, Atom.to_string(key)) do
+      fetch_optional(attrs, key)
+    else
+      raise ArgumentError, "missing required key #{inspect(key)} for Incoming.new/1"
+    end
+  end
+
+  defp fetch_optional(attrs, key) when is_map(attrs) and is_atom(key) do
+    Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+  end
 end

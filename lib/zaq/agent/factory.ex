@@ -1,10 +1,35 @@
 defmodule Zaq.Agent.Factory do
   @moduledoc """
-  Jido AI agent implementation shared by all configured agents.
+  Runtime agent implementation used by every configured ZAQ agent.
 
-  One Factory server is spawned per agent scope. Provides `ask_with_config/4`
-  to send a query with per-agent tool and LLM opts resolved at call time.
-  The built-in answering agent configuration lives in `Zaq.Agent.Answering`.
+  This module is the execution bridge between `Zaq.Agent.Executor` and the
+  underlying `Jido.AI.Agent` process managed by `Zaq.Agent.ServerManager`.
+
+  Key concerns handled here:
+
+  - Runtime config assembly per configured agent via `runtime_config/1`:
+    resolves enabled tool modules (`Zaq.Agent.Tools.Registry`), builds effective
+    LLM options (system defaults from `Zaq.System` merged with per-agent
+    overrides from `Zaq.Agent.ProviderSpec`), and derives the system prompt.
+  - Cold-start memory hydration via `build_initial_context/2`, delegating to
+    `Zaq.Agent.HistoryLoader` using scope information encoded in server IDs.
+  - Safe request dispatch via `ask_with_config/4`, including server-state
+    runtime-config fallback and best-effort system prompt synchronization before
+    each ask.
+  - Request-scoped runtime context propagation for status updates and tool trace
+    collection, using process-local keys consumed by surrounding pipeline code.
+
+  Typical flow:
+
+  1. `Zaq.Agent.ServerManager` calls `runtime_config/1` and
+     `build_initial_context/2` when spawning a server.
+  2. `Zaq.Agent.Executor` calls `ask_with_config/4` to run an incoming question.
+  3. The request runs through Jido with the resolved tools, model opts, and
+     synchronized prompt.
+
+  The built-in default answering configuration is provided by
+  `Zaq.Agent.Answering`; this module executes that config exactly like any other
+  configured agent.
   """
 
   use Jido.AI.Agent,
@@ -82,7 +107,7 @@ defmodule Zaq.Agent.Factory do
     )
   end
 
-  defp spawn_opts_from_server_id(server_id) when is_binary(server_id) do
+  def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
     case String.split(server_id, ":") do
       [_agent, provider, "conv", id] when provider != "" and id != "" ->
         %{conversation_id: id, person_id: nil, channel_type: provider}
@@ -95,7 +120,7 @@ defmodule Zaq.Agent.Factory do
     end
   end
 
-  defp spawn_opts_from_server_id(_server_id), do: nil
+  def spawn_opts_from_server_id(_server_id), do: nil
 
   @doc """
   Sends a query to a running agent server with the configured agent's LLM and tool settings.
@@ -126,6 +151,68 @@ defmodule Zaq.Agent.Factory do
       ask(server, query, ask_opts)
     end
   end
+
+  @impl true
+  def on_before_cmd(agent, {:ai_react_start, params} = action) do
+    maybe_put_status_context(params)
+    super(agent, action)
+  end
+
+  def on_before_cmd(agent, action), do: super(agent, action)
+
+  @impl true
+  def on_after_cmd(agent, {:ai_react_cancel, _params} = action, directives) do
+    Process.delete(:zaq_status_context)
+    Process.delete(:zaq_tool_trace_context)
+    super(agent, action, directives)
+  end
+
+  def on_after_cmd(agent, {:ai_react_request_error, _params} = action, directives) do
+    Process.delete(:zaq_status_context)
+    Process.delete(:zaq_tool_trace_context)
+    super(agent, action, directives)
+  end
+
+  def on_after_cmd(agent, {:ai_react_finish, _params} = action, directives) do
+    Process.delete(:zaq_status_context)
+    Process.delete(:zaq_tool_trace_context)
+    super(agent, action, directives)
+  end
+
+  def on_after_cmd(agent, action, directives), do: super(agent, action, directives)
+
+  defp maybe_put_status_context(params) when is_map(params) do
+    refs = Map.get(params, :extra_refs, %{})
+
+    case Map.get(refs, :zaq_status_context) do
+      %{session_id: _session_id, request_id: request_id} = ctx
+      when is_binary(request_id) and request_id != "" ->
+        Process.put(:zaq_status_context, ctx)
+
+      _ ->
+        :ok
+    end
+
+    maybe_put_tool_trace_context(refs)
+  end
+
+  defp maybe_put_status_context(_), do: :ok
+
+  defp maybe_put_tool_trace_context(refs) when is_map(refs) do
+    case Map.get(refs, :zaq_tool_trace_context) do
+      %{request_id: request_id, collector_pid: collector_pid}
+      when is_binary(request_id) and request_id != "" and is_pid(collector_pid) ->
+        Process.put(:zaq_tool_trace_context, %{
+          request_id: request_id,
+          collector_pid: collector_pid
+        })
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_put_tool_trace_context(_), do: :ok
 
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do
