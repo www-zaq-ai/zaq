@@ -597,6 +597,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       %{provider: provider} when is_binary(provider) ->
         provider
         |> models_for_provider()
+        |> Enum.sort_by(& &1.id)
         |> Enum.map(&{&1.id, &1.id})
 
       _ ->

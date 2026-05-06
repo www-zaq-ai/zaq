@@ -246,11 +246,17 @@
                   type="text"
                   name="configured_agent[name]"
                   value={@form[:name].value}
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :name) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :name)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -261,7 +267,13 @@
                 </label>
                 <select
                   name="configured_agent[strategy]"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :strategy) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 >
                   <option value="react" selected={@form[:strategy].value == "react"}>
                     react
@@ -270,7 +282,7 @@
                 </select>
                 <p
                   :for={msg <- error_messages(@changeset, :strategy)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -285,11 +297,17 @@
                 type="text"
                 name="configured_agent[description]"
                 value={@form[:description].value || ""}
-                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                class={[
+                  "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                  if(error_messages(@changeset, :description) != [],
+                    do: "border-red-500",
+                    else: "border-[#e6e2db]"
+                  )
+                ]}
               />
               <p
                 :for={msg <- error_messages(@changeset, :description)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -302,11 +320,17 @@
               <textarea
                 name="configured_agent[job]"
                 rows="4"
-                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                class={[
+                  "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                  if(error_messages(@changeset, :job) != [],
+                    do: "border-red-500",
+                    else: "border-[#e6e2db]"
+                  )
+                ]}
               >{@form[:job].value}</textarea>
               <p
                 :for={msg <- error_messages(@changeset, :job)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -319,7 +343,13 @@
                 </label>
                 <select
                   name="configured_agent[credential_id]"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :credential_id) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 >
                   <option value="">Select credential</option>
                   <option
@@ -332,7 +362,7 @@
                 </select>
                 <p
                   :for={msg <- error_messages(@changeset, :credential_id)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -356,11 +386,17 @@
                   type="text"
                   name="configured_agent[model]"
                   value={@form[:model].value || ""}
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :model) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :model)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -422,7 +458,7 @@
               />
               <p
                 :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -465,7 +501,7 @@
               />
               <p
                 :for={msg <- error_messages(@changeset, :enabled_tool_keys)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -488,7 +524,7 @@
               </p>
               <p
                 :for={msg <- error_messages(@changeset, :advanced_options)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -511,7 +547,7 @@
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :idle_time_seconds)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -532,7 +568,7 @@
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :memory_context_max_size)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -580,7 +616,7 @@
                 </button>
                 <p
                   :for={msg <- error_messages(@changeset, :conversation_enabled)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -622,7 +658,7 @@
                 </button>
                 <p
                   :for={msg <- error_messages(@changeset, :active)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>

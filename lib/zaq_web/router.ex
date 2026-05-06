@@ -118,6 +118,8 @@ defmodule ZaqWeb.Router do
       # docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md.
       post "/reset", E2EController, :reset_all
       post "/system-config", E2EController, :set_system_config
+      post "/ai-credentials", E2EController, :create_ai_credential
+      post "/mcp-endpoints", E2EController, :create_mcp_endpoint
       post "/ingestion/touch_file", E2EController, :touch_file
     end
 
