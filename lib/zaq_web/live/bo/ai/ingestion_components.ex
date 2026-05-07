@@ -1132,6 +1132,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   attr :uploads, :any, required: true
   attr :embedding_ready, :boolean, default: true
+  attr :folder_drop_skipped, :list, default: []
 
   def upload_section(assigns) do
     ~H"""
@@ -1139,8 +1140,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Upload</p>
       <form id="upload-form" phx-submit="upload" phx-change="validate_upload">
         <div
+          id="upload-drop-zone"
           class="bg-white rounded-2xl border-2 border-dashed border-black/10 hover:border-[var(--zaq-color-accent)] transition-colors p-6"
           phx-drop-target={@uploads.files.ref}
+          phx-hook="FolderDrop"
         >
           <div class="text-center">
             <svg
@@ -1213,10 +1216,23 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         >
           Upload {length(@uploads.files.entries)} file(s)
         </button>
+
+        <div :if={@folder_drop_skipped != []} class="mt-3 space-y-1" data-testid="skipped-files">
+          <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">Skipped</p>
+          <div :for={item <- @folder_drop_skipped} class="flex items-start gap-2">
+            <span class="font-mono text-[0.75rem] text-amber-600 truncate max-w-[70%]">
+              {item["name"]}
+            </span>
+            <span class="font-mono text-[0.65rem] text-black/30">{skip_reason(item["reason"])}</span>
+          </div>
+        </div>
       </form>
     </div>
     """
   end
+
+  def skip_reason("unsupported_format"), do: "unsupported format"
+  def skip_reason(_), do: "skipped"
 
   defp upload_error_message(:too_large), do: "File exceeds 20 MB limit."
   defp upload_error_message(:not_accepted), do: "File type not supported."

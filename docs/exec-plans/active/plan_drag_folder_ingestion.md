@@ -78,24 +78,43 @@ The browser exposes an empty `DataTransfer.files` when a folder is dropped. `Dat
 **File:** `assets/js/hooks/folder_drop.js`
 
 ```
-SUPPORTED_EXTENSIONS = [".md", ".txt", ".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".png", ".jpg", ".jpeg"]
+// Matches DocumentProcessor.@supported_extensions — intentionally excludes .txt (pre-existing mismatch)
+SUPPORTED_EXTENSIONS = [".md", ".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".png", ".jpg", ".jpeg"]
+BATCH_SIZE = 10  // matches max_entries; tune both together
+
+Hook state:
+  - this._queue = []   // remaining supported File objects
 
 mounted():
   - addEventListener "dragover" on this.el → preventDefault + dropEffect = "copy"
   - addEventListener "drop" on this.el:
-      1. preventDefault + stopPropagation
-      2. Check items for directory entries via webkitGetAsEntry()
-      3. If no directory entry → return (let LiveView handle normal file drops)
-      4. Walk tree recursively (paginated readEntries loop)
-      5. Collect File objects via entry.file(cb)
-      6. Split: supported (extension check) vs skipped (unsupported_format)
-      7. If supported.length > 10: truncate to 10, add remainder as skipped with reason "exceeds_batch_limit"
-      8. pushEvent("folder_drop_skipped", {skipped: [{name, path, reason}]})
-      9. Inject files into upload input:
-           - dt = new DataTransfer()
-           - append each supported File
-           - input.files = dt.files
-           - dispatch new Event("change", {bubbles: true}) on input
+      1. Collect items via event.dataTransfer.items
+      2. Check for directory entries via webkitGetAsEntry() — scan all items
+      3. If no directory entry found:
+           - this._queue = []  // reset so folder_batch_done is ignored on next regular upload
+           - return            // let LiveView handle normal file drops unchanged
+      4. event.preventDefault() + event.stopPropagation()  // only after confirming folder drop
+      5. Walk tree recursively (paginated readEntries loop)
+      6. Collect File objects via entry.file(cb)
+      7. Split: supported (extension check) vs skipped [{name, path, reason: "unsupported_format"}]
+      8. this._queue = supported
+      9. pushEvent("folder_drop_skipped", {skipped: skipped})
+      10. Call this._injectNextBatch()
+
+  // Registered inside mounted() — NOT a top-level lifecycle key:
+  this.handleEvent("folder_batch_done", () => {
+      if (this._queue.length > 0) this._injectNextBatch()
+  })
+
+  _injectNextBatch():
+      - input = this.el.closest("form").querySelector("input[type=file]")
+      - slice = this._queue.splice(0, BATCH_SIZE)
+      - dt = new DataTransfer(); append each File in slice
+      - input.files = dt.files
+      - dispatch new Event("change", {bubbles: true}) on input
+      - this.el.closest("form").requestSubmit()
+      // requestSubmit() triggers the LiveView upload submit automatically;
+      // after server consumes the batch it pushes "folder_batch_done" → next batch fires
 ```
 
 ### Step 2 — Register Hook in `app.js`
@@ -128,7 +147,6 @@ import FolderDrop from "./hooks/folder_drop"
 
 ```elixir
 defp skip_reason("unsupported_format"), do: "unsupported format"
-defp skip_reason("exceeds_batch_limit"), do: "batch limit reached (max 10)"
 defp skip_reason(_), do: "skipped"
 ```
 
@@ -146,15 +164,32 @@ def handle_event("folder_drop_skipped", %{"skipped" => skipped}, socket) do
 end
 ```
 
-**4c.** Clear on upload submit — in `handle_event("upload", ...)`:
+**4c.** After upload consume, push batch signal — in `handle_event("upload", ...)`. Do NOT clear `folder_drop_skipped` here; it must persist across batches so the user sees the full skipped list throughout:
 
 ```elixir
 {:noreply,
  socket
- |> assign(folder_drop_skipped: [])
  |> load_entries()
- |> put_flash(:info, "...")}
+ |> put_flash(:info, "...")
+ |> push_event("folder_batch_done", %{})}
 ```
+
+The hook's `handleEvent("folder_batch_done")` injects the next batch if `this._queue` is non-empty. For regular (non-folder) uploads the hook ignores this event because `this._queue` is reset to `[]` on non-folder drops.
+
+**4e.** Clear `folder_drop_skipped` on the next folder drop — in `handle_event("folder_drop_skipped", ...)`:
+
+```elixir
+def handle_event("folder_drop_skipped", %{"skipped" => skipped} = _payload, socket)
+    when is_list(skipped) do
+  {:noreply, assign(socket, folder_drop_skipped: skipped)}
+end
+
+def handle_event("folder_drop_skipped", _bad_payload, socket) do
+  {:noreply, socket}
+end
+```
+
+The guard clause (`when is_list(skipped)`) and the catch-all protect against malformed client payloads.
 
 **4d.** Use `client_relative_path` for subfolder placement in `consume_uploaded_entries/3`:
 
@@ -177,23 +212,29 @@ Pass the new assign:
 />
 ```
 
-### Step 6 — Verify Parent Directory Creation
+### Step 6 — Verify Parent Directory Creation (confirmed no-op)
 
-**File:** `lib/zaq/ingestion/ingestion.ex` (or `FileExplorer`)
-
-Confirm that writing a file at a nested path (e.g. `"docs/sub/file.pdf"`) auto-creates intermediate directories. If `FileExplorer` does not call `File.mkdir_p!` on the parent, add it in `Ingestion.upload_file/3` before the write. **This is a prerequisite for relative-path support to work for folders with subdirectories.**
+`FileExplorer` already calls `File.mkdir_p` on the parent path before every write (verified at `lib/zaq/ingestion/file_explorer.ex` lines 148, 159, 172, 187). No code change required. Nested subfolder paths from `client_relative_path` will work correctly.
 
 ### Step 7 — Write Tests
 
-**Files:**
-- `test/zaq_web/live/bo/ai/ingestion_live_test.exs` — new tests:
-  - `handle_event "folder_drop_skipped"` assigns skipped list
-  - `handle_event "folder_drop_skipped"` with empty list — no-op
-  - `handle_event "upload"` clears `folder_drop_skipped`
-  - `handle_event "upload"` with `client_relative_path` uses relative path for dest
-- `test/zaq_web/live/bo/ai/ingestion_components_test.exs` (create if absent) — render tests:
-  - `upload_section` with `folder_drop_skipped: [...]` renders skipped list with correct reason text
+**Write tests first (TDD — red before green).**
+
+**`test/zaq_web/live/bo/ai/ingestion_live_test.exs`** — new tests:
+  - `handle_event "folder_drop_skipped"` with valid list assigns skipped list to socket
+  - `handle_event "folder_drop_skipped"` with empty list assigns empty list (no-op check)
+  - `handle_event "folder_drop_skipped"` with malformed payload (non-list) — socket unchanged, no crash
+  - `handle_event "upload"` does NOT clear `folder_drop_skipped` (skipped list persists across batches)
+  - `handle_event "upload"` pushes `folder_batch_done` event to client
+  - `handle_event "upload"` with `client_relative_path` set uses relative path as dest
+  - `handle_event "upload"` with `client_relative_path: nil` falls back to `client_name`
+
+**`test/zaq_web/live/bo/ai/ingestion_components_test.exs`** (create if absent) — render tests:
+  - `upload_section` with `folder_drop_skipped: [%{"name" => "x.json", "reason" => "unsupported_format"}]` renders skipped section with "unsupported format" text
   - `upload_section` with `folder_drop_skipped: []` renders no skipped section
+  - `upload_section` with `folder_drop_skipped: [%{"name" => "x", "reason" => "unknown_reason"}]` renders catch-all "skipped" text
+  - `skip_reason/1` with unknown reason returns "skipped" (tests the catch-all clause explicitly)
+  - `upload_section` with `folder_drop_skipped` non-empty — existing upload button still renders correctly (regression guard)
 
 Coverage target: >= 95% for all modified files.
 
@@ -204,8 +245,11 @@ Coverage target: >= 95% for all modified files.
 | Risk | Mitigation |
 |------|-----------|
 | `webkitGetAsEntry()` not W3C spec | Universally shipped (Chrome 21+, FF 50+, Safari 11.1+, Edge 79+). Graceful fallback for non-folder drops required. |
-| `max_entries: 10` cap | Hook truncates at 10, reports remainder as `exceeds_batch_limit` |
-| Parent directory creation for nested paths | Verify / fix in Step 6 before implementing Step 4d |
+| Large folders (hundreds of files) | Hook queues all supported files and feeds them in batches of `BATCH_SIZE` (default 10, matching `max_entries`). Server signals `folder_batch_done` after each upload to trigger the next batch. |
+| `folder_batch_done` fired on non-folder uploads | Hook resets `this._queue = []` on non-folder drops; empty queue means `folder_batch_done` is a guaranteed no-op. |
+| Parent directory creation for nested paths | Confirmed safe — `FileExplorer` already calls `File.mkdir_p` on parent at every write path. No code change needed. |
+| `preventDefault()` order on drop | Must only call after confirming directory entries exist; calling it unconditionally would break normal file drops. See Step 1 pseudocode. |
+| `handleEvent` registration | Must be called inside `mounted()`, not as a top-level hook lifecycle key. See Step 1 pseudocode. |
 | NodeRouter boundary | No new cross-service calls; all existing routing unchanged |
 | `.txt` extension mismatch | Pre-existing; out of scope; tracked separately |
 
@@ -213,10 +257,8 @@ Coverage target: >= 95% for all modified files.
 
 ## Open Questions
 
-1. Does `Ingestion.upload_file/3` → `FileExplorer` call `File.mkdir_p!` on the parent path? (Blocking prerequisite for subfolder support)
-2. Should folder drops auto-trigger ingestion, or preserve the current pattern (upload to disk → user clicks ingest)?
-3. Batch cap of 10 per drop — acceptable? Or loop in batches?
-4. Should the skipped list clear on next folder drop only, or also on page navigation?
+1. Should folder drops auto-trigger ingestion, or preserve the current pattern (upload to disk → user clicks ingest)?
+2. Should the skipped list clear on next folder drop only, or also on page navigation?
 
 ---
 
@@ -229,19 +271,23 @@ Coverage target: >= 95% for all modified files.
 | Skipped list sent via `pushEvent` | Keeps UX in LiveView; no extra HTTP endpoint needed | 2026-05-07 |
 | Subfolder structure preserved via `client_relative_path` | Dropping a folder with subdirs should mirror the structure in the current volume directory | 2026-05-07 |
 | `.txt` mismatch not fixed here | Pre-existing issue; out of scope | 2026-05-07 |
+| No hard cap on folder size — batch instead | No product reason to cap; large folders are processed in sequential batches of `BATCH_SIZE` driven by `folder_batch_done` server event | 2026-05-07 |
+| Auto-submit each batch via `requestSubmit()` | Requiring the user to click Upload for each batch of 10 is unacceptable UX for large folders; hook calls `form.requestSubmit()` after injecting each batch | 2026-05-07 |
+| `folder_drop_skipped` not cleared between batches | Clearing it after each batch upload would hide the skipped list mid-operation; it persists until the next folder drop replaces it | 2026-05-07 |
+| `SUPPORTED_EXTENSIONS` matches `DocumentProcessor`, not `@allowed_extensions` | Avoids silently accepting `.txt` files that pass upload but fail ingestion (pre-existing mismatch; out of scope to fix here) | 2026-05-07 |
 
 ---
 
 ## Definition of Done
 
-- [ ] `FolderDrop` hook intercepts folder drops, walks tree, splits files by extension, pushes skipped list, injects files into LiveView upload queue
-- [ ] Normal (non-folder) file drops continue to work unchanged
-- [ ] `handle_event("folder_drop_skipped")` assigns skipped list to socket
-- [ ] `handle_event("upload")` uses `client_relative_path` for subfolder placement
-- [ ] `handle_event("upload")` clears `folder_drop_skipped` assign on submit
+- [ ] `FolderDrop` hook intercepts folder drops, walks tree, splits files by extension, pushes skipped list, injects first batch, auto-submits, and feeds subsequent batches on `folder_batch_done`
+- [ ] Normal (non-folder) file drops continue to work unchanged (`preventDefault` only fires after confirming directory entries)
+- [ ] `handle_event("folder_drop_skipped")` assigns skipped list; rejects malformed payloads without crashing
+- [ ] `handle_event("upload")` uses `client_relative_path` (falls back to `client_name`) for subfolder placement
+- [ ] `handle_event("upload")` pushes `folder_batch_done` and does NOT clear `folder_drop_skipped` (persists across batches)
 - [ ] `upload_section` renders skipped-files list with human-readable reason text
-- [ ] Parent directory creation confirmed safe for nested paths (Step 6)
-- [ ] Tests written and passing
+- [ ] `FileExplorer` parent-directory safety confirmed (no code change needed)
+- [ ] Tests written first (TDD), all passing
 - [ ] Coverage >= 95% for all modified files
 - [ ] `mix precommit` passes
 - [ ] PR opened against `main`

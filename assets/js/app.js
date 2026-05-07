@@ -27,6 +27,7 @@ import topbar from "../vendor/topbar"
 import OntologyTree from "./hooks/ontology_tree_hook"
 import ChartTooltip from "./hooks/chart_tooltip_hook"
 import ContentFilter from "./hooks/content_filter"
+import FolderDrop from "./hooks/folder_drop"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -37,6 +38,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
     OntologyTree,
     ChartTooltip,
     ContentFilter,
+    FolderDrop,
     DownloadFile: {
       mounted() {
         this.handleEvent("download_file", ({ filename, content, content_type }) => {

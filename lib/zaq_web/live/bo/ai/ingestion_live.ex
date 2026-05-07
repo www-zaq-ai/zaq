@@ -62,7 +62,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Raw MD modal state
        raw_content: "",
        raw_filename: "",
-       preview: nil
+       preview: nil,
+       # Folder drop
+       folder_drop_skipped: []
      )
      |> load_entries()
      |> load_jobs()
@@ -640,6 +642,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
      |> load_jobs()}
   end
 
+  # Folder drop
+
+  def handle_event("folder_drop_skipped", %{"skipped" => skipped}, socket)
+      when is_list(skipped) do
+    {:noreply, assign(socket, folder_drop_skipped: skipped)}
+  end
+
+  def handle_event("folder_drop_skipped", _bad_payload, socket) do
+    {:noreply, socket}
+  end
+
   # Upload
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
@@ -649,27 +662,45 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("upload", _params, socket) do
-    volume = socket.assigns.current_volume
+    all_done? = Enum.all?(socket.assigns.uploads.files.entries, &(&1.progress == 100))
 
-    uploaded =
-      consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
-        binary = File.read!(tmp_path)
-        dest = Path.join(socket.assigns.current_dir, entry.client_name)
+    if all_done? do
+      volume = socket.assigns.current_volume
+      current_dir = socket.assigns.current_dir
 
-        case ingestion_call(:upload_file, [volume, dest, binary]) do
-          {:ok, actual_dest} ->
-            ingestion_call(:track_upload, [volume, actual_dest])
-            {:ok, actual_dest}
+      uploaded =
+        consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
+          upload_entry(volume, current_dir, tmp_path, entry)
+        end)
 
-          error ->
-            error
-        end
-      end)
+      {:noreply,
+       socket
+       |> load_entries()
+       |> put_flash(:info, "#{length(uploaded)} file(s) uploaded.")
+       |> push_event("folder_batch_done", %{})}
+    else
+      {:noreply, socket}
+    end
+  end
 
-    {:noreply,
-     socket
-     |> load_entries()
-     |> put_flash(:info, "#{length(uploaded)} file(s) uploaded.")}
+  defp upload_entry(volume, current_dir, tmp_path, entry) do
+    relative =
+      case entry.client_relative_path do
+        path when is_binary(path) and path != "" -> path
+        _ -> entry.client_name
+      end
+
+    dest = Path.join(current_dir, relative)
+    binary = File.read!(tmp_path)
+
+    case ingestion_call(:upload_file, [volume, dest, binary]) do
+      {:ok, actual_dest} ->
+        ingestion_call(:track_upload, [volume, actual_dest])
+        {:ok, actual_dest}
+
+      error ->
+        error
+    end
   end
 
   # ────────────────────────────────────────────────────────────────

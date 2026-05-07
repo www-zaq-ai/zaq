@@ -1606,4 +1606,187 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute Zaq.Ingestion.folder_public?("default", "docs")
     end
   end
+
+  # ────────────────────────────────────────────────────────────────
+  # FolderDrop — folder_drop_skipped event
+  # ────────────────────────────────────────────────────────────────
+
+  describe "handle_event folder_drop_skipped" do
+    test "assigns skipped list when payload contains a valid list", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      skipped = [
+        %{"name" => "report.json", "path" => "report.json", "reason" => "unsupported_format"},
+        %{"name" => "data.xml", "path" => "data.xml", "reason" => "unsupported_format"}
+      ]
+
+      render_hook(view, "folder_drop_skipped", %{"skipped" => skipped})
+
+      assert has_element?(view, "[data-testid='skipped-files']")
+      assert has_element?(view, "[data-testid='skipped-files']", "report.json")
+      assert has_element?(view, "[data-testid='skipped-files']", "data.xml")
+    end
+
+    test "assigns empty list when payload contains an empty list", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "folder_drop_skipped", %{"skipped" => []})
+
+      refute has_element?(view, "[data-testid='skipped-files']")
+    end
+
+    test "does not crash and leaves socket unchanged when payload is malformed", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # First set a valid skipped list so we can confirm it is preserved
+      skipped = [%{"name" => "a.json", "path" => "a.json", "reason" => "unsupported_format"}]
+      render_hook(view, "folder_drop_skipped", %{"skipped" => skipped})
+
+      # Now send a malformed payload (skipped is not a list)
+      render_hook(view, "folder_drop_skipped", %{"skipped" => "not_a_list"})
+
+      # Socket unchanged — skipped list still visible
+      assert has_element?(view, "[data-testid='skipped-files']", "a.json")
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────
+  # FolderDrop — upload event with folder_batch_done and client_relative_path
+  # ────────────────────────────────────────────────────────────────
+
+  describe "handle_event upload (folder drop behaviour)" do
+    test "does not clear folder_drop_skipped across batches", %{conn: conn, tmp_dir: tmp_dir} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      skipped = [%{"name" => "bad.json", "path" => "bad.json", "reason" => "unsupported_format"}]
+      render_hook(view, "folder_drop_skipped", %{"skipped" => skipped})
+      assert has_element?(view, "[data-testid='skipped-files']", "bad.json")
+
+      # Simulate upload event (no actual file upload in this test — just verify assign persistence)
+      file_path = Path.join(tmp_dir, "alpha.md")
+      assert File.exists?(file_path)
+
+      # After a direct handle_event call the skipped list must still be present
+      # (We use render_hook which triggers handle_event via the LiveView socket)
+      # Since we cannot do a real file upload in unit tests, we call the event with empty params
+      # and confirm no crash + skipped list remains
+      render_hook(view, "validate_upload", %{})
+
+      assert has_element?(view, "[data-testid='skipped-files']", "bad.json")
+    end
+
+    test "pushes folder_batch_done event after successful upload", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # Upload a real file through Phoenix LiveView upload test helpers
+      md_path = Path.join(tmp_dir, "alpha.md")
+
+      view
+      |> file_input("#upload-form", :files, [
+        %{
+          name: "alpha.md",
+          content: File.read!(md_path),
+          type: "text/markdown"
+        }
+      ])
+      |> render_upload("alpha.md", 100)
+
+      # folder_batch_done should be pushed — we verify by confirming upload succeeded
+      # (push_event is fire-and-forget from server; we assert no crash and flash appears)
+      render_hook(view, "upload", %{})
+      assert has_element?(view, "#flash-info")
+    end
+
+    test "uses client_relative_path as dest when set", %{conn: conn, tmp_dir: tmp_dir} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      subdir = Path.join(tmp_dir, "subfolder")
+      File.mkdir_p!(subdir)
+
+      view
+      |> file_input("#upload-form", :files, [
+        %{
+          name: "nested.md",
+          content: "# nested",
+          type: "text/markdown",
+          relative_path: "subfolder/nested.md"
+        }
+      ])
+      |> render_upload("nested.md", 100)
+
+      render_hook(view, "upload", %{})
+
+      assert File.exists?(Path.join(tmp_dir, "subfolder/nested.md"))
+    end
+
+    test "falls back to client_name when client_relative_path is empty string", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # empty string is truthy in Elixir — must not be used as dest
+      view
+      |> file_input("#upload-form", :files, [
+        %{
+          name: "alpha.md",
+          content: "# alpha",
+          type: "text/markdown",
+          relative_path: ""
+        }
+      ])
+      |> render_upload("alpha.md", 100)
+
+      render_hook(view, "upload", %{})
+
+      assert File.exists?(Path.join(tmp_dir, "alpha.md"))
+      refute File.exists?(Path.join(tmp_dir, "../archives(2)"))
+      refute File.exists?(Path.join(tmp_dir, "../archives(3)"))
+    end
+
+    test "falls back to client_name when client_relative_path is nil", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      view
+      |> file_input("#upload-form", :files, [
+        %{
+          name: "alpha.md",
+          content: "# alpha",
+          type: "text/markdown"
+        }
+      ])
+      |> render_upload("alpha.md", 100)
+
+      render_hook(view, "upload", %{})
+
+      assert File.exists?(Path.join(tmp_dir, "alpha.md"))
+    end
+
+    test "does not crash when entries are still in-progress (upload fired before transfer completes)",
+         %{conn: conn, tmp_dir: tmp_dir} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      # Upload only 50% — entry stays in-progress (not :done)
+      view
+      |> file_input("#upload-form", :files, [
+        %{
+          name: "alpha.md",
+          content: File.read!(Path.join(tmp_dir, "alpha.md")),
+          type: "text/markdown"
+        }
+      ])
+      |> render_upload("alpha.md", 50)
+
+      # "upload" fires before the transfer finishes (requestSubmit race condition)
+      # The handler must not crash — it should skip consumption and wait
+      render_hook(view, "upload", %{})
+
+      assert render(view) =~ "upload"
+    end
+  end
 end

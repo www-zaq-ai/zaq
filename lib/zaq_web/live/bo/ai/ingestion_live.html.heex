@@ -69,7 +69,11 @@
         />
       </div>
 
-      <.upload_section uploads={@uploads} embedding_ready={@embedding_ready} />
+      <.upload_section
+        uploads={@uploads}
+        embedding_ready={@embedding_ready}
+        folder_drop_skipped={@folder_drop_skipped}
+      />
     </div>
 
     <%!-- =============== RIGHT: Ingestion Jobs =============== --%>
