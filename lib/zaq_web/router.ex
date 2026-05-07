@@ -120,6 +120,7 @@ defmodule ZaqWeb.Router do
       post "/system-config", E2EController, :set_system_config
       post "/ai-credentials", E2EController, :create_ai_credential
       post "/mcp-endpoints", E2EController, :create_mcp_endpoint
+      post "/agents", E2EController, :create_agent
       post "/ingestion/touch_file", E2EController, :touch_file
     end
 

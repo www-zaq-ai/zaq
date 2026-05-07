@@ -76,6 +76,27 @@ defmodule ZaqWeb.E2EController do
     end
   end
 
+  # POST /e2e/agents
+  def create_agent(conn, params) do
+    alias Zaq.Agent
+
+    case Agent.create_agent(params) do
+      {:ok, agent} ->
+        json(conn, %{
+          ok: true,
+          id: agent.id,
+          name: agent.name,
+          model: agent.model,
+          credential_id: agent.credential_id
+        })
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_agent", details: inspect(changeset.errors)})
+    end
+  end
+
   # POST /e2e/mcp-endpoints
   def create_mcp_endpoint(conn, params) do
     case MCP.create_mcp_endpoint(params) do

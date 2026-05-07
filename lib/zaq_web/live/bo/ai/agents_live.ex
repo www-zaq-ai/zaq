@@ -606,10 +606,12 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   defp models_for_provider(provider_id) when is_binary(provider_id) do
-    provider_atom = String.to_existing_atom(provider_id)
-    LLMDB.models(provider_atom)
-  rescue
-    ArgumentError -> []
+    downcased = String.downcase(provider_id)
+
+    case Enum.find(LLMDB.providers(), fn p -> Atom.to_string(p.id) == downcased end) do
+      %{id: provider_atom} -> LLMDB.models(provider_atom)
+      _ -> []
+    end
   end
 
   defp pretty_json(map) when is_map(map) do

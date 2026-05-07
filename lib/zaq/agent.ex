@@ -390,7 +390,13 @@ defmodule Zaq.Agent do
   defp to_existing_atom(value) when is_binary(value) do
     {:ok, String.to_existing_atom(value)}
   rescue
-    ArgumentError -> {:error, :provider_not_found}
+    ArgumentError ->
+      downcased = String.downcase(value)
+
+      case Enum.find(LLMDB.providers(), fn p -> Atom.to_string(p.id) == downcased end) do
+        %{id: atom} -> {:ok, atom}
+        _ -> {:error, :provider_not_found}
+      end
   end
 
   defp build_filter_query(filters) do

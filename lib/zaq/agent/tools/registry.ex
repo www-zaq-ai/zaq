@@ -227,8 +227,10 @@ defmodule Zaq.Agent.Tools.Registry do
   end
 
   defp provider_atom_from_id(provider_id) when is_binary(provider_id) do
+    downcased = String.downcase(provider_id)
+
     Enum.find_value(LLMDB.providers(), fn provider ->
-      if Atom.to_string(provider.id) == provider_id, do: provider.id
+      if Atom.to_string(provider.id) == downcased, do: provider.id
     end)
   end
 end

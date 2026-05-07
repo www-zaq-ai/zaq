@@ -244,6 +244,15 @@ async function createE2EMcpEndpoint(request, attrs, options = {}) {
   return res.json();
 }
 
+async function createE2EAgent(request, attrs, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/agents`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/agents returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 module.exports = {
   gotoBackOfficeLive,
   loginToBackOffice,
@@ -257,6 +266,7 @@ module.exports = {
   touchE2EFile,
   createE2EAiCredential,
   createE2EMcpEndpoint,
+  createE2EAgent,
   pickSearchableSelect,
   createAiCredential,
 };
