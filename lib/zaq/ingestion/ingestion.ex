@@ -575,14 +575,27 @@ defmodule Zaq.Ingestion do
   defp ensure_retryable(_), do: {:error, :not_retryable}
 
   def cancel_job(id) do
-    with %IngestJob{status: "pending"} = job <- Repo.get(IngestJob, id),
+    with %IngestJob{status: status} = job when status in ["pending", "processing"] <-
+           Repo.get(IngestJob, id),
+         :ok <- cancel_pending_chunk_oban_jobs(job.id),
          {:ok, job} <- JobLifecycle.mark_failed(job, "cancelled") do
       {:ok, job}
     else
-      %IngestJob{} -> {:error, :not_pending}
+      %IngestJob{} -> {:error, :not_cancellable}
       nil -> {:error, :not_found}
       error -> error
     end
+  end
+
+  defp cancel_pending_chunk_oban_jobs(ingest_job_id) do
+    from(j in Oban.Job,
+      where: j.queue == "ingestion_chunks",
+      where: j.state in ["available", "scheduled", "retryable"],
+      where: fragment("?->>'job_id' = ?", j.args, ^to_string(ingest_job_id))
+    )
+    |> Repo.update_all(set: [state: "cancelled"])
+
+    :ok
   end
 
   # --- PubSub ---
