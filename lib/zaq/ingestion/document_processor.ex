@@ -197,9 +197,18 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   def sanitize_bm25_query(text) do
     text
     |> sanitize_utf8()
-    |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
-    |> String.replace(~r/\s+/, " ")
+    |> unicode_normalize()
+    |> String.replace(~r/[^\p{L}\p{N}]+/u, " ")
+    |> String.replace(~r/ {2,}/, " ")
     |> String.trim()
+    |> String.slice(0, 512)
+  end
+
+  defp unicode_normalize(text) do
+    case :unicode.characters_to_nfc_binary(text) do
+      normalized when is_binary(normalized) -> normalized
+      _ -> text
+    end
   end
 
   defp sanitize_utf8(binary), do: sanitize_utf8(binary, [])

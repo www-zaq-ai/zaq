@@ -2231,5 +2231,33 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert once == twice
       end
     end
+
+    test "unicode whitespace variants are collapsed to plain space" do
+      # U+2004 THREE-PER-EM SPACE, U+00A0 NO-BREAK SPACE, U+3000 IDEOGRAPHIC SPACE
+      assert DocumentProcessor.sanitize_bm25_query("hello world") == "hello world"
+      assert DocumentProcessor.sanitize_bm25_query("hello world") == "hello world"
+      assert DocumentProcessor.sanitize_bm25_query("hello　world") == "hello world"
+    end
+
+    test "NFC combining chars are normalized before filtering" do
+      # e + combining acute accent (U+0301) normalizes to é (single codepoint), still a letter
+      combining = "café"
+      result = DocumentProcessor.sanitize_bm25_query(combining)
+      assert result == "café"
+    end
+
+    test "output is truncated at 512 graphemes" do
+      long = String.duplicate("a", 600)
+      result = DocumentProcessor.sanitize_bm25_query(long)
+      assert String.length(result) == 512
+    end
+
+    test "empty string returns empty string" do
+      assert DocumentProcessor.sanitize_bm25_query("") == ""
+    end
+
+    test "only punctuation returns empty string" do
+      assert DocumentProcessor.sanitize_bm25_query("!!!---???") == ""
+    end
   end
 end
