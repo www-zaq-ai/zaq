@@ -144,6 +144,57 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
              })
   end
 
+  test "cancels immediately when parent ingest job is failed or cancelled" do
+    for status <- ["failed", "cancelled"] do
+      job = create_job(%{status: status})
+
+      assert {:cancel, :job_terminal} =
+               IngestChunkWorker.perform(%Oban.Job{
+                 args: %{"chunk_job_id" => Ecto.UUID.generate(), "job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 5
+               })
+    end
+  end
+
+  test "aborts parent job and cancels remaining chunks on fatal error" do
+    defmodule DimensionMismatchProcessor do
+      def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
+        {:error, :dimension_mismatch}
+      end
+    end
+
+    Application.put_env(:zaq, :document_processor, DimensionMismatchProcessor)
+
+    job = create_job(%{status: "processing"})
+    document = create_document()
+    chunk_job = create_chunk_job(job, %{document_id: document.id})
+
+    pending_chunk =
+      %IngestChunkJob{}
+      |> IngestChunkJob.changeset(%{
+        ingest_job_id: job.id,
+        document_id: document.id,
+        chunk_index: 2,
+        chunk_payload: %{"content" => "another chunk", "metadata" => %{}},
+        status: "pending"
+      })
+      |> Repo.insert!()
+
+    assert {:cancel, :fatal_error} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    parent_job = Repo.get!(Zaq.Ingestion.IngestJob, job.id)
+    assert parent_job.status == "failed"
+    assert parent_job.error == "dimension_mismatch"
+
+    assert Repo.get!(Zaq.Ingestion.IngestChunkJob, pending_chunk.id).status == "failed_final"
+  end
+
   test "keeps chunk pending and returns error for non-rate-limit retries" do
     Application.put_env(:zaq, :document_processor, FailingProcessor)
 

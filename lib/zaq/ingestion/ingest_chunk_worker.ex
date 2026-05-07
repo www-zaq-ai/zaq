@@ -21,12 +21,19 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
   import Ecto.Query
 
   alias Zaq.Engine.Telemetry
+  alias Zaq.Ingestion
   alias Zaq.Ingestion.{DocumentChunker, IngestChunkJob, IngestJob, JobLifecycle}
   alias Zaq.Repo
 
   require Logger
 
-  @terminal_job_statuses ["completed", "completed_with_errors", "failed"]
+  @terminal_job_statuses ["completed", "completed_with_errors", "failed", "cancelled"]
+  @aborted_job_statuses ["failed", "cancelled"]
+
+  defguardp is_fatal_error(reason)
+            when reason == :dimension_mismatch or
+                   is_struct(reason, DBConnection.ConnectionError) or
+                   is_struct(reason, Postgrex.Error)
 
   @impl Oban.Worker
   def perform(%Oban.Job{
@@ -34,7 +41,8 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
         attempt: attempt,
         max_attempts: max_attempts
       }) do
-    with %IngestJob{} = ingest_job <- Repo.get(IngestJob, job_id),
+    with %IngestJob{status: status} = ingest_job
+         when status not in @aborted_job_statuses <- Repo.get(IngestJob, job_id),
          %IngestChunkJob{} = chunk_job <- Repo.get(IngestChunkJob, chunk_job_id) do
       chunk_job = transition_chunk!(chunk_job, %{status: "processing", attempts: attempt})
 
@@ -57,6 +65,11 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
         {:error, reason} when attempt >= max_attempts ->
           finalize_chunk_final_failure(ingest_job, chunk_job, reason)
 
+        {:error, reason} when is_fatal_error(reason) ->
+          transition_chunk!(chunk_job, %{status: "failed_final", error: format_reason(reason)})
+          Ingestion.abort_job(ingest_job, format_reason(reason))
+          {:cancel, :fatal_error}
+
         {:error, reason} ->
           transition_chunk!(chunk_job, %{status: "pending", error: format_reason(reason)})
 
@@ -68,6 +81,7 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
           {:error, reason}
       end
     else
+      %IngestJob{} -> {:cancel, :job_terminal}
       nil -> {:cancel, :not_found}
     end
   end

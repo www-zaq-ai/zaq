@@ -313,6 +313,38 @@ defmodule Zaq.IngestionTest do
       assert cancelled_oban_job.state == "cancelled"
     end
 
+    test "terminates pending and processing IngestChunkJob rows on cancel" do
+      job = create_job(%{status: "processing"})
+      doc = create_document_with_chunks("cancel-test.md", 0)
+
+      pending_chunk =
+        %IngestChunkJob{}
+        |> IngestChunkJob.changeset(%{
+          ingest_job_id: job.id,
+          document_id: doc.id,
+          chunk_index: 1,
+          chunk_payload: %{"content" => "chunk one", "metadata" => %{}},
+          status: "pending"
+        })
+        |> Repo.insert!()
+
+      processing_chunk =
+        %IngestChunkJob{}
+        |> IngestChunkJob.changeset(%{
+          ingest_job_id: job.id,
+          document_id: doc.id,
+          chunk_index: 2,
+          chunk_payload: %{"content" => "chunk two", "metadata" => %{}},
+          status: "processing"
+        })
+        |> Repo.insert!()
+
+      assert {:ok, _} = Ingestion.cancel_job(job.id)
+
+      assert Repo.get!(IngestChunkJob, pending_chunk.id).status == "failed_final"
+      assert Repo.get!(IngestChunkJob, processing_chunk.id).status == "failed_final"
+    end
+
     test "returns error for completed or failed jobs" do
       completed_job = create_job(%{status: "completed"})
       failed_job = create_job(%{status: "failed"})

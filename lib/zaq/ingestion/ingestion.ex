@@ -12,6 +12,7 @@ defmodule Zaq.Ingestion do
     Document,
     FileExplorer,
     FolderSetting,
+    IngestChunkJob,
     IngestJob,
     IngestWorker,
     JobLifecycle,
@@ -575,25 +576,46 @@ defmodule Zaq.Ingestion do
   defp ensure_retryable(_), do: {:error, :not_retryable}
 
   def cancel_job(id) do
-    with %IngestJob{status: status} = job when status in ["pending", "processing"] <-
-           Repo.get(IngestJob, id),
-         :ok <- cancel_pending_chunk_oban_jobs(job.id),
-         {:ok, job} <- JobLifecycle.mark_failed(job, "cancelled") do
-      {:ok, job}
-    else
-      %IngestJob{} -> {:error, :not_cancellable}
-      nil -> {:error, :not_found}
-      error -> error
+    case Repo.get(IngestJob, id) do
+      %IngestJob{status: status} = job when status in ["pending", "processing"] ->
+        stop_job(job, "cancelled")
+
+      %IngestJob{} ->
+        {:error, :not_cancellable}
+
+      nil ->
+        {:error, :not_found}
     end
   end
 
-  defp cancel_pending_chunk_oban_jobs(ingest_job_id) do
+  def abort_job(%IngestJob{} = job, error_message) do
+    stop_job(job, error_message)
+  end
+
+  defp stop_job(job, error_message) do
+    with :ok <- cancel_chunk_oban_jobs(job.id),
+         :ok <- terminate_chunk_jobs(job.id, error_message) do
+      JobLifecycle.mark_failed(job, error_message)
+    end
+  end
+
+  defp cancel_chunk_oban_jobs(ingest_job_id) do
     from(j in Oban.Job,
       where: j.queue == "ingestion_chunks",
       where: j.state in ["available", "scheduled", "retryable"],
       where: fragment("?->>'job_id' = ?", j.args, ^to_string(ingest_job_id))
     )
     |> Repo.update_all(set: [state: "cancelled"])
+
+    :ok
+  end
+
+  defp terminate_chunk_jobs(ingest_job_id, error_message) do
+    from(c in IngestChunkJob,
+      where: c.ingest_job_id == ^ingest_job_id,
+      where: c.status in ["pending", "processing"]
+    )
+    |> Repo.update_all(set: [status: "failed_final", error: error_message])
 
     :ok
   end
