@@ -332,8 +332,8 @@ test.describe("Agents", () => {
     await page.locator("#add-mcp-button").click()
     await expect(page.locator("#agent-mcp-picker-modal")).toBeVisible()
     await pickSearchableSelect(page, "#agent-mcp-picker-select", `${mcp.name} (#${mcp.id})`)
-    await waitForLiveViewSettled(page)
     await page.locator("#agent-mcp-picker-modal").getByRole("button").first().click()
+    await expect(page.locator("#agent-mcp-picker-modal")).not.toBeVisible()
     await expect(page.locator(`[data-selected-mcp-endpoint-id="${mcp.id}"]`)).toBeVisible()
 
     // Remove MCP
