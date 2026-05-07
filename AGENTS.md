@@ -55,7 +55,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 
 - **Follow `docs/WORKFLOW_AGENT.md`** on every task — orient, plan, implement, validate, PR, close out.
 - **Read the relevant doc first** before starting any task.
-- **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new execution plan** and start from `docs/exec-plans/PLAN_TEMPLATE.md`.
+- **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new execution plan** and start from `docs/exec-plans/PLAN_TEMPLATE.md`. **Never output a plan as inline chat text** — always create the file at `docs/exec-plans/active/YYYY-MM-DD-short-description.md` first, then reply with only the file path.
 - **Never push directly to `main`** — all changes go through a PR.
 - **Run `mix precommit`** before every commit. Never replace it with ad-hoc checks.
 - **Target at least 90% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
