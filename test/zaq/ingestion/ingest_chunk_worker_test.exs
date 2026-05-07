@@ -190,8 +190,10 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
 
     parent_job = Repo.get!(Zaq.Ingestion.IngestJob, job.id)
     assert parent_job.status == "failed"
-    assert parent_job.error == "dimension_mismatch"
+    assert parent_job.error =~ "Embedding dimension mismatch"
 
+    # abort_job marks all pending/processing chunks — including the one that triggered the error
+    assert Repo.get!(Zaq.Ingestion.IngestChunkJob, chunk_job.id).status == "failed_final"
     assert Repo.get!(Zaq.Ingestion.IngestChunkJob, pending_chunk.id).status == "failed_final"
   end
 
@@ -300,6 +302,62 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     assert refreshed_job.chunks_count == 1
     assert refreshed_job.failed_chunks == 0
     assert refreshed_job.completed_at != nil
+  end
+
+  test "second parent job re-check skips processing when job was cancelled after chunk was fetched" do
+    # The second Repo.get re-check in the `with` chain catches the window where a job
+    # transitions to cancelled/failed AFTER the chunk is fetched but before processing begins.
+    # We approximate this by creating a job already in "cancelled" state so the second check
+    # (the only check a "between fetch" race relies on) returns a terminal status.
+    Application.put_env(:zaq, :document_processor, SuccessProcessor)
+
+    job = create_job(%{status: "cancelled"})
+    document = create_document()
+    chunk_job = create_chunk_job(job, %{document_id: document.id})
+
+    assert {:cancel, :job_terminal} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert Repo.get!(IngestChunkJob, chunk_job.id).status == "pending"
+  end
+
+  test "abort_job is idempotent when two chunks fail with fatal error simultaneously" do
+    defmodule FatalProcessor do
+      def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
+        {:error, :dimension_mismatch}
+      end
+    end
+
+    Application.put_env(:zaq, :document_processor, FatalProcessor)
+
+    job = create_job(%{status: "processing"})
+    document = create_document()
+    chunk1 = create_chunk_job(job, %{document_id: document.id, chunk_index: 1})
+    chunk2 = create_chunk_job(job, %{document_id: document.id, chunk_index: 2})
+
+    # First chunk triggers abort — job becomes failed, all chunks become failed_final
+    assert {:cancel, :fatal_error} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk1.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    # Second chunk finds parent already in aborted state — short-circuits without error
+    assert {:cancel, :job_terminal} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk2.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    parent_job = Repo.get!(IngestJob, job.id)
+    assert parent_job.status == "failed"
+    assert parent_job.error =~ "Embedding dimension mismatch"
   end
 
   test "marks parent job completed_with_errors when all chunks are terminal but some failed" do

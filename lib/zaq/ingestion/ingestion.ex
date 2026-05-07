@@ -25,6 +25,8 @@ defmodule Zaq.Ingestion do
 
   import Ecto.Query
 
+  require Logger
+
   @pubsub Zaq.PubSub
   @topic "ingestion:jobs"
 
@@ -578,7 +580,7 @@ defmodule Zaq.Ingestion do
   def cancel_job(id) do
     case Repo.get(IngestJob, id) do
       %IngestJob{status: status} = job when status in ["pending", "processing"] ->
-        stop_job(job, "cancelled")
+        stop_job(job, "Cancelled by user.")
 
       %IngestJob{} ->
         {:error, :not_cancellable}
@@ -593,20 +595,27 @@ defmodule Zaq.Ingestion do
   end
 
   defp stop_job(job, error_message) do
-    with :ok <- cancel_chunk_oban_jobs(job.id),
-         :ok <- terminate_chunk_jobs(job.id, error_message) do
-      JobLifecycle.mark_failed(job, error_message)
-    end
+    Repo.transaction(fn ->
+      cancel_chunk_oban_jobs(job.id)
+      terminate_chunk_jobs(job.id, error_message)
+
+      case JobLifecycle.mark_failed(job, error_message) do
+        {:ok, updated} -> updated
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
   defp cancel_chunk_oban_jobs(ingest_job_id) do
-    from(j in Oban.Job,
-      where: j.queue == "ingestion_chunks",
-      where: j.state in ["available", "scheduled", "retryable"],
-      where: fragment("?->>'job_id' = ?", j.args, ^to_string(ingest_job_id))
-    )
-    |> Repo.update_all(set: [state: "cancelled"])
+    {count, _} =
+      from(j in Oban.Job,
+        where: j.queue == "ingestion_chunks",
+        where: j.state in ["available", "scheduled", "retryable"],
+        where: fragment("?->>'job_id' = ?", j.args, ^to_string(ingest_job_id))
+      )
+      |> Repo.update_all(set: [state: "cancelled"])
 
+    Logger.info("[Ingestion] Cancelled #{count} Oban chunk jobs for ingest_job=#{ingest_job_id}")
     :ok
   end
 

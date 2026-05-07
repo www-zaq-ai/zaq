@@ -41,9 +41,11 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
         attempt: attempt,
         max_attempts: max_attempts
       }) do
-    with %IngestJob{status: status} = ingest_job
+    with %IngestJob{status: status}
          when status not in @aborted_job_statuses <- Repo.get(IngestJob, job_id),
-         %IngestChunkJob{} = chunk_job <- Repo.get(IngestChunkJob, chunk_job_id) do
+         %IngestChunkJob{} = chunk_job <- Repo.get(IngestChunkJob, chunk_job_id),
+         %IngestJob{status: status} = ingest_job
+         when status not in @aborted_job_statuses <- Repo.get(IngestJob, job_id) do
       chunk_job = transition_chunk!(chunk_job, %{status: "processing", attempts: attempt})
 
       result = process_chunk(ingest_job, chunk_job)
@@ -66,7 +68,6 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
           finalize_chunk_final_failure(ingest_job, chunk_job, reason)
 
         {:error, reason} when is_fatal_error(reason) ->
-          transition_chunk!(chunk_job, %{status: "failed_final", error: format_reason(reason)})
           Ingestion.abort_job(ingest_job, format_reason(reason))
           {:cancel, :fatal_error}
 
@@ -81,8 +82,15 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
           {:error, reason}
       end
     else
-      %IngestJob{} -> {:cancel, :job_terminal}
-      nil -> {:cancel, :not_found}
+      %IngestJob{id: terminal_job_id} ->
+        Logger.warning(
+          "[IngestChunkWorker] Parent job #{terminal_job_id} is in terminal state, cancelling chunk"
+        )
+
+        {:cancel, :job_terminal}
+
+      nil ->
+        {:cancel, :not_found}
     end
   end
 
@@ -199,6 +207,15 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
       })
     )
   end
+
+  defp format_reason(:dimension_mismatch),
+    do: "Embedding dimension mismatch — the AI model configuration may have changed."
+
+  defp format_reason(%DBConnection.ConnectionError{}),
+    do: "Database connection error. Please try again later."
+
+  defp format_reason(%Postgrex.Error{}),
+    do: "Database error. Please try again later."
 
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)

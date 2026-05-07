@@ -2,6 +2,15 @@ defmodule Zaq.Ingestion.IngestJob do
   @moduledoc """
   Ecto schema for tracking document ingestion jobs.
   Each job represents the processing of a single document file, with fields to track status, errors, and results.
+
+  ## Statuses
+
+  - `pending` — job is queued, not yet started
+  - `processing` — job is actively being processed
+  - `completed` — all chunks ingested successfully
+  - `completed_with_errors` — processing finished but some chunks failed after max retries
+  - `failed` — job aborted due to a fatal error (e.g. dimension mismatch, DB connection failure)
+  - `cancelled` — job was explicitly cancelled by a user or operator
   """
   use Ecto.Schema
   import Ecto.Changeset

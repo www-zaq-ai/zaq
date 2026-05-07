@@ -1323,6 +1323,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 Error details
               </summary>
               <pre class="mt-1 text-[0.65rem] text-red-400 whitespace-pre-wrap break-all">{job.error}</pre>
+              <a
+                :if={String.starts_with?(job.error, "Embedding dimension mismatch")}
+                href="/bo/system-config?tab=embedding"
+                class="mt-1 inline-block text-[0.65rem] text-blue-400 hover:underline"
+              >
+                Go to Embedding settings →
+              </a>
             </details>
           </div>
 

@@ -6,7 +6,7 @@
 
 **Date:** 2026-05-05
 **Author:** OpenCode (agent)
-**Status:** `active`
+**Status:** `completed`
 **Related debt:** n/a
 **PR(s):** pending
 **Issue:** #343
