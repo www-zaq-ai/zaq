@@ -644,6 +644,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   # Folder drop
 
+  # Payload: %{"skipped" => [%{"name" => string, "path" => string, "reason" => string}]}
   def handle_event("folder_drop_skipped", %{"skipped" => skipped}, socket)
       when is_list(skipped) do
     {:noreply, assign(socket, folder_drop_skipped: skipped)}
@@ -662,6 +663,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("upload", _params, socket) do
+    socket = assign(socket, folder_drop_skipped: [])
     all_done? = Enum.all?(socket.assigns.uploads.files.entries, &(&1.progress == 100))
 
     if all_done? do

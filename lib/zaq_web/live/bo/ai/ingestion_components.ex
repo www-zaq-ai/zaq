@@ -1220,7 +1220,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         <div :if={@folder_drop_skipped != []} class="mt-3 space-y-1" data-testid="skipped-files">
           <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">Skipped</p>
           <div :for={item <- @folder_drop_skipped} class="flex items-start gap-2">
-            <span class="font-mono text-[0.75rem] text-amber-600 truncate max-w-[70%]">
+            <span
+              class="font-mono text-[0.75rem] text-amber-600 truncate max-w-[70%]"
+              title={item["path"]}
+            >
               {item["name"]}
             </span>
             <span class="font-mono text-[0.65rem] text-black/30">{skip_reason(item["reason"])}</span>

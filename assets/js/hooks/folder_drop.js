@@ -4,6 +4,7 @@
 // Note: .txt is deliberately excluded here to avoid accepting files that pass upload
 // but fail ingestion (pre-existing mismatch between @allowed_extensions and DocumentProcessor
 // — tracked separately, out of scope for this feature).
+// If you add an extension here, also verify DocumentProcessor supports it server-side.
 const SUPPORTED_EXTENSIONS = [
   ".md",
   ".pdf",
@@ -62,6 +63,9 @@ function walkDirectory(dirEntry, onDone) {
 
         // readEntries may be paginated — loop until empty
         readBatch()
+      }, (error) => {
+        console.error("FolderDrop: failed to read directory entries", error)
+        if (--pending === 0) onDone(fileEntries)
       })
     }
 
@@ -182,6 +186,7 @@ const FolderDrop = {
   destroyed() {
     if (this._onDragOver) this.el.removeEventListener("dragover", this._onDragOver)
     if (this._onDrop) this.el.removeEventListener("drop", this._onDrop)
+    this._queue = []
   },
 
   _injectNextBatch() {
