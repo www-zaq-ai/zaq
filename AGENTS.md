@@ -20,6 +20,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 | Dev setup, tool usage, sub-agents               | `docs/dev-setup.md`     |
 | Elixir, Mix, Ecto, Test guidelines              | `docs/elixir.md`        |
 | Production testing strategy & property testing  | `docs/testing-approach.md` |
+| E2E tests: running, seeding, helper conventions | `docs/e2e-testing.md`      |
 | Phoenix, LiveView, HTML, JS/CSS, UI/UX          | `docs/phoenix.md`       |
 | BO layout, design tokens, colors, components    | `docs/bo-components.md` |
 
