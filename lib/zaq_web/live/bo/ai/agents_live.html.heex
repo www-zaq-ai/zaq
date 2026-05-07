@@ -256,6 +256,7 @@
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :name)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
@@ -282,6 +283,7 @@
                 </select>
                 <p
                   :for={msg <- error_messages(@changeset, :strategy)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
@@ -307,6 +309,7 @@
               />
               <p
                 :for={msg <- error_messages(@changeset, :description)}
+                data-error-message
                 class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
@@ -330,6 +333,7 @@
               >{@form[:job].value}</textarea>
               <p
                 :for={msg <- error_messages(@changeset, :job)}
+                data-error-message
                 class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
@@ -362,6 +366,7 @@
                 </select>
                 <p
                   :for={msg <- error_messages(@changeset, :credential_id)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
@@ -396,6 +401,7 @@
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :model)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
@@ -458,6 +464,7 @@
               />
               <p
                 :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
+                data-error-message
                 class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
@@ -501,6 +508,7 @@
               />
               <p
                 :for={msg <- error_messages(@changeset, :enabled_tool_keys)}
+                data-error-message
                 class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
@@ -524,6 +532,7 @@
               </p>
               <p
                 :for={msg <- error_messages(@changeset, :advanced_options)}
+                data-error-message
                 class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
@@ -547,6 +556,7 @@
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :idle_time_seconds)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
@@ -568,6 +578,7 @@
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :memory_context_max_size)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
@@ -616,6 +627,7 @@
                 </button>
                 <p
                   :for={msg <- error_messages(@changeset, :conversation_enabled)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
@@ -658,6 +670,7 @@
                 </button>
                 <p
                   :for={msg <- error_messages(@changeset, :active)}
+                  data-error-message
                   class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}

@@ -63,16 +63,30 @@ const liveSocket = new LiveSocket("/live", Socket, {
     },
     FlashAutoDismiss: {
       mounted() {
-        this.el.scrollIntoView({ behavior: "smooth", block: "nearest" })
+        this._scrollToFlash()
+        this._startTimer()
+      },
+      updated() {
+        this._scrollToFlash()
+        clearTimeout(this._timer)
+        this._startTimer()
+      },
+      destroyed() {
+        clearTimeout(this._timer)
+      },
+      _scrollToFlash() {
+        requestAnimationFrame(() => {
+          const top = this.el.getBoundingClientRect().top + window.scrollY - 16
+          window.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+        })
+      },
+      _startTimer() {
         const duration = parseInt(this.el.dataset.autoDismissDuration, 10)
         if (duration > 0) {
           this._timer = setTimeout(() => {
             this.el.querySelector("[data-flash-dismiss]")?.click()
           }, duration)
         }
-      },
-      destroyed() {
-        clearTimeout(this._timer)
       }
     },
     LoadingActionButton: {
@@ -327,10 +341,13 @@ const liveSocket = new LiveSocket("/live", Socket, {
     },
     ScrollToFirstError: {
       updated() {
-        const firstError = this.el.querySelector('[class*="text-[#a35246]"]')
-        if (firstError && firstError.textContent.trim()) {
-          firstError.scrollIntoView({ behavior: "smooth", block: "nearest" })
-        }
+        requestAnimationFrame(() => {
+          const firstError = this.el.querySelector('[data-error-message]')
+          if (firstError && firstError.textContent.trim()) {
+            const top = firstError.getBoundingClientRect().top + window.scrollY - 80
+            window.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+          }
+        })
       }
     },
     DetailsKeepOpen: {
