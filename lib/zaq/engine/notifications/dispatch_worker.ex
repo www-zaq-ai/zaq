@@ -5,8 +5,8 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   Runs once (`max_attempts: 1`). Tries each channel sequentially and stops on
   the first success. All outcomes are recorded in `notification_logs`.
 
-  Delivery is performed by `Zaq.Channels.Router.deliver/1`, which resolves the
-  correct bridge from app config and calls `bridge.send_reply/2`.
+  Delivery is performed by dispatching a channels event through `Zaq.NodeRouter`
+  to `Zaq.Channels.Api` with action `:deliver_outgoing`.
 
   Job args carry only `log_id`, `channels`, and `metadata` — the full payload
   (subject/body) is read from `notification_logs` at execution time.
@@ -23,9 +23,9 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
 
   require Logger
 
-  alias Zaq.Channels.Router
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.NotificationLog
+  alias Zaq.Event
   alias Zaq.Repo
 
   @impl Oban.Worker
@@ -75,7 +75,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
             })
         }
 
-        result = router_mod().deliver(outgoing)
+        result = deliver_via_channels(outgoing)
         NotificationLog.append_attempt(log.id, platform, result)
 
         case result do
@@ -111,6 +111,16 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
 
   defp platform_to_atom(_), do: nil
 
-  defp router_mod,
-    do: Application.get_env(:zaq, :dispatch_worker_router_module, Router)
+  defp deliver_via_channels(%Outgoing{} = outgoing) do
+    event =
+      Event.new(outgoing, :channels, opts: [action: :deliver_outgoing] ++ channels_event_opts())
+
+    node_router_module().dispatch(event).response
+  end
+
+  defp node_router_module,
+    do: Application.get_env(:zaq, :dispatch_worker_node_router_module, Zaq.NodeRouter)
+
+  defp channels_event_opts,
+    do: Application.get_env(:zaq, :dispatch_worker_channels_event_opts, [])
 end

@@ -69,6 +69,13 @@ defmodule Zaq.Agent.ApiTest do
     def broadcast(_ctx, _stage, _message, _node_router), do: :ok
   end
 
+  defmodule SpyNodeRouter do
+    def dispatch(event) do
+      send(self(), {:node_router_dispatch, event})
+      %{event | response: :ok}
+    end
+  end
+
   defmodule StubRuntimeSyncInvalidRequestError do
     def configured_agent_updated(_id, _attrs), do: {:error, {:invalid_request, :bad_update}}
     def configured_agent_deleted(_id), do: {:error, {:invalid_request, :bad_delete}}
@@ -263,6 +270,71 @@ defmodule Zaq.Agent.ApiTest do
     assert result.response.body == "ok"
     assert_received {:pipeline_called, ^incoming, opts}
     assert Keyword.get(opts, :foo) == :bar
+  end
+
+  test "run_pipeline dispatches return hop when metadata enables it" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    defmodule ReturnHopPipeline do
+      def run(%Incoming{} = incoming, _opts) do
+        %Outgoing{
+          body: "ok",
+          channel_id: incoming.channel_id,
+          provider: incoming.provider,
+          metadata: %{"return_hop" => true, "return_hop_destination" => "channels"}
+        }
+      end
+    end
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: ReturnHopPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+    assert result.response == :ok
+
+    assert_received {:node_router_dispatch, dispatched}
+    assert dispatched.next_hop.destination == :channels
+    assert dispatched.next_hop.type == :async
+    assert dispatched.opts[:action] == :deliver_outgoing
+  end
+
+  test "run_pipeline returns missing destination error when return hop destination is invalid" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    defmodule ReturnHopNoDestinationPipeline do
+      def run(%Incoming{} = incoming, _opts) do
+        %Outgoing{
+          body: "ok",
+          channel_id: incoming.channel_id,
+          provider: incoming.provider,
+          metadata: %{"return_hop" => true, "return_hop_destination" => "not_a_real_destination"}
+        }
+      end
+    end
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: ReturnHopNoDestinationPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+    assert result.response == {:error, {:missing_destination_metadata, :return_hop}}
   end
 
   test "delegates invoke to shared internal boundaries helper" do

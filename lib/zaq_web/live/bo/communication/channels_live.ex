@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Agent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.RuntimeDeps
@@ -193,11 +194,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
     case result do
       {:ok, config} ->
-        sync_result =
-          NodeRouter.call(:channels, Zaq.Channels.Router, :sync_config_runtime, [
-            previous_config,
-            config
-          ])
+        sync_result = sync_channel_runtime(previous_config, config)
 
         configs = list_configs(socket.assigns.provider)
         first_config = List.first(configs)
@@ -265,11 +262,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       |> Ecto.Changeset.change(enabled: !previous_config.enabled)
       |> Repo.update!()
 
-    sync_result =
-      NodeRouter.call(:channels, Zaq.Channels.Router, :sync_config_runtime, [
-        previous_config,
-        config
-      ])
+    sync_result = sync_channel_runtime(previous_config, config)
 
     configs = list_configs(socket.assigns.provider)
     first_config = List.first(configs)
@@ -297,11 +290,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
              config,
              configured_agent_id
            ) do
-      sync_result =
-        NodeRouter.call(:channels, Zaq.Channels.Router, :sync_config_runtime, [
-          config,
-          updated
-        ])
+      sync_result = sync_channel_runtime(config, updated)
 
       configs = list_configs(socket.assigns.provider)
       first_config = List.first(configs)
@@ -368,10 +357,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket = assign(socket, :test_status, :testing)
 
     status =
-      case NodeRouter.call(:channels, Zaq.Channels.Router, :test_connection, [
-             config,
-             String.trim(channel_id)
-           ]) do
+      case test_connection(config, String.trim(channel_id)) do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -835,7 +821,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp sync_provider_runtime(nil), do: :ok
 
   defp sync_provider_runtime(%ChannelConfig{provider: provider}) do
-    NodeRouter.call(:channels, Zaq.Channels.Router, :sync_provider_runtime, [provider])
+    event = Event.new(%{provider: provider}, :channels, opts: [action: :sync_provider_runtime])
+    NodeRouter.dispatch(event).response
+  end
+
+  defp sync_channel_runtime(before_config, after_config) do
+    event =
+      Event.new(
+        %{before_config: before_config, after_config: after_config},
+        :channels,
+        opts: [action: :sync_channel_runtime]
+      )
+
+    NodeRouter.dispatch(event).response
+  end
+
+  defp test_connection(%ChannelConfig{} = config, channel_id) when is_binary(channel_id) do
+    event =
+      Event.new(
+        %{config: config, channel_id: channel_id},
+        :channels,
+        opts: [action: :test_connection]
+      )
+
+    NodeRouter.dispatch(event).response
   end
 
   def jido_chat_bot_name(%ChannelConfig{} = config) do

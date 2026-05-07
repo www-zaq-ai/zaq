@@ -3,7 +3,8 @@ defmodule Zaq.Engine.Messages.Outgoing do
   Canonical outbound message payload struct.
 
   Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center.
-  Delivered via `Zaq.Channels.Router.deliver/1`, which resolves the correct bridge
+  Delivered through `Zaq.NodeRouter.dispatch/1` to `Zaq.Channels.Api`
+  (action `:deliver_outgoing`), which resolves the provider bridge
   and calls `bridge.send_reply/2`.
 
   Nothing inside ZAQ should depend on adapter-specific envelope types — all outbound

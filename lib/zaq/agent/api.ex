@@ -237,8 +237,76 @@ defmodule Zaq.Agent.Api do
           )
       end
 
-    %{event | response: outgoing}
+    maybe_dispatch_return_hop(event, outgoing)
   end
+
+  defp maybe_dispatch_return_hop(%Event{} = event, %Outgoing{} = outgoing) do
+    node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
+
+    case return_hop_spec(outgoing.metadata) do
+      {:ok, spec} ->
+        return_event =
+          Event.new(outgoing, spec.destination,
+            type: spec.type,
+            actor: event.actor,
+            opts: [action: spec.action],
+            trace_id: event.trace_id
+          )
+
+        _ = node_router_mod.dispatch(%{return_event | assigns: event.assigns})
+        %{event | response: :ok}
+
+      {:error, :missing_destination} ->
+        %{event | response: {:error, {:missing_destination_metadata, :return_hop}}}
+
+      :disabled ->
+        %{event | response: outgoing}
+    end
+  end
+
+  defp maybe_dispatch_return_hop(%Event{} = event, other), do: %{event | response: other}
+
+  defp return_hop_spec(metadata) when is_map(metadata) do
+    if Map.get(metadata, :return_hop) || Map.get(metadata, "return_hop") do
+      case normalize_destination(return_hop_destination(metadata)) do
+        {:ok, destination_atom} ->
+          {:ok,
+           %{
+             destination: destination_atom,
+             action: return_hop_action(metadata),
+             type: return_hop_type(metadata)
+           }}
+
+        :error ->
+          {:error, :missing_destination}
+      end
+    else
+      :disabled
+    end
+  end
+
+  defp return_hop_spec(_), do: :disabled
+
+  defp normalize_destination(destination) when is_atom(destination), do: {:ok, destination}
+
+  defp normalize_destination(destination) when is_binary(destination) do
+    {:ok, String.to_existing_atom(destination)}
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp normalize_destination(_), do: :error
+
+  defp return_hop_destination(metadata),
+    do: Map.get(metadata, :return_hop_destination) || Map.get(metadata, "return_hop_destination")
+
+  defp return_hop_action(metadata),
+    do:
+      Map.get(metadata, :return_hop_action) || Map.get(metadata, "return_hop_action") ||
+        :deliver_outgoing
+
+  defp return_hop_type(metadata),
+    do: Map.get(metadata, :return_hop_type) || Map.get(metadata, "return_hop_type") || :async
 
   defp guard_error_outgoing(%Incoming{} = incoming) do
     Outgoing.from_pipeline_result(incoming, %{

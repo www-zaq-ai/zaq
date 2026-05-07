@@ -15,7 +15,9 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 
 | Module                              | File                                         | Role                                          |
 | ----------------------------------- | -------------------------------------------- | --------------------------------------------- |
-| `Zaq.Channels.Router`               | `lib/zaq/channels/router.ex`                 | Stateless outbound router — public entrypoint |
+| `Zaq.Channels.Api`                  | `lib/zaq/channels/api.ex`                    | Channels role boundary for `NodeRouter` events |
+| `Zaq.Channels.CommunicationBridge`  | `lib/zaq/channels/communication_bridge.ex`   | Communication-domain routing/delegation helpers |
+| `Zaq.Channels.Router`               | `lib/zaq/channels/router.ex`                 | Compatibility facade delegating to communication helpers |
 | `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers             |
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters        |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder             |
@@ -56,7 +58,7 @@ defstruct [
 
 ### `Zaq.Engine.Messages.Outgoing`
 
-Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered via `Zaq.Channels.Router.deliver/1`.
+Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered through `NodeRouter.dispatch/1` to `Zaq.Channels.Api` (`:deliver_outgoing`).
 
 When routed across nodes, this payload is typically returned in `%Zaq.Event.response`.
 
@@ -78,6 +80,14 @@ defstruct [
 `Outgoing.from_pipeline_result/2` builds an `%Outgoing{}` from an `%Incoming{}` and a pipeline result map, copying routing fields and merging metadata.
 
 ---
+
+## Channels API and Communication Routing
+
+`Zaq.Channels.Api` is the role boundary entrypoint for channel delivery/runtime events routed through `Zaq.NodeRouter.dispatch/1`.
+
+`Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
+
+`Zaq.Channels.Router` remains as a compatibility facade while call-site migrations complete.
 
 ## Router
 
@@ -173,7 +183,7 @@ Shared helper:
 
 ### Outbound flow
 
-Called by `Router.deliver/1`:
+Called by channels delivery routing (`Channels.Api` -> communication helpers; `Router.deliver/1` remains compatibility):
 
 1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token}`.
 2. Resolves the adapter module for the provider.

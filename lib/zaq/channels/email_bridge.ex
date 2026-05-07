@@ -72,6 +72,12 @@ defmodule Zaq.Channels.EmailBridge do
   @doc "Listener sink callback for incoming adapter payloads."
   def from_listener(config, payload, sink_opts)
       when is_map(payload) and is_list(sink_opts) do
+    Bridge.route_incoming(__MODULE__, config, payload, sink_opts)
+  end
+
+  @doc "Processes a normalized inbound payload from listener sink."
+  def handle_from_listener(config, payload, sink_opts)
+      when is_map(payload) and is_list(sink_opts) do
     connection = sink_opts |> Enum.into(%{}) |> Map.put(:config, config)
 
     with %Incoming{} = incoming <- to_internal(payload, connection),

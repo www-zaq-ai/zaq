@@ -42,9 +42,14 @@ defmodule Zaq.Channels.Bridge do
   @callback test_connection(map(), String.t()) :: {:ok, term()} | {:error, term()}
   @callback list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
   @callback resolve_agent_selection(map(), Incoming.t(), keyword()) :: map() | nil
+  @callback before_incoming(map(), map(), keyword(), module()) ::
+              {:ok, {map(), map(), keyword()}} | {:error, term()}
+  @callback after_incoming(map(), map(), keyword(), term(), module()) :: term()
 
   @optional_callbacks start_runtime: 1,
                       stop_runtime: 1,
+                      before_incoming: 4,
+                      after_incoming: 5,
                       send_typing: 3,
                       add_reaction: 5,
                       remove_reaction: 5,
@@ -55,6 +60,58 @@ defmodule Zaq.Channels.Bridge do
                       test_connection: 2,
                       list_mailboxes: 2,
                       resolve_agent_selection: 3
+
+  @doc "Routes inbound payloads through optional hooks and bridge handler."
+  @spec route_incoming(module(), map(), map(), keyword()) :: term()
+  def route_incoming(bridge_module, config, payload, sink_opts)
+      when is_atom(bridge_module) and is_map(config) and is_map(payload) and is_list(sink_opts) do
+    with {:ok, {hook_config, hook_payload, hook_sink_opts}} <-
+           before_incoming(config, payload, sink_opts, bridge_module),
+         true <-
+           function_exported?(bridge_module, :handle_from_listener, 3) || {:error, :unsupported},
+         result <- bridge_module.handle_from_listener(hook_config, hook_payload, hook_sink_opts) do
+      after_incoming(hook_config, hook_payload, hook_sink_opts, result, bridge_module)
+    else
+      {:error, _reason} = error -> error
+      false -> {:error, :unsupported}
+      other -> other
+    end
+  end
+
+  @doc "Default before-incoming hook pass-through."
+  @spec before_incoming(map(), map(), keyword(), module()) ::
+          {:ok, {map(), map(), keyword()}} | {:error, term()}
+  def before_incoming(config, payload, sink_opts, bridge_module)
+      when is_map(config) and is_map(payload) and is_list(sink_opts) and is_atom(bridge_module) do
+    if function_exported?(bridge_module, :before_incoming, 4) do
+      bridge_module.before_incoming(config, payload, sink_opts, __MODULE__)
+    else
+      {:ok, {config, payload, sink_opts}}
+    end
+  end
+
+  @doc "Default after-incoming hook pass-through."
+  @spec after_incoming(map(), map(), keyword(), term(), module()) :: term()
+  def after_incoming(config, payload, sink_opts, result, bridge_module)
+      when is_map(config) and is_map(payload) and is_list(sink_opts) and is_atom(bridge_module) do
+    if function_exported?(bridge_module, :after_incoming, 5) do
+      bridge_module.after_incoming(config, payload, sink_opts, result, __MODULE__)
+    else
+      result
+    end
+  end
+
+  @doc "Normalizes event/bridge ack responses to `:ok` or `{:error, reason}`."
+  @spec ack_from_event_response(term()) :: :ok | {:error, term()}
+  def ack_from_event_response(response)
+
+  def ack_from_event_response(:ok), do: :ok
+  def ack_from_event_response({:ok, _ack}), do: :ok
+  def ack_from_event_response({:error, _reason} = error), do: error
+  def ack_from_event_response(%{ack: ack}), do: ack_from_event_response(ack)
+  def ack_from_event_response(%{"ack" => ack}), do: ack_from_event_response(ack)
+  def ack_from_event_response(%Event{response: response}), do: ack_from_event_response(response)
+  def ack_from_event_response(other), do: {:error, {:invalid_ack, other}}
 
   @doc """
   Persists a processed incoming message and its metadata through the engine.
