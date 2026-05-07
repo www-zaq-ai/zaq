@@ -63,9 +63,9 @@ async function ingestSelectedInline(page) {
 async function askQuestion(page, question) {
   await gotoBackOfficeLive(page, "/bo/chat");
   await expect(page.locator("#chat-form")).toBeVisible();
-  await page.locator("#clear-chat-button").click();
+  await page.locator("#new-chat-button").click();
 
-  // Wait for the clear to settle server-side before typing the next question.
+  // Wait for the new_chat event to settle server-side before typing the next question.
   // Without this, the fill() below can race with a pending phx-click-loading
   // cycle and the message buffer is repopulated with the stale conversation.
   await waitForLiveViewSettled(page);
