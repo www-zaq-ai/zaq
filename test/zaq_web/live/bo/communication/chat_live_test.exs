@@ -180,7 +180,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     %{conn: conn, user: user}
   end
 
-  test "renders shell, updates input, and clears chat", %{conn: conn} do
+  test "renders shell, updates input, and starts new chat", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     assert has_element?(view, "#chat-form")
@@ -192,7 +192,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     render_hook(view, "update_input", %{"message" => "Typed manually"})
     assert render(view) =~ "Typed manually"
 
-    render_hook(view, "clear_chat", %{})
+    render_hook(view, "new_chat", %{})
     html = render(view)
     assert html =~ "Welcome to ZAQ Chat!"
   end
@@ -931,7 +931,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     before = render(view)
     render_hook(view, "update_input", %{"message" => "ignored"})
-    render_hook(view, "clear_chat", %{})
+    render_hook(view, "new_chat", %{})
     assert render(view) == before
   end
 
@@ -2110,6 +2110,282 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       end)
 
     assert is_nil(bot.feedback)
+  end
+
+  # ── new_chat / delete chat tests ────────────────────────────────────────────
+
+  test "new_chat resets state and clears current_conversation_id", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    render_hook(view, "new_chat", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      is_nil(assigns.current_conversation_id) and
+        length(assigns.messages) == 1 and
+        hd(assigns.messages).welcome == true and
+        assigns.status == :idle and
+        assigns.history == %{}
+    end)
+  end
+
+  test "new_chat without active conversation resets to welcome state", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "new_chat", %{})
+
+    state = :sys.get_state(view.pid)
+    assigns = state.socket.assigns
+
+    assert is_nil(assigns.current_conversation_id)
+    assert length(assigns.messages) == 1
+    assert hd(assigns.messages).welcome == true
+  end
+
+  test "delete_chat_confirm with no active conversation keeps show_delete_confirm false", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "delete_chat_confirm", %{})
+
+    state = :sys.get_state(view.pid)
+    refute state.socket.assigns.show_delete_confirm
+    refute has_element?(view, "#delete-confirm-modal")
+  end
+
+  test "delete_chat_confirm with active conversation sets show_delete_confirm true", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    render_hook(view, "delete_chat_confirm", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.show_delete_confirm == true
+    end)
+
+    assert has_element?(view, "#delete-confirm-modal")
+  end
+
+  test "close_delete_modal sets show_delete_confirm false", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    render_hook(view, "delete_chat_confirm", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.show_delete_confirm == true
+    end)
+
+    render_hook(view, "close_delete_modal", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.show_delete_confirm == false
+    end)
+
+    refute has_element?(view, "#delete-confirm-modal")
+  end
+
+  test "delete_chat deletes conversation from DB, clears state, reloads sidebar", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo",
+        title: "Chat to delete"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    assert render(view) =~ "Chat to delete"
+
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    render_hook(view, "delete_chat_confirm", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.show_delete_confirm == true
+    end)
+
+    render_hook(view, "delete_chat", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      is_nil(assigns.current_conversation_id) and
+        assigns.show_delete_confirm == false and
+        length(assigns.messages) == 1 and
+        assigns.history == %{} and
+        not Enum.any?(assigns.conversations, &(&1.id == conv.id))
+    end)
+
+    assert is_nil(Conversations.get_conversation(conv.id))
+    refute render(view) =~ "Chat to delete"
+    refute has_element?(view, "#delete-confirm-modal")
+  end
+
+  test "delete_chat when conversation already deleted does not crash", %{conn: conn, user: user} do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    Conversations.delete_conversation_by_id(conv.id)
+
+    render_hook(view, "delete_chat", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      is_nil(assigns.current_conversation_id) and assigns.show_delete_confirm == false
+    end)
+  end
+
+  test "delete confirm modal Cancel button renders and fires close_delete_modal", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    render_hook(view, "delete_chat_confirm", %{})
+
+    assert_eventually(fn ->
+      has_element?(view, "#delete-confirm-modal")
+    end)
+
+    view |> element("#delete-modal-cancel") |> render_click()
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.show_delete_confirm == false
+    end)
+
+    refute has_element?(view, "#delete-confirm-modal")
+  end
+
+  test "delete confirm modal Delete button renders and fires delete_chat", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo",
+        title: "Confirm Delete Test"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      state.socket.assigns.current_conversation_id == conv.id
+    end)
+
+    render_hook(view, "delete_chat_confirm", %{})
+
+    assert_eventually(fn ->
+      has_element?(view, "#delete-confirm-modal")
+    end)
+
+    view |> element("#delete-modal-confirm") |> render_click()
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      is_nil(state.socket.assigns.current_conversation_id)
+    end)
+
+    refute has_element?(view, "#delete-confirm-modal")
+  end
+
+  test "delete confirm modal is absent when show_delete_confirm is false", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    state = :sys.get_state(view.pid)
+    refute state.socket.assigns.show_delete_confirm
+
+    refute has_element?(view, "#delete-confirm-modal")
   end
 
   defp assert_eventually(fun, retries \\ 80)

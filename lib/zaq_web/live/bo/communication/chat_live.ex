@@ -75,6 +75,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:active_filters, [])
      |> assign(:filter_suggestions, [])
      |> assign(:filter_query, "")
+     |> assign(:show_delete_confirm, false)
      |> assign(:tool_calls_modal_for, nil)
      |> assign(:tool_calls_modal_entries, [])
      |> assign(:expanded_tool_call_ids, MapSet.new())
@@ -182,7 +183,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     end
   end
 
-  def handle_event("clear_chat", _params, socket) do
+  def handle_event("new_chat", _params, socket) do
     {:noreply,
      socket
      |> assign(:messages, [welcome_message()])
@@ -191,6 +192,37 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:status_message, "")
      |> assign(:current_conversation_id, nil)
      |> reload_sidebar_conversations()}
+  end
+
+  def handle_event("delete_chat_confirm", _params, socket) do
+    case socket.assigns.current_conversation_id do
+      nil -> {:noreply, socket}
+      _id -> {:noreply, assign(socket, :show_delete_confirm, true)}
+    end
+  end
+
+  def handle_event("close_delete_modal", _params, socket) do
+    {:noreply, assign(socket, :show_delete_confirm, false)}
+  end
+
+  def handle_event("delete_chat", _params, socket) do
+    case socket.assigns.current_conversation_id do
+      nil ->
+        {:noreply, assign(socket, :show_delete_confirm, false)}
+
+      id ->
+        NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
+
+        {:noreply,
+         socket
+         |> assign(:messages, [welcome_message()])
+         |> assign(:history, %{})
+         |> assign(:status, :idle)
+         |> assign(:status_message, "")
+         |> assign(:current_conversation_id, nil)
+         |> assign(:show_delete_confirm, false)
+         |> reload_sidebar_conversations()}
+    end
   end
 
   def handle_event("use_suggestion", %{"prompt" => prompt}, socket) do
