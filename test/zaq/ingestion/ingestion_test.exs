@@ -285,9 +285,40 @@ defmodule Zaq.IngestionTest do
       assert_receive {:job_updated, %{id: ^job_id, status: "failed", error: "cancelled"}}
     end
 
-    test "returns error if job is not pending" do
+    test "cancels a processing job" do
       job = create_job(%{status: "processing"})
-      assert {:error, :not_pending} = Ingestion.cancel_job(job.id)
+      Ingestion.subscribe()
+
+      assert {:ok, cancelled} = Ingestion.cancel_job(job.id)
+      job_id = job.id
+      assert cancelled.status == "failed"
+      assert cancelled.error == "cancelled"
+      assert_receive {:job_updated, %{id: ^job_id, status: "failed", error: "cancelled"}}
+    end
+
+    test "cancels pending Oban chunk workers for a processing job" do
+      job = create_job(%{status: "processing"})
+
+      {:ok, oban_job} =
+        Repo.insert(%Oban.Job{
+          queue: "ingestion_chunks",
+          worker: "Zaq.Ingestion.IngestChunkWorker",
+          args: %{"job_id" => job.id, "chunk_job_id" => Ecto.UUID.generate()},
+          state: "available"
+        })
+
+      assert {:ok, _} = Ingestion.cancel_job(job.id)
+
+      cancelled_oban_job = Repo.get(Oban.Job, oban_job.id)
+      assert cancelled_oban_job.state == "cancelled"
+    end
+
+    test "returns error for completed or failed jobs" do
+      completed_job = create_job(%{status: "completed"})
+      failed_job = create_job(%{status: "failed"})
+
+      assert {:error, :not_cancellable} = Ingestion.cancel_job(completed_job.id)
+      assert {:error, :not_cancellable} = Ingestion.cancel_job(failed_job.id)
     end
 
     test "returns error if job not found" do
