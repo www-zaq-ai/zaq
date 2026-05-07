@@ -281,8 +281,8 @@ defmodule Zaq.IngestionTest do
       assert {:ok, cancelled} = Ingestion.cancel_job(job.id)
       job_id = job.id
       assert cancelled.status == "failed"
-      assert cancelled.error == "cancelled"
-      assert_receive {:job_updated, %{id: ^job_id, status: "failed", error: "cancelled"}}
+      assert cancelled.error == "Cancelled by user."
+      assert_receive {:job_updated, %{id: ^job_id, status: "failed", error: "Cancelled by user."}}
     end
 
     test "cancels a processing job" do
@@ -292,8 +292,8 @@ defmodule Zaq.IngestionTest do
       assert {:ok, cancelled} = Ingestion.cancel_job(job.id)
       job_id = job.id
       assert cancelled.status == "failed"
-      assert cancelled.error == "cancelled"
-      assert_receive {:job_updated, %{id: ^job_id, status: "failed", error: "cancelled"}}
+      assert cancelled.error == "Cancelled by user."
+      assert_receive {:job_updated, %{id: ^job_id, status: "failed", error: "Cancelled by user."}}
     end
 
     test "cancels pending Oban chunk workers for a processing job" do
