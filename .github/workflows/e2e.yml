@@ -29,6 +29,7 @@ jobs:
 
     env:
       MIX_ENV: test
+      MIX_BUILD_PATH: _build/test-e2e
       E2E: "1"
       PORT: "4002"
 
@@ -37,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install inotify-tools
-        run: sudo apt-get install -y inotify-tools
+        run: sudo apt-get install -y --no-install-recommends inotify-tools
 
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
