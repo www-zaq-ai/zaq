@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.8.1](https://github.com/www-zaq-ai/zaq/compare/v0.8.0...v0.8.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* **agents:** cover it with e2e tests ([1bbcf84](https://github.com/www-zaq-ai/zaq/commit/1bbcf844f1b9b8a73efe19835df2adb71d769228))
+* **agents:** fix OpenRouter case mismatch and add full E2E coverage ([8a22216](https://github.com/www-zaq-ai/zaq/commit/8a2221667fea94fbdbbd44b0b2231fb4ffef4a37))
+* **agents:** scroll to flash/inline errors after DOM reflow using requestAnimationFrame ([4424f6e](https://github.com/www-zaq-ai/zaq/commit/4424f6e240a7756f6060e550448d4127485f1bef))
+* **agents:** when error occurs on agent page it scrolls for user to know what's the error ([2f8e183](https://github.com/www-zaq-ai/zaq/commit/2f8e1832a8fd3187d11c06785712d4419f1df1b8))
+* **chat:** add delete chat confirmation modal and new_chat event ([f748618](https://github.com/www-zaq-ai/zaq/commit/f748618f67c4d39f2a2a897c29216278a8976084))
+* **chat:** delete chat button ([f0b0dc3](https://github.com/www-zaq-ai/zaq/commit/f0b0dc37a330370ed75a0ff13d8999abd4c726da))
+* **chat:** rename clear-chat to new-chat button and fix e2e selector ([1f937fe](https://github.com/www-zaq-ai/zaq/commit/1f937fe52f403ebd119933b16637034921fa7fb6))
+* **ci:** add a summary for the releases ([7762b3f](https://github.com/www-zaq-ai/zaq/commit/7762b3f1790877a53ff89e402ba62fd649df932b))
+* **ci:** compile into _build/test-e2e to eliminate double Elixir compilation in E2E workflow ([2b1290f](https://github.com/www-zaq-ai/zaq/commit/2b1290f42a26904627e637940fdf3c6882e18097))
+* **e2e:** stabilize remove-MCP test by waiting for modal close ([17a44e3](https://github.com/www-zaq-ai/zaq/commit/17a44e3209303ae93e58700606561fd502084b52))
+* **ingestion:** allow cancelling processing jobs and stop pending chunk workers ([33f800c](https://github.com/www-zaq-ai/zaq/commit/33f800c70e7a6b5ad03946da54f9f9ae48c8917c))
+* **ingestion:** atomic stop_job, race guard, friendly error messages, and embedding settings link ([88f68ae](https://github.com/www-zaq-ai/zaq/commit/88f68aea1a8e185e32f25c2d6e703771812f1a32))
+* **ingestion:** cancel stuck jobs, stop chunk retries, and surface fatal errors to the user ([b5b39c5](https://github.com/www-zaq-ai/zaq/commit/b5b39c5614c0272337547f7eb2eacbf64bd043cf))
+* **ingestion:** handle folder drops with batching, relative paths, and in-progress upload guard ([d68d554](https://github.com/www-zaq-ai/zaq/commit/d68d554875fc1b6e244cfea5a2514da7ff1362f3))
+* **ingestion:** readEntries error handling, queue cleanup on destroy, skipped reset on upload, path tooltip, event doc ([a1da0d2](https://github.com/www-zaq-ai/zaq/commit/a1da0d23cdf32c4529150ef7e2f1aac5e1763772))
+* **ingestion:** replace manual FS rollback with Sage saga and fix metadata fragment cast ([e914179](https://github.com/www-zaq-ai/zaq/commit/e9141794a6c9524dd8f699a2bd901d466f53f75a))
+* **ingestion:** solid sanitize_bm25_query — fix Unicode whitespace and idempotency ([01e6f55](https://github.com/www-zaq-ai/zaq/commit/01e6f55f600c792d0e70b7713207a908c3cd38c8))
+* **ingest:** update document sources and sidecar metadata when renaming a folder (issue [#331](https://github.com/www-zaq-ai/zaq/issues/331)) ([98a5456](https://github.com/www-zaq-ai/zaq/commit/98a5456195448f64f7f28a262ff9983abf7ea789))
+
+
+### Refactoring
+
+* **ingestion:** make directory rename DB updates atomic via Ecto.Multi ([6343212](https://github.com/www-zaq-ai/zaq/commit/6343212ff47e7eedf36b8b35202fec5841a5675f))
+
 ## [0.8.0](https://github.com/www-zaq-ai/zaq/compare/v0.7.3...v0.8.0) (2026-05-05)
 
 
