@@ -5,7 +5,7 @@ defmodule Zaq.SystemConfigFixtures do
   alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig}
 
   def ai_credential_fixture(attrs \\ %{}) do
-    unique = :erlang.unique_integer([:positive])
+    unique = Ecto.UUID.generate()
 
     params =
       Map.merge(

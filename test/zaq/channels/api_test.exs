@@ -7,10 +7,8 @@ defmodule Zaq.Channels.ApiTest do
   alias Zaq.Event
 
   defmodule StubCommunicationBridge do
-    def deliver(%Outgoing{} = outgoing) do
-      send(self(), {:bridge_deliver, outgoing})
-      :ok
-    end
+    def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
+    def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
 
     def sync_config_runtime(before_config, after_config) do
       send(self(), {:bridge_sync_config_runtime, before_config, after_config})
@@ -23,9 +21,14 @@ defmodule Zaq.Channels.ApiTest do
     end
   end
 
-  defmodule StubRouter do
+  defmodule StubBridgeImpl do
+    def send_reply(%Outgoing{} = outgoing, details) do
+      send(self(), {:bridge_send_reply, outgoing, details})
+      :ok
+    end
+
     def test_connection(%ChannelConfig{} = config, channel_id) do
-      send(self(), {:router_test_connection, config.id, channel_id})
+      send(self(), {:bridge_test_connection, config.id, channel_id})
       {:ok, %{id: "ok"}}
     end
   end
@@ -35,13 +38,31 @@ defmodule Zaq.Channels.ApiTest do
 
     event =
       Event.new(outgoing, :channels,
-        opts: [action: :deliver_outgoing, communication_bridge_module: StubCommunicationBridge]
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
       )
 
     result = Api.handle_event(event, :deliver_outgoing, nil)
 
     assert result.response == :ok
-    assert_received {:bridge_deliver, ^outgoing}
+
+    assert_received {:bridge_send_reply, ^outgoing,
+                     %{url: "https://example.test", token: "token"}}
+  end
+
+  test "handles deliver_outgoing action when outgoing is in event response" do
+    outgoing = %Outgoing{body: "ok", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(%{noop: true}, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+      )
+
+    result = Api.handle_event(%{event | response: outgoing}, :deliver_outgoing, nil)
+
+    assert result.response == :ok
+
+    assert_received {:bridge_send_reply, ^outgoing,
+                     %{url: "https://example.test", token: "token"}}
   end
 
   test "handles sync_channel_runtime action" do
@@ -52,7 +73,7 @@ defmodule Zaq.Channels.ApiTest do
       Event.new(%{before_config: before_config, after_config: after_config}, :channels,
         opts: [
           action: :sync_channel_runtime,
-          communication_bridge_module: StubCommunicationBridge
+          runtime_module: StubCommunicationBridge
         ]
       )
 
@@ -67,7 +88,7 @@ defmodule Zaq.Channels.ApiTest do
       Event.new(%{provider: :mattermost}, :channels,
         opts: [
           action: :sync_provider_runtime,
-          communication_bridge_module: StubCommunicationBridge
+          runtime_module: StubCommunicationBridge
         ]
       )
 
@@ -78,18 +99,18 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   test "handles test_connection action" do
-    config = %ChannelConfig{id: 42}
+    config = %ChannelConfig{id: 42, provider: "mattermost"}
     channel_id = "chan-1"
 
     event =
       Event.new(%{config: config, channel_id: channel_id}, :channels,
-        opts: [action: :test_connection, router_module: StubRouter]
+        opts: [action: :test_connection, bridge_module: StubCommunicationBridge]
       )
 
     result = Api.handle_event(event, :test_connection, nil)
 
     assert result.response == {:ok, %{id: "ok"}}
-    assert_received {:router_test_connection, 42, "chan-1"}
+    assert_received {:bridge_test_connection, 42, "chan-1"}
   end
 
   test "delegates incoming_async_hop to shared helper" do
@@ -113,6 +134,6 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :deliver_outgoing, nil)
 
-    assert result.response == {:error, {:unsupported_action, :deliver_outgoing}}
+    assert result.response == {:error, {:invalid_request, :missing_outgoing_payload}}
   end
 end

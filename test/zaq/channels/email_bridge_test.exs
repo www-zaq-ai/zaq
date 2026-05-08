@@ -180,8 +180,8 @@ defmodule Zaq.Channels.EmailBridgeTest do
           :deliver_outgoing ->
             :ok
 
-          :persist_from_incoming ->
-            :ok
+          _ ->
+            {:error, :unsupported}
         end
 
       %{event | response: response}
@@ -213,9 +213,6 @@ defmodule Zaq.Channels.EmailBridgeTest do
             }
 
           :deliver_outgoing ->
-            :ok
-
-          :persist_from_incoming ->
             :ok
 
           _ ->
@@ -1122,7 +1119,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert log =~ "Failed to process inbound message"
     end
 
-    test "returns persistence error" do
+    test "ignores persistence module in bridge path" do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
       Application.put_env(:zaq, :email_bridge_router_module, RouterOkStub)
       Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsErrorStub)
@@ -1131,7 +1128,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       log =
         capture_log(fn ->
-          assert {:error, :persist_failed} =
+          assert :ok =
                    EmailBridge.from_listener(
                      config,
                      %{"body_text" => "hello"},
@@ -1140,7 +1137,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
                    )
         end)
 
-      assert log =~ "Failed to process inbound message"
+      refute log =~ "Failed to process inbound message"
     end
 
     test "returns wrapped error for unexpected non-error pipeline chain value" do
