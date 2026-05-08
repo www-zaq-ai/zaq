@@ -10,13 +10,16 @@ defmodule Zaq.Channels.EmailBridge do
   """
 
   @behaviour Zaq.Channels.Bridge
+  @behaviour Zaq.Channels.CommunicationBridge
+  use Zaq.Channels.Bridge
+  use Zaq.Channels.CommunicationBridge
 
   require Logger
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, Router, Supervisor}
+  alias Zaq.Channels.{Bridge, ChannelConfig}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.{Event, NodeRouter, System}
+  alias Zaq.{NodeRouter, System}
   alias Zaq.Utils.EmailUtils
 
   @doc "Converts an email adapter payload to the internal `%Incoming{}` format."
@@ -31,48 +34,32 @@ defmodule Zaq.Channels.EmailBridge do
 
   def to_internal(_params, _connection_details), do: {:error, :invalid_email_payload}
 
-  @doc "Starts inbound email runtime processes for a channel config."
   @impl true
-  def start_runtime(config) do
-    bridge_id = default_bridge_id(config)
+  def build_runtime_specs(config) do
+    bridge_id = runtime_bridge_id(config)
     provider = Map.get(config, :provider) || Map.get(config, "provider")
 
     with {:ok, adapter} <- adapter_for(provider),
-         {:ok, prepared_config} <- normalize_imap_config(config),
-         {:ok, {state_spec, listeners}} <-
-           adapter.runtime_specs(
-             prepared_config,
-             bridge_id,
-             sink_mfa: {__MODULE__, :from_listener, []},
-             sink_opts: [bridge_id: bridge_id]
-           ) do
-      case Supervisor.start_runtime(bridge_id, state_spec, listeners) do
-        {:ok, _runtime} ->
-          :ok
-
-        {:error, :already_running} ->
-          restart_runtime(config, bridge_id, state_spec, listeners)
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+         {:ok, prepared_config} <- normalize_imap_config(config) do
+      adapter.runtime_specs(
+        prepared_config,
+        bridge_id,
+        sink_mfa: {__MODULE__, :from_listener, []},
+        sink_opts: [bridge_id: bridge_id]
+      )
     end
   end
 
-  @doc "Stops IMAP runtime processes for an email:imap config."
   @impl true
-  def stop_runtime(config) do
-    case Supervisor.stop_bridge_runtime(config, default_bridge_id(config)) do
-      :ok -> :ok
-      {:error, :not_running} -> :ok
-      other -> other
-    end
-  end
+  def sync_provider_runtime(%{enabled: false} = config), do: stop_runtime(config)
+
+  def sync_provider_runtime(%{enabled: true} = config),
+    do: Bridge.restart_runtime(__MODULE__, config)
 
   @doc "Listener sink callback for incoming adapter payloads."
   def from_listener(config, payload, sink_opts)
       when is_map(payload) and is_list(sink_opts) do
-    Bridge.route_incoming(__MODULE__, config, payload, sink_opts)
+    route_incoming(__MODULE__, config, payload, sink_opts)
   end
 
   @doc "Processes a normalized inbound payload from listener sink."
@@ -84,8 +71,7 @@ defmodule Zaq.Channels.EmailBridge do
          agent_selection =
            resolve_agent_selection(config, incoming, mailbox: connection[:mailbox]),
          %Outgoing{} = outgoing <- run_pipeline(incoming, agent_selection: agent_selection),
-         :ok <- deliver_outgoing(outgoing),
-         :ok <- persist_from_incoming(incoming, outgoing.metadata) do
+         :ok <- deliver_outgoing_runtime(outgoing) do
       :ok
     else
       {:error, reason} ->
@@ -161,18 +147,6 @@ defmodule Zaq.Channels.EmailBridge do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp default_bridge_id(config), do: "#{config.provider}_#{config.id}"
-
-  defp restart_runtime(config, bridge_id, state_spec, listeners) do
-    with :ok <- stop_runtime(config) do
-      case Supervisor.start_runtime(bridge_id, state_spec, listeners) do
-        {:ok, _runtime} -> :ok
-        {:error, :already_running} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
   defp resolve_adapter(connection_details) do
     case Map.get(connection_details, :adapter) || Map.get(connection_details, "adapter") do
       module when is_atom(module) and not is_nil(module) -> {:ok, module}
@@ -216,7 +190,7 @@ defmodule Zaq.Channels.EmailBridge do
     pipeline_opts = Keyword.delete(opts, :agent_selection)
 
     if module == Zaq.Agent.Pipeline do
-      Bridge.run_pipeline_with_node_router(
+      run_pipeline_with_node_router(
         msg,
         pipeline_opts,
         agent_selection,
@@ -238,7 +212,7 @@ defmodule Zaq.Channels.EmailBridge do
       {:global_default, System.get_global_default_agent_id()}
     ]
 
-    Bridge.first_active_selection(candidates)
+    first_active_selection(candidates)
   end
 
   defp mailbox_assignment_agent_id(config, mailbox) do
@@ -265,29 +239,6 @@ defmodule Zaq.Channels.EmailBridge do
 
   defp normalize_mailbox(_), do: nil
 
-  defp deliver_outgoing(%Outgoing{} = outgoing) do
-    module = router_module()
-
-    if module == Router do
-      event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
-      node_router_module().dispatch(event).response
-    else
-      module.deliver(outgoing)
-    end
-  end
-
-  defp persist_from_incoming(%Incoming{} = incoming, metadata) when is_map(metadata) do
-    module = conversations_module()
-
-    Bridge.persist_from_incoming(
-      incoming,
-      metadata,
-      module,
-      actor_from_incoming(incoming),
-      node_router_module()
-    )
-  end
-
   defp actor_from_incoming(%Incoming{} = incoming) do
     %{id: incoming.author_id, name: incoming.author_name, provider: incoming.provider}
   end
@@ -295,14 +246,26 @@ defmodule Zaq.Channels.EmailBridge do
   defp pipeline_module,
     do: Application.get_env(:zaq, :email_bridge_pipeline_module, Zaq.Agent.Pipeline)
 
-  defp router_module,
-    do: Application.get_env(:zaq, :email_bridge_router_module, Router)
-
-  defp conversations_module,
-    do: Application.get_env(:zaq, :email_bridge_conversations_module, Zaq.Engine.Conversations)
-
   defp node_router_module,
     do: Application.get_env(:zaq, :email_bridge_node_router_module, NodeRouter)
+
+  defp deliver_outgoing_runtime(%Outgoing{} = outgoing) do
+    case Application.get_env(:zaq, :email_bridge_router_module, Zaq.Channels.Api) do
+      Zaq.Channels.Api ->
+        Zaq.Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
+        |> node_router_module().dispatch()
+        |> then(& &1.response)
+
+      module when is_atom(module) ->
+        if Code.ensure_loaded?(module) and function_exported?(module, :deliver, 1) do
+          module.deliver(outgoing)
+        else
+          Zaq.Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
+          |> node_router_module().dispatch()
+          |> then(& &1.response)
+        end
+    end
+  end
 
   # Handles both atom and string-keyed metadata (Oban args arrive as string keys).
   defp get_meta(metadata, string_key, atom_key) when is_map(metadata) do

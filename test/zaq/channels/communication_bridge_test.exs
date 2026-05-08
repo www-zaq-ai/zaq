@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.CommunicationBridgeTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{ChannelConfig, CommunicationBridge}
+  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge}
   alias Zaq.Repo
 
   defmodule StubBridge do
@@ -51,22 +51,22 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
   describe "provider normalization and bridge resolution" do
     test "maps provider atom and string to same bridge" do
-      assert CommunicationBridge.bridge_for(:mattermost) == StubBridge
-      assert CommunicationBridge.bridge_for("mattermost") == StubBridge
+      assert Bridge.bridge_for(:mattermost) == StubBridge
+      assert Bridge.bridge_for("mattermost") == StubBridge
     end
 
     test "maps email transport providers to :email bridge" do
-      assert CommunicationBridge.provider_to_bridge_key("email:smtp") == :email
-      assert CommunicationBridge.provider_to_bridge_key("email:imap") == :email
-      assert CommunicationBridge.bridge_for("email:smtp") == StubBridge
-      assert CommunicationBridge.bridge_for("email:imap") == StubBridge
+      assert Bridge.provider_to_bridge_key("email:smtp") == :email
+      assert Bridge.provider_to_bridge_key("email:imap") == :email
+      assert Bridge.bridge_for("email:smtp") == StubBridge
+      assert Bridge.bridge_for("email:imap") == StubBridge
     end
 
     test "returns missing bridge errors for unknown provider" do
-      assert CommunicationBridge.bridge_for("definitely_missing_provider") == nil
+      assert Bridge.bridge_for("definitely_missing_provider") == nil
 
       assert {:error, {:no_bridge, "definitely_missing_provider"}} =
-               CommunicationBridge.resolve_bridge("definitely_missing_provider")
+               Bridge.resolve_bridge("definitely_missing_provider")
     end
   end
 

@@ -5,17 +5,107 @@ defmodule Zaq.Channels.Api do
 
   @behaviour Zaq.InternalBoundaries
 
-  alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.CommunicationBridge
-  alias Zaq.Channels.Router
+  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge}
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.InternalBoundaries
 
   @impl true
-  def handle_event(%Event{request: %Outgoing{} = outgoing} = event, :deliver_outgoing, _context) do
-    bridge_module = Keyword.get(event.opts, :communication_bridge_module, CommunicationBridge)
-    %{event | response: bridge_module.deliver(outgoing)}
+  def handle_event(%Event{} = event, :deliver_outgoing, _context) do
+    bridge_module = bridge_module(event)
+
+    with {:ok, outgoing} <- outgoing_from_event(event),
+         {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider) do
+      connection_details = bridge_module.fetch_connection_details(outgoing.provider)
+      %{event | response: bridge.send_reply(outgoing, connection_details)}
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+    end
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, channel_id: channel_id}} = event,
+        :send_typing,
+        _context
+      )
+      when is_binary(channel_id) do
+    bridge_module = bridge_module(event)
+
+    with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
+         true <- supports_callback?(bridge, :send_typing, 3) || {:error, :unsupported} do
+      config = bridge_module.fetch_channel_config(provider)
+      details = bridge_module.fetch_connection_details(provider)
+
+      case config do
+        {:ok, cfg} -> %{event | response: bridge.send_typing(cfg, channel_id, details)}
+        {:error, reason} -> %{event | response: {:error, reason}}
+      end
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+      false -> %{event | response: {:error, :unsupported}}
+    end
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, author_id: author_id}} = event,
+        :fetch_profile,
+        _context
+      )
+      when is_binary(author_id) do
+    bridge_module = bridge_module(event)
+
+    with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
+         true <- supports_callback?(bridge, :fetch_profile, 2) || {:error, :unsupported} do
+      details = Map.put(bridge_module.fetch_connection_details(provider), :provider, provider)
+      %{event | response: bridge.fetch_profile(author_id, details)}
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+      false -> %{event | response: {:error, :unsupported}}
+    end
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, author_id: author_id}} = event,
+        :open_dm_channel,
+        _context
+      )
+      when is_binary(author_id) do
+    bridge_module = bridge_module(event)
+
+    with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
+         true <- supports_callback?(bridge, :open_dm_channel, 2) || {:error, :unsupported},
+         {:ok, config} <- bridge_module.fetch_channel_config(provider) do
+      bot_user_id = ChannelConfig.jido_chat_bot_user_id(config)
+
+      details =
+        bridge_module.fetch_connection_details(provider)
+        |> Map.put(:provider, provider)
+        |> Map.put(:bot_user_id, bot_user_id)
+
+      %{event | response: bridge.open_dm_channel(author_id, details)}
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+      false -> %{event | response: {:error, :unsupported}}
+    end
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, config: config_params}} = event,
+        :list_mailboxes,
+        _context
+      )
+      when is_map(config_params) do
+    bridge_module = bridge_module(event)
+
+    with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
+         true <- supports_callback?(bridge, :list_mailboxes, 2) || {:error, :unsupported} do
+      config = Map.put(config_params, :provider, to_string(provider))
+      details = bridge_module.fetch_connection_details(provider)
+      %{event | response: bridge.list_mailboxes(config, details)}
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+      false -> %{event | response: {:error, :unsupported}}
+    end
   end
 
   def handle_event(
@@ -23,8 +113,8 @@ defmodule Zaq.Channels.Api do
         :sync_channel_runtime,
         _context
       ) do
-    bridge_module = Keyword.get(event.opts, :communication_bridge_module, CommunicationBridge)
-    %{event | response: bridge_module.sync_config_runtime(before_config, after_config)}
+    runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
+    %{event | response: runtime_module.sync_config_runtime(before_config, after_config)}
   end
 
   def handle_event(
@@ -32,13 +122,13 @@ defmodule Zaq.Channels.Api do
         :sync_provider_runtime,
         _context
       ) do
-    bridge_module = Keyword.get(event.opts, :communication_bridge_module, CommunicationBridge)
-    %{event | response: bridge_module.sync_provider_runtime(provider)}
+    runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
+    %{event | response: runtime_module.sync_provider_runtime(provider)}
   end
 
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)
       when is_binary(platform) do
-    bridge_module = Keyword.get(event.opts, :communication_bridge_module, CommunicationBridge)
+    bridge_module = bridge_module(event)
     %{event | response: not is_nil(bridge_module.bridge_for(platform))}
   end
 
@@ -48,8 +138,15 @@ defmodule Zaq.Channels.Api do
         _context
       )
       when is_binary(channel_id) do
-    router_module = Keyword.get(event.opts, :router_module, Router)
-    %{event | response: router_module.test_connection(config, channel_id)}
+    bridge_module = bridge_module(event)
+
+    with {:ok, bridge} <- resolve_bridge(bridge_module, config.provider),
+         true <- supports_callback?(bridge, :test_connection, 2) || {:error, :unsupported} do
+      %{event | response: bridge.test_connection(config, channel_id)}
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+      false -> %{event | response: {:error, :unsupported}}
+    end
   end
 
   def handle_event(%Event{} = event, :incoming_async_hop, _context),
@@ -61,4 +158,26 @@ defmodule Zaq.Channels.Api do
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
+
+  defp outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
+  defp outgoing_from_event(%Event{response: %Outgoing{} = outgoing}), do: {:ok, outgoing}
+  defp outgoing_from_event(_event), do: {:error, {:invalid_request, :missing_outgoing_payload}}
+
+  defp resolve_bridge(bridge_module, provider) when is_atom(bridge_module) do
+    case bridge_module.bridge_for(provider) do
+      nil -> {:error, {:no_bridge, provider}}
+      bridge -> {:ok, bridge}
+    end
+  end
+
+  defp supports_callback?(bridge, fun, arity)
+       when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
+    Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
+  end
+
+  defp bridge_module(%Event{opts: opts}) when is_list(opts) do
+    Keyword.get(opts, :bridge_module) || Keyword.get(opts, :communication_bridge_module, Bridge)
+  end
+
+  defp bridge_module(_event), do: Bridge
 end

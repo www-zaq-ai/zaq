@@ -6,22 +6,25 @@ defmodule Zaq.Channels.JidoChatBridge do
   raw payloads to the per-bridge state process, where normalization and
   Jido.Chat event handling happen atomically.
 
-  `send_reply/2` is called by the Router for outbound delivery to any
+  `send_reply/2` is called by Channels API for outbound delivery to any
   jido_chat-backed platform.
 
   All external module calls are configurable via Application env for testability.
   """
 
   @behaviour Zaq.Channels.Bridge
+  @behaviour Zaq.Channels.CommunicationBridge
+  use Zaq.Channels.Bridge
+  use Zaq.Channels.CommunicationBridge
 
   require Logger
 
   alias Jido.Chat
   alias Jido.Chat.Thread
-  alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Router, Supervisor}
+  alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Supervisor}
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.{Event, NodeRouter, System}
+  alias Zaq.{NodeRouter, System}
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -29,7 +32,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   Sink target for `sink_mfa`. Always routes through the bridge state process.
   """
   def from_listener(config, payload, sink_opts) when is_map(payload) do
-    bridge_id = sink_opts[:bridge_id] || default_bridge_id(config)
+    bridge_id = sink_opts[:bridge_id] || runtime_bridge_id(config)
 
     with :ok <- ensure_runtime_started(config, bridge_id, []),
          {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
@@ -78,31 +81,28 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  @doc "Starts runtime processes for a channel config."
   @impl true
-  def start_runtime(config) do
-    bridge_id = default_bridge_id(config)
+  def build_runtime_specs(config) do
+    bridge_id = runtime_bridge_id(config)
 
-    ensure_runtime_started(config, bridge_id, [])
-  end
-
-  @doc "Stops runtime processes for a channel config."
-  @impl true
-  def stop_runtime(config) do
-    case supervisor_module().stop_bridge_runtime(config, default_bridge_id(config)) do
-      :ok -> :ok
-      {:error, :not_running} -> :ok
-      other -> other
+    with {:ok, listeners} <- listener_specs(config, bridge_id, []) do
+      {:ok, {state_child_spec(config, bridge_id), listeners}}
     end
   end
 
-  @doc "Synchronizes runtime behavior for config changes owned by this bridge."
-  def sync_runtime(nil, %{enabled: true} = config), do: start_runtime(config)
-  def sync_runtime(nil, %{enabled: false}), do: :ok
-  def sync_runtime(%{enabled: true}, %{enabled: false} = config), do: stop_runtime(config)
-  def sync_runtime(%{enabled: false}, %{enabled: true} = config), do: start_runtime(config)
+  @impl true
+  def runtime_supervisor_module, do: supervisor_module()
 
-  def sync_runtime(%{enabled: true} = before_config, %{enabled: true} = after_config) do
+  @impl true
+  def start_runtime(config) do
+    ensure_runtime_started(config, runtime_bridge_id(config), [])
+  end
+
+  @impl true
+  def runtime_update_enabled_enabled(
+        %{enabled: true} = before_config,
+        %{enabled: true} = after_config
+      ) do
     cond do
       runtime_restart_required?(before_config, after_config) ->
         restart_runtime(after_config)
@@ -115,11 +115,11 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  def sync_runtime(_before, _after), do: :ok
-
-  @doc "Synchronizes runtime from canonical provider config owned by this bridge."
+  @impl true
   def sync_provider_runtime(%{enabled: false} = config), do: stop_runtime(config)
-  def sync_provider_runtime(%{enabled: true} = config), do: restart_runtime(config)
+
+  def sync_provider_runtime(%{enabled: true} = config),
+    do: Bridge.restart_runtime(__MODULE__, config)
 
   @doc "Tests adapter connectivity by sending a test message."
   @impl true
@@ -177,7 +177,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc """
   Delivers `%Outgoing{}` to the Mattermost (or other jido_chat) platform.
 
-  Called by `Zaq.Channels.Router` after resolving connection details from the DB.
+  Called by Channels API after resolving connection details from the DB.
   Also dispatches `:on_reply` Oban jobs when `outgoing.metadata` carries such
   instructions (used by the notification center for reply tracking).
   """
@@ -366,14 +366,15 @@ defmodule Zaq.Channels.JidoChatBridge do
     agent_selection = resolve_agent_selection(config, msg, channel_id: msg.channel_id)
 
     with {:ok, role_ids} <- resolve_roles(msg),
-         %Outgoing{} = outgoing <-
-           run_pipeline(msg, role_ids: role_ids, agent_selection: agent_selection),
-         :ok <- deliver_outgoing(outgoing) do
+         :ok <-
+           normalize_pipeline_result(
+             run_pipeline(msg, role_ids: role_ids, agent_selection: agent_selection)
+           ) do
       :telemetry.execute([:zaq, :chat_bridge, :message, :processed], %{count: 1}, %{
         provider: msg.provider
       })
 
-      persist_from_incoming(msg, outgoing.metadata)
+      :ok
     else
       {:error, reason} ->
         :telemetry.execute([:zaq, :chat_bridge, :message, :failed], %{count: 1}, %{
@@ -446,8 +447,6 @@ defmodule Zaq.Channels.JidoChatBridge do
     {state_child_spec(config, bridge_id), listeners}
   end
 
-  defp default_bridge_id(config), do: "#{config.provider}_#{config.id}"
-
   defp thread_bridge_id(channel_id, thread_id), do: "#{channel_id}_#{thread_id}"
 
   defp ensure_runtime_started(config, bridge_id, runtime_opts) do
@@ -472,16 +471,14 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp refresh_runtime(config) do
-    case supervisor_module().lookup_state_pid(default_bridge_id(config)) do
+    case supervisor_module().lookup_state_pid(runtime_bridge_id(config)) do
       {:ok, state_pid} -> State.refresh_config(state_pid, config)
       {:error, :not_running} -> start_runtime(config)
     end
   end
 
   defp restart_runtime(config) do
-    with :ok <- stop_runtime(config) do
-      start_runtime(config)
-    end
+    Bridge.restart_runtime(__MODULE__, config)
   end
 
   defp state_child_spec(config, bridge_id) do
@@ -620,7 +617,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     pipeline_opts = Keyword.delete(opts, :agent_selection)
 
     if module == Zaq.Agent.Pipeline do
-      Bridge.run_pipeline_with_node_router(
+      run_pipeline_with_node_router(
         msg,
         pipeline_opts,
         agent_selection,
@@ -632,6 +629,16 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
+  defp normalize_pipeline_result(result)
+
+  defp normalize_pipeline_result(:ok), do: :ok
+  defp normalize_pipeline_result(nil), do: :ok
+  defp normalize_pipeline_result(%Outgoing{}), do: :ok
+  defp normalize_pipeline_result({:ok, _}), do: :ok
+  defp normalize_pipeline_result({:error, _} = error), do: error
+
+  defp normalize_pipeline_result(other), do: {:error, {:invalid_pipeline_response, other}}
+
   @impl true
   def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
     channel_id = Keyword.get(opts, :channel_id)
@@ -642,7 +649,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       {:global_default, System.get_global_default_agent_id()}
     ]
 
-    Bridge.first_active_selection(candidates)
+    first_active_selection(candidates)
   end
 
   defp channel_assignment_agent_id(config, channel_id) when is_binary(channel_id) do
@@ -660,29 +667,6 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp channel_assignment_agent_id(_config, _channel_id), do: nil
 
-  defp deliver_outgoing(outgoing) do
-    module = router_module()
-
-    if module == Router do
-      event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
-      node_router_module().dispatch(event).response
-    else
-      module.deliver(outgoing)
-    end
-  end
-
-  defp persist_from_incoming(msg, metadata) do
-    module = conversations_module()
-
-    Bridge.persist_from_incoming(
-      msg,
-      metadata,
-      module,
-      actor_from_incoming(msg),
-      node_router_module()
-    )
-  end
-
   defp actor_from_incoming(%Incoming{} = incoming) do
     %{id: incoming.author_id, name: incoming.author_name, provider: incoming.provider}
   end
@@ -693,14 +677,6 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp pipeline_module do
     Application.get_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-  end
-
-  defp router_module do
-    Application.get_env(:zaq, :chat_bridge_router_module, Router)
-  end
-
-  defp conversations_module do
-    Application.get_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
   end
 
   defp accounts_module do

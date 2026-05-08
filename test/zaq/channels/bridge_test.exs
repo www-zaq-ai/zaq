@@ -2,6 +2,7 @@ defmodule Zaq.Channels.BridgeTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.Messages.Incoming
 
   defmodule StubConversations do
@@ -88,7 +89,7 @@ defmodule Zaq.Channels.BridgeTest do
     ]
 
     assert %{"agent_id" => 20, "source" => "provider_default"} =
-             Bridge.first_active_selection(candidates, StubAgentSelection)
+             CommunicationBridge.first_active_selection(candidates, StubAgentSelection)
   end
 
   test "route_incoming/4 default hooks pass through inputs" do
