@@ -294,6 +294,7 @@ defmodule Zaq.Engine.Conversations do
   defp normalize_channel_type(provider) when is_binary(provider) do
     case provider do
       "email" -> "email:imap"
+      "web" -> "bo"
       other -> other
     end
   end

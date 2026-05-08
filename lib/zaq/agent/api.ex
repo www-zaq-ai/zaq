@@ -73,7 +73,7 @@ defmodule Zaq.Agent.Api do
 
         case prompt_guard_mod.validate(incoming.content) do
           {:error, _reason} ->
-            %{event | response: guard_error_outgoing(incoming)}
+            maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
 
           {:ok, _} ->
             dispatch_pipeline(event, incoming)
@@ -260,7 +260,7 @@ defmodule Zaq.Agent.Api do
   defp maybe_dispatch_return_hop(%Event{} = event, _incoming, other),
     do: %{event | response: other}
 
-  defp delivery_through_channels?(provider), do: to_string(provider) != "web"
+  defp delivery_through_channels?(provider), do: not is_nil(provider)
 
   defp schedule_return_hop(%Event{} = event, %Outgoing{} = outgoing) do
     hop = EventHop.new(:channels, :sync, DateTime.utc_now())

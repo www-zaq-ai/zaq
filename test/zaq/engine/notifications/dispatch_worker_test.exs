@@ -13,21 +13,30 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
   # ---------------------------------------------------------------------------
 
   defmodule OkCommunicationBridge do
-    def deliver(%Outgoing{} = outgoing) do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
       send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
       :ok
     end
   end
 
   defmodule ErrorCommunicationBridge do
-    def deliver(%Outgoing{}), do: {:error, :delivery_failed}
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+    def send_reply(%Outgoing{}, _connection_details), do: {:error, :delivery_failed}
   end
 
   defmodule FirstFailCommunicationBridge do
     # Fails on email, succeeds on everything else
-    def deliver(%Outgoing{provider: :email}), do: {:error, :delivery_failed}
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
 
-    def deliver(%Outgoing{} = outgoing) do
+    def send_reply(%Outgoing{provider: :email}, _connection_details),
+      do: {:error, :delivery_failed}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
       send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
       :ok
     end
@@ -66,7 +75,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       :zaq,
       :dispatch_worker_channels_event_opts,
       channels_api_module: Zaq.Channels.Api,
-      communication_bridge_module: OkCommunicationBridge
+      bridge_module: OkCommunicationBridge
     )
 
     on_exit(fn ->
@@ -173,7 +182,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
         :zaq,
         :dispatch_worker_channels_event_opts,
         channels_api_module: Zaq.Channels.Api,
-        communication_bridge_module: ErrorCommunicationBridge
+        bridge_module: ErrorCommunicationBridge
       )
 
       log = create_log()
@@ -207,7 +216,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
         :zaq,
         :dispatch_worker_channels_event_opts,
         channels_api_module: Zaq.Channels.Api,
-        communication_bridge_module: FirstFailCommunicationBridge
+        bridge_module: FirstFailCommunicationBridge
       )
 
       log = create_log()

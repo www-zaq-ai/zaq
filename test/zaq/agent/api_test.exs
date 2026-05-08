@@ -132,6 +132,7 @@ defmodule Zaq.Agent.ApiTest do
           pipeline_module: StubPipeline,
           pipeline_opts: [foo: :bar],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -163,6 +164,7 @@ defmodule Zaq.Agent.ApiTest do
           executor_module: StubExecutor,
           pipeline_opts: [history: %{"x" => 1}, telemetry_dimensions: %{channel_type: "bo"}],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -194,6 +196,7 @@ defmodule Zaq.Agent.ApiTest do
           executor_module: StubExecutor,
           pipeline_opts: [],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -221,6 +224,7 @@ defmodule Zaq.Agent.ApiTest do
           pipeline_module: StubPipeline,
           pipeline_opts: [foo: :bar],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -242,6 +246,7 @@ defmodule Zaq.Agent.ApiTest do
           pipeline_module: StubPipeline,
           pipeline_opts: [],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -259,7 +264,12 @@ defmodule Zaq.Agent.ApiTest do
 
     event =
       Event.new(incoming, :agent,
-        opts: [action: :run_pipeline, pipeline_module: StubPipeline, pipeline_opts: [foo: :bar]]
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [foo: :bar],
+          node_router: SpyNodeRouter
+        ]
       )
 
     event = %{event | assigns: %{"agent_selection" => %{source: "bo"}}}
@@ -495,6 +505,7 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_module: StubPipeline,
             pipeline_opts: [],
             identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -516,7 +527,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: SpyIdentityPlug
+            identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -542,7 +554,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: NilPersonIdentityPlug
+            identity_plug: NilPersonIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -561,7 +574,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [foo: :bar],
-            identity_plug: SpyIdentityPlug
+            identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -584,6 +598,7 @@ defmodule Zaq.Agent.ApiTest do
             executor_module: StubExecutor,
             pipeline_opts: [],
             identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -615,6 +630,7 @@ defmodule Zaq.Agent.ApiTest do
             executor_module: StubExecutor,
             pipeline_opts: [],
             identity_plug: NilPersonIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -640,6 +656,7 @@ defmodule Zaq.Agent.ApiTest do
             executor_module: StubExecutor,
             pipeline_opts: [history: %{"x" => 1}, telemetry_dimensions: %{channel_type: "bo"}],
             identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -667,7 +684,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: BlockingPromptGuard,
-            status_module: NoopStatus
+            status_module: NoopStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -690,7 +708,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: PassthroughPromptGuard,
-            status_module: SpyStatus
+            status_module: SpyStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -711,7 +730,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: BlockingPromptGuard,
-            status_module: NoopStatus
+            status_module: NoopStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -731,7 +751,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: PassthroughPromptGuard,
-            status_module: SpyStatus
+            status_module: SpyStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -751,7 +772,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: SpyIdentityPlug
+            identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
       end

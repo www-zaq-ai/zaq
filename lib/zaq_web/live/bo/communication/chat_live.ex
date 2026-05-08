@@ -126,6 +126,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
       session_id = socket.assigns.session_id
       request_id = user_msg.id
+      live_view_pid = self()
 
       {conversation_id, socket} =
         case resolve_or_create_conversation(socket) do
@@ -142,7 +143,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           socket.assigns.current_user,
           socket.assigns.selected_agent_id,
           active_filters,
-          conversation_id
+          %{conversation_id: conversation_id, live_view_pid: live_view_pid}
         )
       end)
 
@@ -555,7 +556,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          current_user,
          selected_agent_id,
          active_filters,
-         conversation_id
+         %{conversation_id: conversation_id, live_view_pid: live_view_pid}
        ) do
     source_filter = Enum.map(active_filters, & &1.source_prefix)
 
@@ -564,7 +565,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         content: user_msg,
         channel_id: "bo",
         message_id: request_id,
-        author_id: current_user.id,
+        author_id: to_string(current_user.id),
         provider: :web,
         person_id: Map.get(current_user, :person_id),
         content_filter: source_filter,
@@ -593,10 +594,63 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       )
       |> maybe_put_agent_selection(selected_agent_id)
 
-    _outgoing = build_outgoing_from_event(node_router().dispatch(event), incoming)
+    dispatched_event = node_router().dispatch(event)
+    outgoing = build_outgoing_from_event(dispatched_event, incoming)
+
+    maybe_emit_fallback_pipeline_result(
+      live_view_pid,
+      request_id,
+      outgoing,
+      user_msg,
+      dispatched_event
+    )
 
     :ok
   end
+
+  defp maybe_emit_fallback_pipeline_result(
+         live_view_pid,
+         request_id,
+         %Outgoing{} = outgoing,
+         user_msg,
+         %Event{
+           response: {:error, _reason}
+         }
+       )
+       when is_pid(live_view_pid) do
+    send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
+    :ok
+  end
+
+  defp maybe_emit_fallback_pipeline_result(
+         live_view_pid,
+         request_id,
+         %Outgoing{} = outgoing,
+         user_msg,
+         %Event{} = event
+       )
+       when is_pid(live_view_pid) do
+    case event do
+      %Event{request: %Outgoing{}, response: :ok} ->
+        :ok
+
+      %Event{response: %Outgoing{}} ->
+        :ok
+
+      _other ->
+        send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
+        :ok
+    end
+  end
+
+  defp maybe_emit_fallback_pipeline_result(
+         _live_view_pid,
+         _request_id,
+         _outgoing,
+         _user_msg,
+         _event
+       ),
+       do: :ok
 
   defp maybe_put_agent_selection(%Event{} = event, selected_agent_id) do
     case selected_agent_id do
