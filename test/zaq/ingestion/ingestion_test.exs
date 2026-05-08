@@ -1150,4 +1150,65 @@ defmodule Zaq.IngestionTest do
       assert doc.id in result
     end
   end
+
+  # ── Rename + list_document_sources integration ────────────────────────────────
+
+  describe "list_document_sources/1 after folder rename" do
+    test "suggestions reflect the new folder name immediately after rename_entry" do
+      unique = System.unique_integer([:positive])
+      old_folder = "rename_suggestions_#{unique}_old"
+      new_folder = "rename_suggestions_#{unique}_new"
+      file_path = Path.join(old_folder, "guide.pdf")
+      old_source = Path.join("default", file_path)
+      new_source = Path.join("default", Path.join(new_folder, "guide.pdf"))
+
+      :ok = FileExplorer.create_directory("default", old_folder)
+      {:ok, _} = FileExplorer.upload("default", file_path, "%PDF")
+      {:ok, _doc} = Document.create(%{source: old_source, content: "content"})
+
+      on_exit(fn -> FileExplorer.delete_directory("default", new_folder) end)
+
+      assert :ok = Ingestion.rename_entry("default", old_folder, new_folder)
+
+      assert Document.get_by_source(new_source) != nil,
+             "DB source must be updated to new path after rename"
+
+      assert Document.get_by_source(old_source) == nil,
+             "Old DB source must not exist after rename"
+
+      new_results = Ingestion.list_document_sources(new_folder)
+
+      assert Enum.any?(new_results, &(&1.label == new_folder)),
+             "Expected suggestion for '#{new_folder}', got: #{inspect(Enum.map(new_results, & &1.label))}"
+
+      old_results = Ingestion.list_document_sources(old_folder)
+
+      refute Enum.any?(old_results, &(&1.label == old_folder)),
+             "Old folder name '#{old_folder}' must not appear in suggestions after rename"
+    end
+
+    test "browse suggestions (query with trailing slash) work for the new folder name after rename" do
+      unique = System.unique_integer([:positive])
+      old_folder = "rename_browse_#{unique}_old"
+      new_folder = "rename_browse_#{unique}_new"
+      file_path = Path.join(old_folder, "report.pdf")
+      old_source = Path.join("default", file_path)
+
+      :ok = FileExplorer.create_directory("default", old_folder)
+      {:ok, _} = FileExplorer.upload("default", file_path, "%PDF")
+      {:ok, _doc} = Document.create(%{source: old_source, content: "content"})
+
+      on_exit(fn -> FileExplorer.delete_directory("default", new_folder) end)
+
+      assert :ok = Ingestion.rename_entry("default", old_folder, new_folder)
+
+      browse_results = Ingestion.list_document_sources("#{new_folder}/")
+
+      assert Enum.any?(browse_results, &(&1.type == :current_folder and &1.label == new_folder)),
+             "Expected :current_folder entry for '#{new_folder}' after rename"
+
+      assert Enum.any?(browse_results, &(&1.label == "report.pdf")),
+             "Expected file 'report.pdf' to appear when browsing renamed folder"
+    end
+  end
 end

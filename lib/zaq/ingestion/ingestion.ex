@@ -119,10 +119,12 @@ defmodule Zaq.Ingestion do
         do:
           dynamic(
             [d],
-            like(d.source, ^"%#{name}%") and
+            ilike(d.source, ^"%#{name}%") and
               fragment("(? ->> 'source_document_source') IS NULL", d.metadata)
           ),
         else: dynamic([d], fragment("(? ->> 'source_document_source') IS NULL", d.metadata))
+
+    name_lower = name && String.downcase(name)
 
     from(d in Document,
       where: ^condition,
@@ -140,7 +142,9 @@ defmodule Zaq.Ingestion do
     |> Enum.map(&ContentSource.from_source/1)
     |> Enum.reject(&is_nil/1)
     |> then(fn sources ->
-      if name, do: Enum.filter(sources, &String.contains?(&1.label, name)), else: sources
+      if name_lower,
+        do: Enum.filter(sources, &String.contains?(String.downcase(&1.label), name_lower)),
+        else: sources
     end)
     |> Enum.sort_by(&String.length(&1.source_prefix))
     |> Enum.uniq_by(&{&1.connector, &1.label})
@@ -173,9 +177,12 @@ defmodule Zaq.Ingestion do
       end)
       |> Enum.uniq_by(& &1.source_prefix)
       |> then(fn sources ->
-        if child_query != "",
-          do: Enum.filter(sources, &String.contains?(&1.label, child_query)),
-          else: sources
+        if child_query != "" do
+          child_lower = String.downcase(child_query)
+          Enum.filter(sources, &String.contains?(String.downcase(&1.label), child_lower))
+        else
+          sources
+        end
       end)
 
     if child_query == "" do
@@ -202,10 +209,12 @@ defmodule Zaq.Ingestion do
   # Keeps the shallowest path per connector so @zaq/ always browses the top-level
   # "zaq" folder, not a nested "zaq" that happens to exist deeper.
   defp find_canonical_paths(folder_label) do
+    label_lower = String.downcase(folder_label)
+
     from(d in Document,
       where:
-        (like(d.source, ^"#{folder_label}/%") or
-           like(d.source, ^"%/#{folder_label}/%")) and
+        (ilike(d.source, ^"#{folder_label}/%") or
+           ilike(d.source, ^"%/#{folder_label}/%")) and
           fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
       select: d.source,
       limit: 100
@@ -213,7 +222,9 @@ defmodule Zaq.Ingestion do
     |> Repo.all()
     |> Enum.flat_map(&derive_folder_prefixes/1)
     |> Enum.uniq()
-    |> Enum.filter(fn prefix -> List.last(String.split(prefix, "/")) == folder_label end)
+    |> Enum.filter(fn prefix ->
+      String.downcase(List.last(String.split(prefix, "/"))) == label_lower
+    end)
     |> Enum.sort_by(&String.length/1)
     |> Enum.uniq_by(fn path -> List.first(String.split(path, "/")) end)
   end
