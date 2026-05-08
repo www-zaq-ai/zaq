@@ -82,16 +82,36 @@ defmodule Zaq.Ingestion.DeleteService do
           end)
 
         case first_error_or_ok(results) do
-          :ok -> normalize_delete_result(FileExplorer.delete_directory(volume_name, path))
-          error -> error
+          :ok ->
+            delete_documents_by_folder_prefix(volume_name, path)
+            normalize_delete_result(FileExplorer.delete_directory(volume_name, path))
+
+          error ->
+            error
         end
 
       {:error, :enoent} ->
+        delete_documents_by_folder_prefix(volume_name, path)
         :ok
 
       error ->
         error
     end
+  end
+
+  # Bulk-removes any DB records under `path` that were not on the filesystem
+  # at delete time (e.g. files deleted directly from disk, or orphaned from a
+  # previous failed delete). Runs after the per-file recursive cleanup so
+  # normal files are deleted with their sidecars; this is the safety net.
+  defp delete_documents_by_folder_prefix(volume_name, path) do
+    normalized = SourcePath.normalize_relative(path)
+    prefixes = SourcePath.source_candidates(volume_name, normalized)
+
+    condition = Document.source_prefix_conditions(prefixes)
+
+    from(d in Document, where: ^condition)
+    |> Repo.all()
+    |> Enum.each(&Document.delete/1)
   end
 
   defp delete_entry_in_directory(

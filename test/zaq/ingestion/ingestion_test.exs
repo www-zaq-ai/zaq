@@ -677,6 +677,37 @@ defmodule Zaq.IngestionTest do
       assert Document.get_by_source(sidecar_source) == nil
       refute File.exists?(Path.join(root, sidecar_file))
     end
+
+    test "deleting a directory also removes DB records for files already gone from disk (orphan cleanup)" do
+      unique = System.unique_integer([:positive])
+      folder = "delete_orphan_#{unique}"
+      live_file = Path.join(folder, "live.md")
+      ghost_file = Path.join(folder, "ghost.md")
+      live_source = Path.join("default", live_file)
+      ghost_source = Path.join("default", ghost_file)
+
+      assert :ok = FileExplorer.create_directory("default", folder)
+      assert {:ok, _} = FileExplorer.upload("default", live_file, "# live")
+      assert {:ok, _} = FileExplorer.upload("default", ghost_file, "# ghost")
+
+      live_doc = create_document_with_chunks(live_source)
+      ghost_doc = create_document_with_chunks(ghost_source)
+
+      # Simulate file deleted directly from disk (bypassing ZAQ UI)
+      root = FileExplorer.list_volumes()["default"]
+      File.rm!(Path.join(root, ghost_file))
+
+      on_exit(fn -> FileExplorer.delete_directory("default", folder) end)
+
+      assert :ok = Ingestion.delete_path("default", folder, "directory")
+
+      assert Document.get(live_doc.id) == nil, "live file document must be deleted"
+      assert Document.get(ghost_doc.id) == nil, "orphaned document must be cleaned up"
+      assert Chunk.count_by_document(live_doc.id) == 0
+      assert Chunk.count_by_document(ghost_doc.id) == 0
+      assert Document.get_by_source(live_source) == nil
+      assert Document.get_by_source(ghost_source) == nil
+    end
   end
 
   # ---------------------------------------------------------------------------
