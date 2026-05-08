@@ -146,12 +146,26 @@ defmodule Zaq.Ingestion.DocumentAccess do
 
   # All three access conditions unified in one named-binding dynamic to avoid
   # mixing positional and named bindings in the same where expression.
+  #
+  # nil person_id: returns only public-tagged docs and team-permission-matched docs.
+  # authenticated person_id: additionally treats docs with no permission rows as accessible.
+  defp build_accessible_where(nil, team_ids) do
+    perm_cond = Permission.build_perm_join_condition(nil, team_ids)
+
+    dynamic(
+      [doc: d, perm: p],
+      fragment("? @> ARRAY['public']::varchar[]", d.tags) or
+        ^perm_cond
+    )
+  end
+
   defp build_accessible_where(person_id, team_ids) do
     perm_cond = Permission.build_perm_join_condition(person_id, team_ids)
 
     dynamic(
       [doc: d, perm: p],
-      fragment("? @> ARRAY['public']::varchar[]", d.tags) or
+      is_nil(p.id) or
+        fragment("? @> ARRAY['public']::varchar[]", d.tags) or
         ^perm_cond
     )
   end
