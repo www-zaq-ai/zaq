@@ -137,7 +137,9 @@ defmodule Zaq.NodeRouterTest do
       result = NodeRouter.dispatch(event)
       assert %Event{} = result
       assert result.response == "HELLO"
-      assert result.hops == [result.next_hop]
+      assert result.next_hop == nil
+      assert length(result.hops) == 1
+      assert hd(result.hops).destination == :bo
     end
 
     test "dispatches invoke events remotely and returns routed event" do
@@ -162,7 +164,45 @@ defmodule Zaq.NodeRouterTest do
       result = NodeRouter.dispatch(event, runtime)
       assert %Event{} = result
       assert result.response == "HELLO FROM REMOTE"
-      assert result.hops == [result.next_hop]
+      assert result.next_hop == nil
+      assert length(result.hops) == 1
+      assert hd(result.hops).destination == :agent
+    end
+
+    test "recursively dispatches when handler returns event with a new next_hop" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :agent,
+          opts: [action: :invoke]
+        )
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host, Process, :whereis, [_supervisor] ->
+            nil
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [%Event{} = routed, :invoke, _api_opts] ->
+            %{
+              routed
+              | request: %{module: String, function: :reverse, args: ["abcd"]},
+                next_hop: EventHop.new(:bo, :sync, DateTime.utc_now())
+            }
+        end
+      }
+
+      result = NodeRouter.dispatch(event, runtime)
+
+      assert %Event{} = result
+      assert result.response == "dcba"
+      assert length(result.hops) == 2
+      assert Enum.at(result.hops, 0).destination == :agent
+      assert Enum.at(result.hops, 1).destination == :bo
+      assert result.next_hop == nil
     end
 
     test "returns invalid_event_response when remote handler does not return event" do
@@ -210,10 +250,12 @@ defmodule Zaq.NodeRouterTest do
       assert %Event{} = result
 
       assert result.response == {:error, {:rpc_failed, :remote@host, :timeout}}
-      assert result.hops == [result.next_hop]
+      assert result.next_hop == nil
+      assert length(result.hops) == 1
+      assert hd(result.hops).destination == :agent
     end
 
-    test "returns the appended event immediately for async hops" do
+    test "returns the consumed event immediately for async hops" do
       event = %Event{
         request: %{module: String, function: :upcase, args: ["hello"]},
         next_hop: %EventHop{destination: :bo, type: :async, timestamp: DateTime.utc_now()},
@@ -225,7 +267,9 @@ defmodule Zaq.NodeRouterTest do
 
       assert %Event{} = result
       assert result.response == nil
-      assert result.hops == [result.next_hop]
+      assert result.next_hop == nil
+      assert length(result.hops) == 1
+      assert hd(result.hops).destination == :bo
     end
 
     test "executes async remote hops in background and returns immediately" do
@@ -257,21 +301,21 @@ defmodule Zaq.NodeRouterTest do
       assert %Event{} = result
       assert result.trace_id == trace_id
       assert result.response == nil
-      assert result.hops == [result.next_hop]
+      assert result.next_hop == nil
+      assert length(result.hops) == 1
+      assert hd(result.hops).destination == :agent
       assert_receive {:async_remote_called, ^trace_id}
     end
 
-    test "does not duplicate last hop when dispatching same event twice" do
+    test "passes a hop-consumed event to local handler" do
       event =
-        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
-          opts: [action: :invoke]
-        )
+        Event.new(%{module: Kernel, function: :self, args: []}, :bo, opts: [action: :invoke])
 
-      first = NodeRouter.dispatch(event)
-      second = NodeRouter.dispatch(first)
+      result = NodeRouter.dispatch(event)
 
-      assert length(second.hops) == 1
-      assert second.hops == [second.next_hop]
+      assert result.response == self()
+      assert result.next_hop == nil
+      assert length(result.hops) == 1
     end
 
     test "normalizes non-atom action in opts to invoke" do

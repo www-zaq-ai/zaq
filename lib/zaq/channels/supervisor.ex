@@ -17,7 +17,7 @@ defmodule Zaq.Channels.Supervisor do
 
   require Logger
 
-  alias Zaq.Channels.{ChannelConfig, Router}
+  alias Zaq.Channels.{ChannelConfig, CommunicationBridge}
 
   # ETS table: bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
   @table :zaq_channels_listeners
@@ -44,7 +44,10 @@ defmodule Zaq.Channels.Supervisor do
 
   @doc "Starts runtime for a config via router bridge delegation."
   def start_listener(config) do
-    case Router.sync_config_runtime(%{enabled: false}, Map.put(config, :enabled, true)) do
+    case CommunicationBridge.sync_config_runtime(
+           %{enabled: false},
+           Map.put(config, :enabled, true)
+         ) do
       :ok -> lookup_runtime(bridge_id(config))
       error -> error
     end
@@ -52,7 +55,10 @@ defmodule Zaq.Channels.Supervisor do
 
   @doc "Stops runtime for a config via router bridge delegation."
   def stop_listener(config) do
-    Router.sync_config_runtime(Map.put(config, :enabled, true), Map.put(config, :enabled, false))
+    CommunicationBridge.sync_config_runtime(
+      Map.put(config, :enabled, true),
+      Map.put(config, :enabled, false)
+    )
   end
 
   @doc "Starts runtime processes for a bridge id."
@@ -120,7 +126,7 @@ defmodule Zaq.Channels.Supervisor do
 
       configs ->
         Enum.each(configs, fn config ->
-          _ = Router.sync_config_runtime(nil, config)
+          _ = CommunicationBridge.sync_config_runtime(nil, config)
         end)
     end
   end

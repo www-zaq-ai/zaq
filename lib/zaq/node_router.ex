@@ -60,15 +60,8 @@ defmodule Zaq.NodeRouter do
   @spec dispatch(Event.t(), map()) :: Event.t()
   def dispatch(%Event{next_hop: %EventHop{destination: role}} = event, runtime)
       when is_map(runtime) do
-    event = append_current_hop(event)
-    supervisor = Map.fetch!(@supervisor_map, role)
-    api_module = Map.fetch!(@role_api_map, role)
-    action = action_for(event)
-    hop_type = hop_type_for(event)
-    current = current_node(runtime)
-    target = find_node(supervisor, runtime) || current
-
-    do_dispatch(event, hop_type, api_module, action, current, target, runtime)
+    {:ok, dispatch_ctx} = prepare_dispatch(event, role, runtime)
+    do_dispatch(dispatch_ctx)
   end
 
   def dispatch(%Event{} = event, _runtime) do
@@ -169,26 +162,47 @@ defmodule Zaq.NodeRouter do
 
   defp action_for(_event), do: :invoke
 
-  defp hop_type_for(%Event{next_hop: %EventHop{type: type}}) when type in [:sync, :async],
-    do: type
+  defp prepare_dispatch(%Event{} = event, role, runtime) when is_map(runtime) and is_atom(role) do
+    {event, hop_type} = consume_current_hop(event)
+    supervisor = Map.fetch!(@supervisor_map, role)
+    current = current_node(runtime)
 
-  defp hop_type_for(_event), do: :sync
-
-  defp do_dispatch(event, :sync, api_module, action, current, target, runtime) do
-    do_dispatch_sync(event, api_module, action, current, target, runtime)
+    {:ok,
+     %{
+       event: event,
+       action: action_for(event),
+       hop_type: hop_type,
+       api_module: Map.fetch!(@role_api_map, role),
+       current: current,
+       target: find_node(supervisor, runtime) || current,
+       runtime: runtime
+     }}
   end
 
-  defp do_dispatch(event, :async, api_module, action, current, target, runtime) do
+  defp do_dispatch(%{hop_type: :sync} = dispatch_ctx) do
+    dispatch_ctx
+    |> do_dispatch_sync()
+    |> continue_dispatch(dispatch_ctx.runtime)
+  end
+
+  defp do_dispatch(%{hop_type: :async} = dispatch_ctx) do
     _ =
-      async_start(runtime, fn ->
-        _ = do_dispatch_sync(event, api_module, action, current, target, runtime)
+      async_start(dispatch_ctx.runtime, fn ->
+        _ = do_dispatch_sync(dispatch_ctx) |> continue_dispatch(dispatch_ctx.runtime)
         :ok
       end)
 
-    event
+    dispatch_ctx.event
   end
 
-  defp do_dispatch_sync(event, api_module, action, current, target, runtime) do
+  defp do_dispatch_sync(%{
+         event: event,
+         api_module: api_module,
+         action: action,
+         current: current,
+         target: target,
+         runtime: runtime
+       }) do
     if target == current do
       api_module.handle_event(event, action, nil)
     else
@@ -205,18 +219,20 @@ defmodule Zaq.NodeRouter do
     end
   end
 
+  defp continue_dispatch(%Event{next_hop: %EventHop{}} = event, runtime),
+    do: dispatch(event, runtime)
+
+  defp continue_dispatch(%Event{} = event, _runtime), do: event
+
   defp unwrap_call_response(%Event{response: {:error, {:rpc_failed, _, _}} = error}), do: error
   defp unwrap_call_response(%Event{response: response}), do: response
 
-  defp append_current_hop(%Event{next_hop: %EventHop{} = next_hop, hops: hops} = event)
+  defp consume_current_hop(%Event{next_hop: %EventHop{} = next_hop, hops: hops} = event)
        when is_list(hops) do
-    case List.last(hops) do
-      ^next_hop -> event
-      _ -> %{event | hops: hops ++ [next_hop]}
-    end
+    {%{event | next_hop: nil, hops: hops ++ [next_hop]}, next_hop.type}
   end
 
-  defp append_current_hop(%Event{} = event), do: event
+  defp consume_current_hop(%Event{} = event), do: {%{event | next_hop: nil}, :sync}
 end
 
 defmodule Zaq.NodeRouter.Behaviour do

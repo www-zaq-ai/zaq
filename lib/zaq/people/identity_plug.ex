@@ -81,10 +81,22 @@ defmodule Zaq.People.IdentityPlug do
       Keyword.get(
         opts,
         :channels_router,
-        Application.get_env(:zaq, :identity_plug_channels_router, Zaq.Channels.Router)
+        Application.get_env(:zaq, :identity_plug_channels_router, Zaq.Channels.Api)
       )
 
-    case NodeRouter.call(:channels, channels_mod, :fetch_profile, [platform, author_id]) do
+    result =
+      if channels_mod == Zaq.Channels.Api do
+        event =
+          Zaq.Event.new(%{provider: platform, author_id: author_id}, :channels,
+            opts: [action: :fetch_profile]
+          )
+
+        NodeRouter.dispatch(event).response
+      else
+        NodeRouter.call(:channels, channels_mod, :fetch_profile, [platform, author_id])
+      end
+
+    case result do
       {:ok, profile} -> Map.merge(canonical, stringify_profile(profile))
       _ -> canonical
     end
@@ -116,10 +128,22 @@ defmodule Zaq.People.IdentityPlug do
       Keyword.get(
         opts,
         :channels_router,
-        Application.get_env(:zaq, :identity_plug_channels_router, Zaq.Channels.Router)
+        Application.get_env(:zaq, :identity_plug_channels_router, Zaq.Channels.Api)
       )
 
-    case NodeRouter.call(:channels, channels_mod, :open_dm_channel, [platform, incoming.author_id]) do
+    result =
+      if channels_mod == Zaq.Channels.Api do
+        event =
+          Zaq.Event.new(%{provider: platform, author_id: incoming.author_id}, :channels,
+            opts: [action: :open_dm_channel]
+          )
+
+        NodeRouter.dispatch(event).response
+      else
+        NodeRouter.call(:channels, channels_mod, :open_dm_channel, [platform, incoming.author_id])
+      end
+
+    case result do
       {:ok, dm_channel_id} -> People.update_channel(channel, %{dm_channel_id: dm_channel_id})
       _ -> :ok
     end

@@ -22,7 +22,7 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Agent.RuntimeSync
   alias Zaq.Agent.Status
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.Event
+  alias Zaq.{Event, EventHop}
   alias Zaq.InternalBoundaries
 
   @doc """
@@ -237,76 +237,63 @@ defmodule Zaq.Agent.Api do
           )
       end
 
-    maybe_dispatch_return_hop(event, outgoing)
+    maybe_dispatch_return_hop(event, incoming, outgoing)
   end
 
-  defp maybe_dispatch_return_hop(%Event{} = event, %Outgoing{} = outgoing) do
-    node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
+  defp maybe_dispatch_return_hop(%Event{} = event, %Incoming{} = incoming, %Outgoing{} = outgoing) do
+    if delivery_through_channels?(outgoing.provider) do
+      node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
-    case return_hop_spec(outgoing.metadata) do
-      {:ok, spec} ->
-        return_event =
-          Event.new(outgoing, spec.destination,
-            type: spec.type,
-            actor: event.actor,
-            opts: [action: spec.action],
-            trace_id: event.trace_id
-          )
+      case persist_response_context(node_router_mod, event, incoming, outgoing) do
+        :ok ->
+          event
+          |> schedule_return_hop(outgoing)
 
-        _ = node_router_mod.dispatch(%{return_event | assigns: event.assigns})
-        %{event | response: :ok}
-
-      {:error, :missing_destination} ->
-        %{event | response: {:error, {:missing_destination_metadata, :return_hop}}}
-
-      :disabled ->
-        %{event | response: outgoing}
-    end
-  end
-
-  defp maybe_dispatch_return_hop(%Event{} = event, other), do: %{event | response: other}
-
-  defp return_hop_spec(metadata) when is_map(metadata) do
-    if Map.get(metadata, :return_hop) || Map.get(metadata, "return_hop") do
-      case normalize_destination(return_hop_destination(metadata)) do
-        {:ok, destination_atom} ->
-          {:ok,
-           %{
-             destination: destination_atom,
-             action: return_hop_action(metadata),
-             type: return_hop_type(metadata)
-           }}
-
-        :error ->
-          {:error, :missing_destination}
+        {:error, reason} ->
+          %{event | response: {:error, {:persist_failed, reason}}}
       end
     else
-      :disabled
+      %{event | response: outgoing}
     end
   end
 
-  defp return_hop_spec(_), do: :disabled
+  defp maybe_dispatch_return_hop(%Event{} = event, _incoming, other),
+    do: %{event | response: other}
 
-  defp normalize_destination(destination) when is_atom(destination), do: {:ok, destination}
+  defp delivery_through_channels?(provider), do: to_string(provider) != "web"
 
-  defp normalize_destination(destination) when is_binary(destination) do
-    {:ok, String.to_existing_atom(destination)}
-  rescue
-    ArgumentError -> :error
+  defp schedule_return_hop(%Event{} = event, %Outgoing{} = outgoing) do
+    hop = EventHop.new(:channels, :sync, DateTime.utc_now())
+
+    %{
+      event
+      | request: outgoing,
+        response: outgoing,
+        next_hop: hop,
+        opts: Keyword.put(event.opts, :action, :deliver_outgoing)
+    }
   end
 
-  defp normalize_destination(_), do: :error
+  defp persist_response_context(
+         node_router_mod,
+         %Event{} = event,
+         %Incoming{} = incoming,
+         %Outgoing{} = outgoing
+       ) do
+    persist_event =
+      Event.new(%{incoming: incoming, metadata: outgoing.metadata}, :engine,
+        actor: event.actor,
+        opts: [action: :persist_from_incoming],
+        trace_id: event.trace_id
+      )
 
-  defp return_hop_destination(metadata),
-    do: Map.get(metadata, :return_hop_destination) || Map.get(metadata, "return_hop_destination")
-
-  defp return_hop_action(metadata),
-    do:
-      Map.get(metadata, :return_hop_action) || Map.get(metadata, "return_hop_action") ||
-        :deliver_outgoing
-
-  defp return_hop_type(metadata),
-    do: Map.get(metadata, :return_hop_type) || Map.get(metadata, "return_hop_type") || :async
+    case node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response do
+      :ok -> :ok
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_persist_response, other}}
+    end
+  end
 
   defp guard_error_outgoing(%Incoming{} = incoming) do
     Outgoing.from_pipeline_result(incoming, %{

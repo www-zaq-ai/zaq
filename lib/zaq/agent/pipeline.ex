@@ -47,6 +47,7 @@ defmodule Zaq.Agent.Pipeline do
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
+  alias Zaq.Event
 
   @no_answer_signal "I don't have enough information to answer that question."
 
@@ -78,11 +79,12 @@ defmodule Zaq.Agent.Pipeline do
 
   @spec pre_do_run(Incoming.t(), keyword()) :: Incoming.t()
   defp pre_do_run(incoming, opts) do
-    # Send the start typing event through the router for automatic routing
-    node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
-      incoming.provider,
-      incoming.channel_id
-    ])
+    _ =
+      Event.new(%{provider: incoming.provider, channel_id: incoming.channel_id}, :channels,
+        opts: [action: :send_typing],
+        type: :async
+      )
+      |> node_router(opts).dispatch()
 
     incoming
   end

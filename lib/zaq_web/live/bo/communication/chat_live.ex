@@ -13,7 +13,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
   alias Zaq.Agent.{CitationNormalizer, ErrorMessage, History}
-  alias Zaq.Channels.Router
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Ingestion.ContentSource
@@ -594,9 +593,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       )
       |> maybe_put_agent_selection(selected_agent_id)
 
-    outgoing = build_outgoing_from_event(node_router().dispatch(event), incoming)
+    _outgoing = build_outgoing_from_event(node_router().dispatch(event), incoming)
 
-    Router.deliver(outgoing)
+    :ok
   end
 
   defp maybe_put_agent_selection(%Event{} = event, selected_agent_id) do
@@ -612,6 +611,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp build_outgoing_from_event(%Event{response: %Outgoing{} = outgoing}, _incoming),
     do: outgoing
+
+  defp build_outgoing_from_event(
+         %Event{request: %Outgoing{} = outgoing, response: :ok},
+         _incoming
+       ),
+       do: outgoing
 
   defp build_outgoing_from_event(%Event{response: {:error, reason}}, incoming) do
     Outgoing.from_pipeline_result(incoming, %{

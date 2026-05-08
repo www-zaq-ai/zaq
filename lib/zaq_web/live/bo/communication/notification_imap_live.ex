@@ -7,7 +7,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   alias Zaq.Agent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
-  alias Zaq.Channels.Router
   alias Zaq.NodeRouter
   alias Zaq.System.ImapConfig
   alias Zaq.Types.EncryptedString
@@ -382,7 +381,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     Task.start(fn ->
       result =
         try do
-          NodeRouter.call(:channels, router_module(), :list_mailboxes, [@imap_provider, config])
+          list_mailboxes(config)
         rescue
           error -> {:error, {:mailbox_load_failed, Exception.message(error)}}
         catch
@@ -394,7 +393,29 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   end
 
   defp sync_runtime(provider) do
-    NodeRouter.call(:channels, router_module(), :sync_provider_runtime, [provider])
+    channels_mod = channels_module()
+
+    if channels_mod == Zaq.Channels.Api do
+      NodeRouter.dispatch(
+        Zaq.Event.new(%{provider: provider}, :channels, opts: [action: :sync_provider_runtime])
+      ).response
+    else
+      NodeRouter.call(:channels, channels_mod, :sync_provider_runtime, [provider])
+    end
+  end
+
+  defp list_mailboxes(config) do
+    channels_mod = channels_module()
+
+    if channels_mod == Zaq.Channels.Api do
+      NodeRouter.dispatch(
+        Zaq.Event.new(%{provider: @imap_provider, config: config}, :channels,
+          opts: [action: :list_mailboxes]
+        )
+      ).response
+    else
+      NodeRouter.call(:channels, channels_mod, :list_mailboxes, [@imap_provider, config])
+    end
   end
 
   defp assign_persisted_imap_state(socket, fresh, channel, fresh_changeset) do
@@ -475,6 +496,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_), do: false
 
-  defp router_module,
-    do: Application.get_env(:zaq, :notification_imap_router_module, Router)
+  defp channels_module,
+    do: Application.get_env(:zaq, :notification_imap_router_module, Zaq.Channels.Api)
 end

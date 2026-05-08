@@ -65,6 +65,8 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubNodeRouter do
+    def dispatch(%Zaq.Event{} = event), do: %{event | response: :ok}
+
     def call(:channels, Zaq.Channels.Router, :send_typing, _args), do: :ok
     def call(_role, module, function, args), do: apply(module, function, args)
   end
