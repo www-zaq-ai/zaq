@@ -583,6 +583,51 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # "public by default" — no permission rows → accessible to authenticated persons
+  # ---------------------------------------------------------------------------
+
+  describe "list_accessible_documents/1 — no-permission-rows (public by default)" do
+    test "authenticated person sees doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-list"))
+      person = create_person()
+
+      result = DocumentAccess.list_accessible_documents(person_id: person.id)
+      sources = Enum.map(result, & &1.source)
+      assert doc.source in sources
+    end
+
+    test "nil person_id does NOT see doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-nil"))
+
+      result = DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [])
+      sources = Enum.map(result, & &1.source)
+      refute doc.source in sources
+    end
+  end
+
+  describe "count_accessible_documents/1 — no-permission-rows (public by default)" do
+    test "authenticated person counts doc with no permission rows" do
+      person = create_person()
+      count_before = DocumentAccess.count_accessible_documents(person_id: person.id, team_ids: [])
+      _doc = create_doc(uid("no-perm-rows-count"))
+      count_after = DocumentAccess.count_accessible_documents(person_id: person.id, team_ids: [])
+      assert count_after == count_before + 1
+    end
+  end
+
+  describe "list_files_with_ingestion_status/1 — no-permission-rows (public by default)" do
+    test "authenticated person sees doc with no permission rows tagged ingested: true" do
+      doc = create_doc(uid("no-perm-rows-lfwis"))
+      person = create_person()
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry != nil
+      assert entry.ingested == true
+    end
+  end
+
   describe "source_filter — list_accessible_documents/1" do
     test "folder prefix restricts listing to that folder" do
       p = System.unique_integer([:positive])
