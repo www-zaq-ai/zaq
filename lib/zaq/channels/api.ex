@@ -1,6 +1,17 @@
 defmodule Zaq.Channels.Api do
   @moduledoc """
-  Channels role boundary module used by `Zaq.NodeRouter.dispatch/1`.
+  Channels role boundary for `Zaq.NodeRouter.dispatch/1` events.
+
+  Responsibilities:
+
+  - Handle channels-scoped event actions (`:deliver_outgoing`, `:send_typing`,
+    `:fetch_profile`, `:open_dm_channel`, runtime sync, bridge availability,
+    connection testing, and generic `:invoke`).
+  - Resolve provider bridge modules through `Zaq.Channels.Bridge`.
+  - Delegate transport-specific behavior to bridge callbacks.
+
+  Does not own provider runtime orchestration logic; that lives in
+  `Zaq.Channels.CommunicationBridge` and bridge modules.
   """
 
   @behaviour Zaq.InternalBoundaries

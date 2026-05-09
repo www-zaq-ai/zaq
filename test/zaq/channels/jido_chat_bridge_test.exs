@@ -55,6 +55,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def run(%Incoming{}, _opts), do: nil
   end
 
+  defmodule OkTuplePipeline do
+    def run(%Incoming{}, _opts), do: {:ok, %{meta: true}}
+  end
+
+  defmodule ErrorTuplePipeline do
+    def run(%Incoming{}, _opts), do: {:error, :pipeline_failed}
+  end
+
+  defmodule InvalidPipeline do
+    def run(%Incoming{}, _opts), do: :unexpected
+  end
+
   defmodule StubRouter do
     def deliver(%Outgoing{} = outgoing) do
       (Process.whereis(:bridge_test_observer) || self())
@@ -528,6 +540,76 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       refute_received {:router_deliver, _}
     end
 
+    test "non-reply message accepts {:ok, _} pipeline result" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, OkTuplePipeline)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+      end)
+
+      incoming = %ChatIncoming{
+        text: "ok tuple result",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-ok-tuple",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+    end
+
+    test "non-reply message emits failed telemetry/log for pipeline errors and invalid responses" do
+      incoming = %ChatIncoming{
+        text: "failing question",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-fail",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "jido-chat-bridge-failed-telemetry",
+        [[:zaq, :chat_bridge, :message, :failed]],
+        fn event, _measurements, metadata, _config ->
+          send(test_pid, {:failed_telemetry, event, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("jido-chat-bridge-failed-telemetry") end)
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, ErrorTuplePipeline)
+
+      error_log =
+        capture_log(fn ->
+          assert {:error, :pipeline_failed} =
+                   JidoChatBridge.handle_from_listener(@config, incoming, [])
+        end)
+
+      assert_received {:failed_telemetry, [:zaq, :chat_bridge, :message, :failed], metadata}
+      assert metadata.provider == :mattermost
+      assert error_log =~ "Failed to process message"
+      assert error_log =~ "channel=chan-1"
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, InvalidPipeline)
+
+      invalid_log =
+        capture_log(fn ->
+          assert {:error, {:invalid_pipeline_response, :unexpected}} =
+                   JidoChatBridge.handle_from_listener(@config, incoming, [])
+        end)
+
+      assert_received {:failed_telemetry, [:zaq, :chat_bridge, :message, :failed], invalid_meta}
+      assert invalid_meta.provider == :mattermost
+      assert invalid_log =~ "Failed to process message"
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+    end
+
     test "thread reply does NOT run the pipeline" do
       incoming = %ChatIncoming{
         text: "SME reply",
@@ -814,7 +896,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "uses NodeRouter dispatch path when bridge modules are defaults" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
 
@@ -832,7 +914,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "channel assignment wins over provider and global defaults in NodeRouter dispatch" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
@@ -879,7 +961,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "falls back to provider default when channel assignment agent is inactive" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
@@ -923,7 +1005,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "falls back to provider default when channel assignment is conversation-disabled" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
@@ -967,7 +1049,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "keeps legacy pipeline path when no explicit or global selection is configured" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 

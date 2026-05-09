@@ -100,6 +100,28 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  defmodule PersistOkTupleNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :persist_from_incoming -> {:ok, %{persisted: true}}
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule NilProviderPipeline do
+    def run(%Incoming{} = incoming, _opts) do
+      %Outgoing{body: "no-channel", channel_id: incoming.channel_id, provider: nil}
+    end
+  end
+
+  defmodule BadPipelineResult do
+    def run(_incoming, _opts), do: {:unexpected, :shape}
+  end
+
   defmodule StubRuntimeSyncInvalidRequestError do
     def configured_agent_updated(_id, _attrs), do: {:error, {:invalid_request, :bad_update}}
     def configured_agent_deleted(_id), do: {:error, {:invalid_request, :bad_delete}}
@@ -388,6 +410,64 @@ defmodule Zaq.Agent.ApiTest do
 
     assert result.response ==
              {:error, {:persist_failed, {:invalid_persist_response, :unexpected}}}
+  end
+
+  test "run_pipeline returns outgoing directly when provider is nil" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: NilProviderPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "no-channel"
+    assert result.response.provider == nil
+    refute_received {:node_router_dispatch, :persist_from_incoming, _}
+  end
+
+  test "run_pipeline accepts {:ok, _} persist response and passes through unexpected pipeline output" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    ok_tuple_event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: PersistOkTupleNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result_ok_tuple = Api.handle_event(ok_tuple_event, :run_pipeline, nil)
+    assert result_ok_tuple.next_hop.destination == :channels
+    assert result_ok_tuple.opts[:action] == :deliver_outgoing
+
+    bad_pipeline_event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: BadPipelineResult,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result_bad = Api.handle_event(bad_pipeline_event, :run_pipeline, nil)
+    assert result_bad.response == {:unexpected, :shape}
   end
 
   test "delegates invoke to shared internal boundaries helper" do

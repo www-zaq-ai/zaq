@@ -1468,6 +1468,36 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert filter.type == :file
   end
 
+  test "add_content_filter accepts current_folder and ignores unknown types", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/current",
+      "connector" => "documents",
+      "label" => "current",
+      "type" => "current_folder"
+    })
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      length(state.socket.assigns.active_filters) == 1
+    end)
+
+    state = :sys.get_state(view.pid)
+    [filter] = state.socket.assigns.active_filters
+    assert filter.type == :current_folder
+
+    render_hook(view, "add_content_filter", %{
+      "source_prefix" => "documents/ignored",
+      "connector" => "documents",
+      "label" => "ignored",
+      "type" => "unknown"
+    })
+
+    state_after_unknown = :sys.get_state(view.pid)
+    assert length(state_after_unknown.socket.assigns.active_filters) == 1
+  end
+
   test "remove_content_filter removes the matching entry by source_prefix", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
@@ -1600,6 +1630,46 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert has_element?(view, "#feedback-modal")
     render_hook(view, "close_feedback_modal", %{})
     refute has_element?(view, "#feedback-modal")
+  end
+
+  test "close_tool_calls_modal clears tool call modal assigns", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    send(
+      view.pid,
+      {:pipeline_result, nil,
+       %Outgoing{
+         body: "with tool",
+         channel_id: "bo",
+         provider: :web,
+         metadata: %{
+           answer: "with tool",
+           confidence_score: 0.8,
+           error: false,
+           tool_calls: [%{"id" => "tool-1", "name" => "lookup", "arguments" => "{}"}]
+         }
+       }, "question"}
+    )
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      Enum.any?(state.socket.assigns.messages, &(Map.get(&1, :body) == "with tool"))
+    end)
+
+    state = :sys.get_state(view.pid)
+
+    bot_message =
+      Enum.find(state.socket.assigns.messages, fn msg ->
+        Map.get(msg, :role) == :bot and Map.get(msg, :body) == "with tool"
+      end)
+
+    render_hook(view, "open_tool_calls_modal", %{"id" => bot_message.id})
+    render_hook(view, "close_tool_calls_modal", %{})
+
+    assert_eventually(fn ->
+      updated = :sys.get_state(view.pid).socket.assigns
+      is_nil(updated.tool_calls_modal_for) and updated.tool_calls_modal_entries == []
+    end)
   end
 
   test "send_message with active filters serializes filter metadata into user message", %{

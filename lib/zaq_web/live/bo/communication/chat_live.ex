@@ -643,15 +643,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     end
   end
 
-  defp maybe_emit_fallback_pipeline_result(
-         _live_view_pid,
-         _request_id,
-         _outgoing,
-         _user_msg,
-         _event
-       ),
-       do: :ok
-
   defp maybe_put_agent_selection(%Event{} = event, selected_agent_id) do
     case selected_agent_id do
       id when id in [nil, ""] ->

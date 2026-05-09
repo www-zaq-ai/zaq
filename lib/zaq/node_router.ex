@@ -1,15 +1,19 @@
 defmodule Zaq.NodeRouter do
   @moduledoc """
-  Routes service calls to the correct node based on which supervisor
-  is running where.
+  Cross-role event router for single-node and multi-node deployments.
 
-  When services are split across nodes (e.g. agent on ai@localhost,
-  bo on bo@localhost), direct local calls won't work. This module
-  checks all connected nodes and dispatches via :rpc.call/4 to the
-  node where the supervisor is actually running.
+  Responsibilities:
 
-  Falls back to a local call if no peer node has the supervisor,
-  which handles the single-node (all roles) case transparently.
+  - Resolve the target node for a role from the role -> supervisor mapping.
+  - Dispatch `%Zaq.Event{}` hops to role boundary APIs (`Zaq.<Role>.Api`).
+  - Support both sync and async hop execution.
+  - Support multi-hop event chains by recursively dispatching returned
+    `next_hop` values.
+  - Provide a legacy `call/4` compatibility wrapper by wrapping calls as
+    `:invoke` events.
+
+  This module does not own service business logic; each role API handles its
+  own actions.
 
   ## Event-first example
 

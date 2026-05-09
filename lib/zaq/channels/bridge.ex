@@ -2,9 +2,18 @@ defmodule Zaq.Channels.Bridge do
   @moduledoc """
   Behaviour and shared helpers for channel bridge modules.
 
-  All bridges must expose a canonical inbound mapper (`to_internal/2`) and
-  outbound sender (`send_reply/2`). Runtime/lifecycle callbacks vary by bridge
-  type and are optional.
+  Responsibilities:
+
+  - Define required bridge contract callbacks (`to_internal/2`, `send_reply/2`).
+  - Provide optional runtime/lifecycle callback contracts used by bridge-specific
+    runtimes.
+  - Provide shared provider resolution and connection/config lookup helpers.
+  - Provide shared incoming routing hooks and persistence helper
+    (`persist_from_incoming/5`) that routes through `NodeRouter.dispatch/1` when
+    using the default engine conversations module.
+
+  This module does not implement provider transport logic directly; concrete
+  bridge modules own transport-specific behavior.
   """
 
   alias Zaq.Channels.{ChannelConfig, CommunicationBridge}
@@ -300,7 +309,7 @@ defmodule Zaq.Channels.Bridge do
     end
   end
 
-  @doc "Synchronizes runtime processes when a channel config changes."
+  @doc "Synchronizes runtime processes when a channel config changes via centralized Bridge resolution."
   @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}
   def sync_config_runtime(before_config, after_config),
     do: CommunicationBridge.sync_config_runtime(before_config, after_config)

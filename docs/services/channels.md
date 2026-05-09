@@ -17,7 +17,6 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | ----------------------------------- | -------------------------------------------- | --------------------------------------------- |
 | `Zaq.Channels.Api`                  | `lib/zaq/channels/api.ex`                    | Channels role boundary for `NodeRouter` events |
 | `Zaq.Channels.CommunicationBridge`  | `lib/zaq/channels/communication_bridge.ex`   | Communication-domain routing/delegation helpers |
-| `Zaq.Channels.Router`               | `lib/zaq/channels/router.ex`                 | Compatibility facade delegating to communication helpers |
 | `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers             |
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters        |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder             |
@@ -87,17 +86,16 @@ defstruct [
 
 `Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
 
-`Zaq.Channels.Router` remains as a compatibility facade while call-site migrations complete.
+`Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
 
-## Router
+## Communication Bridge Helpers
 
-`Zaq.Channels.Router` is the stateless public entrypoint for all outbound operations. It resolves the correct bridge module from app config (by provider atom key), fetches connection details from the DB, and delegates to `bridge.send_reply/2`.
+`Zaq.Channels.CommunicationBridge` is the stateless helper boundary used by API/bridge flows for provider-targeted operations.
 
 ### Public API
 
 | Function                     | Description                                                  |
 | ---------------------------- | ------------------------------------------------------------ |
-| `deliver/1`                  | Delivers `%Outgoing{}` to the correct bridge                 |
 | `send_typing/2`              | Sends typing indicator through the provider bridge           |
 | `add_reaction/4`             | Adds a reaction through the provider bridge                  |
 | `remove_reaction/5`          | Removes a reaction through the provider bridge               |
@@ -183,7 +181,7 @@ Shared helper:
 
 ### Outbound flow
 
-Called by channels delivery routing (`Channels.Api` -> communication helpers; `Router.deliver/1` remains compatibility):
+Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_reply/2`):
 
 1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token}`.
 2. Resolves the adapter module for the provider.
@@ -220,7 +218,7 @@ All cross-service calls are overridable via Application env:
 | Key                                 | Default                    |
 | ----------------------------------- | -------------------------- |
 | `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`       |
-| `:chat_bridge_router_module`        | `Zaq.Channels.Router`      |
+| `:chat_bridge_router_module`        | `Zaq.Channels.CommunicationBridge` |
 | `:chat_bridge_conversations_module` | `Zaq.Engine.Conversations` |
 | `:chat_bridge_accounts_module`      | `Zaq.Accounts`             |
 | `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions` |

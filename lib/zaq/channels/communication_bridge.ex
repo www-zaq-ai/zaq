@@ -2,9 +2,19 @@ defmodule Zaq.Channels.CommunicationBridge do
   @moduledoc """
   Communication-domain bridge routing and delegation helpers.
 
-  This module resolves provider->bridge mappings, fetches channel connection
-  details, and delegates outbound runtime/interaction callbacks to bridge
-  modules.
+  Responsibilities:
+
+  - Resolve provider -> bridge mappings through `Zaq.Channels.Bridge`.
+  - Delegate provider interaction operations (typing/reactions/thread watches).
+  - Coordinate runtime sync delegation (`sync_config_runtime/2`,
+    `sync_provider_runtime/1`) with fallback behavior when optional callbacks
+    are not implemented by a bridge.
+  - Build and dispatch agent pipeline events through `Zaq.NodeRouter` for
+    channel-originated incoming messages.
+  - Enforce conversation-agent eligibility for selection helpers.
+
+  This module is stateless and does not own bridge runtime process internals;
+  runtime process construction and transport behavior belong to each bridge.
   """
 
   alias Zaq.{Agent, Event}
@@ -132,7 +142,7 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Synchronizes runtime processes when a channel config changes."
+  @doc "Synchronizes runtime processes when a channel config changes via Bridge resolution."
   @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}
   def sync_config_runtime(before_config, %{provider: provider} = after_config) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider) do

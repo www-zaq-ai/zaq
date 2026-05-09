@@ -5,6 +5,13 @@ defmodule Zaq.Event do
   Payload structs (for example `%Zaq.Engine.Messages.Incoming{}` and
   `%Zaq.Engine.Messages.Outgoing{}`) travel inside this envelope as
   `request` and `response`.
+
+  Routing contract:
+
+  - `next_hop` defines the active destination role + hop type.
+  - `hops` records consumed hops in execution order.
+  - `assigns` carries side-channel routing metadata across hops.
+  - `opts` carries action-specific routing options.
   """
 
   alias Zaq.EventHop

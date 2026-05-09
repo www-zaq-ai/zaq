@@ -6,7 +6,7 @@
 
 **Date:** 2026-05-07
 **Author:** OpenCode (agent)
-**Status:** `active`
+**Status:** `completed`
 **Related debt:** `docs/exec-plans/tech-debt-tracker.md` (Channels Must Do items)
 **PR(s):** pending
 **Issue chain:** `zaq-y39` -> `zaq-crk` -> (`zaq-4to` + `zaq-dyc`) -> `zaq-gpj` -> `zaq-ohp` -> `zaq-7il`

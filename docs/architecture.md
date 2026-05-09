@@ -77,6 +77,29 @@ Event envelope fields:
 - `version`
 - `actor`
 
+### Dispatch Semantics (sync, async, multi-hop)
+
+`NodeRouter.dispatch/1` is event-first and hop-driven:
+
+- The current `next_hop` is consumed, appended to `hops`, then cleared on the in-flight event.
+- Target role is resolved from `next_hop.destination` using role -> supervisor lookup.
+- The target role API (`Zaq.<Role>.Api.handle_event/3`) is invoked locally or via RPC.
+
+Hop type controls response timing:
+
+- `:sync` hop: `dispatch/1` waits for role API completion and returns the updated event.
+- `:async` hop: `dispatch/1` starts background work and returns immediately with the event that was dispatched.
+
+Multi-hop behavior is recursive:
+
+- If role handling returns an event with a new `next_hop`, `NodeRouter` dispatches again.
+- This supports chained cross-role flows (for example agent -> channels return hops) without callers coordinating per-hop RPC.
+
+Compatibility note:
+
+- `NodeRouter.call/4` is a compatibility wrapper that builds an `:invoke` event and unwraps `event.response`.
+- New code should use `dispatch/1` + `%Zaq.Event{}` directly.
+
 Role mapping:
 - `:agent` → `Zaq.Agent.*`
 - `:ingestion` → `Zaq.Ingestion.*`

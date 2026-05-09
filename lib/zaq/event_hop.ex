@@ -2,8 +2,9 @@ defmodule Zaq.EventHop do
   @moduledoc """
   Describes one routing hop for a `Zaq.Event`.
 
-  `destination` is the node role, `type` indicates sync vs async intent,
-  and `timestamp` captures when the hop was created.
+  - `destination`: target service role (`:agent`, `:channels`, `:engine`, ...)
+  - `type`: dispatch mode (`:sync` or `:async`)
+  - `timestamp`: hop creation time used for traceability
   """
 
   @enforce_keys [:destination, :type, :timestamp]
