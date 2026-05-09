@@ -361,6 +361,29 @@ defmodule Zaq.Channels.ApiTest do
     assert result.response == {:error, {:unsupported_action, :unknown_action}}
   end
 
+  test "returns unsupported_action when action payload shape does not match callback guards" do
+    bad_send_typing = Event.new(%{provider: :mattermost, channel_id: 123}, :channels)
+    bad_fetch_profile = Event.new(%{provider: :mattermost, author_id: 123}, :channels)
+    bad_open_dm = Event.new(%{provider: :mattermost, author_id: 123}, :channels)
+    bad_list_mailboxes = Event.new(%{provider: :mattermost, config: "bad"}, :channels)
+    bad_bridge_available = Event.new(%{platform: :mattermost}, :channels)
+
+    assert Api.handle_event(bad_send_typing, :send_typing, nil).response ==
+             {:error, {:unsupported_action, :send_typing}}
+
+    assert Api.handle_event(bad_fetch_profile, :fetch_profile, nil).response ==
+             {:error, {:unsupported_action, :fetch_profile}}
+
+    assert Api.handle_event(bad_open_dm, :open_dm_channel, nil).response ==
+             {:error, {:unsupported_action, :open_dm_channel}}
+
+    assert Api.handle_event(bad_list_mailboxes, :list_mailboxes, nil).response ==
+             {:error, {:unsupported_action, :list_mailboxes}}
+
+    assert Api.handle_event(bad_bridge_available, :bridge_available, nil).response ==
+             {:error, {:unsupported_action, :bridge_available}}
+  end
+
   test "uses communication_bridge_module option when bridge_module is missing" do
     outgoing = %Outgoing{body: "ok", channel_id: "c1", provider: :web}
 

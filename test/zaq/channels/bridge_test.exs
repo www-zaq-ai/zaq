@@ -391,4 +391,11 @@ defmodule Zaq.Channels.BridgeTest do
     event = Event.new(%{ok: true}, :channels)
     assert :ok = Bridge.ack_from_event_response(%{event | response: :ok})
   end
+
+  test "sync_config_runtime and sync_provider_runtime delegate to CommunicationBridge" do
+    insert_config(:mattermost)
+
+    assert :ok = Bridge.sync_config_runtime(nil, %{provider: "mattermost", enabled: false})
+    assert :ok = Bridge.sync_provider_runtime(:mattermost)
+  end
 end

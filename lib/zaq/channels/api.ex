@@ -42,7 +42,6 @@ defmodule Zaq.Channels.Api do
       end
     else
       {:error, reason} -> %{event | response: {:error, reason}}
-      false -> %{event | response: {:error, :unsupported}}
     end
   end
 
@@ -60,7 +59,6 @@ defmodule Zaq.Channels.Api do
       %{event | response: bridge.fetch_profile(author_id, details)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
-      false -> %{event | response: {:error, :unsupported}}
     end
   end
 
@@ -85,7 +83,6 @@ defmodule Zaq.Channels.Api do
       %{event | response: bridge.open_dm_channel(author_id, details)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
-      false -> %{event | response: {:error, :unsupported}}
     end
   end
 
@@ -104,7 +101,6 @@ defmodule Zaq.Channels.Api do
       %{event | response: bridge.list_mailboxes(config, details)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
-      false -> %{event | response: {:error, :unsupported}}
     end
   end
 
@@ -145,7 +141,6 @@ defmodule Zaq.Channels.Api do
       %{event | response: bridge.test_connection(config, channel_id)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
-      false -> %{event | response: {:error, :unsupported}}
     end
   end
 

@@ -119,6 +119,7 @@ defmodule Zaq.Channels.Supervisor do
 
   defp load_initial_listeners do
     providers = configured_providers()
+    runtime_module = runtime_module()
 
     case ChannelConfig.list_enabled_by_kind(:retrieval, providers) do
       [] ->
@@ -126,10 +127,13 @@ defmodule Zaq.Channels.Supervisor do
 
       configs ->
         Enum.each(configs, fn config ->
-          _ = CommunicationBridge.sync_config_runtime(nil, config)
+          _ = runtime_module.sync_config_runtime(nil, config)
         end)
     end
   end
+
+  defp runtime_module,
+    do: Application.get_env(:zaq, :channels_supervisor_runtime_module, CommunicationBridge)
 
   defp do_start_runtime(bridge_id, state_spec, listener_specs) do
     case maybe_start_state_process(state_spec) do

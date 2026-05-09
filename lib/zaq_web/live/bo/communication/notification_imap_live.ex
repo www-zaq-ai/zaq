@@ -394,27 +394,29 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp sync_runtime(provider) do
     channels_mod = channels_module()
+    node_router_mod = node_router_module()
 
     if channels_mod == Zaq.Channels.Api do
-      NodeRouter.dispatch(
+      node_router_mod.dispatch(
         Zaq.Event.new(%{provider: provider}, :channels, opts: [action: :sync_provider_runtime])
       ).response
     else
-      NodeRouter.call(:channels, channels_mod, :sync_provider_runtime, [provider])
+      node_router_mod.call(:channels, channels_mod, :sync_provider_runtime, [provider])
     end
   end
 
   defp list_mailboxes(config) do
     channels_mod = channels_module()
+    node_router_mod = node_router_module()
 
     if channels_mod == Zaq.Channels.Api do
-      NodeRouter.dispatch(
+      node_router_mod.dispatch(
         Zaq.Event.new(%{provider: @imap_provider, config: config}, :channels,
           opts: [action: :list_mailboxes]
         )
       ).response
     else
-      NodeRouter.call(:channels, channels_mod, :list_mailboxes, [@imap_provider, config])
+      node_router_mod.call(:channels, channels_mod, :list_mailboxes, [@imap_provider, config])
     end
   end
 
@@ -498,4 +500,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp channels_module,
     do: Application.get_env(:zaq, :notification_imap_router_module, Zaq.Channels.Api)
+
+  defp node_router_module,
+    do: Application.get_env(:zaq, :notification_imap_node_router_module, NodeRouter)
 end

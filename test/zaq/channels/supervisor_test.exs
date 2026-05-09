@@ -2,6 +2,7 @@ defmodule Zaq.Channels.SupervisorTest do
   use Zaq.DataCase, async: false
 
   alias Jido.Chat.Incoming, as: ChatIncoming
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
@@ -53,6 +54,16 @@ defmodule Zaq.Channels.SupervisorTest do
   defmodule BridgeFailStop do
     def start_runtime(_config), do: :ok
     def stop_runtime(_config), do: {:error, :bridge_stop_failed}
+  end
+
+  defmodule RuntimeSyncSpy do
+    def sync_config_runtime(before_config, config) do
+      if pid = Process.whereis(:supervisor_bootstrap_observer) do
+        send(pid, {:bootstrap_sync_config_runtime, before_config, config})
+      end
+
+      :ok
+    end
   end
 
   defmodule StubAdapter do
@@ -453,6 +464,56 @@ defmodule Zaq.Channels.SupervisorTest do
 
     assert {:error, {%RuntimeError{message: "kaboom"}, _stack}} =
              Supervisor.start_runtime(bridge_id, raising_state_spec, [])
+  end
+
+  test "start_link/1 bootstrap syncs enabled retrieval configs", %{config: config} do
+    previous_channels = Application.get_env(:zaq, :channels, %{})
+    previous_runtime = Application.get_env(:zaq, :channels_supervisor_runtime_module)
+
+    Process.register(self(), :supervisor_bootstrap_observer)
+
+    on_exit(fn ->
+      if Process.whereis(:supervisor_bootstrap_observer) == self() do
+        Process.unregister(:supervisor_bootstrap_observer)
+      end
+
+      Application.put_env(:zaq, :channels, previous_channels)
+
+      if is_nil(previous_runtime) do
+        Application.delete_env(:zaq, :channels_supervisor_runtime_module)
+      else
+        Application.put_env(:zaq, :channels_supervisor_runtime_module, previous_runtime)
+      end
+
+      unless Process.whereis(Supervisor) do
+        {:ok, _pid} = Supervisor.start_link([])
+      end
+    end)
+
+    {:ok, _} =
+      ChannelConfig.upsert_by_provider(config.provider, %{
+        name: "Mattermost Bootstrap",
+        kind: "retrieval",
+        provider: config.provider,
+        enabled: true,
+        url: config.url,
+        token: config.token,
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      })
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    Application.put_env(:zaq, :channels_supervisor_runtime_module, RuntimeSyncSpy)
+
+    pid = Process.whereis(Supervisor)
+    assert is_pid(pid)
+    :ok = DynamicSupervisor.stop(pid, :normal)
+
+    assert_receive {:bootstrap_sync_config_runtime, nil, synced_config}
+    assert synced_config.provider == "mattermost"
+    assert synced_config.enabled == true
   end
 
   test "stop_bridge_runtime/2 handles nil state pid" do
