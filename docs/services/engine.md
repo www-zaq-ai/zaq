@@ -63,7 +63,7 @@ Caller builds %Notification{} via Notification.build/1
       → DispatchWorker Oban job enqueued     ← queue: :notifications, max_attempts: 1
           → reads payload from NotificationLog
           → builds %Outgoing{} for each channel
-          → Channels.Router.deliver/1
+          → Channels.Api handle_event(:deliver_outgoing) via NodeRouter.dispatch/1
               → on success: NotificationLog.transition_status("sent")
               → on failure: tries next channel; "failed" if all exhausted
 ```
@@ -86,7 +86,7 @@ Adapter inbound path:
     → adapter.forward_to_engine/1
     → Agent Pipeline
     → %Messages.Outgoing{} via Outgoing.from_pipeline_result/2
-    → Channels.Router.deliver/1
+    → Channels.Api handle_event(:deliver_outgoing) via NodeRouter.dispatch/1
 ```
 
 ---
@@ -177,7 +177,7 @@ Adapter inbound path:
 - Oban worker; queue: `:notifications`, max 1 attempt.
 - Reads payload from `NotificationLog` at execution time (args carry only `log_id`).
 - Tries channels sequentially; stops on first success.
-- Delivers via `Zaq.Channels.Router.deliver/1` using `%Outgoing{}`.
+- Delivers via channels role dispatch (`Zaq.Channels.Api` through `Zaq.NodeRouter.dispatch/1`), with bridge delivery delegated by channels modules.
 - Router module is injectable via `Application.get_env(:zaq, :dispatch_worker_router_module)`.
 
 ### Email Notification (`Zaq.Engine.Notifications.EmailNotification`)

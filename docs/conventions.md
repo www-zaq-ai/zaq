@@ -39,7 +39,7 @@
 - Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}` for new work.
 - `NodeRouter.call/4` is deprecated and temporary compatibility only.
 - Role-level event boundary handlers live under `Zaq.<Role>.Api` (including `Zaq.Bo.Api` for `:bo`).
-- BO channel configuration flows must call `Zaq.Channels.Router` APIs via `NodeRouter` (`dispatch/1` preferred); they must not call bridge or adapter modules directly.
+- BO channel configuration flows must call channels role APIs via `NodeRouter` (`dispatch/1` preferred), with provider operations delegated to `Zaq.Channels.CommunicationBridge`; they must not call bridge or adapter modules directly.
 
 ---
 
@@ -144,9 +144,9 @@
 
 ### Stateless routers
 
-- Routers must not own process state — resolution happens at runtime from app config or DB.
-- Routers resolve the correct bridge/adapter and delegate; they do not implement delivery logic.
-- Example: `Zaq.Channels.Router` resolves provider → bridge from app config and calls `bridge.send_reply/2`.
+- Routing helpers must not own process state — resolution happens at runtime from app config or DB.
+- Routing helpers resolve the correct bridge/adapter and delegate; they do not implement transport logic.
+- Example: `Zaq.Channels.CommunicationBridge` resolves provider -> bridge and delegates provider operations.
 
 ### GenServer for serialized mutations
 

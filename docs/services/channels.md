@@ -327,12 +327,12 @@ bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
 | `stop_bridge_runtime/2` | Stops all children and removes ETS entry for a bridge ID                 |
 | `lookup_runtime/1`      | Returns `{:ok, %{listener_pids, state_pid}}` or `{:error, :not_running}` |
 | `lookup_state_pid/1`    | Returns `{:ok, pid}` or `{:error, :not_running}`                         |
-| `start_listener/1`      | Convenience — delegates to `Router.sync_config_runtime/2`                |
-| `stop_listener/1`       | Convenience — delegates to `Router.sync_config_runtime/2`                |
+| `start_listener/1`      | Convenience — delegates to `CommunicationBridge.sync_config_runtime/2`   |
+| `stop_listener/1`       | Convenience — delegates to `CommunicationBridge.sync_config_runtime/2`   |
 
 ### Bootstrap
 
-On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_kind(:retrieval, providers)` for all providers that have a configured `:adapter` in app config, and calls `Router.sync_config_runtime/2` for each.
+On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_kind(:retrieval, providers)` for all providers that have a configured `:adapter` in app config, and calls `CommunicationBridge.sync_config_runtime/2` for each.
 
 `Zaq.NodeRouter` locates the channels node by calling `Process.whereis(Zaq.Channels.Supervisor)`.
 
@@ -416,7 +416,7 @@ When `list_active_by_config/1` returns non-empty results, the listener is starte
 
 ## What's Done
 
-- Router with full outbound API: `deliver`, `send_typing`, `add_reaction`, `remove_reaction`, `subscribe_thread_reply`, `unsubscribe_thread_reply`, `sync_config_runtime`, `test_connection`
+- Communication bridge helpers with full provider API: `send_typing`, `add_reaction`, `remove_reaction`, `subscribe_thread_reply`, `unsubscribe_thread_reply`, `sync_config_runtime`, `test_connection`
 - `JidoChatBridge` with ingress via `from_listener` / `sink_mfa`, outbound via `send_reply`, thread watch management, configurable ingress modes, and Oban-based on_reply dispatch
 - `JidoChatBridge.State` GenServer with serialized message processing, config refresh preserving runtime state, and full reaction/typing delegation
 - `EmailBridge` for SMTP delivery
