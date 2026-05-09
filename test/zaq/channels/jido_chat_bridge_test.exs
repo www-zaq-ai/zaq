@@ -51,6 +51,10 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule NilPipeline do
+    def run(%Incoming{}, _opts), do: nil
+  end
+
   defmodule StubRouter do
     def deliver(%Outgoing{} = outgoing) do
       (Process.whereis(:bridge_test_observer) || self())
@@ -502,6 +506,26 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       JidoChatBridge.handle_from_listener(@config, incoming, [])
       assert_received {:pipeline_run, "Another question", _opts}
+    end
+
+    test "non-reply message treats nil pipeline result as :ok" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, NilPipeline)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+      end)
+
+      incoming = %ChatIncoming{
+        text: "Nil result question",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-nil",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+      refute_received {:router_deliver, _}
     end
 
     test "thread reply does NOT run the pipeline" do

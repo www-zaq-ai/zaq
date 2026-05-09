@@ -76,6 +76,30 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  defmodule PersistFailNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :persist_from_incoming -> {:error, :db_down}
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule PersistInvalidResponseNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :persist_from_incoming -> :unexpected
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
   defmodule StubRuntimeSyncInvalidRequestError do
     def configured_agent_updated(_id, _attrs), do: {:error, {:invalid_request, :bad_update}}
     def configured_agent_deleted(_id), do: {:error, {:invalid_request, :bad_delete}}
@@ -323,6 +347,47 @@ defmodule Zaq.Agent.ApiTest do
     assert result.next_hop.type == :sync
     assert result.opts[:action] == :deliver_outgoing
     assert result.request == result.response
+  end
+
+  test "run_pipeline returns persist_failed when persist_from_incoming fails" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: PersistFailNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.response == {:error, {:persist_failed, :db_down}}
+  end
+
+  test "run_pipeline returns persist_failed for invalid persist response" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: PersistInvalidResponseNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.response ==
+             {:error, {:persist_failed, {:invalid_persist_response, :unexpected}}}
   end
 
   test "delegates invoke to shared internal boundaries helper" do

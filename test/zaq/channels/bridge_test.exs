@@ -1,9 +1,12 @@
 defmodule Zaq.Channels.BridgeTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: false
 
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Event
+  alias Zaq.Repo
 
   defmodule StubConversations do
     def persist_from_incoming(incoming, metadata) do
@@ -45,6 +48,133 @@ defmodule Zaq.Channels.BridgeTest do
   defmodule ErrorBeforeHookBridge do
     def before_incoming(_config, _payload, _sink_opts, _bridge_module), do: {:error, :blocked}
     def handle_from_listener(_config, _payload, _sink_opts), do: :ok
+  end
+
+  defmodule RuntimeSupervisorAlreadyRunning do
+    def stop_bridge_runtime(_config, _bridge_id), do: :ok
+    def start_runtime(_bridge_id, _state_spec, _listeners), do: {:error, :already_running}
+  end
+
+  defmodule RuntimeSupervisorNotRunning do
+    def stop_bridge_runtime(_config, _bridge_id), do: {:error, :not_running}
+    def start_runtime(_bridge_id, _state_spec, _listeners), do: {:ok, self()}
+  end
+
+  defmodule RuntimeSupervisorStartError do
+    def stop_bridge_runtime(_config, _bridge_id), do: :ok
+    def start_runtime(_bridge_id, _state_spec, _listeners), do: {:error, :start_failed}
+  end
+
+  defmodule RuntimeSupervisorStopError do
+    def stop_bridge_runtime(_config, _bridge_id), do: {:error, :stop_failed}
+    def start_runtime(_bridge_id, _state_spec, _listeners), do: {:ok, self()}
+  end
+
+  defmodule RuntimeSupervisorOtherStopError do
+    def stop_bridge_runtime(_config, _bridge_id), do: {:error, :boom}
+    def start_runtime(_bridge_id, _state_spec, _listeners), do: {:ok, self()}
+  end
+
+  defmodule BridgeWithoutBuildRuntimeSpecs do
+    def runtime_supervisor_module, do: RuntimeSupervisorAlreadyRunning
+    def runtime_bridge_id(_config), do: "bridge-1"
+  end
+
+  defmodule RestartableBridgeStartOk do
+    def runtime_supervisor_module, do: RuntimeSupervisorNotRunning
+    def runtime_bridge_id(_config), do: "bridge-1"
+    def build_runtime_specs(_config), do: {:ok, {%{state: :ok}, []}}
+  end
+
+  defmodule RestartableBridgeStartError do
+    def runtime_supervisor_module, do: RuntimeSupervisorStartError
+    def runtime_bridge_id(_config), do: "bridge-1"
+    def build_runtime_specs(_config), do: {:ok, {%{state: :ok}, []}}
+  end
+
+  defmodule RestartableBridgeStopError do
+    def runtime_supervisor_module, do: RuntimeSupervisorStopError
+    def runtime_bridge_id(_config), do: "bridge-1"
+    def build_runtime_specs(_config), do: {:ok, {%{state: :ok}, []}}
+  end
+
+  defmodule RestartableBridgeBuildError do
+    def runtime_supervisor_module, do: RuntimeSupervisorAlreadyRunning
+    def runtime_bridge_id(_config), do: "bridge-1"
+    def build_runtime_specs(_config), do: {:error, :bad_specs}
+  end
+
+  defmodule UnsupportedRouteBridge do
+  end
+
+  defmodule NoRuntimeBridge do
+  end
+
+  defmodule RestartableBridgeOtherStopError do
+    def runtime_supervisor_module, do: RuntimeSupervisorOtherStopError
+    def runtime_bridge_id(_config), do: "bridge-1"
+    def build_runtime_specs(_config), do: {:ok, {%{state: :ok}, []}}
+  end
+
+  defmodule SyncProviderBridge do
+    def sync_provider_runtime(config) do
+      send(self(), {:sync_provider_runtime_called, config.provider, config.enabled})
+      :ok
+    end
+  end
+
+  defmodule FallbackRuntimeBridge do
+    def start_runtime(config) do
+      send(self(), {:fallback_start_runtime_called, config.provider, config.enabled})
+      :ok
+    end
+
+    def stop_runtime(config) do
+      send(self(), {:fallback_stop_runtime_called, config.provider, config.enabled})
+      :ok
+    end
+  end
+
+  setup do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: SyncProviderBridge},
+      email: %{bridge: FallbackRuntimeBridge}
+    })
+
+    on_exit(fn ->
+      if original_channels do
+        Application.put_env(:zaq, :channels, original_channels)
+      else
+        Application.delete_env(:zaq, :channels)
+      end
+    end)
+
+    :ok
+  end
+
+  defp insert_config(provider, attrs \\ %{}) do
+    unique = System.unique_integer([:positive])
+
+    base = %{
+      name: "bridge-cfg-#{provider}-#{unique}",
+      provider: to_string(provider),
+      kind: "retrieval",
+      url: "https://#{provider}.example.com",
+      token: "tok-#{unique}",
+      enabled: true
+    }
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(Map.merge(base, attrs))
+    |> Repo.insert!()
+  end
+
+  defmodule RestartableBridge do
+    def runtime_supervisor_module, do: RuntimeSupervisorAlreadyRunning
+    def runtime_bridge_id(config), do: "bridge-#{config[:id] || config["id"]}"
+    def build_runtime_specs(_config), do: {:ok, {%{state: :ok}, []}}
   end
 
   test "calls override conversations module directly" do
@@ -121,11 +251,144 @@ defmodule Zaq.Channels.BridgeTest do
              )
   end
 
+  test "route_incoming/4 returns unsupported when bridge lacks listener handler" do
+    assert {:error, :unsupported} =
+             Bridge.route_incoming(
+               UnsupportedRouteBridge,
+               %{provider: "email:imap"},
+               %{"body_text" => "hello"},
+               mailbox: "INBOX"
+             )
+  end
+
   test "ack_from_event_response/1 normalizes ack values" do
     assert :ok = Bridge.ack_from_event_response(:ok)
     assert :ok = Bridge.ack_from_event_response(%{ack: :ok})
     assert :ok = Bridge.ack_from_event_response(%{"ack" => {:ok, :queued}})
     assert {:error, :no_ack} = Bridge.ack_from_event_response({:error, :no_ack})
     assert {:error, {:invalid_ack, :queued}} = Bridge.ack_from_event_response(:queued)
+  end
+
+  test "restart_runtime/2 normalizes already running to :ok" do
+    assert :ok = Bridge.restart_runtime(RestartableBridge, %{id: 1, provider: "mattermost"})
+  end
+
+  test "stop_runtime_normalized/2 normalizes not_running to :ok" do
+    assert :ok = Bridge.stop_runtime_normalized(RestartableBridgeStartOk, %{id: 1})
+  end
+
+  test "restart_runtime/2 returns unsupported when bridge has no build_runtime_specs" do
+    assert {:error, :unsupported} =
+             Bridge.restart_runtime(BridgeWithoutBuildRuntimeSpecs, %{id: 1})
+  end
+
+  test "restart_runtime/2 returns stop errors" do
+    assert {:error, :stop_failed} = Bridge.restart_runtime(RestartableBridgeStopError, %{id: 1})
+  end
+
+  test "restart_runtime/2 returns build specs errors" do
+    assert {:error, :bad_specs} = Bridge.restart_runtime(RestartableBridgeBuildError, %{id: 1})
+  end
+
+  test "restart_runtime/2 returns start errors" do
+    assert {:error, :start_failed} = Bridge.restart_runtime(RestartableBridgeStartError, %{id: 1})
+  end
+
+  test "dispatch_provider_runtime_sync/2 uses sync_provider_runtime when available" do
+    assert :ok =
+             Bridge.dispatch_provider_runtime_sync(SyncProviderBridge, %{
+               provider: "mattermost",
+               enabled: true
+             })
+
+    assert_received {:sync_provider_runtime_called, "mattermost", true}
+  end
+
+  test "dispatch_provider_runtime_sync/2 falls back to start/stop runtime hooks" do
+    assert :ok =
+             Bridge.dispatch_provider_runtime_sync(FallbackRuntimeBridge, %{
+               provider: "email",
+               enabled: true
+             })
+
+    assert :ok =
+             Bridge.dispatch_provider_runtime_sync(FallbackRuntimeBridge, %{
+               provider: "email",
+               enabled: false
+             })
+
+    assert_received {:fallback_start_runtime_called, "email", true}
+    assert_received {:fallback_stop_runtime_called, "email", false}
+  end
+
+  test "dispatch_provider_runtime_sync/2 returns :ok when fallback bridge lacks runtime hooks" do
+    assert :ok =
+             Bridge.dispatch_provider_runtime_sync(NoRuntimeBridge, %{
+               provider: "mattermost",
+               enabled: true
+             })
+  end
+
+  test "dispatch_provider_runtime_sync/2 returns no_bridge when fallback cannot resolve provider" do
+    assert_raise WithClauseError, fn ->
+      Bridge.dispatch_provider_runtime_sync(NoRuntimeBridge, %{provider: "slack", enabled: true})
+    end
+  end
+
+  test "provider mapping and bridge resolution helpers" do
+    assert Bridge.provider_to_bridge_key("email:smtp") == :email
+    assert Bridge.provider_to_bridge_key("email:imap") == :email
+    assert is_nil(Bridge.provider_to_bridge_key("unknown-provider"))
+
+    assert {:ok, SyncProviderBridge} = Bridge.resolve_bridge(:mattermost)
+    assert {:error, {:no_bridge, "unknown-provider"}} = Bridge.resolve_bridge("unknown-provider")
+  end
+
+  test "fetch_connection_details and config fetchers" do
+    insert_config(:mattermost)
+
+    details = Bridge.fetch_connection_details(:mattermost)
+    assert is_binary(details.url)
+    assert is_binary(details.token)
+
+    assert %{} == Bridge.fetch_connection_details(:web)
+
+    assert {:ok, _cfg} = Bridge.fetch_channel_config(:mattermost)
+    assert {:ok, _cfg_any} = Bridge.fetch_any_channel_config(:mattermost)
+    assert {:error, {:channel_not_configured, :slack}} = Bridge.fetch_channel_config(:slack)
+    assert {:error, {:channel_not_configured, :slack}} = Bridge.fetch_any_channel_config(:slack)
+  end
+
+  test "default_bridge_id supports atom and string keys" do
+    assert Bridge.default_bridge_id(%{provider: "mattermost", id: 42}) == "mattermost_42"
+    assert Bridge.default_bridge_id(%{"provider" => "mattermost", "id" => 43}) == "mattermost_43"
+  end
+
+  test "stop_runtime_normalized and restart_runtime propagate non-normalized stop errors" do
+    assert {:error, :boom} =
+             Bridge.stop_runtime_normalized(RestartableBridgeOtherStopError, %{
+               provider: "mattermost"
+             })
+
+    assert {:error, :boom} =
+             Bridge.restart_runtime(RestartableBridgeOtherStopError, %{provider: "mattermost"})
+  end
+
+  test "persist_from_incoming returns node router response and ack normalizes event response" do
+    incoming = %Incoming{content: "hello", channel_id: "chan-1", provider: :mattermost}
+    metadata = %{answer: "ok"}
+
+    response =
+      Bridge.persist_from_incoming(
+        incoming,
+        metadata,
+        Zaq.Engine.Conversations,
+        %{id: "u1", provider: :mattermost},
+        StubNodeRouter
+      )
+
+    assert response == :ok
+    event = Event.new(%{ok: true}, :channels)
+    assert :ok = Bridge.ack_from_event_response(%{event | response: :ok})
   end
 end
