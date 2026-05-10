@@ -1,7 +1,0 @@
-#!/bin/sh
-
-[ "/Users/julien/Documents/Repos/Github/OSS/zaq" != "" ] && cd "/Users/julien/Documents/Repos/Github/OSS/zaq"
-
-mix git_hooks.run pre_push "$@"
-[ $? -ne 0 ] && exit 1
-exit 0

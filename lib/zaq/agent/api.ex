@@ -240,6 +240,7 @@ defmodule Zaq.Agent.Api do
     maybe_dispatch_return_hop(event, incoming, outgoing)
   end
 
+  # This function is a good candidate to go into the NodeRouter for generalization
   defp maybe_dispatch_return_hop(%Event{} = event, %Incoming{} = incoming, %Outgoing{} = outgoing) do
     if delivery_through_channels?(outgoing.provider) do
       node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
