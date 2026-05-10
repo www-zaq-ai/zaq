@@ -10,21 +10,23 @@ This file is your **map**. Read the relevant doc before starting any task.
 
 ### Core Docs
 
-| What you need                                   | Where to look           |
-| ----------------------------------------------- | ----------------------- |
-| Project overview, tech stack, project structure | `docs/project.md`       |
-| Architecture, multi-node roles, NodeRouter      | `docs/architecture.md`  |
-| Naming conventions, module & API design         | `docs/conventions.md`   |
-| Git workflow, branching, semantic versioning    | `docs/workflows.md`     |
-| Code quality standards, debt prevention         | `docs/code-quality.md`  |
-| Dev setup, tool usage, sub-agents               | `docs/dev-setup.md`     |
-| Elixir, Mix, Ecto, Test guidelines              | `docs/elixir.md`        |
+| What you need                                   | Where to look              |
+| ----------------------------------------------- | -------------------------- |
+| Project overview, tech stack, project structure | `docs/project.md`          |
+| Architecture, multi-node roles, NodeRouter      | `docs/architecture.md`     |
+| Naming conventions, module & API design         | `docs/conventions.md`      |
+| Git workflow, branching, semantic versioning    | `docs/workflows.md`        |
+| Code quality standards, debt prevention         | `docs/code-quality.md`     |
+| Dev setup, tool usage, sub-agents               | `docs/dev-setup.md`        |
+| Elixir, Mix, Ecto, Test guidelines              | `docs/elixir.md`           |
 | Production testing strategy & property testing  | `docs/testing-approach.md` |
 | E2E tests: running, seeding, helper conventions | `docs/e2e-testing.md`      |
-| Phoenix, LiveView, HTML, JS/CSS, UI/UX          | `docs/phoenix.md`       |
-| BO layout, design tokens, colors, components    | `docs/bo-components.md` |
+| Phoenix, LiveView, HTML, JS/CSS, UI/UX          | `docs/phoenix.md`          |
+| BO layout, design tokens, colors, components    | `docs/bo-components.md`    |
 
 ### Planning & Quality
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands. More details in `docs/beads.md`
 
 | What you need                          | Where to look                          |
 | -------------------------------------- | -------------------------------------- |
@@ -161,7 +163,7 @@ After /clear or /compact: knowledge base and session stats are preserved. Use `c
 
 ---
 
-## 🤖 Sub-Agents
+## 🤖 Claude Sub-Agents
 
 Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
@@ -187,50 +189,3 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 ### All agents
 
 `project-planner` · `planner` · `api-developer` · `tdd-specialist` · `tdd` · `code-reviewer` · `reviewer` · `debugger` · `refactor` · `doc-gardening` · `doc-writer` · `security-scanner` · `devops-engineer` · `product-manager` · `test-runner` · `node-router-enforcer` · `secret-field-auditor`
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
-## Beads Issue Tracker
-
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-### Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
-
-### Rules
-
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
-
-## Session Completion
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-<!-- END BEADS INTEGRATION -->

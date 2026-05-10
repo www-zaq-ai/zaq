@@ -66,3 +66,4 @@ swarm.config.yaml
 .dolt/
 *.db
 .beads-credential-key
+.beads
