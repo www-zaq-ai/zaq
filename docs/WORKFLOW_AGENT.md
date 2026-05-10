@@ -11,7 +11,7 @@ Before writing a single line of code:
 
 1. Read `AGENTS.md` to confirm you have the full map.
 2. Identify which docs apply to this task and read them.
-3. Read `docs/exec-plans/active/` — check if a plan already exists for this task.
+3. Check existing beads issues (`bd ready`, `bd list --status open`) to confirm whether planning work already exists for this task.
 4. Read `docs/exec-plans/tech-debt-tracker.md` — check if this task is tracked debt.
 5. Read `docs/QUALITY_SCORE.md` — understand the current state of the domain you're touching.
 
@@ -21,19 +21,21 @@ Before writing a single line of code:
 
 ### Simple tasks (single file, single concern)
 - State your approach in 2-3 sentences before starting.
-- No formal exec plan needed.
+- Create one beads issue for the task before coding.
 
 ### Complex tasks (multiple files, multiple concerns, or architectural changes)
-1. Copy `docs/exec-plans/PLAN_TEMPLATE.md` to `docs/exec-plans/active/YYYY-MM-DD-short-description.md`.
-2. Fill in: Goal, Context, Approach, Steps, Definition of Done.
-3. Commit the plan before writing any code.
-4. If the task requires architectural changes not covered in `docs/architecture.md` — stop, write the plan, and wait for human approval before proceeding.
+1. Break the work into explicit implementation steps.
+2. Create beads issues for the plan: at least one issue per step (create more when a step should be split for safe delivery/review).
+3. Prefix every planned issue title with `[{issueId}]`.
+4. Link dependencies between the created issues (`bd dep add`) to represent execution order.
+5. Start implementation only after issue creation and dependency wiring.
+6. If the task requires architectural changes not covered in `docs/architecture.md` — stop, create the related beads issue(s), and wait for human approval before proceeding.
 
 ---
 
 ## Phase 3 — Implement
 
-Work through the plan steps one at a time:
+Work through the planned beads issues one at a time:
 
 1. Read the relevant source files using `mcp__serena__get_symbols_overview` before editing.
 2. Implement the change.
@@ -41,7 +43,7 @@ Work through the plan steps one at a time:
 4. Target at least 90% coverage for new development in the changed scope (unit/integration as appropriate).
 5. Apply `docs/testing-approach.md`: add property tests when the change touches invariants, broad input spaces, normalization, or permission/safety defaults.
 6. Run `mix test` — fix all failures before moving to the next step.
-7. Update the plan's steps checklist and decisions log as you go.
+7. Update the active beads issue notes/description with decisions and progress as you go.
 
 ### Rules during implementation
 - One PR per step when possible — keep PRs small and focused.
@@ -109,7 +111,7 @@ or directly in Playwright `beforeEach` hooks via the E2E controller.
 3. PR description must include:
    - What changed and why
    - Whether E2E tests were run and passed
-   - Link to exec plan or tech debt item if applicable
+   - Link to beads issue(s) or tech debt item if applicable
    - Any decisions made that future agents need to know
 4. Respond to all review feedback before merging.
 5. Squash and merge when approved.
@@ -120,7 +122,7 @@ or directly in Playwright `beforeEach` hooks via the E2E controller.
 
 After merging:
 
-1. Update the plan's status to `completed` and move it to `docs/exec-plans/completed/`.
+1. Close all completed beads issues (`bd close ...`) and ensure dependencies are resolved.
 2. Check off the item in `docs/exec-plans/tech-debt-tracker.md` if applicable.
 3. Update `docs/QUALITY_SCORE.md` if the domain grade changed.
 4. Update any service doc in `docs/services/` if behavior or architecture changed.

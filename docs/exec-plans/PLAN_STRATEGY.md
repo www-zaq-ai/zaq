@@ -13,9 +13,11 @@ This strategy is mandatory for every new execution plan.
 
 ## Required Inputs
 
-- Start every plan from `docs/exec-plans/PLAN_TEMPLATE.md`.
-- Save new plans to `docs/exec-plans/active/YYYY-MM-DD-short-description.md`.
-- Do not author ad-hoc plan formats.
+- Planning is tracked in beads issues, not in `docs/exec-plans/active/` files.
+- For planned work, create at least one beads issue per step (create more issues when a step must be split).
+- Prefix every planned issue title with `[{issueId}]`.
+- Encode execution order with issue dependencies (`bd dep add <issue> <depends-on>`).
+- Do not use ad-hoc planning formats outside beads.
 
 ---
 
