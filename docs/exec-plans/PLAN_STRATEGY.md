@@ -15,9 +15,19 @@ This strategy is mandatory for every new execution plan.
 
 - Planning is tracked in beads issues, not in `docs/exec-plans/active/` files.
 - For planned work, create at least one beads issue per step (create more issues when a step must be split).
+- Split a step into multiple issues when any of these apply: different owning module/domain, independent test surface, different deploy/review risk, or expected effort over one day.
 - Prefix every planned issue title with `[{issueId}]`.
 - Encode execution order with issue dependencies (`bd dep add <issue> <depends-on>`).
+- Canonical dependency direction: if issue `X` needs issue `Y`, run `bd dep add X Y` (X is blocked by Y).
+- Dependency graph requirement: planning dependencies must form a DAG (no cycles). Avoid diamond dependency shapes unless they are required and justified in issue notes.
 - Do not use ad-hoc planning formats outside beads.
+
+### Dependency validation checklist (mandatory before implementation)
+
+- Run `bd blocked --json` and confirm blocked issues match planned prerequisites.
+- Run `bd ready --json` and confirm only intended root issues are ready.
+- Run `bd show <id> --json` for each planned issue and verify both `depends_on` and `blocks` edges are correct.
+- Fix dependency direction mistakes before implementation starts.
 
 ---
 
