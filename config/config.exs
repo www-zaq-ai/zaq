@@ -25,6 +25,14 @@ config :zaq, :channels, %{
     ingress_mode: :gateway,
     sink_mfa: {Zaq.Channels.JidoChatBridge, :from_listener, []}
   },
+  google_drive: %{
+    bridge: Zaq.Channels.JidoConnectBridge,
+    adapter: Jido.Connect.GoogleDrive.Adapter
+  },
+  sharepoint: %{
+    bridge: Zaq.Channels.JidoConnectBridge,
+    adapter: Jido.Connect.Sharepoint.Adapter
+  },
   email: %{bridge: Zaq.Channels.EmailBridge},
   web: %{bridge: Zaq.Channels.WebBridge}
 }

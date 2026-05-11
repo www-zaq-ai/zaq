@@ -4,7 +4,7 @@
 
 The Channels service provides transport and runtime infrastructure for communication adapters.
 
-- **Ingestion channels** ingest external documents (Google Drive, SharePoint, etc.).
+- **Data Sources** (ingestion channels in routes/API) ingest external documents (Google Drive, SharePoint, etc.).
 - **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
 
 All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For cross-node routing, payloads are wrapped in `%Zaq.Event{}`.
@@ -17,18 +17,40 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | ----------------------------------- | -------------------------------------------- | --------------------------------------------- |
 | `Zaq.Channels.Api`                  | `lib/zaq/channels/api.ex`                    | Channels role boundary for `NodeRouter` events |
 | `Zaq.Channels.CommunicationBridge`  | `lib/zaq/channels/communication_bridge.ex`   | Communication-domain routing/delegation helpers |
+| `Zaq.Channels.DataSourceBridge`     | `lib/zaq/channels/data_source_bridge.ex`     | DataSource-domain routing/delegation helpers   |
 | `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers             |
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters        |
+| `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder             |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery              |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub   |
 | `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle         |
 | `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs               |
+| `Zaq.Engine.Connect`                | `lib/zaq/engine/connect.ex`                  | Credential/grant lifecycle for Data Source auth |
 | `Zaq.Channels.RetrievalChannel`     | `lib/zaq/channels/retrieval_channel.ex`      | Ecto schema — per-channel subscriptions       |
 | `Zaq.Channels.MattermostAdmin`      | `lib/zaq/channels/mattermost_admin.ex`       | Admin helpers for Mattermost UI               |
 | `Zaq.Channels.SmtpHelpers`          | `lib/zaq/channels/smtp_helpers.ex`           | Internal SMTP settings key normalizer         |
 | `Zaq.Engine.Messages.Incoming`      | `lib/zaq/engine/messages/incoming.ex`        | Canonical inbound message struct              |
 | `Zaq.Engine.Messages.Outgoing`      | `lib/zaq/engine/messages/outgoing.ex`        | Canonical outbound message struct             |
+
+---
+
+## Data Source Credentials and Grants
+
+Data Source provider configs in BO (`/bo/channels/ingestion/:provider`) can attach
+reusable Connect credentials and claim context-bound grants.
+
+At System Configuration level (`/bo/system-config?tab=credentials`), admins can list
+all Connect credentials and open a grants modal per credential to review every
+grant bound to that credential.
+
+- Credential definitions are provider-scoped and reusable.
+- Grants are bound to resource + owner context (for Data Sources, `resource_type: "data_source"`).
+- OAuth2 claims open in a popup and finalize through the channels node callback:
+  - `GET /channels/oauth2/:provider/redirect`
+  - callback page posts result to the opener and auto-closes.
+
+The callback route remains minimal; claim context is carried in signed OAuth state.
 
 ---
 
@@ -85,6 +107,8 @@ defstruct [
 `Zaq.Channels.Api` is the role boundary entrypoint for channel delivery/runtime events routed through `Zaq.NodeRouter.dispatch/1`.
 
 `Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
+
+`Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, listener setup/teardown).
 
 `Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
 
