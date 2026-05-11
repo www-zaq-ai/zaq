@@ -41,6 +41,25 @@ defmodule Zaq.Workflows.Trigger do
     |> cast(attrs, [:workflow_id, :type, :config, :enabled])
     |> validate_required([:workflow_id, :type])
     |> validate_inclusion(:type, @types)
+    |> validate_trigger_config()
     |> foreign_key_constraint(:workflow_id)
+  end
+
+  defp validate_trigger_config(changeset) do
+    type = get_field(changeset, :type)
+    config = get_field(changeset, :config) || %{}
+
+    required_keys =
+      case type do
+        "scheduler" -> ["cron"]
+        "signal" -> ["topic"]
+        _ -> []
+      end
+
+    missing = Enum.reject(required_keys, &Map.has_key?(config, &1))
+
+    Enum.reduce(missing, changeset, fn key, cs ->
+      add_error(cs, :config, "missing required key '#{key}' for #{type} trigger")
+    end)
   end
 end

@@ -325,6 +325,64 @@ defmodule Zaq.WorkflowsTest do
 
       assert changeset.errors[:type]
     end
+
+    test "scheduler trigger requires cron in config" do
+      workflow = create_workflow()
+
+      assert {:error, changeset} =
+               Workflows.create_trigger(%{
+                 workflow_id: workflow.id,
+                 type: "scheduler",
+                 config: %{}
+               })
+
+      assert changeset.errors[:config]
+    end
+
+    test "scheduler trigger succeeds with cron key in config" do
+      workflow = create_workflow()
+
+      assert {:ok, t} =
+               Workflows.create_trigger(%{
+                 workflow_id: workflow.id,
+                 type: "scheduler",
+                 config: %{"cron" => "0 * * * *"}
+               })
+
+      assert t.type == "scheduler"
+    end
+
+    test "signal trigger requires topic in config" do
+      workflow = create_workflow()
+
+      assert {:error, changeset} =
+               Workflows.create_trigger(%{workflow_id: workflow.id, type: "signal", config: %{}})
+
+      assert changeset.errors[:config]
+    end
+
+    test "signal trigger succeeds with topic key in config" do
+      workflow = create_workflow()
+
+      assert {:ok, t} =
+               Workflows.create_trigger(%{
+                 workflow_id: workflow.id,
+                 type: "signal",
+                 config: %{"topic" => "user.created"}
+               })
+
+      assert t.type == "signal"
+    end
+
+    test "webhook and manual triggers accept empty config" do
+      workflow = create_workflow()
+
+      assert {:ok, _} =
+               Workflows.create_trigger(%{workflow_id: workflow.id, type: "webhook", config: %{}})
+
+      assert {:ok, _} =
+               Workflows.create_trigger(%{workflow_id: workflow.id, type: "manual", config: %{}})
+    end
   end
 
   describe "list_triggers/2" do

@@ -18,6 +18,8 @@ defmodule Zaq.Ingestion.Permission do
   alias Zaq.Accounts.{Person, Team}
 
   @resource_type "document"
+  # Documents support only CRUD rights. Workflow and other resource types
+  # may support additional rights (run, view, edit, manage) via ResourcePermission.
   @valid_rights ~w(read write update delete)
 
   schema "resource_permissions" do
