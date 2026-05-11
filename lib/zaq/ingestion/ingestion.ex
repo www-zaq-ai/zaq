@@ -342,30 +342,52 @@ defmodule Zaq.Ingestion do
   # --- Permissions ---
 
   def list_document_permissions(document_id) do
+    resource_id = to_string(document_id)
+
     Permission
-    |> where([p], p.document_id == ^document_id)
+    |> where([p], p.resource_type == "document" and p.resource_id == ^resource_id)
     |> preload([:person, :team])
     |> Repo.all()
   end
 
   def list_person_permissions(person_id) do
-    Permission
-    |> where([p], p.person_id == ^person_id)
-    |> preload(:document)
-    |> Repo.all()
+    perms =
+      Permission
+      |> where([p], p.person_id == ^person_id and p.resource_type == "document")
+      |> Repo.all()
+
+    doc_ids = Enum.map(perms, &String.to_integer(&1.resource_id))
+
+    docs_by_id =
+      Document
+      |> where([d], d.id in ^doc_ids)
+      |> Repo.all()
+      |> Map.new(&{to_string(&1.id), &1})
+
+    Enum.map(perms, fn perm -> %{perm | document: docs_by_id[perm.resource_id]} end)
   end
 
   def set_document_permission(document_id, type, target_id, access_rights)
       when type in [:person, :team] do
+    resource_id = to_string(document_id)
+
     {conflict_fragment, attrs} =
       case type do
         :person ->
-          {"(document_id, person_id) WHERE person_id IS NOT NULL",
-           %{document_id: document_id, person_id: target_id, access_rights: access_rights}}
+          {"(resource_type, resource_id, person_id) WHERE person_id IS NOT NULL",
+           %{
+             resource_id: resource_id,
+             person_id: target_id,
+             access_rights: access_rights
+           }}
 
         :team ->
-          {"(document_id, team_id) WHERE team_id IS NOT NULL",
-           %{document_id: document_id, team_id: target_id, access_rights: access_rights}}
+          {"(resource_type, resource_id, team_id) WHERE team_id IS NOT NULL",
+           %{
+             resource_id: resource_id,
+             team_id: target_id,
+             access_rights: access_rights
+           }}
       end
 
     now = DateTime.utc_now(:second)
@@ -396,8 +418,10 @@ defmodule Zaq.Ingestion do
     docs = list_documents_under_folder(volume_name, folder_path)
     doc_ids = Enum.map(docs, & &1.id)
 
+    id_strings = Enum.map(doc_ids, &to_string/1)
+
     Permission
-    |> where([p], p.document_id in ^doc_ids)
+    |> where([p], p.resource_type == "document" and p.resource_id in ^id_strings)
     |> preload([:person, :team])
     |> Repo.all()
     |> Enum.uniq_by(fn p ->
@@ -418,10 +442,22 @@ defmodule Zaq.Ingestion do
         {:error, :not_found}
 
       perm ->
+        id_strings = Enum.map(doc_ids, &to_string/1)
+
         filter =
           if perm.person_id,
-            do: dynamic([p], p.document_id in ^doc_ids and p.person_id == ^perm.person_id),
-            else: dynamic([p], p.document_id in ^doc_ids and p.team_id == ^perm.team_id)
+            do:
+              dynamic(
+                [p],
+                p.resource_type == "document" and p.resource_id in ^id_strings and
+                  p.person_id == ^perm.person_id
+              ),
+            else:
+              dynamic(
+                [p],
+                p.resource_type == "document" and p.resource_id in ^id_strings and
+                  p.team_id == ^perm.team_id
+              )
 
         {count, _} = Permission |> where(^filter) |> Repo.delete_all()
         {:ok, count}

@@ -35,7 +35,7 @@ defmodule Zaq.Ingestion.PermissionTest do
 
       changeset =
         Permission.changeset(%Permission{}, %{
-          document_id: doc.id,
+          resource_id: to_string(doc.id),
           person_id: person.id,
           access_rights: ["read"]
         })
@@ -49,7 +49,7 @@ defmodule Zaq.Ingestion.PermissionTest do
 
       changeset =
         Permission.changeset(%Permission{}, %{
-          document_id: doc.id,
+          resource_id: to_string(doc.id),
           team_id: team.id,
           access_rights: ["read"]
         })
@@ -62,7 +62,7 @@ defmodule Zaq.Ingestion.PermissionTest do
 
       changeset =
         Permission.changeset(%Permission{}, %{
-          document_id: doc.id,
+          resource_id: to_string(doc.id),
           access_rights: ["read"]
         })
 
@@ -70,7 +70,7 @@ defmodule Zaq.Ingestion.PermissionTest do
       assert {"must set person_id or team_id", _} = changeset.errors[:base]
     end
 
-    test "invalid when document_id is missing" do
+    test "invalid when resource_id is missing" do
       person = create_person()
 
       changeset =
@@ -80,7 +80,7 @@ defmodule Zaq.Ingestion.PermissionTest do
         })
 
       refute changeset.valid?
-      assert changeset.errors[:document_id]
+      assert changeset.errors[:resource_id]
     end
 
     test "invalid when access_rights contains unknown right" do
@@ -89,7 +89,7 @@ defmodule Zaq.Ingestion.PermissionTest do
 
       changeset =
         Permission.changeset(%Permission{}, %{
-          document_id: doc.id,
+          resource_id: to_string(doc.id),
           person_id: person.id,
           access_rights: ["read", "fly"]
         })
@@ -104,7 +104,7 @@ defmodule Zaq.Ingestion.PermissionTest do
 
       changeset =
         Permission.changeset(%Permission{}, %{
-          document_id: doc.id,
+          resource_id: to_string(doc.id),
           person_id: person.id,
           access_rights: ["read", "write", "update", "delete"]
         })
@@ -118,7 +118,7 @@ defmodule Zaq.Ingestion.PermissionTest do
 
       changeset =
         Permission.changeset(%Permission{}, %{
-          document_id: doc.id,
+          resource_id: to_string(doc.id),
           person_id: person.id
         })
 
