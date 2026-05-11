@@ -162,10 +162,12 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
 
     alias Zaq.Ingestion.Permission
 
+    id_strings = Enum.map(doc_ids, &to_string/1)
+
     from(p in Permission,
-      where: p.document_id in ^doc_ids,
-      group_by: p.document_id,
-      select: {p.document_id, count(p.id)}
+      where: p.resource_type == "document" and p.resource_id in ^id_strings,
+      group_by: p.resource_id,
+      select: {fragment("?::integer", p.resource_id), count(p.id)}
     )
     |> Repo.all()
     |> Map.new()

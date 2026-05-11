@@ -232,7 +232,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       assert {:ok, perm} =
                Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
 
-      assert perm.document_id == doc.id
+      assert perm.resource_id == to_string(doc.id)
       assert perm.person_id == person.id
       assert perm.access_rights == ["read"]
     end

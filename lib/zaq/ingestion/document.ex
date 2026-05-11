@@ -24,7 +24,7 @@ defmodule Zaq.Ingestion.Document do
     field :tags, {:array, :string}, default: []
 
     has_many :chunks, Chunk
-    has_many :permissions, Permission
+    has_many :permissions, Permission, foreign_key: :resource_id, references: :id
 
     timestamps(type: :utc_datetime)
   end
