@@ -30,4 +30,27 @@ defmodule ZaqWeb.RouterTest do
     conn = get(conn, "/bo/studio")
     refute conn.status == 404
   end
+
+  test "channels health route is wired", %{conn: conn} do
+    conn = get(conn, "/channels/health")
+    assert %{"status" => "ok"} = json_response(conn, 200)
+  end
+
+  test "bo routes return 404 when node has no :bo role", %{conn: conn} do
+    previous = Application.get_env(:zaq, :roles)
+    Application.put_env(:zaq, :roles, [:channels])
+    on_exit(fn -> Application.put_env(:zaq, :roles, previous) end)
+
+    conn = get(conn, "/bo/login")
+    assert conn.status == 404
+  end
+
+  test "channels routes return 404 when node has no :channels role", %{conn: conn} do
+    previous = Application.get_env(:zaq, :roles)
+    Application.put_env(:zaq, :roles, [:bo])
+    on_exit(fn -> Application.put_env(:zaq, :roles, previous) end)
+
+    conn = get(conn, "/channels/health")
+    assert conn.status == 404
+  end
 end
