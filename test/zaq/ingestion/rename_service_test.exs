@@ -49,7 +49,7 @@ defmodule Zaq.Ingestion.RenameServiceTest do
     {:ok, _perm} =
       %Permission{}
       |> Permission.changeset(%{
-        document_id: doc.id,
+        resource_id: to_string(doc.id),
         person_id: person.id,
         access_rights: ["read"]
       })
@@ -92,7 +92,12 @@ defmodule Zaq.Ingestion.RenameServiceTest do
       updated_doc = Document.get_by_source("product/doc.md")
       assert updated_doc != nil, "Document must be findable at new path to check permissions"
 
-      perm = Repo.get_by(Permission, document_id: updated_doc.id, person_id: person.id)
+      perm =
+        Repo.get_by(Permission,
+          resource_id: to_string(updated_doc.id),
+          person_id: person.id
+        )
+
       assert perm != nil, "Permission should survive the folder rename"
       assert perm.access_rights == ["read"]
     end
