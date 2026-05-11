@@ -173,6 +173,27 @@ defmodule Zaq.WorkflowsTest do
     end
   end
 
+  describe "create_action_result/3 — started_at default" do
+    test "sets started_at automatically when not provided" do
+      workflow = create_workflow()
+      run = create_run(workflow)
+
+      {:ok, ar} = Workflows.create_action_result(run, %{step_name: "s", step_index: 0})
+      assert ar.started_at != nil
+    end
+
+    test "preserves caller-supplied started_at" do
+      workflow = create_workflow()
+      run = create_run(workflow)
+      explicit = ~U[2025-01-01 00:00:00Z]
+
+      {:ok, ar} =
+        Workflows.create_action_result(run, %{step_name: "s", step_index: 0, started_at: explicit})
+
+      assert ar.started_at == explicit
+    end
+  end
+
   describe "complete_action_result/3" do
     test "sets status completed, writes results and finished_at" do
       workflow = create_workflow()
