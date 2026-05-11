@@ -252,6 +252,34 @@ defmodule Zaq.WorkflowsTest do
 
   # --- Triggers ---
 
+  # --- Schema accessors ---
+
+  describe "Workflow.statuses/0" do
+    test "returns the expected status list" do
+      assert Workflow.statuses() == ~w(draft active archived)
+    end
+  end
+
+  describe "WorkflowRun.statuses/0" do
+    test "returns the expected status list" do
+      assert WorkflowRun.statuses() == ~w(pending running waiting completed failed)
+    end
+  end
+
+  describe "ActionResult.statuses/0" do
+    test "returns the expected status list" do
+      assert ActionResult.statuses() == ~w(running completed failed)
+    end
+  end
+
+  describe "Trigger.types/0" do
+    test "returns the expected type list" do
+      assert Trigger.types() == ~w(manual webhook scheduler signal)
+    end
+  end
+
+  # --- Triggers ---
+
   describe "create_trigger/2" do
     test "creates a trigger for a workflow" do
       workflow = create_workflow()
@@ -285,6 +313,27 @@ defmodule Zaq.WorkflowsTest do
       {:ok, _} = Workflows.create_trigger(%{workflow_id: workflow.id, type: "webhook"})
 
       assert length(Workflows.list_triggers(workflow.id)) == 2
+    end
+  end
+
+  describe "update_trigger/3" do
+    test "updates trigger fields" do
+      workflow = create_workflow()
+      {:ok, trigger} = Workflows.create_trigger(%{workflow_id: workflow.id, type: "manual"})
+
+      assert {:ok, updated} =
+               Workflows.update_trigger(trigger, %{enabled: false, config: %{"key" => "val"}})
+
+      assert updated.enabled == false
+      assert updated.config == %{"key" => "val"}
+    end
+
+    test "returns error on invalid type" do
+      workflow = create_workflow()
+      {:ok, trigger} = Workflows.create_trigger(%{workflow_id: workflow.id, type: "webhook"})
+
+      assert {:error, changeset} = Workflows.update_trigger(trigger, %{type: "invalid"})
+      assert changeset.errors[:type]
     end
   end
 end
