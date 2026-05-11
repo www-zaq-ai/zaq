@@ -25,7 +25,6 @@ defmodule Zaq.Agent.Pipeline do
     * `:retrieval`          — Retrieval module override
     * `:document_processor` — DocumentProcessor module override
     * `:answering`          — Answering module override
-    * `:prompt_template`    — PromptTemplate module override
 
   ## Returns
 
@@ -48,8 +47,6 @@ defmodule Zaq.Agent.Pipeline do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
-
-  @no_answer_signal "I don't have enough information to answer that question."
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -150,34 +147,18 @@ defmodule Zaq.Agent.Pipeline do
         error_result(:halted)
 
       {:error, :no_results, negative_answer} ->
-        :ok = record_no_answer_telemetry(opts)
-
-        result =
-          negative_answer
-          |> success_result(0.0)
-          |> Map.merge(%{
-            content: content,
-            generated_query: nil,
-            history: history
-          })
-
-        :ok = hooks.dispatch_async(:pipeline_complete, Map.put(result, :chunks, []), ctx)
-        result
+        try_tool_answering(incoming, content, history, opts, ctx, hooks, negative_answer)
 
       {:error, :no_results} ->
-        :ok = record_no_answer_telemetry(opts)
-
-        result =
+        try_tool_answering(
+          incoming,
+          content,
+          history,
+          opts,
+          ctx,
+          hooks,
           ErrorMessage.from_reason(:no_results)
-          |> success_result(0.0)
-          |> Map.merge(%{
-            content: content,
-            generated_query: nil,
-            history: history
-          })
-
-        :ok = hooks.dispatch_async(:pipeline_complete, Map.put(result, :chunks, []), ctx)
-        result
+        )
 
       {:error, reason} ->
         Logger.error("[Pipeline] Error: #{inspect(reason)}")
@@ -265,11 +246,10 @@ defmodule Zaq.Agent.Pipeline do
       end)
 
     system_prompt =
-      prompt_template_mod(opts).render("answering", %{
+      answering_mod(opts).system_prompt(%{
         content: content,
         retrieved_data: Jason.encode!(retrieved_data),
         language: language,
-        no_answer_signal: @no_answer_signal,
         has_history: history != %{}
       })
 
@@ -323,6 +303,48 @@ defmodule Zaq.Agent.Pipeline do
   end
 
   @spec build_sources(list()) :: [String.t()]
+  defp try_tool_answering(incoming, content, history, opts, ctx, hooks, fallback_answer) do
+    empty_retrieval = %{query: "", language: "en"}
+
+    case do_answering(incoming, content, [], empty_retrieval, history, opts) do
+      {:ok, answer_result} ->
+        answer = answer_result.body
+
+        if answering_mod(opts).no_answer?(answer) do
+          :ok = record_no_answer_telemetry(opts)
+
+          result =
+            fallback_answer
+            |> success_result(0.0)
+            |> Map.merge(%{content: content, generated_query: nil, history: history})
+
+          :ok = hooks.dispatch_async(:pipeline_complete, Map.put(result, :chunks, []), ctx)
+          result
+        else
+          :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
+          confidence_score = answer_result.metadata[:confidence_score]
+
+          result =
+            result_from_answering(answer_result, answer, confidence_score)
+            |> Map.put(:sources, [])
+
+          :ok = hooks.dispatch_async(:pipeline_complete, Map.put(result, :chunks, []), ctx)
+          result
+        end
+
+      _ ->
+        :ok = record_no_answer_telemetry(opts)
+
+        result =
+          fallback_answer
+          |> success_result(0.0)
+          |> Map.merge(%{content: content, generated_query: nil, history: history})
+
+        :ok = hooks.dispatch_async(:pipeline_complete, Map.put(result, :chunks, []), ctx)
+        result
+    end
+  end
+
   defp build_sources(chunks) when is_list(chunks) do
     chunks
     |> Enum.map(&Map.get(&1, "source"))
@@ -410,14 +432,6 @@ defmodule Zaq.Agent.Pipeline do
       opts,
       :executor_module,
       Application.get_env(:zaq, :pipeline_executor_module, Executor)
-    )
-  end
-
-  defp prompt_template_mod(opts) do
-    Keyword.get(
-      opts,
-      :prompt_template,
-      Application.get_env(:zaq, :pipeline_prompt_template_module, Zaq.Agent.PromptTemplate)
     )
   end
 end

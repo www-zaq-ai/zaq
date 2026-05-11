@@ -727,6 +727,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       {:ok, %{"negative_answer" => "No matching docs."}}
     )
 
+    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
+
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
@@ -736,6 +738,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
   test "pipeline branch no_results uses default fallback", %{conn: conn} do
     NodeRouterFake.put(:agent, Retrieval, :ask, {:ok, %{}})
+    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
@@ -823,6 +826,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     )
 
     NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:ok, []})
+    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
@@ -846,6 +850,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     )
 
     NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:error, :timeout})
+    NodeRouterFake.put(:agent, Answering, :ask, {:ok, "I don't have information on that."})
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 

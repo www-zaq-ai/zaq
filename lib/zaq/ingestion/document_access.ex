@@ -6,7 +6,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   determine which documents they can access and return counts or listings.
 
   Permission model:
-  - Documents with no permission rows → public by default (accessible to all).
+  - Documents with no permission rows → not accessible to regular users (admin-only via `skip_permissions`).
   - Documents tagged `"public"` → accessible to all.
   - Documents with explicit permission rows → accessible only to matched persons/teams.
   - `skip_permissions: true` → all documents, used for admin/internal callers.
@@ -148,7 +148,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   # mixing positional and named bindings in the same where expression.
   #
   # nil person_id: returns only public-tagged docs and team-permission-matched docs.
-  # authenticated person_id: additionally treats docs with no permission rows as accessible.
+  # authenticated person_id: same — docs with no permission rows are NOT accessible.
   defp build_accessible_where(nil, team_ids) do
     perm_cond = Permission.build_perm_join_condition(nil, team_ids)
 
@@ -164,8 +164,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
 
     dynamic(
       [doc: d, perm: p],
-      is_nil(p.id) or
-        fragment("? @> ARRAY['public']::varchar[]", d.tags) or
+      fragment("? @> ARRAY['public']::varchar[]", d.tags) or
         ^perm_cond
     )
   end
