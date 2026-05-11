@@ -109,8 +109,13 @@ defmodule Zaq.Workflows do
   @spec create_action_result(WorkflowRun.t(), map(), keyword()) ::
           {:ok, ActionResult.t()} | {:error, Ecto.Changeset.t()}
   def create_action_result(%WorkflowRun{} = run, attrs, _opts \\ []) do
+    attrs =
+      attrs
+      |> Map.put(:workflow_run_id, run.id)
+      |> Map.put_new(:started_at, DateTime.utc_now(:second))
+
     %ActionResult{}
-    |> ActionResult.changeset(Map.put(attrs, :workflow_run_id, run.id))
+    |> ActionResult.changeset(attrs)
     |> Repo.insert()
   end
 
