@@ -28,9 +28,16 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
 
     USE THIS TOOL when the user:
     - asks how many documents or files they have ("how many files do I have?")
+    - asks how many files are in the system, knowledge base, or ZAQ ("how many files in the system?")
     - wants to see what is in their knowledge base ("what files are in ZAQ?")
     - asks which files have or have not been ingested/indexed
     - wants a directory-style overview of available files
+    - asks what documents exist or are available
+
+    ALWAYS call this tool fresh — never answer from memory or a prior result
+    in this conversation. File counts and ingestion status change over time, so
+    a cached answer is unreliable. Every question about counts or file lists
+    requires a new tool call.
 
     DO NOT use this tool to answer questions about the content of documents —
     use the search tool for that. This tool returns file metadata (name, path,

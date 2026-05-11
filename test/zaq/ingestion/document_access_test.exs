@@ -584,17 +584,17 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   end
 
   # ---------------------------------------------------------------------------
-  # "public by default" — no permission rows → accessible to authenticated persons
+  # Permission model: no permission rows → NOT accessible (not "public by default")
   # ---------------------------------------------------------------------------
 
-  describe "list_accessible_documents/1 — no-permission-rows (public by default)" do
-    test "authenticated person sees doc with no permission rows" do
+  describe "list_accessible_documents/1 — no-permission-rows" do
+    test "authenticated person cannot see doc with no permission rows" do
       doc = create_doc(uid("no-perm-rows-list"))
       person = create_person()
 
       result = DocumentAccess.list_accessible_documents(person_id: person.id)
       sources = Enum.map(result, & &1.source)
-      assert doc.source in sources
+      refute doc.source in sources
     end
 
     test "nil person_id does NOT see doc with no permission rows" do
@@ -604,24 +604,134 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       sources = Enum.map(result, & &1.source)
       refute doc.source in sources
     end
+
+    test "skip_permissions: true returns doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-admin"))
+
+      result = DocumentAccess.list_accessible_documents(skip_permissions: true)
+      sources = Enum.map(result, & &1.source)
+      assert doc.source in sources
+    end
+
+    test "public-tagged doc with no other permission rows is visible to authenticated user" do
+      doc = create_doc(uid("no-perm-rows-public-auth"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      person = create_person()
+
+      result = DocumentAccess.list_accessible_documents(person_id: person.id)
+      sources = Enum.map(result, & &1.source)
+      assert doc.source in sources
+    end
+
+    test "public-tagged doc with no other permission rows is visible to nil person_id" do
+      doc = create_doc(uid("no-perm-rows-public-nil"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [])
+      sources = Enum.map(result, & &1.source)
+      assert doc.source in sources
+    end
+
+    test "explicitly-permitted doc is visible to that person and not to others" do
+      doc = create_doc(uid("explicit-perm-person"))
+      permitted = create_person()
+      stranger = create_person()
+      {:ok, _} = grant(doc.id, :person, permitted.id)
+
+      permitted_result = DocumentAccess.list_accessible_documents(person_id: permitted.id)
+      assert doc.source in Enum.map(permitted_result, & &1.source)
+
+      stranger_result = DocumentAccess.list_accessible_documents(person_id: stranger.id)
+      refute doc.source in Enum.map(stranger_result, & &1.source)
+    end
+
+    test "team-permitted doc is visible to team member and not to non-member" do
+      doc = create_doc(uid("explicit-perm-team"))
+      team = create_team()
+      member = create_person()
+      outsider = create_person()
+      {:ok, _} = grant(doc.id, :team, team.id)
+
+      member_result =
+        DocumentAccess.list_accessible_documents(person_id: member.id, team_ids: [team.id])
+
+      assert doc.source in Enum.map(member_result, & &1.source)
+
+      outsider_result =
+        DocumentAccess.list_accessible_documents(person_id: outsider.id, team_ids: [])
+
+      refute doc.source in Enum.map(outsider_result, & &1.source)
+    end
+
+    test "mix: user sees their permitted doc + public doc but not other private docs" do
+      person = create_person()
+      other = create_person()
+
+      permitted_doc = create_doc(uid("mix-permitted"))
+      {:ok, _} = grant(permitted_doc.id, :person, person.id)
+
+      public_doc = create_doc(uid("mix-public"))
+      {:ok, _} = Ingestion.add_document_tag(public_doc.id, "public")
+
+      private_doc = create_doc(uid("mix-private"))
+      {:ok, _} = grant(private_doc.id, :person, other.id)
+
+      result = DocumentAccess.list_accessible_documents(person_id: person.id)
+      sources = Enum.map(result, & &1.source)
+
+      assert permitted_doc.source in sources
+      assert public_doc.source in sources
+      refute private_doc.source in sources
+    end
   end
 
-  describe "count_accessible_documents/1 — no-permission-rows (public by default)" do
-    test "authenticated person counts doc with no permission rows" do
+  describe "count_accessible_documents/1 — no-permission-rows" do
+    test "authenticated person does NOT count doc with no permission rows" do
       person = create_person()
       count_before = DocumentAccess.count_accessible_documents(person_id: person.id, team_ids: [])
       _doc = create_doc(uid("no-perm-rows-count"))
       count_after = DocumentAccess.count_accessible_documents(person_id: person.id, team_ids: [])
+      assert count_after == count_before
+    end
+
+    test "nil person_id does NOT count doc with no permission rows" do
+      count_before = DocumentAccess.count_accessible_documents(person_id: nil, team_ids: [])
+      _doc = create_doc(uid("no-perm-rows-count-nil"))
+      count_after = DocumentAccess.count_accessible_documents(person_id: nil, team_ids: [])
+      assert count_after == count_before
+    end
+
+    test "skip_permissions: true counts doc with no permission rows" do
+      count_before = DocumentAccess.count_accessible_documents(skip_permissions: true)
+      _doc = create_doc(uid("no-perm-rows-count-admin"))
+      count_after = DocumentAccess.count_accessible_documents(skip_permissions: true)
       assert count_after == count_before + 1
     end
   end
 
-  describe "list_files_with_ingestion_status/1 — no-permission-rows (public by default)" do
-    test "authenticated person sees doc with no permission rows tagged ingested: true" do
+  describe "list_files_with_ingestion_status/1 — no-permission-rows" do
+    test "authenticated person does NOT see doc with no permission rows" do
       doc = create_doc(uid("no-perm-rows-lfwis"))
       person = create_person()
 
       result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry == nil
+    end
+
+    test "nil person_id does NOT see doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-lfwis-nil"))
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry == nil
+    end
+
+    test "public-tagged doc appears in list_files_with_ingestion_status for nil person_id" do
+      doc = create_doc(uid("no-perm-rows-lfwis-public"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
       entry = Enum.find(result, fn r -> r.source == doc.source end)
       assert entry != nil
       assert entry.ingested == true
