@@ -39,5 +39,8 @@ defmodule Zaq.Workflows.Workflow do
     |> cast(attrs, [:name, :description, :status, :steps, :settings])
     |> validate_required([:name, :status, :steps])
     |> validate_inclusion(:status, @statuses)
+
+    # Status transition enforcement (draft→active, active→archived, archived→active;
+    # reverting to draft disallowed) is tracked in zaq-0lc.
   end
 end

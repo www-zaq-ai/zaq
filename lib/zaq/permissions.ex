@@ -24,7 +24,7 @@ defmodule Zaq.Permissions do
       end
 
       # Revoke
-      :ok = Permissions.revoke(workflow, perm)
+      {:ok, _} = Permissions.revoke(workflow, perm)
   """
 
   import Ecto.Query
@@ -66,13 +66,14 @@ defmodule Zaq.Permissions do
 
   @doc """
   Revokes the given permission row.
-  Returns `:ok` on success, `{:error, :not_found}` if the row no longer exists.
+  Returns `:ok` on success, `{:error, changeset}` on DB constraint failure.
   """
-  @spec revoke(struct(), ResourcePermission.t(), keyword()) :: :ok | {:error, :not_found}
+  @spec revoke(struct(), ResourcePermission.t(), keyword()) ::
+          :ok | {:error, Ecto.Changeset.t()}
   def revoke(_resource, %ResourcePermission{} = permission, _opts \\ []) do
     case Repo.delete(permission) do
       {:ok, _} -> :ok
-      {:error, _} -> {:error, :not_found}
+      {:error, changeset} -> {:error, changeset}
     end
   end
 

@@ -9,6 +9,21 @@ defmodule Zaq.Permissions.ResourcePermission do
   Uniqueness is enforced by partial indexes:
     - (resource_type, resource_id, person_id) WHERE person_id IS NOT NULL
     - (resource_type, resource_id, team_id)   WHERE team_id IS NOT NULL
+
+  ## Resource preloading
+
+  This schema does not carry a virtual resource field. To attach the real
+  resource struct to a list of permissions, resolve it externally after
+  fetching. Example for workflows:
+
+      perms = Permissions.list(workflow)
+      workflow_ids = Enum.map(perms, & &1.resource_id)
+      workflows = Repo.all(from w in Workflow, where: w.id in ^workflow_ids)
+      by_id = Map.new(workflows, &{to_string(&1.id), &1})
+      Enum.map(perms, &Map.put(&1, :resource, by_id[&1.resource_id]))
+
+  Resource-specific schemas (e.g. `Zaq.Ingestion.Permission`) may add a
+  virtual field for convenience when the resource type is always known.
   """
 
   use Ecto.Schema

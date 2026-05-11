@@ -2,6 +2,7 @@ defmodule Zaq.PermissionsTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Ingestion.Document
   alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
   alias Zaq.Workflows.Workflow
@@ -20,9 +21,8 @@ defmodule Zaq.PermissionsTest do
     team
   end
 
-  defp fake_workflow(id \\ Ecto.UUID.generate()) do
-    %Workflow{id: id}
-  end
+  defp fake_workflow(id \\ Ecto.UUID.generate()), do: %Workflow{id: id}
+  defp fake_document(id \\ System.unique_integer([:positive])), do: %Document{id: id}
 
   describe "grant/3" do
     test "inserts a person permission row" do
@@ -156,6 +156,49 @@ defmodule Zaq.PermissionsTest do
     test "returns empty list when no permissions exist" do
       workflow = fake_workflow()
       assert Permissions.list(workflow) == []
+    end
+  end
+
+  # --- Polymorphic resource types ---
+
+  describe "grant/3 with document resource" do
+    test "derives resource_type 'document' from Document struct" do
+      person = create_person()
+      doc = fake_document()
+
+      assert {:ok, perm} =
+               Permissions.grant(doc, %{person_id: person.id, access_rights: ["read"]})
+
+      assert perm.resource_type == "document"
+      assert perm.resource_id == to_string(doc.id)
+      assert perm.access_rights == ["read"]
+    end
+  end
+
+  describe "can?/4 with document resource" do
+    test "returns true when person has a read grant on a document" do
+      person = create_person()
+      doc = fake_document()
+      {:ok, _} = Permissions.grant(doc, %{person_id: person.id, access_rights: ["read"]})
+
+      assert Permissions.can?(person, :read, doc)
+    end
+
+    test "returns false when person has no grant on the document" do
+      person = create_person()
+      doc = fake_document()
+
+      refute Permissions.can?(person, :read, doc)
+    end
+  end
+
+  describe "revoke/3 error propagation" do
+    test "returns :ok when row is successfully deleted" do
+      person = create_person()
+      workflow = fake_workflow()
+      {:ok, perm} = Permissions.grant(workflow, %{person_id: person.id, access_rights: ["run"]})
+
+      assert :ok = Permissions.revoke(workflow, perm)
     end
   end
 end
