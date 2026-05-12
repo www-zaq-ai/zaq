@@ -12,7 +12,23 @@ defmodule Zaq.Workflows do
   import Ecto.Query
 
   alias Zaq.Repo
-  alias Zaq.Workflows.{ActionResult, Trigger, Workflow, WorkflowRun}
+  alias Zaq.Workflows.{ActionResult, Trigger, Workflow, WorkflowAgent, WorkflowRun}
+
+  # --- Run execution ---
+
+  @doc """
+  Executes a `WorkflowRun` by delegating to `WorkflowAgent`.
+
+  Builds the instrumented DAG from `run.steps_snapshot`, drives each step
+  synchronously, writes `ActionResult` rows per step, and updates
+  `WorkflowRun.status` to `"completed"` or `"failed"`.
+
+  Returns `{:ok, updated_run}` on success or `{:error, reason}` on failure.
+  """
+  @spec start_run(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
+  def start_run(%WorkflowRun{} = run, opts \\ []) do
+    WorkflowAgent.execute(run, opts)
+  end
 
   # --- Workflows ---
 

@@ -4,8 +4,8 @@ defmodule Zaq.Workflows.DagBuilderTest do
   alias Zaq.Workflows.DagBuilder
 
   @fetch_module "Zaq.Agent.Tools.Email.FetchEmails"
-  @emails_found_module "Zaq.Workflows.Conditions.EmailsFound"
-  @no_emails_module "Zaq.Workflows.Conditions.NoEmails"
+  @always_condition_module "Zaq.Workflows.Test.AlwaysCondition"
+  @never_condition_module "Zaq.Workflows.Test.NeverCondition"
   @draft_module "Zaq.Agent.Tools.Email.DraftReply"
 
   defp linear_steps do
@@ -45,14 +45,14 @@ defmodule Zaq.Workflows.DagBuilderTest do
         %{
           "name" => "emails_found",
           "type" => "condition",
-          "module" => @emails_found_module,
+          "module" => @always_condition_module,
           "params" => %{},
           "index" => 1
         },
         %{
           "name" => "no_emails",
           "type" => "condition",
-          "module" => @no_emails_module,
+          "module" => @never_condition_module,
           "params" => %{},
           "index" => 1
         },
@@ -70,6 +70,61 @@ defmodule Zaq.Workflows.DagBuilderTest do
         %{"from" => "emails_found", "to" => "draft"}
       ]
     }
+  end
+
+  @ok_module "Zaq.Workflows.Test.OkAction"
+
+  defp single_action_steps(module \\ @ok_module) do
+    %{
+      "nodes" => [
+        %{"name" => "step", "type" => "action", "module" => module, "params" => %{}, "index" => 0}
+      ],
+      "edges" => []
+    }
+  end
+
+  describe "build/2 — run_id instrumentation" do
+    test "action nodes are wrapped in ActionWrapper when run_id is provided" do
+      {:ok, workflow} = DagBuilder.build(single_action_steps(), run_id: "some-uuid")
+      assert %Runic.Workflow{} = workflow
+    end
+
+    test "condition nodes are NOT wrapped when run_id is provided" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "fetch",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "cond",
+            "type" => "condition",
+            "module" => @always_condition_module,
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => [%{"from" => "fetch", "to" => "cond"}]
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: "some-uuid")
+    end
+
+    test "build/1 with no opts preserves existing behaviour (no ActionWrapper)" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps())
+    end
+
+    test "build/2 with nil run_id behaves like build/1 (no wrapping)" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps(), run_id: nil)
+    end
+
+    test "error cases still return errors when run_id provided" do
+      assert {:error, {:unknown_module, "Does.Not.Exist"}} =
+               DagBuilder.build(single_action_steps("Does.Not.Exist"), run_id: "some-uuid")
+    end
   end
 
   describe "build/1 — happy path" do
