@@ -21,17 +21,27 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   def run(%{imap_config: imap_config} = params, _context) do
     mailbox = Map.get(params, :mailbox, "INBOX")
 
-    with {:ok, client} <- ImapAdapter.connect(imap_config, mailbox) do
-      emails = collect_unseen(client, mailbox)
-      ImapAdapter.disconnect(client)
+    task =
+      Task.async(fn ->
+        with {:ok, client} <- ImapAdapter.connect(imap_config, mailbox) do
+          emails = collect_unseen(client, mailbox)
+          ImapAdapter.disconnect(client)
+          {:ok, emails}
+        end
+      end)
 
-      if emails == [] do
-        Logger.info("[FetchEmails] No unseen emails in #{mailbox}")
-      else
-        Logger.info("[FetchEmails] Found #{length(emails)} email(s) in #{mailbox}")
-      end
+    case Task.await(task, 30_000) do
+      {:ok, emails} ->
+        if emails == [] do
+          Logger.info("[FetchEmails] No unseen emails in #{mailbox}")
+        else
+          Logger.info("[FetchEmails] Found #{length(emails)} email(s) in #{mailbox}")
+        end
 
-      {:ok, %{emails: emails, count: length(emails)}}
+        {:ok, %{emails: emails, count: length(emails)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
