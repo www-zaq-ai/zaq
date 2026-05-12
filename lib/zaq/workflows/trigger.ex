@@ -36,6 +36,22 @@ defmodule Zaq.Workflows.Trigger do
 
   def types, do: @types
 
+  @type_to_module %{
+    "manual" => Zaq.Workflows.Triggers.Manual,
+    "webhook" => Zaq.Workflows.Triggers.Webhook,
+    "scheduler" => Zaq.Workflows.Triggers.Scheduler,
+    "signal" => Zaq.Workflows.Triggers.Signal
+  }
+
+  @doc "Returns the trigger behaviour module for the given trigger's type."
+  @spec module(t()) :: {:ok, module()} | {:error, :unknown_type}
+  def module(%__MODULE__{type: type}) do
+    case Map.fetch(@type_to_module, type) do
+      {:ok, mod} -> {:ok, mod}
+      :error -> {:error, :unknown_type}
+    end
+  end
+
   def changeset(trigger, attrs) do
     trigger
     |> cast(attrs, [:workflow_id, :type, :config, :enabled])

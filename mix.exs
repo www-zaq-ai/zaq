@@ -111,6 +111,9 @@ defmodule Zaq.MixProject do
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       {:jido_mcp, github: "agentjido/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
+      {:jido_runic, github: "agentjido/jido_runic", branch: "main"},
+      {:gen_stage, "~> 1.2"},
+      {:flow, "~> 1.2"},
       {:req_llm, github: "agentjido/req_llm", branch: "main", override: true},
       # {:jido_connect,
       #  path:

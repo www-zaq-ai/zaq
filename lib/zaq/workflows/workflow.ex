@@ -39,8 +39,26 @@ defmodule Zaq.Workflows.Workflow do
     |> cast(attrs, [:name, :description, :status, :steps, :settings])
     |> validate_required([:name, :status, :steps])
     |> validate_inclusion(:status, @statuses)
+    |> validate_steps_format()
 
     # Status transition enforcement (draft→active, active→archived, archived→active;
     # reverting to draft disallowed) is tracked in zaq-0lc.
+  end
+
+  # Steps must have "nodes" and "edges" keys when the workflow is being activated.
+  # Draft and archived workflows may carry partial or empty steps.
+  defp validate_steps_format(changeset) do
+    status = get_field(changeset, :status)
+    steps = get_field(changeset, :steps) || %{}
+
+    if status == "active" do
+      missing = Enum.reject(["nodes", "edges"], &Map.has_key?(steps, &1))
+
+      Enum.reduce(missing, changeset, fn key, cs ->
+        add_error(cs, :steps, "missing required key '#{key}' for an active workflow")
+      end)
+    else
+      changeset
+    end
   end
 end

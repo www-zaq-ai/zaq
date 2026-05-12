@@ -6,9 +6,9 @@ defmodule Zaq.Workflows.WorkflowRun do
   into this row at creation time — the `WorkflowAgent` never re-reads the live
   `Workflow` row. Edits to a workflow cannot affect a run already in progress.
 
-  `source_event` stores the triggering `%Zaq.Event{}` as JSONB via a custom
-  Ecto type. It is loaded back as a plain map; callers can use `Zaq.Event`
-  fields directly via map access.
+  `source_event` stores the triggering `%Zaq.Event{}` as JSONB via
+  `Zaq.Types.WorkflowEvent`. It is loaded back as a `%Zaq.Event{}` struct —
+  callers access fields directly (e.g. `run.source_event.trace_id`).
 
   Statuses:
   - `pending`   — created, agent not yet started
@@ -35,7 +35,7 @@ defmodule Zaq.Workflows.WorkflowRun do
     field :steps_snapshot, :map
     field :settings_snapshot, :map, default: %{}
     field :status, :string, default: "pending"
-    field :source_event, :map
+    field :source_event, Zaq.Types.WorkflowEvent
     field :started_at, :utc_datetime
     field :finished_at, :utc_datetime
 
