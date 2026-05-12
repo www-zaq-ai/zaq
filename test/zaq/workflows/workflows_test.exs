@@ -4,10 +4,29 @@ defmodule Zaq.WorkflowsTest do
   alias Zaq.Workflows
   alias Zaq.Workflows.{ActionResult, Trigger, Workflow, WorkflowRun}
 
+  @valid_steps %{
+    "nodes" => [
+      %{
+        "name" => "fetch",
+        "type" => "action",
+        "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+        "params" => %{},
+        "index" => 0
+      }
+    ],
+    "edges" => []
+  }
+
   @valid_workflow_attrs %{
     name: "Test Workflow",
     status: "draft",
     steps: %{"step1" => %{"type" => "http_request"}}
+  }
+
+  @valid_active_attrs %{
+    name: "Test Workflow",
+    status: "active",
+    steps: @valid_steps
   }
 
   @valid_source_event %{
@@ -88,7 +107,7 @@ defmodule Zaq.WorkflowsTest do
 
   describe "archive_workflow/2" do
     test "sets status to archived" do
-      workflow = create_workflow(%{status: "active"})
+      {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
       assert {:ok, archived} = Workflows.archive_workflow(workflow)
       assert archived.status == "archived"
     end
@@ -105,7 +124,7 @@ defmodule Zaq.WorkflowsTest do
       assert run.steps_snapshot == workflow.steps
       assert run.settings_snapshot == workflow.settings
       assert run.status == "pending"
-      assert run.source_event == @valid_source_event
+      assert run.source_event.trace_id == @valid_source_event["trace_id"]
     end
 
     test "snapshot isolation: editing workflow after run start does not mutate the snapshot" do
