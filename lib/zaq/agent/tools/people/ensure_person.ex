@@ -1,4 +1,4 @@
-defmodule Zaq.Agent.Tools.Email.EnsurePerson do
+defmodule Zaq.Agent.Tools.People.EnsurePerson do
   @moduledoc """
   For each draft, looks up the recipient as a Person by email address.
   Creates a new Person if one doesn't exist yet.

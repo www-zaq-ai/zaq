@@ -11,7 +11,7 @@ defmodule Zaq.Workflows.DagBuilder do
             "module" => "Zaq.Agent.Tools.Email.FetchEmails",
             "params" => %{}, "index" => 0},
           %{"name" => "emails_found", "type" => "condition",
-            "module" => "Zaq.Workflows.Conditions.EmailsFound",
+            "module" => "MyApp.Conditions.EmailsFound",
             "params" => %{}, "index" => 1}
         ],
         "edges" => [
@@ -22,31 +22,35 @@ defmodule Zaq.Workflows.DagBuilder do
 
   Node types:
   - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`
-  - `"condition"`           — wrapped in `Runic.condition/2` via the module's `call/1`
+  - `"condition"`           — a pass-through `Runic.Workflow.Step` (raises on false to skip downstream)
 
   Module resolution uses `Module.safe_concat/1` — never `String.to_atom/1`.
   """
 
   alias Jido.Runic.ActionNode
-  require Runic
+  alias Runic.Workflow.Step
+  alias Zaq.Workflows.ActionWrapper
 
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}
 
-  @spec build(steps()) :: build_result()
-  def build(steps) when is_map(steps) do
+  @spec build(steps(), keyword()) :: build_result()
+  def build(steps, opts \\ [])
+
+  def build(steps, opts) when is_map(steps) do
+    run_id = Keyword.get(opts, :run_id)
     nodes_list = Map.get(steps, "nodes", [])
     edges_list = Map.get(steps, "edges", [])
 
     with :ok <- validate_keys(steps),
          :ok <- validate_non_empty(nodes_list),
-         {:ok, node_map} <- build_node_map(nodes_list),
+         {:ok, node_map} <- build_node_map(nodes_list, run_id),
          :ok <- validate_edges(edges_list, node_map) do
       assemble(node_map, edges_list)
     end
   end
 
-  def build(_), do: {:error, :invalid_steps}
+  def build(_, _), do: {:error, :invalid_steps}
 
   # --- Private ---
 
@@ -61,7 +65,7 @@ defmodule Zaq.Workflows.DagBuilder do
   defp validate_non_empty([]), do: {:error, :empty_dag}
   defp validate_non_empty(_), do: :ok
 
-  defp build_node_map(nodes_list) do
+  defp build_node_map(nodes_list, run_id) do
     Enum.reduce_while(nodes_list, {:ok, %{}}, fn node, {:ok, acc} ->
       name = Map.get(node, "name")
       type = Map.get(node, "type")
@@ -71,7 +75,7 @@ defmodule Zaq.Workflows.DagBuilder do
 
       case resolve_module(module) do
         {:ok, mod} ->
-          runic_node = build_runic_node(type, mod, params, name)
+          runic_node = build_runic_node(type, mod, params, name, index, run_id)
           {:cont, {:ok, Map.put(acc, name, %{node: runic_node, index: index})}}
 
         {:error, _} = err ->
@@ -91,12 +95,35 @@ defmodule Zaq.Workflows.DagBuilder do
     end
   end
 
-  defp build_runic_node(type, mod, params, name) when type in ["action", "agent"] do
+  defp build_runic_node(type, mod, params, name, step_index, run_id)
+       when type in ["action", "agent"] and is_binary(run_id) do
+    wrapper_params =
+      Map.merge(params, %{
+        wrapped_module: mod,
+        run_id: run_id,
+        step_name: name,
+        step_index: step_index
+      })
+
+    ActionNode.new(ActionWrapper, wrapper_params, name: String.to_atom(name))
+  end
+
+  defp build_runic_node(type, mod, params, name, _step_index, _run_id)
+       when type in ["action", "agent"] do
     ActionNode.new(mod, params, name: String.to_atom(name))
   end
 
-  defp build_runic_node("condition", mod, _params, name) do
-    Runic.condition(&mod.call/1, name: String.to_atom(name))
+  defp build_runic_node("condition", mod, _params, name, _step_index, _run_id) do
+    # Conditions must be Steps (not Runic.Workflow.Condition) so that a passing
+    # condition produces a new Fact that activates downstream ActionNodes.
+    # Runic.Workflow.Condition is a :match node — it emits ConditionSatisfied events
+    # (used only for Rule reactions), not FactProduced events that :execute nodes wait for.
+    # A Step that raises on false causes Runic to skip_downstream_subgraph automatically.
+    work = fn fact ->
+      if mod.call(fact), do: fact, else: raise("condition_not_met:#{name}")
+    end
+
+    Step.new(work: work, name: String.to_atom(name))
   end
 
   defp validate_edges(edges, node_map) do
