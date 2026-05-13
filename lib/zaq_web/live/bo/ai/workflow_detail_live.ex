@@ -16,6 +16,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   def mount(%{"id" => id}, _session, socket) do
     case fetch_workflow(id, socket) do
       {:ok, workflow} ->
+        if connected?(socket) do
+          Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow:#{workflow.id}")
+        end
+
         total = count_runs(workflow.id, socket)
         runs = fetch_runs(workflow.id, 1, socket)
         triggers = fetch_triggers(workflow.id, socket)
@@ -39,6 +43,18 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
   @impl true
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  # ── PubSub ──────────────────────────────────────────────────────
+
+  @impl true
+  def handle_info({:run_finished, _run}, socket) do
+    workflow_id = socket.assigns.workflow.id
+    runs = fetch_runs(workflow_id, socket.assigns.page, socket)
+    total = count_runs(workflow_id, socket)
+    {:noreply, assign(socket, runs: runs, runs_total: total)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   # ── Events ──────────────────────────────────────────────────────
 
@@ -102,18 +118,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   def handle_event("run_workflow", %{"workflow_id" => _workflow_id}, socket) do
     workflow = socket.assigns.workflow
 
+    source_event = %Event{
+      request: nil,
+      next_hop: nil,
+      trace_id: Ecto.UUID.generate(),
+      assigns: %{trigger_type: :manual, input: %{}}
+    }
+
     run_event =
       Event.new(
-        %{module: Zaq.Engine.Workflows, function: :create_run, args: [workflow, %{}]},
+        %{module: Zaq.Engine.Workflows, function: :create_run, args: [workflow, source_event]},
         :engine
       )
 
     case NodeRouter.dispatch(run_event).response do
       {:ok, run} ->
-        start_event =
-          Event.new(%{module: Zaq.Engine.Workflows, function: :start_run, args: [run]}, :engine)
-
-        NodeRouter.dispatch(start_event)
         {:noreply, push_navigate(socket, to: ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")}
 
       _ ->
