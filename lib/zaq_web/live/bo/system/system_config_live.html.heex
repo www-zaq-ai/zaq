@@ -16,16 +16,55 @@
         <nav class="p-2 space-y-0.5">
           <button
             phx-click="switch_tab"
-            phx-value-tab="telemetry"
+            phx-value-tab="ai_credentials"
             class={[
               "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :telemetry,
+              if(@active_tab == :ai_credentials,
                 do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
                 else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
               )
             ]}
           >
-            Telemetry
+            AI Credentials
+          </button>
+          <button
+            phx-click="switch_tab"
+            phx-value-tab="auth_credentials"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :auth_credentials,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            Auth Credentials
+          </button>
+          <button
+            phx-click="switch_tab"
+            phx-value-tab="mcps"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :mcps,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            MCPs
+          </button>
+          <button
+            phx-click="switch_tab"
+            phx-value-tab="agents"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :agents,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            Agents
           </button>
           <button
             phx-click="switch_tab"
@@ -64,59 +103,20 @@
               )
             ]}
           >
-            Image to Text
+            Image To Text
           </button>
           <button
             phx-click="switch_tab"
-            phx-value-tab="ai_credentials"
+            phx-value-tab="telemetry"
             class={[
               "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :ai_credentials,
+              if(@active_tab == :telemetry,
                 do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
                 else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
               )
             ]}
           >
-            AI Credentials
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="credentials"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :credentials,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Credentials
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="mcp"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :mcp,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            MCP
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="global"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :global,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Global
+            Telemetry
           </button>
         </nav>
       </div>
@@ -124,7 +124,46 @@
 
     <%!-- Content --%>
     <div class="flex-1 min-w-0">
-      <.telemetry_panel :if={@active_tab == :telemetry} form={@telemetry_form} />
+      <.ai_credentials_panel
+        :if={@active_tab == :ai_credentials}
+        credentials={@ai_credentials}
+        form={@ai_credential_form}
+        modal={@ai_credential_modal}
+        delete_confirm_modal={@ai_credential_delete_confirm_modal}
+        action={@ai_credential_action}
+      />
+      <.connect_credentials_panel
+        :if={@active_tab == :auth_credentials}
+        credentials={@connect_credentials}
+        grants_modal={@connect_grants_modal}
+        selected_credential={@selected_connect_credential}
+        selected_grants={@selected_connect_grants}
+        selected_connect_refresh_schedule={@selected_connect_refresh_schedule}
+        credential_modal={@connect_credential_modal}
+        credential_form={@connect_credential_form}
+        credential_changeset={@connect_credential_changeset}
+        credential_errors={@connect_credential_errors}
+      />
+      <.mcp_panel
+        :if={@active_tab == :mcps}
+        entries={@mcp_endpoints}
+        total_count={@mcp_total_count}
+        page={@mcp_page}
+        per_page={@mcp_per_page}
+        filter_name={@mcp_filter_name}
+        filter_type={@mcp_filter_type}
+        filter_status={@mcp_filter_status}
+        form={@mcp_endpoint_form}
+        rows={@mcp_endpoint_rows}
+        modal={@mcp_endpoint_modal}
+        action={@mcp_endpoint_action}
+        delete_confirm_modal={@mcp_endpoint_delete_confirm_modal}
+      />
+      <.global_panel
+        :if={@active_tab == :agents}
+        global_agent_options={@global_agent_options}
+        global_default_agent_id={@global_default_agent_id}
+      />
       <.llm_panel
         :if={@active_tab == :llm}
         form={@llm_form}
@@ -148,42 +187,7 @@
         credential_options={@image_to_text_credential_options}
         model_options={@image_to_text_model_options}
       />
-      <.ai_credentials_panel
-        :if={@active_tab == :ai_credentials}
-        credentials={@ai_credentials}
-        form={@ai_credential_form}
-        modal={@ai_credential_modal}
-        delete_confirm_modal={@ai_credential_delete_confirm_modal}
-        action={@ai_credential_action}
-      />
-      <.connect_credentials_panel
-        :if={@active_tab == :credentials}
-        credentials={@connect_credentials}
-        grants_modal={@connect_grants_modal}
-        selected_credential={@selected_connect_credential}
-        selected_grants={@selected_connect_grants}
-        selected_connect_refresh_schedule={@selected_connect_refresh_schedule}
-      />
-      <.mcp_panel
-        :if={@active_tab == :mcp}
-        entries={@mcp_endpoints}
-        total_count={@mcp_total_count}
-        page={@mcp_page}
-        per_page={@mcp_per_page}
-        filter_name={@mcp_filter_name}
-        filter_type={@mcp_filter_type}
-        filter_status={@mcp_filter_status}
-        form={@mcp_endpoint_form}
-        rows={@mcp_endpoint_rows}
-        modal={@mcp_endpoint_modal}
-        action={@mcp_endpoint_action}
-        delete_confirm_modal={@mcp_endpoint_delete_confirm_modal}
-      />
-      <.global_panel
-        :if={@active_tab == :global}
-        global_agent_options={@global_agent_options}
-        global_default_agent_id={@global_default_agent_id}
-      />
+      <.telemetry_panel :if={@active_tab == :telemetry} form={@telemetry_form} />
     </div>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>

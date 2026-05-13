@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
@@ -30,6 +31,11 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   }
 
   @max_pages_default 5
+  @credential_request_formats %{
+    "zaq_local" => "bearer",
+    "google_drive" => "bearer",
+    "sharepoint" => "bearer"
+  }
 
   @impl true
   def mount(%{"provider" => provider}, _session, socket) do
@@ -64,11 +70,93 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:form, nil)
      |> assign(:modal_errors, [])
      |> assign(:connect_credentials, connect_credentials_for(provider))
+     |> assign(:credential_modal, false)
+     |> assign(:credential_changeset, nil)
+     |> assign(:credential_form, nil)
+     |> assign(:credential_errors, [])
      |> assign(:confirm_delete, nil)
      |> assign(:capability_modal_config_id, nil)
      |> assign(:folder_info_modal, nil)
      |> assign(:oauth_claim_modal, false)
-     |> assign(:oauth_claim_url, nil)}
+     |> assign(:oauth_claim_url, nil)
+     |> assign(:credential_modal, false)
+     |> assign(:credential_changeset, nil)
+     |> assign(:credential_form, nil)
+     |> assign(:credential_errors, [])}
+  end
+
+  def handle_event("open_new_credential", _params, socket) do
+    changeset =
+      Connect.change_credential(%Credential{}, %{
+        "provider" => credential_provider_for(socket.assigns.provider),
+        "request_format" => credential_request_format_for(socket.assigns.provider),
+        "auth_kind" => "oauth2",
+        "user_level" => false,
+        "metadata" => %{}
+      })
+
+    {:noreply,
+     socket
+     |> assign(:credential_modal, true)
+     |> assign(:credential_changeset, changeset)
+     |> assign(:credential_form, to_form(changeset, as: :credential))
+     |> assign(:credential_errors, [])}
+  end
+
+  def handle_event("close_credential_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:credential_modal, false)
+     |> assign(:credential_changeset, nil)
+     |> assign(:credential_form, nil)
+     |> assign(:credential_errors, [])}
+  end
+
+  def handle_event("validate_credential", %{"credential" => params}, socket) do
+    changeset =
+      %Credential{}
+      |> Connect.change_credential(credential_params_for_create(params, socket.assigns.provider))
+      |> Map.put(:action, :validate)
+
+    {:noreply,
+     socket
+     |> assign(:credential_changeset, changeset)
+     |> assign(:credential_form, to_form(changeset, as: :credential))
+     |> assign(:credential_errors, format_errors(changeset))}
+  end
+
+  def handle_event("save_credential", %{"credential" => params}, socket) do
+    params = credential_params_for_create(params, socket.assigns.provider)
+
+    case Connect.create_credential(params) do
+      {:ok, credential} ->
+        connect_settings =
+          socket.assigns.changeset
+          |> Ecto.Changeset.get_field(:settings, %{})
+          |> put_connect_credential_id(credential.id)
+
+        config_changeset =
+          socket.assigns.changeset
+          |> Ecto.Changeset.put_change(:settings, connect_settings)
+
+        {:noreply,
+         socket
+         |> assign(:credential_modal, false)
+         |> assign(:credential_changeset, nil)
+         |> assign(:credential_form, nil)
+         |> assign(:credential_errors, [])
+         |> assign(:connect_credentials, connect_credentials_for(socket.assigns.provider))
+         |> assign(:changeset, config_changeset)
+         |> assign(:form, to_form(config_changeset, as: :form))
+         |> put_flash(:info, "Credential created.")}
+
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> assign(:credential_changeset, changeset)
+         |> assign(:credential_form, to_form(changeset, as: :credential))
+         |> assign(:credential_errors, format_errors(changeset))}
+    end
   end
 
   @impl true
@@ -649,6 +737,27 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   defp credential_provider_for("zaq_local"), do: "local_filesystem"
   defp credential_provider_for(provider), do: provider
+
+  defp credential_request_format_for(provider) do
+    Map.get(@credential_request_formats, to_string(provider), "bearer")
+  end
+
+  defp credential_params_for_create(params, provider) do
+    params
+    |> Map.put("provider", credential_provider_for(provider))
+    |> Map.put("request_format", credential_request_format_for(provider))
+    |> Map.put_new("user_level", false)
+    |> Map.put_new("metadata", %{})
+  end
+
+  defp put_connect_credential_id(settings, credential_id) when is_map(settings) do
+    connect =
+      settings
+      |> Map.get("connect", %{})
+      |> Map.put("credential_id", to_string(credential_id))
+
+    Map.put(settings, "connect", connect)
+  end
 
   defp datasource_list_filters(root_selector) do
     %{

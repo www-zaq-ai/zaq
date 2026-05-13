@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Connect.RuntimeMapper do
+defmodule Zaq.Channels.JidoConnectBridge.RuntimeMapper do
   @moduledoc "Maps persisted Connect credentials/grants into jido_connect runtime contracts."
 
   alias Jido.Connect.{Connection, CredentialLease}

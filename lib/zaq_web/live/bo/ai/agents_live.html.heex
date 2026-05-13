@@ -436,14 +436,14 @@
               >
                 <span :if={@mcp_notice}>{@mcp_notice}</span>
                 <span :if={@mcp_notice}>
-                  <a href={~p"/bo/system-config?tab=mcp"} class="underline hover:text-[#3e3b36]">
+                  <a href={~p"/bo/system-config?tab=mcps"} class="underline hover:text-[#3e3b36]">
                     Open MCP settings
                   </a>
                   .
                 </span>
                 <span :if={!@mcp_notice}>
                   No MCP endpoints are configured. Activate one in <a
-                    href={~p"/bo/system-config?tab=mcp"}
+                    href={~p"/bo/system-config?tab=mcps"}
                     class="underline hover:text-[#3e3b36]"
                   >
                     System Config

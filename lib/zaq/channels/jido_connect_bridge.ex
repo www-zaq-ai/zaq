@@ -3,7 +3,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   DataSource bridge for jido_connect-backed providers.
 
   Credentials and grants are resolved exclusively through `Zaq.Engine.Connect`
-  and mapped to runtime contracts by `Zaq.Engine.Connect.RuntimeMapper`.
+  and mapped to runtime contracts by `Zaq.Channels.JidoConnectBridge.RuntimeMapper`.
   """
 
   @behaviour Zaq.Channels.Bridge
@@ -14,11 +14,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Jido.Connect.ScopeRequirements
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.DataSourceBridge
+  alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
-  alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.OAuth
-  alias Zaq.Engine.Connect.RuntimeMapper
   alias Zaq.Event
   alias Zaq.NodeRouter
   require Logger
@@ -273,18 +271,16 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp runtime_ctx(%{provider: provider, id: id}) do
     grant =
-      engine_call(Connect, :get_active_grant, [
-        %{
-          provider: provider,
-          resource_type: "data_source",
-          resource_id: id,
-          owner_type: "org",
-          owner_id: nil
-        }
-      ])
+      engine_get_active_grant(%{
+        provider: provider,
+        resource_type: "data_source",
+        resource_id: id,
+        owner_type: "org",
+        owner_id: nil
+      })
 
     with %{credential_id: credential_id} = grant <- grant,
-         {:ok, credential} <- engine_call(Connect, :fetch_credential, [credential_id]) do
+         {:ok, credential} <- engine_fetch_credential(credential_id) do
       {:ok,
        %{
          connection: RuntimeMapper.to_connection(grant),
@@ -305,9 +301,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
       |> Map.get("connect", %{})
       |> Map.get("credential_id")
 
-    with {:ok, credential} <- engine_call(Connect, :fetch_credential, [credential_id]),
+    with {:ok, credential} <- engine_fetch_credential(credential_id),
          redirect_uri when is_binary(redirect_uri) <-
-           engine_call(OAuth, :redirect_uri_for, [provider]) do
+           engine_oauth_redirect_uri_for(provider) do
       {:ok,
        %{
          provider: provider,
@@ -864,14 +860,23 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp engine_call(mod, fun, args)
-       when is_atom(mod) and is_atom(fun) and is_list(args) do
+  defp engine_get_active_grant(params) when is_map(params) do
+    event = Event.new(params, :engine, opts: [action: :connect_get_active_grant])
+    node_router_module().dispatch(event).response
+  end
+
+  defp engine_fetch_credential(credential_id) do
     event =
-      Event.new(
-        %{module: mod, function: fun, args: args},
-        :engine,
-        opts: [action: :invoke]
+      Event.new(%{credential_id: credential_id}, :engine,
+        opts: [action: :connect_fetch_credential]
       )
+
+    node_router_module().dispatch(event).response
+  end
+
+  defp engine_oauth_redirect_uri_for(provider) do
+    event =
+      Event.new(%{provider: provider}, :engine, opts: [action: :connect_oauth_redirect_uri_for])
 
     node_router_module().dispatch(event).response
   end

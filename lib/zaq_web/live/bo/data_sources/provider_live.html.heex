@@ -363,27 +363,36 @@
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Credential
         </label>
-        <select
-          name="form[settings][connect][credential_id]"
-          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-        >
-          <option
-            value=""
-            selected={connect_credential_id_from_changeset(@changeset) in [nil, ""]}
+        <div class="flex items-center gap-2">
+          <select
+            name="form[settings][connect][credential_id]"
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           >
-            No credential
-          </option>
-          <option
-            :for={credential <- @connect_credentials}
-            value={credential.id}
-            selected={
-              to_string(connect_credential_id_from_changeset(@changeset)) ==
-                to_string(credential.id)
-            }
+            <option
+              value=""
+              selected={connect_credential_id_from_changeset(@changeset) in [nil, ""]}
+            >
+              No credential
+            </option>
+            <option
+              :for={credential <- @connect_credentials}
+              value={credential.id}
+              selected={
+                to_string(connect_credential_id_from_changeset(@changeset)) ==
+                  to_string(credential.id)
+              }
+            >
+              {credential.name} ({credential.auth_kind})
+            </option>
+          </select>
+          <button
+            type="button"
+            phx-click="open_new_credential"
+            class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
           >
-            {credential.name} ({credential.auth_kind})
-          </option>
-        </select>
+            + New
+          </button>
+        </div>
         <button
           :if={claim.enabled?}
           type="button"
@@ -478,6 +487,26 @@
         </button>
       </div>
     </.form>
+  </ZaqWeb.Components.BOModal.form_dialog>
+
+  <ZaqWeb.Components.BOModal.form_dialog
+    :if={@credential_modal}
+    id="new-credential-modal"
+    cancel_event="close_credential_modal"
+    title="New Credential"
+    max_width_class="max-w-lg"
+  >
+    <ZaqWeb.Components.ConnectCredentialForm.credential_form
+      :if={@credential_form}
+      form={@credential_form}
+      changeset={@credential_changeset}
+      errors={@credential_errors}
+      submit_event="save_credential"
+      change_event="validate_credential"
+      cancel_event="close_credential_modal"
+      id_prefix="new-data-source-credential"
+      submit_label="Create"
+    />
   </ZaqWeb.Components.BOModal.form_dialog>
 
   <ZaqWeb.Components.BOModal.modal_shell

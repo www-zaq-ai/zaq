@@ -304,7 +304,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     html = render(view)
     assert html =~ "No active MCP endpoints found. Activate one in System Config."
-    assert has_element?(view, ~s(a[href="/bo/system-config?tab=mcp"]))
+    assert has_element?(view, ~s(a[href="/bo/system-config?tab=mcps"]))
   end
 
   test "clicking a row opens edit form", %{conn: conn} do

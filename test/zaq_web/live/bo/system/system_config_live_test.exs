@@ -97,10 +97,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
       view
-      |> element("button[phx-value-tab='global']")
+      |> element("button[phx-value-tab='agents']")
       |> render_click()
 
-      assert_patch(view, ~p"/bo/system-config?tab=global")
+      assert_patch(view, ~p"/bo/system-config?tab=agents")
       assert has_element?(view, "#global-default-agent-select")
       assert render(view) =~ "Default Zaq Agent"
     end
@@ -121,11 +121,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, _view, ai_credentials_html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       assert ai_credentials_html =~ "AI Credentials"
 
-      {:ok, _view, mcp_html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, _view, mcp_html} = live(conn, ~p"/bo/system-config?tab=mcps")
       assert mcp_html =~ "MCP Administration"
 
-      {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
-      assert global_html =~ "Global Configuration"
+      {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=agents")
+      assert global_html =~ "Agents"
       assert global_html =~ "Default Zaq Agent"
     end
   end
@@ -150,15 +150,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
       view
-      |> element("button[phx-value-tab='mcp']")
+      |> element("button[phx-value-tab='mcps']")
       |> render_click()
 
-      assert_patch(view, ~p"/bo/system-config?tab=mcp")
+      assert_patch(view, ~p"/bo/system-config?tab=mcps")
       assert render(view) =~ "MCP Administration"
     end
 
     test "creates MCP endpoint from modal", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -198,7 +198,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "MCP modal toggles local and remote fields", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -246,7 +246,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "adds and removes remote header rows", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -301,7 +301,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           secret_environments: %{"API_TOKEN" => "token-persisted"}
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -323,7 +323,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -355,7 +355,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -386,7 +386,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -407,7 +407,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
                  url: "http://localhost:8000/mcp"
                })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         render_change(view, "filter_mcp_endpoints", %{
@@ -420,7 +420,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "close_mcp_endpoint_modal hides modal after opening", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -442,7 +442,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -467,7 +467,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html = render_click(view, "change_mcp_page", %{"page" => "2"})
       assert html =~ "MCP Administration"
@@ -486,7 +486,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -516,7 +516,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "save MCP endpoint shows validation errors on invalid data", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -546,7 +546,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "enable predefined MCP opens edit modal for editable predefined endpoint", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "github_mcp"})
 
@@ -565,7 +565,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -579,7 +579,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "enable predefined mcp failure shows error flash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "unknown"})
       assert html =~ "Failed to enable MCP"
@@ -606,7 +606,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -637,7 +637,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -668,7 +668,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -1900,7 +1900,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "global default agent saving" do
     test "accepts empty global_default_agent_id and saves", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=agents")
 
       html =
         render_submit(view, "save_global_default_agent", %{
@@ -1933,7 +1933,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -1945,6 +1945,41 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "connect grants modal" do
+    test "edits connect credential from auth credentials tab", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+
+      html =
+        render_submit(view, "save_connect_credential", %{
+          "credential" => %{
+            "name" => "Credential Updated",
+            "provider" => "google_drive",
+            "request_format" => "bearer",
+            "auth_kind" => "oauth2",
+            "client_id" => "cid-updated",
+            "client_secret" => ""
+          }
+        })
+
+      assert html =~ "Credential updated."
+      assert html =~ "Credential Updated"
+    end
+
     test "shows expired status, allows erase, and queues manual refresh", %{conn: conn} do
       {:ok, credential} =
         Connect.create_credential(%{
@@ -1987,7 +2022,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=credentials")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
 
       html =
         view

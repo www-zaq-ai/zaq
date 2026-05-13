@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.Components.BOModal
+  alias ZaqWeb.Components.ConnectCredentialForm
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -43,6 +44,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:global_agent_options, global_agent_options())
      |> assign(:global_default_agent_id, System.get_global_default_agent_id())
      |> assign(:connect_grants_modal, false)
+     |> assign(:connect_credential_modal, false)
+     |> assign(:connect_credential_action, :edit)
+     |> assign(:connect_credential_changeset, nil)
+     |> assign(:connect_credential_form, nil)
+     |> assign(:connect_credential_errors, [])
      |> assign(:selected_connect_credential, nil)
      |> assign(:selected_connect_grants, [])
      |> assign(:selected_connect_refresh_schedule, %{})
@@ -58,7 +64,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(telemetry llm embedding image_to_text ai_credentials credentials mcp global) do
+      when tab in ~w(ai_credentials auth_credentials mcps agents llm embedding image_to_text telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -81,6 +87,71 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:selected_connect_credential, credential)
      |> reload_selected_connect_grants(credential)
      |> assign(:connect_grants_modal, true)}
+  end
+
+  def handle_event("edit_connect_credential", %{"id" => id}, socket) do
+    case Connect.fetch_credential(id) do
+      {:ok, credential} ->
+        changeset = Connect.change_credential(credential, %{})
+
+        {:noreply,
+         socket
+         |> assign(:connect_credential_action, :edit)
+         |> assign(:connect_credential_changeset, changeset)
+         |> assign(:connect_credential_form, to_form(changeset, as: :credential))
+         |> assign(:connect_credential_errors, [])
+         |> assign(:connect_credential_modal, true)}
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Credential not found.")}
+    end
+  end
+
+  def handle_event("close_connect_credential_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:connect_credential_modal, false)
+     |> assign(:connect_credential_changeset, nil)
+     |> assign(:connect_credential_form, nil)
+     |> assign(:connect_credential_errors, [])}
+  end
+
+  def handle_event("validate_connect_credential", %{"credential" => params}, socket) do
+    credential = socket.assigns.connect_credential_changeset.data
+
+    changeset =
+      credential
+      |> Connect.change_credential(sanitize_connect_credential_params(params))
+      |> Map.put(:action, :validate)
+
+    {:noreply,
+     socket
+     |> assign(:connect_credential_changeset, changeset)
+     |> assign(:connect_credential_form, to_form(changeset, as: :credential))
+     |> assign(:connect_credential_errors, format_errors(changeset))}
+  end
+
+  def handle_event("save_connect_credential", %{"credential" => params}, socket) do
+    credential = socket.assigns.connect_credential_changeset.data
+
+    case Connect.update_credential(credential, sanitize_connect_credential_params(params)) do
+      {:ok, _updated} ->
+        {:noreply,
+         socket
+         |> assign(:connect_credential_modal, false)
+         |> assign(:connect_credential_changeset, nil)
+         |> assign(:connect_credential_form, nil)
+         |> assign(:connect_credential_errors, [])
+         |> load_connect_credentials()
+         |> put_flash(:info, "Credential updated.")}
+
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> assign(:connect_credential_changeset, changeset)
+         |> assign(:connect_credential_form, to_form(changeset, as: :credential))
+         |> assign(:connect_credential_errors, format_errors(changeset))}
+    end
   end
 
   def handle_event("close_connect_grants_modal", _params, socket) do
@@ -1514,7 +1585,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ~H"""
     <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
       <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
-        <h2 class="font-mono text-[0.95rem] font-bold text-black">Global Configuration</h2>
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Agents</h2>
         <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
           Configure system-wide defaults used when channel-level routing does not select a configured agent.
         </p>
@@ -1555,6 +1626,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp global_agent_options do
     Agent.list_active_agents()
     |> Enum.map(fn agent -> {agent.name, agent.id} end)
+  end
+
+  defp sanitize_connect_credential_params(params) when is_map(params) do
+    Map.drop(params, ["provider", "request_format"])
+  end
+
+  defp format_errors(%Ecto.Changeset{} = changeset) do
+    ZaqWeb.ChangesetErrors.format(changeset,
+      join: false,
+      humanize_fields: true,
+      field_separator: " "
+    )
   end
 
   # ── LLM Panel ─────────────────────────────────────────────────────────
@@ -2671,12 +2754,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   attr :selected_credential, :any, required: true
   attr :selected_grants, :list, required: true
   attr :selected_connect_refresh_schedule, :map, required: true
+  attr :credential_modal, :boolean, required: true
+  attr :credential_form, :any, required: true
+  attr :credential_changeset, :any, required: true
+  attr :credential_errors, :list, required: true
 
   defp connect_credentials_panel(assigns) do
     ~H"""
     <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
       <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
-        <h2 class="font-mono text-[0.95rem] font-bold text-black">Credentials</h2>
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Auth Credentials</h2>
         <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
           Reusable Data Source and MCP credentials with related grants.
         </p>
@@ -2697,14 +2784,24 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               {credential.provider} · {credential.auth_kind}
             </p>
           </div>
-          <button
-            type="button"
-            phx-click="open_connect_grants"
-            phx-value-id={credential.id}
-            class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
-          >
-            View grants
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              phx-click="open_connect_grants"
+              phx-value-id={credential.id}
+              class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
+            >
+              View grants
+            </button>
+            <button
+              type="button"
+              phx-click="edit_connect_credential"
+              phx-value-id={credential.id}
+              class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
+            >
+              Edit
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -2770,6 +2867,26 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           </div>
         </div>
       </div>
+    </BOModal.form_dialog>
+
+    <BOModal.form_dialog
+      :if={@credential_modal}
+      id="edit-connect-credential-modal"
+      cancel_event="close_connect_credential_modal"
+      title="Edit Credential"
+      max_width_class="max-w-lg"
+    >
+      <ConnectCredentialForm.credential_form
+        :if={@credential_form}
+        form={@credential_form}
+        changeset={@credential_changeset}
+        errors={@credential_errors}
+        submit_event="save_connect_credential"
+        change_event="validate_connect_credential"
+        cancel_event="close_connect_credential_modal"
+        id_prefix="edit-connect-credential"
+        submit_label="Save"
+      />
     </BOModal.form_dialog>
     """
   end
