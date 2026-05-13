@@ -17,7 +17,8 @@ defmodule Zaq.Ingestion.DocumentAccess do
   (BO admin) can access them.
   """
 
-  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, Permission, SourcePath}
+  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, SourcePath}
+  alias Zaq.Permissions.DocumentPermission, as: Permission
   alias Zaq.Repo
 
   import Ecto.Query

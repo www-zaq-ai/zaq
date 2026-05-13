@@ -1,14 +1,18 @@
-defmodule Zaq.Ingestion.Permission do
+defmodule Zaq.Permissions.DocumentPermission do
   @moduledoc """
-  Ecto schema for person- and team-level document access permissions.
+  Document-scoped view of the `resource_permissions` table.
 
-  Backed by the `resource_permissions` table with `resource_type = "document"`.
-  All queries in this module scope to document resources automatically.
+  A specialisation of `Zaq.Permissions.ResourcePermission` for the `"document"`
+  resource type. Compared to the generic schema it:
 
-  Either `person_id` or `team_id` must be set (enforced by DB CHECK constraint).
-  Uniqueness is enforced by partial indexes:
-    - (resource_type, resource_id, person_id) WHERE person_id IS NOT NULL
-    - (resource_type, resource_id, team_id)   WHERE team_id IS NOT NULL
+  - Auto-sets `resource_type` to `"document"` on every changeset.
+  - Restricts `access_rights` to CRUD operations only (`read`, `write`, `update`, `delete`).
+  - Carries a virtual `:document` field populated by `list_person_permissions/1` for BO display.
+  - Provides `build_permission_query/3` and `build_perm_join_condition/2` — Ecto query
+    helpers used by `Zaq.Ingestion.DocumentAccess` to filter documents by caller identity.
+
+  For generic, cross-resource permission management (grant, revoke, can?) use
+  `Zaq.Permissions` and `Zaq.Permissions.ResourcePermission` instead.
   """
 
   use Ecto.Schema
@@ -92,7 +96,7 @@ defmodule Zaq.Ingestion.Permission do
   Builds a named-binding dynamic WHERE condition on a `:perm` join for
   `person_id` / `team_ids` permission matching.
 
-  Requires the query to have a `Permission` binding named `:perm`, joined with:
+  Requires the query to have a `DocumentPermission` binding named `:perm`, joined with:
     `on: p.resource_type == "document" and p.resource_id == fragment("?::text", d.id)`
   """
   @spec build_perm_join_condition(term(), [term()]) :: Ecto.Query.dynamic_expr()

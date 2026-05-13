@@ -22,7 +22,7 @@ defmodule Zaq.Permissions.ResourcePermission do
       by_id = Map.new(workflows, &{to_string(&1.id), &1})
       Enum.map(perms, &Map.put(&1, :resource, by_id[&1.resource_id]))
 
-  Resource-specific schemas (e.g. `Zaq.Ingestion.Permission`) may add a
+  Resource-specific schemas (e.g. `Zaq.Permissions.DocumentPermission`) may add a
   virtual field for convenience when the resource type is always known.
   """
 
