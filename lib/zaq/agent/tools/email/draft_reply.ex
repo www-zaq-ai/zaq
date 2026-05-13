@@ -52,7 +52,15 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
         }
       end)
 
-    {:ok, %{drafts: drafts}}
+    logs = [
+      %{
+        level: "info",
+        message: "Drafted #{length(drafts)} reply(s)",
+        metadata: %{count: length(drafts)}
+      }
+    ]
+
+    {:ok, %{drafts: drafts}, logs: logs}
   end
 
   defp resolve_agent_id!(agent_name) do

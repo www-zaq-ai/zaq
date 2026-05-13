@@ -49,6 +49,18 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
     try do
       case mod.run(action_params, context) do
+        {:ok, result, logs: logs} ->
+          Workflows.complete_step_run(step_run, result, logs)
+
+          Logger.info("[workflow] step completed",
+            run_id: run_id,
+            step_name: step_name,
+            step_index: step_index,
+            duration_ms: System.monotonic_time(:millisecond) - started_ms
+          )
+
+          {:ok, result}
+
         {:ok, result} ->
           Workflows.complete_step_run(step_run, result)
 

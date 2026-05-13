@@ -28,11 +28,15 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailbox do
     case EmailNotification.send_notification(notify_address, payload, metadata) do
       :ok ->
         Logger.info("[NotifyEmptyMailbox] Notification sent to #{notify_address}")
-        {:ok, %{status: :skipped, notified: true}}
+
+        {:ok, %{status: :skipped, notified: true},
+         logs: [%{level: "info", message: "Notification sent to #{notify_address}"}]}
 
       {:error, reason} ->
         Logger.error("[NotifyEmptyMailbox] Failed to notify: #{inspect(reason)}")
-        {:ok, %{status: :skipped, notified: false}}
+
+        {:ok, %{status: :skipped, notified: false},
+         logs: [%{level: "warn", message: "Notification failed: #{inspect(reason)}"}]}
     end
   end
 end

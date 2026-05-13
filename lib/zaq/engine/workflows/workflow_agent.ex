@@ -76,12 +76,29 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     # never updated itself — treat it as a failure (crash cursor).
     any_incomplete = Enum.any?(step_runs, &(&1.status in ["failed", "running"]))
 
-    if any_incomplete do
-      failed_steps =
-        step_runs
-        |> Enum.filter(&(&1.status in ["failed", "running"]))
-        |> Enum.map(& &1.step_name)
+    failed_steps =
+      step_runs
+      |> Enum.filter(&(&1.status in ["failed", "running"]))
+      |> Enum.map(& &1.step_name)
 
+    log_summary = %{
+      step_count: length(step_runs),
+      failed_step_count: length(failed_steps),
+      failed_steps: failed_steps,
+      duration_ms: duration_ms,
+      timeline:
+        Enum.map(step_runs, fn sr ->
+          %{
+            step_name: sr.step_name,
+            step_index: sr.step_index,
+            status: sr.status,
+            started_at: sr.started_at,
+            finished_at: sr.finished_at
+          }
+        end)
+    }
+
+    if any_incomplete do
       Logger.error("[workflow] run failed",
         workflow_id: run.workflow_id,
         run_id: run.id,
@@ -89,7 +106,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
         duration_ms: duration_ms
       )
 
-      Workflows.update_run(run, %{status: "failed", finished_at: finished_at})
+      Workflows.update_run(run, %{
+        status: "failed",
+        finished_at: finished_at,
+        log_summary: log_summary
+      })
     else
       Logger.info("[workflow] run completed",
         workflow_id: run.workflow_id,
@@ -98,7 +119,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
         duration_ms: duration_ms
       )
 
-      Workflows.update_run(run, %{status: "completed", finished_at: finished_at})
+      Workflows.update_run(run, %{
+        status: "completed",
+        finished_at: finished_at,
+        log_summary: log_summary
+      })
     end
   end
 end

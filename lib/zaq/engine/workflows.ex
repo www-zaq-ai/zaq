@@ -32,9 +32,11 @@ defmodule Zaq.Engine.Workflows do
               finished_at: DateTime.t() | nil,
               duration_ms: non_neg_integer() | nil,
               results: map() | nil,
-              errors: map() | nil
+              errors: map() | nil,
+              logs: [map()]
             }
-          ]
+          ],
+          log_summary: map() | nil
         }
 
   # --- Run execution ---
@@ -158,14 +160,20 @@ defmodule Zaq.Engine.Workflows do
     |> Repo.insert()
   end
 
-  @doc "Marks a step run as completed, recording the result map and finished_at."
-  @spec complete_step_run(StepRun.t(), map(), keyword()) ::
+  @doc """
+  Marks a step run as completed, recording the result map and finished_at.
+
+  Accepts an optional `logs` list — structured log entries emitted by the action.
+  Each entry should be a map with at least `%{level: "info"|"warn"|"error", message: string}`.
+  """
+  @spec complete_step_run(StepRun.t(), map(), [map()], keyword()) ::
           {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
-  def complete_step_run(%StepRun{} = step_run, results, _opts \\ []) do
+  def complete_step_run(%StepRun{} = step_run, results, logs \\ [], _opts \\ []) do
     step_run
     |> StepRun.changeset(%{
       status: "completed",
       results: results,
+      logs: logs,
       finished_at: DateTime.utc_now(:second)
     })
     |> Repo.update()
@@ -226,7 +234,8 @@ defmodule Zaq.Engine.Workflows do
       started_at: run.started_at,
       finished_at: run.finished_at,
       duration_ms: duration_ms(run.started_at, run.finished_at),
-      steps: Enum.map(step_runs, &step_run_to_trace/1)
+      steps: Enum.map(step_runs, &step_run_to_trace/1),
+      log_summary: run.log_summary
     }
   end
 
@@ -239,7 +248,8 @@ defmodule Zaq.Engine.Workflows do
       finished_at: sr.finished_at,
       duration_ms: duration_ms(sr.started_at, sr.finished_at),
       results: sr.results,
-      errors: sr.errors
+      errors: sr.errors,
+      logs: sr.logs || []
     }
   end
 

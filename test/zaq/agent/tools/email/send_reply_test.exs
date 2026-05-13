@@ -20,17 +20,27 @@ defmodule Zaq.Agent.Tools.Email.SendReplyTest do
 
   describe "run/2 — empty drafts list" do
     test "returns zero sent, zero failed, empty results" do
-      assert {:ok, %{sent: 0, failed: 0, results: []}} = SendReply.run(%{drafts: []}, %{})
+      assert {:ok, %{sent: 0, failed: 0, results: []}, _logs} = SendReply.run(%{drafts: []}, %{})
+    end
+
+    test "emits an info log with sent: 0 and failed: 0" do
+      assert {:ok, _result, logs: logs} = SendReply.run(%{drafts: []}, %{})
+      assert [%{level: "info", metadata: %{sent: 0, failed: 0}}] = logs
     end
   end
 
   describe "run/2 — single draft delivery" do
     test "returns sent: 1, failed: 0 on success" do
-      assert {:ok, %{sent: 1, failed: 0, results: [result]}} =
+      assert {:ok, %{sent: 1, failed: 0, results: [result]}, _logs} =
                SendReply.run(%{drafts: [draft()]}, %{})
 
       assert result.to == "alice@example.com"
       assert result.status == :sent
+    end
+
+    test "emits an info log with sent: 1 and failed: 0" do
+      assert {:ok, _result, logs: logs} = SendReply.run(%{drafts: [draft()]}, %{})
+      assert [%{level: "info", metadata: %{sent: 1, failed: 0}}] = logs
     end
 
     test "sends email with the correct subject" do
@@ -103,7 +113,7 @@ defmodule Zaq.Agent.Tools.Email.SendReplyTest do
         draft(%{to_address: "c@example.com", to_name: "C"})
       ]
 
-      assert {:ok, %{sent: 3, failed: 0, results: results}} =
+      assert {:ok, %{sent: 3, failed: 0, results: results}, _logs} =
                SendReply.run(%{drafts: drafts}, %{})
 
       assert length(results) == 3
@@ -116,7 +126,7 @@ defmodule Zaq.Agent.Tools.Email.SendReplyTest do
         draft(%{to_address: "y@example.com"})
       ]
 
-      {:ok, %{results: results}} = SendReply.run(%{drafts: drafts}, %{})
+      {:ok, %{results: results}, _logs} = SendReply.run(%{drafts: drafts}, %{})
       addresses = Enum.map(results, & &1.to)
       assert "x@example.com" in addresses
       assert "y@example.com" in addresses
@@ -125,7 +135,7 @@ defmodule Zaq.Agent.Tools.Email.SendReplyTest do
 
   describe "run/2 — result shape" do
     test "result map has :to and :status keys" do
-      {:ok, %{results: [result]}} = SendReply.run(%{drafts: [draft()]}, %{})
+      {:ok, %{results: [result]}, _logs} = SendReply.run(%{drafts: [draft()]}, %{})
       assert Map.has_key?(result, :to)
       assert Map.has_key?(result, :status)
     end
@@ -144,15 +154,20 @@ defmodule Zaq.Agent.Tools.Email.SendReplyTest do
     end
 
     test "counts failed draft when SMTP delivery fails" do
-      assert {:ok, %{sent: 0, failed: 1, results: [result]}} =
+      assert {:ok, %{sent: 0, failed: 1, results: [result]}, _logs} =
                SendReply.run(%{drafts: [draft()]}, %{})
 
       assert result.status == :failed
       assert result.to == "alice@example.com"
     end
 
+    test "emits a warn log when delivery fails" do
+      assert {:ok, _result, logs: logs} = SendReply.run(%{drafts: [draft()]}, %{})
+      assert [%{level: "warn", metadata: %{sent: 0, failed: 1}}] = logs
+    end
+
     test "result includes :reason key on failure" do
-      {:ok, %{results: [result]}} = SendReply.run(%{drafts: [draft()]}, %{})
+      {:ok, %{results: [result]}, _logs} = SendReply.run(%{drafts: [draft()]}, %{})
       assert Map.has_key?(result, :reason)
     end
 
@@ -163,7 +178,7 @@ defmodule Zaq.Agent.Tools.Email.SendReplyTest do
 
       drafts = [draft(%{to_address: "a@x.com"}), draft(%{to_address: "b@x.com"})]
 
-      assert {:ok, %{sent: 0, failed: 2, results: results}} =
+      assert {:ok, %{sent: 0, failed: 2, results: results}, _logs} =
                SendReply.run(%{drafts: drafts}, %{})
 
       assert Enum.all?(results, &(&1.status == :failed))

@@ -24,7 +24,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
         People.create_person(%{full_name: "Alice Smith", email: "alice@example.com"})
 
       params = %{drafts: [draft()]}
-      assert {:ok, %{drafts: [enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [enriched]}, _logs} = EnsurePerson.run(params, %{})
       assert enriched.person_id == person.id
     end
 
@@ -33,7 +33,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
         People.create_person(%{full_name: "Alice Smith", email: "alice@example.com"})
 
       params = %{drafts: [draft(%{to_name: "Alice S."})]}
-      assert {:ok, %{drafts: [_enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [_enriched]}, _logs} = EnsurePerson.run(params, %{})
 
       # Name should not be changed — the current name is "Alice Smith", not the email address
       updated = Repo.get!(Person, person.id)
@@ -46,7 +46,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
         People.create_person(%{full_name: "alice@example.com", email: "alice@example.com"})
 
       params = %{drafts: [draft(%{to_name: "Alice Smith"})]}
-      assert {:ok, %{drafts: [enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [enriched]}, _logs} = EnsurePerson.run(params, %{})
       assert enriched.person_id == person.id
 
       updated = Repo.get!(Person, person.id)
@@ -58,7 +58,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
         People.create_person(%{full_name: "alice@example.com", email: "alice@example.com"})
 
       params = %{drafts: [draft(%{to_name: nil})]}
-      assert {:ok, %{drafts: [enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [enriched]}, _logs} = EnsurePerson.run(params, %{})
       assert enriched.person_id == person.id
 
       updated = Repo.get!(Person, person.id)
@@ -70,7 +70,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
         People.create_person(%{full_name: "alice@example.com", email: "alice@example.com"})
 
       params = %{drafts: [draft(%{to_name: ""})]}
-      assert {:ok, %{drafts: [_enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [_enriched]}, _logs} = EnsurePerson.run(params, %{})
 
       updated = Repo.get!(Person, person.id)
       assert updated.full_name == "alice@example.com"
@@ -82,7 +82,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
       refute Repo.get_by(Person, email: "bob@example.com")
 
       params = %{drafts: [draft(%{to_address: "bob@example.com", to_name: "Bob Jones"})]}
-      assert {:ok, %{drafts: [enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [enriched]}, _logs} = EnsurePerson.run(params, %{})
       assert is_integer(enriched.person_id)
 
       person = Repo.get!(Person, enriched.person_id)
@@ -92,7 +92,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
 
     test "uses email address as name when to_name is nil" do
       params = %{drafts: [draft(%{to_address: "noop@example.com", to_name: nil})]}
-      assert {:ok, %{drafts: [enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [enriched]}, _logs} = EnsurePerson.run(params, %{})
 
       person = Repo.get!(Person, enriched.person_id)
       assert person.full_name == "noop@example.com"
@@ -100,10 +100,32 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
 
     test "uses email address as name when to_name is empty string" do
       params = %{drafts: [draft(%{to_address: "empty@example.com", to_name: ""})]}
-      assert {:ok, %{drafts: [enriched]}} = EnsurePerson.run(params, %{})
+      assert {:ok, %{drafts: [enriched]}, _logs} = EnsurePerson.run(params, %{})
 
       person = Repo.get!(Person, enriched.person_id)
       assert person.full_name == "empty@example.com"
+    end
+  end
+
+  describe "run/2 — logs" do
+    test "emits an info log with the count of enriched drafts" do
+      {:ok, _person} =
+        People.create_person(%{full_name: "Alice Smith", email: "alice@example.com"})
+
+      assert {:ok, _result, logs: logs} = EnsurePerson.run(%{drafts: [draft()]}, %{})
+
+      assert [
+               %{
+                 level: "info",
+                 message: _msg,
+                 metadata: %{count: 1, addresses: ["alice@example.com"]}
+               }
+             ] = logs
+    end
+
+    test "emits an info log with count 0 for empty drafts" do
+      assert {:ok, _result, logs: logs} = EnsurePerson.run(%{drafts: []}, %{})
+      assert [%{level: "info", metadata: %{count: 0, addresses: []}}] = logs
     end
   end
 
@@ -117,14 +139,14 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
         draft(%{to_address: "carol@example.com", to_name: "Carol"})
       ]
 
-      assert {:ok, %{drafts: [a, c]}} = EnsurePerson.run(%{drafts: drafts}, %{})
+      assert {:ok, %{drafts: [a, c]}, _logs} = EnsurePerson.run(%{drafts: drafts}, %{})
       assert a.person_id == existing.id
       assert is_integer(c.person_id)
       assert c.person_id != existing.id
     end
 
     test "returns empty drafts list when input is empty" do
-      assert {:ok, %{drafts: []}} = EnsurePerson.run(%{drafts: []}, %{})
+      assert {:ok, %{drafts: []}, _logs} = EnsurePerson.run(%{drafts: []}, %{})
     end
   end
 end

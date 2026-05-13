@@ -50,14 +50,28 @@ defmodule Zaq.Agent.Tools.Email.FetchEmailsTest do
 
     test "fetches unseen emails and returns count", %{server: server} do
       config = FakeImapServer.config(server)
-      assert {:ok, %{emails: emails, count: count}} = FetchEmails.run(%{imap_config: config}, %{})
+
+      assert {:ok, %{emails: emails, count: count}, _logs} =
+               FetchEmails.run(%{imap_config: config}, %{})
+
       assert count == length(emails)
       assert count > 0
     end
 
+    test "emits an info log with count and mailbox", %{server: server} do
+      config = FakeImapServer.config(server)
+      assert {:ok, _result, logs: logs} = FetchEmails.run(%{imap_config: config}, %{})
+
+      assert [%{level: "info", message: message, metadata: %{mailbox: "INBOX", count: count}}] =
+               logs
+
+      assert count > 0
+      assert message =~ "INBOX"
+    end
+
     test "returned emails have expected fields", %{server: server} do
       config = FakeImapServer.config(server)
-      assert {:ok, %{emails: [email | _]}} = FetchEmails.run(%{imap_config: config}, %{})
+      assert {:ok, %{emails: [email | _]}, _logs} = FetchEmails.run(%{imap_config: config}, %{})
       assert is_map(email)
       assert Map.has_key?(email, "subject")
       assert Map.has_key?(email, "from")
@@ -66,13 +80,13 @@ defmodule Zaq.Agent.Tools.Email.FetchEmailsTest do
 
     test "uses default mailbox INBOX when mailbox param is absent", %{server: server} do
       config = FakeImapServer.config(server)
-      assert {:ok, %{emails: _, count: _}} = FetchEmails.run(%{imap_config: config}, %{})
+      assert {:ok, %{emails: _, count: _}, _logs} = FetchEmails.run(%{imap_config: config}, %{})
     end
 
     test "accepts custom mailbox param", %{server: server} do
       config = FakeImapServer.config(server)
 
-      assert {:ok, %{emails: _, count: _}} =
+      assert {:ok, %{emails: _, count: _}, _logs} =
                FetchEmails.run(%{imap_config: config, mailbox: "INBOX"}, %{})
     end
   end
@@ -87,7 +101,13 @@ defmodule Zaq.Agent.Tools.Email.FetchEmailsTest do
 
     test "returns empty emails list with count 0", %{server: server} do
       config = FakeImapServer.config(server)
-      assert {:ok, %{emails: [], count: 0}} = FetchEmails.run(%{imap_config: config}, %{})
+      assert {:ok, %{emails: [], count: 0}, _logs} = FetchEmails.run(%{imap_config: config}, %{})
+    end
+
+    test "emits an info log with count 0 when mailbox is empty", %{server: server} do
+      config = FakeImapServer.config(server)
+      assert {:ok, _result, logs: logs} = FetchEmails.run(%{imap_config: config}, %{})
+      assert [%{level: "info", metadata: %{count: 0}}] = logs
     end
   end
 end

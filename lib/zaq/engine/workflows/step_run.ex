@@ -34,6 +34,7 @@ defmodule Zaq.Engine.Workflows.StepRun do
     field :status, :string, default: "running"
     field :results, :map
     field :errors, :map
+    field :logs, {:array, :map}, default: []
     field :started_at, :utc_datetime
     field :finished_at, :utc_datetime
 
@@ -51,6 +52,7 @@ defmodule Zaq.Engine.Workflows.StepRun do
       :status,
       :results,
       :errors,
+      :logs,
       :started_at,
       :finished_at
     ])
