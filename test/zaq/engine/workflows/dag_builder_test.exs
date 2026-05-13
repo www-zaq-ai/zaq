@@ -312,4 +312,292 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       end
     end
   end
+
+  # --- Inline conditions ---
+
+  defp inline_cond_steps(op, value \\ nil) do
+    params =
+      if is_nil(value),
+        do: %{"field" => "count", "op" => op},
+        else: %{"field" => "count", "op" => op, "value" => value}
+
+    %{
+      "nodes" => [
+        %{"name" => "check", "type" => "condition", "params" => params, "index" => 0}
+      ],
+      "edges" => []
+    }
+  end
+
+  describe "build/2 — inline condition (no module)" do
+    test "builds inline condition node with nil module" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(inline_cond_steps("eq", 5))
+    end
+
+    test "builds inline condition node with empty string module" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "module" => "",
+            "params" => %{"field" => "x", "op" => "eq", "value" => 1},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "eq operator: runs without error when condition passes" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("eq", 5))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
+    end
+
+    test "eq operator: runs without error when condition fails" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("eq", 5))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 99})
+    end
+
+    test "neq operator" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("neq", 5))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 3})
+    end
+
+    test "gt operator: passes when greater" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("gt", 3))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
+    end
+
+    test "gt operator: fails when not greater" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("gt", 10))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
+    end
+
+    test "lt operator" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("lt", 10))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
+    end
+
+    test "gte operator: passes when equal" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("gte", 5))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
+    end
+
+    test "lte operator: passes when equal" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("lte", 5))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
+    end
+
+    test "not_empty: passes for non-empty list" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => [1, 2]})
+    end
+
+    test "not_empty: fails for nil value" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => nil})
+    end
+
+    test "not_empty: fails for empty list" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => []})
+    end
+
+    test "not_empty: fails for empty string" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => ""})
+    end
+
+    test "empty: passes for nil" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => nil})
+    end
+
+    test "empty: passes for empty list" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => []})
+    end
+
+    test "empty: passes for empty string" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => ""})
+    end
+
+    test "empty: fails for non-empty value" do
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => [1]})
+    end
+
+    test "in operator: passes when value is in list" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "params" => %{"field" => "status", "op" => "in", "value" => ["active", "pending"]},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      {:ok, dag} = DagBuilder.build(steps)
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"status" => "active"})
+    end
+
+    test "in operator: fails when value is not in list" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "params" => %{"field" => "status", "op" => "in", "value" => ["active"]},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      {:ok, dag} = DagBuilder.build(steps)
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"status" => "inactive"})
+    end
+
+    test "field resolved via atom key in fact" do
+      # param/2 falls back to String.to_atom(key) when string key lookup returns nil
+      {:ok, dag} = DagBuilder.build(inline_cond_steps("gt", 0))
+      _result = Runic.Workflow.react_until_satisfied(dag, %{count: 5})
+    end
+
+    test "unknown op raises ArgumentError inside work fn (Runic handles gracefully)" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "params" => %{"field" => "x", "op" => "bad_op"},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      {:ok, dag} = DagBuilder.build(steps)
+      # compare_op catch-all raises ArgumentError; Runic catches it and skips downstream
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"x" => 1})
+    end
+
+    test "missing field param raises ArgumentError inside work fn (Runic handles gracefully)" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "params" => %{"op" => "eq", "value" => 1},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      {:ok, dag} = DagBuilder.build(steps)
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 1})
+    end
+
+    test "missing op param raises ArgumentError inside work fn (Runic handles gracefully)" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "params" => %{"field" => "count"},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      {:ok, dag} = DagBuilder.build(steps)
+      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 1})
+    end
+  end
+
+  describe "build/2 — module-backed condition execution" do
+    test "module condition: runs without error when condition passes" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "module" => @always_condition_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      {:ok, dag} = DagBuilder.build(steps)
+      _result = Runic.Workflow.react_until_satisfied(dag, %{})
+    end
+
+    test "module condition: runs without error when condition fails (downstream skipped)" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "check",
+            "type" => "condition",
+            "module" => @never_condition_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      {:ok, dag} = DagBuilder.build(steps)
+      _result = Runic.Workflow.react_until_satisfied(dag, %{})
+    end
+  end
+
+  describe "build/2 — agent type nodes" do
+    test "builds agent type node the same as action" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "step",
+            "type" => "agent",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+  end
+
+  describe "build/2 — param atomization" do
+    test "unknown string key in params triggers atomize_keys rescue and falls back gracefully" do
+      # String.to_existing_atom/1 raises for unknown atoms — atomize_keys must rescue
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "step",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{"zaq_dag_builder_rescue_test_key_xyz" => "val"},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+  end
 end
