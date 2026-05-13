@@ -17,7 +17,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
        current_path: "/bo/workflows",
        workflows: load_workflows(socket),
        import_modal_open: false,
-       import_error: nil
+       import_error: nil,
+       running: false
      )
      |> allow_upload(:workflow_file,
        accept: ~w(.json),
@@ -38,6 +39,41 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   def handle_event("close_import", _params, socket) do
     {:noreply, assign(socket, import_modal_open: false, import_error: nil)}
+  end
+
+  def handle_event("run_workflow", %{"workflow_id" => workflow_id}, socket) do
+    event =
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :get_workflow!, args: [workflow_id]},
+        :engine
+      )
+
+    case NodeRouter.dispatch(event).response do
+      %Zaq.Engine.Workflows.Workflow{} = workflow ->
+        run_event =
+          Event.new(
+            %{module: Zaq.Engine.Workflows, function: :create_run, args: [workflow, %{}]},
+            :engine
+          )
+
+        case NodeRouter.dispatch(run_event).response do
+          {:ok, run} ->
+            start_event =
+              Event.new(
+                %{module: Zaq.Engine.Workflows, function: :start_run, args: [run]},
+                :engine
+              )
+
+            NodeRouter.dispatch(start_event)
+            {:noreply, push_navigate(socket, to: ~p"/bo/workflows/#{workflow_id}/runs/#{run.id}")}
+
+          _ ->
+            {:noreply, put_flash(socket, :error, "Failed to create run.")}
+        end
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Workflow not found.")}
+    end
   end
 
   def handle_event("import_workflow", _params, socket) do
@@ -100,9 +136,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
               Automated multi-step processes triggered by events or schedules.
             </p>
           </div>
-          <.button phx-click="open_import" class="font-mono text-[0.82rem]">
+          <button
+            phx-click="open_import"
+            class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+          >
             Import Workflow
-          </.button>
+          </button>
         </div>
 
         <%!-- Workflows table --%>
@@ -117,6 +156,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                   Status
                 </th>
                 <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-5 py-3">
+                  Triggers
+                </th>
+                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-5 py-3">
                   Runs
                 </th>
                 <th class="px-5 py-3"></th>
@@ -124,7 +166,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
             </thead>
             <tbody>
               <tr
-                :for={{workflow, count} <- @workflows}
+                :for={{workflow, count, triggers} <- @workflows}
                 class="border-b border-black/[0.04] hover:bg-black/[0.01] transition-colors"
               >
                 <td class="px-5 py-4">
@@ -142,6 +184,16 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                   <.workflow_status_badge status={workflow.status} />
                 </td>
                 <td class="px-5 py-4">
+                  <div class="flex items-center gap-1.5">
+                    <.trigger_icon
+                      :for={trigger <- triggers}
+                      trigger={trigger}
+                      workflow_id={workflow.id}
+                    />
+                    <span :if={triggers == []} class="font-mono text-[0.72rem] text-black/30">—</span>
+                  </div>
+                </td>
+                <td class="px-5 py-4">
                   <span class="font-mono text-[0.85rem] text-black">{count}</span>
                 </td>
                 <td class="px-5 py-4 text-right">
@@ -154,7 +206,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                 </td>
               </tr>
               <tr :if={@workflows == []}>
-                <td colspan="4" class="px-5 py-12 text-center font-mono text-[0.85rem] text-black/40">
+                <td colspan="5" class="px-5 py-12 text-center font-mono text-[0.85rem] text-black/40">
                   No workflows yet. Import one to get started.
                 </td>
               </tr>
@@ -197,9 +249,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
             >
               Cancel
             </button>
-            <.button type="submit" class="font-mono text-[0.82rem]">
+            <button
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+            >
               Import
-            </.button>
+            </button>
           </div>
         </form>
       </BOModal.form_dialog>
@@ -212,7 +267,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   defp load_workflows(_socket) do
     event =
       Event.new(
-        %{module: Zaq.Engine.Workflows, function: :list_workflows_with_run_counts, args: []},
+        %{
+          module: Zaq.Engine.Workflows,
+          function: :list_workflows_with_run_counts_and_triggers,
+          args: []
+        },
         :engine
       )
 
