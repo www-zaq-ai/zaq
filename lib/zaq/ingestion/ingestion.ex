@@ -16,10 +16,11 @@ defmodule Zaq.Ingestion do
     IngestJob,
     IngestWorker,
     JobLifecycle,
-    Permission,
     RenameService,
     SourcePath
   }
+
+  alias Zaq.Permissions.DocumentPermission, as: Permission
 
   alias Zaq.Repo
 

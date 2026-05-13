@@ -160,7 +160,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
   defp fetch_permissions_counts(doc_ids) do
     import Ecto.Query
 
-    alias Zaq.Ingestion.Permission
+    alias Zaq.Permissions.DocumentPermission, as: Permission
 
     id_strings = Enum.map(doc_ids, &to_string/1)
 

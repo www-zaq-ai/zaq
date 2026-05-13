@@ -1,8 +1,9 @@
-defmodule Zaq.Ingestion.PermissionTest do
+defmodule Zaq.Permissions.DocumentPermissionTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
-  alias Zaq.Ingestion.{Document, Permission}
+  alias Zaq.Ingestion.Document
+  alias Zaq.Permissions.DocumentPermission, as: Permission
 
   defp create_doc do
     {:ok, doc} =
