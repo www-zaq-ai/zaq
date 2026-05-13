@@ -36,11 +36,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   @doc "Human-readable duration derived from a run's started_at / finished_at."
   attr :run, :map, required: true
+  attr :now, :any, default: nil
 
   def run_duration(assigns) do
     ~H"""
     <span class="font-mono text-[0.75rem] text-black/60">
-      {format_duration(@run)}
+      {format_duration(@run, @now)}
     </span>
     """
   end
@@ -295,22 +296,26 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp run_status_class("completed"), do: "bg-emerald-100 text-emerald-700"
   defp run_status_class("failed"), do: "bg-red-100 text-red-600"
   defp run_status_class("running"), do: "bg-blue-100 text-blue-600"
+  defp run_status_class("cancelled"), do: "bg-orange-100 text-orange-600"
   defp run_status_class(_), do: "bg-black/5 text-black/40"
 
   defp log_row_class("error"), do: "text-red-700"
   defp log_row_class("warn"), do: "text-amber-700"
   defp log_row_class(_), do: "text-black"
 
-  defp format_duration(%{started_at: nil}), do: "—"
-  defp format_duration(%{started_at: started_at, finished_at: nil}), do: elapsed(started_at)
+  defp format_duration(%{started_at: nil}, _now), do: "—"
 
-  defp format_duration(%{started_at: started_at, finished_at: finished_at}) do
+  defp format_duration(%{started_at: started_at, finished_at: nil}, now) do
+    elapsed(started_at, now || DateTime.utc_now())
+  end
+
+  defp format_duration(%{started_at: started_at, finished_at: finished_at}, _now) do
     diff = DateTime.diff(finished_at, started_at, :second)
     format_seconds(diff)
   end
 
-  defp elapsed(started_at) do
-    diff = DateTime.diff(DateTime.utc_now(), started_at, :second)
+  defp elapsed(started_at, now) do
+    diff = DateTime.diff(now, started_at, :second)
     format_seconds(diff) <> "…"
   end
 

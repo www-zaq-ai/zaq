@@ -21,7 +21,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
        running: false
      )
      |> allow_upload(:workflow_file,
-       accept: ~w(.json),
+       accept: ~w(.json application/json text/plain),
        max_entries: 1,
        max_file_size: 1_000_000
      )}
@@ -39,6 +39,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   def handle_event("close_import", _params, socket) do
     {:noreply, assign(socket, import_modal_open: false, import_error: nil)}
+  end
+
+  def handle_event("validate_import", _params, socket) do
+    {:noreply, socket}
   end
 
   def handle_event("run_workflow", %{"workflow_id" => workflow_id}, socket) do
@@ -77,41 +81,61 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   end
 
   def handle_event("import_workflow", _params, socket) do
-    result =
-      consume_uploaded_entries(socket, :workflow_file, fn %{path: path}, _entry ->
-        with {:ok, raw} <- File.read(path),
-             {:ok, attrs} <- Jason.decode(raw) do
-          {:ok, attrs}
-        else
-          _ -> {:ok, :invalid}
-        end
-      end)
+    upload = socket.assigns.uploads.workflow_file
 
-    case result do
-      [attrs] when is_map(attrs) ->
-        event =
-          Event.new(
-            %{module: Zaq.Engine.Workflows, function: :import_workflow, args: [attrs]},
-            :engine
-          )
+    entry_errors =
+      Enum.flat_map(upload.entries, &upload_errors(upload, &1))
 
-        case NodeRouter.dispatch(event).response do
-          {:ok, _workflow} ->
-            {:noreply,
-             socket
-             |> assign(import_modal_open: false, import_error: nil)
-             |> assign(workflows: load_workflows(socket))
-             |> put_flash(:info, "Workflow imported successfully.")}
+    if entry_errors != [] do
+      msg = Enum.map_join(entry_errors, ", ", &Phoenix.Naming.humanize/1)
+      {:noreply, assign(socket, import_error: "Upload error: #{msg}")}
+    else
+      result =
+        consume_uploaded_entries(socket, :workflow_file, fn %{path: path}, _entry ->
+          parse_upload_entry(path)
+        end)
 
-          {:error, %Ecto.Changeset{} = cs} ->
-            {:noreply, assign(socket, import_error: error_message(cs))}
+      case result do
+        [attrs] when is_map(attrs) -> dispatch_import(attrs, socket)
+        [:bad_json] -> {:noreply, assign(socket, import_error: "File is not valid JSON.")}
+        [] -> {:noreply, assign(socket, import_error: "No file selected.")}
+        _ -> {:noreply, assign(socket, import_error: "Could not read file.")}
+      end
+    end
+  end
 
-          {:error, _reason} ->
-            {:noreply, assign(socket, import_error: "Import failed. Please try again.")}
-        end
+  # ── Private helpers ─────────────────────────────────────────────
+
+  defp parse_upload_entry(path) do
+    with {:ok, raw} <- File.read(path),
+         {:ok, attrs} <- Jason.decode(raw) do
+      {:ok, attrs}
+    else
+      {:error, %Jason.DecodeError{}} -> {:ok, :bad_json}
+      _ -> {:ok, :read_error}
+    end
+  end
+
+  defp dispatch_import(attrs, socket) do
+    event =
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :import_workflow, args: [attrs]},
+        :engine
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, _workflow} ->
+        {:noreply,
+         socket
+         |> assign(import_modal_open: false, import_error: nil)
+         |> assign(workflows: load_workflows(socket))
+         |> put_flash(:info, "Workflow imported successfully.")}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:noreply, assign(socket, import_error: error_message(cs))}
 
       _ ->
-        {:noreply, assign(socket, import_error: "Invalid JSON file.")}
+        {:noreply, assign(socket, import_error: "Import failed. Please try again.")}
     end
   end
 
@@ -222,7 +246,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
         title="Import Workflow"
         cancel_event="close_import"
       >
-        <form phx-submit="import_workflow" class="space-y-4">
+        <form phx-submit="import_workflow" phx-change="validate_import" class="space-y-4">
           <p class="font-mono text-[0.82rem] text-black">
             Upload a <code class="text-black/70">.json</code> workflow export file.
           </p>
