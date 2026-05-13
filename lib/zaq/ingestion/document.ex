@@ -12,7 +12,8 @@ defmodule Zaq.Ingestion.Document do
   import Ecto.Changeset
   import Ecto.Query
 
-  alias Zaq.Ingestion.{Chunk, Permission}
+  alias Zaq.Ingestion.Chunk
+  alias Zaq.Permissions.DocumentPermission, as: Permission
   alias Zaq.Repo
 
   schema "documents" do
