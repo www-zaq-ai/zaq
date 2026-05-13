@@ -8,7 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   import ZaqWeb.Live.BO.AI.WorkflowComponents
 
   alias Zaq.{Event, NodeRouter}
-  alias ZaqWeb.Components.BOLayout
+  alias ZaqWeb.Components.{BOLayout, BOModal}
 
   @per_page 20
 
@@ -18,15 +18,18 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
       {:ok, workflow} ->
         total = count_runs(workflow.id, socket)
         runs = fetch_runs(workflow.id, 1, socket)
+        triggers = fetch_triggers(workflow.id, socket)
 
         {:ok,
          assign(socket,
            current_path: "/bo/workflows/#{id}",
            workflow: workflow,
+           triggers: triggers,
            runs: runs,
            page: 1,
            per_page: @per_page,
-           runs_total: total
+           runs_total: total,
+           delete_modal_open: false
          )}
 
       :error ->
@@ -59,6 +62,62 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
       _ ->
         {:noreply, put_flash(socket, :error, "Export failed.")}
+    end
+  end
+
+  def handle_event("open_delete", _params, socket) do
+    {:noreply, assign(socket, delete_modal_open: true)}
+  end
+
+  def handle_event("cancel_delete", _params, socket) do
+    {:noreply, assign(socket, delete_modal_open: false)}
+  end
+
+  def handle_event("delete", _params, socket) do
+    event =
+      Event.new(
+        %{
+          module: Zaq.Engine.Workflows,
+          function: :delete_workflow,
+          args: [socket.assigns.workflow]
+        },
+        :engine
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Workflow deleted.")
+         |> push_navigate(to: ~p"/bo/workflows")}
+
+      _ ->
+        {:noreply,
+         socket
+         |> assign(delete_modal_open: false)
+         |> put_flash(:error, "Failed to delete workflow.")}
+    end
+  end
+
+  def handle_event("run_workflow", %{"workflow_id" => _workflow_id}, socket) do
+    workflow = socket.assigns.workflow
+
+    run_event =
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :create_run, args: [workflow, %{}]},
+        :engine
+      )
+
+    case NodeRouter.dispatch(run_event).response do
+      {:ok, run} ->
+        start_event =
+          Event.new(%{module: Zaq.Engine.Workflows, function: :start_run, args: [run]}, :engine)
+
+        NodeRouter.dispatch(start_event)
+        {:noreply, push_navigate(socket, to: ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to create run.")}
     end
   end
 
@@ -100,9 +159,20 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
               <.workflow_status_badge status={@workflow.status} />
             </div>
           </div>
-          <.button phx-click="export" class="font-mono text-[0.82rem]">
-            Export Workflow
-          </.button>
+          <div class="flex items-center gap-2">
+            <button
+              phx-click="export"
+              class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+            >
+              Export Workflow
+            </button>
+            <button
+              phx-click="open_delete"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+            >
+              Delete
+            </button>
+          </div>
         </div>
 
         <%!-- Metadata card --%>
@@ -117,6 +187,31 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           />
           <BOLayout.config_row label="Status" value={@workflow.status} />
           <BOLayout.config_row label="ID" value={@workflow.id} truncate={true} />
+
+          <%!-- Triggers row --%>
+          <div class="flex items-start gap-4 py-1">
+            <span class="font-mono text-[0.75rem] text-black/40 w-32 flex-shrink-0">Triggers</span>
+            <div class="flex items-center gap-2">
+              <.trigger_icon
+                :for={trigger <- @triggers}
+                trigger={trigger}
+                workflow_id={@workflow.id}
+              />
+              <span :if={@triggers == []} class="font-mono text-[0.75rem] text-black/30">
+                No triggers configured
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <%!-- DAG --%>
+        <div class="mb-8">
+          <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
+            Flow
+          </p>
+          <div class="bg-white rounded-xl border border-black/[0.08] p-5">
+            <.workflow_dag nodes={@workflow.nodes} edges={@workflow.edges} />
+          </div>
         </div>
 
         <%!-- Runs table --%>
@@ -201,6 +296,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           </div>
         </div>
       </div>
+
+      <BOModal.confirm_dialog
+        :if={@delete_modal_open}
+        id="delete-workflow-modal"
+        title={
+          # {@workflow.name}"?"
+          "Delete "
+        }
+        message="This will permanently delete the workflow and all its run history. This action cannot be undone."
+        confirm_label="Delete Workflow"
+        cancel_event="cancel_delete"
+        confirm_event="delete"
+      />
     </BOLayout.bo_layout>
     """
   end
@@ -235,6 +343,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
     end
   rescue
     _ -> 0
+  end
+
+  defp fetch_triggers(workflow_id, _socket) do
+    event =
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :list_triggers, args: [workflow_id]},
+        :engine
+      )
+
+    case NodeRouter.dispatch(event).response do
+      triggers when is_list(triggers) -> triggers
+      _ -> []
+    end
+  rescue
+    _ -> []
   end
 
   defp fetch_runs(workflow_id, page, _socket) do
