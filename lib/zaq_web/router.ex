@@ -83,6 +83,9 @@ defmodule ZaqWeb.Router do
       live "/ai-diagnostics", Live.BO.AI.AIDiagnosticsLive
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive
       live "/agents", Live.BO.AI.AgentsLive
+      live "/workflows", Live.BO.AI.WorkflowsLive, :index
+      live "/workflows/:id", Live.BO.AI.WorkflowDetailLive, :show
+      live "/workflows/:id/runs/:run_id", Live.BO.AI.WorkflowRunLive, :show
       live "/ingestion", Live.BO.AI.IngestionLive
       live "/ingestion/:provider", Live.BO.AI.IngestionLive
       live "/ontology", Live.BO.AI.OntologyLive
