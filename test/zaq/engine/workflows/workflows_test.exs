@@ -5,29 +5,24 @@ defmodule Zaq.Engine.WorkflowsTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.{StepRun, Trigger, Workflow, WorkflowRun}
 
-  @valid_steps %{
-    "nodes" => [
-      %{
-        "name" => "fetch",
-        "type" => "action",
-        "module" => "Zaq.Agent.Tools.Email.FetchEmails",
-        "params" => %{},
-        "index" => 0
-      }
-    ],
-    "edges" => []
+  @valid_node %{
+    name: "fetch",
+    type: "action",
+    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    params: %{},
+    index: 0
   }
 
   @valid_workflow_attrs %{
     name: "Test Workflow",
-    status: "draft",
-    steps: %{"step1" => %{"type" => "http_request"}}
+    status: "draft"
   }
 
   @valid_active_attrs %{
     name: "Test Workflow",
     status: "active",
-    steps: @valid_steps
+    nodes: [@valid_node],
+    edges: []
   }
 
   @valid_source_event %{
@@ -53,11 +48,10 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert {:ok, %Workflow{} = w} = Workflows.create_workflow(@valid_workflow_attrs)
       assert w.name == "Test Workflow"
       assert w.status == "draft"
-      assert w.steps == %{"step1" => %{"type" => "http_request"}}
     end
 
     test "returns error on missing name" do
-      assert {:error, changeset} = Workflows.create_workflow(%{status: "draft", steps: %{}})
+      assert {:error, changeset} = Workflows.create_workflow(%{status: "draft"})
       assert changeset.errors[:name]
     end
 
@@ -118,26 +112,27 @@ defmodule Zaq.Engine.WorkflowsTest do
 
   describe "create_run/4" do
     test "creates a run with steps and settings snapshotted from the workflow" do
-      workflow = create_workflow()
+      {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
       assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(workflow, @valid_source_event)
 
       assert run.workflow_id == workflow.id
-      assert run.steps_snapshot == workflow.steps
+      assert run.steps_snapshot["nodes"] != nil
+      assert run.steps_snapshot["edges"] != nil
       assert run.settings_snapshot == workflow.settings
       assert run.status == "pending"
       assert run.source_event.trace_id == @valid_source_event["trace_id"]
     end
 
     test "snapshot isolation: editing workflow after run start does not mutate the snapshot" do
-      workflow = create_workflow()
+      {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
       run = create_run(workflow)
 
-      original_steps = run.steps_snapshot
+      original_snapshot = run.steps_snapshot
 
-      {:ok, _} = Workflows.update_workflow(workflow, %{steps: %{"new_step" => %{}}})
+      {:ok, _} = Workflows.update_workflow(workflow, %{nodes: [], edges: [], status: "draft"})
 
       reloaded_run = Workflows.get_run!(run.id)
-      assert reloaded_run.steps_snapshot == original_steps
+      assert reloaded_run.steps_snapshot == original_snapshot
     end
   end
 

@@ -6,6 +6,9 @@ defmodule Zaq.Engine.Workflows.Workflow do
   the steps and settings are snapshotted into `WorkflowRun` — edits to
   a workflow never affect in-progress runs.
 
+  Steps are stored as two typed embedded arrays (`nodes` and `edges`),
+  validated at changeset time via `StepNode` and `StepEdge` embedded schemas.
+
   Statuses:
   - `draft`    — being built, not triggerable
   - `active`   — triggers enabled, runs can be created
@@ -14,6 +17,8 @@ defmodule Zaq.Engine.Workflows.Workflow do
 
   use Ecto.Schema
   import Ecto.Changeset
+
+  alias Zaq.Engine.Workflows.{StepEdge, StepNode}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -26,8 +31,10 @@ defmodule Zaq.Engine.Workflows.Workflow do
     field :name, :string
     field :description, :string
     field :status, :string, default: "draft"
-    field :steps, :map, default: %{}
     field :settings, :map, default: %{}
+
+    embeds_many :nodes, StepNode, on_replace: :delete
+    embeds_many :edges, StepEdge, on_replace: :delete
 
     timestamps(type: :utc_datetime)
   end
@@ -36,27 +43,27 @@ defmodule Zaq.Engine.Workflows.Workflow do
 
   def changeset(workflow, attrs) do
     workflow
-    |> cast(attrs, [:name, :description, :status, :steps, :settings])
-    |> validate_required([:name, :status, :steps])
+    |> cast(attrs, [:name, :description, :status, :settings])
+    |> cast_embed(:nodes, with: &StepNode.changeset/2)
+    |> cast_embed(:edges, with: &StepEdge.changeset/2)
+    |> validate_required([:name, :status])
     |> validate_inclusion(:status, @statuses)
-    |> validate_steps_format()
+    |> validate_active_has_nodes()
 
     # Status transition enforcement (draft→active, active→archived, archived→active;
     # reverting to draft disallowed) is tracked in zaq-0lc.
   end
 
-  # Steps must have "nodes" and "edges" keys when the workflow is being activated.
-  # Draft and archived workflows may carry partial or empty steps.
-  defp validate_steps_format(changeset) do
-    status = get_field(changeset, :status)
-    steps = get_field(changeset, :steps) || %{}
+  # Active workflows must have at least one node — draft/archived may be empty.
+  defp validate_active_has_nodes(changeset) do
+    if get_field(changeset, :status) == "active" do
+      nodes = get_field(changeset, :nodes) || []
 
-    if status == "active" do
-      missing = Enum.reject(["nodes", "edges"], &Map.has_key?(steps, &1))
-
-      Enum.reduce(missing, changeset, fn key, cs ->
-        add_error(cs, :steps, "missing required key '#{key}' for an active workflow")
-      end)
+      if nodes == [] do
+        add_error(changeset, :nodes, "must have at least one node for an active workflow")
+      else
+        changeset
+      end
     else
       changeset
     end
