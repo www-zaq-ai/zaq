@@ -164,4 +164,50 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviourTest do
       assert run.source_event.assigns.input == payload
     end
   end
+
+  # --- Scheduler edge cases ---
+
+  describe "Scheduler.fire/3 — edge cases" do
+    test "nil trigger config defaults to empty static_input" do
+      workflow = create_workflow()
+      trigger = create_trigger(workflow, "scheduler", %{"cron" => "0 * * * *"})
+      trigger = %{trigger | config: nil}
+
+      assert {:ok, %WorkflowRun{} = run} = Scheduler.fire(trigger, workflow, %{})
+      assert run.source_event.assigns.input == %{}
+    end
+
+    test "dynamic input is merged over static_input (dynamic wins on conflict)" do
+      workflow = create_workflow()
+
+      trigger =
+        create_trigger(workflow, "scheduler", %{
+          "cron" => "0 * * * *",
+          "static_input" => %{"mailbox" => "INBOX", "limit" => 10}
+        })
+
+      {:ok, run} = Scheduler.fire(trigger, workflow, %{"limit" => 99})
+      assert run.source_event.assigns.input == %{"mailbox" => "INBOX", "limit" => 99}
+    end
+  end
+
+  # --- on_complete callbacks ---
+
+  describe "on_complete/2" do
+    test "Manual.on_complete returns :ok" do
+      assert :ok = Manual.on_complete(%{}, [])
+    end
+
+    test "Scheduler.on_complete returns :ok" do
+      assert :ok = Scheduler.on_complete(%{}, [])
+    end
+
+    test "Webhook.on_complete returns :ok" do
+      assert :ok = Webhook.on_complete(%{}, [])
+    end
+
+    test "Signal.on_complete returns :ok" do
+      assert :ok = Signal.on_complete(%{}, [])
+    end
+  end
 end
