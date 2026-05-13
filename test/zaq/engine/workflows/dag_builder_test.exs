@@ -1,11 +1,12 @@
-defmodule Zaq.Workflows.DagBuilderTest do
+defmodule Zaq.Engine.Workflows.DagBuilderTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
-  alias Zaq.Workflows.DagBuilder
+  alias Zaq.Engine.Workflows.DagBuilder
 
   @fetch_module "Zaq.Agent.Tools.Email.FetchEmails"
-  @always_condition_module "Zaq.Workflows.Test.AlwaysCondition"
-  @never_condition_module "Zaq.Workflows.Test.NeverCondition"
+  @always_condition_module "Zaq.Engine.Workflows.Test.AlwaysCondition"
+  @never_condition_module "Zaq.Engine.Workflows.Test.NeverCondition"
   @draft_module "Zaq.Agent.Tools.Email.DraftReply"
 
   defp linear_steps do
@@ -72,7 +73,7 @@ defmodule Zaq.Workflows.DagBuilderTest do
     }
   end
 
-  @ok_module "Zaq.Workflows.Test.OkAction"
+  @ok_module "Zaq.Engine.Workflows.Test.OkAction"
 
   defp single_action_steps(module \\ @ok_module) do
     %{
@@ -222,6 +223,93 @@ defmodule Zaq.Workflows.DagBuilderTest do
 
     test "returns error for missing edges key" do
       assert {:error, :invalid_steps} = DagBuilder.build(%{"nodes" => []})
+    end
+  end
+
+  # --- Property tests ---
+
+  describe "build/1 — structural invariants" do
+    property "any non-map input returns {:error, :invalid_steps}" do
+      check all(
+              input <-
+                one_of([
+                  integer(),
+                  float(),
+                  string(:alphanumeric),
+                  atom(:alphanumeric),
+                  list_of(term()),
+                  constant(nil)
+                ])
+            ) do
+        assert DagBuilder.build(input) == {:error, :invalid_steps}
+      end
+    end
+
+    property "any map missing 'nodes', 'edges', or both returns {:error, :invalid_steps}" do
+      check all(present_key <- member_of(["nodes", "edges", :neither])) do
+        steps =
+          case present_key do
+            "nodes" ->
+              %{
+                "nodes" => [
+                  %{
+                    "name" => "x",
+                    "type" => "action",
+                    "module" => @ok_module,
+                    "params" => %{},
+                    "index" => 0
+                  }
+                ]
+              }
+
+            "edges" ->
+              %{"edges" => []}
+
+            :neither ->
+              %{}
+          end
+
+        assert DagBuilder.build(steps) == {:error, :invalid_steps}
+      end
+    end
+
+    property "empty nodes list always returns {:error, :empty_dag} regardless of edges content" do
+      check all(
+              edges <-
+                list_of(
+                  map_of(
+                    string(:alphanumeric, min_length: 1),
+                    string(:alphanumeric, min_length: 1),
+                    max_length: 3
+                  ),
+                  max_length: 5
+                )
+            ) do
+        assert DagBuilder.build(%{"nodes" => [], "edges" => edges}) == {:error, :empty_dag}
+      end
+    end
+
+    property "edge referencing a non-existent node returns {:error, {:unknown_node, target}}" do
+      check all(
+              node_name <- string(:alphanumeric, min_length: 1),
+              target <- string(:alphanumeric, min_length: 1),
+              node_name != target
+            ) do
+        steps = %{
+          "nodes" => [
+            %{
+              "name" => node_name,
+              "type" => "action",
+              "module" => @ok_module,
+              "params" => %{},
+              "index" => 0
+            }
+          ],
+          "edges" => [%{"from" => node_name, "to" => target}]
+        }
+
+        assert DagBuilder.build(steps) == {:error, {:unknown_node, target}}
+      end
     end
   end
 end

@@ -137,8 +137,8 @@ defmodule Zaq.Types.WorkflowEventTest do
 
   describe "WorkflowRun integration" do
     test "source_event round-trips through the DB as a %Zaq.Event{}" do
-      alias Zaq.Workflows
-      alias Zaq.Workflows.WorkflowRun
+      alias Zaq.Engine.Workflows
+      alias Zaq.Engine.Workflows.WorkflowRun
 
       steps = %{
         "nodes" => [],

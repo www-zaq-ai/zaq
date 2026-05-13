@@ -8,15 +8,15 @@ DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows 
 
 | Module | Responsibility |
 |---|---|
-| `Zaq.Workflows` | Public context API — all DB access, run lifecycle, action result tracking |
-| `Zaq.Workflows.Workflow` | Schema: workflow definition (steps JSONB, status, settings) |
-| `Zaq.Workflows.WorkflowRun` | Schema: single run instance (snapshots, status, source_event) |
-| `Zaq.Workflows.ActionResult` | Schema: per-step execution record (crash-safe cursor) |
-| `Zaq.Workflows.Trigger` | Schema: trigger config (type, enabled flag, type-specific config map) |
-| `Zaq.Workflows.WorkflowAgent` | Execution engine — transitions run status, builds DAG, drives Runic |
-| `Zaq.Workflows.ActionWrapper` | Jido.Action wrapper — writes ActionResult rows around every action call |
-| `Zaq.Workflows.DagBuilder` | Builds `Runic.Workflow` struct from the steps JSONB map |
-| `Zaq.Workflows.Triggers.Manual` | Manual trigger — builds `%Zaq.Event{}` and calls `Workflows.create_run/4` |
+| `Zaq.Engine.Workflows` | Public context API — all DB access, run lifecycle, action result tracking |
+| `Zaq.Engine.Workflows.Workflow` | Schema: workflow definition (steps JSONB, status, settings) |
+| `Zaq.Engine.Workflows.WorkflowRun` | Schema: single run instance (snapshots, status, source_event) |
+| `Zaq.Engine.Workflows.ActionResult` | Schema: per-step execution record (crash-safe cursor) |
+| `Zaq.Engine.Workflows.Trigger` | Schema: trigger config (type, enabled flag, type-specific config map) |
+| `Zaq.Engine.Workflows.WorkflowAgent` | Execution engine — transitions run status, builds DAG, drives Runic |
+| `Zaq.Engine.Workflows.ActionWrapper` | Jido.Action wrapper — writes ActionResult rows around every action call |
+| `Zaq.Engine.Workflows.DagBuilder` | Builds `Runic.Workflow` struct from the steps JSONB map |
+| `Zaq.Engine.Workflows.Triggers.Manual` | Manual trigger — builds `%Zaq.Event{}` and calls `Workflows.create_run/4` |
 
 ---
 
@@ -60,7 +60,7 @@ The `steps` column on `Workflow` (and `steps_snapshot` on `WorkflowRun`) must fo
     {
       "name": "emails_found",
       "type": "condition",
-      "module": "Zaq.Workflows.Conditions.EmailsFound",
+      "module": "Zaq.Engine.Workflows.Conditions.EmailsFound",
       "params": {},
       "index": 1
     }
@@ -139,10 +139,10 @@ ORDER BY step_index ASC;
 
 | Type | Config keys required | Implementation |
 |---|---|---|
-| `manual` | none | `Zaq.Workflows.Triggers.Manual` |
-| `webhook` | none | `Zaq.Workflows.Triggers.Webhook` |
-| `scheduler` | `"cron"` | `Zaq.Workflows.Triggers.Scheduler` |
-| `signal` | `"topic"` | `Zaq.Workflows.Triggers.Signal` |
+| `manual` | none | `Zaq.Engine.Workflows.Triggers.Manual` |
+| `webhook` | none | `Zaq.Engine.Workflows.Triggers.Webhook` |
+| `scheduler` | `"cron"` | `Zaq.Engine.Workflows.Triggers.Scheduler` |
+| `signal` | `"topic"` | `Zaq.Engine.Workflows.Triggers.Signal` |
 
 `Trigger.module/1` resolves the implementation module from a trigger struct. Disabled triggers (`enabled: false`) are ignored by the runtime — no deletion needed.
 
@@ -200,4 +200,4 @@ There is no behaviour to implement — only `call/1` is required.
 - **Do not skip `ActionWrapper`** when `run_id` is present. Calling action modules directly bypasses the crash-safe cursor and leaves no audit trail.
 - **Do not use `String.to_atom/1` for module resolution** from untrusted JSONB data. Always use `Module.concat/1` + `Code.ensure_loaded/1`.
 - **Do not add new trigger types without implementing the `TriggerBehaviour`** and registering the module in `Trigger.@type_to_module`.
-- **Do not check permissions inside `Zaq.Workflows` functions** — the module doc explicitly states permission checks are the caller's responsibility.
+- **Do not check permissions inside `Zaq.Engine.Workflows` functions** — the module doc explicitly states permission checks are the caller's responsibility.

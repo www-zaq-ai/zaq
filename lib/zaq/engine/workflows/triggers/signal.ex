@@ -1,12 +1,12 @@
-defmodule Zaq.Workflows.Triggers.Signal do
+defmodule Zaq.Engine.Workflows.Triggers.Signal do
   @moduledoc """
   Trigger fired when a matching Jido signal is emitted.
   The signal topic is stored in `trigger.config["topic"]`.
   """
 
-  @behaviour Zaq.Workflows.TriggerBehaviour
+  @behaviour Zaq.Engine.Workflows.TriggerBehaviour
 
-  alias Zaq.{Event, Workflows}
+  alias Zaq.{Engine.Workflows, Event}
 
   @impl true
   def fire(_trigger, workflow, input) do

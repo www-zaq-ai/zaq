@@ -2,10 +2,10 @@ defmodule Zaq.PermissionsTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Engine.Workflows.Workflow
   alias Zaq.Ingestion.Document
   alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
-  alias Zaq.Workflows.Workflow
 
   defp create_person do
     unique = System.unique_integer([:positive])

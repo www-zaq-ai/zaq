@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows.Workflow do
+defmodule Zaq.Engine.Workflows.Workflow do
   @moduledoc """
   Ecto schema for a workflow definition.
 

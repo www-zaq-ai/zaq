@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows.DagBuilder do
+defmodule Zaq.Engine.Workflows.DagBuilder do
   @moduledoc """
   Builds a `Runic.Workflow` from the `steps` / `steps_snapshot` map stored in
   a `Workflow` or `WorkflowRun` row.
@@ -29,7 +29,7 @@ defmodule Zaq.Workflows.DagBuilder do
 
   alias Jido.Runic.ActionNode
   alias Runic.Workflow.Step
-  alias Zaq.Workflows.ActionWrapper
+  alias Zaq.Engine.Workflows.ActionWrapper
 
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}

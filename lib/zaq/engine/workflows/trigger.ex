@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows.Trigger do
+defmodule Zaq.Engine.Workflows.Trigger do
   @moduledoc """
   Ecto schema for a workflow trigger configuration.
 
@@ -16,7 +16,7 @@ defmodule Zaq.Workflows.Trigger do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Zaq.Workflows.Workflow
+  alias Zaq.Engine.Workflows.Workflow
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -37,10 +37,10 @@ defmodule Zaq.Workflows.Trigger do
   def types, do: @types
 
   @type_to_module %{
-    "manual" => Zaq.Workflows.Triggers.Manual,
-    "webhook" => Zaq.Workflows.Triggers.Webhook,
-    "scheduler" => Zaq.Workflows.Triggers.Scheduler,
-    "signal" => Zaq.Workflows.Triggers.Signal
+    "manual" => Zaq.Engine.Workflows.Triggers.Manual,
+    "webhook" => Zaq.Engine.Workflows.Triggers.Webhook,
+    "scheduler" => Zaq.Engine.Workflows.Triggers.Scheduler,
+    "signal" => Zaq.Engine.Workflows.Triggers.Signal
   }
 
   @doc "Returns the trigger behaviour module for the given trigger's type."

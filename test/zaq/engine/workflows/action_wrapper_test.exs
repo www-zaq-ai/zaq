@@ -1,9 +1,9 @@
-defmodule Zaq.Workflows.ActionWrapperTest do
+defmodule Zaq.Engine.Workflows.ActionWrapperTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Workflows
-  alias Zaq.Workflows.ActionWrapper
-  alias Zaq.Workflows.Test.{ErrorAction, OkAction}
+  alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.ActionWrapper
+  alias Zaq.Engine.Workflows.Test.{ErrorAction, OkAction}
 
   @valid_workflow_attrs %{
     name: "ActionWrapper Test Workflow",
@@ -33,7 +33,7 @@ defmodule Zaq.Workflows.ActionWrapperTest do
 
       assert {:ok, %{value: "done"}} = ActionWrapper.run(wp(run, OkAction, "fetch", 0), %{})
 
-      [ar] = Workflows.list_action_results(run.id)
+      [ar] = Workflows.list_step_runs(run.id)
       assert ar.step_name == "fetch"
       assert ar.step_index == 0
       assert ar.status == "completed"
@@ -62,7 +62,7 @@ defmodule Zaq.Workflows.ActionWrapperTest do
 
       assert {:error, :test_failure} = ActionWrapper.run(wp(run, ErrorAction, "draft", 1), %{})
 
-      [ar] = Workflows.list_action_results(run.id)
+      [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "failed"
       assert ar.errors["reason"] =~ "test_failure"
       assert ar.finished_at != nil
@@ -80,14 +80,14 @@ defmodule Zaq.Workflows.ActionWrapperTest do
       run = create_run()
       ActionWrapper.run(wp(run, OkAction, "fetch", 0), %{})
 
-      [ar] = Workflows.list_action_results(run.id)
+      [ar] = Workflows.list_step_runs(run.id)
       refute Map.has_key?(ar.results || %{}, "wrapped_module")
       refute Map.has_key?(ar.results || %{}, "run_id")
     end
   end
 
   describe "run/2 — crash safety" do
-    test "ActionResult row is marked failed when wrapped module raises" do
+    test "StepRun row is marked failed and exception is re-raised when wrapped module raises" do
       defmodule RaisingAction do
         @moduledoc false
         use Jido.Action, name: "raising_test_action_aw", schema: []
@@ -96,9 +96,11 @@ defmodule Zaq.Workflows.ActionWrapperTest do
 
       run = create_run()
 
-      assert {:error, _} = ActionWrapper.run(wp(run, RaisingAction, "step", 0), %{})
+      assert_raise RuntimeError, "boom", fn ->
+        ActionWrapper.run(wp(run, RaisingAction, "step", 0), %{})
+      end
 
-      [ar] = Workflows.list_action_results(run.id)
+      [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "failed"
       assert ar.errors["reason"] =~ "boom"
       assert ar.finished_at != nil
