@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows.TriggerBehaviour do
+defmodule Zaq.Engine.Workflows.TriggerBehaviour do
   @moduledoc """
   Execution contract for all workflow trigger types.
 
@@ -14,23 +14,23 @@ defmodule Zaq.Workflows.TriggerBehaviour do
 
   ## Implementing a trigger
 
-      defmodule Zaq.Workflows.Triggers.MyTrigger do
-        @behaviour Zaq.Workflows.TriggerBehaviour
+      defmodule Zaq.Engine.Workflows.Triggers.MyTrigger do
+        @behaviour Zaq.Engine.Workflows.TriggerBehaviour
 
         @impl true
         def fire(trigger, workflow, input) do
           event = Zaq.Event.new(input, :agent,
             assigns: %{trigger_type: :my_trigger, input: input}
           )
-          Zaq.Workflows.create_run(workflow, event)
+          Zaq.Engine.Workflows.create_run(workflow, event)
         end
 
         @impl true
-        def on_complete(run, _action_results), do: :ok
+        def on_complete(run, _step_runs), do: :ok
       end
   """
 
-  alias Zaq.Workflows.{ActionResult, Trigger, Workflow, WorkflowRun}
+  alias Zaq.Engine.Workflows.{StepRun, Trigger, Workflow, WorkflowRun}
 
   @doc """
   Builds a `%Zaq.Event{}` and inserts a `WorkflowRun` row.
@@ -42,6 +42,6 @@ defmodule Zaq.Workflows.TriggerBehaviour do
   @doc """
   Called by `WorkflowAgent` on run completion. Dispatch outgoing events here.
   """
-  @callback on_complete(run :: WorkflowRun.t(), action_results :: [ActionResult.t()]) ::
+  @callback on_complete(run :: WorkflowRun.t(), step_runs :: [StepRun.t()]) ::
               :ok | {:error, term()}
 end

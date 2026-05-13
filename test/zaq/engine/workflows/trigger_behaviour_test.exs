@@ -1,10 +1,9 @@
-defmodule Zaq.Workflows.TriggerBehaviourTest do
+defmodule Zaq.Engine.Workflows.TriggerBehaviourTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Event
-  alias Zaq.Workflows
-  alias Zaq.Workflows.{Trigger, WorkflowRun}
-  alias Zaq.Workflows.Triggers.{Manual, Scheduler, Signal, Webhook}
+  alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.{Trigger, WorkflowRun}
+  alias Zaq.Engine.Workflows.Triggers.{Manual, Scheduler, Signal, Webhook}
 
   @valid_steps %{
     "nodes" => [

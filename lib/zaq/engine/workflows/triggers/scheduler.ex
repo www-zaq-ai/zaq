@@ -1,13 +1,13 @@
-defmodule Zaq.Workflows.Triggers.Scheduler do
+defmodule Zaq.Engine.Workflows.Triggers.Scheduler do
   @moduledoc """
   Trigger fired on a cron schedule. The Oban worker calls `fire/3` directly.
   Static input is read from `trigger.config["static_input"]` and merged with
   any caller-supplied input.
   """
 
-  @behaviour Zaq.Workflows.TriggerBehaviour
+  @behaviour Zaq.Engine.Workflows.TriggerBehaviour
 
-  alias Zaq.{Event, Workflows}
+  alias Zaq.{Engine.Workflows, Event}
 
   @impl true
   def fire(trigger, workflow, input) do

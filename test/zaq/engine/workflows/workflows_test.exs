@@ -1,8 +1,9 @@
-defmodule Zaq.WorkflowsTest do
+defmodule Zaq.Engine.WorkflowsTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
-  alias Zaq.Workflows
-  alias Zaq.Workflows.{ActionResult, Trigger, Workflow, WorkflowRun}
+  alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.{StepRun, Trigger, Workflow, WorkflowRun}
 
   @valid_steps %{
     "nodes" => [
@@ -172,13 +173,13 @@ defmodule Zaq.WorkflowsTest do
 
   # --- Action results ---
 
-  describe "create_action_result/3" do
+  describe "create_step_run/3" do
     test "inserts a :running row before step executes" do
       workflow = create_workflow()
       run = create_run(workflow)
 
-      assert {:ok, %ActionResult{} = ar} =
-               Workflows.create_action_result(run, %{
+      assert {:ok, %StepRun{} = ar} =
+               Workflows.create_step_run(run, %{
                  step_name: "fetch_data",
                  step_index: 0,
                  status: "running",
@@ -192,12 +193,12 @@ defmodule Zaq.WorkflowsTest do
     end
   end
 
-  describe "create_action_result/3 — started_at default" do
+  describe "create_step_run/3 — started_at default" do
     test "sets started_at automatically when not provided" do
       workflow = create_workflow()
       run = create_run(workflow)
 
-      {:ok, ar} = Workflows.create_action_result(run, %{step_name: "s", step_index: 0})
+      {:ok, ar} = Workflows.create_step_run(run, %{step_name: "s", step_index: 0})
       assert ar.started_at != nil
     end
 
@@ -207,20 +208,20 @@ defmodule Zaq.WorkflowsTest do
       explicit = ~U[2025-01-01 00:00:00Z]
 
       {:ok, ar} =
-        Workflows.create_action_result(run, %{step_name: "s", step_index: 0, started_at: explicit})
+        Workflows.create_step_run(run, %{step_name: "s", step_index: 0, started_at: explicit})
 
       assert ar.started_at == explicit
     end
   end
 
-  describe "complete_action_result/3" do
+  describe "complete_step_run/3" do
     test "sets status completed, writes results and finished_at" do
       workflow = create_workflow()
       run = create_run(workflow)
-      {:ok, ar} = Workflows.create_action_result(run, %{step_name: "s", step_index: 0})
+      {:ok, ar} = Workflows.create_step_run(run, %{step_name: "s", step_index: 0})
 
       result_map = %{"output" => "ok"}
-      assert {:ok, completed} = Workflows.complete_action_result(ar, result_map)
+      assert {:ok, completed} = Workflows.complete_step_run(ar, result_map)
 
       assert completed.status == "completed"
       assert completed.results == result_map
@@ -229,14 +230,14 @@ defmodule Zaq.WorkflowsTest do
     end
   end
 
-  describe "fail_action_result/3" do
+  describe "fail_step_run/3" do
     test "sets status failed, writes errors and finished_at" do
       workflow = create_workflow()
       run = create_run(workflow)
-      {:ok, ar} = Workflows.create_action_result(run, %{step_name: "s", step_index: 0})
+      {:ok, ar} = Workflows.create_step_run(run, %{step_name: "s", step_index: 0})
 
       error_map = %{"reason" => "timeout"}
-      assert {:ok, failed} = Workflows.fail_action_result(ar, error_map)
+      assert {:ok, failed} = Workflows.fail_step_run(ar, error_map)
 
       assert failed.status == "failed"
       assert failed.errors == error_map
@@ -245,16 +246,16 @@ defmodule Zaq.WorkflowsTest do
     end
   end
 
-  describe "list_action_results/2" do
+  describe "list_step_runs/2" do
     test "returns rows ordered by step_index ascending" do
       workflow = create_workflow()
       run = create_run(workflow)
 
-      {:ok, _} = Workflows.create_action_result(run, %{step_name: "c", step_index: 2})
-      {:ok, _} = Workflows.create_action_result(run, %{step_name: "a", step_index: 0})
-      {:ok, _} = Workflows.create_action_result(run, %{step_name: "b", step_index: 1})
+      {:ok, _} = Workflows.create_step_run(run, %{step_name: "c", step_index: 2})
+      {:ok, _} = Workflows.create_step_run(run, %{step_name: "a", step_index: 0})
+      {:ok, _} = Workflows.create_step_run(run, %{step_name: "b", step_index: 1})
 
-      results = Workflows.list_action_results(run.id)
+      results = Workflows.list_step_runs(run.id)
       assert Enum.map(results, & &1.step_index) == [0, 1, 2]
     end
 
@@ -262,16 +263,16 @@ defmodule Zaq.WorkflowsTest do
       workflow = create_workflow()
       run = create_run(workflow)
 
-      {:ok, ar0} = Workflows.create_action_result(run, %{step_name: "fetch", step_index: 0})
-      {:ok, _} = Workflows.complete_action_result(ar0, %{"data" => "fetched"})
+      {:ok, ar0} = Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0})
+      {:ok, _} = Workflows.complete_step_run(ar0, %{"data" => "fetched"})
 
-      {:ok, ar1} = Workflows.create_action_result(run, %{step_name: "process", step_index: 1})
-      {:ok, _} = Workflows.complete_action_result(ar1, %{"result" => "done"})
+      {:ok, ar1} = Workflows.create_step_run(run, %{step_name: "process", step_index: 1})
+      {:ok, _} = Workflows.complete_step_run(ar1, %{"result" => "done"})
 
       # Simulate crash mid-step 2
-      {:ok, _ar2} = Workflows.create_action_result(run, %{step_name: "notify", step_index: 2})
+      {:ok, _ar2} = Workflows.create_step_run(run, %{step_name: "notify", step_index: 2})
 
-      all = Workflows.list_action_results(run.id)
+      all = Workflows.list_step_runs(run.id)
 
       previous_results =
         all
@@ -287,6 +288,104 @@ defmodule Zaq.WorkflowsTest do
 
       assert resume_cursor.step_name == "notify"
       assert resume_cursor.step_index == 2
+    end
+  end
+
+  # --- Property tests ---
+
+  describe "list_step_runs/1 — ordering invariant" do
+    property "always returns step runs sorted by step_index ascending regardless of insertion order" do
+      check all(indices <- uniq_list_of(integer(0..99), min_length: 1, max_length: 10)) do
+        workflow = create_workflow()
+        run = create_run(workflow)
+
+        indices
+        |> Enum.shuffle()
+        |> Enum.each(fn idx ->
+          {:ok, _} = Workflows.create_step_run(run, %{step_name: "step_#{idx}", step_index: idx})
+        end)
+
+        result = Workflows.list_step_runs(run.id)
+        assert Enum.map(result, & &1.step_index) == Enum.sort(indices)
+      end
+    end
+  end
+
+  # --- Trace ---
+
+  describe "get_run_trace/1" do
+    test "returns run-level fields" do
+      workflow = create_workflow(%{name: "Trace Test"})
+      run = create_run(workflow)
+
+      {:ok, _} =
+        Workflows.update_run(run, %{
+          status: "completed",
+          started_at: ~U[2025-01-01 10:00:00Z],
+          finished_at: ~U[2025-01-01 10:00:05Z]
+        })
+
+      trace = Workflows.get_run_trace(run.id)
+
+      assert trace.run_id == run.id
+      assert trace.workflow_id == workflow.id
+      assert trace.workflow_name == "Trace Test"
+      assert trace.status == "completed"
+      assert trace.duration_ms == 5_000
+    end
+
+    test "includes ordered step runs with durations and errors" do
+      workflow = create_workflow()
+      run = create_run(workflow)
+
+      {:ok, sr0} =
+        Workflows.create_step_run(run, %{
+          step_name: "fetch",
+          step_index: 0,
+          started_at: ~U[2025-01-01 10:00:00Z]
+        })
+
+      {:ok, _} = Workflows.complete_step_run(sr0, %{"data" => "ok"})
+      {:ok, _} = Workflows.update_run(run, %{})
+
+      # manually set finished_at for the step run via update
+      Zaq.Repo.update!(Ecto.Changeset.change(sr0, finished_at: ~U[2025-01-01 10:00:02Z]))
+
+      {:ok, sr1} = Workflows.create_step_run(run, %{step_name: "process", step_index: 1})
+      {:ok, _} = Workflows.fail_step_run(sr1, %{"reason" => "timeout"})
+
+      trace = Workflows.get_run_trace(run.id)
+
+      assert length(trace.steps) == 2
+
+      [s0, s1] = trace.steps
+      assert s0.step_name == "fetch"
+      assert s0.step_index == 0
+      assert s0.status == "completed"
+      assert s0.results == %{"data" => "ok"}
+      assert s0.errors == nil
+
+      assert s1.step_name == "process"
+      assert s1.step_index == 1
+      assert s1.status == "failed"
+      assert s1.errors == %{"reason" => "timeout"}
+      assert s1.results == nil
+    end
+
+    test "returns empty steps list when run has no step runs" do
+      workflow = create_workflow()
+      run = create_run(workflow)
+
+      trace = Workflows.get_run_trace(run.id)
+      assert trace.steps == []
+    end
+
+    test "duration_ms is nil when run has not started or finished" do
+      workflow = create_workflow()
+      run = create_run(workflow)
+
+      trace = Workflows.get_run_trace(run.id)
+      assert trace.duration_ms == nil
     end
   end
 
@@ -306,9 +405,9 @@ defmodule Zaq.WorkflowsTest do
     end
   end
 
-  describe "ActionResult.statuses/0" do
+  describe "StepRun.statuses/0" do
     test "returns the expected status list" do
-      assert ActionResult.statuses() == ~w(running completed failed)
+      assert StepRun.statuses() == ~w(running completed failed)
     end
   end
 
