@@ -14,18 +14,17 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
   @impl true
   def mount(%{"id" => workflow_id, "run_id" => run_id}, _session, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run_id}")
-    end
-
     case fetch_trace(run_id, socket) do
       {:ok, workflow, run, step_runs} ->
+        if connected?(socket), do: subscribe_and_start(run_id, run)
+
         {:ok,
          assign(socket,
            current_path: "/bo/workflows/#{workflow_id}/runs/#{run_id}",
            workflow: workflow,
            run: run,
-           step_runs: step_runs
+           step_runs: step_runs,
+           now: DateTime.utc_now()
          )}
 
       :error ->
@@ -39,8 +38,22 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   # ── PubSub handlers ─────────────────────────────────────────────
 
   @impl true
+  def handle_info({:start_run, run}, socket) do
+    Task.start(fn ->
+      Event.new(%{module: Zaq.Engine.Workflows, function: :start_run, args: [run]}, :engine)
+      |> NodeRouter.dispatch()
+    end)
+
+    {:noreply, socket}
+  end
+
+  def handle_info(:tick, socket) do
+    {:noreply, assign(socket, now: DateTime.utc_now())}
+  end
+
   def handle_info({:run_updated, run}, socket) do
-    {:noreply, assign(socket, run: run)}
+    socket = assign(socket, run: run)
+    {:noreply, socket}
   end
 
   def handle_info({:step_updated, step_run}, socket) do
@@ -59,6 +72,38 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # ── Events ──────────────────────────────────────────────────────
+
+  @impl true
+  def handle_event("cancel_run", _params, socket) do
+    run = socket.assigns.run
+
+    event =
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :cancel_run, args: [run]},
+        :engine
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, updated_run} ->
+        {:noreply, assign(socket, run: updated_run)}
+
+      {:error, :already_finished} ->
+        {:noreply, put_flash(socket, :error, "Run has already finished.")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to cancel run.")}
+    end
+  end
+
+  # ── Private helpers ─────────────────────────────────────────────
+
+  defp subscribe_and_start(run_id, run) do
+    Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run_id}")
+    if run.status == "pending", do: send(self(), {:start_run, run})
+    if run.status in ["pending", "running"], do: :timer.send_interval(1_000, self(), :tick)
+  end
 
   # ── Render ──────────────────────────────────────────────────────
 
@@ -90,16 +135,25 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
         </nav>
 
         <%!-- Run header --%>
-        <div class="mb-6">
-          <h2 class="font-mono text-[1rem] font-bold text-black">
-            Run <code class="text-[0.9em] font-mono">{short_id(@run.id)}</code>
-          </h2>
-          <div class="flex items-center gap-3 mt-2">
-            <.run_status_badge status={@run.status} />
-            <span class="font-mono text-[0.75rem] text-black/60">
-              Started {format_dt(@run.started_at)} · <.run_duration run={@run} />
-            </span>
+        <div class="flex items-start justify-between mb-6">
+          <div>
+            <h2 class="font-mono text-[1rem] font-bold text-black">
+              Run <code class="text-[0.9em] font-mono">{short_id(@run.id)}</code>
+            </h2>
+            <div class="flex items-center gap-3 mt-2">
+              <.run_status_badge status={@run.status} />
+              <span class="font-mono text-[0.75rem] text-black/60">
+                Started {format_dt(@run.started_at)} · <.run_duration run={@run} now={@now} />
+              </span>
+            </div>
           </div>
+          <button
+            :if={@run.status in ["pending", "running"]}
+            phx-click="cancel_run"
+            class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors"
+          >
+            Cancel Run
+          </button>
         </div>
 
         <%!-- Execution path DAG --%>
@@ -144,7 +198,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                 </span>
               </div>
               <div class="flex items-center gap-3">
-                <.run_duration run={step} />
+                <.run_duration run={step} now={@now} />
                 <.run_status_badge status={step.status} />
               </div>
             </div>
