@@ -102,6 +102,20 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
           </div>
         </div>
 
+        <%!-- Execution path DAG --%>
+        <div class="mb-6">
+          <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
+            Execution Path
+          </p>
+          <div class="bg-white rounded-xl border border-black/[0.08] p-5">
+            <.workflow_dag
+              nodes={(@run.steps_snapshot || %{})["nodes"] || []}
+              edges={(@run.steps_snapshot || %{})["edges"] || []}
+              step_runs={@step_runs}
+            />
+          </div>
+        </div>
+
         <%!-- Steps timeline --%>
         <div class="space-y-3">
           <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider">
