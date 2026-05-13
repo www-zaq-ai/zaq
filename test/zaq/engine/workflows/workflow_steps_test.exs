@@ -1,7 +1,7 @@
-defmodule Zaq.Workflows.WorkflowStepsTest do
+defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Workflows.Workflow
+  alias Zaq.Engine.Workflows.Workflow
 
   @valid_steps %{
     "nodes" => [

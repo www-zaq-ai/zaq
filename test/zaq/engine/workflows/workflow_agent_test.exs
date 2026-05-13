@@ -1,11 +1,11 @@
-defmodule Zaq.Workflows.WorkflowAgentTest do
+defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Workflows
-  alias Zaq.Workflows.WorkflowAgent
+  alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.WorkflowAgent
 
-  @ok_module "Zaq.Workflows.Test.OkAction"
-  @error_module "Zaq.Workflows.Test.ErrorAction"
+  @ok_module "Zaq.Engine.Workflows.Test.OkAction"
+  @error_module "Zaq.Engine.Workflows.Test.ErrorAction"
 
   @source_event %{
     "request" => nil,
@@ -48,7 +48,7 @@ defmodule Zaq.Workflows.WorkflowAgentTest do
       run = create_run()
 
       {:ok, updated} = WorkflowAgent.execute(run)
-      results = Workflows.list_action_results(updated.id)
+      results = Workflows.list_step_runs(updated.id)
 
       assert length(results) == 1
       [ar] = results
@@ -79,7 +79,7 @@ defmodule Zaq.Workflows.WorkflowAgentTest do
       run = create_run(@error_module)
 
       {:ok, updated} = WorkflowAgent.execute(run)
-      [ar] = Workflows.list_action_results(updated.id)
+      [ar] = Workflows.list_step_runs(updated.id)
 
       assert ar.status == "failed"
       assert ar.errors["reason"] =~ "test_failure"
@@ -138,7 +138,7 @@ defmodule Zaq.Workflows.WorkflowAgentTest do
       {:ok, updated} = WorkflowAgent.execute(run)
       assert updated.status == "completed"
 
-      results = Workflows.list_action_results(updated.id)
+      results = Workflows.list_step_runs(updated.id)
       assert length(results) == 2
       assert Enum.all?(results, &(&1.status == "completed"))
     end

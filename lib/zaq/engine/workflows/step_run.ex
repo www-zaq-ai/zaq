@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows.ActionResult do
+defmodule Zaq.Engine.Workflows.StepRun do
   @moduledoc """
   Ecto schema for a single step execution within a workflow run.
 
@@ -18,7 +18,7 @@ defmodule Zaq.Workflows.ActionResult do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Zaq.Workflows.WorkflowRun
+  alias Zaq.Engine.Workflows.WorkflowRun
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -42,8 +42,8 @@ defmodule Zaq.Workflows.ActionResult do
 
   def statuses, do: @statuses
 
-  def changeset(action_result, attrs) do
-    action_result
+  def changeset(step_run, attrs) do
+    step_run
     |> cast(attrs, [
       :workflow_run_id,
       :step_name,

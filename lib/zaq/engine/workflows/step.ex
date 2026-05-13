@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows.Step do
+defmodule Zaq.Engine.Workflows.Step do
   @moduledoc """
   Behaviour for workflow condition modules.
 
@@ -9,8 +9,8 @@ defmodule Zaq.Workflows.Step do
 
   ## Implementing a condition
 
-      defmodule Zaq.Workflows.Conditions.MyCondition do
-        @behaviour Zaq.Workflows.Step
+      defmodule Zaq.Engine.Workflows.Conditions.MyCondition do
+        @behaviour Zaq.Engine.Workflows.Step
 
         @impl true
         def call(fact), do: Map.get(fact, :some_field) == true
@@ -22,7 +22,7 @@ defmodule Zaq.Workflows.Step do
   ## Stored in `Workflow.steps` as
 
       %{"name" => "check", "type" => "condition",
-        "module" => "Zaq.Workflows.Conditions.MyCondition", "params" => {}, "index" => 1}
+        "module" => "Zaq.Engine.Workflows.Conditions.MyCondition", "params" => {}, "index" => 1}
   """
 
   @doc "Evaluates the condition against the current DAG fact map. Returns a boolean."

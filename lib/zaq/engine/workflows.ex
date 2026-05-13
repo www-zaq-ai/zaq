@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows do
+defmodule Zaq.Engine.Workflows do
   @moduledoc """
   Public API for workflow management and run lifecycle.
 
@@ -11,8 +11,31 @@ defmodule Zaq.Workflows do
 
   import Ecto.Query
 
+  alias Zaq.Engine.Workflows.{StepRun, Trigger, Workflow, WorkflowAgent, WorkflowRun}
   alias Zaq.Repo
-  alias Zaq.Workflows.{ActionResult, Trigger, Workflow, WorkflowAgent, WorkflowRun}
+
+  @type run_trace :: %{
+          run_id: binary(),
+          workflow_id: binary(),
+          workflow_name: String.t() | nil,
+          status: String.t(),
+          trigger_type: String.t() | nil,
+          started_at: DateTime.t() | nil,
+          finished_at: DateTime.t() | nil,
+          duration_ms: non_neg_integer() | nil,
+          steps: [
+            %{
+              step_name: String.t(),
+              step_index: non_neg_integer(),
+              status: String.t(),
+              started_at: DateTime.t() | nil,
+              finished_at: DateTime.t() | nil,
+              duration_ms: non_neg_integer() | nil,
+              results: map() | nil,
+              errors: map() | nil
+            }
+          ]
+        }
 
   # --- Run execution ---
 
@@ -20,7 +43,7 @@ defmodule Zaq.Workflows do
   Executes a `WorkflowRun` by delegating to `WorkflowAgent`.
 
   Builds the instrumented DAG from `run.steps_snapshot`, drives each step
-  synchronously, writes `ActionResult` rows per step, and updates
+  synchronously, writes `StepRun` rows per step, and updates
   `WorkflowRun.status` to `"completed"` or `"failed"`.
 
   Returns `{:ok, updated_run}` on success or `{:error, reason}` on failure.
@@ -115,32 +138,32 @@ defmodule Zaq.Workflows do
     )
   end
 
-  # --- Action results ---
+  # --- Step runs ---
 
   @doc """
-  Creates an action result row with `status: running` before a step executes.
+  Creates a step run row with `status: running` before a step executes.
   This is the crash-safe cursor — on node restart, the agent queries these rows
   to resume from the correct step.
   """
-  @spec create_action_result(WorkflowRun.t(), map(), keyword()) ::
-          {:ok, ActionResult.t()} | {:error, Ecto.Changeset.t()}
-  def create_action_result(%WorkflowRun{} = run, attrs, _opts \\ []) do
+  @spec create_step_run(WorkflowRun.t(), map(), keyword()) ::
+          {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
+  def create_step_run(%WorkflowRun{} = run, attrs, _opts \\ []) do
     attrs =
       attrs
       |> Map.put(:workflow_run_id, run.id)
       |> Map.put_new(:started_at, DateTime.utc_now(:second))
 
-    %ActionResult{}
-    |> ActionResult.changeset(attrs)
+    %StepRun{}
+    |> StepRun.changeset(attrs)
     |> Repo.insert()
   end
 
-  @doc "Marks an action result as completed, recording the result map and finished_at."
-  @spec complete_action_result(ActionResult.t(), map(), keyword()) ::
-          {:ok, ActionResult.t()} | {:error, Ecto.Changeset.t()}
-  def complete_action_result(%ActionResult{} = action_result, results, _opts \\ []) do
-    action_result
-    |> ActionResult.changeset(%{
+  @doc "Marks a step run as completed, recording the result map and finished_at."
+  @spec complete_step_run(StepRun.t(), map(), keyword()) ::
+          {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
+  def complete_step_run(%StepRun{} = step_run, results, _opts \\ []) do
+    step_run
+    |> StepRun.changeset(%{
       status: "completed",
       results: results,
       finished_at: DateTime.utc_now(:second)
@@ -148,12 +171,12 @@ defmodule Zaq.Workflows do
     |> Repo.update()
   end
 
-  @doc "Marks an action result as failed, recording the error map and finished_at."
-  @spec fail_action_result(ActionResult.t(), map(), keyword()) ::
-          {:ok, ActionResult.t()} | {:error, Ecto.Changeset.t()}
-  def fail_action_result(%ActionResult{} = action_result, errors, _opts \\ []) do
-    action_result
-    |> ActionResult.changeset(%{
+  @doc "Marks a step run as failed, recording the error map and finished_at."
+  @spec fail_step_run(StepRun.t(), map(), keyword()) ::
+          {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
+  def fail_step_run(%StepRun{} = step_run, errors, _opts \\ []) do
+    step_run
+    |> StepRun.changeset(%{
       status: "failed",
       errors: errors,
       finished_at: DateTime.utc_now(:second)
@@ -162,20 +185,69 @@ defmodule Zaq.Workflows do
   end
 
   @doc """
-  Returns all action results for a run, ordered by step_index ascending.
+  Returns all step runs for a workflow run, ordered by step_index ascending.
 
   Used by `WorkflowAgent` on boot to rehydrate:
   - All `completed` rows → rebuild `previous_results` map
   - Last `running` row → the step to resume (was mid-flight on crash)
   """
-  @spec list_action_results(term(), keyword()) :: [ActionResult.t()]
-  def list_action_results(run_id, _opts \\ []) do
+  @spec list_step_runs(term(), keyword()) :: [StepRun.t()]
+  def list_step_runs(run_id, _opts \\ []) do
     Repo.all(
-      from ar in ActionResult,
-        where: ar.workflow_run_id == ^run_id,
-        order_by: [asc: ar.step_index]
+      from sr in StepRun,
+        where: sr.workflow_run_id == ^run_id,
+        order_by: [asc: sr.step_index]
     )
   end
+
+  # --- Trace ---
+
+  @doc """
+  Returns a structured execution trace for a workflow run.
+
+  Loads the `WorkflowRun` (with its parent `Workflow`) and all `StepRun` rows,
+  and assembles them into a single map ordered by step index. Durations are
+  computed from stored timestamps (second precision).
+
+  Intended for client-facing diagnostics: pass the returned map to support when
+  a workflow fails. Every field needed to identify the root cause is present.
+  """
+  @spec get_run_trace(binary()) :: run_trace()
+  def get_run_trace(run_id) do
+    run = Repo.get!(WorkflowRun, run_id) |> Repo.preload(:workflow)
+    step_runs = list_step_runs(run_id)
+
+    %{
+      run_id: run.id,
+      workflow_id: run.workflow_id,
+      workflow_name: run.workflow && run.workflow.name,
+      status: run.status,
+      trigger_type: run.source_event && to_string(run.source_event.assigns[:trigger_type] || ""),
+      started_at: run.started_at,
+      finished_at: run.finished_at,
+      duration_ms: duration_ms(run.started_at, run.finished_at),
+      steps: Enum.map(step_runs, &step_run_to_trace/1)
+    }
+  end
+
+  defp step_run_to_trace(%StepRun{} = sr) do
+    %{
+      step_name: sr.step_name,
+      step_index: sr.step_index,
+      status: sr.status,
+      started_at: sr.started_at,
+      finished_at: sr.finished_at,
+      duration_ms: duration_ms(sr.started_at, sr.finished_at),
+      results: sr.results,
+      errors: sr.errors
+    }
+  end
+
+  defp duration_ms(nil, _), do: nil
+  defp duration_ms(_, nil), do: nil
+
+  defp duration_ms(%DateTime{} = start, %DateTime{} = finish),
+    do: DateTime.diff(finish, start, :millisecond)
 
   # --- Triggers ---
 

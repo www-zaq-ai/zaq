@@ -1,9 +1,9 @@
-defmodule Zaq.Workflows.Triggers.Webhook do
-  @moduledoc "Trigger fired by an authenticated HTTP POST to `/webhooks/workflows/:id`."
+defmodule Zaq.Engine.Workflows.Triggers.Manual do
+  @moduledoc "Trigger fired explicitly by a user via the BO UI or API."
 
-  @behaviour Zaq.Workflows.TriggerBehaviour
+  @behaviour Zaq.Engine.Workflows.TriggerBehaviour
 
-  alias Zaq.{Event, Workflows}
+  alias Zaq.{Engine.Workflows, Event}
 
   @impl true
   def fire(_trigger, workflow, input) do
@@ -11,7 +11,7 @@ defmodule Zaq.Workflows.Triggers.Webhook do
       request: nil,
       next_hop: nil,
       trace_id: Ecto.UUID.generate(),
-      assigns: %{trigger_type: :webhook, input: input}
+      assigns: %{trigger_type: :manual, input: input}
     }
 
     Workflows.create_run(workflow, event)

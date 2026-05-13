@@ -1,4 +1,4 @@
-defmodule Zaq.Workflows.WorkflowRun do
+defmodule Zaq.Engine.Workflows.WorkflowRun do
   @moduledoc """
   Ecto schema for a single workflow execution.
 
@@ -21,7 +21,7 @@ defmodule Zaq.Workflows.WorkflowRun do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Zaq.Workflows.Workflow
+  alias Zaq.Engine.Workflows.Workflow
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
