@@ -7,8 +7,16 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailboxTest do
 
   describe "run/2 — happy path" do
     test "returns :skipped status with notified: true when mail delivers" do
-      assert {:ok, %{status: :skipped, notified: true}} =
+      assert {:ok, %{status: :skipped, notified: true}, _logs} =
                NotifyEmptyMailbox.run(%{notify_address: "admin@example.com"}, %{})
+    end
+
+    test "emits an info log with the notify address" do
+      assert {:ok, _result, logs: logs} =
+               NotifyEmptyMailbox.run(%{notify_address: "admin@example.com"}, %{})
+
+      assert [%{level: "info", message: message}] = logs
+      assert message =~ "admin@example.com"
     end
 
     test "sends an email to the notify_address" do
@@ -50,8 +58,16 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailboxTest do
     end
 
     test "returns notified: false and status: :skipped when delivery fails" do
-      assert {:ok, %{status: :skipped, notified: false}} =
+      assert {:ok, %{status: :skipped, notified: false}, _logs} =
                NotifyEmptyMailbox.run(%{notify_address: "bad@example.com"}, %{})
+    end
+
+    test "emits a warn log when delivery fails" do
+      assert {:ok, _result, logs: logs} =
+               NotifyEmptyMailbox.run(%{notify_address: "bad@example.com"}, %{})
+
+      assert [%{level: "warn", message: message}] = logs
+      assert message =~ "failed"
     end
   end
 end

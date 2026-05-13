@@ -18,7 +18,20 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
 
   @impl true
   def run(%{drafts: drafts}, _context) do
-    {:ok, %{drafts: Enum.map(drafts, &enrich/1)}}
+    enriched = Enum.map(drafts, &enrich/1)
+
+    logs = [
+      %{
+        level: "info",
+        message: "Ensured #{length(enriched)} person(s)",
+        metadata: %{
+          count: length(enriched),
+          addresses: Enum.map(enriched, & &1.to_address)
+        }
+      }
+    ]
+
+    {:ok, %{drafts: enriched}, logs: logs}
   end
 
   defp enrich(draft) do

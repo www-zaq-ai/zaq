@@ -44,7 +44,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     test "returns empty drafts list when agent exists but emails is empty" do
       insert_configured_agent("MailResponder")
 
-      assert {:ok, %{drafts: []}} =
+      assert {:ok, %{drafts: []}, _logs} =
                DraftReply.run(%{emails: [], agent_name: "MailResponder"}, %{})
     end
 
@@ -82,7 +82,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     test "defaults to MailResponder when agent_name key is absent and agent exists" do
       insert_configured_agent("MailResponder")
       # Should succeed (even if Executor uses fallback body due to no LLM)
-      assert {:ok, %{drafts: [draft]}} = DraftReply.run(%{emails: [raw_email()]}, %{})
+      assert {:ok, %{drafts: [draft]}, _logs} = DraftReply.run(%{emails: [raw_email()]}, %{})
       assert is_map(draft)
     end
   end
@@ -94,14 +94,14 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
 
     test "returns {:ok, %{drafts: [...]}} with one draft per email" do
       # Executor.run never raises — it returns a fallback Outgoing even when LLM fails.
-      assert {:ok, %{drafts: drafts}} =
+      assert {:ok, %{drafts: drafts}, _logs} =
                DraftReply.run(%{emails: [raw_email()], agent_name: "MailResponder"}, %{})
 
       assert length(drafts) == 1
     end
 
     test "draft map has expected keys" do
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(%{emails: [raw_email()], agent_name: "MailResponder"}, %{})
 
       assert Map.has_key?(draft, :to_address)
@@ -112,7 +112,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     end
 
     test "draft to_address comes from email from.address" do
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(
                  %{
                    emails: [
@@ -129,7 +129,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     end
 
     test "draft to_name comes from email from.name" do
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(
                  %{
                    emails: [raw_email(%{"from" => %{"address" => "a@b.com", "name" => "Alice"}})],
@@ -142,7 +142,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     end
 
     test "reply subject prefixes with Re: for plain subject" do
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(
                  %{emails: [raw_email(%{"subject" => "Hello"})], agent_name: "MailResponder"},
                  %{}
@@ -152,7 +152,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     end
 
     test "reply subject does not double-prefix already-prefixed subject" do
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(
                  %{emails: [raw_email(%{"subject" => "Re: Hello"})], agent_name: "MailResponder"},
                  %{}
@@ -162,7 +162,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     end
 
     test "nil subject falls back to 'Re: (no subject)'" do
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(
                  %{emails: [raw_email(%{"subject" => nil})], agent_name: "MailResponder"},
                  %{}
@@ -172,7 +172,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     end
 
     test "message_id is passed through from the raw email" do
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(
                  %{
                    emails: [raw_email(%{"message_id" => "<my-id@mail>"})],
@@ -187,7 +187,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     test "returns one draft per email for multiple emails" do
       emails = [raw_email(), raw_email(%{"from" => %{"address" => "b@b.com", "name" => "B"}})]
 
-      assert {:ok, %{drafts: drafts}} =
+      assert {:ok, %{drafts: drafts}, _logs} =
                DraftReply.run(%{emails: emails, agent_name: "MailResponder"}, %{})
 
       assert length(drafts) == 2
@@ -201,7 +201,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
         "message_id" => "<x>"
       }
 
-      assert {:ok, %{drafts: [draft]}} =
+      assert {:ok, %{drafts: [draft]}, _logs} =
                DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, %{})
 
       assert draft.to_address == "atom@example.com"

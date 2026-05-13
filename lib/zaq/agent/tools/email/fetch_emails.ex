@@ -32,13 +32,17 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
 
     case Task.await(task, 30_000) do
       {:ok, emails} ->
-        if emails == [] do
-          Logger.info("[FetchEmails] No unseen emails in #{mailbox}")
-        else
-          Logger.info("[FetchEmails] Found #{length(emails)} email(s) in #{mailbox}")
-        end
+        count = length(emails)
 
-        {:ok, %{emails: emails, count: length(emails)}}
+        logs = [
+          %{
+            level: "info",
+            message: "Fetched #{count} unseen email(s) from #{mailbox}",
+            metadata: %{mailbox: mailbox, count: count}
+          }
+        ]
+
+        {:ok, %{emails: emails, count: count}, logs: logs}
 
       {:error, reason} ->
         {:error, reason}

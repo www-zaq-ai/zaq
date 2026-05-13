@@ -38,6 +38,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
     field :source_event, Zaq.Types.WorkflowEvent
     field :started_at, :utc_datetime
     field :finished_at, :utc_datetime
+    field :log_summary, :map
 
     timestamps(type: :utc_datetime)
   end
@@ -53,7 +54,8 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
       :status,
       :source_event,
       :started_at,
-      :finished_at
+      :finished_at,
+      :log_summary
     ])
     |> validate_required([:workflow_id, :steps_snapshot, :source_event, :status])
     |> validate_inclusion(:status, @statuses)

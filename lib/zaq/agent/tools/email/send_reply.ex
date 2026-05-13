@@ -46,7 +46,15 @@ defmodule Zaq.Agent.Tools.Email.SendReply do
     sent = Enum.count(results, &(&1.status == :sent))
     failed = Enum.count(results, &(&1.status == :failed))
 
-    {:ok, %{sent: sent, failed: failed, results: results}}
+    logs = [
+      %{
+        level: if(failed > 0, do: "warn", else: "info"),
+        message: "Sent #{sent} email(s), #{failed} failed",
+        metadata: %{sent: sent, failed: failed}
+      }
+    ]
+
+    {:ok, %{sent: sent, failed: failed, results: results}, logs: logs}
   end
 
   defp threading_headers(nil), do: %{}

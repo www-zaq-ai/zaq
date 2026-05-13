@@ -11,18 +11,25 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
             "module" => "Zaq.Agent.Tools.Email.FetchEmails",
             "params" => %{}, "index" => 0},
           %{"name" => "emails_found", "type" => "condition",
-            "module" => "MyApp.Conditions.EmailsFound",
-            "params" => %{}, "index" => 1}
+            "params" => %{"field" => "count", "op" => "gt", "value" => 0}, "index" => 1},
+          %{"name" => "no_emails", "type" => "condition",
+            "params" => %{"field" => "count", "op" => "eq", "value" => 0}, "index" => 1}
         ],
         "edges" => [
           %{"from" => "fetch", "to" => "emails_found"},
-          %{"from" => "emails_found", "to" => "draft", "validate_ports" => false}
+          %{"from" => "fetch", "to" => "no_emails"},
+          %{"from" => "emails_found", "to" => "draft"}
         ]
       }
 
   Node types:
-  - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`
-  - `"condition"`           — a pass-through `Runic.Workflow.Step` (raises on false to skip downstream)
+  - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`, requires `"module"`
+  - `"condition"`           — a pass-through `Runic.Workflow.Step` (raises on false to skip
+    downstream). Two forms:
+    - **Inline** (preferred): omit `"module"`, use `"params"` with `"field"`, `"op"`, and
+      optionally `"value"`. Supported ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`,
+      `not_empty`, `empty`, `in` (value must be a list).
+    - **Module**: set `"module"` to a module that exports `call/1` returning a boolean.
 
   Module resolution uses `Module.safe_concat/1` — never `String.to_atom/1`.
   """
@@ -70,18 +77,47 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       name = Map.get(node, "name")
       type = Map.get(node, "type")
       module = Map.get(node, "module")
-      params = Map.get(node, "params", %{}) |> atomize_keys()
+      params = Map.get(node, "params", %{})
       index = Map.get(node, "index", 0)
 
-      case resolve_module(module) do
-        {:ok, mod} ->
-          runic_node = build_runic_node(type, mod, params, name, index, run_id)
+      case build_node(type, module, params, name, index, run_id) do
+        {:ok, runic_node} ->
           {:cont, {:ok, Map.put(acc, name, %{node: runic_node, index: index})}}
 
         {:error, _} = err ->
           {:halt, err}
       end
     end)
+  end
+
+  # Inline condition — no module required, params drive the evaluation
+  defp build_node("condition", mod, params, name, _index, _run_id)
+       when mod in [nil, ""] do
+    {:ok, build_inline_condition(params, name)}
+  end
+
+  # Module-backed condition
+  defp build_node("condition", module, _params, name, _index, _run_id) do
+    with {:ok, mod} <- resolve_module(module) do
+      {:ok, Step.new(work: condition_work(mod, name), name: String.to_atom(name))}
+    end
+  end
+
+  defp build_node(type, module, params, name, index, run_id)
+       when type in ["action", "agent"] do
+    with {:ok, mod} <- resolve_module(module) do
+      {:ok, build_action_node(mod, atomize_keys(params), name, index, run_id)}
+    end
+  end
+
+  defp build_node(type, _module, _params, _name, _index, _run_id),
+    do: {:error, {:unknown_node_type, type}}
+
+  # Conditions must be Steps (not Runic.Workflow.Condition) so that a passing
+  # condition produces a new Fact that activates downstream ActionNodes.
+  # A Step that raises on false causes Runic to skip_downstream_subgraph automatically.
+  defp condition_work(mod, name) do
+    fn fact -> if mod.call(fact), do: fact, else: raise("condition_not_met:#{name}") end
   end
 
   defp resolve_module(nil), do: {:error, {:unknown_module, nil}}
@@ -95,8 +131,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  defp build_runic_node(type, mod, params, name, step_index, run_id)
-       when type in ["action", "agent"] and is_binary(run_id) do
+  defp build_action_node(mod, params, name, step_index, run_id) when is_binary(run_id) do
     wrapper_params =
       Map.merge(params, %{
         wrapped_module: mod,
@@ -108,23 +143,50 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     ActionNode.new(ActionWrapper, wrapper_params, name: String.to_atom(name))
   end
 
-  defp build_runic_node(type, mod, params, name, _step_index, _run_id)
-       when type in ["action", "agent"] do
+  defp build_action_node(mod, params, name, _step_index, _run_id) do
     ActionNode.new(mod, params, name: String.to_atom(name))
   end
 
-  defp build_runic_node("condition", mod, _params, name, _step_index, _run_id) do
-    # Conditions must be Steps (not Runic.Workflow.Condition) so that a passing
-    # condition produces a new Fact that activates downstream ActionNodes.
-    # Runic.Workflow.Condition is a :match node — it emits ConditionSatisfied events
-    # (used only for Rule reactions), not FactProduced events that :execute nodes wait for.
-    # A Step that raises on false causes Runic to skip_downstream_subgraph automatically.
+  # --- Inline condition evaluation ---
+
+  defp build_inline_condition(params, name) do
     work = fn fact ->
-      if mod.call(fact), do: fact, else: raise("condition_not_met:#{name}")
+      if eval_inline_condition(fact, params),
+        do: fact,
+        else: raise("condition_not_met:#{name}")
     end
 
     Step.new(work: work, name: String.to_atom(name))
   end
+
+  defp eval_inline_condition(fact, params) do
+    field = param(params, "field") || raise(ArgumentError, "inline condition missing 'field'")
+    op = param(params, "op") || raise(ArgumentError, "inline condition missing 'op'")
+    expected = param(params, "value")
+    actual = fetch_field(fact, field)
+    compare_op(op, actual, expected)
+  end
+
+  defp param(params, key), do: Map.get(params, key) || Map.get(params, String.to_atom(key))
+
+  defp fetch_field(fact, field) when is_map(fact) do
+    Map.get(fact, field) || Map.get(fact, String.to_atom(field))
+  rescue
+    ArgumentError -> Map.get(fact, field)
+  end
+
+  defp fetch_field(_fact, _field), do: nil
+
+  defp compare_op("eq", a, b), do: a == b
+  defp compare_op("neq", a, b), do: a != b
+  defp compare_op("gt", a, b) when is_number(a) and is_number(b), do: a > b
+  defp compare_op("lt", a, b) when is_number(a) and is_number(b), do: a < b
+  defp compare_op("gte", a, b) when is_number(a) and is_number(b), do: a >= b
+  defp compare_op("lte", a, b) when is_number(a) and is_number(b), do: a <= b
+  defp compare_op("not_empty", a, _), do: not (is_nil(a) or a == [] or a == "")
+  defp compare_op("empty", a, _), do: is_nil(a) or a == [] or a == ""
+  defp compare_op("in", a, b) when is_list(b), do: a in b
+  defp compare_op(op, _, _), do: raise(ArgumentError, "unknown condition op: #{inspect(op)}")
 
   defp validate_edges(edges, node_map) do
     Enum.reduce_while(edges, :ok, fn edge, :ok ->
