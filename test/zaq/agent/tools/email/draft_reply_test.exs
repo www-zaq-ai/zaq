@@ -20,6 +20,8 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     )
   end
 
+  defp insert_configured_agent(name), do: insert_configured_agent(name, true)
+
   defp insert_configured_agent(name, active) do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
