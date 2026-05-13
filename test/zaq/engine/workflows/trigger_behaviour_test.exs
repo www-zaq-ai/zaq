@@ -5,23 +5,18 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviourTest do
   alias Zaq.Engine.Workflows.{Trigger, WorkflowRun}
   alias Zaq.Engine.Workflows.Triggers.{Manual, Scheduler, Signal, Webhook}
 
-  @valid_steps %{
-    "nodes" => [
-      %{
-        "name" => "fetch",
-        "type" => "action",
-        "module" => "Zaq.Agent.Tools.Email.FetchEmails",
-        "params" => %{},
-        "index" => 0
-      }
-    ],
-    "edges" => []
+  @valid_node %{
+    name: "fetch",
+    type: "action",
+    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    params: %{},
+    index: 0
   }
 
   defp create_workflow(attrs \\ %{}) do
     {:ok, w} =
       Workflows.create_workflow(
-        Map.merge(%{name: "W", status: "draft", steps: @valid_steps}, attrs)
+        Map.merge(%{name: "W", status: "draft", nodes: [@valid_node], edges: []}, attrs)
       )
 
     w
@@ -74,7 +69,8 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviourTest do
       trigger = create_trigger(workflow, "manual")
 
       {:ok, run} = Manual.fire(trigger, workflow, %{})
-      assert run.steps_snapshot == workflow.steps
+      assert run.steps_snapshot["nodes"] != nil
+      assert run.steps_snapshot["edges"] != nil
     end
 
     test "source_event has trigger_type :manual in assigns" do

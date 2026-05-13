@@ -109,12 +109,31 @@ defmodule Zaq.Engine.Workflows do
     %WorkflowRun{}
     |> WorkflowRun.changeset(%{
       workflow_id: workflow.id,
-      steps_snapshot: workflow.steps,
+      steps_snapshot: serialize_steps(workflow),
       settings_snapshot: workflow.settings,
       source_event: source_event,
       status: "pending"
     })
     |> Repo.insert()
+  end
+
+  defp serialize_steps(%Workflow{nodes: nodes, edges: edges}) do
+    %{
+      "nodes" =>
+        Enum.map(nodes || [], fn n ->
+          %{
+            "name" => n.name,
+            "type" => n.type,
+            "module" => n.module,
+            "index" => n.index,
+            "params" => n.params || %{}
+          }
+        end),
+      "edges" =>
+        Enum.map(edges || [], fn e ->
+          %{"from" => e.from, "to" => e.to}
+        end)
+    }
   end
 
   @doc "Gets a workflow run by id, raising if not found."

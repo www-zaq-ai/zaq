@@ -13,21 +13,13 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
     "trace_id" => Ecto.UUID.generate()
   }
 
-  defp single_node_steps(module) do
-    %{
-      "nodes" => [
-        %{"name" => "step", "type" => "action", "module" => module, "params" => %{}, "index" => 0}
-      ],
-      "edges" => []
-    }
-  end
-
   defp create_run(module \\ @ok_module) do
     {:ok, wf} =
       Workflows.create_workflow(%{
         name: "WA Test #{System.unique_integer()}",
         status: "active",
-        steps: single_node_steps(module)
+        nodes: [%{name: "step", type: "action", module: module, params: %{}, index: 0}],
+        edges: []
       })
 
     {:ok, run} = Workflows.create_run(wf, @source_event)
@@ -92,7 +84,8 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
         Workflows.create_workflow(%{
           name: "WA Bad Steps #{System.unique_integer()}",
           status: "draft",
-          steps: %{"nodes" => [], "edges" => []}
+          nodes: [],
+          edges: []
         })
 
       {:ok, run} = Workflows.create_run(wf, @source_event)
@@ -106,31 +99,15 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
   describe "execute/1 — multi-step workflow" do
     test "writes one ActionResult per action step" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "first",
-            "type" => "action",
-            "module" => @ok_module,
-            "params" => %{},
-            "index" => 0
-          },
-          %{
-            "name" => "second",
-            "type" => "action",
-            "module" => @ok_module,
-            "params" => %{},
-            "index" => 1
-          }
-        ],
-        "edges" => [%{"from" => "first", "to" => "second"}]
-      }
-
       {:ok, wf} =
         Workflows.create_workflow(%{
           name: "WA Multi #{System.unique_integer()}",
           status: "active",
-          steps: steps
+          nodes: [
+            %{name: "first", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "second", type: "action", module: @ok_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "first", to: "second"}]
         })
 
       {:ok, run} = Workflows.create_run(wf, @source_event)
