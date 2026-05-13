@@ -3,7 +3,8 @@ defmodule Zaq.Ingestion.RenameServiceTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, Permission, RenameService, Sidecar}
+  alias Zaq.Ingestion.{Document, RenameService, Sidecar}
+  alias Zaq.Permissions.DocumentPermission, as: Permission
   alias Zaq.Repo
 
   @test_base "test/tmp/rename_service"
