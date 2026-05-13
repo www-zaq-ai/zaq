@@ -3,6 +3,7 @@ defmodule Zaq.Channels.SupervisorTest do
 
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
@@ -466,31 +467,18 @@ defmodule Zaq.Channels.SupervisorTest do
              Supervisor.start_runtime(bridge_id, raising_state_spec, [])
   end
 
-  test "start_link/1 bootstrap syncs enabled retrieval configs", %{config: config} do
+  test "enabled retrieval configs can be synced to runtime", %{config: config} do
     previous_channels = Application.get_env(:zaq, :channels, %{})
-    previous_runtime = Application.get_env(:zaq, :channels_supervisor_runtime_module)
-
-    Process.register(self(), :supervisor_bootstrap_observer)
 
     on_exit(fn ->
-      if Process.whereis(:supervisor_bootstrap_observer) == self() do
-        Process.unregister(:supervisor_bootstrap_observer)
-      end
-
       Application.put_env(:zaq, :channels, previous_channels)
-
-      if is_nil(previous_runtime) do
-        Application.delete_env(:zaq, :channels_supervisor_runtime_module)
-      else
-        Application.put_env(:zaq, :channels_supervisor_runtime_module, previous_runtime)
-      end
 
       unless Process.whereis(Supervisor) do
         {:ok, _pid} = Supervisor.start_link([])
       end
     end)
 
-    {:ok, _} =
+    {:ok, channel_config} =
       ChannelConfig.upsert_by_provider(config.provider, %{
         name: "Mattermost Bootstrap",
         kind: "retrieval",
@@ -505,15 +493,14 @@ defmodule Zaq.Channels.SupervisorTest do
       mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
     })
 
-    Application.put_env(:zaq, :channels_supervisor_runtime_module, RuntimeSyncSpy)
+    bridge_id = "#{channel_config.provider}_#{channel_config.id}"
 
-    pid = Process.whereis(Supervisor)
-    assert is_pid(pid)
-    :ok = DynamicSupervisor.stop(pid, :normal)
+    _ = Supervisor.stop_bridge_runtime(%{}, bridge_id)
 
-    assert_receive {:bootstrap_sync_config_runtime, nil, synced_config}
-    assert synced_config.provider == "mattermost"
-    assert synced_config.enabled == true
+    assert :ok = CommunicationBridge.sync_config_runtime(nil, channel_config)
+
+    assert {:ok, runtime} = wait_for_runtime(bridge_id)
+    assert is_pid(runtime.state_pid)
   end
 
   test "stop_bridge_runtime/2 handles nil state pid" do
@@ -539,5 +526,20 @@ defmodule Zaq.Channels.SupervisorTest do
   test "start_link/1 returns error when supervisor is already started" do
     assert {:error, {:already_started, pid}} = Supervisor.start_link([])
     assert is_pid(pid)
+  end
+
+  defp wait_for_runtime(bridge_id, attempts \\ 40)
+
+  defp wait_for_runtime(_bridge_id, 0), do: {:error, :not_running}
+
+  defp wait_for_runtime(bridge_id, attempts) do
+    case Supervisor.lookup_runtime(bridge_id) do
+      {:ok, _runtime} = ok ->
+        ok
+
+      {:error, :not_running} ->
+        Process.sleep(25)
+        wait_for_runtime(bridge_id, attempts - 1)
+    end
   end
 end

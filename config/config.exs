@@ -27,11 +27,11 @@ config :zaq, :channels, %{
   },
   google_drive: %{
     bridge: Zaq.Channels.JidoConnectBridge,
-    adapter: Jido.Connect.GoogleDrive.Adapter
+    integration: Jido.Connect.Google.Drive
   },
   sharepoint: %{
     bridge: Zaq.Channels.JidoConnectBridge,
-    adapter: Jido.Connect.Sharepoint.Adapter
+    integration: Jido.Connect.Sharepoint
   },
   email: %{bridge: Zaq.Channels.EmailBridge},
   web: %{bridge: Zaq.Channels.WebBridge}
@@ -70,6 +70,7 @@ config :zaq, Oban,
        {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
+       {"*/5 * * * *", Zaq.Engine.Connect.GrantRefreshSchedulerWorker},
        {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker},
        {"0 3 * * *", Zaq.System.UpdateBadgeWorker}
      ]}

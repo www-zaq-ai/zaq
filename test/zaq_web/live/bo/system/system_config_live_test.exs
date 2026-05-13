@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
+  alias Zaq.Engine.Connect
+  alias Zaq.Repo
   alias Zaq.System
 
   defmodule MCPTestStub do
@@ -1939,6 +1941,79 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         |> render_click()
 
       assert html =~ "MCP tools test returned"
+    end
+  end
+
+  describe "connect grants modal" do
+    test "shows expired status, allows erase, and queues manual refresh", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret",
+          token_url: "https://oauth.example/token",
+          scopes: ["scope.read"]
+        })
+
+      {:ok, expired_grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "123",
+          owner_type: "org",
+          owner_id: 1,
+          request_format: "bearer",
+          status: "active",
+          access_token: "access-expired",
+          refresh_token: "refresh-expired",
+          scopes: ["scope.read"],
+          expires_at: DateTime.add(DateTime.utc_now(), -60, :second)
+        })
+
+      {:ok, refreshable_grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "456",
+          owner_type: "org",
+          owner_id: 1,
+          request_format: "bearer",
+          status: "active",
+          access_token: "access-live",
+          refresh_token: "refresh-live",
+          expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=credentials")
+
+      html =
+        view
+        |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+        |> render_click()
+
+      assert html =~ "Grants — #{credential.name}"
+      assert html =~ "bg-red-500"
+      assert html =~ "scopes: scope.read"
+
+      html =
+        view
+        |> element(
+          "button[phx-click='trigger_connect_grant_refresh'][phx-value-id='#{refreshable_grant.id}']"
+        )
+        |> render_click()
+
+      assert html =~ "Grant refresh queued."
+
+      html =
+        view
+        |> element("button[phx-click='delete_connect_grant'][phx-value-id='#{expired_grant.id}']")
+        |> render_click()
+
+      assert html =~ "Grant erased."
+      refute Repo.get(Zaq.Engine.Connect.Grant, expired_grant.id)
     end
   end
 end

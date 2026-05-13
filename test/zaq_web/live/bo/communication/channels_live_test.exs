@@ -123,20 +123,20 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     view |> element("#new-config-button") |> render_click()
     assert has_element?(view, "#config-form")
 
-    view |> element("button[phx-click=\"close_modal\"]") |> render_click()
+    view |> element("button", "Cancel") |> render_click()
     refute has_element?(view, "#config-form")
   end
 
-  test "mount builds ingestion and fallback navigation labels" do
+  test "mount builds data source and fallback navigation labels" do
     socket = %Phoenix.LiveView.Socket{
-      assigns: %{__changed__: %{}, service_available: false, live_action: :ingestion}
+      assigns: %{__changed__: %{}, service_available: false, live_action: :data_source}
     }
 
     assert {:ok, socket} =
              ChannelsLive.mount(%{"provider" => "google_drive"}, %{}, socket)
 
-    assert socket.assigns.back_path == "/bo/channels/ingestion"
-    assert socket.assigns.back_label == "Ingestion Channels"
+    assert socket.assigns.back_path == "/bo/channels/data_source"
+    assert socket.assigns.back_label == "Data Sources"
 
     socket = %Phoenix.LiveView.Socket{
       assigns: %{__changed__: %{}, service_available: false, live_action: :unknown}

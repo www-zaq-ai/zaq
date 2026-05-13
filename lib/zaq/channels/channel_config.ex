@@ -4,7 +4,7 @@ defmodule Zaq.Channels.ChannelConfig do
   Single-tenant: one config per provider (mattermost, slack, teams, etc.).
 
   ## Kinds
-  - `:ingestion` — document source adapters (Google Drive, SharePoint, ...)
+  - `:data_source` — document source adapters (Google Drive, SharePoint, ...)
   - `:retrieval` — messaging platform adapters (Mattermost, Slack, Email, ...)
   """
 
@@ -17,7 +17,7 @@ defmodule Zaq.Channels.ChannelConfig do
 
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
-  @valid_kinds ~w(ingestion retrieval)
+  @valid_kinds ~w(data_source retrieval)
   @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord)
 
   schema "channel_configs" do
@@ -46,10 +46,29 @@ defmodule Zaq.Channels.ChannelConfig do
   end
 
   defp maybe_require_connection_fields(changeset) do
-    case get_field(changeset, :provider) do
-      @smtp_provider -> validate_required(changeset, [:settings])
-      @imap_provider -> validate_required(changeset, [:settings, :token])
-      _provider -> validate_required(changeset, [:url, :token])
+    kind = get_field(changeset, :kind)
+
+    case {kind, get_field(changeset, :provider)} do
+      {"data_source", _provider} ->
+        changeset
+        |> maybe_put_placeholder(:url)
+        |> maybe_put_placeholder(:token)
+
+      {_kind, @smtp_provider} ->
+        validate_required(changeset, [:settings])
+
+      {_kind, @imap_provider} ->
+        validate_required(changeset, [:settings, :token])
+
+      {_kind, _provider} ->
+        validate_required(changeset, [:url, :token])
+    end
+  end
+
+  defp maybe_put_placeholder(changeset, field) do
+    case get_field(changeset, field) do
+      nil -> put_change(changeset, field, "")
+      _ -> changeset
     end
   end
 
@@ -165,16 +184,19 @@ defmodule Zaq.Channels.ChannelConfig do
   end
 
   @doc """
-  Returns enabled configs for a given kind (`:ingestion` or `:retrieval`),
+  Returns enabled configs for a given kind (`:ingestion`, `:data_source`, or `:retrieval`),
   filtered to the given list of provider strings.
   """
-  def list_enabled_by_kind(kind, providers) when kind in [:ingestion, :retrieval] do
-    kind_str = Atom.to_string(kind)
+  def list_enabled_by_kind(kind, providers) when kind in [:ingestion, :data_source, :retrieval] do
+    kind_str = kind_to_config_kind(kind)
 
     __MODULE__
     |> where([c], c.kind == ^kind_str and c.enabled == true and c.provider in ^providers)
     |> Zaq.Repo.all()
   end
+
+  defp kind_to_config_kind(:ingestion), do: "data_source"
+  defp kind_to_config_kind(kind), do: Atom.to_string(kind)
 
   def get_by_provider(provider) do
     Zaq.Repo.get_by(__MODULE__, provider: provider, enabled: true)

@@ -27,7 +27,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/channels")
 
     assert has_element?(view, "#category-card-retrieval")
-    assert has_element?(view, "#category-card-ingestion")
+    assert has_element?(view, "#category-card-data-source")
     assert has_element?(view, "#category-card-ai-agents")
   end
 
@@ -39,8 +39,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     assert has_element?(view, "#channel-card-webhook")
   end
 
-  test "renders provider cards on ingestion sub-page", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/bo/channels/ingestion")
+  test "renders provider cards on data_source sub-page", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/data_source")
 
     assert has_element?(view, "a", "All Channels")
     assert has_element?(view, "#channel-card-zaq_local")
@@ -88,7 +88,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
       assert ChannelsIndexLive.stat_for(%{}, "unknown_provider") == 0
     end
 
-    test "retrieval_total and ingestion_total aggregate known providers" do
+    test "retrieval_total and data_source_total aggregate known providers" do
       base_stats =
         ~w(slack teams mattermost discord telegram webhook zaq_local google_drive sharepoint)
         |> Map.new(fn provider -> {String.to_atom(provider), 0} end)
@@ -96,7 +96,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
       stats = %{base_stats | slack: 2, mattermost: 1, zaq_local: 3, google_drive: 4}
 
       assert ChannelsIndexLive.retrieval_total(stats) == 3
-      assert ChannelsIndexLive.ingestion_total(stats) == 7
+      assert ChannelsIndexLive.data_source_total(stats) == 7
     end
 
     test "notification_total aggregates notification providers" do
@@ -106,13 +106,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     end
 
     test "provider_path handles zaq_local special case and scoped paths" do
-      assert ChannelsIndexLive.provider_path(:ingestion, "zaq_local") == "/bo/ingestion"
+      assert ChannelsIndexLive.provider_path(:data_source, "zaq_local") == "/bo/ingestion"
 
       assert ChannelsIndexLive.provider_path(:retrieval, "slack") ==
                "/bo/channels/retrieval/slack"
 
-      assert ChannelsIndexLive.provider_path(:ingestion, "sharepoint") ==
-               "/bo/channels/ingestion/sharepoint"
+      assert ChannelsIndexLive.provider_path(:data_source, "sharepoint") ==
+               "/bo/channels/data_source/sharepoint"
 
       assert ChannelsIndexLive.provider_path(:notification, "email") ==
                "/bo/channels/notifications/email"

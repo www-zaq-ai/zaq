@@ -11,7 +11,7 @@ defmodule Zaq.Engine.IngestionSupervisorTest do
     defaults = %{
       name: "Google Drive",
       provider: "google_drive",
-      kind: "ingestion",
+      kind: "data_source",
       url: "https://drive.example.com",
       token: "test-token",
       enabled: true
@@ -22,27 +22,21 @@ defmodule Zaq.Engine.IngestionSupervisorTest do
     |> Repo.insert!()
   end
 
-  test "init/1 starts empty when no ingestion configs exist" do
+  test "init/1 starts empty when no ingestion adapters are mapped" do
     assert {:ok, {spec, []}} = IngestionSupervisor.init([])
     assert spec.strategy == :one_for_one
   end
 
-  test "init/1 includes one child for mapped ingestion provider" do
+  test "init/1 does not start channel-managed data source providers" do
     config = insert_config()
 
-    assert {:ok, {spec, [child]}} = IngestionSupervisor.init([])
+    assert {:ok, {spec, []}} = IngestionSupervisor.init([])
 
     assert spec.strategy == :one_for_one
-    assert child.id == {Zaq.Channels.Ingestion.GoogleDrive, config.id}
-    assert child.restart == :permanent
-
-    {mod, fun, [arg]} = child.start
-    assert mod == Zaq.Channels.Ingestion.GoogleDrive
-    assert fun == :start_link
-    assert arg.id == config.id
+    assert config.provider == "google_drive"
   end
 
-  test "init/1 skips enabled ingestion providers with no adapter mapping" do
+  test "init/1 skips enabled retrieval providers in ingestion supervisor" do
     insert_config(provider: "slack", name: "Slack")
 
     assert {:ok, {_spec, []}} = IngestionSupervisor.init([])

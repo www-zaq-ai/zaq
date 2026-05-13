@@ -15,7 +15,7 @@
   >
     <%= if @kind == :index do %>
       <!-- ============================================================== -->
-      <!-- INDEX — 4 category cards: Retrieval, Ingestion, Notifications, AI Agents -->
+      <!-- INDEX — 4 category cards: Retrieval, Data Sources, Notifications, AI Agents -->
       <!-- ============================================================== -->
       <div class="mb-8">
         <h1 class="font-mono text-xl font-bold text-black tracking-tight">Channels</h1>
@@ -76,10 +76,10 @@
           </div>
         </.link>
         
-<!-- Ingestion -->
+<!-- Data Sources -->
         <.link
-          id="category-card-ingestion"
-          navigate={~p"/bo/channels/ingestion"}
+          id="category-card-data-source"
+          navigate={~p"/bo/channels/data_source"}
           class="group relative bg-white rounded-2xl border border-black/10 p-6 flex flex-col gap-4 hover:border-amber-300 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-200 cursor-pointer overflow-hidden"
         >
           <div class="absolute inset-0 bg-gradient-to-br from-amber-500/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
@@ -98,20 +98,20 @@
                 <line x1="16" y1="17" x2="8" y2="17" />
               </svg>
             </div>
-            <% ingestion_count =
-              ZaqWeb.Live.BO.Communication.ChannelsIndexLive.ingestion_total(@stats) %>
+            <% data_source_count =
+              ZaqWeb.Live.BO.Communication.ChannelsIndexLive.data_source_total(@stats) %>
             <span class={[
               "font-mono text-[0.6rem] px-2 py-1 rounded-full uppercase tracking-wider",
-              if(ingestion_count > 0,
+              if(data_source_count > 0,
                 do: "bg-emerald-100 text-emerald-700",
                 else: "bg-black/5 text-black/30"
               )
             ]}>
-              {if ingestion_count > 0, do: "#{ingestion_count} active", else: "Not configured"}
+              {if data_source_count > 0, do: "#{data_source_count} active", else: "Not configured"}
             </span>
           </div>
           <div>
-            <h3 class="font-mono text-sm font-bold text-black mb-1">Ingestion Channels</h3>
+            <h3 class="font-mono text-sm font-bold text-black mb-1">Data Sources</h3>
             <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">
               Document sources that feed the knowledge base with files and content.
             </p>
@@ -119,7 +119,7 @@
           <!-- Mini app logos -->
           <div class="flex items-center gap-2 mt-auto">
             <div
-              :for={provider <- @ingestion_preview}
+              :for={provider <- @data_source_preview}
               class="w-6 h-6 rounded-md bg-black/[0.03] grid place-items-center"
               title={provider}
             >
@@ -154,7 +154,7 @@
       </div>
     <% else %>
       <!-- ============================================================== -->
-      <!-- SUB-PAGE — Provider grid for :retrieval or :ingestion           -->
+      <!-- SUB-PAGE — Provider grid for :retrieval or :data_source           -->
       <!-- ============================================================== -->
       <div class="mb-6">
         <.link
@@ -199,7 +199,7 @@
           <%= cond do %>
             <% @kind == :retrieval -> %>
               Messaging platforms that receive user questions and return answers from ZAQ.
-            <% @kind == :ingestion -> %>
+            <% @kind == :data_source -> %>
               Document sources that feed the knowledge base with files and content.
             <% true -> %>
               Outbound delivery channels for alerts, invitations, and system notifications.

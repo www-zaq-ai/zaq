@@ -20,6 +20,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   require Logger
 
   alias Zaq.Channels.EmailBridge.ImapAdapter
+  alias Zaq.Utils.ParseUtils
 
   @default_retry_interval 30_000
 
@@ -218,35 +219,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   defp retry_interval(config) do
     value = config_get(config, :poll_interval, @default_retry_interval)
 
-    case value do
-      v when is_integer(v) and v > 0 ->
-        v
-
-      v when is_binary(v) ->
-        case Integer.parse(v) do
-          {parsed, ""} when parsed > 0 -> parsed
-          _ -> @default_retry_interval
-        end
-
-      _ ->
-        @default_retry_interval
-    end
+    ParseUtils.parse_positive_int(value, @default_retry_interval)
   end
 
   defp idle_timeout(config) do
-    case config_get(config, :idle_timeout) do
-      v when is_integer(v) and v > 0 ->
-        v
-
-      v when is_binary(v) ->
-        case Integer.parse(v) do
-          {parsed, ""} when parsed > 0 -> parsed
-          _ -> 1_500_000
-        end
-
-      _ ->
-        1_500_000
-    end
+    ParseUtils.parse_positive_int(config_get(config, :idle_timeout), 1_500_000)
   end
 
   defp config_get(config, key, default \\ nil)

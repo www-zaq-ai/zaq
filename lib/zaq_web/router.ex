@@ -94,9 +94,9 @@ defmodule ZaqWeb.Router do
       live "/channels/retrieval", Live.BO.Communication.ChannelsIndexLive, :retrieval
       live "/channels/retrieval/:provider", Live.BO.Communication.ChannelsLive, :retrieval
 
-      # Ingestion channels — provider detail pages
-      live "/channels/ingestion", Live.BO.Communication.ChannelsIndexLive, :ingestion
-      live "/channels/ingestion/:provider", Live.BO.Communication.ChannelsLive, :ingestion
+      # Data Source channels — provider detail pages
+      live "/channels/data_source", Live.BO.Communication.ChannelsIndexLive, :data_source
+      live "/channels/data_source/:provider", Live.BO.DataSources.ProviderLive, :show
 
       live "/channels/notifications/logs", Live.BO.Communication.NotificationLogsLive
 
@@ -119,6 +119,7 @@ defmodule ZaqWeb.Router do
     pipe_through [:api, :channels_node_only]
 
     get "/health", ChannelsController, :health
+    get "/oauth2/:provider/redirect", ChannelsController, :oauth2_redirect
   end
 
   if Application.compile_env(:zaq, :e2e_routes, false) do

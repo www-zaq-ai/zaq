@@ -5,48 +5,115 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   alias Zaq.Engine.Connect
   alias Zaq.Repo
 
-  defmodule StubAdapter do
-    def auth_handshake(runtime, params) do
-      send(self(), {:auth_handshake, runtime, params})
-      {:ok, %{status: :ok}}
+  defmodule StubIntegration do
+  end
+
+  defmodule StubJidoConnect do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.list",
+           resource: :file,
+           verb: :list,
+           auth_profile: :user,
+           auth_profiles: [:user]
+         },
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profile: :user,
+           auth_profiles: [:user]
+         }
+       ]}
     end
 
-    def list_resources(runtime, params) do
-      send(self(), {:list_resources, runtime, params})
-      {:ok, [%{"id" => "doc-1"}]}
+    def invoke(_integration, "stub.files.list", _params, opts) do
+      send(self(), {:invoke_files, opts})
+
+      {:ok,
+       %{
+         files: [
+           %{
+             "id" => "f1",
+             "name" => "Root Folder",
+             "mimeType" => "application/vnd.google-apps.folder",
+             "parents" => []
+           },
+           %{
+             "id" => "f2",
+             "name" => "Doc 1",
+             "mimeType" => "application/pdf",
+             "parents" => ["root"]
+           }
+         ]
+       }}
     end
 
-    def download_resource(runtime, resource, params) do
-      send(self(), {:download_resource, runtime, resource, params})
-      {:ok, %{resource: resource, params: params}}
-    end
+    def invoke(_integration, "stub.permissions.list", %{file_id: file_id}, _opts) do
+      send(self(), {:invoke_permissions, file_id})
 
-    def setup_listener(runtime, params) do
-      send(self(), {:setup_listener, runtime, params})
-      {:ok, %{listener_id: "listener-1"}}
-    end
-
-    def teardown_listener(runtime, params) do
-      send(self(), {:teardown_listener, runtime, params})
-      :ok
+      {:ok,
+       %{
+         permissions: [
+           %{"id" => "u1", "type" => "user", "emailAddress" => "a@example.com"},
+           %{"id" => "u2", "type" => "group", "emailAddress" => "team@example.com"}
+         ]
+       }}
     end
   end
 
-  defmodule StubAdapterNoCallbacks do
+  defmodule StubJidoConnectMissingPermissions do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.list",
+           resource: :file,
+           verb: :list,
+           auth_profile: :user,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.list", _params, _opts) do
+      {:ok,
+       %{
+         files: [
+           %{
+             "id" => "f1",
+             "name" => "Root Folder",
+             "mimeType" => "application/vnd.google-apps.folder",
+             "parents" => []
+           }
+         ]
+       }}
+    end
   end
 
   setup do
     original_channels = Application.get_env(:zaq, :channels)
+    original_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
 
     Application.put_env(:zaq, :channels, %{
-      google_drive: %{bridge: JidoConnectBridge, adapter: StubAdapter}
+      google_drive: %{bridge: JidoConnectBridge, integration: StubIntegration}
     })
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnect)
 
     on_exit(fn ->
       if original_channels do
         Application.put_env(:zaq, :channels, original_channels)
       else
         Application.delete_env(:zaq, :channels)
+      end
+
+      if original_jido_connect do
+        Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, original_jido_connect)
+      else
+        Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
       end
     end)
 
@@ -59,7 +126,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     base = %{
       name: "cfg-#{provider}-#{unique}",
       provider: to_string(provider),
-      kind: "ingestion",
+      kind: "data_source",
       enabled: true,
       settings: %{}
     }
@@ -74,11 +141,13 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       Connect.create_credential(%{
         name: "cred-#{System.unique_integer([:positive])}",
         provider: "google_drive",
-        auth_kind: "api_key",
+        auth_kind: "oauth2",
         request_format: "bearer",
         user_level: false,
         metadata: %{},
-        api_key: "secret-api-key"
+        client_id: "client",
+        client_secret: "secret",
+        scopes: ["https://www.googleapis.com/auth/drive.metadata.readonly"]
       })
 
     credential
@@ -88,7 +157,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     {:ok, grant} =
       Connect.issue_grant(%{
         credential_id: credential.id,
-        auth_kind: "api_key",
+        auth_kind: "oauth2",
         resource_type: "data_source",
         resource_id: resource_id,
         owner_type: "org",
@@ -96,35 +165,26 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
         request_format: "bearer",
         metadata: %{},
         status: "active",
-        api_key: "grant-key"
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        scopes: ["https://www.googleapis.com/auth/drive.metadata.readonly"]
       })
 
     grant
   end
 
-  test "delegates datasource operations with connect runtime context" do
+  test "invokes list_files intent using jido_connect runtime" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
-    _grant = create_active_grant!(credential, config.id)
+    grant = create_active_grant!(credential, config.id)
 
-    assert {:ok, %{status: :ok}} = JidoConnectBridge.auth_handshake(config, %{"scope" => "read"})
-    assert_received {:auth_handshake, runtime, %{"scope" => "read"}}
-    assert runtime.connection.id == "grant:#{runtime.grant.id}"
-    assert runtime.credential.id == credential.id
+    assert {:ok, %Zaq.Contracts.RecordPage{records: [%Zaq.Contracts.Record{id: "f1"} | _]}} =
+             JidoConnectBridge.list_resources(config, %{})
 
-    assert {:ok, [%{"id" => "doc-1"}]} = JidoConnectBridge.list_resources(config, %{})
-    assert_received {:list_resources, _runtime, %{}}
+    assert_received {:invoke_files, opts}
 
-    assert {:ok, _} =
-             JidoConnectBridge.download_resource(config, %{"id" => "doc-1"}, %{"target" => "tmp"})
-
-    assert_received {:download_resource, _runtime, %{"id" => "doc-1"}, %{"target" => "tmp"}}
-
-    assert {:ok, %{listener_id: "listener-1"}} = JidoConnectBridge.setup_listener(config, %{})
-    assert_received {:setup_listener, _runtime, %{}}
-
-    assert :ok = JidoConnectBridge.teardown_listener(config, %{"listener_id" => "listener-1"})
-    assert_received {:teardown_listener, _runtime, %{"listener_id" => "listener-1"}}
+    assert opts[:context].connection.id == "grant:#{grant.id}"
+    assert opts[:credential_lease].connection_id == "grant:#{grant.id}"
   end
 
   test "returns error when active grant is missing" do
@@ -133,21 +193,26 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:error, :missing_active_grant} = JidoConnectBridge.list_resources(config, %{})
   end
 
-  test "returns unsupported when adapter callback is missing" do
+  test "channel_stats composes files + permissions and supports partial fields" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
     _grant = create_active_grant!(credential, config.id)
 
-    original_channels = Application.get_env(:zaq, :channels)
+    assert {:ok, stats} = JidoConnectBridge.channel_stats(config, %{})
+    assert stats.files_count == 1
+    assert stats.folders_count == 1
+    assert stats.principals_count == 2
+    assert stats.root_folders == ["Root Folder"]
 
-    Application.put_env(:zaq, :channels, %{
-      google_drive: %{bridge: JidoConnectBridge, adapter: StubAdapterNoCallbacks}
-    })
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectMissingPermissions
+    )
 
-    on_exit(fn ->
-      Application.put_env(:zaq, :channels, original_channels)
-    end)
-
-    assert {:error, :unsupported} = JidoConnectBridge.list_resources(config, %{})
+    assert {:ok, partial} = JidoConnectBridge.channel_stats(config, %{})
+    assert partial.files_count == 0
+    assert partial.folders_count == 1
+    assert partial.principals_count == nil
   end
 end

@@ -77,7 +77,7 @@ defmodule Zaq.Engine.ChannelAdapterLoaderTest do
     end
 
     test "ignores configs for other kinds" do
-      insert_channel_config(%{provider: "mattermost", kind: "ingestion", enabled: true})
+      insert_channel_config(%{provider: "mattermost", kind: "data_source", enabled: true})
 
       configs =
         ChannelAdapterLoader.load_configs(:retrieval, ["mattermost"], "TestSup", "retrieval")

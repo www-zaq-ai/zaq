@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Agent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
@@ -14,6 +16,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
+  alias ZaqWeb.Live.BO.Communication.OAuthClaimState
+  alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
 
   import Ecto.Query
 
@@ -46,14 +51,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     back_path =
       case kind do
         :retrieval -> ~p"/bo/channels/retrieval"
-        :ingestion -> ~p"/bo/channels/ingestion"
+        :data_source -> ~p"/bo/channels/data_source"
         _ -> ~p"/bo/channels"
       end
 
     back_label =
       case kind do
         :retrieval -> "Communication Channels"
-        :ingestion -> "Ingestion Channels"
+        :data_source -> "Data Sources"
         _ -> "All Channels"
       end
 
@@ -77,6 +82,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:changeset, nil)
      |> assign(:form, nil)
      |> assign(:modal_errors, [])
+     |> assign(:credential_modal, false)
+     |> assign(:credential_changeset, nil)
+     |> assign(:credential_form, nil)
+     |> assign(:credential_errors, [])
+     |> assign(:oauth_claim_modal, false)
+     |> assign(:oauth_claim_url, nil)
      |> assign(:confirm_delete, nil)
      # test connection
      |> assign(:test_config, nil)
@@ -104,7 +115,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:channels_status, :idle)
      |> assign(:selected_team_id, nil)
      |> assign(:selected_team_name, nil)
-     |> assign(:confirm_remove_channel, nil)}
+     |> assign(:confirm_remove_channel, nil)
+     |> assign(:connect_credentials, connect_credentials_for(kind, provider))
+     |> assign(:grants_by_config, grants_by_config(kind, configs))}
   end
 
   # -------------------------------------------------------------------------
@@ -114,6 +127,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   @impl true
   def handle_event(_event, _params, %{assigns: %{service_available: false}} = socket) do
     {:noreply, socket}
+  end
+
+  def handle_event("oauth_popup_result", _params, socket) do
+    configs = list_configs(socket.assigns.provider)
+
+    {:noreply,
+     socket
+     |> assign(:oauth_claim_modal, false)
+     |> assign(:oauth_claim_url, nil)
+     |> assign(:configs, configs)
+     |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
+     |> put_flash(:info, "OAuth2 grant flow completed.")}
+  end
+
+  def handle_event("open_oauth_claim", %{"url" => url}, socket) when is_binary(url) do
+    {:noreply, OAuthPopupUI.open(socket, url)}
+  end
+
+  def handle_event("close_oauth_claim", _params, socket) do
+    {:noreply, OAuthPopupUI.close(socket)}
+  end
+
+  def handle_event("oauth_popup_blocked", _params, socket) do
+    {:noreply, OAuthPopupUI.blocked(socket)}
   end
 
   # -------------------------------------------------------------------------
@@ -150,7 +187,90 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
      |> assign(:form, nil)
-     |> assign(:modal_errors, [])}
+     |> assign(:modal_errors, [])
+     |> assign(:credential_modal, false)
+     |> assign(:credential_changeset, nil)
+     |> assign(:credential_form, nil)
+     |> assign(:credential_errors, [])}
+  end
+
+  def handle_event("open_new_credential", _params, socket) do
+    provider = credential_provider_for(socket.assigns.provider)
+
+    changeset =
+      Connect.change_credential(%Credential{}, %{
+        "provider" => provider,
+        "auth_kind" => "oauth2",
+        "request_format" => "bearer",
+        "user_level" => false,
+        "metadata" => %{}
+      })
+
+    {:noreply,
+     socket
+     |> assign(:credential_modal, true)
+     |> assign(:credential_changeset, changeset)
+     |> assign(:credential_form, to_form(changeset, as: :credential))
+     |> assign(:credential_errors, [])}
+  end
+
+  def handle_event("close_credential_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:credential_modal, false)
+     |> assign(:credential_changeset, nil)
+     |> assign(:credential_form, nil)
+     |> assign(:credential_errors, [])}
+  end
+
+  def handle_event("validate_credential", %{"credential" => params}, socket) do
+    changeset =
+      %Credential{}
+      |> Connect.change_credential(credential_params_for_create(params, socket))
+      |> Map.put(:action, :validate)
+
+    {:noreply,
+     socket
+     |> assign(:credential_changeset, changeset)
+     |> assign(:credential_form, to_form(changeset, as: :credential))
+     |> assign(:credential_errors, format_errors(changeset))}
+  end
+
+  def handle_event("save_credential", %{"credential" => params}, socket) do
+    params = credential_params_for_create(params, socket)
+
+    case Connect.create_credential(params) do
+      {:ok, credential} ->
+        connect_settings =
+          socket.assigns.changeset
+          |> Ecto.Changeset.get_field(:settings, %{})
+          |> put_connect_credential_id(credential.id)
+
+        config_changeset =
+          socket.assigns.changeset
+          |> Ecto.Changeset.put_change(:settings, connect_settings)
+
+        {:noreply,
+         socket
+         |> assign(:credential_modal, false)
+         |> assign(:credential_changeset, nil)
+         |> assign(:credential_form, nil)
+         |> assign(:credential_errors, [])
+         |> assign(
+           :connect_credentials,
+           connect_credentials_for(socket.assigns.kind, socket.assigns.provider)
+         )
+         |> assign(:changeset, config_changeset)
+         |> assign(:form, to_form(config_changeset, as: :form))
+         |> put_flash(:info, "Credential created.")}
+
+      {:error, changeset} ->
+        {:noreply,
+         socket
+         |> assign(:credential_changeset, changeset)
+         |> assign(:credential_form, to_form(changeset, as: :credential))
+         |> assign(:credential_errors, format_errors(changeset))}
+    end
   end
 
   def handle_event("validate", %{"form" => params}, socket) do
@@ -165,6 +285,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     changeset =
       socket.assigns.changeset.data
       |> ChannelConfig.changeset(params)
+      |> maybe_validate_connect_credential_provider(socket.assigns.provider)
       |> with_visible_token(raw_token)
       |> Map.put(:action, :validate)
 
@@ -187,10 +308,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       end
 
     result =
-      case socket.assigns.modal do
-        :new -> %ChannelConfig{} |> ChannelConfig.changeset(params) |> Repo.insert()
-        :edit -> socket.assigns.changeset.data |> ChannelConfig.changeset(params) |> Repo.update()
-      end
+      ChannelConfigPersistence.persist(
+        socket.assigns.modal,
+        socket.assigns.changeset.data,
+        params,
+        socket.assigns.provider,
+        &maybe_validate_connect_credential_provider/2
+      )
 
     case result do
       {:ok, config} ->
@@ -206,6 +330,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:form, nil)
          |> assign(:modal_errors, [])
          |> assign(:configs, configs)
+         |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
          |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
@@ -248,6 +373,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          socket
          |> assign(:confirm_delete, nil)
          |> assign(:configs, configs)
+         |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
          |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> put_flash(:info, "Channel config deleted.")}
@@ -270,6 +396,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     {:noreply,
      socket
      |> assign(:configs, configs)
+     |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
      |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
      |> maybe_put_runtime_sync_flash(
        sync_result,
@@ -298,6 +425,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       {:noreply,
        socket
        |> assign(:configs, configs)
+       |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
        |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
        |> maybe_put_runtime_sync_flash(sync_result, "Provider default agent updated.")}
     else
@@ -826,11 +954,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp sync_channel_runtime(before_config, after_config) do
+    action =
+      if after_config.kind == "data_source",
+        do: :sync_data_source_runtime,
+        else: :sync_channel_runtime
+
     event =
       Event.new(
         %{before_config: before_config, after_config: after_config},
         :channels,
-        opts: [action: :sync_channel_runtime]
+        opts: [action: action]
       )
 
     NodeRouter.dispatch(event).response
@@ -871,5 +1004,107 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     |> Ecto.Changeset.get_field(:settings, %{})
     |> Map.get("jido_chat", %{})
     |> Map.get("bot_user_id", "")
+  end
+
+  def connect_credential_id_from_changeset(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.get_field(:settings, %{})
+    |> Map.get("connect", %{})
+    |> Map.get("credential_id", "")
+  end
+
+  def oauth_claim_url_for_changeset(%Ecto.Changeset{} = changeset) do
+    oauth_claim_state_for_changeset(changeset).url
+  end
+
+  def oauth_claim_state_for_changeset(%Ecto.Changeset{} = changeset) do
+    OAuthClaimState.for_changeset(changeset)
+  end
+
+  def oauth_claim_state_for_changeset(_), do: OAuthClaimState.for_changeset(nil)
+
+  def active_grant_for_config(config, grants_by_config) do
+    Map.get(grants_by_config || %{}, config.id)
+  end
+
+  def credential_auth_kind_from_changeset(%Ecto.Changeset{} = changeset) do
+    Ecto.Changeset.get_field(changeset, :auth_kind, "oauth2")
+  end
+
+  def credential_auth_kind_from_changeset(_), do: "oauth2"
+
+  defp connect_credentials_for(:data_source, provider) do
+    expected_provider = credential_provider_for(provider)
+
+    Connect.list_credentials()
+    |> Enum.filter(&(&1.provider == expected_provider))
+  end
+
+  defp connect_credentials_for(_, _), do: []
+
+  defp grants_by_config(:data_source, configs) do
+    config_ids = Enum.map(configs, &to_string(&1.id))
+
+    Connect.list_grants(resource_type: "data_source", status: "active")
+    |> Enum.filter(&(&1.resource_id in config_ids))
+    |> Enum.group_by(&String.to_integer(&1.resource_id))
+    |> Map.new(fn {config_id, grants} ->
+      latest = Enum.max_by(grants, & &1.id)
+      {config_id, latest}
+    end)
+  end
+
+  defp grants_by_config(_, _configs), do: %{}
+
+  defp credential_params_for_create(params, socket) do
+    params
+    |> Map.put("provider", credential_provider_for(socket.assigns.provider))
+    |> Map.put("request_format", "bearer")
+    |> Map.put_new("user_level", false)
+    |> Map.put_new("metadata", %{})
+  end
+
+  defp put_connect_credential_id(settings, credential_id) when is_map(settings) do
+    connect =
+      settings
+      |> Map.get("connect", %{})
+      |> Map.put("credential_id", to_string(credential_id))
+
+    Map.put(settings, "connect", connect)
+  end
+
+  defp credential_provider_for("zaq_local"), do: "local_filesystem"
+  defp credential_provider_for(provider), do: provider
+
+  defp maybe_validate_connect_credential_provider(changeset, provider) do
+    settings = Ecto.Changeset.get_field(changeset, :settings, %{})
+
+    credential_id =
+      settings
+      |> Map.get("connect", %{})
+      |> Map.get("credential_id")
+
+    expected_provider = credential_provider_for(provider)
+
+    case credential_id do
+      id when id in [nil, ""] ->
+        changeset
+
+      id ->
+        case Connect.fetch_credential(id) do
+          {:ok, credential} when credential.provider == expected_provider ->
+            changeset
+
+          {:ok, _credential} ->
+            Ecto.Changeset.add_error(
+              changeset,
+              :settings,
+              "selected credential provider does not match this data source"
+            )
+
+          {:error, :not_found} ->
+            Ecto.Changeset.add_error(changeset, :settings, "selected credential was not found")
+        end
+    end
   end
 end

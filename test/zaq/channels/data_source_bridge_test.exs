@@ -63,7 +63,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     base = %{
       name: "ds-#{provider}-#{unique}",
       provider: to_string(provider),
-      kind: "ingestion",
+      kind: "data_source",
       enabled: true,
       settings: %{}
     }

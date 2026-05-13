@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Phoenix.LiveView.JS
   alias Zaq.Agent
   alias Zaq.Agent.MCP
+  alias Zaq.Engine.Connect
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System
@@ -41,8 +42,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:mcp_per_page, 20)
      |> assign(:global_agent_options, global_agent_options())
      |> assign(:global_default_agent_id, System.get_global_default_agent_id())
+     |> assign(:connect_grants_modal, false)
+     |> assign(:selected_connect_credential, nil)
+     |> assign(:selected_connect_grants, [])
+     |> assign(:selected_connect_refresh_schedule, %{})
      |> load_ai_credential_form()
      |> load_ai_credentials()
+     |> load_connect_credentials()
      |> load_mcp_endpoint_form()
      |> load_mcp_endpoints()
      |> load_telemetry_form()
@@ -52,7 +58,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(telemetry llm embedding image_to_text ai_credentials mcp global) do
+      when tab in ~w(telemetry llm embedding image_to_text ai_credentials credentials mcp global) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -64,6 +70,68 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, push_patch(socket, to: ~p"/bo/system-config?tab=#{tab}")}
+  end
+
+  def handle_event("open_connect_grants", %{"id" => id}, socket) do
+    credential =
+      Enum.find(socket.assigns.connect_credentials, &(to_string(&1.id) == to_string(id)))
+
+    {:noreply,
+     socket
+     |> assign(:selected_connect_credential, credential)
+     |> reload_selected_connect_grants(credential)
+     |> assign(:connect_grants_modal, true)}
+  end
+
+  def handle_event("close_connect_grants_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:connect_grants_modal, false)
+     |> assign(:selected_connect_credential, nil)
+     |> assign(:selected_connect_grants, [])
+     |> assign(:selected_connect_refresh_schedule, %{})}
+  end
+
+  def handle_event("delete_connect_grant", %{"id" => id}, socket) do
+    credential = socket.assigns.selected_connect_credential
+
+    case Enum.find(socket.assigns.selected_connect_grants, &(to_string(&1.id) == to_string(id))) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Grant not found.")}
+
+      grant ->
+        case Connect.delete_grant(grant) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Grant erased.")
+             |> reload_selected_connect_grants(credential)}
+
+          {:error, _changeset} ->
+            {:noreply, put_flash(socket, :error, "Unable to erase grant.")}
+        end
+    end
+  end
+
+  def handle_event("trigger_connect_grant_refresh", %{"id" => id}, socket) do
+    credential = socket.assigns.selected_connect_credential
+
+    case Enum.find(socket.assigns.selected_connect_grants, &(to_string(&1.id) == to_string(id))) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Grant not found.")}
+
+      grant ->
+        case Connect.schedule_refresh(grant) do
+          {:ok, _job} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Grant refresh queued.")
+             |> reload_selected_connect_grants(credential)}
+
+          {:error, _changeset} ->
+            {:noreply, put_flash(socket, :error, "Unable to queue grant refresh.")}
+        end
+    end
   end
 
   # ── Telemetry ──────────────────────────────────────────────────────────
@@ -696,6 +764,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp load_ai_credentials(socket) do
     assign(socket, :ai_credentials, System.list_ai_provider_credentials())
+  end
+
+  defp load_connect_credentials(socket) do
+    assign(socket, :connect_credentials, Connect.list_credentials())
   end
 
   defp load_ai_credential_form(socket) do
@@ -2593,6 +2665,159 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   # ── AI Credentials Panel ───────────────────────────────────────────────
+
+  attr :credentials, :list, required: true
+  attr :grants_modal, :boolean, required: true
+  attr :selected_credential, :any, required: true
+  attr :selected_grants, :list, required: true
+  attr :selected_connect_refresh_schedule, :map, required: true
+
+  defp connect_credentials_panel(assigns) do
+    ~H"""
+    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Credentials</h2>
+        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
+          Reusable Data Source and MCP credentials with related grants.
+        </p>
+      </div>
+
+      <div :if={@credentials == []} class="px-8 py-10 text-center">
+        <p class="font-mono text-[0.85rem] text-black/50">No credentials configured yet.</p>
+      </div>
+
+      <div :if={@credentials != []} class="divide-y divide-black/[0.06]">
+        <div
+          :for={credential <- @credentials}
+          class="px-8 py-4 flex items-center justify-between gap-4"
+        >
+          <div>
+            <p class="font-mono text-[0.82rem] font-semibold text-black">{credential.name}</p>
+            <p class="font-mono text-[0.7rem] text-black/50 mt-0.5">
+              {credential.provider} · {credential.auth_kind}
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="open_connect_grants"
+            phx-value-id={credential.id}
+            class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
+          >
+            View grants
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <BOModal.form_dialog
+      :if={@grants_modal}
+      id="connect-grants-modal"
+      cancel_event="close_connect_grants_modal"
+      title={
+        if @selected_credential,
+          do: "Grants — #{@selected_credential.name}",
+          else: "Grants"
+      }
+      max_width_class="max-w-3xl"
+    >
+      <div :if={@selected_grants == []} class="py-8 text-center">
+        <p class="font-mono text-[0.8rem] text-black/50">No grants for this credential.</p>
+      </div>
+
+      <div :if={@selected_grants != []} class="divide-y divide-black/[0.06]">
+        <div :for={grant <- @selected_grants} class="py-3 flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class={[
+                "h-2 w-2 rounded-full",
+                grant_expiry_dot_class(grant)
+              ]} />
+              <p class="font-mono text-[0.78rem] font-semibold text-black">
+                {grant.resource_type}:{grant.resource_id}
+              </p>
+            </div>
+            <p class="font-mono text-[0.68rem] text-black/55 mt-0.5">
+              owner={grant.owner_type}:{grant.owner_id || "nil"} · status={grant.status}
+            </p>
+            <p class="font-mono text-[0.68rem] text-black/45 mt-0.5">
+              next refresh: {next_refresh_label(@selected_connect_refresh_schedule, grant)}
+            </p>
+            <p class="font-mono text-[0.68rem] text-black/45 mt-0.5">
+              scopes: {format_grant_scopes(grant.scopes)}
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <p class="font-mono text-[0.68rem] text-black/45">
+              expires: {if grant.expires_at, do: format_grant_datetime(grant.expires_at), else: "none"}
+            </p>
+            <button
+              :if={grant.refresh_token}
+              type="button"
+              phx-click="trigger_connect_grant_refresh"
+              phx-value-id={grant.id}
+              class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
+            >
+              Refresh now
+            </button>
+            <button
+              type="button"
+              phx-click="delete_connect_grant"
+              phx-value-id={grant.id}
+              class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+            >
+              Erase
+            </button>
+          </div>
+        </div>
+      </div>
+    </BOModal.form_dialog>
+    """
+  end
+
+  defp reload_selected_connect_grants(socket, nil) do
+    socket
+    |> assign(:selected_connect_grants, [])
+    |> assign(:selected_connect_refresh_schedule, %{})
+  end
+
+  defp reload_selected_connect_grants(socket, credential) do
+    grants = Connect.list_grants(credential_id: credential.id)
+    refresh_schedule = Connect.next_refresh_jobs_for_grants(grants)
+
+    socket
+    |> assign(:selected_connect_grants, grants)
+    |> assign(:selected_connect_refresh_schedule, refresh_schedule)
+  end
+
+  defp grant_expiry_dot_class(grant) do
+    cond do
+      is_nil(grant.expires_at) -> "bg-black/25"
+      DateTime.compare(grant.expires_at, DateTime.utc_now()) == :lt -> "bg-red-500"
+      true -> "bg-emerald-500"
+    end
+  end
+
+  defp next_refresh_label(refresh_schedule, grant) do
+    if grant.refresh_token do
+      case Map.get(refresh_schedule, grant.id) do
+        %DateTime{} = dt -> format_grant_datetime(dt)
+        _ -> "none"
+      end
+    else
+      "n/a"
+    end
+  end
+
+  defp format_grant_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%SZ")
+
+  defp format_grant_scopes(scopes) when is_list(scopes) do
+    case Enum.reject(scopes, &(&1 in [nil, ""])) do
+      [] -> "none"
+      values -> Enum.join(values, ", ")
+    end
+  end
+
+  defp format_grant_scopes(_), do: "none"
 
   attr :credentials, :list, required: true
   attr :form, :any, required: true

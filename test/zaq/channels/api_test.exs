@@ -105,6 +105,11 @@ defmodule Zaq.Channels.ApiTest do
       :ok
     end
 
+    def channel_stats(provider, params) do
+      send(self(), {:ds_channel_stats, provider, params})
+      {:ok, %{files_count: 10, folders_count: 3, principals_count: 7, root_folders: ["Root"]}}
+    end
+
     def sync_config_runtime(before_config, after_config) do
       send(self(), {:ds_sync_config_runtime, before_config, after_config})
       :ok
@@ -266,6 +271,24 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :data_source_teardown_listener, nil)
     assert result.response == :ok
     assert_received {:ds_teardown_listener, :google_drive, %{"listener_id" => "l1"}}
+  end
+
+  test "handles data_source_channel_stats action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"resource_id" => 9}}, :channels,
+        opts: [
+          action: :data_source_channel_stats,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_channel_stats, nil)
+
+    assert result.response ==
+             {:ok,
+              %{files_count: 10, folders_count: 3, principals_count: 7, root_folders: ["Root"]}}
+
+    assert_received {:ds_channel_stats, :google_drive, %{"resource_id" => 9}}
   end
 
   test "handles sync_data_source_runtime action" do

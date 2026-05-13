@@ -1,7 +1,77 @@
 defmodule ZaqWeb.ChannelsController do
   use ZaqWeb, :controller
 
+  alias Zaq.Engine.Connect.OAuth
+  alias Zaq.Event
+  alias Zaq.NodeRouter
+
   def health(conn, _params) do
     json(conn, %{status: "ok"})
+  end
+
+  def oauth2_redirect(conn, %{"provider" => provider} = params) do
+    case dispatch_engine_invoke(oauth_module(), :finalize_callback, [provider, params]) do
+      {:ok, grant} ->
+        html(
+          conn,
+          oauth_result_html("success", "Grant created", %{grant_id: grant.id, provider: provider})
+        )
+
+      {:error, reason} ->
+        html(
+          conn,
+          oauth_result_html("error", "Grant failed", %{
+            provider: provider,
+            reason: inspect(reason)
+          })
+        )
+    end
+  end
+
+  defp oauth_module, do: Application.get_env(:zaq, :connect_oauth_module, OAuth)
+
+  defp node_router_module,
+    do: Application.get_env(:zaq, :channels_controller_node_router_module, NodeRouter)
+
+  defp dispatch_engine_invoke(mod, fun, args)
+       when is_atom(mod) and is_atom(fun) and is_list(args) do
+    event =
+      Event.new(
+        %{module: mod, function: fun, args: args},
+        :engine,
+        opts: [action: :invoke]
+      )
+
+    node_router_module().dispatch(event).response
+  end
+
+  defp oauth_result_html(status, message, payload) do
+    encoded = Jason.encode!(Map.put(payload, :status, status))
+
+    """
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset=\"utf-8\" />
+        <title>OAuth Callback</title>
+      </head>
+      <body>
+        <p>#{message}</p>
+        <script>
+          (function () {
+            var payload = #{encoded};
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage({type: "zaq:oauth2_result", payload: payload}, "*");
+              window.close();
+            }
+
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({type: "zaq:oauth2_result", payload: payload}, "*");
+            }
+          })();
+        </script>
+      </body>
+    </html>
+    """
   end
 end

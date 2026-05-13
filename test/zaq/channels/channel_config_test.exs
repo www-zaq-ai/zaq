@@ -130,6 +130,20 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert "is invalid" in errors_on(changeset).kind
   end
 
+  test "data_source configs do not require url or token" do
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Google Drive source",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{"connect" => %{"credential_id" => "1"}}
+      })
+
+    assert changeset.valid?
+    assert {:ok, _config} = Repo.insert(changeset)
+  end
+
   test "email:imap requires selected_mailboxes in settings" do
     changeset =
       ChannelConfig.changeset(%ChannelConfig{}, %{
@@ -261,8 +275,8 @@ defmodule Zaq.Channels.ChannelConfigTest do
     _retrieval_disabled =
       insert_channel_config(%{provider: "slack", kind: "retrieval", enabled: false})
 
-    _ingestion_enabled =
-      insert_channel_config(%{provider: "google_drive", kind: "ingestion", enabled: true})
+    _data_source_enabled =
+      insert_channel_config(%{provider: "google_drive", kind: "data_source", enabled: true})
 
     _unknown_provider =
       insert_channel_config(%{provider: "discord", kind: "retrieval", enabled: true})

@@ -2,8 +2,8 @@ defmodule Zaq.Channels.Supervisor do
   @moduledoc """
   Dynamic supervisor for channel bridge listener processes.
 
-  On startup, loads all enabled retrieval channel configs from the database
-  and starts the corresponding adapter listener processes. Supports runtime
+  On startup, loads all enabled retrieval and data source channel configs from
+  the database and starts the corresponding runtime processes. Supports runtime
   start/stop of listeners when channel configs are enabled or disabled.
 
   Listener processes deliver incoming payloads to the bridge sink callback
@@ -17,7 +17,7 @@ defmodule Zaq.Channels.Supervisor do
 
   require Logger
 
-  alias Zaq.Channels.{ChannelConfig, CommunicationBridge}
+  alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge}
 
   # ETS table: bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
   @table :zaq_channels_listeners
@@ -29,7 +29,7 @@ defmodule Zaq.Channels.Supervisor do
 
     case DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__) do
       {:ok, _pid} = result ->
-        load_initial_listeners()
+        load_initial_runtimes()
         result
 
       error ->
@@ -117,13 +117,19 @@ defmodule Zaq.Channels.Supervisor do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp load_initial_listeners do
-    providers = configured_providers()
-    runtime_module = runtime_module()
+  defp load_initial_runtimes do
+    load_initial_runtimes_for(:retrieval, CommunicationBridge)
+    load_initial_runtimes_for(:data_source, DataSourceBridge)
+  end
 
-    case ChannelConfig.list_enabled_by_kind(:retrieval, providers) do
+  defp load_initial_runtimes_for(kind, runtime_module) do
+    providers = configured_providers()
+
+    case ChannelConfig.list_enabled_by_kind(kind, providers) do
       [] ->
-        Logger.info("[Channels.Supervisor] No enabled channel configs found, starting empty.")
+        Logger.info(
+          "[Channels.Supervisor] No enabled #{kind} channel configs found, starting empty."
+        )
 
       configs ->
         Enum.each(configs, fn config ->
@@ -131,9 +137,6 @@ defmodule Zaq.Channels.Supervisor do
         end)
     end
   end
-
-  defp runtime_module,
-    do: Application.get_env(:zaq, :channels_supervisor_runtime_module, CommunicationBridge)
 
   defp do_start_runtime(bridge_id, state_spec, listener_specs) do
     case maybe_start_state_process(state_spec) do
