@@ -126,70 +126,75 @@ defmodule Zaq.Ingestion.Chunk do
 
   @doc "Creates the chunks table with the given dimension. No-op if the table already exists."
   def create_table(dimension) when is_integer(dimension) do
-    EctoSQL.query!(Repo, "CREATE EXTENSION IF NOT EXISTS vector", [])
+    {:ok, _} = EctoSQL.query(Repo, "CREATE EXTENSION IF NOT EXISTS vector", [])
 
-    EctoSQL.query!(
-      Repo,
-      """
-      CREATE TABLE IF NOT EXISTS chunks (
-        id bigserial PRIMARY KEY,
-        document_id bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-        content text NOT NULL,
-        chunk_index integer NOT NULL,
-        section_path text[] DEFAULT '{}',
-        metadata jsonb DEFAULT '{}',
-        language varchar(32),
-        inserted_at timestamp(0) NOT NULL,
-        updated_at timestamp(0) NOT NULL
+    {:ok, _} =
+      EctoSQL.query(
+        Repo,
+        """
+        CREATE TABLE IF NOT EXISTS chunks (
+          id bigserial PRIMARY KEY,
+          document_id bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          content text NOT NULL,
+          chunk_index integer NOT NULL,
+          section_path text[] DEFAULT '{}',
+          metadata jsonb DEFAULT '{}',
+          language varchar(32),
+          inserted_at timestamp(0) NOT NULL,
+          updated_at timestamp(0) NOT NULL
+        )
+        """,
+        []
       )
-      """,
-      []
-    )
 
-    EctoSQL.query!(
-      Repo,
-      "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding halfvec(#{dimension})",
-      []
-    )
+    {:ok, _} =
+      EctoSQL.query(
+        Repo,
+        "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding halfvec(#{dimension})",
+        []
+      )
 
-    EctoSQL.query!(
-      Repo,
-      """
-      CREATE INDEX IF NOT EXISTS chunks_embedding_idx
-      ON chunks
-      USING hnsw (embedding halfvec_l2_ops)
-      WITH (m = 16, ef_construction = 64)
-      """,
-      []
-    )
+    {:ok, _} =
+      EctoSQL.query(
+        Repo,
+        """
+        CREATE INDEX IF NOT EXISTS chunks_embedding_idx
+        ON chunks
+        USING hnsw (embedding halfvec_l2_ops)
+        WITH (m = 16, ef_construction = 64)
+        """,
+        []
+      )
 
-    EctoSQL.query!(
-      Repo,
-      """
-      CREATE INDEX IF NOT EXISTS chunks_document_id_index ON chunks (document_id)
-      """,
-      []
-    )
+    {:ok, _} =
+      EctoSQL.query(
+        Repo,
+        """
+        CREATE INDEX IF NOT EXISTS chunks_document_id_index ON chunks (document_id)
+        """,
+        []
+      )
 
-    EctoSQL.query!(Repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
+    {:ok, _} = EctoSQL.query(Repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
-    EctoSQL.query!(
-      Repo,
-      """
-      CREATE INDEX IF NOT EXISTS chunks_bm25_idx
-      ON chunks USING bm25(id, content)
-      WITH (key_field='id')
-      """,
-      []
-    )
+    {:ok, _} =
+      EctoSQL.query(
+        Repo,
+        """
+        CREATE INDEX IF NOT EXISTS chunks_bm25_idx
+        ON chunks USING bm25(id, content)
+        WITH (key_field='id')
+        """,
+        []
+      )
 
     :ok
   end
 
   @doc "Drops the chunks table. No-op if it does not exist."
   def drop_table do
-    EctoSQL.query!(Repo, "DROP TABLE IF EXISTS chunks", [])
-    EctoSQL.query!(Repo, "UPDATE documents SET content = NULL", [])
+    {:ok, _} = EctoSQL.query(Repo, "DROP TABLE IF EXISTS chunks", [])
+    {:ok, _} = EctoSQL.query(Repo, "UPDATE documents SET content = NULL", [])
     :ok
   end
 

@@ -354,13 +354,8 @@ defmodule Zaq.Engine.Conversations do
       touch_conversation(conversation)
       maybe_record_message_telemetry(conversation, msg)
 
-      if msg.role == "assistant" do
-        enqueue_token_aggregator(conversation.id, msg)
-      end
-
-      if msg.role == "user" && is_nil(conversation.title) do
-        maybe_generate_title(conversation, msg.content)
-      end
+      maybe_enqueue_token_aggregator(conversation.id, msg)
+      maybe_generate_title_for_new_conversation(conversation, msg)
 
       {:ok, msg}
     end
@@ -517,6 +512,25 @@ defmodule Zaq.Engine.Conversations do
   end
 
   defp enqueue_token_aggregator(_conversation_id, _msg), do: :ok
+
+  defp maybe_enqueue_token_aggregator(conversation_id, %{role: "assistant"} = msg) do
+    case enqueue_token_aggregator(conversation_id, msg) do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+      :ok -> :ok
+    end
+  end
+
+  defp maybe_enqueue_token_aggregator(_conversation_id, _msg), do: :ok
+
+  defp maybe_generate_title_for_new_conversation(%{title: nil} = conversation, %{role: "user"} = msg) do
+    case maybe_generate_title(conversation, msg.content) do
+      {:ok, _} -> :ok
+      _ -> :ok
+    end
+  end
+
+  defp maybe_generate_title_for_new_conversation(_conversation, _msg), do: :ok
 
   defp maybe_record_message_telemetry(conversation, %Message{} = msg) do
     base = %{

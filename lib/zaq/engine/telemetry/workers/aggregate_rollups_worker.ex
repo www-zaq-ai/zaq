@@ -34,13 +34,12 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker do
         :ok
 
       _ ->
-        points
-        |> build_rollup_rows()
-        |> upsert_rollups()
+        :ok = (points |> build_rollup_rows() |> upsert_rollups())
 
-        points
-        |> List.last()
-        |> then(&Telemetry.put_cursor_id(@cursor_key, &1.id))
+        {:ok, _} =
+          points
+          |> List.last()
+          |> then(&Telemetry.put_cursor_id(@cursor_key, &1.id))
 
         :ok
     end
@@ -116,10 +115,11 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker do
         ]
       )
 
-    Repo.insert_all(Rollup, rows,
-      conflict_target: [:metric_key, :bucket_start, :bucket_size, :source, :dimension_key],
-      on_conflict: conflict_query
-    )
+    {_count, _} =
+      Repo.insert_all(Rollup, rows,
+        conflict_target: [:metric_key, :bucket_start, :bucket_size, :source, :dimension_key],
+        on_conflict: conflict_query
+      )
 
     :ok
   end

@@ -9,15 +9,27 @@ defmodule Zaq.Engine.Telemetry.BenchmarkConnector.HTTP do
 
   @impl true
   def push_rollups(payload) do
-    request(:post, "/api/v1/telemetry/rollups", payload)
+    req_opts = build_req_opts(:post, "/api/v1/telemetry/rollups", payload)
+
+    case Req.request(req_opts) do
+      {:ok, %Req.Response{status: status}} when status in 200..299 -> :ok
+      {:ok, %Req.Response{status: status, body: body}} -> {:error, {:remote_error, status, body}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @impl true
   def pull_rollups(payload) do
-    request(:post, "/api/v1/telemetry/benchmarks", payload)
+    req_opts = build_req_opts(:post, "/api/v1/telemetry/benchmarks", payload)
+
+    case Req.request(req_opts) do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 -> {:ok, body}
+      {:ok, %Req.Response{status: status, body: body}} -> {:error, {:remote_error, status, body}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp request(method, path, payload) do
+  defp build_req_opts(method, path, payload) do
     req_opts = [
       method: method,
       url: Telemetry.remote_url() <> path,
@@ -26,28 +38,13 @@ defmodule Zaq.Engine.Telemetry.BenchmarkConnector.HTTP do
       receive_timeout: 30_000
     ]
 
-    req_opts = Keyword.merge(req_opts, Telemetry.req_options())
-
-    case Req.request(req_opts) do
-      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
-        if method == :post and path == "/api/v1/telemetry/rollups" do
-          :ok
-        else
-          {:ok, body}
-        end
-
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:remote_error, status, body}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    Keyword.merge(req_opts, Telemetry.req_options())
   end
 
   defp build_headers do
     token = Telemetry.remote_token()
 
-    if token in [nil, ""] do
+    if token == "" do
       []
     else
       [{"authorization", "Bearer #{token}"}]

@@ -278,10 +278,8 @@ defmodule Zaq.Ingestion.DocumentAccess do
   end
 
   defp abs_path_to_source(abs_path) do
-    case SourcePath.absolute_to_source(abs_path) do
-      {:ok, source} -> source
-      _ -> nil
-    end
+    {:ok, source} = SourcePath.absolute_to_source(abs_path)
+    source
   end
 
   @doc """

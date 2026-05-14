@@ -327,8 +327,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         {:ok, sanitize_utf8(markdown)}
       end
     after
-      cleanup_alias.()
-      _ = File.rm(output_json)
+      :ok = cleanup_alias.()
+
+      case File.rm(output_json) do
+        :ok -> :ok
+        {:error, _} -> :ok
+      end
     end
   end
 

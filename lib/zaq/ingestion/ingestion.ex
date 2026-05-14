@@ -36,14 +36,20 @@ defmodule Zaq.Ingestion do
     with {:ok, job} <- create_job(path, mode, volume_name) do
       case mode do
         :async ->
-          %{"job_id" => job.id}
-          |> IngestWorker.new()
-          |> Oban.insert()
+          {:ok, _} =
+            %{"job_id" => job.id}
+            |> IngestWorker.new()
+            |> Oban.insert()
 
           {:ok, job}
 
         :inline ->
-          IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
+          case IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}}) do
+            :ok -> :ok
+            {:cancel, _} -> :ok
+            {:error, _} -> :ok
+          end
+
           {:ok, Repo.get!(IngestJob, job.id)}
       end
     end
@@ -569,9 +575,10 @@ defmodule Zaq.Ingestion do
           %{"job_id" => updated_job.id}
         end
 
-      retry_args
-      |> IngestWorker.new()
-      |> Oban.insert()
+      {:ok, _} =
+        retry_args
+        |> IngestWorker.new()
+        |> Oban.insert()
 
       {:ok, updated_job}
     else
