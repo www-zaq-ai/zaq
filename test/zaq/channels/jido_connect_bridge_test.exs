@@ -16,23 +16,23 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     def actions(_integration) do
       {:ok,
        [
-          %{
-            id: "stub.files.list",
-            resource: :file,
-            verb: :list,
-            auth_profile: :user,
-            auth_profiles: [:user],
-            input: [%{name: :fields}, %{name: :page_size}]
-          },
-          %{
-            id: "stub.permissions.list",
-            resource: :permission,
-            verb: :list,
-            auth_profile: :user,
-            auth_profiles: [:user],
-            input: [%{name: :fields}, %{name: :page_size}]
-          }
-        ]}
+         %{
+           id: "stub.files.list",
+           resource: :file,
+           verb: :list,
+           auth_profile: :user,
+           auth_profiles: [:user],
+           input: [%{name: :fields}, %{name: :page_size}]
+         },
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profile: :user,
+           auth_profiles: [:user],
+           input: [%{name: :fields}, %{name: :page_size}]
+         }
+       ]}
     end
 
     def invoke(_integration, "stub.files.list", params, opts) do
@@ -47,17 +47,17 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
              "mimeType" => "application/vnd.google-apps.folder",
              "parents" => []
            },
-            %{
-              "id" => "f2",
-              "name" => "Doc 1",
-              "mimeType" => "application/pdf",
-              "parents" => ["root"],
-              "permissions" => [
-                %{"id" => "ep1", "type" => "user", "emailAddress" => "owner@example.com"}
-              ]
-            }
-          ]
-        }}
+           %{
+             "id" => "f2",
+             "name" => "Doc 1",
+             "mimeType" => "application/pdf",
+             "parents" => ["root"],
+             "permissions" => [
+               %{"id" => "ep1", "type" => "user", "emailAddress" => "owner@example.com"}
+             ]
+           }
+         ]
+       }}
     end
 
     def invoke(_integration, "stub.permissions.list", %{file_id: file_id}, _opts) do
@@ -149,12 +149,19 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       {:ok,
        [
          %{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]},
-         %{id: "stub.permissions.list", resource: :permission, verb: :list, auth_profiles: [:user]}
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profiles: [:user]
+         }
        ]}
     end
 
     def invoke(_integration, "stub.files.list", _params, _opts), do: {:error, :boom}
-    def invoke(_integration, "stub.permissions.list", _params, _opts), do: {:ok, %{permissions: []}}
+
+    def invoke(_integration, "stub.permissions.list", _params, _opts),
+      do: {:ok, %{permissions: []}}
   end
 
   defmodule StubJidoConnectUnsupportedPermissions do
@@ -162,7 +169,12 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       {:ok,
        [
          %{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]},
-         %{id: "stub.permissions.list", resource: :permission, verb: :list, auth_profiles: [:user]}
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profiles: [:user]
+         }
        ]}
     end
 
@@ -170,7 +182,12 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       {:ok,
        %{
          files: [
-           %{"id" => "f1", "name" => "Doc", "mimeType" => "application/pdf", "parents" => ["root"]}
+           %{
+             "id" => "f1",
+             "name" => "Doc",
+             "mimeType" => "application/pdf",
+             "parents" => ["root"]
+           }
          ]
        }}
     end

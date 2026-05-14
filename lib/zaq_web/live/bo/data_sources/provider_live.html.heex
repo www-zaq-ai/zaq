@@ -335,7 +335,10 @@
         <p class="text-black/40 mb-1">Permissions:</p>
         <p :if={folder_permissions(folder) == []} class="text-[0.68rem] text-black/50">Empty</p>
         <ul :if={folder_permissions(folder) != []} class="space-y-2">
-          <li :for={permission <- folder_permissions(folder)} class="rounded-md border border-black/10 p-2">
+          <li
+            :for={permission <- folder_permissions(folder)}
+            class="rounded-md border border-black/10 p-2"
+          >
             <p class="font-semibold">{permission_label(permission)}</p>
             <pre class="text-[0.64rem] text-black/55 whitespace-pre-wrap break-words">{inspect(permission.raw, pretty: true)}</pre>
           </li>

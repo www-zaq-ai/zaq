@@ -34,6 +34,41 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       send(self(), {:sync_runtime, before_config, after_config})
       :ok
     end
+
+    def oauth_authorize_url(config, params) do
+      send(self(), {:oauth_authorize_url, config.id, params})
+      {:ok, "https://auth.example/authorize"}
+    end
+
+    def oauth_exchange_code(config, params) do
+      send(self(), {:oauth_exchange_code, config.id, params})
+      {:ok, %{access_token: "access-token"}}
+    end
+
+    def oauth_refresh_token(config, params) do
+      send(self(), {:oauth_refresh_token, config.id, params})
+      {:ok, %{access_token: "new-access-token"}}
+    end
+
+    def list_files(config, params) do
+      send(self(), {:list_files, config.id, params})
+      {:ok, %{records: []}}
+    end
+
+    def list_permissions(config, params) do
+      send(self(), {:list_permissions, config.id, params})
+      {:ok, %{records: []}}
+    end
+
+    def channel_stats(config, params) do
+      send(self(), {:channel_stats, config.id, params})
+      {:ok, %{files_count: 0}}
+    end
+
+    def capability_snapshot(config) do
+      send(self(), {:capability_snapshot, config.id})
+      {:ok, %{required: [], resolved: %{}, unsupported: [], labels: %{}}}
+    end
   end
 
   defmodule StubNoDataSourceCallbacks do
@@ -43,7 +78,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     original_channels = Application.get_env(:zaq, :channels)
 
     Application.put_env(:zaq, :channels, %{
-      google_drive: %{bridge: StubDataSourceBridge, adapter: __MODULE__.StubAdapter}
+      google_drive: %{bridge: StubDataSourceBridge, adapter: __MODULE__.StubAdapter},
+      sharepoint: %{bridge: StubDataSourceBridge, adapter: __MODULE__.StubAdapter}
     })
 
     on_exit(fn ->
@@ -101,7 +137,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   test "returns no_bridge for missing provider bridge" do
     insert_data_source_config(:google_drive)
 
-    assert {:error, {:no_bridge, "sharepoint"}} =
+    assert {:error, {:channel_not_configured, "sharepoint"}} =
              DataSourceBridge.auth_handshake("sharepoint", %{})
   end
 
@@ -132,5 +168,63 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert :ok = DataSourceBridge.sync_config_runtime(before_config, after_config)
     assert_received {:sync_runtime, ^before_config, ^after_config}
+  end
+
+  test "oauth and datasource wrappers delegate through scoped config" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+    config_id_string = to_string(config_id)
+
+    assert {:ok, "https://auth.example/authorize"} =
+             DataSourceBridge.oauth_authorize_url(:google_drive, %{"config_id" => config.id})
+
+    assert_received {:oauth_authorize_url, ^config_id, %{"config_id" => ^config_id}}
+
+    assert {:ok, %{access_token: "access-token"}} =
+             DataSourceBridge.oauth_exchange_code(:google_drive, %{
+               "config_id" => config_id_string
+             })
+
+    assert_received {:oauth_exchange_code, ^config_id, %{"config_id" => ^config_id_string}}
+
+    assert {:ok, %{access_token: "new-access-token"}} =
+             DataSourceBridge.oauth_refresh_token(:google_drive, %{config_id: config.id})
+
+    assert_received {:oauth_refresh_token, ^config_id, %{config_id: ^config_id}}
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(:google_drive, %{config_id: config_id})
+
+    assert_received {:list_files, ^config_id, %{config_id: ^config_id}}
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_permissions(:google_drive, %{"config_id" => config_id_string})
+
+    assert_received {:list_permissions, ^config_id, %{"config_id" => ^config_id_string}}
+
+    assert {:ok, %{files_count: 0}} =
+             DataSourceBridge.channel_stats(:google_drive, %{config_id: config_id})
+
+    assert_received {:channel_stats, ^config_id, %{config_id: ^config_id}}
+  end
+
+  test "scoped config id rejects bad or mismatched provider" do
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => "not-an-integer"})
+
+    assert {:error, {:channel_not_configured, :sharepoint}} =
+             DataSourceBridge.list_files(:sharepoint, %{"config_id" => config.id})
+  end
+
+  test "capability snapshot delegates" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert {:ok, %{required: [], resolved: %{}, unsupported: [], labels: %{}}} =
+             DataSourceBridge.capability_snapshot(:google_drive)
+
+    assert_received {:capability_snapshot, ^config_id}
   end
 end

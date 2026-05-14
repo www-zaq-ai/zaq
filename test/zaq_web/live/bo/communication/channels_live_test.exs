@@ -781,6 +781,130 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
              BridgeFake.calls(:sync_provider_runtime)
   end
 
+  test "oauth popup handlers update assigns and refresh config grants" do
+    _config = insert_channel_config(%{provider: "mattermost", kind: "retrieval"})
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: "mattermost",
+        kind: :retrieval,
+        oauth_claim_modal: false,
+        oauth_claim_url: nil
+      }
+    }
+
+    assert {:noreply, opened} =
+             ChannelsLive.handle_event(
+               "open_oauth_claim",
+               %{"url" => "https://auth.example"},
+               socket
+             )
+
+    assert opened.assigns.oauth_claim_modal
+    assert opened.assigns.oauth_claim_url == "https://auth.example"
+
+    assert {:noreply, blocked} = ChannelsLive.handle_event("oauth_popup_blocked", %{}, opened)
+    refute blocked.assigns.oauth_claim_modal
+
+    assert {:noreply, closed} = ChannelsLive.handle_event("close_oauth_claim", %{}, blocked)
+    refute closed.assigns.oauth_claim_modal
+
+    assert {:noreply, refreshed} = ChannelsLive.handle_event("oauth_popup_result", %{}, opened)
+    refute refreshed.assigns.oauth_claim_modal
+    assert is_list(refreshed.assigns.configs)
+  end
+
+  test "credential modal handlers in channels live update changesets" do
+    base_changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        provider: "mattermost",
+        kind: "retrieval",
+        name: "cfg"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: "mattermost",
+        kind: :retrieval,
+        changeset: base_changeset,
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: []
+      }
+    }
+
+    assert {:noreply, opened} = ChannelsLive.handle_event("open_new_credential", %{}, socket)
+    assert opened.assigns.credential_modal
+
+    assert {:noreply, validated} =
+             ChannelsLive.handle_event(
+               "validate_credential",
+               %{"credential" => %{"name" => ""}},
+               opened
+             )
+
+    assert validated.assigns.credential_changeset.action == :validate
+
+    assert {:noreply, closed} =
+             ChannelsLive.handle_event("close_credential_modal", %{}, validated)
+
+    refute closed.assigns.credential_modal
+  end
+
+  test "save_credential handler covers success and error branches" do
+    base_changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        provider: "mattermost",
+        kind: "retrieval",
+        name: "cfg"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: "mattermost",
+        kind: :retrieval,
+        changeset: base_changeset,
+        credential_modal: true,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: []
+      }
+    }
+
+    assert {:noreply, success_socket} =
+             ChannelsLive.handle_event(
+               "save_credential",
+               %{
+                 "credential" => %{
+                   "name" => "credential-#{System.unique_integer([:positive])}",
+                   "auth_kind" => "oauth2",
+                   "client_id" => "client",
+                   "client_secret" => "secret",
+                   "scopes" => ["scope.read"]
+                 }
+               },
+               socket
+             )
+
+    refute success_socket.assigns.credential_modal
+
+    assert {:noreply, error_socket} =
+             ChannelsLive.handle_event(
+               "save_credential",
+               %{"credential" => %{"provider" => "mattermost"}},
+               socket
+             )
+
+    assert %Ecto.Changeset{} = error_socket.assigns.credential_changeset
+  end
+
   defp insert_channel_config(attrs) do
     params =
       %{
