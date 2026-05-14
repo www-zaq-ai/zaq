@@ -163,7 +163,8 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     # Preserve runtime state while replacing handlers/adapters from latest config.
     chat = %{
       chat
-      | subscriptions: state.chat.subscriptions,
+      | state: state.chat.state,
+        subscriptions: state.chat.subscriptions,
         dedupe: state.chat.dedupe,
         dedupe_order: state.chat.dedupe_order,
         thread_state: state.chat.thread_state,
