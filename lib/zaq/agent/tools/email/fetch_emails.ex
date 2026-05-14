@@ -11,6 +11,10 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
     schema: [
       imap_config: [type: :any, required: true],
       mailbox: [type: :string, default: "INBOX"]
+    ],
+    output_schema: [
+      emails: [type: {:list, :map}, required: true],
+      count: [type: :integer, required: true]
     ]
 
   require Logger

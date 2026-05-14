@@ -12,6 +12,9 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
     schema: [
       emails: [type: :any, required: true],
       agent_name: [type: :string, default: "MailResponder"]
+    ],
+    output_schema: [
+      drafts: [type: {:list, :map}, required: true]
     ]
 
   alias Zaq.Agent.{ConfiguredAgent, Executor}

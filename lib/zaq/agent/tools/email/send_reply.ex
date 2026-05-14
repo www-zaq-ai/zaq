@@ -9,6 +9,11 @@ defmodule Zaq.Agent.Tools.Email.SendReply do
     name: "send_reply",
     schema: [
       drafts: [type: :any, required: true]
+    ],
+    output_schema: [
+      sent: [type: :integer, required: true],
+      failed: [type: :integer, required: true],
+      results: [type: {:list, :map}, required: true]
     ]
 
   require Logger
