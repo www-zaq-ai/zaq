@@ -69,11 +69,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       assert String.contains?(first_chunk["source"], "docs/elixir.md")
     end
 
-    test "returns error message when NodeRouter returns error" do
+    test "returns error map when NodeRouter returns error" do
       context = %{person_id: 42, node_router: StubNodeRouter}
 
-      assert {:error, message} = SearchKnowledgeBase.run(%{query: "timeout query"}, context)
-      assert message == "Knowledge base search failed: :timeout"
+      assert {:error, error} = SearchKnowledgeBase.run(%{query: "timeout query"}, context)
+      assert error.message == "Knowledge base search failed"
+      assert error.reason == ":timeout"
     end
 
     test "returns empty chunks when no results found" do
@@ -128,6 +129,79 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       context = %{person_id: 42, team_ids: [99], node_router: PermissionRouter}
 
       assert {:error, _} = SearchKnowledgeBase.run(%{query: "test"}, context)
+    end
+  end
+
+  describe "run/2 — diagnostic context" do
+    test "success result includes _context with person_id, team_ids, source_filter, skip_permissions" do
+      context = %{
+        person_id: 42,
+        team_ids: [1, 2],
+        source_filter: ["./docs"],
+        node_router: StubNodeRouter
+      }
+
+      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "find elixir"}, context)
+
+      assert %{
+               person_id: 42,
+               team_ids: [1, 2],
+               source_filter: ["./docs"],
+               skip_permissions: false
+             } =
+               result._context
+    end
+
+    test "success result _context has nil person_id when absent from context" do
+      context = %{node_router: StubNodeRouter}
+
+      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "nothing here"}, context)
+      assert result._context.person_id == nil
+    end
+
+    test "success result _context preserves nil source_filter" do
+      context = %{person_id: 1, source_filter: nil, node_router: StubNodeRouter}
+
+      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "nothing here"}, context)
+      assert result._context.source_filter == nil
+    end
+
+    test "success result _context reflects skip_permissions: true" do
+      context = %{skip_permissions: true, node_router: StubNodeRouter}
+
+      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "nothing here"}, context)
+      assert result._context.skip_permissions == true
+    end
+
+    test "error result is a map with message, reason, and context keys" do
+      context = %{person_id: 42, team_ids: [1], node_router: StubNodeRouter}
+
+      assert {:error, error} = SearchKnowledgeBase.run(%{query: "timeout query"}, context)
+      assert is_map(error)
+      assert Map.has_key?(error, :message)
+      assert Map.has_key?(error, :reason)
+      assert Map.has_key?(error, :context)
+    end
+
+    test "error result context includes person_id, team_ids, source_filter" do
+      context = %{
+        person_id: 42,
+        team_ids: [1],
+        source_filter: ["./kb"],
+        node_router: StubNodeRouter
+      }
+
+      assert {:error, error} = SearchKnowledgeBase.run(%{query: "timeout query"}, context)
+      assert error.context.person_id == 42
+      assert error.context.team_ids == [1]
+      assert error.context.source_filter == ["./kb"]
+    end
+
+    test "error result is JSON-encodable" do
+      context = %{person_id: 42, node_router: StubNodeRouter}
+
+      assert {:error, error} = SearchKnowledgeBase.run(%{query: "timeout query"}, context)
+      assert {:ok, _} = Jason.encode(error)
     end
   end
 end

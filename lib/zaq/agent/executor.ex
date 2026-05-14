@@ -190,7 +190,10 @@ defmodule Zaq.Agent.Executor do
               Map.put(dims, :error_type, error_type(reason))
             )
 
-          Outgoing.from_pipeline_result(incoming, error_result(reason))
+          Outgoing.from_pipeline_result(
+            incoming,
+            error_result(reason, build_failure_step(reason, opts))
+          )
       end
 
     result
@@ -251,7 +254,9 @@ defmodule Zaq.Agent.Executor do
     }
   end
 
-  defp error_result(reason) do
+  defp error_result(reason, failure_step) do
+    tool_calls = if is_nil(failure_step), do: [], else: [failure_step]
+
     %{
       answer:
         ErrorMessage.from_reason(
@@ -265,9 +270,27 @@ defmodule Zaq.Agent.Executor do
       total_tokens: nil,
       error: true,
       reason: inspect(reason),
+      tool_calls: tool_calls,
       sources: []
     }
   end
+
+  defp build_failure_step(reason, opts) do
+    %{
+      type: "pipeline_failure",
+      stage: pipeline_stage(reason),
+      reason: inspect(reason),
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
+      context: %{
+        person_id: Keyword.get(opts, :person_id),
+        team_ids: Keyword.get(opts, :team_ids, [])
+      }
+    }
+  end
+
+  defp pipeline_stage(:timeout), do: "timeout"
+  defp pipeline_stage({:not_found, _}), do: "agent_load"
+  defp pipeline_stage(_), do: "unknown"
 
   defp normalize_answer(%{result: result}), do: normalize_answer(result)
   defp normalize_answer(%{answer: answer}) when is_binary(answer), do: answer

@@ -135,8 +135,8 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "returns error tuple when router returns error and downstream raises" do
       context = %{node_router: ErrorRouter}
 
-      assert {:error, message} = ListKnowledgeBaseFiles.run(%{}, context)
-      assert String.contains?(message, "Document count failed:")
+      assert {:error, error} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert error.message == "Document count failed"
     end
   end
 
@@ -234,6 +234,79 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "runs without error when status_context is absent from context" do
       context = %{node_router: EmptyRouter}
       assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Diagnostic context in result
+  # ---------------------------------------------------------------------------
+
+  describe "run/2 — diagnostic context" do
+    test "success result includes _context with person_id, team_ids, source_filter, skip_permissions" do
+      context = %{
+        person_id: 7,
+        team_ids: [3, 4],
+        source_filter: ["./docs"],
+        node_router: StubRouter
+      }
+
+      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+
+      assert %{person_id: 7, team_ids: [3, 4], source_filter: ["./docs"], skip_permissions: false} =
+               result._context
+    end
+
+    test "success result _context has nil person_id when absent from context" do
+      context = %{node_router: EmptyRouter}
+
+      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert result._context.person_id == nil
+    end
+
+    test "success result _context preserves nil source_filter" do
+      context = %{person_id: 1, source_filter: nil, node_router: EmptyRouter}
+
+      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert result._context.source_filter == nil
+    end
+
+    test "success result _context reflects skip_permissions: true" do
+      context = %{skip_permissions: true, node_router: EmptyRouter}
+
+      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert result._context.skip_permissions == true
+    end
+
+    test "error result is a map with message, reason, and context keys" do
+      context = %{person_id: 5, team_ids: [1], node_router: ErrorRouter}
+
+      assert {:error, error} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert is_map(error)
+      assert Map.has_key?(error, :message)
+      assert Map.has_key?(error, :reason)
+      assert Map.has_key?(error, :context)
+    end
+
+    test "error result context includes person_id and team_ids" do
+      context = %{person_id: 5, team_ids: [1], node_router: ErrorRouter}
+
+      assert {:error, error} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert error.context.person_id == 5
+      assert error.context.team_ids == [1]
+    end
+
+    test "error result context includes source_filter" do
+      context = %{person_id: 1, source_filter: ["./knowledge"], node_router: ErrorRouter}
+
+      assert {:error, error} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert error.context.source_filter == ["./knowledge"]
+    end
+
+    test "error result is JSON-encodable" do
+      context = %{person_id: 1, node_router: ErrorRouter}
+
+      assert {:error, error} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = Jason.encode(error)
     end
   end
 

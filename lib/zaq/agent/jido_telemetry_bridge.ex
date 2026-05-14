@@ -87,6 +87,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
     cfg = normalize_callback_config(cfg)
     remember_request_context_from_metadata(metadata)
     track_tool_event(event, measurements, metadata)
+    track_llm_event(event, measurements, metadata)
     maybe_publish_tool_traces(event, metadata)
     maybe_record_business_metrics(event, measurements, metadata)
     maybe_broadcast_status(event, measurements, metadata, cfg)
@@ -185,6 +186,22 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   end
 
   defp track_tool_event(_event, _measurements, _metadata), do: :ok
+
+  defp track_llm_event(event, measurements, metadata)
+       when event in [[:jido, :ai, :llm, :complete], [:jido, :ai, :llm, :error]] do
+    with request_id when is_binary(request_id) and request_id != "" <- request_id(metadata),
+         llm_call_id when not is_nil(llm_call_id) <- llm_call_id(metadata) do
+      status = if event == [:jido, :ai, :llm, :complete], do: "ok", else: "error"
+      entry = new_llm_trace_entry(request_id, llm_call_id, status, measurements, metadata)
+      table = ensure_trace_table()
+      :ets.insert(table, {{:llm, request_id, llm_call_id}, entry})
+      remember_request_context(request_id)
+    else
+      _ -> :ok
+    end
+  end
+
+  defp track_llm_event(_event, _measurements, _metadata), do: :ok
 
   defp maybe_publish_tool_traces(event, metadata)
        when event in [
@@ -607,6 +624,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp new_trace_entry(request_id, tool_call_id, tool_name) do
     %{
+      type: "tool_call",
       request_id: request_id,
       tool_call_id: tool_call_id,
       tool_name: tool_name,
@@ -617,6 +635,37 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
       status: "started"
     }
   end
+
+  defp new_llm_trace_entry(request_id, llm_call_id, status, measurements, metadata) do
+    %{
+      type: "llm_turn",
+      request_id: request_id,
+      llm_call_id: llm_call_id,
+      timestamp: iso8601_now(),
+      input_tokens: Map.get(measurements, :input_tokens),
+      output_tokens: Map.get(measurements, :output_tokens),
+      decision: llm_decision(metadata),
+      status: status
+    }
+  end
+
+  defp llm_decision(metadata) do
+    case Map.get(metadata, :termination_reason) do
+      reason when is_binary(reason) -> reason
+      reason when is_atom(reason) and not is_nil(reason) -> Atom.to_string(reason)
+      _ -> nil
+    end
+  end
+
+  defp llm_call_id(metadata) when is_map(metadata) do
+    case Map.get(metadata, :llm_call_id) || Map.get(metadata, "llm_call_id") do
+      value when is_binary(value) and value != "" -> value
+      value when is_atom(value) and not is_nil(value) -> Atom.to_string(value)
+      _ -> nil
+    end
+  end
+
+  defp llm_call_id(_), do: nil
 
   defp iso8601_now do
     DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
@@ -736,13 +785,23 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   defp list_request_traces(request_id) do
     table = ensure_trace_table()
 
-    table
-    |> :ets.match({{:tool, request_id, :"$1"}, :"$2"})
-    |> Enum.map(fn [tool_call_id, trace] ->
-      trace
-      |> Map.put_new(:tool_call_id, tool_call_id)
-      |> Map.drop([:request_id])
-    end)
+    tool_entries =
+      table
+      |> :ets.match({{:tool, request_id, :"$1"}, :"$2"})
+      |> Enum.map(fn [tool_call_id, trace] ->
+        trace
+        |> Map.put_new(:tool_call_id, tool_call_id)
+        |> Map.drop([:request_id])
+      end)
+
+    llm_entries =
+      table
+      |> :ets.match({{:llm, request_id, :"$1"}, :"$2"})
+      |> Enum.map(fn [_llm_call_id, trace] ->
+        Map.drop(trace, [:request_id])
+      end)
+
+    (tool_entries ++ llm_entries)
     |> Enum.sort_by(&Map.get(&1, :timestamp, ""))
   end
 
@@ -753,6 +812,12 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
     |> :ets.match({{:tool, request_id, :"$1"}, :"$2"})
     |> Enum.each(fn [tool_call_id, _trace] ->
       :ets.delete(table, {:tool, request_id, tool_call_id})
+    end)
+
+    table
+    |> :ets.match({{:llm, request_id, :"$1"}, :"$2"})
+    |> Enum.each(fn [llm_call_id, _trace] ->
+      :ets.delete(table, {:llm, request_id, llm_call_id})
     end)
 
     :ets.delete(table, {:request_context, request_id})

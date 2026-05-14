@@ -50,6 +50,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
   def normalize_tool_calls(tool_calls) when is_list(tool_calls) do
     tool_calls
     |> Enum.filter(&is_map/1)
+    |> Enum.reject(&non_tool_call_entry?/1)
     |> Enum.map(fn tc ->
       %{
         tool_call_id: Map.get(tc, :tool_call_id) || Map.get(tc, "tool_call_id"),
@@ -64,6 +65,13 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
   end
 
   def normalize_tool_calls(_), do: []
+
+  defp non_tool_call_entry?(entry) when is_map(entry) do
+    type = Map.get(entry, :type) || Map.get(entry, "type")
+    type in ["llm_turn", "pipeline_failure"]
+  end
+
+  defp non_tool_call_entry?(_), do: false
 
   def infer_feedback_from_ratings([]), do: nil
   def infer_feedback_from_ratings([%{rating: r} | _]) when r >= 4, do: :positive

@@ -41,6 +41,13 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     # return only public data (skip_permissions: false, person_id: nil).
     skip_permissions = Map.get(context, :skip_permissions, false)
 
+    call_context = %{
+      person_id: person_id,
+      team_ids: team_ids,
+      skip_permissions: skip_permissions,
+      source_filter: source_filter
+    }
+
     opts =
       [
         person_id: person_id,
@@ -52,11 +59,25 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
 
     try do
       case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do
-        {:ok, chunks} -> {:ok, %{chunks: chunks, count: length(chunks)}}
-        {:error, reason} -> {:error, "Knowledge base search failed: #{inspect(reason)}"}
+        {:ok, chunks} ->
+          {:ok, %{chunks: chunks, count: length(chunks), _context: call_context}}
+
+        {:error, reason} ->
+          {:error,
+           %{
+             message: "Knowledge base search failed",
+             reason: inspect(reason),
+             context: call_context
+           }}
       end
     rescue
-      e -> {:error, "Knowledge base search error: #{Exception.message(e)}"}
+      e ->
+        {:error,
+         %{
+           message: "Knowledge base search error",
+           reason: Exception.message(e),
+           context: call_context
+         }}
     end
   end
 end

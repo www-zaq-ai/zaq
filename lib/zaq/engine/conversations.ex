@@ -193,9 +193,16 @@ defmodule Zaq.Engine.Conversations do
   end
 
   defp assistant_metadata(result) when is_map(result) do
-    tool_calls = Map.get(result, :tool_calls) || Map.get(result, "tool_calls") || []
-    %{"tool_calls" => tool_calls}
+    all_steps = Map.get(result, :tool_calls) || Map.get(result, "tool_calls") || []
+    tool_calls = Enum.reject(all_steps, &llm_turn_entry?/1)
+    %{"tool_calls" => tool_calls, "steps" => all_steps}
   end
+
+  defp llm_turn_entry?(entry) when is_map(entry) do
+    Map.get(entry, :type) == "llm_turn" or Map.get(entry, "type") == "llm_turn"
+  end
+
+  defp llm_turn_entry?(_), do: false
 
   defp touch_conversation(%Conversation{} = conv) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)

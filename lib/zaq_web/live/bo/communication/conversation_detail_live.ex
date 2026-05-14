@@ -55,6 +55,16 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     {:noreply, push_event(socket, "clipboard", %{text: text})}
   end
 
+  def handle_event("copy_steps", %{"id" => id}, socket) do
+    steps =
+      socket.assigns.messages
+      |> find_message(id)
+      |> steps_for_message()
+
+    json = Jason.encode!(steps, pretty: true)
+    {:noreply, push_event(socket, "clipboard", %{text: json})}
+  end
+
   def handle_event("feedback", %{"id" => id, "type" => "positive"}, socket) do
     current_user = socket.assigns[:current_user]
     msg = find_message(socket.assigns.messages, id)
@@ -210,6 +220,14 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     |> then(fn msg -> Map.get(msg, :metadata) || Map.get(msg, "metadata") || %{} end)
     |> Map.get("tool_calls", [])
     |> normalize_tool_calls()
+  end
+
+  defp steps_for_message(nil), do: []
+
+  defp steps_for_message(message) do
+    message
+    |> then(fn msg -> Map.get(msg, :metadata) || Map.get(msg, "metadata") || %{} end)
+    |> Map.get("steps", [])
   end
 
   defp normalize_tool_calls(tool_calls), do: MessageHelpers.normalize_tool_calls(tool_calls)

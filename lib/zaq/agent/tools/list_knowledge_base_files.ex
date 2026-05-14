@@ -68,6 +68,13 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
     source_filter = Map.get(context, :source_filter)
     node_router_mod = Map.get(context, :node_router, NodeRouter)
 
+    call_context = %{
+      person_id: person_id,
+      team_ids: team_ids,
+      skip_permissions: skip_permissions,
+      source_filter: source_filter
+    }
+
     opts =
       [
         person_id: person_id,
@@ -82,7 +89,12 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
 
     case router_result do
       {:error, reason} ->
-        {:error, "Document count failed: #{inspect(reason)}"}
+        {:error,
+         %{
+           message: "Document count failed",
+           reason: inspect(reason),
+           context: call_context
+         }}
 
       result ->
         documents =
@@ -91,7 +103,14 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
           |> Enum.map(&enrich_with_preview/1)
 
         ingested_count = Enum.count(documents, & &1.ingested)
-        {:ok, %{total: length(documents), ingested_count: ingested_count, documents: documents}}
+
+        {:ok,
+         %{
+           total: length(documents),
+           ingested_count: ingested_count,
+           documents: documents,
+           _context: call_context
+         }}
     end
   end
 

@@ -99,6 +99,10 @@
                     message_id={item.id}
                     open_event="open_tool_calls_modal"
                   />
+                  <ZaqWeb.Components.ChatMessage.copy_logs_button
+                    steps={Map.get(item.metadata || %{}, "steps", [])}
+                    message_id={item.id}
+                  />
                   <ZaqWeb.Components.ChatMessage.copy_action_button text={item.content || ""} />
                   <ZaqWeb.Components.ChatMessage.feedback_positive_button
                     message_id={item.id}

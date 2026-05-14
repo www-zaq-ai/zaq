@@ -863,6 +863,248 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert trace.response_time_ms == 11
   end
 
+  # ---------------------------------------------------------------------------
+  # LLM turn trace capture
+  # ---------------------------------------------------------------------------
+
+  describe "LLM turn tracing" do
+    setup do
+      request_id = "req-llm-#{System.unique_integer([:positive])}"
+
+      Process.put(:zaq_status_context, %{request_id: request_id})
+      Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+      on_exit(fn ->
+        Process.delete(:zaq_status_context)
+        Process.delete(:zaq_tool_trace_context)
+      end)
+
+      {:ok, request_id: request_id}
+    end
+
+    test "llm.complete creates an llm_turn trace entry with correct fields", %{
+      request_id: request_id
+    } do
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :llm, :complete],
+                 %{input_tokens: 50, output_tokens: 120},
+                 %{request_id: request_id, llm_call_id: "llm-1", termination_reason: "tool_call"},
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      llm = Enum.find(traces, &(&1[:type] == "llm_turn"))
+
+      assert llm != nil
+      assert llm.type == "llm_turn"
+      assert llm.llm_call_id == "llm-1"
+      assert llm.input_tokens == 50
+      assert llm.output_tokens == 120
+      assert llm.decision == "tool_call"
+      assert llm.status == "ok"
+      assert is_binary(llm.timestamp)
+    end
+
+    test "llm.error creates an llm_turn entry with status: error", %{request_id: request_id} do
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :llm, :error],
+                 %{input_tokens: 10, output_tokens: 0},
+                 %{request_id: request_id, llm_call_id: "llm-err", error_type: :rate_limited},
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      llm = Enum.find(traces, &(&1[:type] == "llm_turn"))
+
+      assert llm != nil
+      assert llm.status == "error"
+      assert llm.llm_call_id == "llm-err"
+    end
+
+    test "decision is derived from termination_reason atom", %{request_id: request_id} do
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :llm, :complete],
+                 %{},
+                 %{request_id: request_id, llm_call_id: "llm-stop", termination_reason: :stop},
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      llm = Enum.find(traces, &(&1[:type] == "llm_turn"))
+      assert llm.decision == "stop"
+    end
+
+    test "decision is nil when termination_reason is absent", %{request_id: request_id} do
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :llm, :complete],
+                 %{},
+                 %{request_id: request_id, llm_call_id: "llm-no-reason"},
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      llm = Enum.find(traces, &(&1[:type] == "llm_turn"))
+      assert llm.decision == nil
+    end
+
+    test "multiple LLM turns produce separate entries ordered by timestamp", %{
+      request_id: request_id
+    } do
+      for i <- 1..3 do
+        assert :ok =
+                 JidoTelemetryBridge.handle_event(
+                   [:jido, :ai, :llm, :complete],
+                   %{input_tokens: i * 10, output_tokens: i * 5},
+                   %{request_id: request_id, llm_call_id: "llm-#{i}"},
+                   %{}
+                 )
+      end
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      llm_traces = Enum.filter(traces, &(&1[:type] == "llm_turn"))
+      assert length(llm_traces) == 3
+    end
+
+    test "flush includes llm_turn entries alongside tool entries", %{request_id: request_id} do
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :llm, :complete],
+                 %{input_tokens: 30, output_tokens: 10},
+                 %{
+                   request_id: request_id,
+                   llm_call_id: "llm-mixed",
+                   termination_reason: "tool_call"
+                 },
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :tool, :start],
+                 %{},
+                 %{
+                   request_id: request_id,
+                   tool_call_id: "tool-mixed",
+                   tool_name: "search_knowledge_base"
+                 },
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :tool, :complete],
+                 %{duration_ms: 55},
+                 %{
+                   request_id: request_id,
+                   tool_call_id: "tool-mixed",
+                   tool_name: "search_knowledge_base"
+                 },
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      types = Enum.map(traces, & &1.type)
+      assert "llm_turn" in types
+      assert "tool_call" in types
+    end
+
+    test "llm entries without request_id are not stored", %{request_id: request_id} do
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :llm, :complete],
+                 %{},
+                 %{llm_call_id: "llm-orphan"},
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      llm_traces = Enum.filter(traces, &(&1[:type] == "llm_turn"))
+      assert llm_traces == []
+    end
+
+    test "tool entries have type: tool_call", %{request_id: request_id} do
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :tool, :start],
+                 %{},
+                 %{request_id: request_id, tool_call_id: "tool-typed", tool_name: "my_tool"},
+                 %{}
+               )
+
+      assert :ok =
+               JidoTelemetryBridge.handle_event(
+                 [:jido, :ai, :request, :complete],
+                 %{},
+                 %{request_id: request_id},
+                 %{}
+               )
+
+      assert_receive {:zaq_tool_traces, ^request_id, traces}
+      tool = Enum.find(traces, &(&1[:tool_call_id] == "tool-typed"))
+      assert tool.type == "tool_call"
+    end
+  end
+
   test "invalid tool ids and names are ignored and publish empty traces" do
     request_id = "req-#{System.unique_integer([:positive])}"
 

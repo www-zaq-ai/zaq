@@ -264,6 +264,145 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
+  defmodule StubFactoryAskError do
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
+      do: {:error, :simulated_factory_failure}
+
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
+  defmodule StubFactoryAwaitTimeout do
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
+    def await(:request, _opts), do: {:error, :timeout}
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
+  defmodule StubAgentNotFound do
+    def get_active_agent(_agent_id), do: {:error, {:not_found, "agent-missing"}}
+  end
+
+  describe "run/2 — pipeline failure steps" do
+    test "factory failure produces a pipeline_failure step in tool_calls" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: "req-fail-1",
+        metadata: %{}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryAskError,
+          node_router: StubNodeRouter
+        )
+
+      assert [step] = outgoing.metadata[:tool_calls]
+      assert step.type == "pipeline_failure"
+      assert is_binary(step.reason)
+      assert is_binary(step.timestamp)
+    end
+
+    test "factory failure step has stage: unknown for generic errors" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        metadata: %{}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryAskError,
+          node_router: StubNodeRouter
+        )
+
+      assert [step] = outgoing.metadata[:tool_calls]
+      assert step.stage == "unknown"
+    end
+
+    test "await timeout produces a pipeline_failure step with stage: timeout" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        metadata: %{}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryAwaitTimeout,
+          node_router: StubNodeRouter
+        )
+
+      assert [step] = outgoing.metadata[:tool_calls]
+      assert step.type == "pipeline_failure"
+      assert step.stage == "timeout"
+    end
+
+    test "agent not found produces a pipeline_failure step with stage: agent_load" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        metadata: %{}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "missing",
+          agent_module: StubAgentNotFound,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactory,
+          node_router: StubNodeRouter
+        )
+
+      assert [step] = outgoing.metadata[:tool_calls]
+      assert step.type == "pipeline_failure"
+      assert step.stage == "agent_load"
+    end
+
+    test "pipeline_failure step context includes person_id and team_ids from opts" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        metadata: %{}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryAskError,
+          node_router: StubNodeRouter,
+          person_id: 7,
+          team_ids: [1, 2]
+        )
+
+      assert [step] = outgoing.metadata[:tool_calls]
+      assert step.context.person_id == 7
+      assert step.context.team_ids == [1, 2]
+    end
+
+    test "successful run has no pipeline_failure step" do
+      outgoing = Executor.run(@incoming, @base_opts)
+
+      tool_calls = outgoing.metadata[:tool_calls] || []
+      refute Enum.any?(tool_calls, &(&1[:type] == "pipeline_failure"))
+    end
+  end
+
   describe "run/2 tool trace metadata" do
     test "adds tool_calls from telemetry message" do
       incoming = %Incoming{

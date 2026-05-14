@@ -191,7 +191,7 @@ defmodule Zaq.Engine.ConversationsTest do
       assert Enum.count(messages, &(&1.role == "assistant")) == 2
 
       assistant_message = Enum.find(messages, &(&1.role == "assistant"))
-      assert assistant_message.metadata == %{"tool_calls" => []}
+      assert assistant_message.metadata == %{"tool_calls" => [], "steps" => []}
     end
 
     test "stores assistant tool_calls in message metadata" do
@@ -237,6 +237,99 @@ defmodule Zaq.Engine.ConversationsTest do
                  "status" => "ok"
                }
              ]
+
+      assert assistant.metadata["steps"] == [
+               %{
+                 "tool_name" => "search_knowledge_base",
+                 "timestamp" => "2026-05-02T10:00:00Z",
+                 "params" => %{"query" => "zaq"},
+                 "response" => %{"hits" => 3},
+                 "response_time_ms" => 15,
+                 "status" => "ok"
+               }
+             ]
+    end
+
+    test "steps contains both tool and llm_turn entries, tool_calls only tool entries" do
+      result = %{
+        answer: "Done.",
+        confidence_score: 0.9,
+        latency_ms: 100,
+        prompt_tokens: 20,
+        completion_tokens: 30,
+        total_tokens: 50,
+        tool_calls: [
+          %{
+            type: "llm_turn",
+            llm_call_id: "llm-1",
+            timestamp: "2026-05-02T10:00:00Z",
+            decision: "tool_call",
+            status: "ok"
+          },
+          %{
+            type: "tool_call",
+            tool_name: "search_knowledge_base",
+            tool_call_id: "tc-1",
+            timestamp: "2026-05-02T10:00:01Z",
+            status: "ok"
+          },
+          %{
+            type: "llm_turn",
+            llm_call_id: "llm-2",
+            timestamp: "2026-05-02T10:00:02Z",
+            decision: "stop",
+            status: "ok"
+          }
+        ]
+      }
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Search docs",
+        channel_id: "chan-steps",
+        author_id: "user-steps",
+        provider: :mattermost
+      }
+
+      assert :ok = Conversations.persist_from_incoming(incoming, result)
+
+      [conv] = Conversations.list_conversations(channel_type: "mattermost")
+      messages = Conversations.list_messages(conv)
+      assistant = Enum.find(messages, &(&1.role == "assistant"))
+
+      # steps has all 3 entries in order
+      assert length(assistant.metadata["steps"]) == 3
+      types = Enum.map(assistant.metadata["steps"], & &1["type"])
+      assert types == ["llm_turn", "tool_call", "llm_turn"]
+
+      # tool_calls has only the tool_call entry (backward compat)
+      assert length(assistant.metadata["tool_calls"]) == 1
+      assert hd(assistant.metadata["tool_calls"])["type"] == "tool_call"
+    end
+
+    test "steps is never nil — empty list when no tool calls" do
+      result = %{
+        answer: "Hello.",
+        confidence_score: 0.99,
+        latency_ms: 10,
+        prompt_tokens: 5,
+        completion_tokens: 5,
+        total_tokens: 10
+      }
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Hi",
+        channel_id: "chan-empty",
+        author_id: "user-1",
+        provider: :mattermost
+      }
+
+      assert :ok = Conversations.persist_from_incoming(incoming, result)
+
+      [conv] = Conversations.list_conversations(channel_type: "mattermost")
+      messages = Conversations.list_messages(conv)
+      assistant = Enum.find(messages, &(&1.role == "assistant"))
+
+      assert assistant.metadata["steps"] == []
     end
   end
 
