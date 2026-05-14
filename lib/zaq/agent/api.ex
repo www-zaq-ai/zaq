@@ -15,13 +15,8 @@ defmodule Zaq.Agent.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Agent
-  alias Zaq.Agent.ErrorMessage
-  alias Zaq.Agent.Executor
-  alias Zaq.Agent.MCP
-  alias Zaq.Agent.Pipeline
-  alias Zaq.Agent.PromptGuard
-  alias Zaq.Agent.RuntimeSync
-  alias Zaq.Agent.Status
+  alias Zaq.Accounts.People
+  alias Zaq.Agent.{ErrorMessage, Executor, MCP, Pipeline, PromptGuard, RuntimeSync, Status}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.{Event, EventHop}
   alias Zaq.InternalBoundaries
@@ -278,9 +273,21 @@ defmodule Zaq.Agent.Api do
           )
 
         selected_id ->
+          person_id = incoming.person_id
+
+          team_ids =
+            case People.get_person(person_id) do
+              nil -> []
+              person -> person.team_ids || []
+            end
+
           executor_module.run(incoming,
             agent_id: selected_id,
             scope: Executor.derive_scope(incoming),
+            person_id: person_id,
+            team_ids: team_ids,
+            source_filter: incoming.content_filter,
+            skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
             history: Keyword.get(pipeline_opts, :history, %{}),
             telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
             event: event

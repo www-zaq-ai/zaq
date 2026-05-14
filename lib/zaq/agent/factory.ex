@@ -143,11 +143,6 @@ defmodule Zaq.Agent.Factory do
       when is_binary(query) do
     with {:ok, config} <- server_runtime_config(server, configured_agent),
          :ok <- ensure_system_prompt(server, configured_agent.job || "") do
-      llm_opts =
-        config
-        |> Map.get(:llm_opts, [])
-        |> maybe_put_tool_choice(Map.get(config, :tools, []))
-
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
@@ -218,12 +213,6 @@ defmodule Zaq.Agent.Factory do
   end
 
   defp maybe_put_tool_trace_context(_), do: :ok
-
-  defp maybe_put_tool_choice(llm_opts, tools) when tools != [] do
-    Keyword.put_new(llm_opts, :tool_choice, :required)
-  end
-
-  defp maybe_put_tool_choice(llm_opts, _tools), do: llm_opts
 
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do
