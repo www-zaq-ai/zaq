@@ -2,15 +2,15 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviour do
   @moduledoc """
   Execution contract for all workflow trigger types.
 
-  A trigger is responsible for two things:
+  A trigger implementation is responsible for two things:
 
-  1. `fire/3` — builds a `%Zaq.Event{}`, creates a `WorkflowRun` row, and returns
-     it. Starting the `WorkflowAgent` is the caller's responsibility — this keeps
-     triggers stateless and independently testable.
+  1. `fire/2` — builds and returns a `%Zaq.Event{}` carrying the trigger type and
+     input payload. It does NOT create a `WorkflowRun`. Run creation and workflow
+     dispatch are the responsibility of `TriggerExecutor`, which calls `fire/2`
+     once and then calls `Workflows.create_run/2` for each assigned workflow.
 
-  2. `on_complete/2` — called by `WorkflowAgent` after a run finishes. Dispatches
-     an outgoing event via `NodeRouter` using `next_hop.destination` from the
-     original `source_event`.
+  2. `on_complete/2` — called by `WorkflowAgent` after a single run finishes.
+     Dispatch outgoing events via `NodeRouter` here if needed.
 
   ## Implementing a trigger
 
@@ -18,11 +18,14 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviour do
         @behaviour Zaq.Engine.Workflows.TriggerBehaviour
 
         @impl true
-        def fire(trigger, workflow, input) do
-          event = Zaq.Event.new(input, :agent,
-            assigns: %{trigger_type: :my_trigger, input: input}
-          )
-          Zaq.Engine.Workflows.create_run(workflow, event)
+        def fire(trigger, input) do
+          {:ok,
+           %Zaq.Event{
+             request: nil,
+             next_hop: nil,
+             trace_id: Ecto.UUID.generate(),
+             assigns: %{trigger_type: :my_trigger, input: input}
+           }}
         end
 
         @impl true
@@ -30,18 +33,16 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviour do
       end
   """
 
-  alias Zaq.Engine.Workflows.{StepRun, Trigger, Workflow, WorkflowRun}
+  alias Zaq.Engine.Workflows.{StepRun, Trigger, WorkflowRun}
 
   @doc """
-  Builds a `%Zaq.Event{}` and inserts a `WorkflowRun` row.
-  Returns `{:ok, run}` or `{:error, changeset}`.
+  Builds a `%Zaq.Event{}` for the trigger firing. Returns `{:ok, event}`.
+  Does NOT create a `WorkflowRun` — `TriggerExecutor` does that per workflow.
   """
-  @callback fire(trigger :: Trigger.t(), workflow :: Workflow.t(), input :: map()) ::
-              {:ok, WorkflowRun.t()} | {:error, term()}
+  @callback fire(trigger :: Trigger.t(), input :: map()) ::
+              {:ok, Zaq.Event.t()} | {:error, term()}
 
-  @doc """
-  Called by `WorkflowAgent` on run completion. Dispatch outgoing events here.
-  """
+  @doc "Called by `WorkflowAgent` on run completion. Dispatch outgoing events here."
   @callback on_complete(run :: WorkflowRun.t(), step_runs :: [StepRun.t()]) ::
               :ok | {:error, term()}
 end

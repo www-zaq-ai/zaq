@@ -2,21 +2,29 @@ defmodule Zaq.Engine.Workflows.Trigger do
   @moduledoc """
   Ecto schema for a workflow trigger configuration.
 
-  A trigger defines how a workflow is started. Multiple triggers can be
-  attached to a single workflow. Disabled triggers are ignored by the
-  runtime without needing to be deleted.
+  Triggers are standalone entities — created independently and then assigned to
+  one or more workflows via the `trigger_workflows` join table. A trigger can
+  also chain into other triggers via the `trigger_chains` table.
 
   Types:
-  - `manual`    — fired explicitly by a user via the BO UI or API
-  - `webhook`   — fired by an authenticated HTTP POST to `/webhooks/workflows/:id`
+  - `manual`    — fired explicitly via the BO UI or API; also available implicitly
+                  on every workflow without a trigger record
+  - `webhook`   — fired by an authenticated HTTP POST to `/webhooks/triggers/:id`
   - `scheduler` — fired on a cron schedule defined in `config.cron`
   - `signal`    — fired when a matching Jido signal is emitted; topic in `config.topic`
+
+  Execution modes:
+  - `parallel` (default) — all assigned workflows dispatched concurrently, capped
+                           at `max_concurrency` (nil = unlimited). All run to
+                           completion regardless of failures.
+  - `serial`  — workflows run in `position` order. `on_failure` controls whether
+                to stop on the first failure or continue through all workflows.
   """
 
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Zaq.Engine.Workflows.Workflow
+  alias Zaq.Engine.Workflows.{TriggerChain, TriggerWorkflow, Workflow}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -26,10 +34,20 @@ defmodule Zaq.Engine.Workflows.Trigger do
   @type t :: %__MODULE__{}
 
   schema "triggers" do
-    belongs_to :workflow, Workflow
     field :type, :string
     field :config, :map, default: %{}
     field :enabled, :boolean, default: true
+    field :execution_mode, Ecto.Enum, values: [:serial, :parallel], default: :parallel
+    field :max_concurrency, :integer
+    field :on_failure, Ecto.Enum, values: [:stop, :continue], default: :continue
+
+    many_to_many :workflows, Workflow,
+      join_through: TriggerWorkflow,
+      join_keys: [trigger_id: :id, workflow_id: :id]
+
+    many_to_many :downstream_triggers, __MODULE__,
+      join_through: TriggerChain,
+      join_keys: [trigger_id: :id, downstream_trigger_id: :id]
 
     timestamps(type: :utc_datetime)
   end
@@ -54,11 +72,11 @@ defmodule Zaq.Engine.Workflows.Trigger do
 
   def changeset(trigger, attrs) do
     trigger
-    |> cast(attrs, [:workflow_id, :type, :config, :enabled])
-    |> validate_required([:workflow_id, :type])
+    |> cast(attrs, [:type, :config, :enabled, :execution_mode, :max_concurrency, :on_failure])
+    |> validate_required([:type])
     |> validate_inclusion(:type, @types)
+    |> validate_number(:max_concurrency, greater_than: 0)
     |> validate_trigger_config()
-    |> foreign_key_constraint(:workflow_id)
   end
 
   defp validate_trigger_config(changeset) do

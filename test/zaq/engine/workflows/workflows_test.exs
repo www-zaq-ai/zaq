@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.WorkflowsTest do
+defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   use Zaq.DataCase, async: true
   use ExUnitProperties
 
@@ -402,7 +402,7 @@ defmodule Zaq.Engine.WorkflowsTest do
 
   describe "StepRun.statuses/0" do
     test "returns the expected status list" do
-      assert StepRun.statuses() == ~w(running completed failed)
+      assert StepRun.statuses() == ~w(running completed failed skipped)
     end
   end
 
