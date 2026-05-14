@@ -614,6 +614,29 @@ defmodule Zaq.Engine.ConnectTest do
 
       assert {:error, {:channel_not_configured, "google_drive"}} = Connect.refresh_grant(grant)
     end
+
+    test "next_refresh_jobs_for_grants returns empty map when all grant ids are nil" do
+      grants = [%{id: nil}, %{id: nil}]
+      assert Connect.next_refresh_jobs_for_grants(grants) == %{}
+    end
+
+    test "issue_grant with data_source resource_type and non-existent ChannelConfig returns ok",
+         %{
+           credential: credential
+         } do
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "data_source",
+                 resource_id: 999_999,
+                 owner_type: "org",
+                 metadata: %{},
+                 access_token: "tok",
+                 refresh_token: "ref"
+               })
+
+      assert grant.resource_id == "999999"
+    end
   end
 
   describe "refresh_grant" do
@@ -634,6 +657,70 @@ defmodule Zaq.Engine.ConnectTest do
       }
 
       assert Connect.refresh_grant(grant) == {:error, :not_found}
+    end
+  end
+
+  describe "credential operations" do
+    test "preserves original refresh_token when token_payload lacks one" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "String Date Grant",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "secret",
+          token_url: "https://oauth.example/token",
+          scopes: ["scope.read"]
+        })
+
+      {:ok, grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "mcp",
+          resource_id: "str-token",
+          owner_type: "org",
+          metadata: %{},
+          access_token: "original-access",
+          refresh_token: "original-refresh"
+        })
+
+      updated_grant = Repo.get!(Grant, grant.id)
+      assert updated_grant.access_token == "original-access"
+      assert updated_grant.refresh_token == "original-refresh"
+    end
+
+    test "next_refresh_jobs_for_grants with available future-scheduled job finds it" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Next refresh test credential",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "secret"
+        })
+
+      grant = issue_oauth_grant(credential)
+
+      future = DateTime.add(DateTime.utc_now(), 3600, :second)
+
+      {:ok, _job} =
+        Repo.insert(%Oban.Job{
+          queue: "default",
+          worker: to_string(GrantRefreshWorker),
+          args: %{"grant_id" => grant.id},
+          state: "available",
+          scheduled_at: future
+        })
+
+      schedule = Connect.next_refresh_jobs_for_grants([grant])
+
+      assert not is_nil(schedule[grant.id])
     end
   end
 end
