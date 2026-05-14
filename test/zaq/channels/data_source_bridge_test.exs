@@ -227,4 +227,113 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert_received {:capability_snapshot, ^config_id}
   end
+
+  test "download_resource returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.download_resource(:google_drive, %{"id" => "r1"}, %{})
+  end
+
+  test "sync_config_runtime falls back to Bridge.sync_config_runtime when bridge lacks sync_runtime" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    before_config = %{id: 1, provider: "google_drive", enabled: true}
+    after_config = %{id: 1, provider: "google_drive", enabled: false}
+
+    assert :ok = DataSourceBridge.sync_config_runtime(before_config, after_config)
+  end
+
+  test "sync_provider_runtime delegates through bridge" do
+    _config = insert_data_source_config(:google_drive)
+
+    assert :ok = DataSourceBridge.sync_provider_runtime(:google_drive)
+  end
+
+  test "list_files returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "list_permissions returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.list_permissions(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "channel_stats returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.channel_stats(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "scoped config id with non-integer string falls back to default config" do
+    _config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => "not-a-number"})
+  end
+
+  test "scoped config id fetches by binary integer string" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+    config_id_str = to_string(config_id)
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => config_id_str})
+
+    assert_received {:list_files, ^config_id, %{"config_id" => ^config_id_str}}
+  end
 end

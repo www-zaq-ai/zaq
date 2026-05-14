@@ -4,6 +4,7 @@ defmodule Zaq.Channels.SupervisorTest do
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.CommunicationBridge
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
@@ -526,6 +527,30 @@ defmodule Zaq.Channels.SupervisorTest do
   test "start_link/1 returns error when supervisor is already started" do
     assert {:error, {:already_started, pid}} = Supervisor.start_link([])
     assert is_pid(pid)
+  end
+
+  test "data source configs can be synced to runtime via DataSourceBridge" do
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    {:ok, channel_config} =
+      ChannelConfig.upsert_by_provider("google_drive", %{
+        name: "Google Drive Runtime",
+        kind: "data_source",
+        provider: "google_drive",
+        enabled: true,
+        url: "https://drive.google.com",
+        token: "tok",
+        settings: %{}
+      })
+
+    bridge_id = "#{channel_config.provider}_#{channel_config.id}"
+    _ = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+
+    assert :ok = DataSourceBridge.sync_config_runtime(nil, channel_config)
+    assert {:ok, runtime} = wait_for_runtime(bridge_id)
+    assert is_pid(runtime.state_pid)
   end
 
   test "public API guards reject invalid argument types" do

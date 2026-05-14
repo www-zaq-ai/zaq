@@ -2148,5 +2148,64 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute has_element?(view, "#edit-connect-credential-modal")
       refute html =~ "Credential updated."
     end
+
+    test "close_connect_grants_modal resets grants state", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Grants — #{credential.name}"
+
+      render_click(view, "close_connect_grants_modal", %{})
+
+      html_after = render(view)
+      refute html_after =~ "Grants — #{credential.name}"
+    end
+
+    test "save_connect_credential error path shows validation errors", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_connect_credential", %{
+          "credential" => %{
+            "name" => "",
+            "provider" => "attempted-overwrite",
+            "request_format" => "raw",
+            "auth_kind" => "oauth2",
+            "client_id" => "",
+            "client_secret" => ""
+          }
+        })
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+    end
   end
 end
