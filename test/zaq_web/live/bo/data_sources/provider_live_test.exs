@@ -715,6 +715,75 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert result.assigns.folder_info_modal.folder == nil
   end
 
+  test "open_folder_info with invalid config-id falls back to -1 key path" do
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{
+          -1 => [%Zaq.Contracts.Record{id: "fallback", name: "Fallback", kind: :folder}]
+        }
+      })
+
+    assert {:noreply, result} =
+             ProviderLive.handle_event(
+               "open_folder_info",
+               %{"config-id" => "not-an-int", "folder-id" => "fallback"},
+               socket
+             )
+
+    assert result.assigns.folder_info_modal.config_id == -1
+    assert result.assigns.folder_info_modal.folder.id == "fallback"
+  end
+
+  test "mount with service available seeds configs, grants and capability snapshots" do
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "mounted-cred-#{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "client",
+        client_secret: "secret"
+      })
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-mounted-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    {:ok, _grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "data_source",
+        resource_id: Integer.to_string(config.id),
+        owner_type: "org",
+        status: "active",
+        metadata: %{},
+        access_token: "tok",
+        refresh_token: "ref"
+      })
+
+    assert {:ok, mounted} =
+             ProviderLive.mount(
+               %{"provider" => "google_drive"},
+               %{},
+               socket_with(%{service_available: true})
+             )
+
+    assert Enum.any?(mounted.assigns.configs, &(&1.id == config.id))
+    assert mounted.assigns.grants_by_config[config.id]
+    assert is_map(mounted.assigns.capabilities_by_config[config.id])
+    assert mounted.assigns.root_folders_by_config[config.id] == nil
+  end
+
   test "toggle_enabled re-enables a previously disabled config" do
     config =
       %ChannelConfig{}

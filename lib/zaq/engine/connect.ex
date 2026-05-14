@@ -244,6 +244,10 @@ defmodule Zaq.Engine.Connect do
     |> Grant.changeset(attrs)
     |> encrypt_secret_fields(@secret_fields)
     |> Repo.update()
+    |> case do
+      {:ok, updated_grant} -> {:ok, Repo.reload!(updated_grant)}
+      {:error, _} = error -> error
+    end
   end
 
   defp enrich_grant_attrs(attrs, %Credential{} = credential) do

@@ -64,6 +64,34 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
     assert :ok = GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}})
   end
 
+  test "perform/1 returns ok for revoked oauth2 grants" do
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "Revoked OAuth credential",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "id",
+        client_secret: "secret"
+      })
+
+    {:ok, grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "mcp",
+        resource_id: "revoked-1",
+        owner_type: "org",
+        metadata: %{},
+        status: "revoked",
+        access_token: "a",
+        refresh_token: "r"
+      })
+
+    assert :ok = GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}})
+  end
+
   test "perform/1 returns refresh error for active oauth2 grant" do
     {:ok, credential} =
       Connect.create_credential(%{

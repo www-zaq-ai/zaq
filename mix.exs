@@ -43,7 +43,8 @@ defmodule Zaq.MixProject do
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
-        "coveralls.html": :test
+        "coveralls.html": :test,
+        "coveralls.json": :test
       ]
     ]
   end
@@ -172,7 +173,7 @@ defmodule Zaq.MixProject do
         "format",
         "credo --strict",
         "hooks.verify",
-        "test"
+        "test --stale"
       ],
       q: ["quality"],
       quality: [

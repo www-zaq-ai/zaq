@@ -8,6 +8,16 @@ defmodule Zaq.Engine.ConnectTest do
   alias Zaq.Repo
   alias Zaq.Types.EncryptedString
 
+  defmodule StubOAuthInvalidResponse do
+    def oauth_refresh_token(_config, _params), do: :unexpected
+  end
+
+  defmodule StubOAuthNoScopes do
+    def oauth_refresh_token(_config, _params) do
+      {:ok, %{access_token: "new-access", refresh_token: nil, expires_at: nil, scopes: nil}}
+    end
+  end
+
   setup do
     {:ok,
      oauth_attrs: %{
@@ -658,6 +668,115 @@ defmodule Zaq.Engine.ConnectTest do
 
       assert Connect.refresh_grant(grant) == {:error, :not_found}
     end
+
+    test "returns invalid_refresh_response when bridge returns unsupported payload" do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "cfg-refresh-invalid-#{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        google_drive: %{bridge: StubOAuthInvalidResponse}
+      })
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Invalid refresh payload credential",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "secret",
+          scopes: ["scope.a"]
+        })
+
+      {:ok, grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "mcp",
+          resource_id: "invalid-response",
+          owner_type: "org",
+          metadata: %{},
+          access_token: "old-access",
+          refresh_token: "old-refresh",
+          scopes: ["scope.old"]
+        })
+
+      assert {:error, {:invalid_refresh_response, :unexpected}} = Connect.refresh_grant(grant)
+    end
+
+    test "refresh_grant falls back to existing scopes and refresh_token when payload omits both" do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "cfg-refresh-fallback-#{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        google_drive: %{bridge: StubOAuthNoScopes}
+      })
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Fallback refresh payload credential",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "secret",
+          scopes: ["scope.from.credential"]
+        })
+
+      {:ok, grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "mcp",
+          resource_id: "fallback-response",
+          owner_type: "org",
+          metadata: %{},
+          access_token: "old-access",
+          refresh_token: "old-refresh",
+          scopes: ["scope.from.grant"]
+        })
+
+      assert {:ok, refreshed} = Connect.refresh_grant(grant)
+      assert refreshed.access_token != "old-access"
+      assert refreshed.refresh_token == "old-refresh"
+      assert refreshed.scopes == ["scope.from.grant"]
+    end
   end
 
   describe "credential operations" do
@@ -721,6 +840,58 @@ defmodule Zaq.Engine.ConnectTest do
       schedule = Connect.next_refresh_jobs_for_grants([grant])
 
       assert not is_nil(schedule[grant.id])
+    end
+
+    test "next_refresh_jobs_for_grants ignores past jobs and picks earliest candidate" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Scheduler filter credential",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "secret"
+        })
+
+      grant = issue_oauth_grant(credential)
+
+      now = DateTime.utc_now()
+      past = DateTime.add(now, -30, :second)
+      early = DateTime.add(now, 30, :second)
+      late = DateTime.add(now, 120, :second)
+
+      {:ok, _} =
+        Repo.insert(%Oban.Job{
+          queue: "default",
+          worker: to_string(GrantRefreshWorker),
+          args: %{"grant_id" => grant.id},
+          state: "scheduled",
+          scheduled_at: past
+        })
+
+      {:ok, _} =
+        Repo.insert(%Oban.Job{
+          queue: "default",
+          worker: to_string(GrantRefreshWorker),
+          args: %{"grant_id" => grant.id},
+          state: "retryable",
+          scheduled_at: late
+        })
+
+      {:ok, _} =
+        Repo.insert(%Oban.Job{
+          queue: "default",
+          worker: to_string(GrantRefreshWorker),
+          args: %{"grant_id" => grant.id},
+          state: "available",
+          scheduled_at: early
+        })
+
+      schedule = Connect.next_refresh_jobs_for_grants([grant])
+      assert schedule[grant.id]
+      assert DateTime.compare(schedule[grant.id], early) == :eq
     end
   end
 end
