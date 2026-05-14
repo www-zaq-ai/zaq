@@ -124,15 +124,16 @@
 
     <%!-- Content --%>
     <div class="flex-1 min-w-0">
-      <.ai_credentials_panel
+      <ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab.panel
         :if={@active_tab == :ai_credentials}
         credentials={@ai_credentials}
         form={@ai_credential_form}
         modal={@ai_credential_modal}
         delete_confirm_modal={@ai_credential_delete_confirm_modal}
         action={@ai_credential_action}
+        provider_options={@ai_provider_options}
       />
-      <.connect_credentials_panel
+      <ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab.panel
         :if={@active_tab == :auth_credentials}
         credentials={@connect_credentials}
         grants_modal={@connect_grants_modal}
@@ -144,7 +145,7 @@
         credential_changeset={@connect_credential_changeset}
         credential_errors={@connect_credential_errors}
       />
-      <.mcp_panel
+      <ZaqWeb.Live.BO.System.SystemConfig.MCPTab.panel
         :if={@active_tab == :mcps}
         entries={@mcp_endpoints}
         total_count={@mcp_total_count}
@@ -159,19 +160,19 @@
         action={@mcp_endpoint_action}
         delete_confirm_modal={@mcp_endpoint_delete_confirm_modal}
       />
-      <.global_panel
+      <ZaqWeb.Live.BO.System.SystemConfig.AgentsTab.panel
         :if={@active_tab == :agents}
         global_agent_options={@global_agent_options}
         global_default_agent_id={@global_default_agent_id}
       />
-      <.llm_panel
+      <ZaqWeb.Live.BO.System.SystemConfig.LLMTab.panel
         :if={@active_tab == :llm}
         form={@llm_form}
         credential_options={@llm_credential_options}
         model_options={@llm_model_options}
         capabilities={@llm_capabilities}
       />
-      <.embedding_panel
+      <ZaqWeb.Live.BO.System.SystemConfig.EmbeddingTab.panel
         :if={@active_tab == :embedding}
         form={@embedding_form}
         credential_options={@embedding_credential_options}
@@ -181,13 +182,16 @@
         model_changed={@model_changed}
         save_confirm_modal={@embedding_save_confirm_modal}
       />
-      <.image_to_text_panel
+      <ZaqWeb.Live.BO.System.SystemConfig.ImageToTextTab.panel
         :if={@active_tab == :image_to_text}
         form={@image_to_text_form}
         credential_options={@image_to_text_credential_options}
         model_options={@image_to_text_model_options}
       />
-      <.telemetry_panel :if={@active_tab == :telemetry} form={@telemetry_form} />
+      <ZaqWeb.Live.BO.System.SystemConfig.TelemetryTab.panel
+        :if={@active_tab == :telemetry}
+        form={@telemetry_form}
+      />
     </div>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>

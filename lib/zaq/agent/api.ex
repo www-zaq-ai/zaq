@@ -14,6 +14,7 @@ defmodule Zaq.Agent.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  alias Zaq.Agent
   alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
   alias Zaq.Agent.MCP
@@ -146,6 +147,50 @@ defmodule Zaq.Agent.Api do
       other ->
         invalid_request_response(event, other)
     end
+  end
+
+  def handle_event(%Event{} = event, :system_config_agent_list_active_agents, _context) do
+    %{event | response: Agent.list_active_agents()}
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_get_endpoint, _context) do
+    case event.request do
+      %{id: id} ->
+        endpoint = MCP.get_mcp_endpoint!(id)
+        %{event | response: {:ok, endpoint}}
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  rescue
+    Ecto.NoResultsError -> %{event | response: {:error, :not_found}}
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_change_endpoint, _context) do
+    case event.request do
+      %{endpoint: endpoint, attrs: attrs} when is_map(attrs) ->
+        %{event | response: MCP.change_mcp_endpoint(endpoint, attrs)}
+
+      %{endpoint: endpoint} ->
+        %{event | response: MCP.change_mcp_endpoint(endpoint)}
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_filter_endpoints, _context) do
+    case event.request do
+      %{filters: filters, page: page, per_page: per_page} when is_map(filters) ->
+        %{event | response: MCP.filter_mcp_endpoints(filters, page: page, per_page: per_page)}
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_predefined_catalog, _context) do
+    %{event | response: MCP.predefined_catalog()}
   end
 
   def handle_event(%Event{} = event, action, _context) do
