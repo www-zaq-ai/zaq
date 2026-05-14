@@ -1050,14 +1050,14 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "can_access_file?/2" do
-    test "returns true when document has no permissions set (public by default)" do
-      source = "public-doc-#{System.unique_integer()}.md"
+    test "returns false when document has no permissions and no public tag (private by default)" do
+      source = "private-doc-#{System.unique_integer()}.md"
       _doc = create_doc_with_source(source)
       person = create_person()
       role = %Zaq.Accounts.Role{name: "staff"}
       user = %{role: role, person_id: person.id, team_ids: []}
 
-      assert Ingestion.can_access_file?(source, user) == true
+      assert Ingestion.can_access_file?(source, user) == false
     end
 
     test "returns true when no document exists for the path" do
