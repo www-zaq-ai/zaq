@@ -55,9 +55,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-${{ hashFiles('**/mix.lock') }}
+          key: plt-v2-${{ runner.os }}-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
-            plt-${{ runner.os }}-
+            plt-v2-${{ runner.os }}-
 
       - name: Create PLTs directory
         run: mkdir -p priv/plts
@@ -71,7 +71,7 @@ jobs:
         if: steps.plt-cache.outputs.cache-hit != 'true'
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-${{ hashFiles('**/mix.lock') }}
+          key: plt-v2-${{ runner.os }}-${{ hashFiles('**/mix.lock') }}
 
       - name: Run Dialyzer
         run: mix dialyzer --format github

@@ -34,7 +34,7 @@ defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker do
         :ok
 
       _ ->
-        :ok = (points |> build_rollup_rows() |> upsert_rollups())
+        :ok = points |> build_rollup_rows() |> upsert_rollups()
 
         {:ok, _} =
           points

@@ -523,7 +523,10 @@ defmodule Zaq.Engine.Conversations do
 
   defp maybe_enqueue_token_aggregator(_conversation_id, _msg), do: :ok
 
-  defp maybe_generate_title_for_new_conversation(%{title: nil} = conversation, %{role: "user"} = msg) do
+  defp maybe_generate_title_for_new_conversation(
+         %{title: nil} = conversation,
+         %{role: "user"} = msg
+       ) do
     case maybe_generate_title(conversation, msg.content) do
       {:ok, _} -> :ok
       _ -> :ok

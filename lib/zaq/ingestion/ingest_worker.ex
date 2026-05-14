@@ -64,7 +64,9 @@ defmodule Zaq.Ingestion.IngestWorker do
 
       {:cancel, reason}
     else
-      %IngestJob{} = JobLifecycle.mark_pending_retry!(job, "Attempt #{attempt} failed: #{error_msg}")
+      %IngestJob{} =
+        JobLifecycle.mark_pending_retry!(job, "Attempt #{attempt} failed: #{error_msg}")
+
       Telemetry.record("ingestion.retry.count", 1, telemetry_dimensions)
 
       {:error, reason}
