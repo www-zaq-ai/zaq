@@ -217,6 +217,11 @@ defmodule Zaq.Agent.Api do
     # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
     incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
 
+    incoming_dims = incoming.metadata |> Map.get("telemetry_dimensions", %{})
+
+    pipeline_opts =
+      Keyword.put_new(pipeline_opts, :telemetry_dimensions, incoming_dims)
+
     outgoing =
       case selected_agent_id(event.assigns) do
         nil ->
