@@ -79,19 +79,12 @@ defmodule Zaq.Agent.Factory do
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
     with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
-      base_llm_opts = Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent))
-
-      llm_opts =
-        if tools != [] do
-          Keyword.put_new(base_llm_opts, :tool_choice, :required)
-        else
-          base_llm_opts
-        end
-
       {:ok,
        %{
          tools: tools,
-         llm_opts: llm_opts,
+         # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
+         # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
+         llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
          system_prompt: configured_agent.job || ""
        }}
     end
@@ -150,6 +143,11 @@ defmodule Zaq.Agent.Factory do
       when is_binary(query) do
     with {:ok, config} <- server_runtime_config(server, configured_agent),
          :ok <- ensure_system_prompt(server, configured_agent.job || "") do
+      llm_opts =
+        config
+        |> Map.get(:llm_opts, [])
+        |> maybe_put_tool_choice(Map.get(config, :tools, []))
+
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
@@ -220,6 +218,12 @@ defmodule Zaq.Agent.Factory do
   end
 
   defp maybe_put_tool_trace_context(_), do: :ok
+
+  defp maybe_put_tool_choice(llm_opts, tools) when tools != [] do
+    Keyword.put_new(llm_opts, :tool_choice, :required)
+  end
+
+  defp maybe_put_tool_choice(llm_opts, _tools), do: llm_opts
 
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do

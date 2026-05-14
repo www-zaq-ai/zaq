@@ -8,7 +8,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
     assert keys == [
              "answering.search_knowledge_base",
-             "answering.list_knowledge_base_files",
+             "answering.knowledge_base_overview",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -36,7 +36,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
              "answering.search_knowledge_base",
-             "answering.list_knowledge_base_files",
+             "answering.knowledge_base_overview",
              "basic.sleep",
              "basic.log",
              "basic.todo",
