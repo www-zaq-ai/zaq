@@ -260,6 +260,86 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :telemetry_dimensions) == %{}
   end
 
+  test "pipeline path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{"channel_type" => "mattermost"}
+  end
+
+  test "pipeline_opts telemetry_dimensions takes precedence over incoming metadata" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [telemetry_dimensions: %{channel_type: "custom"}],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{channel_type: "custom"}
+  end
+
+  test "executor path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:executor_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{"channel_type" => "mattermost"}
+  end
+
   test "falls back to pipeline when selection is empty or assigns are malformed" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 

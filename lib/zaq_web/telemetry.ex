@@ -52,6 +52,23 @@ defmodule ZaqWeb.Telemetry do
         unit: {:native, :millisecond}
       ),
 
+      # LiveView Metrics
+      summary("phoenix.live_view.mount.stop.duration",
+        tags: [:view],
+        unit: {:native, :millisecond},
+        description: "LiveView mount duration per page"
+      ),
+      summary("phoenix.live_view.handle_params.stop.duration",
+        tags: [:view],
+        unit: {:native, :millisecond},
+        description: "LiveView handle_params duration per page"
+      ),
+      summary("phoenix.live_view.handle_event.stop.duration",
+        tags: [:view, :event],
+        unit: {:native, :millisecond},
+        description: "LiveView handle_event duration per action"
+      ),
+
       # Database Metrics
       summary("zaq.repo.query.total_time",
         unit: {:native, :millisecond},
