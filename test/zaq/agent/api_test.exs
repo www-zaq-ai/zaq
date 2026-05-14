@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.ApiTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Api
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
