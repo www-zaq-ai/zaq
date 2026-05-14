@@ -25,6 +25,11 @@ config :zaq, :channels, %{
     ingress_mode: :gateway,
     sink_mfa: {Zaq.Channels.JidoChatBridge, :from_listener, []}
   },
+  telegram: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.Telegram.Adapter,
+    ingress_mode: :webhook
+  },
   google_drive: %{
     bridge: Zaq.Channels.JidoConnectBridge,
     integration: Jido.Connect.Google.Drive

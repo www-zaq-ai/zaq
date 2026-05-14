@@ -103,7 +103,7 @@ defmodule Zaq.MixProject do
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
       {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
-      # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
+      {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"},
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
@@ -111,6 +111,21 @@ defmodule Zaq.MixProject do
       {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
       {:req_llm, github: "agentjido/req_llm", branch: "main", override: true},
+      {:jido_connect,
+       github: "agentjido/jido_connect",
+       branch: "main",
+       sparse: "apps/jido_connect",
+       override: true},
+      {:jido_connect_google,
+       github: "agentjido/jido_connect",
+       branch: "main",
+       sparse: "apps/jido_connect_google",
+       override: true},
+      {:jido_connect_google_drive,
+       github: "agentjido/jido_connect",
+       branch: "main",
+       sparse: "apps/jido_connect_google_drive",
+       override: true},
 
       # Dev/Test
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
