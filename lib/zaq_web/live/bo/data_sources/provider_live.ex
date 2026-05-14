@@ -472,6 +472,14 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   def selected_folder_info(folder_info_modal), do: folder_info_modal && folder_info_modal.folder
 
+  def folder_permissions(%{permissions: permissions}) when is_list(permissions), do: permissions
+  def folder_permissions(_), do: []
+
+  def permission_label(%{name: name}) when is_binary(name) and name != "", do: name
+
+  def permission_label(%{id: id}) when is_binary(id) and id != "", do: id
+  def permission_label(_), do: "Unknown permission"
+
   def connect_credential_id_from_changeset(%Ecto.Changeset{} = changeset) do
     changeset
     |> Ecto.Changeset.get_field(:settings, %{})
@@ -539,7 +547,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     base_params = %{
       "config_id" => config_id,
       "root_selector" => root_selector,
-      "filters" => filters
+      "filters" => filters,
+      "include_permissions" => true
     }
 
     Enum.reduce_while(1..max_pages, {[], start_page_token, 0, 0}, fn _page_index, state ->

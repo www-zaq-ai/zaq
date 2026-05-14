@@ -32,7 +32,10 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def list_files(config, params) when is_map(config) and is_map(params) do
-    params = maybe_apply_standard_list_filters(params)
+    params =
+      params
+      |> maybe_embed_permissions_projection(config)
+      |> maybe_apply_standard_list_filters()
 
     with {:ok, payload} <- invoke_intent(config, :list_items, params) do
       files = read_list(payload, [:files, "files"], []) |> Enum.filter(&is_map/1)
@@ -430,6 +433,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp map_file_record(raw) when is_map(raw) do
     id = fetch_required_string!(raw, ["id", :id, "file_id", :file_id], "file")
     parent_ids = read_parent_ids(raw)
+    permissions = map_embedded_permissions(raw)
 
     %Record{
       id: id,
@@ -447,18 +451,29 @@ defmodule Zaq.Channels.JidoConnectBridge do
       created_at: read_datetime(raw, ["created_time", :created_time, "created_at", :created_at]),
       modified_at:
         read_datetime(raw, ["modified_time", :modified_time, "modified_at", :modified_at]),
+      permissions: permissions,
       attributes: %{},
       raw: raw
     }
   end
 
   defp map_permission_record(raw) when is_map(raw) do
-    id = fetch_required_string!(raw, ["id", :id], "permission")
+    id = fetch_required_string!(raw, ["id", :id, "permission_id", :permission_id], "permission")
 
     %Record{
       id: id,
       kind: :permission,
-      name: read_stringish(raw, ["displayName", :displayName, "emailAddress", :emailAddress]),
+      name:
+        read_stringish(raw, [
+          "displayName",
+          :displayName,
+          "display_name",
+          :display_name,
+          "emailAddress",
+          :emailAddress,
+          "email_address",
+          :email_address
+        ]),
       parent_id: nil,
       parent_ids: [],
       mime_type: nil,
@@ -474,6 +489,93 @@ defmodule Zaq.Channels.JidoConnectBridge do
       raw: raw
     }
   end
+
+  defp map_embedded_permissions(raw) when is_map(raw) do
+    case read_any(raw, ["permissions", :permissions]) do
+      list when is_list(list) ->
+        list
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(&map_permission_record/1)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp maybe_embed_permissions_projection(params, %{provider: provider} = _config)
+       when is_map(params) and is_binary(provider) do
+    if truthy?(Map.get(params, :include_permissions) || Map.get(params, "include_permissions")) do
+      enrich_permissions_projection(provider, params)
+    else
+      params
+    end
+  end
+
+  defp maybe_embed_permissions_projection(params, _), do: params
+
+  defp enrich_permissions_projection(provider, params) do
+    with {:ok, integration} <- integration_for_provider(provider),
+         {:ok, action} <- resolve_action(integration, :list_items),
+         true <- supports_fields_input?(action) do
+      maybe_set_provider_permission_fields(provider, params)
+    else
+      _ -> params
+    end
+  end
+
+  defp supports_fields_input?(%{input: input}) when is_list(input) do
+    Enum.any?(input, fn
+      %{name: :fields} -> true
+      _ -> false
+    end)
+  end
+
+  defp supports_fields_input?(_), do: false
+
+  defp maybe_set_provider_permission_fields("google_drive", params) do
+    permission_fields =
+      "permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted,expirationTime)"
+
+    fields = Map.get(params, :fields) || Map.get(params, "fields")
+
+    merged_fields =
+      cond do
+        is_binary(fields) and String.contains?(fields, "permissions(") ->
+          fields
+
+        is_binary(fields) and String.contains?(fields, "files(") ->
+          Regex.replace(
+            ~r/files\((.*?)\)/,
+            fields,
+            fn _all, inner ->
+              "files(#{inner},#{permission_fields})"
+            end,
+            global: false
+          )
+
+        is_binary(fields) ->
+          fields <> ",files(#{permission_fields})"
+
+        true ->
+          default_google_drive_list_fields_with_permissions(permission_fields)
+      end
+
+    params
+    |> Map.put(:fields, merged_fields)
+    |> Map.put("fields", merged_fields)
+  end
+
+  defp maybe_set_provider_permission_fields(_provider, params), do: params
+
+  defp default_google_drive_list_fields_with_permissions(permission_fields) do
+    file_fields =
+      "id,name,mimeType,description,webViewLink,webContentLink,iconLink,thumbnailLink,size,md5Checksum,createdTime,modifiedTime,parents,owners,shared,trashed,starred,driveId"
+
+    "nextPageToken,files(#{file_fields},#{permission_fields})"
+  end
+
+  defp truthy?(value) when value in [true, "true", "1", 1], do: true
+  defp truthy?(_), do: false
 
   defp fetch_required_string!(map, keys, kind_label) do
     case read_stringish(map, keys) do
