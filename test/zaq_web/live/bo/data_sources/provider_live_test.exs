@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
+  alias Zaq.Repo
   alias ZaqWeb.Live.BO.DataSources.ProviderLive
 
   defp socket_with(assigns) do
@@ -213,5 +214,242 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert ProviderLive.connect_credential_id_from_changeset(empty) == ""
     assert ProviderLive.root_selector_from_changeset(empty, "google_drive") == "root"
     assert ProviderLive.root_selector_from_changeset(empty, "sharepoint") == "/"
+  end
+
+  test "config modal lifecycle supports new, validate and close" do
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        modal: nil,
+        changeset: nil,
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, opened} =
+             ProviderLive.handle_event("open_modal", %{"action" => "new"}, socket)
+
+    assert opened.assigns.modal == :new
+    assert %Ecto.Changeset{} = opened.assigns.changeset
+
+    assert {:noreply, validated} =
+             ProviderLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{"name" => "", "provider" => "google_drive", "kind" => "data_source"}
+               },
+               opened
+             )
+
+    assert validated.assigns.changeset.action == :validate
+    assert is_list(validated.assigns.modal_errors)
+
+    assert {:noreply, closed} = ProviderLive.handle_event("close_modal", %{}, validated)
+    assert closed.assigns.modal == nil
+    assert closed.assigns.changeset == nil
+  end
+
+  test "open edit modal and delete missing/found configs" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    base_socket =
+      socket_with(%{
+        provider: "google_drive",
+        confirm_delete: nil,
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{},
+        modal: nil,
+        changeset: nil,
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, edited} =
+             ProviderLive.handle_event(
+               "open_modal",
+               %{"action" => "edit", "id" => Integer.to_string(config.id)},
+               base_socket
+             )
+
+    assert edited.assigns.modal == :edit
+    assert %Ecto.Changeset{} = edited.assigns.changeset
+
+    missing_delete_socket = socket_with(Map.put(base_socket.assigns, :confirm_delete, -1))
+
+    assert {:noreply, missing_deleted} =
+             ProviderLive.handle_event("delete", %{}, missing_delete_socket)
+
+    assert missing_deleted.assigns.confirm_delete == nil
+
+    existing_delete_socket = socket_with(Map.put(base_socket.assigns, :confirm_delete, config.id))
+
+    assert {:noreply, deleted} = ProviderLive.handle_event("delete", %{}, existing_delete_socket)
+    assert deleted.assigns.confirm_delete == nil
+    assert Repo.get(ChannelConfig, config.id) == nil
+  end
+
+  test "mount initializes provider label and seeded assigns" do
+    assert {:ok, mounted} =
+             ProviderLive.mount(
+               %{"provider" => "custom_provider"},
+               %{},
+               socket_with(%{service_available: false})
+             )
+
+    assert mounted.assigns.provider == "custom_provider"
+    assert mounted.assigns.provider_label == "Custom provider"
+    assert mounted.assigns.configs == []
+    assert mounted.assigns.modal == nil
+    assert mounted.assigns.confirm_delete == nil
+  end
+
+  test "toggle_enabled, confirm/cancel delete, and capabilities modal events" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-toggle-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, toggled} =
+             ProviderLive.handle_event(
+               "toggle_enabled",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    refute Repo.get!(ChannelConfig, config.id).enabled
+    assert toggled.assigns.modal == nil
+
+    assert {:noreply, deleting} =
+             ProviderLive.handle_event(
+               "confirm_delete",
+               %{"id" => Integer.to_string(config.id)},
+               toggled
+             )
+
+    assert deleting.assigns.confirm_delete == Integer.to_string(config.id)
+
+    assert {:noreply, canceled} = ProviderLive.handle_event("cancel_delete", %{}, deleting)
+    assert canceled.assigns.confirm_delete == nil
+
+    assert {:noreply, capabilities_open} =
+             ProviderLive.handle_event(
+               "open_capabilities",
+               %{"id" => Integer.to_string(config.id)},
+               canceled
+             )
+
+    assert capabilities_open.assigns.capability_modal_config_id == Integer.to_string(config.id)
+
+    assert {:noreply, capabilities_closed} =
+             ProviderLive.handle_event("close_capabilities", %{}, capabilities_open)
+
+    assert capabilities_closed.assigns.capability_modal_config_id == nil
+  end
+
+  test "folder info modal open/close and fetch_more without cursor" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-folders-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    folder = %Zaq.Contracts.Record{
+      id: "folder-1",
+      name: "Folder 1",
+      kind: :folder,
+      permissions: []
+    }
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{config.id => [folder]},
+        root_folder_meta_by_config: %{config.id => %{next_page_token: nil}},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, with_folder_info} =
+             ProviderLive.handle_event(
+               "open_folder_info",
+               %{"config-id" => Integer.to_string(config.id), "folder-id" => "folder-1"},
+               socket
+             )
+
+    assert with_folder_info.assigns.folder_info_modal.folder.id == "folder-1"
+
+    assert {:noreply, closed_folder_info} =
+             ProviderLive.handle_event("close_folder_info", %{}, with_folder_info)
+
+    assert closed_folder_info.assigns.folder_info_modal == nil
+
+    assert {:noreply, no_more_pages} =
+             ProviderLive.handle_event(
+               "fetch_more",
+               %{"id" => Integer.to_string(config.id)},
+               closed_folder_info
+             )
+
+    assert no_more_pages.assigns.root_folders_by_config[config.id] == [folder]
+  end
+
+  test "open_test populates root folder metadata even on provider errors" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-open-test-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+      })
+      |> Repo.insert!()
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, updated} =
+             ProviderLive.handle_event(
+               "open_test",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    assert Map.has_key?(updated.assigns.root_folders_by_config, config.id)
+    assert Map.has_key?(updated.assigns.root_folder_meta_by_config, config.id)
+    assert is_map(updated.assigns.root_folder_meta_by_config[config.id])
   end
 end

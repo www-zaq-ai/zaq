@@ -195,15 +195,54 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     def invoke(_integration, "stub.permissions.list", _params, _opts), do: {:error, :unsupported}
   end
 
+  defmodule StubOAuthNodeRouter do
+    def dispatch(
+          %{opts: [action: :connect_fetch_credential], request: %{credential_id: id}} = _event
+        ) do
+      response =
+        case id do
+          "missing" ->
+            {:error, :not_found}
+
+          _ ->
+            {:ok,
+             %{id: id, client_id: "client-id", client_secret: "secret", scopes: ["scope.read"]}}
+        end
+
+      %{response: response}
+    end
+
+    def dispatch(
+          %{opts: [action: :connect_oauth_redirect_uri_for], request: %{provider: provider}} =
+            _event
+        ) do
+      %{response: "https://zaq.example/channels/oauth2/#{provider}/redirect"}
+    end
+
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = _event), do: %{response: nil}
+  end
+
+  defmodule StubBadOAuthNodeRouter do
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = _event),
+      do: %{response: {:ok, %{id: "cred-1", client_id: "client-id", client_secret: "secret"}}}
+
+    def dispatch(%{opts: [action: :connect_oauth_redirect_uri_for]} = _event),
+      do: %{response: :invalid}
+
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = _event), do: %{response: nil}
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
     original_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    original_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
 
     Application.put_env(:zaq, :channels, %{
       google_drive: %{bridge: JidoConnectBridge, integration: StubIntegration}
     })
 
     Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnect)
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, Zaq.NodeRouter)
 
     on_exit(fn ->
       if original_channels do
@@ -216,6 +255,12 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
         Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, original_jido_connect)
       else
         Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+      end
+
+      if original_node_router do
+        Application.put_env(:zaq, :jido_connect_bridge_node_router_module, original_node_router)
+      else
+        Application.delete_env(:zaq, :jido_connect_bridge_node_router_module)
       end
     end)
 
@@ -415,5 +460,94 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, snapshot} = JidoConnectBridge.capability_snapshot(config)
     assert snapshot.resolved[:list_items] == "stub.files.list"
     assert :list_principals in snapshot.unsupported
+  end
+
+  test "oauth callbacks return unsupported for providers without oauth modules" do
+    config =
+      insert_data_source_config(:sharepoint, %{
+        settings: %{"connect" => %{"credential_id" => nil}}
+      })
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "cred-#{System.unique_integer([:positive])}",
+        provider: "sharepoint",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "client",
+        client_secret: "secret",
+        scopes: ["scope.read"]
+      })
+
+    config =
+      config
+      |> ChannelConfig.changeset(%{
+        "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+      })
+      |> Repo.update!()
+
+    assert {:error, :unsupported} =
+             JidoConnectBridge.oauth_authorize_url(config, %{"state" => "abc"})
+
+    assert {:error, :unsupported} =
+             JidoConnectBridge.oauth_exchange_code(config, %{"code" => "oauth-code"})
+
+    assert {:error, :unsupported} =
+             JidoConnectBridge.oauth_refresh_token(config, %{"refresh_token" => "token"})
+  end
+
+  test "oauth_authorize_url/oauth_exchange_code/oauth_refresh_token succeed with oauth runtime context" do
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => "cred-1"}}
+      })
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubOAuthNodeRouter)
+
+    assert {:ok, authorize_url} =
+             JidoConnectBridge.oauth_authorize_url(config, %{
+               "state" => "state-123",
+               "scope" => "a b"
+             })
+
+    assert is_binary(authorize_url)
+
+    assert {:error, _} = JidoConnectBridge.oauth_exchange_code(config, %{"code" => "oauth-code"})
+
+    assert {:error, _} =
+             JidoConnectBridge.oauth_refresh_token(config, %{
+               "refresh_token" => "refresh-token",
+               "scope" => ["scope.read"]
+             })
+  end
+
+  test "oauth runtime errors when credential lookup fails" do
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => "missing"}}
+      })
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubOAuthNodeRouter)
+
+    assert {:error, :not_found} =
+             JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
+
+    assert {:error, :not_found} =
+             JidoConnectBridge.oauth_exchange_code(config, %{"code" => "oauth-code"})
+  end
+
+  test "oauth runtime errors when redirect uri is invalid" do
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => "cred-1"}}
+      })
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubBadOAuthNodeRouter)
+
+    assert_raise WithClauseError, fn ->
+      JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
+    end
   end
 end

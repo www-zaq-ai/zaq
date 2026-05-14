@@ -2077,5 +2077,76 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       html = render_click(view, "delete_connect_grant", %{"id" => "99999998"})
       assert html =~ "Grant not found."
     end
+
+    test "validates and keeps credential modal open when data is invalid", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        render_change(view, "validate_connect_credential", %{
+          "credential" => %{
+            "name" => "",
+            "provider" => "attempted-overwrite",
+            "request_format" => "raw",
+            "auth_kind" => "oauth2",
+            "client_id" => ""
+          }
+        })
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+
+      html =
+        render_submit(view, "save_connect_credential", %{
+          "credential" => %{
+            "name" => "",
+            "provider" => "attempted-overwrite",
+            "request_format" => "raw",
+            "auth_kind" => "oauth2",
+            "client_id" => ""
+          }
+        })
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+    end
+
+    test "close_connect_credential_modal hides modal and clears edited values", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+
+      html = render_click(view, "close_connect_credential_modal", %{})
+
+      refute has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+    end
   end
 end
