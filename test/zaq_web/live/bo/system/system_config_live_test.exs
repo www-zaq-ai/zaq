@@ -2050,5 +2050,32 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "Grant erased."
       refute Repo.get(Zaq.Engine.Connect.Grant, expired_grant.id)
     end
+
+    test "handles missing connect credential and missing grant ids", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      html = render_click(view, "edit_connect_credential", %{"id" => "99999999"})
+      assert html =~ "Credential not found."
+
+      view
+      |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html = render_click(view, "trigger_connect_grant_refresh", %{"id" => "99999999"})
+      assert html =~ "Grant not found."
+
+      html = render_click(view, "delete_connect_grant", %{"id" => "99999998"})
+      assert html =~ "Grant not found."
+    end
   end
 end

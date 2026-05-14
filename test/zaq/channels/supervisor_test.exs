@@ -528,6 +528,20 @@ defmodule Zaq.Channels.SupervisorTest do
     assert is_pid(pid)
   end
 
+  test "public API guards reject invalid argument types" do
+    assert_raise FunctionClauseError, fn ->
+      Supervisor.start_runtime(:not_binary, nil, [])
+    end
+
+    assert_raise FunctionClauseError, fn ->
+      Supervisor.lookup_runtime(123)
+    end
+
+    assert_raise FunctionClauseError, fn ->
+      Supervisor.lookup_state_pid(nil)
+    end
+  end
+
   defp wait_for_runtime(bridge_id, attempts \\ 40)
 
   defp wait_for_runtime(_bridge_id, 0), do: {:error, :not_running}

@@ -95,4 +95,31 @@ defmodule Zaq.Engine.ApiTest do
     assert Api.handle_event(Event.new(%{}, :engine), :connect_oauth_redirect_uri_for, nil).response ==
              {:error, {:invalid_request, %{}}}
   end
+
+  test "returns invalid request for system config actions requiring maps" do
+    invalid_cases = [
+      {:system_config_get_ai_provider_credential, %{}},
+      {:system_config_get_ai_provider_credential_bang, %{}},
+      {:system_config_change_ai_provider_credential, %{credential: %{id: 1}, attrs: :bad}},
+      {:system_config_create_ai_provider_credential, %{attrs: :bad}},
+      {:system_config_update_ai_provider_credential, %{credential: %{id: 1}, attrs: :bad}},
+      {:system_config_delete_ai_provider_credential, %{}},
+      {:system_config_save_telemetry_config, %{}},
+      {:system_config_set_global_default_agent_id, %{}},
+      {:system_config_save_llm_config, %{}},
+      {:system_config_save_embedding_config, %{}},
+      {:system_config_save_image_to_text_config, %{}},
+      {:system_config_connect_change_credential, %{credential: %{id: 1}, attrs: :bad}},
+      {:system_config_connect_update_credential, %{credential: %{id: 1}, attrs: :bad}},
+      {:system_config_connect_list_grants, %{}},
+      {:system_config_connect_next_refresh_jobs_for_grants, %{grants: :bad}},
+      {:system_config_connect_delete_grant, %{}},
+      {:system_config_connect_schedule_refresh, %{}}
+    ]
+
+    Enum.each(invalid_cases, fn {action, request} ->
+      result = Api.handle_event(Event.new(request, :engine), action, nil)
+      assert result.response == {:error, {:invalid_request, request}}
+    end)
+  end
 end

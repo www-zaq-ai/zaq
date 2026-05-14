@@ -1013,4 +1013,26 @@ defmodule Zaq.Agent.ApiTest do
       assert resolved2.person_id == 99
     end
   end
+
+  describe "system config and MCP action guards" do
+    test "system_config_mcp_predefined_catalog returns a map" do
+      result =
+        Api.handle_event(Event.new(%{}, :agent), :system_config_mcp_predefined_catalog, nil)
+
+      assert is_map(result.response)
+    end
+
+    test "returns invalid request for malformed MCP system config payloads" do
+      invalid_requests = [
+        {:system_config_mcp_get_endpoint, %{}},
+        {:system_config_mcp_change_endpoint, %{attrs: %{name: "x"}}},
+        {:system_config_mcp_filter_endpoints, %{filters: :bad, page: 1, per_page: 20}}
+      ]
+
+      Enum.each(invalid_requests, fn {action, request} ->
+        result = Api.handle_event(Event.new(request, :agent), action, nil)
+        assert result.response == {:error, {:invalid_request, request}}
+      end)
+    end
+  end
 end
