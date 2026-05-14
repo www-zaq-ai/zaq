@@ -1,9 +1,9 @@
-defmodule Zaq.Engine.Workflows.TriggerBehaviourTest do
+defmodule Zaq.Engine.Workflows.Trigger.BehaviourTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.{Trigger, WorkflowRun}
-  alias Zaq.Engine.Workflows.Triggers.{Manual, Scheduler, Signal, Webhook}
+  alias Zaq.Engine.Workflows.Trigger.Type.{Manual, Scheduler, Signal, Webhook}
 
   @valid_node %{
     name: "fetch",

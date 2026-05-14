@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.StepEdge do
+defmodule Zaq.Engine.Workflows.Step.Edge do
   @moduledoc """
   Embedded schema for a directed edge between two nodes in a workflow DAG.
 

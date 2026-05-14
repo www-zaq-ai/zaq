@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.TriggerBehaviour do
+defmodule Zaq.Engine.Workflows.Trigger.Behaviour do
   @moduledoc """
   Execution contract for all workflow trigger types.
 
@@ -15,7 +15,7 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviour do
   ## Implementing a trigger
 
       defmodule Zaq.Engine.Workflows.Triggers.MyTrigger do
-        @behaviour Zaq.Engine.Workflows.TriggerBehaviour
+        @behaviour Zaq.Engine.Workflows.Trigger.Behaviour
 
         @impl true
         def fire(trigger, input) do
@@ -33,7 +33,8 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviour do
       end
   """
 
-  alias Zaq.Engine.Workflows.{StepRun, Trigger, WorkflowRun}
+  alias Zaq.Engine.Workflows.Step.Run, as: StepRun
+  alias Zaq.Engine.Workflows.{Trigger, WorkflowRun}
 
   @doc """
   Builds a `%Zaq.Event{}` for the trigger firing. Returns `{:ok, event}`.

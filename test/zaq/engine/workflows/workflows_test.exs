@@ -3,7 +3,8 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   use ExUnitProperties
 
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.{StepRun, Trigger, Workflow, WorkflowRun}
+  alias Zaq.Engine.Workflows.Step.Run, as: StepRun
+  alias Zaq.Engine.Workflows.{Trigger, Workflow, WorkflowRun}
 
   @valid_node %{
     name: "fetch",

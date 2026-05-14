@@ -146,7 +146,7 @@ defmodule Zaq.Engine.Workflows.TriggerTest do
 
   describe "Trigger.module/1" do
     test "maps all known types to modules" do
-      alias Zaq.Engine.Workflows.Triggers.{Manual, Scheduler, Signal, Webhook}
+      alias Zaq.Engine.Workflows.Trigger.Type.{Manual, Scheduler, Signal, Webhook}
 
       assert {:ok, Manual} = Trigger.module(%Trigger{type: "manual"})
       assert {:ok, Webhook} = Trigger.module(%Trigger{type: "webhook"})

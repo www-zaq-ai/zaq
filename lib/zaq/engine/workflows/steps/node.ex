@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.StepNode do
+defmodule Zaq.Engine.Workflows.Step.Node do
   @moduledoc """
   Embedded schema for a single node in a workflow DAG.
 

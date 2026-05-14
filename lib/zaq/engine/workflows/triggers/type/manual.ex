@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.Triggers.Manual do
+defmodule Zaq.Engine.Workflows.Trigger.Type.Manual do
   @moduledoc """
   Trigger fired explicitly by a user via the BO UI or API.
 
@@ -7,7 +7,7 @@ defmodule Zaq.Engine.Workflows.Triggers.Manual do
   workflow with no trigger record required (used by `Workflows.run_workflow_manually/3`).
   """
 
-  @behaviour Zaq.Engine.Workflows.TriggerBehaviour
+  @behaviour Zaq.Engine.Workflows.Trigger.Behaviour
 
   alias Zaq.{Engine.Workflows, Event}
 
