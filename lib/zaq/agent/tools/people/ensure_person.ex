@@ -9,6 +9,9 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
     name: "ensure_person",
     schema: [
       drafts: [type: :any, required: true]
+    ],
+    output_schema: [
+      drafts: [type: {:list, :map}, required: true]
     ]
 
   require Logger
