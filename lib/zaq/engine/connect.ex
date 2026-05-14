@@ -152,7 +152,7 @@ defmodule Zaq.Engine.Connect do
   @spec schedule_refresh(Grant.t()) :: {:ok, Oban.Job.t()} | {:error, Changeset.t()}
   def schedule_refresh(%Grant{id: id}) do
     %{grant_id: id}
-    |> GrantRefreshWorker.new()
+    |> Job.new(worker: to_string(GrantRefreshWorker), queue: :channels)
     |> Oban.insert()
   end
 

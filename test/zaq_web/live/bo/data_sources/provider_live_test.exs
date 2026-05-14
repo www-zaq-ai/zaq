@@ -452,4 +452,291 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert Map.has_key?(updated.assigns.root_folder_meta_by_config, config.id)
     assert is_map(updated.assigns.root_folder_meta_by_config[config.id])
   end
+
+  test "save creates a new data source config" do
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        modal: :new,
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "name" => "placeholder",
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        form: nil,
+        modal_errors: [],
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{}
+      })
+
+    name = "save-new-#{System.unique_integer([:positive])}"
+
+    assert {:noreply, saved} =
+             ProviderLive.handle_event(
+               "save",
+               %{
+                 "form" => %{
+                   "name" => name,
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "enabled" => true,
+                   "settings" => %{}
+                 }
+               },
+               socket
+             )
+
+    assert saved.assigns.modal == nil
+    assert saved.assigns.changeset == nil
+    assert Repo.get_by(ChannelConfig, name: name) != nil
+  end
+
+  test "save validation error keeps modal open and returns errors" do
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        modal: :new,
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, errored} =
+             ProviderLive.handle_event(
+               "save",
+               %{
+                 "form" => %{
+                   "name" => "",
+                   "provider" => "google_drive",
+                   "kind" => "data_source"
+                 }
+               },
+               socket
+             )
+
+    assert errored.assigns.modal == :new
+    assert %Ecto.Changeset{} = errored.assigns.changeset
+    assert errored.assigns.modal_errors != []
+  end
+
+  test "validate detects credential provider mismatch" do
+    {:ok, mismatch_cred} =
+      Connect.create_credential(%{
+        "name" => "cred-mismatch-#{System.unique_integer([:positive])}",
+        "provider" => "sharepoint",
+        "auth_kind" => "oauth2",
+        "request_format" => "bearer",
+        "user_level" => false,
+        "metadata" => %{},
+        "client_id" => "client",
+        "client_secret" => "secret",
+        "scopes" => ["scope.read"]
+      })
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        modal: :new,
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, validated} =
+             ProviderLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "name" => "mismatch-test",
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "enabled" => true,
+                   "settings" => %{
+                     "connect" => %{"credential_id" => Integer.to_string(mismatch_cred.id)}
+                   }
+                 }
+               },
+               socket
+             )
+
+    assert validated.assigns.changeset.errors != []
+
+    assert Enum.any?(
+             validated.assigns.modal_errors,
+             &String.contains?(&1, "provider does not match")
+           )
+  end
+
+  test "validate detects missing credential" do
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        modal: :new,
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, validated} =
+             ProviderLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "name" => "missing-cred-test",
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "enabled" => true,
+                   "settings" => %{
+                     "connect" => %{"credential_id" => "99999999"}
+                   }
+                 }
+               },
+               socket
+             )
+
+    assert validated.assigns.changeset.errors != []
+    assert Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "not found"))
+  end
+
+  test "zaq_local provider uses local_filesystem credential mapping" do
+    assert {:ok, mounted} =
+             ProviderLive.mount(
+               %{"provider" => "zaq_local"},
+               %{},
+               socket_with(%{service_available: false})
+             )
+
+    assert mounted.assigns.provider == "zaq_local"
+    assert mounted.assigns.provider_label == "ZAQ Local"
+
+    assert {:noreply, opened} = ProviderLive.handle_event("open_new_credential", %{}, mounted)
+    assert opened.assigns.credential_modal
+
+    cred_provider =
+      Ecto.Changeset.get_field(opened.assigns.credential_changeset, :provider)
+
+    assert cred_provider == "local_filesystem"
+  end
+
+  test "fetch_more with next_page_token attempts to load additional pages" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-cursor-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    folder = %Zaq.Contracts.Record{
+      id: "folder-1",
+      name: "Folder 1",
+      kind: :folder,
+      permissions: []
+    }
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{config.id => [folder]},
+        root_folder_meta_by_config: %{config.id => %{next_page_token: "token-abc"}},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, updated} =
+             ProviderLive.handle_event(
+               "fetch_more",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    assert Enum.any?(updated.assigns.root_folders_by_config[config.id], &(&1.id == "folder-1"))
+    assert is_map(updated.assigns.root_folder_meta_by_config[config.id])
+    assert updated.assigns.stats_errors_by_config[config.id] != nil
+  end
+
+  test "open_folder_info handles missing folder gracefully" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-missing-folder-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    actual = %Zaq.Contracts.Record{
+      id: "folder-1",
+      name: "Folder 1",
+      kind: :folder,
+      permissions: []
+    }
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{config.id => [actual]}
+      })
+
+    assert {:noreply, result} =
+             ProviderLive.handle_event(
+               "open_folder_info",
+               %{"config-id" => Integer.to_string(config.id), "folder-id" => "non-existent"},
+               socket
+             )
+
+    assert result.assigns.folder_info_modal.config_id == config.id
+    assert result.assigns.folder_info_modal.folder == nil
+  end
+
+  test "toggle_enabled re-enables a previously disabled config" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-re-enable-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => false,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    socket = socket_with(%{provider: "google_drive"})
+
+    assert {:noreply, toggled} =
+             ProviderLive.handle_event(
+               "toggle_enabled",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    assert Repo.get!(ChannelConfig, config.id).enabled
+    assert toggled.assigns.modal == nil
+  end
 end

@@ -8,6 +8,51 @@ defmodule Zaq.Engine.ConnectTest do
   alias Zaq.Repo
   alias Zaq.Types.EncryptedString
 
+  setup do
+    {:ok,
+     oauth_attrs: %{
+       name: "OAuth2 Config",
+       provider: "google_drive",
+       auth_kind: "oauth2",
+       request_format: "bearer",
+       user_level: false,
+       metadata: %{"authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth"},
+       client_id: "client-id",
+       client_secret: "secret"
+     }}
+  end
+
+  defp create_oauth_credential(_context) do
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "OAuth2 Config",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{"authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth"},
+        client_id: "client-id",
+        client_secret: "secret"
+      })
+
+    %{credential: credential}
+  end
+
+  defp issue_oauth_grant(credential, overrides \\ []) do
+    base = %{
+      credential_id: credential.id,
+      resource_type: "data_source",
+      resource_id: "99",
+      owner_type: "org",
+      metadata: %{},
+      access_token: "tok",
+      refresh_token: "ref"
+    }
+
+    {:ok, grant} = Connect.issue_grant(Map.merge(base, Map.new(overrides)))
+    grant
+  end
+
   describe "credentials" do
     test "creates provider-scoped oauth2 credential" do
       attrs = %{
@@ -84,9 +129,80 @@ defmodule Zaq.Engine.ConnectTest do
       assert {:ok, updated} = Connect.update_credential(credential, %{client_secret: encrypted})
       assert updated.client_secret == encrypted
     end
+
+    test "list_credentials/0 returns all credentials ordered by name" do
+      {:ok, _a} =
+        Connect.create_credential(%{
+          name: "Zed",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "c1",
+          client_secret: "s1"
+        })
+
+      {:ok, _b} =
+        Connect.create_credential(%{
+          name: "Alpha",
+          provider: "sharepoint",
+          auth_kind: "api_key",
+          request_format: "raw",
+          user_level: false,
+          metadata: %{},
+          api_key: "k2"
+        })
+
+      result = Connect.list_credentials()
+      names = Enum.map(result, & &1.name)
+      assert names == ["Alpha", "Zed"]
+    end
+
+    test "fetch_credential/1 returns not_found for non-existent id" do
+      assert {:error, :not_found} = Connect.fetch_credential(-1)
+    end
+
+    test "change_credential/2 returns a changeset" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "To change",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "s"
+        })
+
+      changeset = Connect.change_credential(credential, %{name: "Changed"})
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :name) == "Changed"
+    end
+
+    test "update_credential drops blank atom-keyed secret attrs" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Drop blank",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "s"
+        })
+
+      assert {:ok, updated} = Connect.update_credential(credential, %{client_secret: ""})
+      updated = Repo.get!(Credential, updated.id)
+      assert updated.client_secret == "s"
+    end
   end
 
   describe "grants" do
+    setup [:create_oauth_credential]
+
     test "issues api_key grant and copies token from credential when missing in attrs" do
       {:ok, credential} =
         Connect.create_credential(%{
@@ -116,19 +232,7 @@ defmodule Zaq.Engine.ConnectTest do
       assert grant.auth_kind == "api_key"
     end
 
-    test "resolves latest active grant for owner and resource context" do
-      {:ok, credential} =
-        Connect.create_credential(%{
-          name: "OAuth2 Config",
-          provider: "google_drive",
-          auth_kind: "oauth2",
-          request_format: "bearer",
-          user_level: false,
-          metadata: %{"authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth"},
-          client_id: "client-id",
-          client_secret: "secret"
-        })
-
+    test "resolves latest active grant for owner and resource context", %{credential: credential} do
       assert {:ok, _grant1} =
                Connect.issue_grant(%{
                  credential_id: credential.id,
@@ -165,19 +269,9 @@ defmodule Zaq.Engine.ConnectTest do
       assert selected.id == grant2.id
     end
 
-    test "issue_grant rejects provider mismatch for data source resource" do
-      {:ok, credential} =
-        Connect.create_credential(%{
-          name: "OAuth2 Config",
-          provider: "google_drive",
-          auth_kind: "oauth2",
-          request_format: "bearer",
-          user_level: false,
-          metadata: %{},
-          client_id: "client-id",
-          client_secret: "secret"
-        })
-
+    test "issue_grant rejects provider mismatch for data source resource", %{
+      credential: credential
+    } do
       {:ok, cfg} =
         %ChannelConfig{}
         |> ChannelConfig.changeset(%{
@@ -201,88 +295,345 @@ defmodule Zaq.Engine.ConnectTest do
                })
     end
 
-    test "revoke_grant sets grant status to revoked" do
-      {:ok, credential} =
-        Connect.create_credential(%{
-          name: "OAuth2 Config",
-          provider: "google_drive",
-          auth_kind: "oauth2",
-          request_format: "bearer",
-          user_level: false,
-          metadata: %{},
-          client_id: "client-id",
-          client_secret: "secret"
-        })
-
-      {:ok, grant} =
-        Connect.issue_grant(%{
-          credential_id: credential.id,
-          resource_type: "data_source",
-          resource_id: "12",
-          owner_type: "org",
-          metadata: %{},
-          access_token: "a",
-          refresh_token: "r"
-        })
+    test "revoke_grant sets grant status to revoked", %{credential: credential} do
+      grant = issue_oauth_grant(credential)
 
       assert {:ok, revoked} = Connect.revoke_grant(grant)
       assert revoked.status == "revoked"
     end
 
-    test "next_refresh_jobs_for_grants returns map with nil when no jobs" do
+    test "delete_grant removes grant from database", %{credential: credential} do
+      grant = issue_oauth_grant(credential)
+
+      assert {:ok, %Grant{}} = Connect.delete_grant(grant)
+      assert Repo.get(Grant, grant.id) == nil
+    end
+
+    test "list_grants/0 returns all grants ordered by inserted_at desc", %{credential: credential} do
+      g1 = issue_oauth_grant(credential, resource_id: "10")
+      g2 = issue_oauth_grant(credential, resource_id: "11")
+
+      result = Connect.list_grants()
+      ids = Enum.map(result, & &1.id)
+      assert length(ids) >= 2
+      assert g1.id in ids
+      assert g2.id in ids
+    end
+
+    test "list_grants/1 filters by multiple fields", %{credential: credential} do
+      g1 = issue_oauth_grant(credential, resource_id: "51", owner_type: "org", owner_id: 10)
+      g2 = issue_oauth_grant(credential, resource_id: "52", owner_type: "user", owner_id: 20)
+
+      assert [g1.id] == Enum.map(Connect.list_grants(resource_id: "51"), & &1.id)
+      assert [g2.id] == Enum.map(Connect.list_grants(owner_type: "user"), & &1.id)
+      assert [g2.id] == Enum.map(Connect.list_grants(owner_id: 20), & &1.id)
+
+      assert Connect.list_grants(credential_id: credential.id)
+             |> Enum.map(& &1.id)
+             |> MapSet.new() ==
+               MapSet.new([g1.id, g2.id])
+
+      assert [] == Connect.list_grants(status: "expired")
+
+      {:ok, revoked} = Connect.revoke_grant(g1)
+      assert [revoked.id] == Enum.map(Connect.list_grants(status: "revoked"), & &1.id)
+    end
+
+    test "get_active_grant with owner_id: nil returns org-level grant", %{credential: credential} do
+      grant = issue_oauth_grant(credential, owner_type: "org", owner_id: nil)
+
+      selected =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: "99",
+          owner_type: "org",
+          owner_id: nil
+        })
+
+      assert selected.id == grant.id
+    end
+
+    test "get_active_grant defaults owner_type to org when not provided", %{
+      credential: credential
+    } do
+      grant = issue_oauth_grant(credential, owner_type: "org", owner_id: nil)
+
+      selected =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: "99"
+        })
+
+      assert selected.id == grant.id
+    end
+
+    test "get_active_grant excludes expired grants", %{credential: credential} do
+      {:ok, expired} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "61",
+          owner_type: "org",
+          metadata: %{},
+          access_token: "a",
+          refresh_token: "r",
+          expires_at: DateTime.add(DateTime.utc_now(), -3600, :second)
+        })
+
+      assert Repo.get(Grant, expired.id) != nil
+
+      selected =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: "61",
+          owner_type: "org"
+        })
+
+      assert selected == nil
+    end
+
+    test "issue_grant accepts non-data_source resource type (mcp)" do
       {:ok, credential} =
         Connect.create_credential(%{
-          name: "OAuth2 Config",
+          name: "MCP Config",
           provider: "google_drive",
           auth_kind: "oauth2",
           request_format: "bearer",
           user_level: false,
           metadata: %{},
-          client_id: "client-id",
-          client_secret: "secret"
+          client_id: "id",
+          client_secret: "s"
         })
 
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "mcp",
+                 resource_id: "mcp-srv",
+                 owner_type: "org",
+                 metadata: %{},
+                 access_token: "tok"
+               })
+
+      assert grant.resource_type == "mcp"
+    end
+
+    test "issue_grant uses credential's auth_kind as fallback when not provided in attrs" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Auto auth_kind",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "s"
+        })
+
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "mcp",
+                 resource_id: "auto-auth",
+                 owner_type: "org",
+                 metadata: %{},
+                 access_token: "tok"
+               })
+
+      assert grant.auth_kind == "oauth2"
+    end
+
+    test "issue_grant normalizes integer resource_id to string", %{credential: credential} do
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "mcp",
+                 resource_id: 9876,
+                 owner_type: "org",
+                 metadata: %{},
+                 access_token: "tok"
+               })
+
+      assert grant.resource_id == "9876"
+    end
+
+    test "expiring_oauth_grants returns grants expiring within window", %{credential: credential} do
       {:ok, grant} =
         Connect.issue_grant(%{
           credential_id: credential.id,
           resource_type: "data_source",
-          resource_id: "22",
+          resource_id: "71",
           owner_type: "org",
           metadata: %{},
           access_token: "a",
-          refresh_token: "r"
+          refresh_token: "r",
+          expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+        })
+
+      result = Connect.expiring_oauth_grants()
+      ids = Enum.map(result, & &1.id)
+      assert grant.id in ids
+    end
+
+    test "expiring_oauth_grants excludes grants without refresh_token", %{credential: credential} do
+      {:ok, no_refresh} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "72",
+          owner_type: "org",
+          metadata: %{},
+          access_token: "a",
+          expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+        })
+
+      result = Connect.expiring_oauth_grants()
+      ids = Enum.map(result, & &1.id)
+      refute no_refresh.id in ids
+    end
+
+    test "expiring_oauth_grants excludes grants outside the window", %{credential: credential} do
+      {:ok, far_future} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "73",
+          owner_type: "org",
+          metadata: %{},
+          access_token: "a",
+          refresh_token: "r",
+          expires_at: DateTime.add(DateTime.utc_now(), 3600 * 24, :second)
+        })
+
+      result = Connect.expiring_oauth_grants(DateTime.utc_now(), 600)
+      ids = Enum.map(result, & &1.id)
+      refute far_future.id in ids
+    end
+
+    test "issue_grant with data_source matching ChannelConfig provider succeeds" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Matching DS",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "s"
+        })
+
+      {:ok, cfg} =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Google Drive DS",
+          provider: "google_drive",
+          kind: "data_source",
+          enabled: true,
+          settings: %{}
+        })
+        |> Repo.insert()
+
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "data_source",
+                 resource_id: cfg.id,
+                 owner_type: "org",
+                 metadata: %{},
+                 access_token: "a",
+                 refresh_token: "r"
+               })
+
+      assert grant.resource_id == to_string(cfg.id)
+    end
+
+    test "issue_grant with api_key credential and non-nil api_key in attrs preserves the provided key" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Key copy test",
+          provider: "google_drive",
+          auth_kind: "api_key",
+          request_format: "raw",
+          user_level: false,
+          metadata: %{},
+          api_key: "fallback-key"
+        })
+
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "mcp",
+                 resource_id: "custom-key",
+                 owner_type: "org",
+                 metadata: %{},
+                 api_key: "explicit-key"
+               })
+
+      grant = Repo.get!(Grant, grant.id)
+      assert grant.api_key == "explicit-key"
+    end
+
+    test "next_refresh_jobs_for_grants with scheduled job returns non-nil scheduled time", %{
+      credential: credential
+    } do
+      grant = issue_oauth_grant(credential)
+
+      {:ok, _job} =
+        Repo.insert(%Oban.Job{
+          queue: "default",
+          worker: to_string(GrantRefreshWorker),
+          args: %{"grant_id" => grant.id},
+          state: "scheduled",
+          scheduled_at: DateTime.add(DateTime.utc_now(), 60, :second)
         })
 
       schedule = Connect.next_refresh_jobs_for_grants([grant])
-      assert Map.get(schedule, grant.id) == nil
+      assert not is_nil(schedule[grant.id])
     end
 
-    test "schedule_refresh enqueues oban job" do
-      {:ok, credential} =
-        Connect.create_credential(%{
-          name: "OAuth2 Config",
-          provider: "google_drive",
-          auth_kind: "oauth2",
-          request_format: "bearer",
-          user_level: false,
-          metadata: %{},
-          client_id: "client-id",
-          client_secret: "secret"
-        })
+    test "next_refresh_jobs_for_grants returns empty map for empty list" do
+      assert Connect.next_refresh_jobs_for_grants([]) == %{}
+    end
 
-      {:ok, grant} =
-        Connect.issue_grant(%{
-          credential_id: credential.id,
-          resource_type: "data_source",
-          resource_id: "23",
-          owner_type: "org",
-          metadata: %{},
-          access_token: "a",
-          refresh_token: "r"
-        })
+    test "schedule_refresh enqueues oban job", %{credential: credential} do
+      grant = issue_oauth_grant(credential)
 
       assert {:ok, job} = Connect.schedule_refresh(grant)
       assert job.worker == "Zaq.Engine.Connect.GrantRefreshWorker"
+    end
+
+    test "refresh_grant returns error when dispatch fails (no bridge configured)", %{
+      credential: credential
+    } do
+      grant = issue_oauth_grant(credential)
+
+      assert {:error, {:channel_not_configured, "google_drive"}} = Connect.refresh_grant(grant)
+    end
+  end
+
+  describe "refresh_grant" do
+    test "returns not_found when credential does not exist" do
+      grant = %Zaq.Engine.Connect.Grant{
+        id: 0,
+        credential_id: -1,
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        resource_type: "data_source",
+        resource_id: "x",
+        owner_type: "org",
+        request_format: "bearer",
+        status: "active",
+        metadata: %{},
+        access_token: "tok",
+        refresh_token: "ref"
+      }
+
+      assert Connect.refresh_grant(grant) == {:error, :not_found}
     end
   end
 end

@@ -36,7 +36,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     with :ok <- ensure_runtime_started(config, bridge_id, []),
          {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
-      State.process_listener_payload(state_pid, config, payload, sink_opts)
+      state_module().process_listener_payload(state_pid, config, payload, sink_opts)
     end
   end
 
@@ -51,7 +51,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     with :ok <- ensure_runtime_started(config, bridge_id, channel_ids: [channel_id]),
          {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
-      State.subscribe_thread(
+      state_module().subscribe_thread(
         state_pid,
         String.to_existing_atom(config.provider),
         channel_id,
@@ -71,7 +71,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     with {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id),
          :ok <-
-           State.unsubscribe_thread(
+           state_module().unsubscribe_thread(
              state_pid,
              String.to_existing_atom(config.provider),
              channel_id,
@@ -452,7 +452,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp ensure_runtime_started(config, bridge_id, runtime_opts) do
     case supervisor_module().lookup_state_pid(bridge_id) do
       {:ok, state_pid} ->
-        State.refresh_config(state_pid, config)
+        state_module().refresh_config(state_pid, config)
 
       {:error, :not_running} ->
         with {:ok, listeners} <- listener_specs(config, bridge_id, runtime_opts),
@@ -472,9 +472,14 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp refresh_runtime(config) do
     case supervisor_module().lookup_state_pid(runtime_bridge_id(config)) do
-      {:ok, state_pid} -> State.refresh_config(state_pid, config)
+      {:ok, state_pid} -> state_module().refresh_config(state_pid, config)
       {:error, :not_running} -> start_runtime(config)
     end
+  end
+
+  defp state_module do
+    Application.get_env(:zaq, __MODULE__, [])
+    |> Keyword.get(:state_module, State)
   end
 
   defp restart_runtime(config) do
