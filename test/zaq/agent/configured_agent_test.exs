@@ -124,6 +124,87 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
     assert "contains unknown tools: files.unknown" in errors_on(changeset).enabled_tool_keys
   end
 
+  test "changeset allows ghost keys already present in stored data" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Ghost Tool Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    existing_agent = %ConfiguredAgent{
+      name: "Agent #{System.unique_integer([:positive])}",
+      job: "do thing",
+      model: "gpt-4.1-mini",
+      credential_id: credential.id,
+      strategy: "react",
+      enabled_tool_keys: ["removed.ghost_tool"]
+    }
+
+    changeset =
+      ConfiguredAgent.changeset(existing_agent, %{
+        name: existing_agent.name,
+        job: existing_agent.job,
+        model: existing_agent.model,
+        credential_id: existing_agent.credential_id,
+        strategy: existing_agent.strategy,
+        enabled_tool_keys: ["removed.ghost_tool"]
+      })
+
+    assert changeset.valid?
+  end
+
+  test "changeset allows removing a ghost key from stored data" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Ghost Remove Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    existing_agent = %ConfiguredAgent{
+      name: "Agent #{System.unique_integer([:positive])}",
+      job: "do thing",
+      model: "gpt-4.1-mini",
+      credential_id: credential.id,
+      strategy: "react",
+      enabled_tool_keys: ["removed.ghost_tool"]
+    }
+
+    changeset =
+      ConfiguredAgent.changeset(existing_agent, %{
+        name: existing_agent.name,
+        job: existing_agent.job,
+        model: existing_agent.model,
+        credential_id: existing_agent.credential_id,
+        strategy: existing_agent.strategy,
+        enabled_tool_keys: []
+      })
+
+    assert changeset.valid?
+    assert Ecto.Changeset.get_field(changeset, :enabled_tool_keys) == []
+  end
+
+  test "changeset still rejects brand-new unknown tool keys on a new agent" do
+    credential =
+      ai_credential_fixture(%{
+        name: "New Unknown Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    changeset =
+      ConfiguredAgent.changeset(%ConfiguredAgent{}, %{
+        name: "Agent #{System.unique_integer([:positive])}",
+        job: "do thing",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: ["files.brand_new_unknown"]
+      })
+
+    refute changeset.valid?
+
+    assert "contains unknown tools: files.brand_new_unknown" in errors_on(changeset).enabled_tool_keys
+  end
+
   test "changeset normalizes enabled_mcp_endpoint_ids" do
     credential =
       ai_credential_fixture(%{

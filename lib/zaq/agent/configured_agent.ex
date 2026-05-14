@@ -52,21 +52,22 @@ defmodule Zaq.Agent.ConfiguredAgent do
     put_change(changeset, :enabled_mcp_endpoint_ids, Enum.uniq(ids))
   end
 
-  defp validate_tool_keys(changeset) do
+  defp validate_tool_keys(%Ecto.Changeset{data: data} = changeset) do
     keys = get_field(changeset, :enabled_tool_keys) || []
+    original_keys = Map.get(data, :enabled_tool_keys) || []
 
-    unknown =
+    newly_unknown =
       keys
       |> Enum.uniq()
-      |> Enum.reject(&Registry.valid_tool_key?/1)
+      |> Enum.reject(&(Registry.valid_tool_key?(&1) or &1 in original_keys))
 
-    if unknown == [] do
+    if newly_unknown == [] do
       changeset
     else
       add_error(
         changeset,
         :enabled_tool_keys,
-        "contains unknown tools: #{Enum.join(unknown, ", ")}"
+        "contains unknown tools: #{Enum.join(newly_unknown, ", ")}"
       )
     end
   end

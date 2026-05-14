@@ -180,6 +180,16 @@ defmodule Zaq.Agent.Tools.Registry do
 
   def valid_tool_key?(_), do: false
 
+  @doc """
+  Returns the subset of `keys` that are no longer registered in `@tools`.
+
+  Useful for detecting saved tool references that became stale after a tool was removed
+  from the registry.
+  """
+  @spec ghost_keys([String.t()]) :: [String.t()]
+  def ghost_keys(keys) when is_list(keys), do: Enum.reject(keys, &valid_tool_key?/1)
+  def ghost_keys(_), do: []
+
   @spec resolve_modules([String.t()]) ::
           {:ok, [module()]} | {:error, {:unknown_tools, [String.t()]}}
   def resolve_modules(tool_keys) when is_list(tool_keys) do

@@ -84,6 +84,24 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert {:error, {:unknown_tools, []}} = Registry.resolve_modules("files.read_file")
   end
 
+  test "ghost_keys returns keys not in the registry" do
+    assert Registry.ghost_keys(["basic.sleep", "removed.old_tool", "files.unknown"]) ==
+             ["removed.old_tool", "files.unknown"]
+  end
+
+  test "ghost_keys returns empty list when all keys are valid" do
+    assert Registry.ghost_keys(["basic.sleep", "basic.log"]) == []
+  end
+
+  test "ghost_keys returns empty list for empty input" do
+    assert Registry.ghost_keys([]) == []
+  end
+
+  test "ghost_keys returns empty list for non-list input" do
+    assert Registry.ghost_keys(nil) == []
+    assert Registry.ghost_keys("basic.sleep") == []
+  end
+
   test "model_supports_tools? treats unknown or missing values as false" do
     refute Registry.model_supports_tools?(nil, "gpt-4.1-mini")
     refute Registry.model_supports_tools?("openai", nil)
