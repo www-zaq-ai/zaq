@@ -15,6 +15,7 @@ defmodule Zaq.Contracts.Record do
     :icon,
     :created_at,
     :modified_at,
+    :permissions,
     parent_ids: [],
     owners: [],
     attributes: %{},
@@ -36,6 +37,7 @@ defmodule Zaq.Contracts.Record do
           icon: map() | String.t() | nil,
           created_at: DateTime.t() | nil,
           modified_at: DateTime.t() | nil,
+          permissions: nil | [t()],
           attributes: map(),
           raw: map()
         }
