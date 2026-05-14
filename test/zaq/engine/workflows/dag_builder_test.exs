@@ -581,6 +581,17 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
   end
 
+  describe "ConditionNotMet exception" do
+    alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+
+    test "message/1 formats the exception summary" do
+      e = %ConditionNotMet{condition_name: "my_check", field: "count", op: :gt, actual: 0}
+      assert Exception.message(e) =~ "my_check"
+      assert Exception.message(e) =~ "count"
+      assert Exception.message(e) =~ "gt"
+    end
+  end
+
   describe "build/2 — param atomization" do
     test "unknown string key in params triggers atomize_keys rescue and falls back gracefully" do
       # String.to_existing_atom/1 raises for unknown atoms — atomize_keys must rescue

@@ -22,8 +22,8 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviourTest do
     w
   end
 
-  defp create_trigger(workflow, type, config \\ %{}) do
-    {:ok, t} = Workflows.create_trigger(%{workflow_id: workflow.id, type: type, config: config})
+  defp create_trigger(type, config \\ %{}) do
+    {:ok, t} = Workflows.create_trigger(%{type: type, config: config})
     t
   end
 
@@ -53,141 +53,99 @@ defmodule Zaq.Engine.Workflows.TriggerBehaviourTest do
 
   # --- Manual trigger ---
 
-  describe "Manual.fire/3" do
-    test "creates a WorkflowRun with pending status" do
-      workflow = create_workflow()
-      trigger = create_trigger(workflow, "manual")
+  describe "Manual.fire/2" do
+    test "returns an event with trigger_type :manual" do
+      trigger = create_trigger("manual")
       input = %{user_id: "u1", note: "test run"}
 
-      assert {:ok, %WorkflowRun{} = run} = Manual.fire(trigger, workflow, input)
+      assert {:ok, event} = Manual.fire(trigger, input)
+      assert event.assigns.trigger_type == :manual
+      assert event.assigns.input == input
+    end
+
+    test "event carries a trace_id" do
+      trigger = create_trigger("manual")
+      {:ok, event} = Manual.fire(trigger, %{})
+      assert is_binary(event.trace_id)
+    end
+  end
+
+  # --- Manual.fire_for_workflow/2 ---
+
+  describe "Manual.fire_for_workflow/2" do
+    test "creates a WorkflowRun with pending status" do
+      workflow = create_workflow()
+      input = %{user_id: "u1"}
+
+      assert {:ok, %WorkflowRun{} = run} = Manual.fire_for_workflow(workflow, input)
       assert run.workflow_id == workflow.id
       assert run.status == "pending"
     end
 
     test "snapshots steps from the workflow" do
       workflow = create_workflow()
-      trigger = create_trigger(workflow, "manual")
-
-      {:ok, run} = Manual.fire(trigger, workflow, %{})
+      {:ok, run} = Manual.fire_for_workflow(workflow, %{})
       assert run.steps_snapshot["nodes"] != nil
-      assert run.steps_snapshot["edges"] != nil
     end
 
-    test "source_event has trigger_type :manual in assigns" do
+    test "source_event has trigger_type :manual" do
       workflow = create_workflow()
-      trigger = create_trigger(workflow, "manual")
-
-      {:ok, run} = Manual.fire(trigger, workflow, %{input: "data"})
+      {:ok, run} = Manual.fire_for_workflow(workflow, %{mailbox: "INBOX"})
       assert run.source_event.assigns.trigger_type == :manual
-    end
-
-    test "source_event carries a trace_id" do
-      workflow = create_workflow()
-      trigger = create_trigger(workflow, "manual")
-
-      {:ok, run} = Manual.fire(trigger, workflow, %{})
-      assert is_binary(run.source_event.trace_id)
-    end
-
-    test "source_event carries the input in assigns" do
-      workflow = create_workflow()
-      trigger = create_trigger(workflow, "manual")
-      input = %{mailbox: "INBOX"}
-
-      {:ok, run} = Manual.fire(trigger, workflow, input)
-      assert run.source_event.assigns.input == input
-    end
-  end
-
-  # --- Scheduler trigger ---
-
-  describe "Scheduler.fire/3" do
-    test "creates a WorkflowRun with pending status" do
-      workflow = create_workflow()
-
-      trigger =
-        create_trigger(workflow, "scheduler", %{
-          "cron" => "*/30 * * * *",
-          "static_input" => %{"mailbox" => "INBOX"}
-        })
-
-      assert {:ok, %WorkflowRun{} = run} = Scheduler.fire(trigger, workflow, %{})
-      assert run.status == "pending"
-    end
-
-    test "merges static_input from trigger config into assigns" do
-      workflow = create_workflow()
-
-      trigger =
-        create_trigger(workflow, "scheduler", %{
-          "cron" => "*/5 * * * *",
-          "static_input" => %{"mailbox" => "INBOX"}
-        })
-
-      {:ok, run} = Scheduler.fire(trigger, workflow, %{})
-      assert run.source_event.assigns.input == %{"mailbox" => "INBOX"}
-    end
-
-    test "source_event has trigger_type :scheduler in assigns" do
-      workflow = create_workflow()
-      trigger = create_trigger(workflow, "scheduler", %{"cron" => "0 * * * *"})
-
-      {:ok, run} = Scheduler.fire(trigger, workflow, %{})
-      assert run.source_event.assigns.trigger_type == :scheduler
     end
   end
 
   # --- Webhook trigger ---
 
-  describe "Webhook.fire/3" do
-    test "creates a WorkflowRun carrying the webhook payload" do
-      workflow = create_workflow()
-      trigger = create_trigger(workflow, "webhook")
+  describe "Webhook.fire/2" do
+    test "returns an event with trigger_type :webhook and input" do
+      trigger = create_trigger("webhook")
       payload = %{"event" => "user.created", "data" => %{"id" => "u1"}}
 
-      assert {:ok, %WorkflowRun{} = run} = Webhook.fire(trigger, workflow, payload)
-      assert run.source_event.assigns.trigger_type == :webhook
-      assert run.source_event.assigns.input == payload
+      assert {:ok, event} = Webhook.fire(trigger, payload)
+      assert event.assigns.trigger_type == :webhook
+      assert event.assigns.input == payload
     end
   end
 
   # --- Signal trigger ---
 
-  describe "Signal.fire/3" do
-    test "creates a WorkflowRun carrying the signal payload" do
-      workflow = create_workflow()
-      trigger = create_trigger(workflow, "signal", %{"topic" => "email.received"})
+  describe "Signal.fire/2" do
+    test "returns an event with trigger_type :signal and input" do
+      trigger = create_trigger("signal", %{"topic" => "email.received"})
       payload = %{"from" => "test@example.com"}
 
-      assert {:ok, %WorkflowRun{} = run} = Signal.fire(trigger, workflow, payload)
-      assert run.source_event.assigns.trigger_type == :signal
-      assert run.source_event.assigns.input == payload
+      assert {:ok, event} = Signal.fire(trigger, payload)
+      assert event.assigns.trigger_type == :signal
+      assert event.assigns.input == payload
     end
   end
 
-  # --- Scheduler edge cases ---
+  # --- Scheduler trigger ---
 
-  describe "Scheduler.fire/3 — edge cases" do
+  describe "Scheduler.fire/2" do
+    test "returns an event with trigger_type :scheduler" do
+      trigger = create_trigger("scheduler", %{"cron" => "0 * * * *"})
+      {:ok, event} = Scheduler.fire(trigger, %{})
+      assert event.assigns.trigger_type == :scheduler
+    end
+
     test "nil trigger config defaults to empty static_input" do
-      workflow = create_workflow()
-      trigger = create_trigger(workflow, "scheduler", %{"cron" => "0 * * * *"})
+      trigger = create_trigger("scheduler", %{"cron" => "0 * * * *"})
       trigger = %{trigger | config: nil}
-
-      assert {:ok, %WorkflowRun{} = run} = Scheduler.fire(trigger, workflow, %{})
-      assert run.source_event.assigns.input == %{}
+      {:ok, event} = Scheduler.fire(trigger, %{})
+      assert event.assigns.input == %{}
     end
 
     test "dynamic input is merged over static_input (dynamic wins on conflict)" do
-      workflow = create_workflow()
-
       trigger =
-        create_trigger(workflow, "scheduler", %{
+        create_trigger("scheduler", %{
           "cron" => "0 * * * *",
           "static_input" => %{"mailbox" => "INBOX", "limit" => 10}
         })
 
-      {:ok, run} = Scheduler.fire(trigger, workflow, %{"limit" => 99})
-      assert run.source_event.assigns.input == %{"mailbox" => "INBOX", "limit" => 99}
+      {:ok, event} = Scheduler.fire(trigger, %{"limit" => 99})
+      assert event.assigns.input == %{"mailbox" => "INBOX", "limit" => 99}
     end
   end
 

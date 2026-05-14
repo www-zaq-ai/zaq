@@ -24,19 +24,21 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   Node types:
   - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`, requires `"module"`
-  - `"condition"`           — a pass-through `Runic.Workflow.Step` (raises on false to skip
-    downstream). Two forms:
+  - `"condition"`           — a `FieldComparison` or custom Jido.Action that raises
+    `ConditionNotMet` on false. Two forms:
     - **Inline** (preferred): omit `"module"`, use `"params"` with `"field"`, `"op"`, and
       optionally `"value"`. Supported ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`,
       `not_empty`, `empty`, `in` (value must be a list).
-    - **Module**: set `"module"` to a module that exports `call/1` returning a boolean.
+    - **Module**: set `"module"` to a Jido.Action module that raises `ConditionNotMet`
+      on false.
 
-  Module resolution uses `Module.safe_concat/1` — never `String.to_atom/1`.
+  Module resolution uses `Module.concat/1` guarded by `Code.ensure_loaded/1` — never
+  `String.to_atom/1`.
   """
 
   alias Jido.Runic.ActionNode
-  alias Runic.Workflow.Step
   alias Zaq.Engine.Workflows.ActionWrapper
+  alias Zaq.Engine.Workflows.Conditions.FieldComparison
 
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}
@@ -90,16 +92,16 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end)
   end
 
-  # Inline condition — no module required, params drive the evaluation
-  defp build_node("condition", mod, params, name, _index, _run_id)
+  # Inline condition — no module, default to FieldComparison with the given params
+  defp build_node("condition", mod, params, name, index, run_id)
        when mod in [nil, ""] do
-    {:ok, build_inline_condition(params, name)}
+    {:ok, build_action_node(FieldComparison, atomize_keys(params), name, index, run_id)}
   end
 
-  # Module-backed condition
-  defp build_node("condition", module, _params, name, _index, _run_id) do
+  # Module-backed condition — must be a Jido.Action that raises ConditionNotMet on false
+  defp build_node("condition", module, params, name, index, run_id) do
     with {:ok, mod} <- resolve_module(module) do
-      {:ok, Step.new(work: condition_work(mod, name), name: String.to_atom(name))}
+      {:ok, build_action_node(mod, atomize_keys(params), name, index, run_id)}
     end
   end
 
@@ -112,13 +114,6 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp build_node(type, _module, _params, _name, _index, _run_id),
     do: {:error, {:unknown_node_type, type}}
-
-  # Conditions must be Steps (not Runic.Workflow.Condition) so that a passing
-  # condition produces a new Fact that activates downstream ActionNodes.
-  # A Step that raises on false causes Runic to skip_downstream_subgraph automatically.
-  defp condition_work(mod, name) do
-    fn fact -> if mod.call(fact), do: fact, else: raise("condition_not_met:#{name}") end
-  end
 
   defp resolve_module(nil), do: {:error, {:unknown_module, nil}}
 
@@ -146,47 +141,6 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp build_action_node(mod, params, name, _step_index, _run_id) do
     ActionNode.new(mod, params, name: String.to_atom(name))
   end
-
-  # --- Inline condition evaluation ---
-
-  defp build_inline_condition(params, name) do
-    work = fn fact ->
-      if eval_inline_condition(fact, params),
-        do: fact,
-        else: raise("condition_not_met:#{name}")
-    end
-
-    Step.new(work: work, name: String.to_atom(name))
-  end
-
-  defp eval_inline_condition(fact, params) do
-    field = param(params, "field") || raise(ArgumentError, "inline condition missing 'field'")
-    op = param(params, "op") || raise(ArgumentError, "inline condition missing 'op'")
-    expected = param(params, "value")
-    actual = fetch_field(fact, field)
-    compare_op(op, actual, expected)
-  end
-
-  defp param(params, key), do: Map.get(params, key) || Map.get(params, String.to_atom(key))
-
-  defp fetch_field(fact, field) when is_map(fact) do
-    Map.get(fact, field) || Map.get(fact, String.to_atom(field))
-  rescue
-    ArgumentError -> Map.get(fact, field)
-  end
-
-  defp fetch_field(_fact, _field), do: nil
-
-  defp compare_op("eq", a, b), do: a == b
-  defp compare_op("neq", a, b), do: a != b
-  defp compare_op("gt", a, b) when is_number(a) and is_number(b), do: a > b
-  defp compare_op("lt", a, b) when is_number(a) and is_number(b), do: a < b
-  defp compare_op("gte", a, b) when is_number(a) and is_number(b), do: a >= b
-  defp compare_op("lte", a, b) when is_number(a) and is_number(b), do: a <= b
-  defp compare_op("not_empty", a, _), do: not (is_nil(a) or a == [] or a == "")
-  defp compare_op("empty", a, _), do: is_nil(a) or a == [] or a == ""
-  defp compare_op("in", a, b) when is_list(b), do: a in b
-  defp compare_op(op, _, _), do: raise(ArgumentError, "unknown condition op: #{inspect(op)}")
 
   defp validate_edges(edges, node_map) do
     Enum.reduce_while(edges, :ok, fn edge, :ok ->

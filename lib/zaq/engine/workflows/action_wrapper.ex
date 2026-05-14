@@ -22,6 +22,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   use Jido.Action, name: "workflow_action_wrapper", schema: []
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.WorkflowRun
 
   @wrapper_keys [:wrapped_module, :run_id, :step_name, :step_index]
@@ -87,6 +88,23 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
           err
       end
     rescue
+      e in ConditionNotMet ->
+        Workflows.skip_step_run(step_run, %{
+          field: e.field,
+          op: e.op,
+          actual: e.actual,
+          expected: e.expected
+        })
+
+        Logger.info(
+          "[workflow] condition not met — skipping branch field=#{e.field} op=#{e.op} actual=#{inspect(e.actual)}",
+          run_id: run_id,
+          step_name: step_name,
+          step_index: step_index
+        )
+
+        reraise e, __STACKTRACE__
+
       e ->
         Workflows.fail_step_run(step_run, %{reason: Exception.message(e)})
 

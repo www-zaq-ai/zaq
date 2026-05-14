@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Workflows.StepRun do
   - `running`   — action is executing (or was mid-flight when the node crashed)
   - `completed` — action returned `{:ok, result}`
   - `failed`    — action returned `{:error, reason}` or exceeded max retries
+  - `skipped`   — condition evaluated to false; downstream nodes were not executed
   """
 
   use Ecto.Schema
@@ -23,7 +24,7 @@ defmodule Zaq.Engine.Workflows.StepRun do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(running completed failed)
+  @statuses ~w(running completed failed skipped)
 
   @type t :: %__MODULE__{}
 
