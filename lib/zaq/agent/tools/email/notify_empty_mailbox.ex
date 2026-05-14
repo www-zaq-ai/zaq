@@ -8,6 +8,10 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailbox do
     name: "notify_empty_mailbox",
     schema: [
       notify_address: [type: :string, required: true]
+    ],
+    output_schema: [
+      status: [type: :atom, required: true],
+      notified: [type: :boolean, required: true]
     ]
 
   require Logger
