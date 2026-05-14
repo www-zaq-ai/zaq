@@ -258,7 +258,8 @@ defmodule Zaq.Ingestion do
   Returns true if the given person can access a file at `relative_path`.
   - Super admins bypass all checks.
   - Files with no Document record are accessible to all (backward compat).
-  - Files with no permissions set are accessible to all (public by default).
+  - Documents tagged `"public"` are accessible to all.
+  - Documents with no permission rows and no public tag are private (admin-only).
   - Otherwise: person must have a direct permission or a team permission.
   """
   def can_access_file?(relative_path, current_user) do
@@ -274,7 +275,7 @@ defmodule Zaq.Ingestion do
         person_id = Map.get(current_user, :person_id)
         team_ids = Map.get(current_user, :team_ids) || []
 
-        super_admin? or permissions == [] or
+        super_admin? or "public" in doc.tags or
           Enum.any?(permissions, fn p ->
             (not is_nil(p.person_id) and p.person_id == person_id) or
               (not is_nil(p.team_id) and p.team_id in team_ids)

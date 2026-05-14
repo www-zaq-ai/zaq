@@ -11,9 +11,10 @@ defmodule Zaq.Ingestion.DocumentAccess do
   - Documents with explicit permission rows → accessible only to matched persons/teams.
   - `skip_permissions: true` → all documents, used for admin/internal callers.
 
-  `nil person_id` is never an implicit permission grant. Without
-  `skip_permissions: true`, a nil person_id returns only public-tagged documents
-  and documents with team-matched permissions (if team_ids are provided).
+  `nil person_id` is never an implicit permission grant. Both nil and authenticated
+  callers require either a `"public"` tag or a matching permission row. Documents
+  with no permission rows and no public tag are private — only `skip_permissions: true`
+  (BO admin) can access them.
   """
 
   alias Zaq.Ingestion.{Document, FileExplorer, Permission, Sidecar, SourcePath}
@@ -147,8 +148,9 @@ defmodule Zaq.Ingestion.DocumentAccess do
   # All three access conditions unified in one named-binding dynamic to avoid
   # mixing positional and named bindings in the same where expression.
   #
-  # nil person_id: returns only public-tagged docs and team-permission-matched docs.
-  # authenticated person_id: same — docs with no permission rows are NOT accessible.
+  # Both nil and authenticated person_id require either a "public" tag or a matching
+  # permission row. Docs with no permission rows and no public tag are NOT accessible
+  # here — only skip_permissions: true (BO admin) bypasses this.
   defp build_accessible_where(nil, team_ids) do
     perm_cond = Permission.build_perm_join_condition(nil, team_ids)
 
