@@ -13,24 +13,38 @@ defmodule Zaq.MixProject do
       aliases: aliases(),
       deps: deps(),
       dialyzer: [
-        flags: [:error_handling, :underspecs, :unknown],
-        # This will use your ignore file
-        ignore_warnings: ".dialyzer_ignore.exs"
-      ],
-      dialyzer: [
+        plt_add_deps: :apps_tree,
         plt_file: {:no_warn, "priv/plts/project.plt"},
-        plt_core_path: "priv/plts/core.plt",
-        plt_add_apps: [:mix, :ex_unit],
-        flags: [
-          :error_handling,
-          :extra_return,
-          :missing_return,
-          :underspecs,
-          :unknown,
-          :unmatched_returns
+        plt_ignore_apps: [
+          :jido,
+          :jido_signal,
+          :jido_action,
+          :jido_ai,
+          :jido_mcp,
+          :jido_chat,
+          :jido_chat_mattermost,
+          :jido_chat_discord,
+          :langchain,
+          :req_llm,
+          :texture,
+          :credo,
+          :dialyxir,
+          :ex_doc,
+          :excoveralls,
+          :ex_dna,
+          :ex_slop,
+          :mox,
+          :phoenix_live_reload,
+          :asn1,
+          :compiler,
+          :inets,
+          :mnesia,
+          :sasl,
+          :syntax_tools,
+          :xmerl
         ],
-        ignore_warnings: ".dialyzer_ignore.exs",
-        list_unused_filters: true
+        paths: dialyzer_paths(),
+        flags: [:unmatched_returns, :error_handling]
       ],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
@@ -259,5 +273,18 @@ defmodule Zaq.MixProject do
         License: [~r/^Zaq\.License(\.|$)/]
       ]
     ]
+  end
+
+  defp dialyzer_paths do
+    case System.get_env("DIALYZER_SCOPE", "full") do
+      "core" -> core_dialyzer_paths()
+      _ -> ["_build/#{Mix.env()}/lib/zaq/ebin"]
+    end
+  end
+
+  defp core_dialyzer_paths do
+    "_build/#{Mix.env()}/lib/zaq/ebin/Elixir.Zaq*.beam"
+    |> Path.wildcard()
+    |> Enum.reject(&String.starts_with?(Path.basename(&1), "Elixir.ZaqWeb."))
   end
 end
