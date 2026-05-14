@@ -1,8 +1,8 @@
-defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
+defmodule Zaq.Engine.Workflows.Trigger.ExecutorTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.TriggerExecutor
+  alias Zaq.Engine.Workflows.Trigger.Executor
 
   @valid_node %{
     name: "fetch",
@@ -39,7 +39,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       Workflows.assign_workflow_to_trigger(t, w1)
       Workflows.assign_workflow_to_trigger(t, w2)
 
-      {:ok, results} = TriggerExecutor.execute(t, %{})
+      {:ok, results} = Executor.execute(t, %{})
       workflow_ids = Enum.map(results, fn {wid, _} -> wid end)
       assert w1.id in workflow_ids
       assert w2.id in workflow_ids
@@ -60,7 +60,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       Workflows.assign_workflow_to_trigger(t, w1)
       Workflows.assign_workflow_to_trigger(t, w2)
 
-      {:ok, results} = TriggerExecutor.execute(t, %{})
+      {:ok, results} = Executor.execute(t, %{})
       assert length(results) == 2
     end
 
@@ -69,7 +69,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       t = create_trigger(%{execution_mode: "parallel", max_concurrency: 2})
       for w <- workflows, do: Workflows.assign_workflow_to_trigger(t, w)
 
-      {:ok, results} = TriggerExecutor.execute(t, %{})
+      {:ok, results} = Executor.execute(t, %{})
       assert length(results) == 4
     end
 
@@ -78,14 +78,14 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       t = create_trigger(%{execution_mode: "parallel"})
       Workflows.assign_workflow_to_trigger(t, w)
 
-      {:ok, [{wid, {status, _run}}]} = TriggerExecutor.execute(t, %{})
+      {:ok, [{wid, {status, _run}}]} = Executor.execute(t, %{})
       assert wid == w.id
       assert status in [:ok, :error]
     end
 
     test "returns ok with empty results when no workflows assigned" do
       t = create_trigger(%{execution_mode: "parallel"})
-      assert {:ok, []} = TriggerExecutor.execute(t, %{})
+      assert {:ok, []} = Executor.execute(t, %{})
     end
   end
 
@@ -99,7 +99,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       Workflows.assign_workflow_to_trigger(t, w1, position: 0)
       Workflows.assign_workflow_to_trigger(t, w2, position: 1)
 
-      {:ok, results} = TriggerExecutor.execute(t, %{})
+      {:ok, results} = Executor.execute(t, %{})
       assert length(results) == 2
     end
 
@@ -117,7 +117,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       Workflows.assign_workflow_to_trigger(t, w1, position: 0)
       Workflows.assign_workflow_to_trigger(t, w2, position: 1)
 
-      {:ok, results} = TriggerExecutor.execute(t, %{})
+      {:ok, results} = Executor.execute(t, %{})
       # Only w1 attempted; w2 skipped
       assert length(results) == 1
       [{wid, _}] = results
@@ -140,7 +140,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       Workflows.assign_workflow_to_trigger(t, w1, position: 0)
       Workflows.assign_workflow_to_trigger(t, w2, position: 1)
 
-      {:ok, results} = TriggerExecutor.execute(t, %{})
+      {:ok, results} = Executor.execute(t, %{})
       assert length(results) == 2
     end
 
@@ -154,7 +154,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       Workflows.assign_workflow_to_trigger(t, w1, position: 0)
       Workflows.assign_workflow_to_trigger(t, w2, position: 1)
 
-      {:ok, results} = TriggerExecutor.execute(t, %{})
+      {:ok, results} = Executor.execute(t, %{})
       executed_ids = Enum.map(results, fn {wid, _} -> wid end)
       assert executed_ids == [w1.id, w2.id, w3.id]
     end
@@ -176,7 +176,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       # Reload t1 with associations
       t1 = Workflows.get_trigger!(t1.id)
 
-      {:ok, results} = TriggerExecutor.execute(t1, %{})
+      {:ok, results} = Executor.execute(t1, %{})
       # Results include runs from t1's own workflows AND t2's
       all_workflow_ids = Enum.map(results, fn {wid, _} -> wid end)
       assert w1.id in all_workflow_ids
@@ -201,7 +201,7 @@ defmodule Zaq.Engine.Workflows.TriggerExecutorTest do
       Workflows.chain_trigger(t1, t2)
 
       t1 = Workflows.get_trigger!(t1.id)
-      {:ok, results} = TriggerExecutor.execute(t1, %{})
+      {:ok, results} = Executor.execute(t1, %{})
       all_workflow_ids = Enum.map(results, fn {wid, _} -> wid end)
       assert w2.id in all_workflow_ids
     end
