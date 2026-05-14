@@ -16,7 +16,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   and documents with team-matched permissions (if team_ids are provided).
   """
 
-  alias Zaq.Ingestion.{Document, FileExplorer, Permission, SourcePath}
+  alias Zaq.Ingestion.{Document, FileExplorer, Permission, Sidecar, SourcePath}
   alias Zaq.Repo
 
   import Ecto.Query
@@ -213,7 +213,18 @@ defmodule Zaq.Ingestion.DocumentAccess do
     |> Enum.flat_map(&list_files_recursive/1)
     |> Enum.map(&abs_path_to_source/1)
     |> Enum.reject(&is_nil/1)
+    |> reject_sidecar_sources()
     |> filter_by_source_filter(source_filter)
+  end
+
+  defp reject_sidecar_sources(sources) do
+    sidecar_set =
+      sources
+      |> Enum.map(&Sidecar.sidecar_path_for/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    Enum.reject(sources, &MapSet.member?(sidecar_set, &1))
   end
 
   defp list_files_recursive(dir) do

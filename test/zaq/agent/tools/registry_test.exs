@@ -7,6 +7,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     keys = Registry.tools() |> Enum.map(& &1.key)
 
     assert keys == [
+             "answering.search_knowledge_base",
+             "answering.list_knowledge_base_files",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -21,9 +23,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
-             "advanced.lua_eval",
-             "answering.search_knowledge_base",
-             "answering.list_knowledge_base_files"
+             "advanced.lua_eval"
            ]
   end
 
@@ -35,6 +35,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
+             "answering.search_knowledge_base",
+             "answering.list_knowledge_base_files",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -49,9 +51,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
-             "advanced.lua_eval",
-             "answering.search_knowledge_base",
-             "answering.list_knowledge_base_files"
+             "advanced.lua_eval"
            ]
   end
 

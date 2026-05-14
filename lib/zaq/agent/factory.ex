@@ -79,12 +79,19 @@ defmodule Zaq.Agent.Factory do
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
     with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
+      base_llm_opts = Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent))
+
+      llm_opts =
+        if tools != [] do
+          Keyword.put_new(base_llm_opts, :tool_choice, :required)
+        else
+          base_llm_opts
+        end
+
       {:ok,
        %{
          tools: tools,
-         # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
-         # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
-         llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
+         llm_opts: llm_opts,
          system_prompt: configured_agent.job || ""
        }}
     end

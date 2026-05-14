@@ -152,7 +152,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Add tools"
     assert html =~ "Lua eval"
     assert html =~ "Search knowledge base"
-    assert html =~ "List knowledge base files"
+    assert html =~ "Knowledge Base Overview"
   end
 
   test "renders MCP section above tools and supports add/remove", %{conn: conn} do

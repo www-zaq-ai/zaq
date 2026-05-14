@@ -14,7 +14,7 @@ defmodule Zaq.Agent.Answering do
 
   @answering_tools [
     Zaq.Agent.Tools.SearchKnowledgeBase,
-    Zaq.Agent.Tools.ListKnowledgeBaseFiles
+    Zaq.Agent.Tools.KnowledgeBaseOverview
   ]
 
   @no_answer_signals [
@@ -57,7 +57,7 @@ defmodule Zaq.Agent.Answering do
       strategy: "react",
       enabled_tool_keys: [
         "answering.search_knowledge_base",
-        "answering.list_knowledge_base_files"
+        "answering.knowledge_base_overview"
       ],
       conversation_enabled: true,
       active: true,
@@ -100,7 +100,7 @@ defmodule Zaq.Agent.Answering do
     Step 0 — Tool Check (ALWAYS DO THIS FIRST)
 
     Before doing anything else, check if the user is asking something a tool can answer with live data:
-    •\tlist_knowledge_base_files — call this FIRST when the user asks about file counts, document lists, or what is in the knowledge base or system ("how many files?", "how many files in the system?", "what files are in ZAQ?", "list my documents"). NEVER answer this from memory or retrieved_data.
+    •\tknowledge_base_overview — call whichever is available FIRST when the user asks about file counts, document lists, or what is in the knowledge base or system ("how many files?", "how many files in the system?", "what files are in ZAQ?", "list my documents"). NEVER answer this from memory or retrieved_data.
     •\tsearch_knowledge_base — call this when the user asks about the content of documents.
 
     If a tool applies → call it immediately. Skip the rest of this workflow.

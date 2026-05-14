@@ -1,4 +1,4 @@
-defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
+defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
   @moduledoc """
   ReAct tool: counts and lists the documents the user has access to in the
   ZAQ knowledge base.
@@ -21,7 +21,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFiles do
   """
 
   use Jido.Action,
-    name: "list_knowledge_base_files",
+    name: "knowledge_base_overview",
     description: """
     List and count all files the user can access, showing which are ingested
     into the knowledge base and which are not yet indexed.

@@ -14,6 +14,19 @@ defmodule Zaq.Agent.Tools.Registry do
         }
 
   @tools [
+    %{
+      key: "answering.search_knowledge_base",
+      label: "Search knowledge base",
+      description: "Search the ZAQ knowledge base with a refined query (answering-only)",
+      module: Zaq.Agent.Tools.SearchKnowledgeBase
+    },
+    %{
+      key: "answering.knowledge_base_overview",
+      label: "Knowledge Base Overview",
+      description:
+        "Shows the user what documents exist in the knowledge base, how many are indexed, and their ingestion status — without reading document content (answering-only)",
+      module: Zaq.Agent.Tools.KnowledgeBaseOverview
+    },
     ## Requires permission
     # %{
     #   key: "files.read_file",
@@ -152,19 +165,6 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
       module: Jido.Tools.LuaEval
-    },
-    %{
-      key: "answering.search_knowledge_base",
-      label: "Search knowledge base",
-      description: "Search the ZAQ knowledge base with a refined query (answering-only)",
-      module: Zaq.Agent.Tools.SearchKnowledgeBase
-    },
-    %{
-      key: "answering.list_knowledge_base_files",
-      label: "List knowledge base files",
-      description:
-        "Count and list documents accessible to the user in the knowledge base (answering-only)",
-      module: Zaq.Agent.Tools.ListKnowledgeBaseFiles
     }
   ]
 
