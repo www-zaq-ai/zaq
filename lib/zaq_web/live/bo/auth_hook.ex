@@ -30,7 +30,10 @@ defmodule ZaqWeb.Live.BO.AuthHook do
 
   defp setup_license_hook(socket, user) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "license:updated")
+      case Phoenix.PubSub.subscribe(Zaq.PubSub, "license:updated") do
+        :ok -> :ok
+        {:error, {:already_registered, _pid}} -> :ok
+      end
     end
 
     socket

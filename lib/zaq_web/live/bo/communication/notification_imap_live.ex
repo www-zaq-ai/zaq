@@ -378,18 +378,20 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp spawn_mailbox_loader(config, selected) do
     caller = self()
 
-    Task.start(fn ->
-      result =
-        try do
-          list_mailboxes(config)
-        rescue
-          error -> {:error, {:mailbox_load_failed, Exception.message(error)}}
-        catch
-          :exit, reason -> {:error, {:mailbox_load_failed, reason}}
-        end
+    case Task.start(fn ->
+           result =
+             try do
+               list_mailboxes(config)
+             rescue
+               error -> {:error, {:mailbox_load_failed, Exception.message(error)}}
+             catch
+               :exit, reason -> {:error, {:mailbox_load_failed, reason}}
+             end
 
-      send(caller, {:load_mailboxes_result, config, selected, result})
-    end)
+           send(caller, {:load_mailboxes_result, config, selected, result})
+         end) do
+      {:ok, _pid} -> :ok
+    end
   end
 
   defp sync_runtime(provider) do

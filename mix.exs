@@ -15,17 +15,8 @@ defmodule Zaq.MixProject do
       dialyzer: [
         plt_add_deps: :apps_tree,
         plt_file: {:no_warn, "priv/plts/project.plt"},
+        plt_add_apps: [:llm_db, :mix],
         plt_ignore_apps: [
-          :jido,
-          :jido_signal,
-          :jido_action,
-          :jido_ai,
-          :jido_mcp,
-          :jido_chat,
-          :jido_chat_mattermost,
-          :jido_chat_discord,
-          :langchain,
-          :req_llm,
           :texture,
           :credo,
           :dialyxir,
@@ -34,7 +25,6 @@ defmodule Zaq.MixProject do
           :ex_dna,
           :ex_slop,
           :mox,
-          :phoenix_live_reload,
           :asn1,
           :compiler,
           :inets,
@@ -44,6 +34,7 @@ defmodule Zaq.MixProject do
           :xmerl
         ],
         paths: dialyzer_paths(),
+        ignore_warnings: ".dialyzer_ignore.exs",
         flags: [:unmatched_returns, :error_handling]
       ],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),

@@ -179,10 +179,6 @@ defmodule Zaq.Channels.ChannelConfig do
     add_error(changeset, :token, "could not be encrypted: invalid SYSTEM_CONFIG_ENCRYPTION_KEY")
   end
 
-  defp token_encryption_error(changeset, _reason) do
-    add_error(changeset, :token, "could not be encrypted")
-  end
-
   @doc """
   Returns enabled configs for a given kind (`:ingestion`, `:data_source`, or `:retrieval`),
   filtered to the given list of provider strings.

@@ -24,7 +24,9 @@ defmodule Zaq.Channels.Supervisor do
 
   def start_link(_opts) do
     if :ets.whereis(@table) == :undefined do
-      :ets.new(@table, [:named_table, :public, :set])
+      case :ets.new(@table, [:named_table, :public, :set]) do
+        tid when is_reference(tid) or is_integer(tid) or is_atom(tid) -> :ok
+      end
     end
 
     case DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__) do
@@ -132,9 +134,19 @@ defmodule Zaq.Channels.Supervisor do
         )
 
       configs ->
-        Enum.each(configs, fn config ->
-          _ = runtime_module.sync_config_runtime(nil, config)
-        end)
+        Enum.each(configs, &sync_initial_config(runtime_module, &1))
+    end
+  end
+
+  defp sync_initial_config(runtime_module, config) do
+    case runtime_module.sync_config_runtime(nil, config) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[Channels.Supervisor] Failed to sync runtime for provider=#{config.provider}: #{inspect(reason)}"
+        )
     end
   end
 
@@ -216,7 +228,10 @@ defmodule Zaq.Channels.Supervisor do
   defp maybe_stop_state(_), do: :ok
 
   defp safe_terminate_child(pid) when is_pid(pid) do
-    DynamicSupervisor.terminate_child(__MODULE__, pid)
+    case DynamicSupervisor.terminate_child(__MODULE__, pid) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+    end
   rescue
     _ -> :ok
   catch

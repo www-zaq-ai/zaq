@@ -71,12 +71,12 @@ defmodule Zaq.Ingestion.Python.Pipeline do
     case result do
       {:ok, md_path} ->
         strip_local_image_refs(md_path)
-        File.rm_rf!(images_dir)
+        cleanup_images_dir(images_dir)
         {:ok, md_path}
 
       {:error, reason} ->
         move_to_debug(base, images_folder, pdf_name)
-        File.rm_rf!(images_dir)
+        cleanup_images_dir(images_dir)
         {:error, reason}
     end
   end
@@ -169,8 +169,20 @@ defmodule Zaq.Ingestion.Python.Pipeline do
       debug_dir = Path.join(base, "debugging")
       debug_dest = Path.join(debug_dir, pdf_name)
       File.mkdir_p!(debug_dir)
-      File.rename(images_folder, debug_dest)
+
+      case File.rename(images_folder, debug_dest) do
+        :ok -> :ok
+        {:error, _reason} -> :ok
+      end
+
       Logger.warning("[Pipeline] Debug images saved to: #{debug_dest}")
+    end
+  end
+
+  defp cleanup_images_dir(images_dir) do
+    case File.rm_rf(images_dir) do
+      {:ok, _removed} -> :ok
+      {:error, _reason, _path} -> :ok
     end
   end
 

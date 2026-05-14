@@ -332,8 +332,6 @@ defmodule Zaq.Agent.Pipeline do
     |> Enum.uniq()
   end
 
-  defp build_sources(_), do: []
-
   defp success_result(answer, confidence_score) do
     %{
       answer: answer,

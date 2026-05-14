@@ -245,11 +245,15 @@ defmodule Zaq.Channels.CommunicationBridge do
   @spec put_agent_selection_assign(Event.t(), map() | nil) :: Event.t()
   defp put_agent_selection_assign(%Event{} = event, nil), do: event
 
-  defp put_agent_selection_assign(%Event{} = event, %{"agent_id" => _} = selection) do
-    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
-  end
+  defp put_agent_selection_assign(%Event{} = event, selection) when is_map(selection) do
+    case Map.fetch(selection, "agent_id") do
+      {:ok, _id} ->
+        %{event | assigns: Map.put(event.assigns, "agent_selection", selection)}
 
-  defp put_agent_selection_assign(%Event{} = event, _selection), do: event
+      :error ->
+        event
+    end
+  end
 
   defp bridge_supports?(bridge, fun, arity)
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do

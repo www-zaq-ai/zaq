@@ -141,21 +141,19 @@ defmodule Zaq.Embedding.Client do
   end
 
   defp parse_http_date_delay(value) do
-    case :httpd_util.convert_request_date(String.to_charlist(value)) do
+    case Req.Utils.parse_http_date(value) do
+      {:ok, datetime} ->
+        delay_seconds = DateTime.diff(datetime, DateTime.utc_now(), :second)
+        max(delay_seconds, 0)
+
       {:error, _reason} ->
         60
 
-      :bad_date ->
+      {:ambiguous, _first, _second} ->
         60
 
-      datetime_tuple ->
-        delay_seconds =
-          datetime_tuple
-          |> :calendar.datetime_to_gregorian_seconds()
-          |> Kernel.-(:calendar.datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}))
-          |> Kernel.-(DateTime.utc_now() |> DateTime.to_unix())
-
-        max(delay_seconds, 0)
+      {:gap, _before, _after} ->
+        60
     end
   end
 
@@ -164,25 +162,6 @@ defmodule Zaq.Embedding.Client do
     |> Map.get(String.downcase(key))
     |> normalize_header_value()
   end
-
-  defp header_value(headers, key) when is_list(headers) do
-    key_downcase = String.downcase(key)
-
-    headers
-    |> Enum.find_value(fn
-      {header_key, header_value} when is_binary(header_key) ->
-        if String.downcase(header_key) == key_downcase do
-          normalize_header_value(header_value)
-        else
-          nil
-        end
-
-      _ ->
-        nil
-    end)
-  end
-
-  defp header_value(_headers, _key), do: nil
 
   defp normalize_header_value([value | _]) when is_binary(value), do: value
   defp normalize_header_value(value) when is_binary(value), do: value

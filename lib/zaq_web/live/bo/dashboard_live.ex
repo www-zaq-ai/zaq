@@ -20,7 +20,12 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, "node:events")
+    if connected?(socket) do
+      case Phoenix.PubSub.subscribe(Zaq.PubSub, "node:events") do
+        :ok -> :ok
+        {:error, {:already_registered, _pid}} -> :ok
+      end
+    end
 
     license_data = FeatureStore.license_data()
     telemetry_metrics = load_main_dashboard_metrics()

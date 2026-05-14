@@ -102,9 +102,6 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
 
         {:error, {app, reason}} ->
           Mix.raise("Failed to start #{inspect(app)} required for Req: #{inspect(reason)}")
-
-        {:error, reason} ->
-          Mix.raise("Failed to start Req dependencies: #{inspect(reason)}")
       end
     end
   end

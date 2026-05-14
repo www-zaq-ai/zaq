@@ -276,13 +276,6 @@ defmodule Zaq.Agent.MCP.Runtime do
             )
 
             acc
-
-          other ->
-            Logger.warning(
-              "MCP secret decryption failed for #{secret_field} key=#{inspect(key)}: #{inspect(other)}"
-            )
-
-            acc
         end
       end)
 
@@ -416,8 +409,6 @@ defmodule Zaq.Agent.MCP.Runtime do
   defp capability_message_from_text?(text) when is_binary(text) do
     String.contains?(text, "Server capabilities not set")
   end
-
-  defp capability_message_from_text?(_), do: false
 
   defp transient_client_call_exit?({:error, {:mcp_runtime_call_exit, reason}}) do
     rendered = inspect(reason)

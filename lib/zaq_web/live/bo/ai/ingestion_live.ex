@@ -15,7 +15,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   @ingestion_topic "ingestion:jobs"
 
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, @ingestion_topic)
+    if connected?(socket) do
+      case Phoenix.PubSub.subscribe(Zaq.PubSub, @ingestion_topic) do
+        :ok -> :ok
+        {:error, {:already_registered, _pid}} -> :ok
+      end
+    end
 
     volumes = fetch_volumes()
     current_volume = volumes |> Map.keys() |> List.first()

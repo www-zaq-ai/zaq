@@ -421,10 +421,6 @@ defmodule Zaq.System do
     )
   end
 
-  defp secret_encryption_error(changeset, field, _reason) do
-    Ecto.Changeset.add_error(changeset, field, "could not be encrypted")
-  end
-
   # ── Helpers ───────────────────────────────────────────────────────────
 
   defp parse_int(str, default), do: ParseUtils.parse_int(str, default)

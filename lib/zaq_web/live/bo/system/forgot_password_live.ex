@@ -25,7 +25,12 @@ defmodule ZaqWeb.Live.BO.System.ForgotPasswordLive do
     case Accounts.get_user_by_email(trimmed) do
       %Accounts.User{} = user ->
         token = Accounts.generate_password_reset_token(user)
-        PasswordResetEmail.deliver(user, token)
+
+        case PasswordResetEmail.deliver(user, token) do
+          {:ok, :dispatched} -> :ok
+          {:ok, :skipped} -> :ok
+        end
+
         {:noreply, assign(socket, :submitted, true)}
 
       nil ->

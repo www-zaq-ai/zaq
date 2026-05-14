@@ -12,7 +12,10 @@ defmodule ZaqWeb.Live.BO.AI.KnowledgeGapLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "license:updated")
+      case Phoenix.PubSub.subscribe(Zaq.PubSub, "license:updated") do
+        :ok -> :ok
+        {:error, {:already_registered, _pid}} -> :ok
+      end
     end
 
     {:ok,

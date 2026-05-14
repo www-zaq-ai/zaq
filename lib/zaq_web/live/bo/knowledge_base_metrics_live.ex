@@ -11,7 +11,12 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: :timer.send_interval(@refresh_interval_ms, :refresh_telemetry)
+    if connected?(socket) do
+      case :timer.send_interval(@refresh_interval_ms, :refresh_telemetry) do
+        {:ok, _tref} -> :ok
+        {:error, _reason} -> :ok
+      end
+    end
 
     {:ok,
      socket

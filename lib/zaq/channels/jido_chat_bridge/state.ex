@@ -98,21 +98,30 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     {:ok, adapter} = bridge_module().adapter_for(config.provider)
     transport = sink_opts[:transport] || :websocket
 
-    with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
-         incoming <- with_transport(incoming, transport),
-         thread_id <-
-           bridge_module().thread_key(
-             incoming.channel_meta.adapter_name,
-             incoming.external_room_id,
-             incoming.external_thread_id || incoming.external_room_id
-           ) do
-      Chat.process_message(
-        state.chat,
-        incoming.channel_meta.adapter_name,
-        thread_id,
-        incoming,
-        []
-      )
+    result =
+      with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
+           incoming <- with_transport(incoming, transport),
+           thread_id <-
+             bridge_module().thread_key(
+               incoming.channel_meta.adapter_name,
+               incoming.external_room_id,
+               incoming.external_thread_id || incoming.external_room_id
+             ) do
+        case Chat.process_message(
+               state.chat,
+               incoming.channel_meta.adapter_name,
+               thread_id,
+               incoming,
+               []
+             ) do
+          {:ok, _chat, _incoming} -> :ok
+          {:error, _reason} -> :ok
+        end
+      end
+
+    case result do
+      :ok -> :ok
+      {:error, _reason} -> :ok
     end
 
     {:reply, :ok, state}
@@ -175,7 +184,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   defp with_transport(incoming, transport) do
-    metadata = Map.put(incoming.metadata || %{}, :transport, transport)
+    metadata = Map.put(incoming.metadata, :transport, transport)
     %{incoming | metadata: metadata}
   end
 

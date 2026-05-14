@@ -56,6 +56,7 @@ defmodule Zaq.Agent.ProviderSpec do
   @doc """
   Builds a ReqLLM model spec map from the system LLM config.
   """
+  @spec build() :: map()
   def build do
     System.get_llm_config() |> build()
   end
@@ -72,13 +73,6 @@ defmodule Zaq.Agent.ProviderSpec do
   """
   def build(arg)
 
-  def build(%{provider: _, model: _} = cfg) do
-    provider = reqllm_provider(cfg.provider)
-
-    %{provider: provider, id: cfg.model}
-    |> put_base_url(cfg)
-  end
-
   @spec build(ConfiguredAgent.t()) :: {:ok, map()} | {:error, atom()}
   def build(%ConfiguredAgent{} = configured_agent) do
     credential =
@@ -89,6 +83,14 @@ defmodule Zaq.Agent.ProviderSpec do
       spec = %{provider: runtime_provider, id: configured_agent.model}
       {:ok, put_base_url(spec, runtime_provider, credential)}
     end
+  end
+
+  @spec build(map()) :: map()
+  def build(%{provider: _, model: _} = cfg) do
+    provider = reqllm_provider(cfg.provider)
+
+    %{provider: provider, id: cfg.model}
+    |> put_base_url(cfg)
   end
 
   @doc """

@@ -39,7 +39,10 @@ defmodule Zaq.Agent.IdleLifecycle do
         state
 
       ref ->
-        :erlang.cancel_timer(ref)
+        case :erlang.cancel_timer(ref) do
+          _ -> :ok
+        end
+
         %{state | lifecycle: %{state.lifecycle | idle_timer: nil}}
     end
   end

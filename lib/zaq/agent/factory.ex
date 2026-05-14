@@ -212,8 +212,6 @@ defmodule Zaq.Agent.Factory do
     end
   end
 
-  defp maybe_put_tool_trace_context(_), do: :ok
-
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do
       {:ok, %{raw_state: %{runtime_config: %{} = config}}} ->
