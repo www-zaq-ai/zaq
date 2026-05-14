@@ -1,7 +1,7 @@
-defmodule Zaq.Engine.Workflows.Triggers.Webhook do
+defmodule Zaq.Engine.Workflows.Trigger.Type.Webhook do
   @moduledoc "Trigger fired by an authenticated HTTP POST to `/webhooks/triggers/:id`."
 
-  @behaviour Zaq.Engine.Workflows.TriggerBehaviour
+  @behaviour Zaq.Engine.Workflows.Trigger.Behaviour
 
   alias Zaq.Event
 

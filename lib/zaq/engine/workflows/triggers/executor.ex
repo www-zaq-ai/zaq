@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.TriggerExecutor do
+defmodule Zaq.Engine.Workflows.Trigger.Executor do
   @moduledoc """
   Orchestrates workflow dispatch for a trigger.
 

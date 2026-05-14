@@ -1,11 +1,11 @@
-defmodule Zaq.Engine.Workflows.Triggers.Scheduler do
+defmodule Zaq.Engine.Workflows.Trigger.Type.Scheduler do
   @moduledoc """
   Trigger fired on a cron schedule. The Oban worker calls `TriggerExecutor.execute/3`
   with this trigger. Static input is read from `trigger.config["static_input"]` and
   merged with any caller-supplied input.
   """
 
-  @behaviour Zaq.Engine.Workflows.TriggerBehaviour
+  @behaviour Zaq.Engine.Workflows.Trigger.Behaviour
 
   alias Zaq.Event
 

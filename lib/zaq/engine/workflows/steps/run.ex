@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.StepRun do
+defmodule Zaq.Engine.Workflows.Step.Run do
   @moduledoc """
   Ecto schema for a single step execution within a workflow run.
 

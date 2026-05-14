@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.TriggerChain do
+defmodule Zaq.Engine.Workflows.Trigger.Chain do
   @moduledoc false
 
   use Ecto.Schema

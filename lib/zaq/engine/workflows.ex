@@ -12,16 +12,16 @@ defmodule Zaq.Engine.Workflows do
   import Ecto.Query
 
   alias Zaq.Engine.Workflows.{
-    StepRun,
     Trigger,
-    TriggerChain,
-    TriggerWorkflow,
     Workflow,
     WorkflowAgent,
     WorkflowRun
   }
 
-  alias Zaq.Engine.Workflows.Triggers.Manual
+  alias Zaq.Engine.Workflows.Step.Run, as: StepRun
+  alias Zaq.Engine.Workflows.Trigger.Chain
+  alias Zaq.Engine.Workflows.Trigger.Type.Manual
+  alias Zaq.Engine.Workflows.Trigger.Workflow, as: TriggerWorkflow
   alias Zaq.Repo
 
   @type run_trace :: %{
@@ -411,16 +411,16 @@ defmodule Zaq.Engine.Workflows do
     if trigger_cycle?(upstream.id, downstream.id) do
       {:error, :cycle_detected}
     else
-      %TriggerChain{}
-      |> TriggerChain.changeset(%{trigger_id: upstream.id, downstream_trigger_id: downstream.id})
+      %Chain{}
+      |> Chain.changeset(%{trigger_id: upstream.id, downstream_trigger_id: downstream.id})
       |> Repo.insert(
         on_conflict: :nothing,
         conflict_target: [:trigger_id, :downstream_trigger_id]
       )
       |> case do
         # on_conflict :nothing returns struct with nil PKs; treat as success (already chained)
-        {:ok, %TriggerChain{trigger_id: nil}} ->
-          {:ok, %TriggerChain{trigger_id: upstream.id, downstream_trigger_id: downstream.id}}
+        {:ok, %Chain{trigger_id: nil}} ->
+          {:ok, %Chain{trigger_id: upstream.id, downstream_trigger_id: downstream.id}}
 
         {:ok, tc} ->
           {:ok, tc}
@@ -436,12 +436,12 @@ defmodule Zaq.Engine.Workflows do
           {:ok, map()} | {:error, :not_found}
   def unchain_trigger(%Trigger{} = upstream, %Trigger{} = downstream, _opts \\ []) do
     query =
-      from c in TriggerChain,
+      from c in Chain,
         where: c.trigger_id == ^upstream.id and c.downstream_trigger_id == ^downstream.id
 
     case Repo.delete_all(query) do
       {1, _} ->
-        {:ok, %TriggerChain{trigger_id: upstream.id, downstream_trigger_id: downstream.id}}
+        {:ok, %Chain{trigger_id: upstream.id, downstream_trigger_id: downstream.id}}
 
       {0, _} ->
         {:error, :not_found}
@@ -484,7 +484,7 @@ defmodule Zaq.Engine.Workflows do
       true ->
         next_ids =
           Repo.all(
-            from tc in TriggerChain,
+            from tc in Chain,
               where: tc.trigger_id == ^head,
               select: tc.downstream_trigger_id
           )

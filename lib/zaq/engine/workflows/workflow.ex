@@ -18,7 +18,8 @@ defmodule Zaq.Engine.Workflows.Workflow do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Zaq.Engine.Workflows.{StepEdge, StepNode}
+  alias Zaq.Engine.Workflows.Step.Edge, as: StepEdge
+  alias Zaq.Engine.Workflows.Step.Node, as: StepNode
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
