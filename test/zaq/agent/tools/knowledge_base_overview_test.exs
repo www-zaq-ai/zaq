@@ -39,7 +39,13 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
   end
 
   defp create_doc(source) do
-    {:ok, doc} = Document.create(%{source: source, content: "content for #{source}"})
+    {:ok, doc} =
+      Document.create(%{
+        source: "#{source}.chunk.1",
+        content: "content for #{source}",
+        metadata: %{"source_document_source" => source}
+      })
+
     doc
   end
 

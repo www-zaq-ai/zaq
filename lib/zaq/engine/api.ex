@@ -5,6 +5,7 @@ defmodule Zaq.Engine.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  alias Zaq.Accounts.People
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
@@ -27,6 +28,17 @@ defmodule Zaq.Engine.Api do
 
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)
+
+  def handle_event(%Event{} = event, :get_person, _context) do
+    case event.request do
+      %{person_id: person_id} ->
+        people_module = Keyword.get(event.opts, :people_module, People)
+        %{event | response: people_module.get_person(person_id)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
 
   def handle_event(%Event{} = event, :connect_get_active_grant, _context) do
     case event.request do

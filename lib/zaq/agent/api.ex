@@ -15,7 +15,6 @@ defmodule Zaq.Agent.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Agent
-  alias Zaq.Accounts.People
   alias Zaq.Agent.{ErrorMessage, Executor, MCP, Pipeline, PromptGuard, RuntimeSync, Status}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.{Event, EventHop}
@@ -279,15 +278,16 @@ defmodule Zaq.Agent.Api do
           team_ids =
             case node_router_mod.dispatch(
                    Event.new(
-                     %{module: People, function: :get_person, args: [person_id]},
+                     %{person_id: person_id},
                      :engine,
                      actor: event.actor,
-                     opts: [action: :invoke],
+                     opts: [action: :get_person],
                      trace_id: event.trace_id
                    )
                  ).response do
               nil -> []
-              person -> person.team_ids || []
+              %{team_ids: ids} when not is_nil(ids) -> ids
+              _ -> []
             end
 
           executor_module.run(incoming,

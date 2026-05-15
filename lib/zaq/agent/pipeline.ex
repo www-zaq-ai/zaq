@@ -40,7 +40,6 @@ defmodule Zaq.Agent.Pipeline do
   """
 
   require Logger
-  alias Zaq.Accounts.People
   alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
   alias Zaq.Agent.Tools.SearchKnowledgeBase
@@ -60,13 +59,14 @@ defmodule Zaq.Agent.Pipeline do
     team_ids =
       case node_router(opts).dispatch(
              Event.new(
-               %{module: People, function: :get_person, args: [person_id]},
+               %{person_id: person_id},
                :engine,
-               opts: [action: :invoke]
+               opts: [action: :get_person]
              )
            ).response do
         nil -> []
-        person -> person.team_ids || []
+        %{team_ids: ids} when not is_nil(ids) -> ids
+        _ -> []
       end
 
     opts =

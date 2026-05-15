@@ -32,6 +32,8 @@ defmodule Zaq.Agent.PipelineTest do
       }
     end
 
+    def dispatch(%Zaq.Event{} = event), do: %{event | response: nil}
+
     def call(:channels, Zaq.Channels.Router, :send_typing, [provider, channel_id]) do
       send(:pipeline_test_pid, {:typing_called, provider, channel_id})
       Process.get(:typing_router_result, :ok)
