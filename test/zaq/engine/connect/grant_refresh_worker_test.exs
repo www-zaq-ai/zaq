@@ -6,17 +6,8 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.GrantRefreshWorker
   alias Zaq.Repo
-
-  defmodule StubOAuthSuccess do
-    def oauth_refresh_token(_config, _params) do
-      {:ok,
-       %{access_token: "new_access", refresh_token: "new_refresh", expires_at: nil, scopes: []}}
-    end
-  end
-
-  defmodule StubNoOAuthRefresh do
-    def send_reply(_outgoing, _details), do: :ok
-  end
+  alias Zaq.Test.StubNoOAuthRefresh
+  alias Zaq.Test.StubOAuthSuccess
 
   defp insert_config(provider, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
@@ -127,7 +118,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
     original_channels = Application.get_env(:zaq, :channels)
 
     Application.put_env(:zaq, :channels, %{
-      google_drive: %{bridge: GrantRefreshWorkerTest.StubOAuthSuccess}
+      google_drive: %{bridge: StubOAuthSuccess}
     })
 
     on_exit(fn ->
@@ -171,7 +162,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
     original_channels = Application.get_env(:zaq, :channels)
 
     Application.put_env(:zaq, :channels, %{
-      slack: %{bridge: GrantRefreshWorkerTest.StubNoOAuthRefresh}
+      slack: %{bridge: StubNoOAuthRefresh}
     })
 
     on_exit(fn ->
