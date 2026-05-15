@@ -182,6 +182,20 @@ defmodule Zaq.IngestionTest do
       assert length(jobs) == 1
       assert hd(jobs).file_path == "one.md"
     end
+
+    # Line 665 — maybe_filter_status/2 with a list of statuses
+    test "filters by a list of statuses" do
+      create_job(%{file_path: "a.md", status: "pending"})
+      create_job(%{file_path: "b.md", status: "completed"})
+      create_job(%{file_path: "c.md", status: "failed"})
+
+      jobs = Ingestion.list_jobs(status: ["pending", "completed"])
+      statuses = Enum.map(jobs, & &1.status)
+
+      assert "pending" in statuses
+      assert "completed" in statuses
+      refute "failed" in statuses
+    end
   end
 
   describe "get_job/1" do
@@ -1016,6 +1030,23 @@ defmodule Zaq.IngestionTest do
       assert {:error, :not_found} =
                Ingestion.delete_folder_target_permission("vol", "folder", -1)
     end
+
+    # Line 423 — team_id branch (perm.person_id is nil)
+    test "deletes all permissions for the same team across docs in folder" do
+      folder = "vol_dfp_team/folder"
+      doc1 = create_doc_with_source("#{folder}/x.md")
+      doc2 = create_doc_with_source("#{folder}/y.md")
+      team = create_team()
+
+      {:ok, perm1} = Ingestion.set_document_permission(doc1.id, :team, team.id, ["read"])
+      {:ok, _perm2} = Ingestion.set_document_permission(doc2.id, :team, team.id, ["read"])
+
+      assert {:ok, 2} =
+               Ingestion.delete_folder_target_permission("vol_dfp_team", "folder", perm1.id)
+
+      assert Ingestion.list_document_permissions(doc1.id) == []
+      assert Ingestion.list_document_permissions(doc2.id) == []
+    end
   end
 
   describe "can_access_file?/2" do
@@ -1351,6 +1382,34 @@ defmodule Zaq.IngestionTest do
 
       assert Enum.any?(browse_results, &(&1.label == "report.pdf")),
              "Expected file 'report.pdf' to appear when browsing renamed folder"
+    end
+  end
+
+  # Lines 84, 99, 105, 106, 125, 139, 147 —
+  # list_document_sources with nil/empty query exercises the :all parse branch
+  # and the name=nil paths inside name_search_sources
+  describe "list_document_sources/1 — nil and empty query" do
+    test "returns sources for all documents when query is nil" do
+      unique = System.unique_integer([:positive])
+      source = "nil_query_doc_#{unique}.md"
+      {:ok, _} = Document.create(%{source: source, content: "hello"})
+
+      # nil → parse_query(nil) → :all → name_search_sources(nil)
+      # exercises lines 84, 99, 105, 125, 139, 147
+      results = Ingestion.list_document_sources(nil)
+      labels = Enum.map(results, & &1.label)
+      assert Enum.any?(labels, &String.contains?(&1, "nil_query_doc_#{unique}"))
+    end
+
+    test "returns sources for all documents when query is empty string" do
+      unique = System.unique_integer([:positive])
+      source = "empty_query_doc_#{unique}.md"
+      {:ok, _} = Document.create(%{source: source, content: "hello"})
+
+      # "" → parse_query("") → :all, exercises line 106
+      results = Ingestion.list_document_sources("")
+      labels = Enum.map(results, & &1.label)
+      assert Enum.any?(labels, &String.contains?(&1, "empty_query_doc_#{unique}"))
     end
   end
 end
