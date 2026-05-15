@@ -298,6 +298,7 @@ defmodule ZaqWeb.Components.ChatMessageTest do
       )
 
     assert html =~ "data-testid=\"tool-calls-popin\""
+    assert html =~ "Tool calls (1)"
     assert html =~ "data-testid=\"tool-call-row-call-1\""
     refute html =~ "data-testid=\"tool-call-details-call-1\""
   end

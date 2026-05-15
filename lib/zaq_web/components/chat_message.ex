@@ -294,6 +294,7 @@ defmodule ZaqWeb.Components.ChatMessage do
     assigns =
       assigns
       |> assign_new(:expanded_ids, fn -> MapSet.new() end)
+      |> assign(:tool_calls_count, length(assigns.tool_calls || []))
 
     ~H"""
     <div
@@ -303,7 +304,9 @@ defmodule ZaqWeb.Components.ChatMessage do
     >
       <div class="bg-white rounded-2xl shadow-2xl p-5 w-[min(800px,95vw)] max-h-[85vh] border border-black/10 overflow-hidden">
         <div class="flex items-center justify-between mb-3">
-          <p class="font-mono text-sm font-bold text-[#2c3a50]">Tool calls</p>
+          <p class="font-mono text-sm font-bold text-[#2c3a50]">
+            Tool calls ({@tool_calls_count})
+          </p>
           <button
             type="button"
             phx-click={@close_event}
