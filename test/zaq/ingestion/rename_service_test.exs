@@ -212,6 +212,95 @@ defmodule Zaq.Ingestion.RenameServiceTest do
     end
   end
 
+  describe "rename_entry/3 for a file" do
+    # Line 56 — rename_by_type :file returns :ok immediately when old == new
+    # normalize_relative strips "./" so both sides collapse to the same path
+    test "returns :ok without touching FS or DB when old and new paths normalise to the same value",
+         %{doc: doc} do
+      assert :ok = RenameService.rename_entry("default", "zaq/doc.md", "./zaq/doc.md")
+      assert Repo.get!(Document, doc.id).source == "zaq/doc.md"
+    end
+
+    # Line 244 — build_sidecar_updates nil source_doc clause
+    # When the file being renamed has no sidecar pointer in metadata, sidecar_update is nil
+    test "renames a plain file with no sidecar successfully" do
+      File.write!(Path.join(@test_base, "zaq/plain.txt"), "plain")
+      {:ok, plain_doc} = Document.create(%{source: "zaq/plain.txt", content: "plain"})
+
+      assert :ok = RenameService.rename_entry("default", "zaq/plain.txt", "zaq/plain2.txt")
+
+      assert Repo.get!(Document, plain_doc.id).source == "zaq/plain2.txt"
+    end
+
+    # Lines 272 + 309 — sidecar metadata present but no sidecar DB record
+    # sidecar_doc is nil → sidecar_update.new_metadata = nil (272), maybe_update_document
+    # with %{document: nil} is a no-op (309)
+    test "renames source file when sidecar DB record is missing" do
+      File.write!(Path.join(@test_base, "zaq/orphan.pdf"), "%PDF")
+      # Sidecar file exists on disk so FS rename can succeed, but has no Document row
+      File.write!(Path.join(@test_base, "zaq/orphan.md"), "# orphan sidecar")
+
+      {:ok, source_doc} =
+        Document.create(%{
+          source: "zaq/orphan.pdf",
+          content: "",
+          metadata: Sidecar.source_metadata("zaq/orphan.md")
+        })
+
+      assert :ok =
+               RenameService.rename_entry("default", "zaq/orphan.pdf", "zaq/orphan_new.pdf")
+
+      assert Repo.get!(Document, source_doc.id).source == "zaq/orphan_new.pdf"
+    end
+  end
+
+  describe "rename_entry/3 for a directory — legacy sync edge cases" do
+    # Line 129 — sync_stranded_legacy_docs returns {:ok, 0} when volume not in volumes map
+    # Passing %{} as explicit volumes means Map.get(%{}, "default") == nil -> {:ok, 0}
+    test "succeeds with empty volumes map (skips legacy sync)", %{doc: doc} do
+      assert :ok = RenameService.rename_entry("default", "zaq", "product2", %{})
+
+      updated = Document.get_by_source("product2/doc.md")
+      assert updated != nil
+      assert updated.id == doc.id
+    end
+
+    # Lines 168 + 176 — migrate_stranded_doc branches
+    test "skips stranded legacy doc when matching file is absent from new folder" do
+      # Line 168: file doesn't exist under new_relative on disk -> false
+      base = Path.expand(@test_base)
+      legacy_prefix = "default/" <> String.trim_leading(Path.join(base, "old_folder"), "/")
+
+      {:ok, _legacy} =
+        Document.create(%{source: legacy_prefix <> "/absent.md", content: "ghost"})
+
+      # Rename succeeds; the legacy doc is not migrated because no file exists in "zaq"
+      assert :ok = RenameService.rename_entry("default", "zaq", "product3")
+    end
+
+    test "deduplicates when target source already has a document (upsert collision)" do
+      # Line 176: upsert_migrated_doc deletes the stale legacy doc when the
+      # canonical target source is already occupied by another document
+      base = Path.expand(@test_base)
+      old_legacy_prefix = "default/" <> String.trim_leading(Path.join(base, "old_zaq"), "/")
+
+      # File exists on disk under new folder name "zaq" (which we rename to "product4")
+      File.write!(Path.join(@test_base, "zaq/doc.md"), "# Hello")
+
+      {:ok, legacy_doc} =
+        Document.create(%{source: old_legacy_prefix <> "/doc.md", content: "legacy"})
+
+      # A canonical doc already exists at the target source the migrator would produce
+      {:ok, _canonical} =
+        Document.create(%{source: "default/product4/doc.md", content: "canonical"})
+
+      assert :ok = RenameService.rename_entry("default", "zaq", "product4")
+
+      # legacy_doc should be deleted (collision resolved by deleting the stale row)
+      refute Repo.get(Document, legacy_doc.id)
+    end
+  end
+
   describe "rename_entry/3 saga rollback" do
     test "compensates FS rename when DB step fails for a file rename", %{
       source_doc: source_doc,
