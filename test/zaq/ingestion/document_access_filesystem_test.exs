@@ -1,7 +1,7 @@
 defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
 
   import Zaq.SystemConfigFixtures
 
@@ -150,6 +150,12 @@ defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
     test "sidecar .md is excluded when its source file exists", %{tmp: tmp} do
       File.write!("#{tmp}/slides.pptx", "binary")
       File.write!("#{tmp}/slides.md", "sidecar content")
+
+      Document.create(%{
+        source: "slides.md",
+        content: "sidecar content",
+        metadata: Sidecar.sidecar_metadata("slides.pptx")
+      })
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       sources = Enum.map(result, & &1.source)

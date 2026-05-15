@@ -221,21 +221,14 @@ defmodule Zaq.Ingestion.DocumentAccess do
   end
 
   defp reject_sidecar_sources(sources) do
-    source_set = MapSet.new(sources)
+    confirmed_sidecars =
+      from(d in Document, select: {d.source, d.metadata})
+      |> Repo.all()
+      |> Enum.filter(fn {_src, meta} -> Map.has_key?(meta || %{}, "source_document_source") end)
+      |> Enum.map(fn {src, _} -> src end)
+      |> MapSet.new()
 
-    Enum.reject(sources, fn source ->
-      Path.extname(source) == ".md" and has_non_md_sibling?(source, source_set)
-    end)
-  end
-
-  defp has_non_md_sibling?(md_source, source_set) do
-    base = Path.rootname(md_source)
-    dir = Path.dirname(md_source)
-
-    source_set
-    |> Enum.any?(fn s ->
-      Path.dirname(s) == dir and Path.rootname(s) == base and Path.extname(s) != ".md"
-    end)
+    Enum.reject(sources, fn source -> source in confirmed_sidecars end)
   end
 
   defp list_files_recursive(dir) do

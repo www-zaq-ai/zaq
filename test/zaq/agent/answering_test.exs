@@ -40,7 +40,7 @@ defmodule Zaq.Agent.AnsweringTest do
     test "returns a non-empty list of signal strings" do
       signals = Answering.no_answer_signals()
       assert is_list(signals)
-      assert signals != []
+      assert match?([_ | _], signals)
       assert Enum.all?(signals, &is_binary/1)
     end
   end

@@ -248,7 +248,7 @@ defmodule Zaq.Ingestion do
   defp derive_folder_prefixes(source) do
     parts = String.split(source, "/", trim: true)
 
-    0..(length(parts) - 2)
+    0..(length(parts) - 2)//1
     |> Enum.map(fn i -> parts |> Enum.take(i + 1) |> Enum.join("/") end)
   end
 

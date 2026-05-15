@@ -2,7 +2,7 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
   # async: false — modifies application env and writes to the filesystem
   use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
 
   import Zaq.SystemConfigFixtures
 
@@ -126,6 +126,12 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
       write_file("sidecar/report.pdf")
       md_source = write_file("sidecar/report.md")
 
+      Document.create(%{
+        source: md_source,
+        content: "sidecar",
+        metadata: Sidecar.sidecar_metadata("sidecar/report.pdf")
+      })
+
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       sources = Enum.map(result, & &1.source)
 
@@ -149,6 +155,12 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
         write_file(base)
         write_file(md)
 
+        Document.create(%{
+          source: md,
+          content: "sidecar",
+          metadata: Sidecar.sidecar_metadata(base)
+        })
+
         result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
         sources = Enum.map(result, & &1.source)
 
@@ -163,6 +175,12 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
       write_file("deep/nested/dir/presentation.pptx")
       sidecar = write_file("deep/nested/dir/presentation.md")
 
+      Document.create(%{
+        source: sidecar,
+        content: "sidecar",
+        metadata: Sidecar.sidecar_metadata("deep/nested/dir/presentation.pptx")
+      })
+
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       sources = Enum.map(result, & &1.source)
 
@@ -176,6 +194,18 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
       sidecar_a = write_file("multi-sidecar/a.md")
       sidecar_b = write_file("multi-sidecar/b.md")
       standalone = write_file("multi-sidecar/standalone.md")
+
+      Document.create(%{
+        source: sidecar_a,
+        content: "sidecar",
+        metadata: Sidecar.sidecar_metadata("multi-sidecar/a.pdf")
+      })
+
+      Document.create(%{
+        source: sidecar_b,
+        content: "sidecar",
+        metadata: Sidecar.sidecar_metadata("multi-sidecar/b.docx")
+      })
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       sources = Enum.map(result, & &1.source)

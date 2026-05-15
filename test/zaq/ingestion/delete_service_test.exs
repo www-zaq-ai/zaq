@@ -23,7 +23,7 @@ defmodule Zaq.Ingestion.DeleteServiceTest do
     # Covers line 9 — the default-arg function head (volumes \\ nil)
     test "deletes a file using 3-argument call" do
       File.write!(Path.join(@test_base, "file.txt"), "content")
-      {:ok, doc} = Document.create(%{source: "file.txt", content: "content"})
+      {:ok, _doc} = Document.create(%{source: "file.txt", content: "content"})
 
       assert :ok = DeleteService.delete_path("default", "file.txt", "file")
       assert Document.get_by_source("file.txt") == nil

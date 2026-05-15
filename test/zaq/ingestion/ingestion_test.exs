@@ -1417,11 +1417,10 @@ defmodule Zaq.IngestionTest do
   describe "list_document_sources/1 — nil and empty query" do
     test "returns sources for all documents when query is nil" do
       unique = System.unique_integer([:positive])
-      source = "nil_query_doc_#{unique}.md"
+      # Use a nested path — list_document_sources(nil) returns folder prefixes, not leaf files.
+      source = "nil_query_doc_#{unique}/file.md"
       {:ok, _} = Document.create(%{source: source, content: "hello"})
 
-      # nil → parse_query(nil) → :all → name_search_sources(nil)
-      # exercises lines 84, 99, 105, 125, 139, 147
       results = Ingestion.list_document_sources(nil)
       labels = Enum.map(results, & &1.label)
       assert Enum.any?(labels, &String.contains?(&1, "nil_query_doc_#{unique}"))
@@ -1429,10 +1428,10 @@ defmodule Zaq.IngestionTest do
 
     test "returns sources for all documents when query is empty string" do
       unique = System.unique_integer([:positive])
-      source = "empty_query_doc_#{unique}.md"
+      # Use a nested path — list_document_sources("") returns folder prefixes, not leaf files.
+      source = "empty_query_doc_#{unique}/file.md"
       {:ok, _} = Document.create(%{source: source, content: "hello"})
 
-      # "" → parse_query("") → :all, exercises line 106
       results = Ingestion.list_document_sources("")
       labels = Enum.map(results, & &1.label)
       assert Enum.any?(labels, &String.contains?(&1, "empty_query_doc_#{unique}"))
