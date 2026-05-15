@@ -83,7 +83,7 @@ defmodule Zaq.Ingestion.DeleteService do
 
         case first_error_or_ok(results) do
           :ok ->
-            delete_documents_by_folder_prefix(volume_name, path)
+            delete_documents_by_folder_prefix(volume_name, path, volumes)
             normalize_delete_result(FileExplorer.delete_directory(volume_name, path))
 
           error ->
@@ -91,7 +91,7 @@ defmodule Zaq.Ingestion.DeleteService do
         end
 
       {:error, :enoent} ->
-        delete_documents_by_folder_prefix(volume_name, path)
+        delete_documents_by_folder_prefix(volume_name, path, volumes)
         :ok
 
       error ->
@@ -103,9 +103,15 @@ defmodule Zaq.Ingestion.DeleteService do
   # at delete time (e.g. files deleted directly from disk, or orphaned from a
   # previous failed delete). Runs after the per-file recursive cleanup so
   # normal files are deleted with their sidecars; this is the safety net.
-  defp delete_documents_by_folder_prefix(volume_name, path) do
+  #
+  # Also removes legacy absolute-path sources (volume_name/<abs_path>/...) that
+  # were created by the old broken track_upload before the fix.
+  defp delete_documents_by_folder_prefix(volume_name, path, volumes) do
     normalized = SourcePath.normalize_relative(path)
-    prefixes = SourcePath.source_candidates(volume_name, normalized)
+
+    prefixes =
+      SourcePath.source_candidates(volume_name, normalized) ++
+        legacy_folder_prefix(volume_name, normalized, volumes)
 
     condition = Document.source_prefix_conditions(prefixes)
 
@@ -113,6 +119,9 @@ defmodule Zaq.Ingestion.DeleteService do
     |> Repo.all()
     |> Enum.each(&Document.delete/1)
   end
+
+  defp legacy_folder_prefix(volume_name, relative_path, volumes),
+    do: SourcePath.legacy_folder_prefixes(volume_name, relative_path, volumes)
 
   defp delete_entry_in_directory(
          volume_name,

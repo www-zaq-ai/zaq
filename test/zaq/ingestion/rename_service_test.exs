@@ -2,6 +2,7 @@ defmodule Zaq.Ingestion.RenameServiceTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Accounts.People
+  alias Zaq.Ingestion
   alias Zaq.Ingestion.{Document, Permission, RenameService, Sidecar}
   alias Zaq.Repo
 
@@ -94,6 +95,105 @@ defmodule Zaq.Ingestion.RenameServiceTest do
       perm = Repo.get_by(Permission, document_id: updated_doc.id, person_id: person.id)
       assert perm != nil, "Permission should survive the folder rename"
       assert perm.access_rights == ["read"]
+    end
+
+    test "also renames legacy absolute-path document sources (same folder name)", %{} do
+      # Reproduces the bug where documents ingested with a broken absolute_to_source
+      # (stored as "volume_name/<abs_path_without_leading_slash>/...") were skipped
+      # by the rename query because neither "folder/..." nor "volume/folder/..."
+      # matched the absolute-path prefix.
+      base = Application.get_env(:zaq, Zaq.Ingestion)[:base_path] |> Path.expand()
+      abs_prefix = "default/" <> String.trim_leading(Path.join(base, "zaq"), "/")
+      legacy_source = abs_prefix <> "/legacy.md"
+
+      {:ok, legacy_doc} = Document.create(%{source: legacy_source, content: "legacy"})
+
+      assert :ok = RenameService.rename_entry("default", "zaq", "product")
+
+      updated = Repo.get!(Document, legacy_doc.id)
+
+      assert updated.source == "default/product/legacy.md",
+             "Legacy absolute-path source must be rewritten to relative format on rename"
+    end
+
+    test "fixes stranded legacy sources from a previous untracked rename", %{} do
+      # Simulates the scenario where folder A was renamed to B without the fix
+      # (legacy docs still say A), and now B is being renamed to C. The sync step
+      # must detect that A's legacy docs correspond to files now in C and update them.
+      base = Application.get_env(:zaq, Zaq.Ingestion)[:base_path] |> Path.expand()
+
+      # Create a file in "zaq" on disk and a legacy doc pointing to it with an old
+      # absolute-path source that reflects the original folder name "old_zaq".
+      abs_old_prefix = "default/" <> String.trim_leading(Path.join(base, "old_zaq"), "/")
+      legacy_source = abs_old_prefix <> "/doc.md"
+
+      {:ok, legacy_doc} = Document.create(%{source: legacy_source, content: "stranded"})
+
+      # "zaq" is the CURRENT folder name on disk (it was renamed from "old_zaq" without
+      # the fix, leaving the legacy doc stranded).  Now rename "zaq" → "product".
+      assert :ok = RenameService.rename_entry("default", "zaq", "product")
+
+      updated = Repo.get!(Document, legacy_doc.id)
+
+      assert updated.source == "default/product/doc.md",
+             "Stranded legacy doc must be synced to the new folder name via filesystem check"
+    end
+
+    test "fixes doubly-corrupted legacy sources (absolute path embedded twice)" do
+      base = Path.expand(@test_base)
+      base_without_slash = String.trim_leading(base, "/")
+
+      # A source where the absolute base path was embedded twice by the old
+      # broken track_upload running on an already-corrupted source.
+      doubly_corrupted =
+        "default/" <> base_without_slash <> "/" <> base_without_slash <> "/zaq/doc.md"
+
+      {:ok, corrupted_doc} = Document.create(%{source: doubly_corrupted, content: "corrupt"})
+
+      assert :ok = RenameService.rename_entry("default", "zaq", "product")
+
+      updated = Repo.get!(Document, corrupted_doc.id)
+
+      assert updated.source == "default/product/doc.md",
+             "Doubly-corrupted source must be fully unwrapped and rewritten to canonical path"
+    end
+
+    test "updates document sources nested two levels deep" do
+      File.mkdir_p!(Path.join(@test_base, "zaq/sub"))
+      File.write!(Path.join(@test_base, "zaq/sub/deep.md"), "# deep")
+
+      {:ok, nested_doc} =
+        Document.create(%{source: "default/zaq/sub/deep.md", content: "# deep"})
+
+      assert :ok = RenameService.rename_entry("default", "zaq", "product")
+
+      assert Document.get_by_source("default/product/sub/deep.md") != nil,
+             "Nested doc must be reachable at the renamed path"
+
+      assert Document.get_by_source("default/zaq/sub/deep.md") == nil,
+             "Old nested source must not exist after rename"
+
+      assert Repo.get!(Document, nested_doc.id).source == "default/product/sub/deep.md"
+    end
+
+    test "list_document_sources after nested rename shows new paths, not old" do
+      File.mkdir_p!(Path.join(@test_base, "zaq/sub"))
+      File.write!(Path.join(@test_base, "zaq/sub/deep.md"), "# deep")
+
+      {:ok, _} =
+        Document.create(%{source: "default/zaq/sub/deep.md", content: "# deep"})
+
+      assert :ok = RenameService.rename_entry("default", "zaq", "product")
+
+      new_results = Ingestion.list_document_sources("product")
+
+      assert Enum.any?(new_results, fn cs -> cs.label == "product" end),
+             "New folder 'product' must appear in suggestions after rename"
+
+      old_results = Ingestion.list_document_sources("zaq")
+
+      refute Enum.any?(old_results, fn cs -> cs.label == "zaq" end),
+             "Old folder 'zaq' must not appear in suggestions after rename"
     end
 
     test "leaves filesystem and DB unchanged when rename fails", %{doc: doc} do

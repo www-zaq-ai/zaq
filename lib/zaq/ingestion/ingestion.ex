@@ -325,8 +325,8 @@ defmodule Zaq.Ingestion do
   Records a newly uploaded file in the documents table.
   Called immediately at upload time so the file browser sees it right away.
   """
-  def track_upload(volume_name, path) do
-    source = SourcePath.build_source(volume_name, path)
+  def track_upload(_volume_name, path) do
+    {:ok, source} = SourcePath.absolute_to_source(path)
     Document.upsert(%{source: source})
   end
 

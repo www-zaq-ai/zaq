@@ -13,7 +13,8 @@ defmodule Zaq.IngestionTest do
     DocumentChunker,
     FileExplorer,
     IngestChunkJob,
-    IngestJob
+    IngestJob,
+    SourcePath
   }
 
   alias Zaq.Repo
@@ -408,22 +409,43 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "track_upload/2" do
-    test "creates a document record with volume-prefixed source" do
+    test "creates a document record with canonical source from absolute path" do
       volume = "default"
-      path = "file_#{System.unique_integer([:positive])}.md"
+      filename = "file_#{System.unique_integer([:positive])}.md"
+      root = FileExplorer.list_volumes()[volume]
+      abs_path = Path.join(root, filename)
 
-      assert {:ok, doc} = Ingestion.track_upload(volume, path)
-      assert doc.source == Path.join([volume, path])
+      assert {:ok, doc} = Ingestion.track_upload(volume, abs_path)
+      {:ok, expected_source} = SourcePath.absolute_to_source(abs_path)
+      assert doc.source == expected_source
       assert doc.content == nil
     end
 
-    test "upserts: does not duplicate when called again for the same source" do
+    test "upserts: does not duplicate when called again for the same absolute path" do
       volume = "default"
-      path = "file_#{System.unique_integer([:positive])}.md"
+      filename = "file_#{System.unique_integer([:positive])}.md"
+      root = FileExplorer.list_volumes()[volume]
+      abs_path = Path.join(root, filename)
 
-      assert {:ok, _} = Ingestion.track_upload(volume, path)
-      assert {:ok, _doc} = Ingestion.track_upload(volume, path)
+      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
+      assert {:ok, _doc} = Ingestion.track_upload(volume, abs_path)
       assert Repo.aggregate(Document, :count) >= 1
+    end
+
+    test "list_document_sources shows file only once after double upload" do
+      volume = "default"
+      filename = "dedup_sources_#{System.unique_integer([:positive])}.md"
+      root = FileExplorer.list_volumes()[volume]
+      abs_path = Path.join(root, filename)
+
+      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
+      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
+
+      results = Ingestion.list_document_sources(filename)
+      labels = Enum.map(results, & &1.label)
+
+      assert Enum.count(labels, &(&1 == filename)) <= 1,
+             "File '#{filename}' must appear at most once in suggestions after double upload"
     end
   end
 
@@ -707,6 +729,30 @@ defmodule Zaq.IngestionTest do
       assert Chunk.count_by_document(ghost_doc.id) == 0
       assert Document.get_by_source(live_source) == nil
       assert Document.get_by_source(ghost_source) == nil
+    end
+
+    test "deleting a directory also removes legacy absolute-path document sources" do
+      unique = System.unique_integer([:positive])
+      folder = "delete_legacy_#{unique}"
+      root = FileExplorer.list_volumes()["default"] |> Path.expand()
+
+      canonical_source = "default/#{folder}/file.md"
+      legacy_prefix = "default/" <> String.trim_leading(Path.join(root, folder), "/")
+      legacy_source = legacy_prefix <> "/file.md"
+
+      assert :ok = FileExplorer.create_directory("default", folder)
+      assert {:ok, _} = FileExplorer.upload("default", "#{folder}/file.md", "# content")
+
+      {:ok, _} = Document.create(%{source: canonical_source, content: "canonical"})
+      {:ok, _} = Document.create(%{source: legacy_source, content: "legacy"})
+
+      assert :ok = Ingestion.delete_path("default", folder, "directory")
+
+      assert Document.get_by_source(canonical_source) == nil,
+             "Canonical source must be deleted"
+
+      assert Document.get_by_source(legacy_source) == nil,
+             "Legacy absolute-path source must also be deleted"
     end
   end
 
@@ -1179,6 +1225,50 @@ defmodule Zaq.IngestionTest do
 
       result = DocumentAccess.list_permitted_document_ids(person.id, [-99], [doc.id])
       assert doc.id in result
+    end
+  end
+
+  # ── Delete + list_document_sources integration ───────────────────────────────
+
+  describe "list_document_sources/1 after folder delete" do
+    test "suggestions no longer include deleted folder name" do
+      unique = System.unique_integer([:positive])
+      folder = "delsug_#{unique}"
+      source = "default/#{folder}/guide.md"
+
+      assert :ok = FileExplorer.create_directory("default", folder)
+      assert {:ok, _} = FileExplorer.upload("default", "#{folder}/guide.md", "# guide")
+      {:ok, _} = Document.create(%{source: source, content: "content"})
+
+      assert :ok = Ingestion.delete_path("default", folder, "directory")
+
+      results = Ingestion.list_document_sources(folder)
+
+      refute Enum.any?(results, &(&1.label == folder)),
+             "Deleted folder '#{folder}' must not appear as a suggestion after delete"
+
+      refute Enum.any?(results, &String.contains?(&1.label, folder)),
+             "No suggestion label should reference the deleted folder '#{folder}'"
+    end
+
+    test "suggestions no longer include deleted folder when only legacy sources existed" do
+      unique = System.unique_integer([:positive])
+      folder = "delsug_legacy_#{unique}"
+      root = FileExplorer.list_volumes()["default"] |> Path.expand()
+
+      legacy_prefix = "default/" <> String.trim_leading(Path.join(root, folder), "/")
+      legacy_source = legacy_prefix <> "/file.md"
+
+      assert :ok = FileExplorer.create_directory("default", folder)
+      assert {:ok, _} = FileExplorer.upload("default", "#{folder}/file.md", "# content")
+      {:ok, _} = Document.create(%{source: legacy_source, content: "legacy"})
+
+      assert :ok = Ingestion.delete_path("default", folder, "directory")
+
+      results = Ingestion.list_document_sources(folder)
+
+      refute Enum.any?(results, &String.contains?(&1.label, folder)),
+             "No suggestion for deleted folder '#{folder}' should remain after legacy-only delete"
     end
   end
 
