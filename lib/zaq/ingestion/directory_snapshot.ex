@@ -218,7 +218,11 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
   defp fetch_folder_doc_stats(prefixes) do
     conditions = Document.source_prefix_conditions(prefixes)
 
-    from(d in Document, where: ^conditions, select: not is_nil(d.content))
+    from(d in Document,
+      where: ^conditions,
+      where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+      select: not is_nil(d.content)
+    )
     |> Repo.all()
     |> Enum.reduce(%{total: 0, ingested: 0}, fn has_content, acc ->
       %{acc | total: acc.total + 1, ingested: acc.ingested + if(has_content, do: 1, else: 0)}
