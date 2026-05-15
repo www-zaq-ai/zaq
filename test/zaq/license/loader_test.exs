@@ -8,6 +8,8 @@ defmodule Zaq.License.LoaderTest do
   @public_key_path Path.join(["priv", "keys", "public.pem"])
 
   setup do
+    previous_level = Logger.level()
+
     ensure_started(FeatureStore)
     ensure_started(LicensePostLoader)
     FeatureStore.clear()
@@ -31,8 +33,7 @@ defmodule Zaq.License.LoaderTest do
     on_exit(fn ->
       FeatureStore.clear()
       File.rm_rf!(tmp_dir)
-      # Restore logger level in case a test raised it to :info for capture_log
-      Logger.configure(level: :warning)
+      Logger.configure(level: previous_level)
 
       case original_key do
         {:ok, content} -> File.write!(@public_key_path, content)

@@ -44,6 +44,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
       sink_mfa: sink_mfa,
       sink_opts: sink_opts,
       client: nil,
+      imap_adapter: Keyword.get(opts, :imap_adapter, ImapAdapter),
       retry_interval: Keyword.get(opts, :retry_interval, retry_interval(config)),
       mark_as_read: Keyword.get(opts, :mark_as_read, mark_as_read?(config)),
       load_initial_unread: Keyword.get(opts, :load_initial_unread, load_initial_unread?(config)),
@@ -82,15 +83,15 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl GenServer
-  def terminate(_reason, %{client: client}) when is_pid(client) do
-    ImapAdapter.disconnect(client)
+  def terminate(_reason, %{client: client} = state) when is_pid(client) do
+    state_adapter(state).disconnect(client)
     :ok
   end
 
   def terminate(_reason, _state), do: :ok
 
   defp connect_and_idle(state) do
-    case ImapAdapter.connect(state.config, state.mailbox) do
+    case state_adapter(state).connect(state.config, state.mailbox) do
       {:ok, client} ->
         state = %{state | client: client}
         state = maybe_fetch_initial_unread(state)
@@ -109,7 +110,12 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   defp fetch_unseen_and_maybe_mark_read(%{client: nil} = state), do: state
 
   defp fetch_unseen_and_maybe_mark_read(state) do
-    case safe_fetch_unseen(state.client, state.mailbox, &handle_message(state, &1)) do
+    case safe_fetch_unseen(
+           state_adapter(state),
+           state.client,
+           state.mailbox,
+           &handle_message(state, &1)
+         ) do
       :ok ->
         state
 
@@ -125,7 +131,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
 
   defp maybe_reenter_idle(%{client: client} = state) when is_pid(client) do
     if Process.alive?(client) do
-      case safe_enter_idle(client, state.idle_timeout) do
+      case safe_enter_idle(state_adapter(state), client, state.idle_timeout) do
         :ok ->
           state
 
@@ -149,16 +155,16 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
 
   defp maybe_reenter_idle(state), do: state
 
-  defp safe_fetch_unseen(client, mailbox, on_message) do
-    ImapAdapter.fetch_unseen(client, mailbox, on_message)
+  defp safe_fetch_unseen(adapter, client, mailbox, on_message) do
+    adapter.fetch_unseen(client, mailbox, on_message)
   rescue
     error -> {:error, {:imap_fetch_failed, Exception.message(error)}}
   catch
     :exit, reason -> {:error, {:imap_fetch_failed, reason}}
   end
 
-  defp safe_enter_idle(client, idle_timeout) do
-    ImapAdapter.enter_idle(client, idle_timeout)
+  defp safe_enter_idle(adapter, client, idle_timeout) do
+    adapter.enter_idle(client, idle_timeout)
   rescue
     error -> {:error, {:imap_idle_failed, Exception.message(error)}}
   catch
@@ -189,7 +195,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
 
   defp maybe_mark_as_read(state, message) do
     case Map.get(message, "seq") do
-      seq when is_integer(seq) -> ImapAdapter.mark_as_read(state.client, seq)
+      seq when is_integer(seq) -> state_adapter(state).mark_as_read(state.client, seq)
       _ -> :ok
     end
     |> case do
@@ -238,4 +244,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
   defp config_get(_config, _key, default), do: default
 
   defp schedule_reconnect(interval), do: Process.send_after(self(), :reconnect, interval)
+
+  defp state_adapter(%{imap_adapter: adapter}) when is_atom(adapter), do: adapter
+  defp state_adapter(_state), do: ImapAdapter
 end
