@@ -74,20 +74,20 @@ Follow this for every bug — no exceptions:
 1. Validate current codebase state before starting (`mix test`, `mix precommit`).
 2. Implement the change.
 3. Run `mix precommit` — fix all failures before opening a PR. Never replace it with ad-hoc checks.
-4. Open a PR with a clear description referencing the task or beads issue(s).
+4. Open a PR with a clear description referencing the task or Beadwork issue(s).
 5. Respond to all review feedback before merging.
 6. Update relevant docs if behavior or architecture changed.
-7. If the task is planned in beads, keep issue status and notes updated as progress is made.
+7. If the task is planned in Beadwork, keep issue status and notes updated as progress is made.
 
 ---
 
-## Planning in Beads
+## Planning in Beadwork
 
-For complex or multi-step tasks, check existing beads issues before starting (`bd ready`, `bd list --status open`).
+For complex or multi-step tasks, check existing Beadwork issues before starting.
 If no planning issues exist, create them before writing any code.
 
 - Lightweight planning for small changes can stay in the PR description
-- Planned complex work is tracked in beads issues (at least one issue per planned step; split further when needed)
+- Planned complex work is tracked in Beadwork issues (at least one issue per planned step; split further when needed)
 - Prefix each planned issue title with `[{issueId}]`
 - Link issue dependencies to encode step order and blockers
 - Known shortcuts and deferred work remain tracked in `docs/exec-plans/tech-debt-tracker.md`
