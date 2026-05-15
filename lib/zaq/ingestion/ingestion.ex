@@ -327,7 +327,7 @@ defmodule Zaq.Ingestion do
   """
   def track_upload(_volume_name, path) do
     {:ok, source} = SourcePath.absolute_to_source(path)
-    Document.upsert(%{source: source})
+    Document.insert_new(%{source: source})
   end
 
   def delete_path(volume_name, path, type, volumes \\ nil) do

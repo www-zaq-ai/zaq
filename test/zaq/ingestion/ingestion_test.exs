@@ -432,6 +432,27 @@ defmodule Zaq.IngestionTest do
       assert Repo.aggregate(Document, :count) >= 1
     end
 
+    test "does not wipe content when called again after a document has been ingested" do
+      volume = "default"
+      filename = "file_#{System.unique_integer([:positive])}.md"
+      root = FileExplorer.list_volumes()[volume]
+      abs_path = Path.join(root, filename)
+
+      {:ok, expected_source} = SourcePath.absolute_to_source(abs_path)
+
+      # Simulate ingestion: document exists with content
+      {:ok, ingested_doc} = Document.upsert(%{source: expected_source, content: "# Ingested"})
+      assert ingested_doc.content == "# Ingested"
+
+      # Re-upload (e.g. "Add Raw MD" overwrites the file) — must not wipe content
+      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
+
+      reloaded = Repo.get_by!(Document, source: expected_source)
+
+      assert reloaded.content == "# Ingested",
+             "track_upload must not overwrite content of an already-ingested document"
+    end
+
     test "list_document_sources shows file only once after double upload" do
       volume = "default"
       filename = "dedup_sources_#{System.unique_integer([:positive])}.md"

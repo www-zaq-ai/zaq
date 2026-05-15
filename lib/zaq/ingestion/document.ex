@@ -67,6 +67,21 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @doc """
+  Inserts a document only if no record with the same source exists.
+  Used by upload tracking to make a file visible in the browser without
+  overwriting content from a prior ingestion run.
+  """
+  def insert_new(attrs) do
+    %__MODULE__{}
+    |> changeset(attrs)
+    |> Repo.insert(on_conflict: :nothing, conflict_target: :source, returning: true)
+    |> case do
+      {:ok, %__MODULE__{} = doc} -> {:ok, doc}
+      {:ok, nil} -> {:ok, Repo.get_by!(__MODULE__, source: attrs[:source] || attrs["source"])}
+    end
+  end
+
+  @doc """
   Returns a document by ID.
   """
   def get(id), do: Repo.get(__MODULE__, id)
