@@ -93,8 +93,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   @impl true
   def capability_snapshot(config) when is_map(config) do
     with {:ok, integration} <- integration_for_provider(config.provider),
-         {:ok, actions} <- jido_connect_module().actions(integration) do
-      {resolved, unsupported} = resolve_capabilities(actions)
+         {:ok, actions} <- jido_connect_module().actions(integration),
+         {:ok, triggers} <- triggers_for(integration) do
+      {resolved, unsupported} = resolve_capabilities(actions, triggers)
 
       {:ok,
        %{
@@ -106,15 +107,36 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp resolve_capabilities(actions) do
+  defp resolve_capabilities(actions, triggers) do
     DataSourceBridge.required_capabilities()
     |> Enum.reduce({%{}, []}, fn capability, {acc_resolved, acc_unsupported} ->
-      case resolve_action_spec(actions, capability) do
-        {:ok, action} -> {Map.put(acc_resolved, capability, action.id), acc_unsupported}
+      case resolve_capability_ref(actions, triggers, capability) do
+        {:ok, ref} -> {Map.put(acc_resolved, capability, ref), acc_unsupported}
         _ -> {acc_resolved, [capability | acc_unsupported]}
       end
     end)
     |> then(fn {resolved, unsupported} -> {resolved, Enum.reverse(unsupported)} end)
+  end
+
+  defp resolve_capability_ref(_actions, triggers, :watch_changes_webhook) do
+    case Enum.find(triggers, &(&1.kind == :webhook and &1.verb == :watch)) do
+      nil -> {:error, :unsupported}
+      trigger -> {:ok, trigger.id}
+    end
+  end
+
+  defp resolve_capability_ref(_actions, triggers, :receive_change_webhook) do
+    case Enum.find(triggers, &(&1.kind == :webhook and &1.verb == :watch)) do
+      nil -> {:error, :unsupported}
+      trigger -> {:ok, trigger.id}
+    end
+  end
+
+  defp resolve_capability_ref(actions, _triggers, capability) do
+    case resolve_action_spec(actions, capability) do
+      {:ok, action} -> {:ok, action.id}
+      _ -> {:error, :unsupported}
+    end
   end
 
   @impl true
@@ -124,11 +146,43 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def setup_listener(config, params) when is_map(config) and is_map(params),
-    do: {:error, :unsupported}
+    do: watch_changes(config, params)
 
   @impl true
   def teardown_listener(config, params) when is_map(config) and is_map(params),
-    do: {:error, :unsupported}
+    do: unwatch_changes(config, params)
+
+  @impl true
+  def watch_changes(config, params) when is_map(config) and is_map(params) do
+    mechanism = map_get_string(params, [:mechanism, "mechanism"]) || "webhook"
+
+    with :ok <- ensure_supported_watch_mechanism(mechanism),
+         {:ok, trigger} <- resolve_watch_trigger(config.provider, mechanism) do
+      {:ok,
+       %{
+         mechanism: mechanism,
+         trigger_id: trigger.id,
+         provider: config.provider,
+         status: "watch_ready"
+       }}
+    end
+  end
+
+  @impl true
+  def unwatch_changes(config, _params) when is_map(config),
+    do: :ok
+
+  @impl true
+  def handle_webhook(config, payload) when is_map(config) and is_map(payload) do
+    with {:ok, trigger} <- resolve_webhook_trigger(config.provider),
+         {:ok, verifier} <- webhook_verifier_for(config.provider),
+         {:ok, delivery} <- verifier.verify_and_normalize(trigger, payload),
+         {:ok, delivery_map} <- delivery_to_map(delivery),
+         {:ok, record} <- load_changed_record(config, delivery_map),
+         :ok <- dispatch_record_changed(config, payload, trigger, delivery_map, record) do
+      {:ok, %{trigger_id: trigger.id, delivery: delivery}}
+    end
+  end
 
   @impl true
   def channel_stats(config, params) when is_map(config) and is_map(params) do
@@ -479,6 +533,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
       created_at: read_datetime(raw, ["created_time", :created_time, "created_at", :created_at]),
       modified_at:
         read_datetime(raw, ["modified_time", :modified_time, "modified_at", :modified_at]),
+      change_type: nil,
+      lifecycle_state: :active,
+      deleted_at: nil,
       permissions: permissions,
       attributes: %{},
       raw: raw
@@ -513,6 +570,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
       icon: nil,
       created_at: nil,
       modified_at: nil,
+      change_type: nil,
+      lifecycle_state: :active,
+      deleted_at: nil,
       attributes: %{},
       raw: raw
     }
@@ -818,6 +878,155 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
+  defp ensure_supported_watch_mechanism("webhook"), do: :ok
+  defp ensure_supported_watch_mechanism(_), do: {:error, :unsupported}
+
+  defp resolve_watch_trigger(provider, "webhook") do
+    resolve_webhook_trigger(provider)
+  end
+
+  defp resolve_watch_trigger(_provider, _mechanism), do: {:error, :unsupported}
+
+  defp resolve_webhook_trigger(provider) do
+    with {:ok, integration} <- integration_for_provider(provider),
+         {:ok, triggers} <- triggers_for(integration),
+         trigger when not is_nil(trigger) <-
+           Enum.find(triggers, &(&1.kind == :webhook and &1.verb == :watch)) do
+      {:ok, trigger}
+    else
+      nil -> {:error, :unsupported}
+      _ -> {:error, :unsupported}
+    end
+  end
+
+  defp webhook_verifier_for(provider) do
+    with {:ok, cfg} <- provider_cfg(provider),
+         verifier when is_atom(verifier) <- Map.get(cfg, :webhook_verifier) do
+      {:ok, verifier}
+    else
+      _ -> {:error, :unsupported}
+    end
+  end
+
+  defp dispatch_record_changed(config, payload, trigger, delivery, record) do
+    event =
+      Event.new(
+        %{
+          provider: config.provider,
+          config_id: Map.get(config, :id),
+          trigger_id: trigger.id,
+          delivery: delivery,
+          payload: payload,
+          record: record
+        },
+        :engine,
+        opts: [action: :data_source_record_changed]
+      )
+
+    case node_router_module().dispatch(event).response do
+      {:error, reason} -> {:error, reason}
+      _ -> :ok
+    end
+  end
+
+  defp delivery_to_map(delivery) when is_map(delivery), do: {:ok, delivery}
+
+  defp delivery_to_map(delivery) when is_struct(delivery) do
+    {:ok, Map.from_struct(delivery)}
+  rescue
+    _ -> {:error, :invalid_delivery}
+  end
+
+  defp delivery_to_map(_), do: {:error, :invalid_delivery}
+
+  defp load_changed_record(config, delivery_map) do
+    signal =
+      Map.get(delivery_map, :normalized_signal) || Map.get(delivery_map, "normalized_signal") ||
+        %{}
+
+    file_id =
+      read_stringish(signal, [:file_id, "file_id", :id, "id"]) ||
+        read_stringish(signal, [:resource_id, "resource_id"])
+
+    if is_nil(file_id) do
+      {:error, :missing_record_id}
+    else
+      if deleted_signal?(signal),
+        do: {:ok, tombstone_record(file_id, signal)},
+        else: fetch_or_build_record(config, file_id, signal)
+    end
+  end
+
+  defp fetch_or_build_record(config, file_id, signal) do
+    case invoke_intent(config, :get_item_metadata, %{file_id: file_id}) do
+      {:ok, payload} ->
+        raw = read_any(payload, [:file, "file"]) || payload
+        {:ok, map_file_record(raw) |> apply_signal_change(signal)}
+
+      _ ->
+        {:ok,
+         %Record{id: file_id, kind: :file, raw: %{}, attributes: %{}}
+         |> apply_signal_change(signal)}
+    end
+  end
+
+  defp deleted_signal?(signal) when is_map(signal) do
+    Map.get(signal, :removed) == true or
+      Map.get(signal, "removed") == true or
+      Map.get(signal, :deleted) == true or
+      Map.get(signal, "deleted") == true or
+      Map.get(signal, :change_type) in ["deleted", :deleted] or
+      Map.get(signal, "change_type") in ["deleted", :deleted]
+  end
+
+  defp deleted_signal?(_), do: false
+
+  defp tombstone_record(file_id, signal) do
+    %Record{id: file_id, kind: :file, raw: %{}, attributes: %{}}
+    |> apply_signal_change(signal)
+  end
+
+  defp apply_signal_change(%Record{} = record, signal) when is_map(signal) do
+    change_type = signal_change_type(signal)
+    lifecycle_state = lifecycle_state_for_change(change_type)
+    deleted_at = signal_deleted_at(signal)
+
+    %{record | change_type: change_type, lifecycle_state: lifecycle_state, deleted_at: deleted_at}
+  end
+
+  defp apply_signal_change(%Record{} = record, _), do: record
+
+  defp signal_change_type(signal) when is_map(signal) do
+    case Map.get(signal, :change_type) || Map.get(signal, "change_type") do
+      value when value in ["created", :created] -> :created
+      value when value in ["deleted", :deleted] -> :deleted
+      _ -> if(deleted_signal?(signal), do: :deleted, else: :updated)
+    end
+  end
+
+  defp signal_change_type(_), do: :updated
+
+  defp lifecycle_state_for_change(:deleted), do: :deleted
+  defp lifecycle_state_for_change(_), do: :active
+
+  defp signal_deleted_at(signal) when is_map(signal) do
+    case Map.get(signal, :time) || Map.get(signal, "time") do
+      value when is_binary(value) -> parse_iso_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp signal_deleted_at(_), do: nil
+
+  defp parse_iso_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp parse_iso_datetime(_), do: nil
+
   defp resolve_action(integration, capability) do
     with {:ok, actions} <- jido_connect_module().actions(integration) do
       resolve_action_spec(actions, capability)
@@ -841,6 +1050,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp resolve_action_spec(actions, :download_items), do: find_action(actions, :file, :download)
   defp resolve_action_spec(actions, :create_item), do: find_action(actions, :file, :create)
   defp resolve_action_spec(actions, :update_item), do: find_action(actions, :file, :update)
+  defp resolve_action_spec(_actions, :watch_changes_webhook), do: {:error, :unsupported}
+  defp resolve_action_spec(_actions, :receive_change_webhook), do: {:error, :unsupported}
   defp resolve_action_spec(_actions, _), do: {:error, :unsupported}
 
   defp find_action(actions, resource, verb) do
@@ -1016,4 +1227,14 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp jido_connect_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module, Jido.Connect)
+
+  defp triggers_for(integration) do
+    module = jido_connect_module()
+
+    if function_exported?(module, :triggers, 1) do
+      module.triggers(integration)
+    else
+      {:ok, []}
+    end
+  end
 end

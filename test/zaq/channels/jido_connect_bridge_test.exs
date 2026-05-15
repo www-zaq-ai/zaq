@@ -71,6 +71,8 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
          ]
        }}
     end
+
+    def triggers(_integration), do: {:ok, []}
   end
 
   defmodule StubJidoConnectStructPermissions do
@@ -588,6 +590,43 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     def dispatch(%{opts: [action: :connect_get_active_grant]} = _event), do: %{response: nil}
   end
 
+  defmodule StubWebhookVerifier do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           file_id: "deleted-file-1",
+           removed: true,
+           time: "2026-05-15T10:11:12Z"
+         }
+       }}
+    end
+  end
+
+  defmodule StubWebhookNodeRouter do
+    def dispatch(%{opts: [action: :data_source_record_changed], request: request} = event) do
+      send(self(), {:data_source_record_changed, request})
+      %{event | response: :ok}
+    end
+
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = event),
+      do: %{event | response: nil}
+
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = event),
+      do: %{event | response: {:error, :not_found}}
+
+    def dispatch(%{opts: [action: :connect_oauth_redirect_uri_for]} = event),
+      do: %{event | response: nil}
+  end
+
+  defmodule StubJidoConnectWebhookOnly do
+    def actions(_integration), do: {:ok, []}
+
+    def triggers(_integration) do
+      {:ok, [%{id: "stub.file.changed", kind: :webhook, verb: :watch}]}
+    end
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
     original_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
@@ -746,7 +785,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:error, :unsupported} = JidoConnectBridge.auth_handshake(config, %{})
     assert {:error, :unsupported} = JidoConnectBridge.download_resource(config, %{}, %{})
     assert {:error, :unsupported} = JidoConnectBridge.setup_listener(config, %{})
-    assert {:error, :unsupported} = JidoConnectBridge.teardown_listener(config, %{})
+    assert :ok = JidoConnectBridge.teardown_listener(config, %{})
     assert {:error, :unsupported} = JidoConnectBridge.to_internal(%{}, config)
   end
 
@@ -3159,5 +3198,66 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     # Unsupported capabilities go to unsupported list
     assert is_list(snapshot.unsupported)
+  end
+
+  test "handle_webhook dispatches data_source_record_changed with deleted lifecycle record" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifier
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_jido_connect,
+        do:
+          Application.put_env(
+            :zaq,
+            :jido_connect_bridge_jido_connect_module,
+            previous_jido_connect
+          ),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+      if previous_node_router,
+        do:
+          Application.put_env(:zaq, :jido_connect_bridge_node_router_module, previous_node_router),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_node_router_module)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.provider == "google_drive"
+    assert request.record.id == "deleted-file-1"
+    assert request.record.change_type == :deleted
+    assert request.record.lifecycle_state == :deleted
+    assert %DateTime{} = request.record.deleted_at
+  end
+
+  test "setup_listener returns unsupported when webhook trigger is absent" do
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             JidoConnectBridge.setup_listener(config, %{"mechanism" => "webhook"})
   end
 end

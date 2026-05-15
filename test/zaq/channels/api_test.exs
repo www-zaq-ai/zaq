@@ -58,6 +58,11 @@ defmodule Zaq.Channels.ApiTest do
       send(self(), {:bridge_list_mailboxes, config, details})
       {:ok, ["INBOX"]}
     end
+
+    def handle_webhook(config, payload) do
+      send(self(), {:bridge_handle_webhook, config, payload})
+      {:ok, %{accepted: true}}
+    end
   end
 
   defmodule StubBridgeNoCallbacks do
@@ -118,6 +123,18 @@ defmodule Zaq.Channels.ApiTest do
     def sync_provider_runtime(provider) do
       send(self(), {:ds_sync_provider_runtime, provider})
       :ok
+    end
+
+    def handle_webhook(provider, payload) do
+      send(self(), {:ds_handle_webhook, provider, payload})
+      {:ok, %{provider: provider, handled: true}}
+    end
+  end
+
+  defmodule StubCommunicationWebhookBridge do
+    def handle_webhook(provider, payload) do
+      send(self(), {:comm_handle_webhook, provider, payload})
+      {:ok, %{provider: provider, handled: true}}
     end
   end
 
@@ -257,6 +274,35 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :data_source_setup_listener, nil)
     assert result.response == {:ok, %{listener_id: "l1"}}
     assert_received {:ds_setup_listener, :google_drive, %{"mode" => "delta"}}
+  end
+
+  test "handles webhook_delivered for data_source" do
+    payload = %{"headers" => %{"x-test" => "1"}, "params" => %{"event" => "file.changed"}}
+
+    event =
+      Event.new(%{type: "data_source", provider: "google_drive", payload: payload}, :channels,
+        opts: [action: :webhook_delivered, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :webhook_delivered, nil)
+    assert result.response == {:ok, %{provider: "google_drive", handled: true}}
+    assert_received {:ds_handle_webhook, "google_drive", ^payload}
+  end
+
+  test "handles webhook_delivered for conversation" do
+    payload = %{"headers" => %{"x-test" => "1"}, "params" => %{"event" => "message"}}
+
+    event =
+      Event.new(%{type: "conversation", provider: "slack", payload: payload}, :channels,
+        opts: [
+          action: :webhook_delivered,
+          communication_bridge_module: StubCommunicationWebhookBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :webhook_delivered, nil)
+    assert result.response == {:ok, %{provider: "slack", handled: true}}
+    assert_received {:comm_handle_webhook, "slack", ^payload}
   end
 
   test "handles data_source_teardown_listener action" do

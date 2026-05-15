@@ -123,6 +123,17 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   describe "notify/1" do
     setup do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        :"email:imap" => %{bridge: Zaq.Channels.EmailBridge},
+        email: %{bridge: Zaq.Channels.EmailBridge}
+      })
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+      end)
+
       from(c in ChannelConfig, where: c.provider == "email:smtp")
       |> Repo.delete_all()
 

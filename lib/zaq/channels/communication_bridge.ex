@@ -47,12 +47,14 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
   @callback resolve_agent_selection(map(), Incoming.t(), keyword()) :: map() | nil
+  @callback handle_webhook(map(), map()) :: {:ok, term()} | {:error, term()}
 
   @optional_callbacks send_typing: 3,
                       add_reaction: 5,
                       remove_reaction: 5,
                       subscribe_thread_reply: 3,
                       unsubscribe_thread_reply: 3,
+                      handle_webhook: 2,
                       open_dm_channel: 2,
                       fetch_profile: 2,
                       list_mailboxes: 2,
@@ -169,6 +171,16 @@ defmodule Zaq.Channels.CommunicationBridge do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          true <- bridge_supports?(bridge, :test_connection, 2) || {:error, :unsupported} do
       bridge.test_connection(config, channel_id)
+    end
+  end
+
+  @doc "Handles a provider webhook delivery through the configured communication bridge."
+  @spec handle_webhook(atom() | String.t(), map()) :: {:ok, term()} | {:error, term()}
+  def handle_webhook(provider, payload) when is_map(payload) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <- bridge_supports?(bridge, :handle_webhook, 2) || {:error, :unsupported} do
+      bridge.handle_webhook(config, payload)
     end
   end
 

@@ -28,6 +28,38 @@ defmodule ZaqWeb.ChannelsController do
     end
   end
 
+  def webhook(conn, %{"type" => type, "provider" => provider} = params)
+      when type in ["conversation", "data_source"] do
+    payload = %{
+      "headers" => Map.new(conn.req_headers),
+      "params" => Map.drop(params, ["type", "provider"]),
+      "path" => conn.request_path,
+      "method" => conn.method,
+      "query" => conn.query_string,
+      "raw_body" => Map.get(conn.assigns, :raw_body)
+    }
+
+    event =
+      Event.new(
+        %{type: type, provider: provider, payload: payload},
+        :channels,
+        opts: [action: :webhook_delivered]
+      )
+
+    case node_router_module().dispatch(event).response do
+      {:ok, result} -> json(conn, %{status: "accepted", result: result})
+      :ok -> json(conn, %{status: "accepted"})
+      {:error, reason} -> json(conn, %{status: "rejected", reason: inspect(reason)})
+      other -> json(conn, %{status: "accepted", result: other})
+    end
+  end
+
+  def webhook(conn, _params) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "Invalid webhook type"})
+  end
+
   defp oauth_module, do: Application.get_env(:zaq, :connect_oauth_module, OAuth)
 
   defp node_router_module,

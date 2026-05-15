@@ -17,6 +17,9 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback download_resource(map(), map(), map()) :: {:ok, term()} | {:error, term()}
   @callback setup_listener(map(), map()) :: {:ok, term()} | {:error, term()}
   @callback teardown_listener(map(), map()) :: :ok | {:error, term()}
+  @callback watch_changes(map(), map()) :: {:ok, term()} | {:error, term()}
+  @callback unwatch_changes(map(), map()) :: :ok | {:error, term()}
+  @callback handle_webhook(map(), map()) :: {:ok, term()} | {:error, term()}
   @callback oauth_authorize_url(map(), map()) :: {:ok, String.t()} | {:error, term()}
   @callback oauth_exchange_code(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_refresh_token(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -35,7 +38,9 @@ defmodule Zaq.Channels.DataSourceBridge do
     :list_item_versions,
     :download_items,
     :create_item,
-    :update_item
+    :update_item,
+    :watch_changes_webhook,
+    :receive_change_webhook
   ]
 
   @capability_meta %{
@@ -47,7 +52,9 @@ defmodule Zaq.Channels.DataSourceBridge do
     list_item_versions: "Get file/folder versions",
     download_items: "Download file/folder selection",
     create_item: "Add file",
-    update_item: "Edit file"
+    update_item: "Edit file",
+    watch_changes_webhook: "Register webhook watch for change notifications",
+    receive_change_webhook: "Verify and normalize webhook change payloads"
   }
 
   @doc "Runs provider auth handshake through the configured DataSource bridge."
@@ -98,6 +105,36 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :teardown_listener, 2) || {:error, :unsupported} do
       bridge.teardown_listener(config, params)
+    end
+  end
+
+  @doc "Starts provider change watch through the configured DataSource bridge."
+  @spec watch_changes(atom() | String.t(), map()) :: {:ok, term()} | {:error, term()}
+  def watch_changes(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :watch_changes, 2) || {:error, :unsupported} do
+      bridge.watch_changes(config, params)
+    end
+  end
+
+  @doc "Stops provider change watch through the configured DataSource bridge."
+  @spec unwatch_changes(atom() | String.t(), map()) :: :ok | {:error, term()}
+  def unwatch_changes(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :unwatch_changes, 2) || {:error, :unsupported} do
+      bridge.unwatch_changes(config, params)
+    end
+  end
+
+  @doc "Handles a provider webhook delivery through the configured DataSource bridge."
+  @spec handle_webhook(atom() | String.t(), map()) :: {:ok, term()} | {:error, term()}
+  def handle_webhook(provider, payload) when is_map(payload) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <- supports_callback?(bridge, :handle_webhook, 2) || {:error, :unsupported} do
+      bridge.handle_webhook(config, payload)
     end
   end
 

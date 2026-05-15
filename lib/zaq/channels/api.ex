@@ -270,6 +270,28 @@ defmodule Zaq.Channels.Api do
     %{event | response: data_source_module.oauth_default_scopes(provider)}
   end
 
+  def handle_event(
+        %Event{request: %{type: "data_source", provider: provider, payload: payload}} = event,
+        :webhook_delivered,
+        _context
+      )
+      when is_map(payload) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.handle_webhook(provider, payload)}
+  end
+
+  def handle_event(
+        %Event{request: %{type: "conversation", provider: provider, payload: payload}} = event,
+        :webhook_delivered,
+        _context
+      )
+      when is_map(payload) do
+    communication_module =
+      Keyword.get(event.opts, :communication_bridge_module, CommunicationBridge)
+
+    %{event | response: communication_module.handle_webhook(provider, payload)}
+  end
+
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)
       when is_binary(platform) do
     bridge_module = bridge_module(event)
