@@ -71,7 +71,8 @@ defmodule Zaq.Ingestion.Python.PipelineStripImageRefsTest do
 
     test "handles non-existent file without raising", %{tmp_dir: tmp_dir} do
       md_path = Path.join(tmp_dir, "missing.md")
-      assert :ok = Pipeline.strip_local_image_refs(md_path)
+      import ExUnit.CaptureLog
+      capture_log(fn -> assert :ok = Pipeline.strip_local_image_refs(md_path) end)
     end
   end
 end

@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.ApiTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Api
   alias Zaq.Engine.Messages.Incoming
@@ -83,6 +83,43 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :connect_oauth_redirect_uri_for, nil)
 
     assert result.response == "https://example.test/oauth/google_drive/callback"
+  end
+
+  test "returns invalid request for get_person with no person_id" do
+    result = Api.handle_event(Event.new(%{}, :engine), :get_person, nil)
+    assert result.response == {:error, {:invalid_request, %{}}}
+  end
+
+  test "returns invalid request for connect_create_credential with non-map attrs" do
+    result = Api.handle_event(Event.new(%{attrs: :bad}, :engine), :connect_create_credential, nil)
+    assert result.response == {:error, {:invalid_request, %{attrs: :bad}}}
+  end
+
+  test "returns invalid request for connect_list_grants with non-map filters" do
+    result = Api.handle_event(Event.new(%{filters: :bad}, :engine), :connect_list_grants, nil)
+    assert result.response == {:error, {:invalid_request, %{filters: :bad}}}
+  end
+
+  test "returns invalid request for connect_oauth_build_authorize_url with non-map context" do
+    result =
+      Api.handle_event(
+        Event.new(%{credential: %{}, context: :bad}, :engine),
+        :connect_oauth_build_authorize_url,
+        nil
+      )
+
+    assert result.response == {:error, {:invalid_request, %{credential: %{}, context: :bad}}}
+  end
+
+  test "returns not_found for system_config_get_ai_provider_credential_bang with unknown id" do
+    result =
+      Api.handle_event(
+        Event.new(%{id: 0}, :engine),
+        :system_config_get_ai_provider_credential_bang,
+        nil
+      )
+
+    assert result.response == {:error, :not_found}
   end
 
   test "returns invalid request for malformed connect payloads" do

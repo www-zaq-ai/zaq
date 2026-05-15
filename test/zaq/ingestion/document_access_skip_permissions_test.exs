@@ -2,11 +2,15 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
   # async: false — modifies application env and writes to the filesystem
   use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.{Document, DocumentAccess}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
+
+  import Zaq.SystemConfigFixtures
 
   @test_base "test/tmp/document_access_skip_permissions"
 
   setup do
+    seed_embedding_config(%{model: "test-model", dimension: "1536"})
+
     File.rm_rf!(@test_base)
     File.mkdir_p!(@test_base)
 
@@ -33,22 +37,15 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
     doc
   end
 
-  defp create_chunk(chunk_source, parent_source) do
-    {:ok, doc} =
-      Document.create(%{
-        source: chunk_source,
-        content: "chunk content",
-        metadata: %{"source_document_source" => parent_source}
-      })
-
-    doc
+  defp insert_chunk_for(doc) do
+    {:ok, _chunk} = Chunk.create(%{document_id: doc.id, content: "chunk", chunk_index: 0})
   end
 
   describe "list_files_with_ingestion_status/1 — skip_permissions: true" do
     test "file on disk that is ingested (DB record + chunks) is tagged ingested: true" do
       source = write_file("folder/ingested.md")
-      _doc = create_doc(source)
-      _chunk = create_chunk("folder/ingested_chunk_1.md", source)
+      doc = create_doc(source)
+      insert_chunk_for(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       entry = Enum.find(result, fn r -> r.source == source end)
@@ -70,8 +67,8 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
     test "mixed: returns both ingested and non-ingested files" do
       ingested_source = write_file("mixed/ingested.md")
       not_ingested_source = write_file("mixed/not_ingested.md")
-      _doc = create_doc(ingested_source)
-      _chunk = create_chunk("mixed/ingested_chunk_1.md", ingested_source)
+      doc = create_doc(ingested_source)
+      insert_chunk_for(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
 
@@ -145,6 +142,49 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
       assert md_source in sources
     end
 
+    test "sidecar exclusion works for all sidecar-producing extensions" do
+      for ext <- ~w(.docx .pptx .xlsx .png .jpg .jpeg) do
+        base = "ext-test/file#{ext}"
+        md = "ext-test/file.md"
+        write_file(base)
+        write_file(md)
+
+        result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
+        sources = Enum.map(result, & &1.source)
+
+        assert Enum.any?(sources, &(&1 == base)), "#{ext} source should be included"
+        refute md in sources, "sidecar .md should be excluded when #{ext} source exists"
+
+        File.rm_rf!(@test_base <> "/ext-test")
+      end
+    end
+
+    test "sidecar exclusion applies in nested directories" do
+      write_file("deep/nested/dir/presentation.pptx")
+      sidecar = write_file("deep/nested/dir/presentation.md")
+
+      result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
+      sources = Enum.map(result, & &1.source)
+
+      refute sidecar in sources
+      assert Enum.any?(sources, &String.ends_with?(&1, "presentation.pptx"))
+    end
+
+    test "multiple sidecars in same directory are each excluded" do
+      write_file("multi-sidecar/a.pdf")
+      write_file("multi-sidecar/b.docx")
+      sidecar_a = write_file("multi-sidecar/a.md")
+      sidecar_b = write_file("multi-sidecar/b.md")
+      standalone = write_file("multi-sidecar/standalone.md")
+
+      result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
+      sources = Enum.map(result, & &1.source)
+
+      refute sidecar_a in sources
+      refute sidecar_b in sources
+      assert standalone in sources
+    end
+
     test "ingested doc with no file on disk does not appear in results" do
       source = "ghost/missing.md"
       _doc = create_doc(source)
@@ -166,8 +206,8 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
 
     test "file with DB record and chunks is tagged ingested: true" do
       source = write_file("bug/fully_ingested.md")
-      _doc = create_doc(source)
-      _chunk = create_chunk("bug/fully_ingested_chunk_1.md", source)
+      doc = create_doc(source)
+      insert_chunk_for(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       entry = Enum.find(result, fn r -> r.source == source end)

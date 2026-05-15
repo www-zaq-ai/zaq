@@ -151,6 +151,36 @@ defmodule Zaq.IngestionTest do
     end
   end
 
+  describe "list_document_sources/1" do
+    test "returns a list when called with nil (all sources)" do
+      create_doc_with_source("ls-nil/some-doc.md")
+      result = Ingestion.list_document_sources(nil)
+      assert is_list(result)
+    end
+
+    test "returns a list when called with empty string (all sources)" do
+      create_doc_with_source("ls-empty/some-doc.md")
+      result = Ingestion.list_document_sources("")
+      assert is_list(result)
+    end
+
+    test "returns name-filtered results for a simple name query" do
+      unique = System.unique_integer([:positive])
+      create_doc_with_source("ls-name-#{unique}/doc.md")
+      result = Ingestion.list_document_sources("ls-name-#{unique}")
+      assert is_list(result)
+      labels = Enum.map(result, & &1.label)
+      assert Enum.any?(labels, &String.contains?(&1, "ls-name-#{unique}"))
+    end
+
+    test "returns browse results for a folder/child query" do
+      unique = System.unique_integer([:positive])
+      create_doc_with_source("ls-browse-#{unique}/subfolder/doc.md")
+      result = Ingestion.list_document_sources("ls-browse-#{unique}/")
+      assert is_list(result)
+    end
+  end
+
   describe "list_jobs/1" do
     test "returns all jobs ordered by inserted_at desc" do
       j1 = create_job(%{file_path: "a.md"})
@@ -170,6 +200,17 @@ defmodule Zaq.IngestionTest do
       jobs = Ingestion.list_jobs(status: "pending")
       assert length(jobs) == 1
       assert hd(jobs).status == "pending"
+    end
+
+    test "filters by a list of statuses" do
+      create_job(%{file_path: "a.md", status: "pending"})
+      create_job(%{file_path: "b.md", status: "failed"})
+      create_job(%{file_path: "c.md", status: "completed"})
+
+      jobs = Ingestion.list_jobs(status: ["pending", "failed"])
+      statuses = Enum.map(jobs, & &1.status)
+      assert Enum.all?(statuses, &(&1 in ["pending", "failed"]))
+      refute "completed" in statuses
     end
 
     test "paginates with page and per_page" do
@@ -1022,6 +1063,22 @@ defmodule Zaq.IngestionTest do
       {:ok, _perm2} = Ingestion.set_document_permission(doc2.id, :person, person.id, ["read"])
 
       assert {:ok, 2} = Ingestion.delete_folder_target_permission("vol_dfp", "folder", perm1.id)
+      assert Ingestion.list_document_permissions(doc1.id) == []
+      assert Ingestion.list_document_permissions(doc2.id) == []
+    end
+
+    test "deletes all permissions for the same team across docs in folder" do
+      folder = "vol_dfp_team/folder"
+      doc1 = create_doc_with_source("#{folder}/a.md")
+      doc2 = create_doc_with_source("#{folder}/b.md")
+      team = create_team()
+
+      {:ok, perm1} = Ingestion.set_document_permission(doc1.id, :team, team.id, ["read"])
+      {:ok, _perm2} = Ingestion.set_document_permission(doc2.id, :team, team.id, ["read"])
+
+      assert {:ok, 2} =
+               Ingestion.delete_folder_target_permission("vol_dfp_team", "folder", perm1.id)
+
       assert Ingestion.list_document_permissions(doc1.id) == []
       assert Ingestion.list_document_permissions(doc2.id) == []
     end

@@ -11,7 +11,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
-  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
