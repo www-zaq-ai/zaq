@@ -174,6 +174,24 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
+  @doc "Handles request-style webhook payloads through the jido_chat pipeline."
+  @impl true
+  def handle_webhook(config, payload) when is_map(config) and is_map(payload) do
+    bridge_id = runtime_bridge_id(config)
+
+    with :ok <- ensure_runtime_started(config, bridge_id, []),
+         {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id),
+         {:ok, ingress_result} <-
+           state_module().process_webhook_request(state_pid, config, payload) do
+      {:ok,
+       %{
+         provider: config.provider,
+         handled: true,
+         webhook_response: normalize_webhook_response_payload(ingress_result.response)
+       }}
+    end
+  end
+
   @doc """
   Delivers `%Outgoing{}` to the Mattermost (or other jido_chat) platform.
 
@@ -608,9 +626,9 @@ defmodule Zaq.Channels.JidoChatBridge do
     |> Enum.filter(&is_binary/1)
   end
 
-  defp provider_to_atom(provider) when is_atom(provider), do: provider
+  def provider_to_atom(provider) when is_atom(provider), do: provider
 
-  defp provider_to_atom(provider) when is_binary(provider) do
+  def provider_to_atom(provider) when is_binary(provider) do
     String.to_existing_atom(provider)
   rescue
     ArgumentError -> nil
@@ -682,6 +700,10 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp pipeline_module do
     Application.get_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+  end
+
+  def runtime_chat_module do
+    Application.get_env(:zaq, :chat_bridge_chat_module, Chat)
   end
 
   defp accounts_module do
@@ -762,6 +784,42 @@ defmodule Zaq.Channels.JidoChatBridge do
     do: true
 
   defp thread_reply?(_), do: false
+
+  def webhook_request_from_payload(payload, provider) do
+    parsed_query = payload |> payload_value(["query", :query]) |> normalize_query()
+
+    %{
+      adapter_name: provider,
+      method: payload_value(payload, ["method", :method], "POST"),
+      path: payload_value(payload, ["path", :path]),
+      headers: payload_value(payload, ["headers", :headers], %{}),
+      payload: payload_value(payload, ["payload", :payload, "params", :params], %{}),
+      query: parsed_query,
+      raw: payload_value(payload, ["raw", :raw, "raw_body", :raw_body]),
+      metadata: %{}
+    }
+  end
+
+  defp normalize_query(query) when is_map(query), do: query
+
+  defp normalize_query(query) when is_binary(query) and query != "",
+    do: URI.decode_query(query)
+
+  defp normalize_query(_query), do: %{}
+
+  defp payload_value(payload, keys, default \\ nil) when is_map(payload) and is_list(keys) do
+    Enum.find_value(keys, default, &Map.get(payload, &1))
+  end
+
+  def normalize_webhook_response_payload(%{status: status, headers: headers, body: body}) do
+    %{
+      status: status || 200,
+      headers: headers || %{},
+      body: body
+    }
+  end
+
+  def normalize_webhook_response_payload(_), do: %{status: 200, headers: %{}, body: ""}
 
   # Dispatches an Oban on_reply job if the metadata requests it.
   # Used by the notification center for reply tracking.

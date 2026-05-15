@@ -50,7 +50,20 @@ defmodule ZaqWeb.ChannelsControllerTest do
                      %{type: "data_source", provider: "google_drive", payload: payload},
                      :webhook_delivered}
 
-    assert payload["params"]["event"] == "file.changed"
+    assert payload["payload"]["event"] == "file.changed"
+  end
+
+  test "webhook conversation passes through adapter webhook response", %{conn: conn} do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.WebhookRouter)
+
+    conn =
+      post(conn, "/channels/webhook/conversation/telegram", %{
+        "event" => "message",
+        "challenge" => "abc"
+      })
+
+    assert response(conn, 202) == "verified"
+    assert get_resp_header(conn, "x-webhook-provider") == ["telegram"]
   end
 
   test "webhook rejects invalid type", %{conn: conn} do
@@ -69,7 +82,24 @@ defmodule ZaqWeb.ChannelsControllerTest do
   defmodule WebhookRouter do
     def dispatch(event) do
       send(self(), {:webhook_event, event.request, Keyword.fetch!(event.opts, :action)})
-      %{event | response: :ok}
+
+      response =
+        case event.request do
+          %{type: "conversation", provider: provider} ->
+            {:ok,
+             %{
+               webhook_response: %{
+                 status: 202,
+                 headers: %{"x-webhook-provider" => provider},
+                 body: "verified"
+               }
+             }}
+
+          _ ->
+            :ok
+        end
+
+      %{event | response: response}
     end
   end
 end

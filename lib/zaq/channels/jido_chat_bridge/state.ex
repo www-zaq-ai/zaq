@@ -58,6 +58,10 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     GenServer.call(pid, {:send_reply, outgoing, connection_details}, :infinity)
   end
 
+  def process_webhook_request(pid, config, payload) do
+    GenServer.call(pid, {:process_webhook_request, config, payload}, :infinity)
+  end
+
   def refresh_config(pid, config) do
     GenServer.call(pid, {:refresh_config, config})
   end
@@ -132,6 +136,35 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     {:reply, bridge_module().do_send_reply(outgoing, connection_details), state}
   end
 
+  def handle_call({:process_webhook_request, config, payload}, _from, state) do
+    provider = bridge_module().provider_to_atom(config.provider)
+
+    result =
+      with provider when is_atom(provider) <- provider,
+           {:ok, adapter} <- bridge_module().adapter_for(config.provider),
+           request <- bridge_module().webhook_request_from_payload(payload, provider),
+           {:ok, ingress_result} <-
+             chat_module().route_request(
+               state.chat,
+               provider,
+               request,
+               adapters: %{provider => adapter}
+             ) do
+        {:ok, ingress_result}
+      else
+        nil -> {:error, :unsupported_provider}
+        {:error, reason} -> {:error, reason}
+      end
+
+    next_state =
+      case result do
+        {:ok, %{chat: chat}} -> %{state | chat: chat}
+        _ -> state
+      end
+
+    {:reply, result, next_state}
+  end
+
   def handle_call({:send_typing, provider, channel_id, connection_details}, _from, state) do
     {:reply, bridge_module().send_typing(provider, channel_id, connection_details), state}
   end
@@ -196,5 +229,9 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   defp bridge_module do
     Application.get_env(:zaq, Zaq.Channels.JidoChatBridge, [])
     |> Keyword.get(:bridge_module, JidoChatBridge)
+  end
+
+  defp chat_module do
+    bridge_module().runtime_chat_module()
   end
 end

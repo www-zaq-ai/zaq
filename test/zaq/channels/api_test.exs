@@ -138,6 +138,21 @@ defmodule Zaq.Channels.ApiTest do
     end
   end
 
+  defmodule StubCommunicationWebhookPassthroughBridge do
+    def handle_webhook(provider, payload) do
+      send(self(), {:comm_handle_webhook_passthrough, provider, payload})
+
+      {:ok,
+       %{
+         webhook_response: %{
+           status: 200,
+           headers: %{"x-provider" => to_string(provider)},
+           body: "ok"
+         }
+       }}
+    end
+  end
+
   test "handles deliver_outgoing action" do
     outgoing = %Outgoing{body: "ok", channel_id: "c1", provider: :web}
 
@@ -303,6 +318,32 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :webhook_delivered, nil)
     assert result.response == {:ok, %{provider: "slack", handled: true}}
     assert_received {:comm_handle_webhook, "slack", ^payload}
+  end
+
+  test "passes through conversation webhook response payload" do
+    payload = %{"headers" => %{"x-test" => "1"}, "params" => %{"event" => "message"}}
+
+    event =
+      Event.new(%{type: "conversation", provider: "telegram", payload: payload}, :channels,
+        opts: [
+          action: :webhook_delivered,
+          communication_bridge_module: StubCommunicationWebhookPassthroughBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :webhook_delivered, nil)
+
+    assert result.response ==
+             {:ok,
+              %{
+                webhook_response: %{
+                  status: 200,
+                  headers: %{"x-provider" => "telegram"},
+                  body: "ok"
+                }
+              }}
+
+    assert_received {:comm_handle_webhook_passthrough, "telegram", ^payload}
   end
 
   test "handles data_source_teardown_listener action" do

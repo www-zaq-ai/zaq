@@ -30,14 +30,7 @@ defmodule ZaqWeb.ChannelsController do
 
   def webhook(conn, %{"type" => type, "provider" => provider} = params)
       when type in ["conversation", "data_source"] do
-    payload = %{
-      "headers" => Map.new(conn.req_headers),
-      "params" => Map.drop(params, ["type", "provider"]),
-      "path" => conn.request_path,
-      "method" => conn.method,
-      "query" => conn.query_string,
-      "raw_body" => Map.get(conn.assigns, :raw_body)
-    }
+    payload = request_payload(conn, params)
 
     event =
       Event.new(
@@ -47,10 +40,20 @@ defmodule ZaqWeb.ChannelsController do
       )
 
     case node_router_module().dispatch(event).response do
-      {:ok, result} -> json(conn, %{status: "accepted", result: result})
-      :ok -> json(conn, %{status: "accepted"})
-      {:error, reason} -> json(conn, %{status: "rejected", reason: inspect(reason)})
-      other -> json(conn, %{status: "accepted", result: other})
+      {:ok, %{webhook_response: webhook_response} = result} when type == "conversation" ->
+        maybe_passthrough_webhook_response(conn, webhook_response, result)
+
+      {:ok, result} ->
+        json(conn, %{status: "accepted", result: result})
+
+      :ok ->
+        json(conn, %{status: "accepted"})
+
+      {:error, reason} ->
+        json(conn, %{status: "rejected", reason: inspect(reason)})
+
+      other ->
+        json(conn, %{status: "accepted", result: other})
     end
   end
 
@@ -105,5 +108,43 @@ defmodule ZaqWeb.ChannelsController do
       </body>
     </html>
     """
+  end
+
+  defp maybe_passthrough_webhook_response(conn, %{status: status} = webhook_response, _result)
+       when is_integer(status) do
+    conn =
+      Enum.reduce(Map.get(webhook_response, :headers, %{}), conn, fn {key, value}, acc ->
+        normalized_key = String.downcase(to_string(key))
+
+        if normalized_key in ["content-length", "transfer-encoding"] do
+          acc
+        else
+          put_resp_header(acc, normalized_key, to_string(value))
+        end
+      end)
+
+    body = Map.get(webhook_response, :body)
+
+    cond do
+      is_binary(body) -> send_resp(conn, status, body)
+      is_nil(body) -> send_resp(conn, status, "")
+      true -> conn |> put_status(status) |> json(body)
+    end
+  end
+
+  defp maybe_passthrough_webhook_response(conn, _webhook_response, result),
+    do: json(conn, %{status: "accepted", result: result})
+
+  defp request_payload(conn, params) do
+    body_payload = Map.drop(params, ["type", "provider"])
+
+    %{
+      "method" => conn.method,
+      "path" => conn.request_path,
+      "headers" => Map.new(conn.req_headers),
+      "query" => conn.query_params,
+      "payload" => body_payload,
+      "raw" => Map.get(conn.assigns, :raw_body)
+    }
   end
 end

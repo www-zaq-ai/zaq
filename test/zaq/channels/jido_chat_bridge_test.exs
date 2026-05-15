@@ -207,6 +207,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule StubChatModule do
+    def route_request(chat, adapter_name, request, opts) do
+      (Process.whereis(:bridge_test_observer) || self())
+      |> then(&send(&1, {:route_request_called, chat, adapter_name, request, opts}))
+
+      {:ok,
+       %{
+         response: %{status: 204, headers: %{"x-webhook" => "ok"}, body: "accepted"}
+       }}
+    end
+  end
+
   defmodule StubAdapterTestConnection do
     def send_message(channel_id, message, opts) do
       send(self(), {:adapter_send_message, channel_id, message, opts})
@@ -355,6 +367,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     Application.delete_env(:zaq, :chat_bridge_node_router_module)
     Application.delete_env(:zaq, :chat_bridge_supervisor_module)
     Application.delete_env(:zaq, :chat_bridge_oban_module)
+    Application.delete_env(:zaq, :chat_bridge_chat_module)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :pipeline_hooks_module)
@@ -366,6 +379,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.delete_env(:zaq, :chat_bridge_node_router_module)
       Application.delete_env(:zaq, :chat_bridge_supervisor_module)
       Application.delete_env(:zaq, :chat_bridge_oban_module)
+      Application.delete_env(:zaq, :chat_bridge_chat_module)
     end)
 
     :ok
@@ -1955,6 +1969,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   describe "register_handlers/3" do
     test "default handler opts path handles DM and configured channel pattern" do
       config = %{
+        id: System.unique_integer([:positive]),
         provider: "mattermost",
         url: "https://mm.example.com",
         token: "tok",
@@ -2004,6 +2019,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "mention events trigger processing for non-DM messages" do
       config = %{
+        id: System.unique_integer([:positive]),
         provider: "mattermost",
         url: "https://mm.example.com",
         token: "tok",
@@ -2636,6 +2652,53 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       assert {:error, :stop_failed} = JidoChatBridge.stop_runtime(config)
+    end
+  end
+
+  describe "handle_webhook/2" do
+    test "routes conversation webhook through chat request pipeline" do
+      Process.register(self(), :bridge_test_observer)
+
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterListenerOpts}
+      })
+
+      Application.put_env(:zaq, :chat_bridge_chat_module, StubChatModule)
+
+      on_exit(fn ->
+        if Process.whereis(:bridge_test_observer), do: Process.unregister(:bridge_test_observer)
+        Application.put_env(:zaq, :channels, previous_channels)
+        Application.delete_env(:zaq, :chat_bridge_chat_module)
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      payload = %{
+        "method" => "POST",
+        "path" => "/channels/webhook/conversation/mattermost",
+        "headers" => %{"x-test" => "1"},
+        "payload" => %{"event" => "message"},
+        "query" => %{"challenge" => "abc"},
+        "raw" => "{}"
+      }
+
+      assert {:ok, %{handled: true, provider: "mattermost", webhook_response: webhook_response}} =
+               JidoChatBridge.handle_webhook(config, payload)
+
+      assert webhook_response == %{status: 204, headers: %{"x-webhook" => "ok"}, body: "accepted"}
+
+      assert_received {:route_request_called, _chat, :mattermost, request, _opts}
+      assert request.payload == %{"event" => "message"}
+      assert request.query == %{"challenge" => "abc"}
+      assert request.raw == "{}"
     end
   end
 
