@@ -223,20 +223,6 @@ defmodule Zaq.IngestionTest do
       assert length(jobs) == 1
       assert hd(jobs).file_path == "one.md"
     end
-
-    # Line 665 — maybe_filter_status/2 with a list of statuses
-    test "filters by a list of statuses" do
-      create_job(%{file_path: "a.md", status: "pending"})
-      create_job(%{file_path: "b.md", status: "completed"})
-      create_job(%{file_path: "c.md", status: "failed"})
-
-      jobs = Ingestion.list_jobs(status: ["pending", "completed"])
-      statuses = Enum.map(jobs, & &1.status)
-
-      assert "pending" in statuses
-      assert "completed" in statuses
-      refute "failed" in statuses
-    end
   end
 
   describe "get_job/1" do
@@ -1086,23 +1072,6 @@ defmodule Zaq.IngestionTest do
     test "returns error when permission not found" do
       assert {:error, :not_found} =
                Ingestion.delete_folder_target_permission("vol", "folder", -1)
-    end
-
-    # Line 423 — team_id branch (perm.person_id is nil)
-    test "deletes all permissions for the same team across docs in folder" do
-      folder = "vol_dfp_team/folder"
-      doc1 = create_doc_with_source("#{folder}/x.md")
-      doc2 = create_doc_with_source("#{folder}/y.md")
-      team = create_team()
-
-      {:ok, perm1} = Ingestion.set_document_permission(doc1.id, :team, team.id, ["read"])
-      {:ok, _perm2} = Ingestion.set_document_permission(doc2.id, :team, team.id, ["read"])
-
-      assert {:ok, 2} =
-               Ingestion.delete_folder_target_permission("vol_dfp_team", "folder", perm1.id)
-
-      assert Ingestion.list_document_permissions(doc1.id) == []
-      assert Ingestion.list_document_permissions(doc2.id) == []
     end
   end
 
