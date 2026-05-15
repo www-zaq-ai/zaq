@@ -48,6 +48,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     assert has_element?(view, "#channel-card-sharepoint")
   end
 
+  describe "handle_params" do
+    test "sets notification page title and cards for :notification action" do
+      socket =
+        %Phoenix.LiveView.Socket{}
+        |> Phoenix.Component.assign(:live_action, :notification)
+        |> Phoenix.Component.assign(:service_available, true)
+
+      {:noreply, socket} = ChannelsIndexLive.handle_params(%{}, "", socket)
+
+      assert socket.assigns.page_title == "Notification Channels"
+      assert socket.assigns.current_path == "/bo/channels/notifications"
+      assert socket.assigns.kind == :notification
+      assert length(socket.assigns.cards) == 1
+      assert hd(socket.assigns.cards).id == "email"
+    end
+  end
+
   test "shows active count for configured provider", %{conn: conn} do
     insert_channel_config(%{provider: "slack", name: "Slack Ops"})
 
@@ -86,6 +103,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
 
     test "stat_for returns zero for unknown provider" do
       assert ChannelsIndexLive.stat_for(%{}, "unknown_provider") == 0
+    end
+
+    test "stat_for rescues ArgumentError for brand-new provider strings" do
+      provider = "nonexistent_provider_#{System.unique_integer([:positive])}"
+
+      assert ChannelsIndexLive.stat_for(%{}, provider) == 0
     end
 
     test "retrieval_total and data_source_total aggregate known providers" do

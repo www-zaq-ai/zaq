@@ -4,6 +4,8 @@ defmodule Zaq.Engine.Connect.OAuthTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{OAuth, OAuthState}
+  alias Zaq.Event
+  alias Zaq.NodeRouter
   alias Zaq.Repo
 
   defmodule TestOAuthBridge do
@@ -96,6 +98,17 @@ defmodule Zaq.Engine.Connect.OAuthTest do
       "settings" => %{}
     })
     |> Repo.insert!()
+  end
+
+  defp dispatch_finalize_callback(provider, params, mod \\ OAuth) do
+    event =
+      Event.new(
+        %{module: mod, function: :finalize_callback, args: [provider, params]},
+        :engine,
+        opts: [action: :invoke]
+      )
+
+    NodeRouter.dispatch(event).response
   end
 
   test "build_authorize_url/2 rejects unsupported auth kind" do
@@ -285,5 +298,69 @@ defmodule Zaq.Engine.Connect.OAuthTest do
 
     assert {:error, {:invalid_oauth_response, :invalid}} =
              OAuth.finalize_callback("google_drive", %{"state" => state, "code" => "oauth-code"})
+  end
+
+  describe "NodeRouter dispatch integration" do
+    test "dispatches finalize_callback through :engine invoke and issues grant" do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        google_drive: %{bridge: TestOAuthBridge}
+      })
+
+      on_exit(fn ->
+        if is_nil(original_channels) do
+          Application.delete_env(:zaq, :channels)
+        else
+          Application.put_env(:zaq, :channels, original_channels)
+        end
+      end)
+
+      credential = create_credential!()
+      _config = create_data_source_config!("google_drive")
+
+      state =
+        OAuthState.sign(%{
+          "credential_id" => credential.id,
+          "provider" => "google_drive",
+          "resource_type" => "data_source",
+          "resource_id" => "42",
+          "owner_type" => "org",
+          "owner_id" => nil,
+          "metadata" => %{"source" => "node_router"}
+        })
+
+      assert {:ok, grant} =
+               dispatch_finalize_callback("google_drive", %{
+                 "state" => state,
+                 "code" => "oauth-code"
+               })
+
+      assert grant.provider == "google_drive"
+      assert grant.auth_kind == "oauth2"
+      assert grant.resource_type == "data_source"
+      assert grant.resource_id == "42"
+    end
+
+    test "dispatches finalize_callback validation errors through :engine invoke" do
+      assert {:error, :invalid_callback_params} =
+               dispatch_finalize_callback("google_drive", %{"state" => "x"})
+    end
+
+    test "dispatches provider mismatch through :engine invoke" do
+      credential = create_credential!()
+
+      state =
+        OAuthState.sign(%{
+          "credential_id" => credential.id,
+          "provider" => "sharepoint"
+        })
+
+      assert {:error, :provider_mismatch} =
+               dispatch_finalize_callback("google_drive", %{
+                 "state" => state,
+                 "code" => "oauth-code"
+               })
+    end
   end
 end

@@ -5,10 +5,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
-
   alias Zaq.Accounts
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias ZaqWeb.Live.BO.Communication.ChannelsLive
 
@@ -903,6 +903,323 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
              )
 
     assert %Ecto.Changeset{} = error_socket.assigns.credential_changeset
+  end
+
+  test "data source mount exercises connect_credentials and grants_by_config for google_drive" do
+    _config =
+      insert_channel_config(%{
+        provider: "google_drive",
+        kind: "data_source",
+        name: "Google Drive Main"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        service_available: true,
+        live_action: :data_source
+      }
+    }
+
+    assert {:ok, socket} =
+             ChannelsLive.mount(%{"provider" => "google_drive"}, %{}, socket)
+
+    assert socket.assigns.provider == "google_drive"
+    assert socket.assigns.kind == :data_source
+    assert length(socket.assigns.configs) == 1
+    assert %Phoenix.LiveView.Socket{} = socket
+  end
+
+  test "data source save hits sync_data_source_runtime path" do
+    config =
+      insert_channel_config(%{
+        provider: "google_drive",
+        kind: "data_source",
+        name: "Drive Sync",
+        url: "https://drive.example.com",
+        token: "drive-token"
+      })
+
+    base_changeset =
+      ChannelConfig.changeset(config, %{})
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        modal: :edit,
+        provider: "google_drive",
+        kind: :data_source,
+        changeset: base_changeset,
+        configs: [config],
+        provider_default_agent_id: nil,
+        retrieval_channels: [],
+        form: nil,
+        modal_errors: [],
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: [],
+        oauth_claim_modal: false,
+        oauth_claim_url: nil,
+        confirm_delete: nil,
+        confirm_clear: false,
+        clear_channel_id: "",
+        clear_status: :idle,
+        test_config: nil,
+        test_status: :idle,
+        test_channel_id: "",
+        send_channel_id: "",
+        send_message: "",
+        send_status: :idle,
+        posts_channel_id: "",
+        posts: [],
+        posts_status: :idle,
+        posts_next_id: nil,
+        posts_prev_id: nil,
+        connect_credentials: [],
+        grants_by_config: %{}
+      }
+    }
+
+    assert {:noreply, result_socket} =
+             ChannelsLive.handle_event(
+               "save",
+               %{
+                 "form" => %{
+                   "name" => "Drive Sync Updated",
+                   "url" => "https://drive.example.com",
+                   "token" => "drive-token",
+                   "enabled" => "true"
+                 }
+               },
+               socket
+             )
+
+    assert result_socket.assigns.modal == nil
+    assert Repo.get!(ChannelConfig, config.id).name == "Drive Sync Updated"
+  end
+
+  test "template helper functions cover all guarded clauses" do
+    config =
+      insert_channel_config(%{
+        settings: %{
+          "jido_chat" => %{"bot_name" => "test-bot", "bot_user_id" => "u-42"},
+          "connect" => %{"credential_id" => "99"}
+        }
+      })
+
+    changeset = ChannelConfig.changeset(config, %{})
+    blank_changeset = ChannelConfig.changeset(%ChannelConfig{}, %{})
+
+    assert ChannelsLive.jido_chat_bot_name(config) == "test-bot"
+    assert ChannelsLive.jido_chat_bot_user_id(config) == "u-42"
+    assert ChannelsLive.jido_chat_bot_name_from_changeset(changeset) == "test-bot"
+    assert ChannelsLive.jido_chat_bot_user_id_from_changeset(changeset) == "u-42"
+    assert ChannelsLive.jido_chat_bot_name_from_changeset(blank_changeset) == ""
+    assert ChannelsLive.jido_chat_bot_user_id_from_changeset(blank_changeset) == ""
+    assert ChannelsLive.connect_credential_id_from_changeset(changeset) == "99"
+    assert ChannelsLive.connect_credential_id_from_changeset(blank_changeset) == ""
+
+    assert ChannelsLive.credential_auth_kind_from_changeset(changeset) == "oauth2"
+    assert ChannelsLive.credential_auth_kind_from_changeset(nil) == "oauth2"
+  end
+
+  test "sets provider default agent with valid conversation-enabled agent", %{conn: conn} do
+    config = insert_channel_config(%{})
+    agent = create_conversation_agent(true, "valid-for-default")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    render_hook(view, "set_provider_default_agent", %{
+      "config_id" => to_string(config.id),
+      "configured_agent_id" => to_string(agent.id)
+    })
+
+    assert render(view) =~ "Provider default agent updated"
+  end
+
+  test "post browsing with threaded replies filters nested replies correctly", %{conn: conn} do
+    insert_channel_config(%{url: "https://mattermost.test"})
+
+    HTTPClientFake.put_response({
+      :ok,
+      %Req.Response{
+        status: 200,
+        body: %{
+          "order" => ["p3", "p2", "p1"],
+          "posts" => %{
+            "p1" => %{"id" => "p1", "message" => "root post", "user_id" => "u1", "create_at" => 1},
+            "p2" => %{
+              "id" => "p2",
+              "message" => "reply to p1",
+              "root_id" => "p1",
+              "user_id" => "u2",
+              "create_at" => 2
+            },
+            "p3" => %{
+              "id" => "p3",
+              "message" => "",
+              "root_id" => "p1",
+              "user_id" => "u1",
+              "create_at" => 3
+            }
+          }
+        }
+      }
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view
+    |> element("form[phx-submit=\"load_posts\"]")
+    |> render_submit(%{"channel_id" => "ch-replies"})
+
+    html = render(view)
+    assert html =~ "root post"
+    refute html =~ "nested"
+  end
+
+  test "credential provider mismatch is caught by maybe_validate_connect_credential_provider" do
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "mismatch-#{System.unique_integer([:positive])}",
+        provider: "other_provider",
+        auth_kind: "api_key",
+        request_format: "raw",
+        user_level: false,
+        metadata: %{},
+        api_key: "secret"
+      })
+
+    changeset =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "name" => "Drive Bad Cred",
+        "settings" => %{"connect" => %{"credential_id" => to_string(credential.id)}}
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        modal: :new,
+        provider: "google_drive",
+        kind: :data_source,
+        changeset: changeset,
+        configs: [],
+        provider_default_agent_id: nil,
+        retrieval_channels: [],
+        form: Phoenix.Component.to_form(changeset, as: :form),
+        modal_errors: [],
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: [],
+        oauth_claim_modal: false,
+        oauth_claim_url: nil,
+        confirm_delete: nil,
+        confirm_clear: false,
+        clear_channel_id: "",
+        clear_status: :idle,
+        test_config: nil,
+        test_status: :idle,
+        test_channel_id: "",
+        send_channel_id: "",
+        send_message: "",
+        send_status: :idle,
+        posts_channel_id: "",
+        posts: [],
+        posts_status: :idle,
+        posts_next_id: nil,
+        posts_prev_id: nil,
+        connect_credentials: [],
+        grants_by_config: %{}
+      }
+    }
+
+    assert {:noreply, result_socket} =
+             ChannelsLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "name" => "Drive Bad Cred",
+                   "settings" => %{"connect" => %{"credential_id" => to_string(credential.id)}}
+                 }
+               },
+               socket
+             )
+
+    assert result_socket.assigns.changeset.errors != []
+  end
+
+  test "credential not found is caught by maybe_validate_connect_credential_provider" do
+    changeset =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "name" => "Drive Missing Cred"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        modal: :new,
+        provider: "google_drive",
+        kind: :data_source,
+        changeset: changeset,
+        configs: [],
+        provider_default_agent_id: nil,
+        retrieval_channels: [],
+        form: Phoenix.Component.to_form(changeset, as: :form),
+        modal_errors: [],
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: [],
+        oauth_claim_modal: false,
+        oauth_claim_url: nil,
+        confirm_delete: nil,
+        confirm_clear: false,
+        clear_channel_id: "",
+        clear_status: :idle,
+        test_config: nil,
+        test_status: :idle,
+        test_channel_id: "",
+        send_channel_id: "",
+        send_message: "",
+        send_status: :idle,
+        posts_channel_id: "",
+        posts: [],
+        posts_status: :idle,
+        posts_next_id: nil,
+        posts_prev_id: nil,
+        connect_credentials: [],
+        grants_by_config: %{}
+      }
+    }
+
+    assert {:noreply, result_socket} =
+             ChannelsLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "name" => "Drive Missing Cred",
+                   "settings" => %{"connect" => %{"credential_id" => "99999999"}}
+                 }
+               },
+               socket
+             )
+
+    assert result_socket.assigns.changeset.errors != []
   end
 
   defp insert_channel_config(attrs) do

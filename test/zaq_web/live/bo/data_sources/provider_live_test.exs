@@ -808,4 +808,96 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert Repo.get!(ChannelConfig, config.id).enabled
     assert toggled.assigns.modal == nil
   end
+
+  test "oauth_claim_state_for_changeset handles changeset and non-changeset args" do
+    cs =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        "settings" => %{"connect" => %{"credential_id" => "99"}}
+      })
+
+    assert ProviderLive.oauth_claim_state_for_changeset(cs) != nil
+
+    assert ProviderLive.oauth_claim_state_for_changeset(%{}) != nil
+
+    assert ProviderLive.oauth_claim_state_for_changeset(nil) != nil
+  end
+
+  test "validate with matching credential provider succeeds without error" do
+    {:ok, matching_cred} =
+      Connect.create_credential(%{
+        "name" => "cred-match-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "auth_kind" => "oauth2",
+        "request_format" => "bearer",
+        "user_level" => false,
+        "metadata" => %{},
+        "client_id" => "client",
+        "client_secret" => "secret",
+        "scopes" => ["scope.read"]
+      })
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        modal: :new,
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, validated} =
+             ProviderLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "name" => "matching-cred-test-#{System.unique_integer([:positive])}",
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "enabled" => true,
+                   "settings" => %{
+                     "connect" => %{"credential_id" => Integer.to_string(matching_cred.id)}
+                   }
+                 }
+               },
+               socket
+             )
+
+    refute Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "does not match"))
+    refute Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "not found"))
+  end
+
+  test "delete retains root_folder data for remaining configs via retain_config_keys" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-delete-retain-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        confirm_delete: config.id,
+        root_folders_by_config: %{config.id => [%{id: "folder-1", name: "Folder 1"}]},
+        root_folder_meta_by_config: %{config.id => %{pages_loaded: 1}},
+        stats_errors_by_config: %{config.id => nil}
+      })
+
+    assert {:noreply, deleted} = ProviderLive.handle_event("delete", %{}, socket)
+    assert deleted.assigns.confirm_delete == nil
+
+    assert deleted.assigns.root_folders_by_config == %{}
+    assert deleted.assigns.root_folder_meta_by_config == %{}
+    assert deleted.assigns.stats_errors_by_config == %{}
+  end
 end

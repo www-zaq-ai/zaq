@@ -138,4 +138,61 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
 
     assert html =~ "Restore defaults"
   end
+
+  test "renders scopes textarea with list value — filters empty strings and joins" do
+    # Use a plain map form so the list with empty string reaches scopes_input_value/1
+    # (Ecto changeset casting already strips empty strings from {:array, :string})
+    form =
+      to_form(%{"scopes" => ["drive.readonly", "", "drive.metadata"]}, as: :credential)
+
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Drive OAuth",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "cid"
+      })
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: form,
+        changeset: changeset,
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal"
+      )
+
+    assert html =~ "drive.readonly, drive.metadata"
+    refute html =~ "drive.readonly, , drive.metadata"
+  end
+
+  test "renders scopes textarea with binary value — passes through as-is" do
+    # Use a plain map form so the binary value reaches scopes_input_value/1
+    form = to_form(%{"scopes" => "drive.readonly, drive.metadata"}, as: :credential)
+
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Drive OAuth",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "cid"
+      })
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: form,
+        changeset: changeset,
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal"
+      )
+
+    assert html =~ "drive.readonly, drive.metadata"
+  end
 end

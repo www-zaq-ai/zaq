@@ -53,6 +53,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       do: {:error, {:mcp_runtime_call_exit, {:shutdown, :noproc}}}
   end
 
+  defmodule MCPTestGenericErrorStub do
+    def test_list_tools(_endpoint_id, _opts),
+      do: {:error, :generic_failure}
+  end
+
   setup %{conn: conn} do
     user = user_fixture(%{email: "admin@example.com", username: "testadmin_sc"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
@@ -1941,6 +1946,37 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "MCP tools test returned"
     end
+
+    test "shows generic fallback message for unknown mcp error", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestGenericErrorStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Generic Fail MCP #{:erlang.unique_integer([:positive])}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test failed"
+    end
   end
 
   describe "connect grants modal" do
@@ -2176,6 +2212,31 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       html_after = render(view)
       refute html_after =~ "Grants — #{credential.name}"
+    end
+
+    test "restore_connect_credential_scopes_defaults resets scopes to defaults", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+
+      html =
+        render_click(view, "restore_connect_credential_scopes_defaults", %{})
+
+      assert html =~ "edit-connect-credential-modal"
     end
 
     test "save_connect_credential error path shows validation errors", %{conn: conn} do
