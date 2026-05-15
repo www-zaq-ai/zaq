@@ -1,8 +1,8 @@
 defmodule ZaqWeb.Live.BO.Communication.OAuthClaimState do
   @moduledoc false
 
-  alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.OAuth
+  alias Zaq.Event
+  alias Zaq.NodeRouter
 
   @spec for_changeset(Ecto.Changeset.t() | term()) :: %{
           enabled?: boolean(),
@@ -68,7 +68,7 @@ defmodule ZaqWeb.Live.BO.Communication.OAuthClaimState do
   end
 
   defp fetch_oauth_credential(credential_id) do
-    case Connect.fetch_credential(credential_id) do
+    case dispatch_engine(:connect_fetch_credential, %{credential_id: credential_id}) do
       {:ok, credential} when credential.auth_kind == "oauth2" -> {:ok, credential}
       {:ok, _credential} -> {:error, :non_oauth_credential}
       {:error, :not_found} -> {:error, :credential_not_found}
@@ -76,15 +76,24 @@ defmodule ZaqWeb.Live.BO.Communication.OAuthClaimState do
   end
 
   defp build_claim_url(credential, config_id) do
-    case OAuth.build_authorize_url(credential, %{
-           resource_type: "data_source",
-           resource_id: config_id,
-           owner_type: "org",
-           owner_id: nil,
-           metadata: %{source: "bo_data_sources"}
+    case dispatch_engine(:connect_oauth_build_authorize_url, %{
+           credential: credential,
+           context: %{
+             resource_type: "data_source",
+             resource_id: config_id,
+             owner_type: "org",
+             owner_id: nil,
+             metadata: %{source: "bo_data_sources"}
+           }
          }) do
       {:ok, url} -> {:ok, url}
       _ -> {:error, :build_authorize_url_failed}
     end
+  end
+
+  defp dispatch_engine(action, request) do
+    Event.new(request, :engine, opts: [action: action])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
   end
 end

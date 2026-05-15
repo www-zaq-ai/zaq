@@ -61,23 +61,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "mount" do
-    test "renders telemetry by default", %{conn: conn} do
+    test "renders ai credentials by default", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/system-config")
-      assert html =~ "Telemetry Collection"
-      assert html =~ "telemetry-config-form"
+      assert html =~ "AI Credentials"
     end
 
-    test "does not render global default agent selector in telemetry tab", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+    test "does not render global default agent selector in ai credentials tab", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
       refute has_element?(view, "#global-default-agent-select")
     end
   end
 
   describe "tab navigation" do
-    test "falls back to telemetry for unknown tab", %{conn: conn} do
+    test "falls back to ai credentials for unknown tab", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/system-config?tab=unknown")
-      assert html =~ "Telemetry Collection"
+      assert html =~ "AI Credentials"
       refute html =~ "llm-config-form"
     end
 
@@ -1972,12 +1971,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             "request_format" => "bearer",
             "auth_kind" => "oauth2",
             "client_id" => "cid-updated",
-            "client_secret" => ""
+            "client_secret" => "",
+            "scopes" => "scope.read, scope.write\nscope.admin"
           }
         })
 
       assert html =~ "Credential updated."
       assert html =~ "Credential Updated"
+
+      updated = Repo.get!(Zaq.Engine.Connect.Credential, credential.id)
+      assert updated.scopes == ["scope.read", "scope.write", "scope.admin"]
     end
 
     test "shows expired status, allows erase, and queues manual refresh", %{conn: conn} do

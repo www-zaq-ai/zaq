@@ -50,6 +50,39 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :connect_list_credentials, _context),
+    do: %{event | response: Connect.list_credentials()}
+
+  def handle_event(%Event{} = event, :connect_change_credential, _context) do
+    case event.request do
+      %{credential: credential, attrs: attrs} when is_map(attrs) ->
+        %{event | response: Connect.change_credential(credential, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :connect_create_credential, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: Connect.create_credential(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :connect_list_grants, _context) do
+    case event.request do
+      %{filters: filters} when is_map(filters) ->
+        %{event | response: Connect.list_grants(Map.to_list(filters))}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :system_config_list_ai_provider_credentials, _context) do
     %{event | response: System.list_ai_provider_credentials()}
   end
@@ -170,15 +203,8 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :system_config_connect_list_credentials, _context),
     do: %{event | response: Connect.list_credentials()}
 
-  def handle_event(%Event{} = event, :system_config_connect_change_credential, _context) do
-    case event.request do
-      %{credential: credential, attrs: attrs} when is_map(attrs) ->
-        %{event | response: Connect.change_credential(credential, attrs)}
-
-      other ->
-        %{event | response: {:error, {:invalid_request, other}}}
-    end
-  end
+  def handle_event(%Event{} = event, :system_config_connect_change_credential, context),
+    do: handle_event(event, :connect_change_credential, context)
 
   def handle_event(%Event{} = event, :system_config_connect_update_credential, _context) do
     case event.request do
@@ -233,6 +259,17 @@ defmodule Zaq.Engine.Api do
       %{provider: provider} ->
         oauth_module = Keyword.get(event.opts, :connect_oauth_module, OAuth)
         %{event | response: oauth_module.redirect_uri_for(provider)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :connect_oauth_build_authorize_url, _context) do
+    case event.request do
+      %{credential: credential, context: context} when is_map(context) ->
+        oauth_module = Keyword.get(event.opts, :connect_oauth_module, OAuth)
+        %{event | response: oauth_module.build_authorize_url(credential, context)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}

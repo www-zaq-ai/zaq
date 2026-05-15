@@ -32,6 +32,7 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
 
     assert html =~ "credential[client_id]"
     assert html =~ "credential[client_secret]"
+    assert html =~ "credential[scopes]"
     refute html =~ "credential[api_key]"
   end
 
@@ -60,6 +61,7 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
     assert html =~ "credential[api_key]"
     refute html =~ "credential[client_id]"
     refute html =~ "credential[client_secret]"
+    refute html =~ "credential[scopes]"
   end
 
   test "defaults to oauth2 fields when changeset is not provided" do
@@ -107,5 +109,33 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
 
     assert html =~ "Name can&#39;t be blank"
     assert html =~ "Client id can&#39;t be blank"
+  end
+
+  test "shows restore defaults button when default scopes are provided" do
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Drive OAuth",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "cid"
+      })
+
+    form = to_form(changeset, as: :credential)
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: form,
+        changeset: changeset,
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal",
+        restore_scopes_event: "restore_connect_credential_scopes_defaults",
+        default_scopes_text: "scope.one, scope.two"
+      )
+
+    assert html =~ "Restore defaults"
   end
 end

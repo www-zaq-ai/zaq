@@ -261,6 +261,15 @@ defmodule Zaq.Channels.Api do
     %{event | response: data_source_module.oauth_refresh_token(provider, params)}
   end
 
+  def handle_event(
+        %Event{request: %{provider: provider}} = event,
+        :data_source_oauth_default_scopes,
+        _context
+      ) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.oauth_default_scopes(provider)}
+  end
+
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)
       when is_binary(platform) do
     bridge_module = bridge_module(event)

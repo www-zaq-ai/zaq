@@ -16,7 +16,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      socket
      |> assign(:current_path, "/bo/system-config")
      |> assign(:page_title, "System Configuration")
-     |> assign(:active_tab, :telemetry)
+     |> assign(:active_tab, :ai_credentials)
      |> assign(:ai_credential_modal, false)
      |> assign(:ai_credential_delete_confirm_modal, false)
      |> assign(:ai_credential_action, :new)
@@ -42,6 +42,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:connect_credential_changeset, nil)
      |> assign(:connect_credential_form, nil)
      |> assign(:connect_credential_errors, [])
+     |> assign(:connect_default_scopes_text, "")
      |> assign(:selected_connect_credential, nil)
      |> assign(:selected_connect_grants, [])
      |> assign(:selected_connect_refresh_schedule, %{})
@@ -62,7 +63,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(_params, _uri, socket) do
-    {:noreply, assign(socket, :active_tab, :telemetry)}
+    {:noreply, assign(socket, :active_tab, :ai_credentials)}
   end
 
   # ── Tab navigation ─────────────────────────────────────────────────────
@@ -85,7 +86,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   def handle_event("edit_connect_credential", %{"id" => id}, socket) do
     case engine_connect_fetch_credential(id) do
       {:ok, credential} ->
-        changeset = engine_connect_change_credential(credential, %{})
+        default_scopes = data_source_oauth_default_scopes(credential.provider)
+
+        changeset =
+          credential
+          |> engine_connect_change_credential(%{})
+          |> maybe_prefill_scopes(default_scopes)
 
         {:noreply,
          socket
@@ -93,6 +99,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          |> assign(:connect_credential_changeset, changeset)
          |> assign(:connect_credential_form, to_form(changeset, as: :credential))
          |> assign(:connect_credential_errors, [])
+         |> assign(:connect_default_scopes_text, Enum.join(default_scopes, ", "))
          |> assign(:connect_credential_modal, true)}
 
       {:error, :not_found} ->
@@ -106,7 +113,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:connect_credential_modal, false)
      |> assign(:connect_credential_changeset, nil)
      |> assign(:connect_credential_form, nil)
-     |> assign(:connect_credential_errors, [])}
+     |> assign(:connect_credential_errors, [])
+     |> assign(:connect_default_scopes_text, "")}
+  end
+
+  def handle_event("restore_connect_credential_scopes_defaults", _params, socket) do
+    credential = socket.assigns.connect_credential_changeset.data
+    default_scopes = parse_scope_list(socket.assigns.connect_default_scopes_text)
+
+    changeset =
+      engine_connect_change_credential(credential, %{"scopes" => default_scopes})
+      |> Map.put(:action, :validate)
+
+    {:noreply,
+     socket
+     |> assign(:connect_credential_changeset, changeset)
+     |> assign(:connect_credential_form, to_form(changeset, as: :credential))
+     |> assign(:connect_credential_errors, format_errors(changeset))}
   end
 
   def handle_event("validate_connect_credential", %{"credential" => params}, socket) do
@@ -1441,6 +1464,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> Map.get(:response)
   end
 
+  defp dispatch_channels(action, request) do
+    Event.new(request, :channels, opts: [action: action])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
   defp unwrap_ok!({:ok, value}), do: value
   defp unwrap_ok!(value), do: value
 
@@ -1538,6 +1567,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp engine_connect_schedule_refresh(grant),
     do: dispatch_engine(:system_config_connect_schedule_refresh, %{grant: grant})
 
+  defp data_source_oauth_default_scopes(provider) do
+    case dispatch_channels(:data_source_oauth_default_scopes, %{provider: provider}) do
+      {:ok, scopes} when is_list(scopes) -> scopes
+      _ -> []
+    end
+  end
+
   defp agent_get_mcp_endpoint!(id) do
     dispatch_agent(:system_config_mcp_get_endpoint, %{id: id})
     |> unwrap_ok!()
@@ -1566,8 +1602,42 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp sanitize_connect_credential_params(params) when is_map(params) do
-    Map.drop(params, ["provider", "request_format"])
+    params
+    |> Map.drop(["provider", "request_format"])
+    |> Map.update("scopes", [], &parse_scope_list/1)
   end
+
+  defp maybe_prefill_scopes(%Ecto.Changeset{} = changeset, default_scopes)
+       when is_list(default_scopes) do
+    if Ecto.Changeset.get_field(changeset, :scopes, []) in [nil, []] and default_scopes != [] do
+      engine_connect_change_credential(changeset.data, %{"scopes" => default_scopes})
+    else
+      changeset
+    end
+  end
+
+  defp maybe_prefill_scopes(changeset, _), do: changeset
+
+  defp parse_scope_list(nil), do: []
+
+  defp parse_scope_list(scopes) when is_list(scopes) do
+    scopes
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_scope_list(scopes) when is_binary(scopes) do
+    scopes
+    |> String.replace("\n", ",")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_scope_list(_), do: []
 
   defp format_errors(%Ecto.Changeset{} = changeset) do
     ZaqWeb.ChangesetErrors.format(changeset,

@@ -6,7 +6,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
-  alias Zaq.Engine.Connect
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -18,33 +18,11 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
   require Logger
 
-  @provider_labels %{
-    "zaq_local" => "ZAQ Local",
-    "google_drive" => "Google Drive",
-    "sharepoint" => "SharePoint"
-  }
-
-  @root_folder_defaults %{
-    "google_drive" => "root",
-    "sharepoint" => "/",
-    "zaq_local" => "/"
-  }
-
   @max_pages_default 5
-  @credential_request_formats %{
-    "zaq_local" => "bearer",
-    "google_drive" => "bearer",
-    "sharepoint" => "bearer"
-  }
 
   @impl true
   def mount(%{"provider" => provider}, _session, socket) do
-    label =
-      Map.get(
-        @provider_labels,
-        provider,
-        provider |> String.replace("_", " ") |> String.capitalize()
-      )
+    label = ProviderCatalog.label(provider)
 
     configs = if socket.assigns.service_available, do: list_configs(provider), else: []
     grants = grants_by_config(configs)
@@ -78,16 +56,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:capability_modal_config_id, nil)
      |> assign(:folder_info_modal, nil)
      |> assign(:oauth_claim_modal, false)
-     |> assign(:oauth_claim_url, nil)
-     |> assign(:credential_modal, false)
-     |> assign(:credential_changeset, nil)
-     |> assign(:credential_form, nil)
-     |> assign(:credential_errors, [])}
+     |> assign(:oauth_claim_url, nil)}
   end
 
   def handle_event("open_new_credential", _params, socket) do
     changeset =
-      Connect.change_credential(%Credential{}, %{
+      engine_connect_change_credential(%Credential{}, %{
         "provider" => credential_provider_for(socket.assigns.provider),
         "request_format" => credential_request_format_for(socket.assigns.provider),
         "auth_kind" => "oauth2",
@@ -115,7 +89,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def handle_event("validate_credential", %{"credential" => params}, socket) do
     changeset =
       %Credential{}
-      |> Connect.change_credential(credential_params_for_create(params, socket.assigns.provider))
+      |> engine_connect_change_credential(
+        credential_params_for_create(params, socket.assigns.provider)
+      )
       |> Map.put(:action, :validate)
 
     {:noreply,
@@ -128,7 +104,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def handle_event("save_credential", %{"credential" => params}, socket) do
     params = credential_params_for_create(params, socket.assigns.provider)
 
-    case Connect.create_credential(params) do
+    case engine_connect_create_credential(params) do
       {:ok, credential} ->
         connect_settings =
           socket.assigns.changeset
@@ -515,7 +491,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp grants_by_config(configs) do
     config_ids = Enum.map(configs, &to_string(&1.id))
 
-    Connect.list_grants(resource_type: "data_source", status: "active")
+    engine_connect_list_grants(%{resource_type: "data_source", status: "active"})
     |> Enum.filter(&(&1.resource_id in config_ids))
     |> Enum.group_by(&String.to_integer(&1.resource_id))
     |> Map.new(fn {config_id, grants} -> {config_id, Enum.max_by(grants, & &1.id)} end)
@@ -740,16 +716,15 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp connect_credentials_for(provider) do
     expected_provider = credential_provider_for(provider)
 
-    Connect.list_credentials()
+    engine_connect_list_credentials()
     |> Enum.filter(&(&1.provider == expected_provider))
   end
 
-  defp credential_provider_for("zaq_local"), do: "local_filesystem"
-  defp credential_provider_for(provider), do: provider
+  defp credential_provider_for(provider),
+    do: ProviderCatalog.credential_provider(to_string(provider))
 
-  defp credential_request_format_for(provider) do
-    Map.get(@credential_request_formats, to_string(provider), "bearer")
-  end
+  defp credential_request_format_for(provider),
+    do: ProviderCatalog.credential_request_format(to_string(provider))
 
   defp credential_params_for_create(params, provider) do
     params
@@ -776,8 +751,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     }
   end
 
-  defp root_folder_default(provider),
-    do: Map.get(@root_folder_defaults, to_string(provider), "root")
+  defp root_folder_default(provider), do: ProviderCatalog.root_folder_default(to_string(provider))
 
   defp root_selector_for_config(config, provider) do
     config
@@ -815,7 +789,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
         changeset
 
       _ ->
-        case Connect.fetch_credential(credential_id) do
+        case engine_connect_fetch_credential(credential_id) do
           {:ok, credential} when credential.provider == expected_provider ->
             changeset
 
@@ -850,6 +824,27 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
     NodeRouter.dispatch(event).response
   end
+
+  defp dispatch_engine(action, request \\ %{}) do
+    Event.new(request, :engine, opts: [action: action])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp engine_connect_fetch_credential(id),
+    do: dispatch_engine(:connect_fetch_credential, %{credential_id: id})
+
+  defp engine_connect_list_credentials,
+    do: dispatch_engine(:connect_list_credentials)
+
+  defp engine_connect_list_grants(filters) when is_map(filters),
+    do: dispatch_engine(:connect_list_grants, %{filters: filters})
+
+  defp engine_connect_change_credential(credential, attrs),
+    do: dispatch_engine(:connect_change_credential, %{credential: credential, attrs: attrs})
+
+  defp engine_connect_create_credential(attrs),
+    do: dispatch_engine(:connect_create_credential, %{attrs: attrs})
 
   defp refresh_provider_page(socket, message) do
     configs = list_configs(socket.assigns.provider)

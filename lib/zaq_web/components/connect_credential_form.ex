@@ -16,6 +16,8 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
   attr :cancel_event, :string, required: true
   attr :id_prefix, :string, default: "connect-credential"
   attr :submit_label, :string, default: "Create"
+  attr :restore_scopes_event, :string, default: nil
+  attr :default_scopes_text, :string, default: ""
 
   def credential_form(assigns) do
     ~H"""
@@ -104,6 +106,31 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
         />
       </div>
 
+      <div :if={auth_kind(@changeset) == "oauth2"}>
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block">
+            Scopes
+          </label>
+          <button
+            :if={@restore_scopes_event && @default_scopes_text != ""}
+            type="button"
+            phx-click={@restore_scopes_event}
+            class="font-mono text-[0.65rem] px-2 py-1 rounded-lg border border-black/10 text-black/70 hover:bg-black/[0.04]"
+          >
+            Restore defaults
+          </button>
+        </div>
+        <textarea
+          name="credential[scopes]"
+          rows="3"
+          class="w-full px-4 py-3 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          placeholder="drive.readonly, drive.metadata.readonly"
+        ><%= scopes_input_value(@form[:scopes].value) %></textarea>
+        <p class="mt-1 font-mono text-[0.65rem] text-black/45">
+          Comma or newline separated. Defaults are loaded from the provider and can be edited.
+        </p>
+      </div>
+
       <div :if={auth_kind(@changeset) == "api_key"}>
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           API Key
@@ -151,4 +178,14 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
   end
 
   defp auth_kind(_), do: "oauth2"
+
+  defp scopes_input_value(scopes) when is_list(scopes) do
+    scopes
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(", ")
+  end
+
+  defp scopes_input_value(scopes) when is_binary(scopes), do: scopes
+  defp scopes_input_value(_), do: ""
 end

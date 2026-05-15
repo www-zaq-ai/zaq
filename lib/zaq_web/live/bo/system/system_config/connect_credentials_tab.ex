@@ -16,6 +16,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab do
   attr :credential_form, :any, required: true
   attr :credential_changeset, :any, required: true
   attr :credential_errors, :list, required: true
+  attr :connect_default_scopes_text, :string, required: true
 
   def panel(assigns) do
     ~H"""
@@ -144,6 +145,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab do
         cancel_event="close_connect_credential_modal"
         id_prefix="edit-connect-credential"
         submit_label="Save"
+        restore_scopes_event="restore_connect_credential_scopes_defaults"
+        default_scopes_text={@connect_default_scopes_text}
       />
     </BOModal.form_dialog>
     """

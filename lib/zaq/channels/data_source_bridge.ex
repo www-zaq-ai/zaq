@@ -20,6 +20,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback oauth_authorize_url(map(), map()) :: {:ok, String.t()} | {:error, term()}
   @callback oauth_exchange_code(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_refresh_token(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback oauth_default_scopes(map()) :: {:ok, [String.t()]} | {:error, term()}
   @callback list_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback list_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -127,6 +128,16 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :oauth_refresh_token, 2) || {:error, :unsupported} do
       bridge.oauth_refresh_token(config, params)
+    end
+  end
+
+  @doc "Lists default OAuth scopes through the configured DataSource bridge."
+  @spec oauth_default_scopes(atom() | String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def oauth_default_scopes(provider) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <- supports_callback?(bridge, :oauth_default_scopes, 1) || {:error, :unsupported} do
+      bridge.oauth_default_scopes(config)
     end
   end
 

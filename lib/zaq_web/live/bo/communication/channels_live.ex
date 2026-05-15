@@ -7,7 +7,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Agent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
-  alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -198,7 +197,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     provider = credential_provider_for(socket.assigns.provider)
 
     changeset =
-      Connect.change_credential(%Credential{}, %{
+      engine_connect_change_credential(%Credential{}, %{
         "provider" => provider,
         "auth_kind" => "oauth2",
         "request_format" => "bearer",
@@ -226,7 +225,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   def handle_event("validate_credential", %{"credential" => params}, socket) do
     changeset =
       %Credential{}
-      |> Connect.change_credential(credential_params_for_create(params, socket))
+      |> engine_connect_change_credential(credential_params_for_create(params, socket))
       |> Map.put(:action, :validate)
 
     {:noreply,
@@ -239,7 +238,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   def handle_event("save_credential", %{"credential" => params}, socket) do
     params = credential_params_for_create(params, socket)
 
-    case Connect.create_credential(params) do
+    case engine_connect_create_credential(params) do
       {:ok, credential} ->
         connect_settings =
           socket.assigns.changeset
@@ -980,6 +979,27 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     NodeRouter.dispatch(event).response
   end
 
+  defp dispatch_engine(action, request \\ %{}) do
+    Event.new(request, :engine, opts: [action: action])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp engine_connect_fetch_credential(id),
+    do: dispatch_engine(:connect_fetch_credential, %{credential_id: id})
+
+  defp engine_connect_list_credentials,
+    do: dispatch_engine(:connect_list_credentials)
+
+  defp engine_connect_list_grants(filters) when is_map(filters),
+    do: dispatch_engine(:connect_list_grants, %{filters: filters})
+
+  defp engine_connect_change_credential(credential, attrs),
+    do: dispatch_engine(:connect_change_credential, %{credential: credential, attrs: attrs})
+
+  defp engine_connect_create_credential(attrs),
+    do: dispatch_engine(:connect_create_credential, %{attrs: attrs})
+
   def jido_chat_bot_name(%ChannelConfig{} = config) do
     config.settings
     |> Map.get("jido_chat", %{})
@@ -1036,7 +1056,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp connect_credentials_for(:data_source, provider) do
     expected_provider = credential_provider_for(provider)
 
-    Connect.list_credentials()
+    engine_connect_list_credentials()
     |> Enum.filter(&(&1.provider == expected_provider))
   end
 
@@ -1045,7 +1065,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   defp grants_by_config(:data_source, configs) do
     config_ids = Enum.map(configs, &to_string(&1.id))
 
-    Connect.list_grants(resource_type: "data_source", status: "active")
+    engine_connect_list_grants(%{resource_type: "data_source", status: "active"})
     |> Enum.filter(&(&1.resource_id in config_ids))
     |> Enum.group_by(&String.to_integer(&1.resource_id))
     |> Map.new(fn {config_id, grants} ->
@@ -1091,7 +1111,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         changeset
 
       id ->
-        case Connect.fetch_credential(id) do
+        case engine_connect_fetch_credential(id) do
           {:ok, credential} when credential.provider == expected_provider ->
             changeset
 

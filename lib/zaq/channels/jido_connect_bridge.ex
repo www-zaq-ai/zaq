@@ -15,6 +15,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
@@ -230,6 +231,26 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
+  def oauth_default_scopes(config) when is_map(config) do
+    provider = Map.get(config, :provider) || Map.get(config, "provider")
+
+    case provider_required_scopes(provider) do
+      scopes when is_list(scopes) ->
+        normalized =
+          scopes
+          |> Enum.map(&to_string/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.uniq()
+
+        {:ok, normalized}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  @impl true
   def oauth_exchange_code(config, params) when is_map(config) and is_map(params) do
     with {:ok, runtime} <- runtime_ctx_for_oauth(config),
          {:ok, oauth_module} <- oauth_module_for(config.provider),
@@ -304,22 +325,25 @@ defmodule Zaq.Channels.JidoConnectBridge do
       |> Map.get("connect", %{})
       |> Map.get("credential_id")
 
-    with {:ok, credential} <- engine_fetch_credential(credential_id),
-         redirect_uri when is_binary(redirect_uri) <-
-           engine_oauth_redirect_uri_for(provider) do
-      {:ok,
-       %{
-         provider: provider,
-         credential: credential,
-         redirect_uri: redirect_uri
-       }}
+    if is_nil(credential_id) or credential_id == "" do
+      {:error, :missing_credential_id}
     else
-      {:error, _} = error -> error
+      with {:ok, credential} <- engine_fetch_credential(credential_id),
+           redirect_uri when is_binary(redirect_uri) <-
+             engine_oauth_redirect_uri_for(provider) do
+        {:ok,
+         %{
+           provider: provider,
+           credential: credential,
+           redirect_uri: redirect_uri
+         }}
+      else
+        {:error, _} = error -> error
+      end
     end
   end
 
-  defp oauth_module_for("google_drive"), do: {:ok, Jido.Connect.Google.OAuth}
-  defp oauth_module_for(_provider), do: {:error, :unsupported}
+  defp oauth_module_for(provider), do: ProviderCatalog.oauth_module(to_string(provider))
 
   defp oauth_profile_for(provider) do
     with {:ok, integration} <- integration_module_for(provider),
@@ -332,8 +356,12 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp integration_module_for("google_drive"), do: {:ok, Jido.Connect.Google.Drive}
-  defp integration_module_for(_provider), do: {:error, :unsupported}
+  defp integration_module_for(provider) do
+    case ProviderCatalog.integration_module(to_string(provider)) do
+      {:ok, integration} -> {:ok, integration}
+      _ -> {:error, :unsupported}
+    end
+  end
 
   defp normalize_oauth_token(token) when is_map(token) do
     %{
