@@ -9,7 +9,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   alias Zaq.Test.StubNoOAuthRefresh
   alias Zaq.Test.StubOAuthSuccess
 
-  defp insert_config(provider, attrs \\ %{}) do
+  defp insert_config(provider, attrs) do
     unique = System.unique_integer([:positive])
 
     base = %{

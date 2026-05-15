@@ -3,7 +3,12 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, DocumentAccess}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
+
+  setup do
+    Chunk.create_table(1536)
+    :ok
+  end
 
   # ---------------------------------------------------------------------------
   # Helpers
@@ -39,8 +44,8 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
     create_doc(source, %{"source_document_source" => "parent.md"})
   end
 
-  defp create_chunk_for(chunk_source, parent_source) do
-    create_doc(chunk_source, %{"source_document_source" => parent_source})
+  defp insert_chunk_for(doc) do
+    {:ok, _chunk} = Chunk.create(%{document_id: doc.id, content: "chunk", chunk_index: 0})
   end
 
   defp grant(doc_id, :person, id),
@@ -441,7 +446,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   describe "list_files_with_ingestion_status/1 — permission-scoped" do
     test "returns accessible docs tagged ingested: true when chunks exist" do
       doc = create_doc(uid("lfwis-person"))
-      _chunk = create_chunk_for(uid("lfwis-person-chunk"), doc.source)
+      insert_chunk_for(doc)
       person = create_person()
       {:ok, _} = grant(doc.id, :person, person.id)
 
@@ -474,7 +479,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
 
     test "returns public docs tagged ingested: true when chunks exist" do
       doc = create_doc(uid("lfwis-pub"))
-      _chunk = create_chunk_for(uid("lfwis-pub-chunk"), doc.source)
+      insert_chunk_for(doc)
       {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
       person = create_person()
 
@@ -746,13 +751,59 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
 
     test "public-tagged doc appears in list_files_with_ingestion_status for nil person_id" do
       doc = create_doc(uid("no-perm-rows-lfwis-public"))
-      _chunk = create_chunk_for(uid("no-perm-rows-lfwis-public-chunk"), doc.source)
+      insert_chunk_for(doc)
       {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
 
       result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
       entry = Enum.find(result, fn r -> r.source == doc.source end)
       assert entry != nil
       assert entry.ingested == true
+    end
+  end
+
+  describe "list_files_with_ingestion_status/1 — nil person_id edge cases" do
+    test "nil person_id + public doc with chunks is tagged ingested: true" do
+      doc = create_doc(uid("lfwis-nil-pub-chunks"))
+      insert_chunk_for(doc)
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+
+      assert entry != nil
+      assert entry.ingested == true
+    end
+
+    test "nil person_id + public doc without chunks is tagged ingested: false" do
+      doc = create_doc(uid("lfwis-nil-pub-nochunks"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+
+      assert entry != nil
+      assert entry.ingested == false
+    end
+
+    test "nil person_id cannot see private doc even with chunks" do
+      doc = create_doc(uid("lfwis-nil-private"))
+      insert_chunk_for(doc)
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      refute Enum.any?(result, fn r -> r.source == doc.source end)
+    end
+
+    test "doc with multiple chunks is ingested: true exactly once" do
+      doc = create_doc(uid("lfwis-multi-chunk"))
+      {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk 1", chunk_index: 0})
+      {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk 2", chunk_index: 1})
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entries = Enum.filter(result, fn r -> r.source == doc.source end)
+
+      assert length(entries) == 1
+      assert hd(entries).ingested == true
     end
   end
 

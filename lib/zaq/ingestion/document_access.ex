@@ -17,7 +17,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   (BO admin) can access them.
   """
 
-  alias Zaq.Ingestion.{Document, FileExplorer, Permission, Sidecar, SourcePath}
+  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, Permission, SourcePath}
   alias Zaq.Repo
 
   import Ecto.Query
@@ -221,13 +221,17 @@ defmodule Zaq.Ingestion.DocumentAccess do
   end
 
   defp reject_sidecar_sources(sources) do
-    sidecar_set =
-      sources
-      |> Enum.map(&Sidecar.sidecar_path_for/1)
-      |> Enum.reject(&is_nil/1)
-      |> MapSet.new()
+    confirmed = list_confirmed_sidecar_sources()
+    Enum.reject(sources, &MapSet.member?(confirmed, &1))
+  end
 
-    Enum.reject(sources, &MapSet.member?(sidecar_set, &1))
+  defp list_confirmed_sidecar_sources do
+    from(d in Document,
+      where: not is_nil(fragment("? ->> 'source_document_source'", d.metadata)),
+      select: d.source
+    )
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   defp list_files_recursive(dir) do
@@ -261,8 +265,10 @@ defmodule Zaq.Ingestion.DocumentAccess do
 
   defp list_ingested_source_set do
     from(d in Document,
-      where: not is_nil(fragment("? ->> 'source_document_source'", d.metadata)),
-      select: fragment("? ->> 'source_document_source'", d.metadata),
+      join: _c in Chunk,
+      on: _c.document_id == d.id,
+      where: is_nil(fragment("? ->> 'source_document_source'", d.metadata)),
+      select: d.source,
       distinct: true
     )
     |> Repo.all()

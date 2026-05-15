@@ -88,7 +88,7 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     credential
   end
 
-  defp create_data_source_config!(provider \\ "google_drive") do
+  defp create_data_source_config!(provider) do
     %ChannelConfig{}
     |> ChannelConfig.changeset(%{
       "name" => "oauth-config-#{System.unique_integer([:positive])}",

@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.Tools.KnowledgeBaseOverview
-  alias Zaq.Ingestion.{Document, DocumentAccess}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
 
   @test_base "test/tmp/knowledge_base_overview"
 
@@ -17,6 +17,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
   end
 
   setup do
+    Chunk.create_table(1536)
     File.rm_rf!(@test_base)
     File.mkdir_p!(@test_base)
 
@@ -41,10 +42,12 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
   defp create_doc(source) do
     {:ok, doc} =
       Document.create(%{
-        source: "#{source}.chunk.1",
+        source: source,
         content: "content for #{source}",
-        metadata: %{"source_document_source" => source}
+        metadata: %{}
       })
+
+    {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk", chunk_index: 0})
 
     doc
   end
@@ -110,6 +113,32 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
       assert in_source in sources
       refute out_source in sources
       assert result.total == length(result.documents)
+    end
+
+    test "standalone .md appears even when same-name .pdf exists" do
+      write_file("sidecar-test/product.pdf")
+      md_source = write_file("sidecar-test/product.md")
+
+      {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
+
+      sources = Enum.map(result.documents, & &1.source)
+      assert md_source in sources
+    end
+
+    test "confirmed sidecar .md is hidden when companion .pdf exists" do
+      write_file("sidecar-confirmed/report.pdf")
+      sidecar_source = write_file("sidecar-confirmed/report.md")
+
+      Document.create(%{
+        source: sidecar_source,
+        content: "sidecar content",
+        metadata: Sidecar.sidecar_metadata("sidecar-confirmed/report.pdf")
+      })
+
+      {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
+
+      sources = Enum.map(result.documents, & &1.source)
+      refute sidecar_source in sources
     end
 
     test "returns error tuple when router returns error" do

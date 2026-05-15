@@ -2,7 +2,6 @@ defmodule Zaq.Engine.ConnectEncryptionErrorTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant}
 
   describe "encryption error handling" do
     setup do
