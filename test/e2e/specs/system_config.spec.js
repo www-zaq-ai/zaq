@@ -70,8 +70,8 @@ test.describe("System Config", () => {
   // ── Tab navigation ─────────────────────────────────────────────────────
 
   test.describe("tab navigation", () => {
-    test("default tab is Telemetry", async ({ page }) => {
-      await expect(page.locator(SEL.telemetryForm)).toBeVisible()
+    test("default tab is AI Credentials", async ({ page }) => {
+      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
       await expect(page.locator(SEL.llmForm)).not.toBeVisible()
       await expect(page.locator(SEL.embeddingForm)).not.toBeVisible()
       await expect(page.locator(SEL.imageToTextForm)).not.toBeVisible()
@@ -122,9 +122,9 @@ test.describe("System Config", () => {
       await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
     })
 
-    test("unknown ?tab value falls back to Telemetry", async ({ page }) => {
+    test("unknown ?tab value falls back to AI Credentials", async ({ page }) => {
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=nonexistent`)
-      await expect(page.locator(SEL.telemetryForm)).toBeVisible()
+      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
     })
   })
 
