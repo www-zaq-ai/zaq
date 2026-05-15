@@ -189,15 +189,16 @@ defmodule Zaq.Ingestion.DocumentAccess do
     skip_permissions = Keyword.get(opts, :skip_permissions, false)
     source_filter = Keyword.get(opts, :source_filter)
 
-    ingested_docs = list_accessible_documents(opts)
+    doc_map = list_accessible_documents(opts) |> Map.new(fn doc -> {doc.source, doc} end)
+    ingested_set = list_ingested_source_set()
 
     if skip_permissions do
-      ingested_map = Map.new(ingested_docs, fn doc -> {doc.source, doc} end)
-
       walk_file_sources(source_filter)
-      |> Enum.map(&tag_ingestion_status(&1, ingested_map))
+      |> Enum.map(&tag_ingestion_status(&1, doc_map, ingested_set))
     else
-      Enum.map(ingested_docs, &Map.put(&1, :ingested, true))
+      doc_map
+      |> Map.values()
+      |> Enum.map(&Map.put(&1, :ingested, MapSet.member?(ingested_set, &1.source)))
     end
   end
 
@@ -258,11 +259,19 @@ defmodule Zaq.Ingestion.DocumentAccess do
     end
   end
 
-  defp tag_ingestion_status(source, ingested_map) do
-    case Map.get(ingested_map, source) do
-      nil -> %{source: source, ingested: false}
-      doc -> Map.put(doc, :ingested, true)
-    end
+  defp list_ingested_source_set do
+    from(d in Document,
+      where: not is_nil(fragment("? ->> 'source_document_source'", d.metadata)),
+      select: fragment("? ->> 'source_document_source'", d.metadata),
+      distinct: true
+    )
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  defp tag_ingestion_status(source, doc_map, ingested_set) do
+    doc = Map.get(doc_map, source, %{source: source})
+    Map.put(doc, :ingested, MapSet.member?(ingested_set, source))
   end
 
   defp abs_path_to_source(abs_path) do

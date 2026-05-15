@@ -253,6 +253,7 @@ defmodule Zaq.Agent.Api do
     pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
     pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
     executor_module = Keyword.get(event.opts, :executor_module, Executor)
+    node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
     # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
     incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
@@ -276,7 +277,15 @@ defmodule Zaq.Agent.Api do
           person_id = incoming.person_id
 
           team_ids =
-            case People.get_person(person_id) do
+            case node_router_mod.dispatch(
+                   Event.new(
+                     %{module: People, function: :get_person, args: [person_id]},
+                     :engine,
+                     actor: event.actor,
+                     opts: [action: :invoke],
+                     trace_id: event.trace_id
+                   )
+                 ).response do
               nil -> []
               person -> person.team_ids || []
             end

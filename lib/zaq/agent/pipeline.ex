@@ -58,7 +58,13 @@ defmodule Zaq.Agent.Pipeline do
     person_id = incoming.person_id
 
     team_ids =
-      case People.get_person(person_id) do
+      case node_router(opts).dispatch(
+             Event.new(
+               %{module: People, function: :get_person, args: [person_id]},
+               :engine,
+               opts: [action: :invoke]
+             )
+           ).response do
         nil -> []
         person -> person.team_ids || []
       end

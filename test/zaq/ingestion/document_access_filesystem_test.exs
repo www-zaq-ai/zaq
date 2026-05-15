@@ -27,11 +27,23 @@ defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
     doc
   end
 
+  defp create_chunk_for(chunk_source, parent_source) do
+    {:ok, doc} =
+      Document.create(%{
+        source: chunk_source,
+        content: "chunk",
+        metadata: %{"source_document_source" => parent_source}
+      })
+
+    doc
+  end
+
   describe "list_files_with_ingestion_status/1 — skip_permissions: true (filesystem walk)" do
     test "tags indexed files as ingested: true and unindexed as ingested: false", %{tmp: tmp} do
       File.write!("#{tmp}/indexed.md", "content")
       File.write!("#{tmp}/unindexed.txt", "other")
       _doc = create_doc("indexed.md")
+      _chunk = create_chunk_for("indexed_chunk_1.md", "indexed.md")
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
 
@@ -143,6 +155,8 @@ defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
 
       {:ok, doc} =
         Document.create(%{source: "titled.md", content: "c", title: "My Title", metadata: %{}})
+
+      _chunk = create_chunk_for("titled_chunk_1.md", doc.source)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       entry = Enum.find(result, fn r -> r.source == doc.source end)

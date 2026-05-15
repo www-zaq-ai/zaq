@@ -33,10 +33,22 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
     doc
   end
 
+  defp create_chunk(chunk_source, parent_source) do
+    {:ok, doc} =
+      Document.create(%{
+        source: chunk_source,
+        content: "chunk content",
+        metadata: %{"source_document_source" => parent_source}
+      })
+
+    doc
+  end
+
   describe "list_files_with_ingestion_status/1 — skip_permissions: true" do
-    test "file on disk that is ingested is tagged ingested: true" do
+    test "file on disk that is ingested (DB record + chunks) is tagged ingested: true" do
       source = write_file("folder/ingested.md")
       _doc = create_doc(source)
+      _chunk = create_chunk("folder/ingested_chunk_1.md", source)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       entry = Enum.find(result, fn r -> r.source == source end)
@@ -59,6 +71,7 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
       ingested_source = write_file("mixed/ingested.md")
       not_ingested_source = write_file("mixed/not_ingested.md")
       _doc = create_doc(ingested_source)
+      _chunk = create_chunk("mixed/ingested_chunk_1.md", ingested_source)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
 
@@ -138,6 +151,29 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       refute Enum.any?(result, fn r -> r.source == source end)
+    end
+
+    test "file uploaded but not yet ingested (DB record, no chunks) is tagged ingested: false" do
+      source = write_file("bug/uploaded_not_ingested.md")
+      _doc = create_doc(source)
+
+      result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
+      entry = Enum.find(result, fn r -> r.source == source end)
+
+      assert entry != nil
+      assert entry.ingested == false
+    end
+
+    test "file with DB record and chunks is tagged ingested: true" do
+      source = write_file("bug/fully_ingested.md")
+      _doc = create_doc(source)
+      _chunk = create_chunk("bug/fully_ingested_chunk_1.md", source)
+
+      result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
+      entry = Enum.find(result, fn r -> r.source == source end)
+
+      assert entry != nil
+      assert entry.ingested == true
     end
   end
 end
