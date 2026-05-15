@@ -400,6 +400,50 @@ defmodule Zaq.Agent.ServerManagerTest do
     refute pid_before == pid_after
   end
 
+  test "ensure_server restarts when max_iterations changes" do
+    credential =
+      ai_credential_fixture(%{
+        name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Server Iteration Restart Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Prompt",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        max_iterations: 10,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, {:via, Registry, {registry, key}}} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    pid_before = Jido.AgentServer.whereis(registry, key)
+    assert is_pid(pid_before)
+
+    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{max_iterations: 2})
+
+    assert {:ok, _server_ref} =
+             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+
+    pid_after = Jido.AgentServer.whereis(registry, key)
+
+    assert is_pid(pid_after)
+    refute pid_before == pid_after
+  end
+
   test "ensure_server restarts when memory_context_max_size changes" do
     credential =
       ai_credential_fixture(%{

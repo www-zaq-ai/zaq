@@ -43,9 +43,14 @@ defmodule Zaq.Agent.Factory do
     tools: []
 
   alias Jido.AI.Context, as: AIContext
+  alias Jido.AI.Request.Handle, as: RequestHandle
+  alias Jido.Signal
   alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
+
+  @react_signal_type "ai.react.query"
+  @react_source "/ai/react/agent"
 
   def strategy_opts do
     super()
@@ -85,6 +90,7 @@ defmodule Zaq.Agent.Factory do
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
+         max_iterations: configured_agent.max_iterations || 10,
          system_prompt: configured_agent.job || ""
        }}
     end
@@ -146,10 +152,40 @@ defmodule Zaq.Agent.Factory do
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
+        |> Keyword.put(:max_iterations, Map.get(config, :max_iterations, 10))
         |> Keyword.put_new(:timeout, 300_000)
 
-      ask(server, query, ask_opts)
+      dispatch_react_request(server, query, ask_opts)
     end
+  end
+
+  @doc false
+  def react_request_payload(query, request_id, opts)
+      when is_binary(query) and is_binary(request_id) do
+    %{
+      query: query,
+      prompt: query,
+      request_id: request_id
+    }
+    |> maybe_put_payload(:tool_context, Keyword.get(opts, :tool_context), &map_with_values?/1)
+    |> maybe_put_payload(:tools, Keyword.get(opts, :tools), &present?/1)
+    |> maybe_put_payload(:allowed_tools, Keyword.get(opts, :allowed_tools), &list?/1)
+    |> maybe_put_payload(
+      :request_transformer,
+      Keyword.get(opts, :request_transformer),
+      &present?/1
+    )
+    |> maybe_put_payload(:max_iterations, Keyword.get(opts, :max_iterations), &pos_integer?/1)
+    |> maybe_put_payload(:stream_timeout_ms, stream_timeout_ms(opts), &present?/1)
+    |> maybe_put_payload(
+      :req_http_options,
+      Keyword.get(opts, :req_http_options),
+      &non_empty_list?/1
+    )
+    |> maybe_put_payload(:llm_opts, Keyword.get(opts, :llm_opts), &keyword_or_map_with_values?/1)
+    |> maybe_put_payload(:output, Keyword.get(opts, :output), &present?/1)
+    |> maybe_put_payload(:extra_refs, Keyword.get(opts, :extra_refs), &map_with_values?/1)
+    |> maybe_put_payload(:stream_to, Keyword.get(opts, :stream_to), &present?/1)
   end
 
   @impl true
@@ -180,6 +216,34 @@ defmodule Zaq.Agent.Factory do
   end
 
   def on_after_cmd(agent, action, directives), do: super(agent, action, directives)
+
+  defp dispatch_react_request(server, query, opts) do
+    request_id = Keyword.get_lazy(opts, :request_id, &Jido.Util.generate_id/0)
+    payload = react_request_payload(query, request_id, opts)
+    signal = Signal.new!(@react_signal_type, payload, source: @react_source)
+
+    case Jido.AgentServer.cast(server, signal) do
+      :ok -> {:ok, RequestHandle.new(request_id, server, query)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp maybe_put_payload(payload, key, value, predicate) do
+    if predicate.(value), do: Map.put(payload, key, value), else: payload
+  end
+
+  defp stream_timeout_ms(opts),
+    do: Keyword.get(opts, :stream_timeout_ms, Keyword.get(opts, :stream_receive_timeout_ms))
+
+  defp present?(value), do: value not in [nil, ""]
+  defp pos_integer?(value), do: is_integer(value) and value > 0
+  defp list?(value), do: is_list(value)
+  defp non_empty_list?(value), do: is_list(value) and value != []
+  defp map_with_values?(value), do: is_map(value) and map_size(value) > 0
+
+  defp keyword_or_map_with_values?(value) when is_list(value), do: value != []
+  defp keyword_or_map_with_values?(value) when is_map(value), do: map_size(value) > 0
+  defp keyword_or_map_with_values?(_value), do: false
 
   defp maybe_put_status_context(params) when is_map(params) do
     refs = Map.get(params, :extra_refs, %{})

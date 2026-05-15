@@ -373,6 +373,7 @@ defmodule Zaq.Agent.ServerManager do
       configured_agent.strategy,
       configured_agent.advanced_options,
       configured_agent.active,
+      configured_agent.max_iterations,
       configured_agent.idle_time_seconds,
       configured_agent.memory_context_max_size
     })

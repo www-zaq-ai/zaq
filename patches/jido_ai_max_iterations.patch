@@ -1,0 +1,29 @@
+diff --git a/lib/jido_ai/reasoning/react/strategy.ex b/lib/jido_ai/reasoning/react/strategy.ex
+index a4da5573..70a58e9f 100644
+--- a/lib/jido_ai/reasoning/react/strategy.ex
++++ b/lib/jido_ai/reasoning/react/strategy.ex
+@@ -193,6 +193,7 @@ defmodule Jido.AI.Reasoning.ReAct.Strategy do
+           stream_timeout_ms: Zoi.integer() |> Zoi.optional(),
+           req_http_options: Zoi.list(Zoi.any()) |> Zoi.optional(),
+           llm_opts: Zoi.any() |> Zoi.optional(),
++          max_iterations: Zoi.integer() |> Zoi.optional(),
+           output: Zoi.any() |> Zoi.optional(),
+           extra_refs: Zoi.map() |> Zoi.optional()
+         }),
+@@ -614,6 +615,7 @@ defmodule Jido.AI.Reasoning.ReAct.Strategy do
+              tools: effective_tools,
+              stream_receive_timeout_ms: Map.get(params, :stream_receive_timeout_ms),
+              stream_timeout_ms: Map.get(params, :stream_timeout_ms),
++            max_iterations: Map.get(params, :max_iterations),
+              request_transformer: request_transformer,
+              output: output,
+              pending_input_server: pending_input_server
+@@ -1885,7 +1887,7 @@ defmodule Jido.AI.Reasoning.ReAct.Strategy do
+        system_prompt: config[:system_prompt],
+        tools: tools,
+        request_transformer: request_transformer,
+-      max_iterations: config[:max_iterations],
++      max_iterations: Keyword.get(opts, :max_iterations, config[:max_iterations]),
+       max_tokens: config[:max_tokens],
+       streaming: config[:streaming],
+       stream_timeout_ms: stream_timeout_ms,

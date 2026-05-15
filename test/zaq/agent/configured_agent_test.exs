@@ -6,7 +6,12 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Repo
 
-  describe "idle_time_seconds and memory_context_max_size" do
+  describe "runtime limit fields" do
+    test "changeset accepts positive integer for max_iterations" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{max_iterations: 10})
+      assert changeset.changes[:max_iterations] == 10
+    end
+
     test "changeset accepts positive integer for idle_time_seconds" do
       changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{idle_time_seconds: 3600})
       assert changeset.changes[:idle_time_seconds] == 3600
@@ -17,15 +22,27 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
       assert changeset.changes[:memory_context_max_size] == 2000
     end
 
-    test "changeset accepts nil for both fields" do
+    test "changeset accepts nil for runtime limit fields" do
       changeset =
         ConfiguredAgent.changeset(%ConfiguredAgent{}, %{
+          max_iterations: nil,
           idle_time_seconds: nil,
           memory_context_max_size: nil
         })
 
+      refute Keyword.has_key?(changeset.errors, :max_iterations)
       refute Keyword.has_key?(changeset.errors, :idle_time_seconds)
       refute Keyword.has_key?(changeset.errors, :memory_context_max_size)
+    end
+
+    test "changeset rejects zero max_iterations" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{max_iterations: 0})
+      assert "must be greater than 0" in errors_on(changeset).max_iterations
+    end
+
+    test "changeset rejects negative max_iterations" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{max_iterations: -1})
+      assert "must be greater than 0" in errors_on(changeset).max_iterations
     end
 
     test "changeset rejects zero idle_time_seconds" do

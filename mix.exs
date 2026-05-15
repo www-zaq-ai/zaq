@@ -155,10 +155,18 @@ defmodule Zaq.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build", "zaq.python.fetch"],
+      setup: [
+        "deps.get",
+        "deps.patch_jido_ai",
+        "ecto.setup",
+        "assets.setup",
+        "assets.build",
+        "zaq.python.fetch"
+      ],
+      "deps.patch_jido_ai": [jido_ai_patch_cmd(), "deps.compile jido_ai --force"],
       "ecto.setup": ["ecto.create", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      test: ["deps.patch_jido_ai", "ecto.create --quiet", "ecto.migrate --quiet", "test"],
       e2e: ["cmd npm --prefix test/e2e run test:journeys"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind zaq", "esbuild zaq"],
@@ -168,6 +176,7 @@ defmodule Zaq.MixProject do
         "phx.digest"
       ],
       precommit: [
+        "deps.patch_jido_ai",
         "compile --warnings-as-errors",
         "deps.unlock --unused",
         "format",
@@ -223,6 +232,14 @@ defmodule Zaq.MixProject do
         Mix.shell().cmd(command)
       end
     ]
+  end
+
+  defp jido_ai_patch_cmd do
+    "cmd sh -c 'cd deps/jido_ai && " <>
+      "if grep -Fq \"max_iterations: Zoi.integer() |> Zoi.optional()\" lib/jido_ai/reasoning/react/strategy.ex && " <>
+      "grep -Fq \"max_iterations: Map.get(params, :max_iterations)\" lib/jido_ai/reasoning/react/strategy.ex && " <>
+      "grep -Fq \"max_iterations: Keyword.get(opts, :max_iterations\" lib/jido_ai/reasoning/react/strategy.ex; " <>
+      "then :; else git apply ../../patches/jido_ai_max_iterations.patch; fi'"
   end
 
   defp docs do

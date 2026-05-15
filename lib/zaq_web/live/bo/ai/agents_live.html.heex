@@ -515,28 +515,52 @@
               </p>
             </div>
 
-            <div>
-              <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
-                Advanced Options (JSON)
-              </label>
-              <textarea
-                name="configured_agent[advanced_options_json]"
-                rows="5"
-                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.7rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
-              >{@advanced_options_json}</textarea>
-              <p
-                :if={@advanced_options_error}
-                class="mt-1 font-mono text-[0.64rem] text-[#af5a4b]"
-              >
-                {@advanced_options_error}
-              </p>
-              <p
-                :for={msg <- error_messages(@changeset, :advanced_options)}
-                data-error-message
-                class="mt-1 font-mono text-[0.64rem] text-red-500"
-              >
-                {msg}
-              </p>
+            <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Max number of iterations
+                </label>
+                <.input
+                  type="number"
+                  field={@form[:max_iterations]}
+                  placeholder="Default: 10"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                />
+                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                  Leave blank to use the default of 10 iterations.
+                </p>
+                <p
+                  :for={msg <- error_messages(@changeset, :max_iterations)}
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                >
+                  {msg}
+                </p>
+              </div>
+
+              <div>
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                  Advanced Options (JSON)
+                </label>
+                <textarea
+                  name="configured_agent[advanced_options_json]"
+                  rows="5"
+                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.7rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                >{@advanced_options_json}</textarea>
+                <p
+                  :if={@advanced_options_error}
+                  class="mt-1 font-mono text-[0.64rem] text-[#af5a4b]"
+                >
+                  {@advanced_options_error}
+                </p>
+                <p
+                  :for={msg <- error_messages(@changeset, :advanced_options)}
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                >
+                  {msg}
+                </p>
+              </div>
             </div>
 
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">

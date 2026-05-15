@@ -101,6 +101,53 @@ defmodule Zaq.Agent.FactoryTest do
              Factory.runtime_config(configured_agent)
   end
 
+  test "runtime_config uses default max iterations when unset" do
+    configured_agent = %Agent.ConfiguredAgent{enabled_tool_keys: [], credential: nil}
+
+    assert {:ok, %{max_iterations: 10}} = Factory.runtime_config(configured_agent)
+  end
+
+  test "runtime_config uses configured max iterations" do
+    configured_agent = %Agent.ConfiguredAgent{
+      enabled_tool_keys: [],
+      credential: nil,
+      max_iterations: 2
+    }
+
+    assert {:ok, %{max_iterations: 2}} = Factory.runtime_config(configured_agent)
+  end
+
+  test "react_request_payload forwards max iterations to ReAct runtime" do
+    payload =
+      Factory.react_request_payload("hello", "req-1",
+        max_iterations: 2,
+        llm_opts: [temperature: 0.1],
+        tool_context: %{person_id: 123},
+        extra_refs: %{zaq_status_context: %{request_id: "req-1"}}
+      )
+
+    assert payload.max_iterations == 2
+    assert payload.llm_opts == [temperature: 0.1]
+    assert payload.tool_context == %{person_id: 123}
+    assert payload.extra_refs == %{zaq_status_context: %{request_id: "req-1"}}
+  end
+
+  test "Jido ReAct start schema preserves request max iterations" do
+    instruction = %Jido.Instruction{
+      action: :ai_react_start,
+      params: %{query: "hello", request_id: "req-1", max_iterations: 2}
+    }
+
+    normalized =
+      Jido.Agent.Strategy.normalize_instruction(
+        Jido.AI.Reasoning.ReAct.Strategy,
+        instruction,
+        %{}
+      )
+
+    assert normalized.params.max_iterations == 2
+  end
+
   test "ask_with_config builds llm opts across option-key and credential branches" do
     credential =
       ai_credential_fixture(%{

@@ -22,6 +22,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
     field :strategy, :string, default: "react"
     field :advanced_options, :map, default: %{}
     field :active, :boolean, default: true
+    field :max_iterations, :integer
     field :idle_time_seconds, :integer
     field :memory_context_max_size, :integer
 
@@ -31,7 +32,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
   end
 
   @required_fields ~w(name job model credential_id strategy)a
-  @optional_fields ~w(description enabled_tool_keys enabled_mcp_endpoint_ids conversation_enabled advanced_options active idle_time_seconds memory_context_max_size)a
+  @optional_fields ~w(description enabled_tool_keys enabled_mcp_endpoint_ids conversation_enabled advanced_options active max_iterations idle_time_seconds memory_context_max_size)a
 
   def changeset(configured_agent, attrs) do
     configured_agent
@@ -41,6 +42,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
     |> validate_inclusion(:strategy, @strategies)
     |> validate_tool_keys()
     |> normalize_mcp_endpoint_ids()
+    |> validate_number(:max_iterations, greater_than: 0)
     |> validate_number(:idle_time_seconds, greater_than: 0)
     |> validate_number(:memory_context_max_size, greater_than: 0)
     |> unique_constraint(:name)

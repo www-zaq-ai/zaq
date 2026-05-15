@@ -704,6 +704,17 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              )
   end
 
+  test "configured_agent_updated treats max_iterations change as runtime change" do
+    assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
+             RuntimeSync.configured_agent_updated(
+               79,
+               %{max_iterations: 2},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapter
+             )
+  end
+
   test "configured_agent_updated treats memory_context_max_size change as runtime change" do
     assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
              RuntimeSync.configured_agent_updated(

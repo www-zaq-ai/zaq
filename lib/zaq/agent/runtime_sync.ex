@@ -368,6 +368,7 @@ defmodule Zaq.Agent.RuntimeSync do
       :active,
       :job,
       :strategy,
+      :max_iterations,
       :idle_time_seconds,
       :memory_context_max_size
     ]
