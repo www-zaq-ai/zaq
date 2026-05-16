@@ -178,9 +178,36 @@ defmodule Zaq.Ingestion.RenameService do
   end
 
   defp build_file_multi(source_update, sidecar_update) do
-    Multi.new()
-    |> maybe_update_document(:source_doc, source_update)
-    |> maybe_update_document(:sidecar_doc, sidecar_update)
+    multi = Multi.new()
+
+    multi =
+      case source_update do
+        %{document: document} = update when not is_nil(document) ->
+          changeset =
+            Document.changeset(document, %{
+              source: update.new_source,
+              metadata: update.new_metadata
+            })
+
+          Multi.update(multi, :source_doc, changeset)
+
+        _ ->
+          multi
+      end
+
+    case sidecar_update do
+      %{document: document} = update when not is_nil(document) ->
+        changeset =
+          Document.changeset(document, %{
+            source: update.new_source,
+            metadata: update.new_metadata
+          })
+
+        Multi.update(multi, :sidecar_doc, changeset)
+
+      _ ->
+        multi
+    end
   end
 
   defp build_plan(volume_name, old_relative, new_relative, volumes) do

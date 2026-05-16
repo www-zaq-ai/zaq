@@ -2,6 +2,7 @@ defmodule Zaq.Application do
   @moduledoc false
 
   use Application
+  require Logger
   alias LLMDB.Generated.ValidModalities
   alias Zaq.Ingestion.ObanTelemetry
   alias Zaq.System.UpdateBadgeWorker
@@ -10,50 +11,16 @@ defmodule Zaq.Application do
   def start(_type, _args) do
     roles = Zaq.NodeRoles.current()
 
-    ObanTelemetry.attach()
-
-    children =
-      [
-        ZaqWeb.Telemetry,
-        Zaq.Repo,
-        {DNSCluster, query: Application.get_env(:zaq, :dns_cluster_query) || :ignore},
-        {Phoenix.PubSub, name: Zaq.PubSub},
-        {Task.Supervisor, name: Zaq.TaskSupervisor},
-        {Oban, Application.fetch_env!(:zaq, Oban)},
-        Zaq.License.FeatureStore,
-        Zaq.License.LicensePostLoader,
-        Zaq.Hooks.Supervisor,
-        Zaq.PeerConnector
-      ]
-      |> maybe_add(roles, :engine, Zaq.Engine.Supervisor)
-      |> maybe_add(roles, :agent, Zaq.Agent.Supervisor)
-      |> maybe_add(roles, :ingestion, Zaq.Ingestion.Supervisor)
-      |> maybe_add(roles, :channels, Zaq.Channels.Supervisor)
-      |> maybe_add_web_endpoint(roles)
-
-    children =
-      if Application.get_env(:zaq, :e2e_routes, false) do
-        children ++ [Zaq.E2E.ProcessorState]
-      else
-        children
-      end
-
-    children =
-      if Application.get_env(:zaq, :e2e, false) do
-        children ++ [Zaq.E2E.LogCollector]
-      else
-        children
-      end
+    case ObanTelemetry.attach() do
+      :ok -> :ok
+      {:error, :already_exists} -> :ok
+    end
 
     opts = [strategy: :one_for_one, name: Zaq.Supervisor]
 
-    case Supervisor.start_link(children, opts) do
+    case Supervisor.start_link(build_children(roles), opts) do
       {:ok, _pid} = ok ->
-        enqueue_release_badge_check_on_startup()
-        # Forces ValidModalities to load so all modality atoms exist in the VM
-        # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.
-        _ = ValidModalities.list()
-        LLMDB.load()
+        on_supervisor_started()
         ok
 
       other ->
@@ -73,6 +40,56 @@ defmodule Zaq.Application do
   end
 
   # -- Private --
+
+  defp build_children(roles) do
+    [
+      ZaqWeb.Telemetry,
+      Zaq.Repo,
+      {DNSCluster, query: Application.get_env(:zaq, :dns_cluster_query) || :ignore},
+      {Phoenix.PubSub, name: Zaq.PubSub},
+      {Task.Supervisor, name: Zaq.TaskSupervisor},
+      {Oban, Application.fetch_env!(:zaq, Oban)},
+      Zaq.License.FeatureStore,
+      Zaq.License.LicensePostLoader,
+      Zaq.Hooks.Supervisor,
+      Zaq.PeerConnector
+    ]
+    |> maybe_add(roles, :engine, Zaq.Engine.Supervisor)
+    |> maybe_add(roles, :agent, Zaq.Agent.Supervisor)
+    |> maybe_add(roles, :ingestion, Zaq.Ingestion.Supervisor)
+    |> maybe_add(roles, :channels, Zaq.Channels.Supervisor)
+    |> maybe_add_web_endpoint(roles)
+    |> then(fn c ->
+      if Application.get_env(:zaq, :e2e_routes, false), do: c ++ [Zaq.E2E.ProcessorState], else: c
+    end)
+    |> then(fn c ->
+      if Application.get_env(:zaq, :e2e, false), do: c ++ [Zaq.E2E.LogCollector], else: c
+    end)
+  end
+
+  defp on_supervisor_started do
+    case enqueue_release_badge_check_on_startup() do
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to enqueue release badge check: #{inspect(reason)}")
+    end
+
+    # Forces ValidModalities to load so all modality atoms exist in the VM
+    # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.
+    case ValidModalities.list() do
+      list when is_list(list) -> :ok
+    end
+
+    case LLMDB.load() do
+      {:ok, _snapshot} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("LLMDB.load/0 failed at startup: #{inspect(reason)}")
+    end
+  end
 
   defp maybe_add(children, roles, role, child) do
     if :all in roles or role in roles do

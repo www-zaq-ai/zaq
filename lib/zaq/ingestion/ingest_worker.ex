@@ -60,11 +60,13 @@ defmodule Zaq.Ingestion.IngestWorker do
 
       Telemetry.record("ingestion.document.failed.final.count", 1, telemetry_dimensions)
 
-      JobLifecycle.mark_failed!(job, label, completed: true)
+      %IngestJob{} = JobLifecycle.mark_failed!(job, label, completed: true)
 
       {:cancel, reason}
     else
-      JobLifecycle.mark_pending_retry!(job, "Attempt #{attempt} failed: #{error_msg}")
+      %IngestJob{} =
+        JobLifecycle.mark_pending_retry!(job, "Attempt #{attempt} failed: #{error_msg}")
+
       Telemetry.record("ingestion.retry.count", 1, telemetry_dimensions)
 
       {:error, reason}
@@ -104,8 +106,8 @@ defmodule Zaq.Ingestion.IngestWorker do
   end
 
   defp schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions) do
-    Chunk.delete_by_document(document.id)
-    IngestChunkJob.upsert_many(job.id, document.id, indexed_payloads)
+    {_deleted, _} = Chunk.delete_by_document(document.id)
+    {_inserted, _} = IngestChunkJob.upsert_many(job.id, document.id, indexed_payloads)
 
     attrs = %{
       document_id: document.id,
@@ -117,7 +119,7 @@ defmodule Zaq.Ingestion.IngestWorker do
       error: nil
     }
 
-    JobLifecycle.transition!(job, attrs)
+    %IngestJob{} = JobLifecycle.transition!(job, attrs)
 
     Enum.each(indexed_payloads, fn {_payload, index} ->
       %{"job_id" => job.id, "chunk_index" => index}
@@ -138,14 +140,15 @@ defmodule Zaq.Ingestion.IngestWorker do
   defp finalize_legacy_job(job, document, telemetry_dimensions) do
     chunks_count = if is_nil(document.id), do: 0, else: Chunk.count_by_document(document.id)
 
-    JobLifecycle.mark_completed!(job, %{
-      document_id: document.id,
-      chunks_count: chunks_count,
-      total_chunks: chunks_count,
-      ingested_chunks: chunks_count,
-      failed_chunks: 0,
-      failed_chunk_indices: []
-    })
+    %IngestJob{} =
+      JobLifecycle.mark_completed!(job, %{
+        document_id: document.id,
+        chunks_count: chunks_count,
+        total_chunks: chunks_count,
+        ingested_chunks: chunks_count,
+        failed_chunks: 0,
+        failed_chunk_indices: []
+      })
 
     Telemetry.record("ingestion.completed.count", 1, telemetry_dimensions)
     Telemetry.record("ingestion.chunks.created", chunks_count, telemetry_dimensions)
@@ -156,20 +159,22 @@ defmodule Zaq.Ingestion.IngestWorker do
     failed_chunks = IngestChunkJob.list_failed_final(job.id)
 
     if failed_chunks == [] do
-      JobLifecycle.transition!(job, %{
-        status: "completed_with_errors",
-        completed_at: DateTime.utc_now()
-      })
+      %IngestJob{} =
+        JobLifecycle.transition!(job, %{
+          status: "completed_with_errors",
+          completed_at: DateTime.utc_now()
+        })
 
       :ok
     else
       {_count, _} = IngestChunkJob.requeue_failed_final(job.id)
 
-      JobLifecycle.transition!(job, %{
-        status: "processing",
-        completed_at: nil,
-        error: nil
-      })
+      %IngestJob{} =
+        JobLifecycle.transition!(job, %{
+          status: "processing",
+          completed_at: nil,
+          error: nil
+        })
 
       Enum.each(failed_chunks, fn chunk_job ->
         %{"job_id" => job.id, "chunk_job_id" => chunk_job.id}

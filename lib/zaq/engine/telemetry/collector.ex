@@ -56,7 +56,11 @@ defmodule Zaq.Engine.Telemetry.Collector do
 
   @impl true
   def terminate(_reason, _state) do
-    :telemetry.detach(@handler_id)
+    case :telemetry.detach(@handler_id) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+    end
+
     :persistent_term.erase(@policy_key)
     :ok
   end

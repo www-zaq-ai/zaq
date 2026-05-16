@@ -106,7 +106,12 @@ defmodule Zaq.Oban.DynamicCron do
 
   @impl GenServer
   def terminate(_reason, %__MODULE__{timer: timer}) do
-    if is_reference(timer), do: Process.cancel_timer(timer)
+    if is_reference(timer) do
+      case Process.cancel_timer(timer) do
+        value when is_integer(value) or value in [false, nil] -> :ok
+      end
+    end
+
     :ok
   end
 

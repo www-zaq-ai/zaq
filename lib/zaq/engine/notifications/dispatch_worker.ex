@@ -46,7 +46,10 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   # ---------------------------------------------------------------------------
 
   defp do_dispatch(log, [], _metadata) do
-    NotificationLog.transition_status(log, "failed")
+    case NotificationLog.transition_status(log, "failed") do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
 
     Logger.warning("[DispatchWorker] log #{log.id} failed — all channels exhausted")
 

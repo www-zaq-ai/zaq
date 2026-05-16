@@ -236,8 +236,6 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
     end
   end
 
-  defp normalize_email(_), do: nil
-
   defp attachment_refs(raw_email) do
     raw_email
     |> get("attachments", :attachments)

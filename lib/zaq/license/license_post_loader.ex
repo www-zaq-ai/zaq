@@ -71,7 +71,11 @@ defmodule Zaq.License.LicensePostLoader do
     compile_views(view_files)
 
     # Broadcast that license has been updated (migrations + views complete)
-    Phoenix.PubSub.broadcast(Zaq.PubSub, "license:updated", :license_updated)
+    case Phoenix.PubSub.broadcast(Zaq.PubSub, "license:updated", :license_updated) do
+      :ok -> :ok
+      {:error, _reason} -> :ok
+    end
+
     Logger.debug("[LicensePostLoader] Broadcast license:updated event")
 
     {:noreply, state}
@@ -108,7 +112,11 @@ defmodule Zaq.License.LicensePostLoader do
       |> Enum.filter(fn {filename, _} -> String.ends_with?(filename, ".ex") end)
       |> Enum.each(fn {filename, _} ->
         path = Path.join(tmp_dir, filename)
-        Code.compile_file(path)
+
+        case Code.compile_file(path) do
+          compiled when is_list(compiled) -> :ok
+        end
+
         Logger.info("[LicensePostLoader] Compiled view: #{filename}")
       end)
     rescue
@@ -136,7 +144,9 @@ defmodule Zaq.License.LicensePostLoader do
       end)
 
       # Run migrations via Ecto.Migrator
-      Ecto.Migrator.run(Zaq.Repo, tmp_dir, :up, all: true)
+      case Ecto.Migrator.run(Zaq.Repo, tmp_dir, :up, all: true) do
+        versions when is_list(versions) -> :ok
+      end
 
       Logger.info("[LicensePostLoader] Migrations completed successfully.")
     rescue

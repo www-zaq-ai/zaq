@@ -73,7 +73,7 @@ defmodule Zaq.Hooks.Registry do
 
   @impl true
   def init(table_name) do
-    :ets.new(table_name, [:set, :public, :named_table, read_concurrency: true])
+    ^table_name = :ets.new(table_name, [:set, :public, :named_table, read_concurrency: true])
     {:ok, %{table: table_name, hooks: %{}}}
   end
 

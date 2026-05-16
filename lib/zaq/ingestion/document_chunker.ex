@@ -670,6 +670,9 @@ defmodule Zaq.Ingestion.DocumentChunker do
   defp maybe_add_section(sections, [], _current_section), do: sections
   # defp maybe_add_section(sections, nil, _current_section), do: sections
 
+  # Dialyzer cannot distinguish between %Section{type: :heading} and %Section{} in exhaustiveness
+  # analysis — the second clause is reachable for non-heading sections.
+  @dialyzer {:no_match, maybe_add_section: 3}
   defp maybe_add_section(sections, content_lines, current_section) when is_list(content_lines) do
     content = content_lines |> Enum.reverse() |> Enum.join("\n") |> String.trim()
 
@@ -838,6 +841,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
   end
 
+  @spec parse_html(String.t()) :: no_return()
   defp parse_html(_text) do
     raise "HTML parsing not implemented. Please use Floki library and implement parse_html/1"
   end

@@ -162,7 +162,6 @@ defmodule Zaq.Channels.Bridge do
       after_incoming(hook_config, hook_payload, hook_sink_opts, result, bridge_module)
     else
       {:error, _reason} = error -> error
-      false -> {:error, :unsupported}
       other -> other
     end
   end

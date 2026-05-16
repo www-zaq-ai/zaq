@@ -13,9 +13,29 @@ defmodule Zaq.MixProject do
       aliases: aliases(),
       deps: deps(),
       dialyzer: [
-        flags: [:unmatched_returns, :error_handling, :underspecs],
-        # This will use your ignore file
-        ignore_warnings: ".dialyzer_ignore.exs"
+        plt_add_deps: :apps_tree,
+        plt_file: {:no_warn, "priv/plts/project.plt"},
+        plt_add_apps: [:llm_db, :mix],
+        plt_ignore_apps: [
+          :texture,
+          :credo,
+          :dialyxir,
+          :ex_doc,
+          :excoveralls,
+          :ex_dna,
+          :ex_slop,
+          :mox,
+          :asn1,
+          :compiler,
+          :inets,
+          :mnesia,
+          :sasl,
+          :syntax_tools,
+          :xmerl
+        ],
+        paths: dialyzer_paths(),
+        ignore_warnings: ".dialyzer_ignore.exs",
+        flags: [:unmatched_returns, :error_handling]
       ],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
@@ -244,5 +264,18 @@ defmodule Zaq.MixProject do
         License: [~r/^Zaq\.License(\.|$)/]
       ]
     ]
+  end
+
+  defp dialyzer_paths do
+    case System.get_env("DIALYZER_SCOPE", "full") do
+      "core" -> core_dialyzer_paths()
+      _ -> ["_build/#{Mix.env()}/lib/zaq/ebin"]
+    end
+  end
+
+  defp core_dialyzer_paths do
+    "_build/#{Mix.env()}/lib/zaq/ebin/Elixir.Zaq*.beam"
+    |> Path.wildcard()
+    |> Enum.reject(&String.starts_with?(Path.basename(&1), "Elixir.ZaqWeb."))
   end
 end

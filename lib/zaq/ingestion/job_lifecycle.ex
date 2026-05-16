@@ -72,7 +72,11 @@ defmodule Zaq.Ingestion.JobLifecycle do
   end
 
   defp broadcast_update(job) do
-    Phoenix.PubSub.broadcast(@pubsub, @topic, {:job_updated, job})
+    case Phoenix.PubSub.broadcast(@pubsub, @topic, {:job_updated, job}) do
+      :ok -> :ok
+      {:error, _reason} -> :ok
+    end
+
     job
   end
 end

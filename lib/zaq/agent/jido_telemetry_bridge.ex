@@ -75,7 +75,11 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   @impl true
   def terminate(_reason, %{enabled?: true}) do
-    :telemetry.detach(@handler_id)
+    case :telemetry.detach(@handler_id) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+    end
+
     :ok
   end
 

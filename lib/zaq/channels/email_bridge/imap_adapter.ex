@@ -70,13 +70,16 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
 
   @spec fetch_unseen(pid(), String.t(), (map() -> any())) :: :ok | {:error, term()}
   def fetch_unseen(client, mailbox, on_message) when is_pid(client) and is_binary(mailbox) do
-    IMAP.search(client, "UNSEEN", @fetch_items, fn {seq, response} ->
-      response
-      |> to_email_payload(seq, mailbox)
-      |> on_message.()
-    end)
-
-    :ok
+    case IMAP.search(client, "UNSEEN", @fetch_items, fn {seq, response} ->
+           response
+           |> to_email_payload(seq, mailbox)
+           |> on_message.()
+         end) do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+      _ -> :ok
+    end
   rescue
     error -> {:error, {:imap_fetch_failed, Exception.message(error)}}
   end

@@ -1188,8 +1188,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  defp maybe_put_mcp_runtime_warnings(socket, _), do: socket
-
   defp mcp_runtime_warnings(payload) when is_map(payload) do
     payload
     |> mcp_map_get(:runtime, %{})

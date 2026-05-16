@@ -34,19 +34,27 @@ defmodule Zaq.Ingestion do
 
   def ingest_file(path, mode \\ :async, volume_name \\ nil) do
     with {:ok, job} <- create_job(path, mode, volume_name) do
-      case mode do
-        :async ->
-          %{"job_id" => job.id}
-          |> IngestWorker.new()
-          |> Oban.insert()
-
-          {:ok, job}
-
-        :inline ->
-          IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
-          {:ok, Repo.get!(IngestJob, job.id)}
-      end
+      dispatch_ingest_job(job, mode)
     end
+  end
+
+  defp dispatch_ingest_job(job, :async) do
+    {:ok, _} =
+      %{"job_id" => job.id}
+      |> IngestWorker.new()
+      |> Oban.insert()
+
+    {:ok, job}
+  end
+
+  defp dispatch_ingest_job(job, :inline) do
+    case IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}}) do
+      :ok -> :ok
+      {:cancel, _} -> :ok
+      {:error, _} -> :ok
+    end
+
+    {:ok, Repo.get!(IngestJob, job.id)}
   end
 
   def ingest_folder(path, mode \\ :async, volume_name \\ nil) do
@@ -569,9 +577,10 @@ defmodule Zaq.Ingestion do
           %{"job_id" => updated_job.id}
         end
 
-      retry_args
-      |> IngestWorker.new()
-      |> Oban.insert()
+      {:ok, _} =
+        retry_args
+        |> IngestWorker.new()
+        |> Oban.insert()
 
       {:ok, updated_job}
     else

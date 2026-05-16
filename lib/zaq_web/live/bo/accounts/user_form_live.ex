@@ -118,8 +118,14 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
     result = Accounts.create_user_with_password(params)
 
     case result do
-      {:ok, user} -> WelcomeEmail.deliver(user)
-      _ -> :ok
+      {:ok, user} ->
+        case WelcomeEmail.deliver(user) do
+          {:ok, :dispatched} -> :ok
+          {:ok, :skipped} -> :ok
+        end
+
+      _ ->
+        :ok
     end
 
     FormFlow.handle_save_result(socket, result,

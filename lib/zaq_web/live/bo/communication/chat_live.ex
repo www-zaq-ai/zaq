@@ -42,7 +42,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     user_id = if current_user, do: current_user.id, else: nil
 
     session_id = generate_id()
-    Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
+
+    case Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}") do
+      :ok -> :ok
+      {:error, {:already_registered, _pid}} -> :ok
+    end
 
     conversations =
       NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_conversations, [
@@ -134,18 +138,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           _err -> {nil, socket}
         end
 
-      Task.start(fn ->
-        run_pipeline_async(
-          session_id,
-          request_id,
-          trimmed,
-          socket.assigns.history,
-          socket.assigns.current_user,
-          socket.assigns.selected_agent_id,
-          active_filters,
-          %{conversation_id: conversation_id, live_view_pid: live_view_pid}
-        )
-      end)
+      {:ok, _pid} =
+        Task.start(fn ->
+          run_pipeline_async(
+            session_id,
+            request_id,
+            trimmed,
+            socket.assigns.history,
+            socket.assigns.current_user,
+            socket.assigns.selected_agent_id,
+            active_filters,
+            %{conversation_id: conversation_id, live_view_pid: live_view_pid}
+          )
+        end)
 
       {:noreply, socket}
     end
@@ -650,7 +655,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
       id ->
         selection = %{"agent_id" => id, "source" => "bo_explicit"}
-        %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
+        %{event | assigns: Map.put(event.assigns, "agent_selection", selection)}
     end
   end
 
@@ -907,7 +912,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp generate_id, do: :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 
   defp subscribe_to_conversation(conv_id) do
-    Phoenix.PubSub.subscribe(Zaq.PubSub, "conversation:#{conv_id}")
+    case Phoenix.PubSub.subscribe(Zaq.PubSub, "conversation:#{conv_id}") do
+      :ok -> :ok
+      {:error, {:already_registered, _pid}} -> :ok
+    end
   end
 
   defp reload_sidebar_conversations(socket) do

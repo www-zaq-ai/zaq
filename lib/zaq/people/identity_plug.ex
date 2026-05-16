@@ -67,13 +67,20 @@ defmodule Zaq.People.IdentityPlug do
     case People.find_or_create_from_channel(platform, enriched) do
       {:ok, person} ->
         channel = find_channel(person, platform, enriched["channel_id"] || fallback_channel_id)
-        if channel, do: People.record_interaction(channel)
+        maybe_record_interaction(channel)
         maybe_backfill_dm_channel(channel, platform, incoming, opts)
         {:ok, person}
 
       err ->
         err
     end
+  end
+
+  defp maybe_record_interaction(nil), do: :ok
+
+  defp maybe_record_interaction(channel) do
+    {:ok, _channel} = People.record_interaction(channel)
+    :ok
   end
 
   defp maybe_enrich(platform, author_id, canonical, opts) do
@@ -106,12 +113,22 @@ defmodule Zaq.People.IdentityPlug do
 
   defp touch_channel(channel, dm_channel_id)
        when is_binary(dm_channel_id) and not is_nil(dm_channel_id) do
-    if is_nil(channel.dm_channel_id),
-      do: People.update_channel(channel, %{dm_channel_id: dm_channel_id}),
-      else: People.record_interaction(channel)
+    if is_nil(channel.dm_channel_id) do
+      case People.update_channel(channel, %{dm_channel_id: dm_channel_id}) do
+        {:ok, _channel} -> :ok
+      end
+    else
+      case People.record_interaction(channel) do
+        {:ok, _channel} -> :ok
+      end
+    end
   end
 
-  defp touch_channel(channel, _dm_channel_id), do: People.record_interaction(channel)
+  defp touch_channel(channel, _dm_channel_id) do
+    case People.record_interaction(channel) do
+      {:ok, _channel} -> :ok
+    end
+  end
 
   # Fetches the DM channel via open_dm_channel and persists it when:
   # - message arrived from a non-DM channel (is_dm: false)
@@ -144,8 +161,13 @@ defmodule Zaq.People.IdentityPlug do
       end
 
     case result do
-      {:ok, dm_channel_id} -> People.update_channel(channel, %{dm_channel_id: dm_channel_id})
-      _ -> :ok
+      {:ok, dm_channel_id} ->
+        case People.update_channel(channel, %{dm_channel_id: dm_channel_id}) do
+          {:ok, _channel} -> :ok
+        end
+
+      _ ->
+        :ok
     end
   end
 

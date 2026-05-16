@@ -217,8 +217,8 @@ defmodule Zaq.Ingestion.FileExplorer do
   """
   def delete_directory(relative_path) do
     with {:ok, full_path} <- resolve_path(relative_path),
-         true <- File.dir?(full_path) do
-      File.rm_rf(full_path)
+         true <- File.dir?(full_path),
+         {:ok, _} <- File.rm_rf(full_path) do
       :ok
     else
       false -> {:error, :not_a_directory}
@@ -231,8 +231,8 @@ defmodule Zaq.Ingestion.FileExplorer do
   """
   def delete_directory(volume_name, relative_path) when is_binary(volume_name) do
     with {:ok, full_path} <- resolve_path(volume_name, relative_path),
-         true <- File.dir?(full_path) do
-      File.rm_rf(full_path)
+         true <- File.dir?(full_path),
+         {:ok, _} <- File.rm_rf(full_path) do
       :ok
     else
       false -> {:error, :not_a_directory}

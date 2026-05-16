@@ -67,3 +67,7 @@ swarm.config.yaml
 *.db
 .beads-credential-key
 .beads
+# Dialyzer PLT files - do NOT commit these
+/priv/plts/
+*.plt
+*.plt.hash

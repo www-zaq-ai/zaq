@@ -115,7 +115,10 @@ defmodule Zaq.Engine.Notifications do
     end)
 
     if channels == [] do
-      NotificationLog.transition_status(log, "skipped")
+      case NotificationLog.transition_status(log, "skipped") do
+        {:ok, _} -> :ok
+        {:error, _} -> :ok
+      end
 
       Logger.info(
         "[Notifications] skipped — no configured channels (sender=#{notification.sender}, log_id=#{log.id})"
@@ -123,9 +126,10 @@ defmodule Zaq.Engine.Notifications do
 
       {:ok, :skipped}
     else
-      %{"log_id" => log.id, "channels" => channels, "metadata" => notification.metadata}
-      |> DispatchWorker.new()
-      |> Oban.insert!()
+      {:ok, _} =
+        %{"log_id" => log.id, "channels" => channels, "metadata" => notification.metadata}
+        |> DispatchWorker.new()
+        |> Oban.insert()
 
       {:ok, :dispatched}
     end
