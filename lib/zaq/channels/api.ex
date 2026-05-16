@@ -299,6 +299,15 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
+        %Event{request: %{provider: provider}} = event,
+        :channel_capability_snapshot,
+        _context
+      ) do
+    bridge_module = bridge_module(event)
+    %{event | response: bridge_module.capability_snapshot(provider)}
+  end
+
+  def handle_event(
         %Event{request: %{config: %ChannelConfig{} = config, channel_id: channel_id}} = event,
         :test_connection,
         _context

@@ -208,14 +208,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   defmodule StubChatModule do
-    def route_request(chat, adapter_name, request, opts) do
+    def handle_webhook_request(chat, adapter_name, request, opts) do
       (Process.whereis(:bridge_test_observer) || self())
-      |> then(&send(&1, {:route_request_called, chat, adapter_name, request, opts}))
+      |> then(&send(&1, {:handle_webhook_request_called, chat, adapter_name, request, opts}))
 
-      {:ok,
-       %{
-         response: %{status: 204, headers: %{"x-webhook" => "ok"}, body: "accepted"}
-       }}
+      {:ok, chat, :noop, %{status: 204, headers: %{"x-webhook" => "ok"}, body: "accepted"}}
     end
   end
 
@@ -2695,7 +2692,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert webhook_response == %{status: 204, headers: %{"x-webhook" => "ok"}, body: "accepted"}
 
-      assert_received {:route_request_called, _chat, :mattermost, request, _opts}
+      assert_received {:handle_webhook_request_called, _chat, :mattermost, request, _opts}
       assert request.payload == %{"event" => "message"}
       assert request.query == %{"challenge" => "abc"}
       assert request.raw == "{}"

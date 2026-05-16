@@ -5,8 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Agent
-  alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.DataSourceBridge
+  alias Zaq.Channels.{Bridge, ChannelConfig}
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
@@ -90,6 +89,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:oauth_claim_modal, false)
      |> assign(:oauth_claim_url, nil)
      |> assign(:confirm_delete, nil)
+     |> assign(:capability_modal_open, false)
+     |> assign(:capabilities_snapshot, capability_snapshot(provider))
      # test connection
      |> assign(:test_config, nil)
      |> assign(:test_status, :idle)
@@ -357,6 +358,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   def handle_event("cancel_delete", _params, socket) do
     {:noreply, assign(socket, :confirm_delete, nil)}
+  end
+
+  def handle_event("open_capabilities", _params, socket) do
+    {:noreply, assign(socket, :capability_modal_open, true)}
+  end
+
+  def handle_event("close_capabilities", _params, socket) do
+    {:noreply, assign(socket, :capability_modal_open, false)}
   end
 
   def handle_event("delete", _params, socket) do
@@ -1148,7 +1157,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp provider_requires_global_base_url?(:data_source, provider) do
-    case DataSourceBridge.capability_snapshot(provider) do
+    case Bridge.capability_snapshot(provider) do
       {:ok, %{resolved: resolved}} when is_map(resolved) ->
         webhook_capability_declared?(resolved)
 
@@ -1192,6 +1201,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp ensure_global_base_url_for_oauth2(_), do: :ok
+
+  defp capability_snapshot(provider) do
+    event =
+      Event.new(%{provider: provider}, :channels, opts: [action: :channel_capability_snapshot])
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, map} when is_map(map) -> map
+      _ -> %{}
+    end
+  end
 
   defp open_credential_modal(socket, changeset, :ok) do
     socket

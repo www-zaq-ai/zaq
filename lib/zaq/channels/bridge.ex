@@ -16,7 +16,7 @@ defmodule Zaq.Channels.Bridge do
   bridge modules own transport-specific behavior.
   """
 
-  alias Zaq.Channels.{ChannelConfig, CommunicationBridge}
+  alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.{Event, NodeRouter}
@@ -25,6 +25,7 @@ defmodule Zaq.Channels.Bridge do
   @imap_provider "email:imap"
 
   @callback to_internal(map(), map()) :: Incoming.t() | {:error, term()}
+  @callback capability_snapshot(map()) :: {:ok, map()} | {:error, term()}
 
   @callback start_runtime(map()) :: :ok | {:error, term()}
   @callback stop_runtime(map()) :: :ok | {:error, term()}
@@ -49,7 +50,34 @@ defmodule Zaq.Channels.Bridge do
                       runtime_bridge_id: 1,
                       before_incoming: 4,
                       after_incoming: 5,
-                      test_connection: 2
+                      test_connection: 2,
+                      capability_snapshot: 1
+
+  @communication_required_capabilities [
+    :text,
+    :image,
+    :audio,
+    :video,
+    :file,
+    :streaming,
+    :reactions,
+    :threads,
+    :typing,
+    :mode
+  ]
+
+  @communication_capability_meta %{
+    text: "Text",
+    image: "Image",
+    audio: "Audio",
+    video: "Video",
+    file: "File",
+    streaming: "Streaming",
+    reactions: "Reactions",
+    threads: "Threads",
+    typing: "Typing",
+    mode: "Mode"
+  }
 
   defmacro __using__(_opts) do
     quote do
@@ -309,6 +337,17 @@ defmodule Zaq.Channels.Bridge do
     end
   end
 
+  @doc "Returns standardized capability snapshot for a provider."
+  @spec capability_snapshot(atom() | String.t()) :: {:ok, map()} | {:error, term()}
+  def capability_snapshot(provider) do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         {:ok, config} <- fetch_channel_config(provider),
+         true <- bridge_supports?(bridge, :capability_snapshot, 1) || {:error, :unsupported},
+         {:ok, raw_snapshot} <- bridge.capability_snapshot(config) do
+      {:ok, normalize_capability_snapshot(raw_snapshot, config)}
+    end
+  end
+
   @doc "Synchronizes runtime processes when a channel config changes via centralized Bridge resolution."
   @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}
   def sync_config_runtime(before_config, after_config),
@@ -318,6 +357,16 @@ defmodule Zaq.Channels.Bridge do
   @spec sync_provider_runtime(atom() | String.t()) :: :ok | {:error, term()}
   def sync_provider_runtime(provider),
     do: CommunicationBridge.sync_provider_runtime(provider)
+
+  @doc "Returns required capabilities for a channel kind."
+  @spec required_capabilities(:communication | :data_source) :: [atom()]
+  def required_capabilities(:communication), do: @communication_required_capabilities
+  def required_capabilities(:data_source), do: DataSourceBridge.required_capabilities()
+
+  @doc "Returns capability labels for a channel kind."
+  @spec capability_meta(:communication | :data_source) :: map()
+  def capability_meta(:communication), do: @communication_capability_meta
+  def capability_meta(:data_source), do: DataSourceBridge.capability_meta()
 
   defp fallback_sync_provider_runtime(config) do
     if config.enabled do
@@ -341,4 +390,57 @@ defmodule Zaq.Channels.Bridge do
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
     Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
   end
+
+  defp normalize_capability_snapshot(raw_snapshot, config) do
+    kind = capability_kind(config)
+    required = map_get_list(raw_snapshot, [:required, "required"]) || required_capabilities(kind)
+    resolved = map_get_map(raw_snapshot, [:resolved, "resolved"]) || %{}
+
+    labels =
+      capability_meta(kind)
+      |> Map.merge(map_get_map(raw_snapshot, [:labels, "labels"]) || %{})
+
+    unsupported =
+      map_get_list(raw_snapshot, [:unsupported, "unsupported"]) ||
+        Enum.reject(required, &capability_resolved?(resolved, &1))
+
+    %{
+      kind: kind,
+      required: required,
+      resolved: resolved,
+      unsupported: unsupported,
+      labels: labels
+    }
+  end
+
+  defp capability_kind(%{kind: "data_source"}), do: :data_source
+  defp capability_kind(%{"kind" => "data_source"}), do: :data_source
+  defp capability_kind(_), do: :communication
+
+  defp capability_resolved?(resolved, key) do
+    value = Map.get(resolved, key) || Map.get(resolved, to_string(key))
+    not is_nil(value) and value != false
+  end
+
+  defp map_get_list(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(map, key) do
+        list when is_list(list) -> list
+        _ -> nil
+      end
+    end)
+  end
+
+  defp map_get_list(_, _), do: nil
+
+  defp map_get_map(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(map, key) do
+        value when is_map(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp map_get_map(_, _), do: nil
 end

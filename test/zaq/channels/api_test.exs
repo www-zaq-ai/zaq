@@ -20,6 +20,19 @@ defmodule Zaq.Channels.ApiTest do
       send(self(), {:bridge_sync_provider_runtime, provider})
       :ok
     end
+
+    def capability_snapshot(provider) do
+      send(self(), {:bridge_capability_snapshot, provider})
+
+      {:ok,
+       %{
+         kind: :communication,
+         required: [:text],
+         resolved: %{text: true},
+         unsupported: [],
+         labels: %{text: "Text"}
+       }}
+    end
   end
 
   defmodule StubCommunicationBridgeConfigError do
@@ -573,6 +586,27 @@ defmodule Zaq.Channels.ApiTest do
 
     assert Api.handle_event(yes_event, :bridge_available, nil).response == true
     assert Api.handle_event(no_event, :bridge_available, nil).response == false
+  end
+
+  test "handles channel_capability_snapshot" do
+    event =
+      Event.new(%{provider: "mattermost"}, :channels,
+        opts: [action: :channel_capability_snapshot, bridge_module: StubCommunicationBridge]
+      )
+
+    result = Api.handle_event(event, :channel_capability_snapshot, nil)
+
+    assert result.response ==
+             {:ok,
+              %{
+                kind: :communication,
+                required: [:text],
+                resolved: %{text: true},
+                unsupported: [],
+                labels: %{text: "Text"}
+              }}
+
+    assert_received {:bridge_capability_snapshot, "mattermost"}
   end
 
   test "test_connection returns unsupported when callback missing" do

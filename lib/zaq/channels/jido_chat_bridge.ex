@@ -9,6 +9,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   `send_reply/2` is called by Channels API for outbound delivery to any
   jido_chat-backed platform.
 
+  `register_handlers/3` is called to attach function handlers per events
+
   All external module calls are configurable via Application env for testability.
   """
 
@@ -20,6 +22,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   require Logger
 
   alias Jido.Chat
+  alias Jido.Chat.Adapter
   alias Jido.Chat.Thread
   alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Supervisor}
   alias Zaq.Channels.JidoChatBridge.State
@@ -126,6 +129,22 @@ defmodule Zaq.Channels.JidoChatBridge do
   def test_connection(config, channel_id) do
     with {:ok, adapter} <- adapter_for(config.provider) do
       adapter.send_message(channel_id, @test_message, url: config.url, token: config.token)
+    end
+  end
+
+  @impl true
+  def capability_snapshot(config) when is_map(config) do
+    with {:ok, adapter} <- adapter_for(config.provider) do
+      raw_capabilities = Adapter.capabilities(adapter)
+      ingress_mode = ingress_mode_for(config.provider)
+
+      resolved =
+        Bridge.required_capabilities(:communication)
+        |> Enum.reduce(%{}, fn capability, acc ->
+          accumulate_capability(acc, capability, raw_capabilities, ingress_mode)
+        end)
+
+      {:ok, %{resolved: resolved}}
     end
   end
 
@@ -572,6 +591,29 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp ingress_starts_listener?(mode), do: mode in [:websocket, :gateway, :polling]
+
+  defp accumulate_capability(acc, capability, raw_capabilities, ingress_mode) do
+    case capability_value(capability, raw_capabilities, ingress_mode) do
+      nil -> acc
+      value -> Map.put(acc, capability, value)
+    end
+  end
+
+  defp capability_value(:mode, _raw_capabilities, ingress_mode),
+    do: ingress_mode |> Atom.to_string()
+
+  defp capability_value(capability, raw_capabilities, _ingress_mode) do
+    value =
+      Map.get(raw_capabilities, capability) ||
+        Map.get(raw_capabilities, to_string(capability))
+
+    case value do
+      true -> true
+      false -> nil
+      nil -> nil
+      other -> other
+    end
+  end
 
   defp load_active_channel_ids(config) do
     case RetrievalChannel.list_active_by_config(config.id) |> Enum.map(& &1.channel_id) do

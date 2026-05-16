@@ -29,7 +29,14 @@
           </svg>
         </div>
         <div>
-          <h1 class="font-mono text-lg font-bold text-black">{@provider_label}</h1>
+          <div class="flex items-center gap-2">
+            <h1 class="font-mono text-lg font-bold text-black">{@provider_label}</h1>
+            <ZaqWeb.Components.ChannelCapabilities.icon_with_modal
+              modal_open?={@capability_modal_open}
+              snapshot={@capabilities_snapshot}
+              title={"#{@provider_label} capabilities"}
+            />
+          </div>
           <p class="font-mono text-[0.7rem] text-black/40 mt-0.5">
             Manage configs and interact with your Mattermost instance
           </p>

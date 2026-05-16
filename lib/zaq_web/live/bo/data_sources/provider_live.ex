@@ -4,8 +4,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   import Ecto.Query
 
-  alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.DataSourceBridge
+  alias Zaq.Channels.{Bridge, ChannelConfig}
   alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
@@ -29,7 +28,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     root_folders = seed_root_folders_by_config(configs)
     root_folder_meta = seed_root_folder_meta_by_config(configs)
     stats_errors = seed_stats_errors_by_config(configs)
-    capabilities = capabilities_by_config(provider, configs)
+    capabilities = capability_snapshot(provider)
 
     {:ok,
      socket
@@ -42,7 +41,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:root_folders_by_config, root_folders)
      |> assign(:root_folder_meta_by_config, root_folder_meta)
      |> assign(:stats_errors_by_config, stats_errors)
-     |> assign(:capabilities_by_config, capabilities)
+     |> assign(:capabilities_snapshot, capabilities)
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
      |> assign(:form, nil)
@@ -54,7 +53,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:credential_errors, [])
      |> assign(:global_settings_path, ~p"/bo/system-config?tab=global")
      |> assign(:confirm_delete, nil)
-     |> assign(:capability_modal_config_id, nil)
+     |> assign(:capability_modal_open, false)
      |> assign(:folder_info_modal, nil)
      |> assign(:oauth_claim_modal, false)
      |> assign(:oauth_claim_url, nil)}
@@ -365,12 +364,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     {:noreply, assign(socket, :confirm_delete, id)}
   end
 
-  def handle_event("open_capabilities", %{"id" => id}, socket) do
-    {:noreply, assign(socket, :capability_modal_config_id, id)}
+  def handle_event("open_capabilities", _params, socket) do
+    {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
   def handle_event("close_capabilities", _params, socket) do
-    {:noreply, assign(socket, :capability_modal_config_id, nil)}
+    {:noreply, assign(socket, :capability_modal_open, false)}
   end
 
   def handle_event(
@@ -420,6 +419,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def active_grant_for_config(config, grants_by_config),
     do: Map.get(grants_by_config || %{}, config.id)
 
+  def capabilities_modal_open?(current, _config_id) when is_boolean(current), do: current
+
   def capabilities_modal_open?(current_id, config_id) do
     to_string(current_id || "") == to_string(config_id)
   end
@@ -434,7 +435,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     |> Enum.map(fn capability ->
       %{
         label: Map.get(labels, capability, capability) |> to_string(),
-        supported?: Map.has_key?(resolved, capability)
+        supported?:
+          Map.has_key?(resolved, capability) or Map.has_key?(resolved, to_string(capability))
       }
     end)
     |> Enum.sort_by(&String.downcase(&1.label))
@@ -704,18 +706,11 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp format_stats_error(reason),
     do: %{message: inspect(reason), code: nil, provider: nil, status: nil}
 
-  defp capabilities_by_config(_provider, []), do: %{}
-
-  defp capabilities_by_config(provider, configs) do
-    snapshot =
-      case DataSourceBridge.capability_snapshot(provider) do
-        {:ok, map} when is_map(map) -> map
-        _ -> %{}
-      end
-
-    Enum.reduce(configs, %{}, fn config, acc ->
-      Map.put(acc, config.id, snapshot)
-    end)
+  defp capability_snapshot(provider) do
+    case dispatch_channel_capability_snapshot(provider) do
+      {:ok, map} when is_map(map) -> map
+      _ -> %{}
+    end
   end
 
   defp dispatch_list_files(provider, params) do
@@ -841,7 +836,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   defp provider_requires_global_base_url?(provider) do
-    case DataSourceBridge.capability_snapshot(provider) do
+    case Bridge.capability_snapshot(provider) do
       {:ok, %{resolved: resolved}} when is_map(resolved) ->
         webhook_capability_declared?(resolved)
 
@@ -930,7 +925,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     |> assign(:root_folders_by_config, root_folders)
     |> assign(:root_folder_meta_by_config, root_meta)
     |> assign(:stats_errors_by_config, stats_errors)
-    |> assign(:capabilities_by_config, capabilities_by_config(socket.assigns.provider, configs))
+    |> assign(:capabilities_snapshot, capability_snapshot(socket.assigns.provider))
     |> put_flash(:info, message)
   end
 
@@ -953,7 +948,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     socket
     |> assign_provider_refresh_base(configs)
     |> assign(:grants_by_config, grants_by_config(configs))
-    |> assign(:capabilities_by_config, capabilities_by_config(socket.assigns.provider, configs))
+    |> assign(:capabilities_snapshot, capability_snapshot(socket.assigns.provider))
     |> put_flash(:info, message)
   end
 
@@ -961,10 +956,17 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     socket
     |> assign(:modal, nil)
     |> assign(:confirm_delete, nil)
-    |> assign(:capability_modal_config_id, nil)
+    |> assign(:capability_modal_open, false)
     |> assign(:changeset, nil)
     |> assign(:form, nil)
     |> assign(:modal_errors, [])
     |> assign(:configs, configs)
+  end
+
+  defp dispatch_channel_capability_snapshot(provider) do
+    event =
+      Event.new(%{provider: provider}, :channels, opts: [action: :channel_capability_snapshot])
+
+    NodeRouter.dispatch(event).response
   end
 end

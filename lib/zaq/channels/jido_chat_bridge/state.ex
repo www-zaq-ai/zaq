@@ -7,7 +7,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
   Why this process exists:
 
-  - `Jido.Chat` is stateful (subscriptions, dedupe, thread/channel state).
+  - `Jido.Chat` is stateful (handlers, subscriptions, dedupe, thread/channel state).
   - Multiple ingress sources can hit the same bridge concurrently.
   - A read/modify/write flow outside a single owner process risks races and
     divergent chat state.
@@ -143,14 +143,14 @@ defmodule Zaq.Channels.JidoChatBridge.State do
       with provider when is_atom(provider) <- provider,
            {:ok, adapter} <- bridge_module().adapter_for(config.provider),
            request <- bridge_module().webhook_request_from_payload(payload, provider),
-           {:ok, ingress_result} <-
-             chat_module().route_request(
+           {:ok, chat, event, response} <-
+             chat_module().handle_webhook_request(
                state.chat,
                provider,
                request,
                adapters: %{provider => adapter}
              ) do
-        {:ok, ingress_result}
+        {:ok, %{chat: chat, event: event, response: response}}
       else
         nil -> {:error, :unsupported_provider}
         {:error, reason} -> {:error, reason}

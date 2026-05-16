@@ -27,7 +27,6 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback list_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback list_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback capability_snapshot(map()) :: {:ok, map()} | {:error, term()}
 
   @required_capabilities [
     :list_items,
@@ -259,13 +258,7 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   @doc "Returns connector capability resolution for a provider."
   @spec capability_snapshot(atom() | String.t()) :: {:ok, map()} | {:error, term()}
-  def capability_snapshot(provider) do
-    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
-         {:ok, config} <- Bridge.fetch_channel_config(provider),
-         true <- supports_callback?(bridge, :capability_snapshot, 1) || {:error, :unsupported} do
-      bridge.capability_snapshot(config)
-    end
-  end
+  def capability_snapshot(provider), do: Bridge.capability_snapshot(provider)
 
   @doc "Synchronizes runtime processes when a datasource config changes."
   @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}

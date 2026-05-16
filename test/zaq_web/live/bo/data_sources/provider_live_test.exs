@@ -418,12 +418,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
                canceled
              )
 
-    assert capabilities_open.assigns.capability_modal_config_id == Integer.to_string(config.id)
+    assert capabilities_open.assigns.capability_modal_open == true
 
     assert {:noreply, capabilities_closed} =
              ProviderLive.handle_event("close_capabilities", %{}, capabilities_open)
 
-    assert capabilities_closed.assigns.capability_modal_config_id == nil
+    assert capabilities_closed.assigns.capability_modal_open == false
   end
 
   test "folder info modal open/close and fetch_more without cursor" do
@@ -836,7 +836,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     assert Enum.any?(mounted.assigns.configs, &(&1.id == config.id))
     assert mounted.assigns.grants_by_config[config.id]
-    assert is_map(mounted.assigns.capabilities_by_config[config.id])
+    assert is_map(mounted.assigns.capabilities_snapshot)
     assert mounted.assigns.root_folders_by_config[config.id] == nil
   end
 

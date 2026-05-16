@@ -18,7 +18,14 @@
     </.link>
     <div class="flex items-center justify-between gap-3">
       <div>
-        <h1 class="font-mono text-lg font-bold text-black">{@provider_label}</h1>
+        <div class="flex items-center gap-2">
+          <h1 class="font-mono text-lg font-bold text-black">{@provider_label}</h1>
+          <ZaqWeb.Components.ChannelCapabilities.icon_with_modal
+            modal_open?={@capability_modal_open}
+            snapshot={@capabilities_snapshot}
+            title={"#{@provider_label} capabilities"}
+          />
+        </div>
         <p class="font-mono text-[0.7rem] text-black/40 mt-1">
           Active grant insights for this data source provider.
         </p>
@@ -63,25 +70,6 @@
         <div>
           <div class="flex items-center gap-2">
             <p class="font-mono text-sm font-bold text-black">{config.name}</p>
-            <button
-              type="button"
-              phx-click="open_capabilities"
-              phx-value-id={config.id}
-              class="w-6 h-6 rounded-md border border-black/10 grid place-items-center text-black/35 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
-              title="Show capabilities"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M12 16v.01" />
-                <path d="M12 8a2.5 2.5 0 0 1 2.5 2.5c0 1.5-1.5 2-2.5 2.75" />
-                <circle cx="12" cy="12" r="9" />
-              </svg>
-            </button>
           </div>
           <p class="font-mono text-[0.7rem] text-black/35 mt-1">
             {if grant, do: "Grant active (#{grant.auth_kind})", else: "No active grant"}
@@ -246,39 +234,6 @@
       </div>
     </div>
   </div>
-
-  <% selected_config = selected_config(@configs, @capability_modal_config_id) %>
-  <ZaqWeb.Components.BOModal.form_dialog
-    :if={selected_config}
-    id="capabilities-modal"
-    cancel_event="close_capabilities"
-    title="Capabilities"
-    max_width_class="max-w-lg"
-  >
-    <div class="space-y-3">
-      <p class="font-mono text-[0.75rem] text-black/65">{selected_config.name} capabilities</p>
-      <ul class="space-y-1 max-h-[55vh] overflow-auto pr-1">
-        <li
-          :for={capability <- capabilities_for_modal(selected_config, @capabilities_by_config)}
-          class={[
-            "font-mono text-[0.74rem]",
-            if(capability.supported?, do: "text-emerald-700", else: "text-black/40")
-          ]}
-        >
-          {capability.label}
-        </li>
-      </ul>
-      <div class="flex justify-end pt-2">
-        <button
-          type="button"
-          phx-click="close_capabilities"
-          class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/10 text-black/50 hover:text-black"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  </ZaqWeb.Components.BOModal.form_dialog>
 
   <ZaqWeb.Components.BOModal.form_dialog
     :if={selected_folder_info(@folder_info_modal)}
