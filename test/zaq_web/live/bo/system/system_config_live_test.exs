@@ -101,10 +101,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
       view
-      |> element("button[phx-value-tab='agents']")
+      |> element("button[phx-value-tab='global']")
       |> render_click()
 
-      assert_patch(view, ~p"/bo/system-config?tab=agents")
+      assert_patch(view, ~p"/bo/system-config?tab=global")
       assert has_element?(view, "#global-default-agent-select")
       assert render(view) =~ "Default Zaq Agent"
     end
@@ -128,8 +128,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, _view, mcp_html} = live(conn, ~p"/bo/system-config?tab=mcps")
       assert mcp_html =~ "MCP Administration"
 
-      {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=agents")
-      assert global_html =~ "Agents"
+      {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
+      assert global_html =~ "Global"
       assert global_html =~ "Default Zaq Agent"
     end
   end
@@ -1904,7 +1904,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "global default agent saving" do
     test "accepts empty global_default_agent_id and saves", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=agents")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
 
       html =
         render_submit(view, "save_global_default_agent", %{
@@ -1915,7 +1915,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "accepts numeric global_default_agent_id", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=agents")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
 
       html =
         render_submit(view, "save_global_default_agent", %{
@@ -1923,6 +1923,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
 
       assert html =~ "Global default agent saved."
+    end
+  end
+
+  describe "global base URL saving" do
+    test "saves configured global base URL", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html =
+        render_submit(view, "save_global_base_url", %{
+          "global_base_url" => "https://zaq.example"
+        })
+
+      assert html =~ "Global base URL saved."
+      assert Zaq.System.get_global_base_url() == "https://zaq.example"
     end
   end
 

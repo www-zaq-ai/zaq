@@ -55,16 +55,16 @@
           </button>
           <button
             phx-click="switch_tab"
-            phx-value-tab="agents"
+            phx-value-tab="global"
             class={[
               "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :agents,
+              if(@active_tab == :global,
                 do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
                 else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
               )
             ]}
           >
-            Agents
+            Global
           </button>
           <button
             phx-click="switch_tab"
@@ -161,10 +161,11 @@
         action={@mcp_endpoint_action}
         delete_confirm_modal={@mcp_endpoint_delete_confirm_modal}
       />
-      <ZaqWeb.Live.BO.System.SystemConfig.AgentsTab.panel
-        :if={@active_tab == :agents}
+      <ZaqWeb.Live.BO.System.SystemConfig.GlobalTab.panel
+        :if={@active_tab == :global}
         global_agent_options={@global_agent_options}
         global_default_agent_id={@global_default_agent_id}
+        global_base_url={@global_base_url}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.LLMTab.panel
         :if={@active_tab == :llm}

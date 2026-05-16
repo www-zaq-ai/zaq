@@ -7,6 +7,7 @@ defmodule Zaq.Engine.Connect.OAuthTest do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
 
   defmodule TestOAuthBridge do
     def auth_handshake(_config, _params), do: {:error, :unsupported}
@@ -51,15 +52,11 @@ defmodule Zaq.Engine.Connect.OAuthTest do
   end
 
   setup do
-    original_base_url = Application.get_env(:zaq, :connect_oauth_base_redirect_url)
+    original_base_url = ZaqSystem.get_global_base_url()
     original_channels = Application.get_env(:zaq, :channels)
 
     on_exit(fn ->
-      if is_nil(original_base_url) do
-        Application.delete_env(:zaq, :connect_oauth_base_redirect_url)
-      else
-        Application.put_env(:zaq, :connect_oauth_base_redirect_url, original_base_url)
-      end
+      :ok = ZaqSystem.set_global_base_url(original_base_url)
 
       if is_nil(original_channels) do
         Application.delete_env(:zaq, :channels)
@@ -73,7 +70,7 @@ defmodule Zaq.Engine.Connect.OAuthTest do
 
   defp create_credential!(attrs \\ %{}) do
     base = %{
-      name: "oauth-cred-#{System.unique_integer([:positive])}",
+      name: "oauth-cred-#{Elixir.System.unique_integer([:positive])}",
       provider: "google_drive",
       auth_kind: "oauth2",
       request_format: "bearer",
@@ -91,7 +88,7 @@ defmodule Zaq.Engine.Connect.OAuthTest do
   defp create_data_source_config!(provider) do
     %ChannelConfig{}
     |> ChannelConfig.changeset(%{
-      "name" => "oauth-config-#{System.unique_integer([:positive])}",
+      "name" => "oauth-config-#{Elixir.System.unique_integer([:positive])}",
       "provider" => provider,
       "kind" => "data_source",
       "enabled" => true,
@@ -172,7 +169,7 @@ defmodule Zaq.Engine.Connect.OAuthTest do
   end
 
   test "redirect_uri_for/1 uses configured base url" do
-    Application.put_env(:zaq, :connect_oauth_base_redirect_url, "https://zaq.example")
+    :ok = ZaqSystem.set_global_base_url("https://zaq.example")
 
     assert OAuth.redirect_uri_for("google_drive") ==
              "https://zaq.example/channels/oauth2/google_drive/redirect"

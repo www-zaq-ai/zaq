@@ -18,6 +18,7 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
   attr :submit_label, :string, default: "Create"
   attr :restore_scopes_event, :string, default: nil
   attr :default_scopes_text, :string, default: ""
+  attr :global_settings_path, :string, default: nil
 
   def credential_form(assigns) do
     ~H"""
@@ -152,6 +153,16 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
         >
           <span class="text-red-400">✗</span> {err}
         </p>
+        <.link
+          :if={
+            @global_settings_path &&
+              Enum.any?(@errors, &String.contains?(&1, "Global base URL"))
+          }
+          navigate={@global_settings_path}
+          class="mt-2 inline-block font-mono text-[0.7rem] text-red-700 underline decoration-red-300 hover:decoration-red-600"
+        >
+          Open Global settings
+        </.link>
       </div>
 
       <div class="flex justify-end gap-3 pt-2">

@@ -63,6 +63,20 @@ defmodule Zaq.SystemTest do
     end
   end
 
+  describe "global base URL config" do
+    test "get_global_base_url/0 returns nil when unset" do
+      assert System.get_global_base_url() == nil
+    end
+
+    test "set_global_base_url/1 persists and clears the value" do
+      assert :ok = System.set_global_base_url("https://zaq.example")
+      assert System.get_global_base_url() == "https://zaq.example"
+
+      assert :ok = System.set_global_base_url(nil)
+      assert System.get_global_base_url() == nil
+    end
+  end
+
   # ── LLM ───────────────────────────────────────────────────────────────
 
   describe "get_llm_config/0" do

@@ -1,21 +1,47 @@
-defmodule ZaqWeb.Live.BO.System.SystemConfig.AgentsTab do
+defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
   @moduledoc """
   Tab component for the BO system configuration page.
   """
   use ZaqWeb, :html
   attr :global_agent_options, :list, required: true
   attr :global_default_agent_id, :any, required: true
+  attr :global_base_url, :string, required: true
 
   def panel(assigns) do
     ~H"""
     <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
       <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
-        <h2 class="font-mono text-[0.95rem] font-bold text-black">Agents</h2>
+        <h2 class="font-mono text-[0.95rem] font-bold text-black">Global</h2>
         <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
-          Configure system-wide defaults used when channel-level routing does not select a configured agent.
+          Configure system-wide defaults used across OAuth2, webhooks, and channel-level routing.
         </p>
       </div>
-      <div class="px-8 py-6">
+      <div class="px-8 py-6 space-y-6">
+        <div>
+          <label class="font-mono text-[0.68rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+            Global Base URL
+          </label>
+          <form phx-submit="save_global_base_url" class="flex items-center gap-2">
+            <input
+              id="global-base-url-input"
+              name="global_base_url"
+              type="text"
+              value={@global_base_url}
+              placeholder="https://zaq.example"
+              class="w-full max-w-md font-mono text-[0.82rem] text-black border border-black/10 rounded-xl h-10 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4]"
+            />
+            <button
+              type="submit"
+              class="font-mono text-[0.72rem] px-3 py-2 rounded-lg border border-black/10 text-black/60 hover:text-black hover:border-black/20"
+            >
+              Save
+            </button>
+          </form>
+          <p class="font-mono text-[0.68rem] text-black/45 mt-2">
+            Project-wide base URL used by OAuth2 redirects, webhooks, and future global callbacks.
+          </p>
+        </div>
+
         <label class="font-mono text-[0.68rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
           Global Default Agent
         </label>

@@ -35,6 +35,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:mcp_per_page, 20)
      |> assign(:global_agent_options, global_agent_options())
      |> assign(:global_default_agent_id, engine_get_global_default_agent_id())
+     |> assign(:global_base_url, engine_get_global_base_url() || "")
      |> assign(:ai_provider_options, provider_options(fn _ -> true end))
      |> assign(:connect_grants_modal, false)
      |> assign(:connect_credential_modal, false)
@@ -58,7 +59,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(ai_credentials auth_credentials mcps agents llm embedding image_to_text telemetry) do
+      when tab in ~w(ai_credentials auth_credentials mcps global llm embedding image_to_text telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -263,6 +264,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:error, reason} ->
         {:noreply,
          put_flash(socket, :error, "Failed to save global default agent: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("save_global_base_url", %{"global_base_url" => base_url}, socket) do
+    case engine_set_global_base_url(base_url) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:global_base_url, engine_get_global_base_url() || "")
+         |> put_flash(:info, "Global base URL saved.")}
+
+      {:error, reason} ->
+        {:noreply,
+         put_flash(socket, :error, "Failed to save global base URL: #{inspect(reason)}")}
     end
   end
 
@@ -1478,6 +1493,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp engine_set_global_default_agent_id(id),
     do: dispatch_engine(:system_config_set_global_default_agent_id, %{id: id})
+
+  defp engine_get_global_base_url,
+    do: dispatch_engine(:system_config_get_global_base_url)
+
+  defp engine_set_global_base_url(base_url),
+    do: dispatch_engine(:system_config_set_global_base_url, %{base_url: base_url})
 
   defp engine_get_telemetry_config, do: dispatch_engine(:system_config_get_telemetry_config)
 

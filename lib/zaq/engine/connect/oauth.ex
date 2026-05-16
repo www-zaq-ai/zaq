@@ -45,8 +45,7 @@ defmodule Zaq.Engine.Connect.OAuth do
   @spec redirect_uri_for(String.t()) :: String.t()
   def redirect_uri_for(provider) do
     base =
-      Zaq.System.get_config("connect.oauth2.base_redirect_url") ||
-        Application.get_env(:zaq, :connect_oauth_base_redirect_url, "http://localhost:4000")
+      Zaq.System.get_global_base_url() || "http://localhost:4000"
 
     base <> "/channels/oauth2/#{provider}/redirect"
   end
