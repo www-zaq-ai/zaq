@@ -26,7 +26,8 @@ defmodule Zaq.Event do
     trace_id: nil,
     opts: [],
     version: 1,
-    actor: nil
+    actor: nil,
+    name: nil
   ]
 
   @type t :: %__MODULE__{
@@ -38,7 +39,8 @@ defmodule Zaq.Event do
           trace_id: String.t() | nil,
           opts: keyword(),
           version: integer(),
-          actor: term() | nil
+          actor: term() | nil,
+          name: atom() | nil
         }
 
   @spec new(term(), atom(), keyword()) :: t()
@@ -49,6 +51,7 @@ defmodule Zaq.Event do
     actor = Keyword.get(opts, :actor)
     event_opts = Keyword.get(opts, :opts, [])
     version = Keyword.get(opts, :version, 1)
+    name = Keyword.get(opts, :name)
 
     %__MODULE__{
       request: request,
@@ -56,7 +59,8 @@ defmodule Zaq.Event do
       trace_id: trace_id,
       opts: event_opts,
       version: version,
-      actor: actor
+      actor: actor,
+      name: name
     }
   end
 end

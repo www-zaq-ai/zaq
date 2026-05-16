@@ -22,7 +22,7 @@ defmodule Zaq.Engine.WorkflowsTest do
   end
 
   defp create_trigger(attrs \\ %{}) do
-    {:ok, t} = Workflows.create_trigger(Map.merge(%{type: "manual"}, attrs))
+    {:ok, t} = Workflows.create_trigger(Map.merge(%{event_name: "manual_trigger"}, attrs))
     t
   end
 
@@ -30,8 +30,8 @@ defmodule Zaq.Engine.WorkflowsTest do
 
   describe "list_triggers/1" do
     test "returns all triggers regardless of workflow" do
-      t1 = create_trigger(%{type: "manual"})
-      t2 = create_trigger(%{type: "webhook"})
+      t1 = create_trigger(%{event_name: "trigger_a"})
+      t2 = create_trigger(%{event_name: "trigger_b"})
       ids = Workflows.list_triggers() |> Enum.map(& &1.id)
       assert t1.id in ids
       assert t2.id in ids
@@ -49,7 +49,7 @@ defmodule Zaq.Engine.WorkflowsTest do
       w1 = create_workflow()
       w2 = create_workflow(%{name: "W2"})
       t1 = create_trigger()
-      t2 = create_trigger()
+      t2 = create_trigger(%{event_name: "other_event"})
       Workflows.assign_workflow_to_trigger(t1, w1)
       Workflows.assign_workflow_to_trigger(t2, w2)
 
@@ -61,8 +61,8 @@ defmodule Zaq.Engine.WorkflowsTest do
 
     test "returns triggers ordered by position" do
       w = create_workflow()
-      t1 = create_trigger(%{type: "manual"})
-      t2 = create_trigger(%{type: "webhook"})
+      t1 = create_trigger(%{event_name: "event_pos1"})
+      t2 = create_trigger(%{event_name: "event_pos2"})
       Workflows.assign_workflow_to_trigger(t1, w, position: 1)
       Workflows.assign_workflow_to_trigger(t2, w, position: 0)
 
@@ -72,36 +72,45 @@ defmodule Zaq.Engine.WorkflowsTest do
     end
   end
 
+  # --- list_trigger_event_names/0 ---
+
+  describe "list_trigger_event_names/0" do
+    test "returns list of enabled trigger event_names" do
+      create_trigger(%{event_name: "enabled_event_1", enabled: true})
+      create_trigger(%{event_name: "enabled_event_2", enabled: true})
+
+      names = Workflows.list_trigger_event_names()
+      assert "enabled_event_1" in names
+      assert "enabled_event_2" in names
+    end
+
+    test "excludes disabled triggers" do
+      create_trigger(%{event_name: "enabled_ok", enabled: true})
+      create_trigger(%{event_name: "disabled_skip", enabled: false})
+
+      names = Workflows.list_trigger_event_names()
+      assert "enabled_ok" in names
+      refute "disabled_skip" in names
+    end
+
+    test "returns empty list when no enabled triggers" do
+      create_trigger(%{event_name: "some_event", enabled: false})
+      assert [] = Workflows.list_trigger_event_names()
+    end
+  end
+
   # --- create_trigger/2 ---
 
   describe "create_trigger/2" do
-    test "creates a trigger with no workflows" do
-      assert {:ok, %Trigger{} = t} = Workflows.create_trigger(%{type: "manual"})
-      assert t.type == "manual"
-      assert t.execution_mode == :parallel
-      assert t.on_failure == :continue
+    test "creates a trigger with event_name" do
+      assert {:ok, %Trigger{} = t} = Workflows.create_trigger(%{event_name: "order_created"})
+      assert t.event_name == "order_created"
+      assert t.enabled == true
     end
 
-    test "creates a scheduler trigger with cron config" do
-      assert {:ok, %Trigger{}} =
-               Workflows.create_trigger(%{type: "scheduler", config: %{"cron" => "0 * * * *"}})
-    end
-
-    test "rejects scheduler without cron" do
-      assert {:error, cs} = Workflows.create_trigger(%{type: "scheduler", config: %{}})
-      assert "missing required key 'cron' for scheduler trigger" in errors_on(cs).config
-    end
-
-    test "creates trigger with serial execution_mode and on_failure :stop" do
-      assert {:ok, t} =
-               Workflows.create_trigger(%{
-                 type: "manual",
-                 execution_mode: "serial",
-                 on_failure: "stop"
-               })
-
-      assert t.execution_mode == :serial
-      assert t.on_failure == :stop
+    test "rejects trigger without event_name" do
+      assert {:error, cs} = Workflows.create_trigger(%{})
+      assert "can't be blank" in errors_on(cs).event_name
     end
   end
 
@@ -150,69 +159,6 @@ defmodule Zaq.Engine.WorkflowsTest do
     end
   end
 
-  # --- chain_trigger/3 ---
-
-  describe "chain_trigger/3" do
-    test "inserts a downstream chain" do
-      t1 = create_trigger()
-      t2 = create_trigger()
-      assert {:ok, _} = Workflows.chain_trigger(t1, t2)
-    end
-
-    test "is idempotent" do
-      t1 = create_trigger()
-      t2 = create_trigger()
-      assert {:ok, _} = Workflows.chain_trigger(t1, t2)
-      assert {:ok, _} = Workflows.chain_trigger(t1, t2)
-    end
-
-    test "rejects direct self-cycle" do
-      t = create_trigger()
-      assert {:error, :cycle_detected} = Workflows.chain_trigger(t, t)
-    end
-
-    test "rejects indirect cycle A→B, B→A" do
-      t1 = create_trigger()
-      t2 = create_trigger()
-      {:ok, _} = Workflows.chain_trigger(t1, t2)
-      assert {:error, :cycle_detected} = Workflows.chain_trigger(t2, t1)
-    end
-
-    test "rejects multi-hop cycle A→B→C, C→A" do
-      t1 = create_trigger()
-      t2 = create_trigger()
-      t3 = create_trigger()
-      {:ok, _} = Workflows.chain_trigger(t1, t2)
-      {:ok, _} = Workflows.chain_trigger(t2, t3)
-      assert {:error, :cycle_detected} = Workflows.chain_trigger(t3, t1)
-    end
-
-    test "allows diamond shape A→B, A→C, B→D, C→D (no cycle)" do
-      [a, b, c, d] = for _ <- 1..4, do: create_trigger()
-      assert {:ok, _} = Workflows.chain_trigger(a, b)
-      assert {:ok, _} = Workflows.chain_trigger(a, c)
-      assert {:ok, _} = Workflows.chain_trigger(b, d)
-      assert {:ok, _} = Workflows.chain_trigger(c, d)
-    end
-  end
-
-  # --- unchain_trigger/3 ---
-
-  describe "unchain_trigger/3" do
-    test "removes the chain row" do
-      t1 = create_trigger()
-      t2 = create_trigger()
-      Workflows.chain_trigger(t1, t2)
-      assert {:ok, _} = Workflows.unchain_trigger(t1, t2)
-    end
-
-    test "returns error when chain does not exist" do
-      t1 = create_trigger()
-      t2 = create_trigger()
-      assert {:error, :not_found} = Workflows.unchain_trigger(t1, t2)
-    end
-  end
-
   # --- delete_trigger/2 ---
 
   describe "delete_trigger/2" do
@@ -224,31 +170,11 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert [] = Workflows.list_triggers_for_workflow(w.id)
     end
 
-    test "deletes trigger and cascades to trigger_chains" do
-      t1 = create_trigger()
-      t2 = create_trigger()
-      Workflows.chain_trigger(t1, t2)
-      assert {:ok, _} = Workflows.delete_trigger(t1)
-      # t2 still exists but t1 is gone
+    test "deletes a standalone trigger" do
+      t = create_trigger()
+      assert {:ok, _} = Workflows.delete_trigger(t)
       remaining_ids = Workflows.list_triggers() |> Enum.map(& &1.id)
-      refute t1.id in remaining_ids
-      assert t2.id in remaining_ids
-    end
-  end
-
-  # --- run_workflow_manually/3 ---
-
-  describe "run_workflow_manually/3" do
-    test "creates and completes a run without a trigger record" do
-      w = create_workflow(%{name: "ManualRun", status: "active"})
-      assert {:ok, run} = Workflows.run_workflow_manually(w.id, %{})
-      assert run.workflow_id == w.id
-      assert run.status in ["completed", "failed"]
-      assert run.source_event.assigns.trigger_type == :manual
-    end
-
-    test "returns error for unknown workflow id" do
-      assert {:error, _} = Workflows.run_workflow_manually(Ecto.UUID.generate(), %{})
+      refute t.id in remaining_ids
     end
   end
 end
