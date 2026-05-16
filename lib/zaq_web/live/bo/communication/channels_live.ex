@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
+  require Logger
   alias Zaq.Agent
   alias Zaq.Channels.{Bridge, ChannelConfig}
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
@@ -508,14 +509,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   # -------------------------------------------------------------------------
-  # Mattermost: Send Message
+  # Send Message (provider-agnostic via NodeRouter)
   # -------------------------------------------------------------------------
 
   def handle_event("send_message", %{"channel_id" => channel_id, "message" => message}, socket) do
     socket = assign(socket, :send_status, :sending)
 
+    provider = socket.assigns.provider
+
     status =
-      case mattermost_api().send_message(String.trim(channel_id), String.trim(message)) do
+      case deliver_outgoing(provider, String.trim(channel_id), String.trim(message)) do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -551,7 +554,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   # -------------------------------------------------------------------------
-  # Mattermost: Clear Channel
+  # Clear Channel
   # -------------------------------------------------------------------------
 
   def handle_event("prompt_clear", %{"channel_id" => channel_id}, socket) do
@@ -915,6 +918,49 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   defp http_client do
     RuntimeDeps.http_client()
+  end
+
+  defp deliver_outgoing(provider, channel_id, message) do
+    provider_atom =
+      case provider do
+        p when is_atom(p) ->
+          p
+
+        p when is_binary(p) ->
+          case Bridge.provider_to_bridge_key(p) do
+            nil ->
+              Logger.warning(
+                "[ChannelsLive] Unsupported provider string #{inspect(p)} for deliver_outgoing"
+              )
+
+              nil
+
+            key ->
+              key
+          end
+
+        _other ->
+          Logger.warning(
+            "[ChannelsLive] Unexpected provider type #{inspect(provider)} for deliver_outgoing"
+          )
+
+          nil
+      end
+
+    if is_nil(provider_atom) do
+      {:error, {:unsupported_provider, provider}}
+    else
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: message,
+        channel_id: channel_id,
+        provider: provider_atom
+      }
+
+      event =
+        Zaq.Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
+
+      Zaq.NodeRouter.dispatch(event).response
+    end
   end
 
   defp decode_posts_body(body) when is_map(body), do: body

@@ -25,6 +25,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   end
 
   defmodule BridgeFake do
+    def send_reply(_outgoing, _details) do
+      fetch_state(:send_reply, {:ok, %{}})
+    end
+
     def test_connection(_config, _channel_id) do
       fetch_state(:test_connection, {:ok, %{id: "ok"}})
     end
@@ -441,7 +445,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
   test "handles send_message success, error, and reset_send", %{conn: conn} do
     insert_channel_config(%{})
-    MattermostAPIFake.put(:send_message, {:ok, %{id: "posted"}})
 
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
@@ -454,7 +457,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     render_hook(view, "reset_send", %{})
     refute render(view) =~ "Message sent!"
 
-    MattermostAPIFake.put(:send_message, {:error, :blocked})
+    BridgeFake.put(:send_reply, {:error, :blocked})
 
     view
     |> element("form[phx-submit=\"send_message\"]")

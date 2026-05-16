@@ -570,7 +570,7 @@
   </div>
   
 <!-- ================================================================== -->
-  <!-- MATTERMOST TOOLS (only shown when at least one config exists) -->
+  <!-- TOOLS (only shown when at least one config exists) -->
   <!-- ================================================================== -->
   <div :if={@configs != []} class="mt-8 space-y-4">
     <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">Tools</p>
@@ -592,7 +592,7 @@
         <div>
           <p class="font-mono text-sm font-bold text-black">Send Message</p>
           <p class="font-mono text-[0.65rem] text-black/40">
-            Post a message to any channel or DM
+            Post a message to any channel or DM via {@provider_label}
           </p>
         </div>
       </div>
