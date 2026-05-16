@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   alias Zaq.Agent
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
@@ -85,6 +86,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:credential_changeset, nil)
      |> assign(:credential_form, nil)
      |> assign(:credential_errors, [])
+     |> assign(:global_settings_path, ~p"/bo/system-config?tab=global")
      |> assign(:oauth_claim_modal, false)
      |> assign(:oauth_claim_url, nil)
      |> assign(:confirm_delete, nil)
@@ -206,11 +208,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       })
 
     {:noreply,
-     socket
-     |> assign(:credential_modal, true)
-     |> assign(:credential_changeset, changeset)
-     |> assign(:credential_form, to_form(changeset, as: :credential))
-     |> assign(:credential_errors, [])}
+     open_credential_modal(socket, changeset, ensure_global_base_url_for_oauth2("oauth2"))}
   end
 
   def handle_event("close_credential_modal", _params, socket) do
@@ -238,30 +236,33 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   def handle_event("save_credential", %{"credential" => params}, socket) do
     params = credential_params_for_create(params, socket)
 
-    case engine_connect_create_credential(params) do
-      {:ok, credential} ->
-        connect_settings =
-          socket.assigns.changeset
-          |> Ecto.Changeset.get_field(:settings, %{})
-          |> put_connect_credential_id(credential.id)
+    with :ok <- ensure_global_base_url_for_oauth2(Map.get(params, "auth_kind", "oauth2")),
+         {:ok, credential} <- engine_connect_create_credential(params) do
+      connect_settings =
+        socket.assigns.changeset
+        |> Ecto.Changeset.get_field(:settings, %{})
+        |> put_connect_credential_id(credential.id)
 
-        config_changeset =
-          socket.assigns.changeset
-          |> Ecto.Changeset.put_change(:settings, connect_settings)
+      config_changeset =
+        socket.assigns.changeset
+        |> Ecto.Changeset.put_change(:settings, connect_settings)
 
-        {:noreply,
-         socket
-         |> assign(:credential_modal, false)
-         |> assign(:credential_changeset, nil)
-         |> assign(:credential_form, nil)
-         |> assign(:credential_errors, [])
-         |> assign(
-           :connect_credentials,
-           connect_credentials_for(socket.assigns.kind, socket.assigns.provider)
-         )
-         |> assign(:changeset, config_changeset)
-         |> assign(:form, to_form(config_changeset, as: :form))
-         |> put_flash(:info, "Credential created.")}
+      {:noreply,
+       socket
+       |> assign(:credential_modal, false)
+       |> assign(:credential_changeset, nil)
+       |> assign(:credential_form, nil)
+       |> assign(:credential_errors, [])
+       |> assign(
+         :connect_credentials,
+         connect_credentials_for(socket.assigns.kind, socket.assigns.provider)
+       )
+       |> assign(:changeset, config_changeset)
+       |> assign(:form, to_form(config_changeset, as: :form))
+       |> put_flash(:info, "Credential created.")}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, assign(socket, :credential_errors, [message])}
 
       {:error, changeset} ->
         {:noreply,
@@ -285,6 +286,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       socket.assigns.changeset.data
       |> ChannelConfig.changeset(params)
       |> maybe_validate_connect_credential_provider(socket.assigns.provider)
+      |> maybe_validate_global_base_url_requirement(socket.assigns.kind, socket.assigns.provider)
       |> with_visible_token(raw_token)
       |> Map.put(:action, :validate)
 
@@ -312,7 +314,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         socket.assigns.changeset.data,
         params,
         socket.assigns.provider,
-        &maybe_validate_connect_credential_provider/2
+        fn changeset, provider ->
+          changeset
+          |> maybe_validate_connect_credential_provider(provider)
+          |> maybe_validate_global_base_url_requirement(socket.assigns.kind, provider)
+        end
       )
 
     case result do
@@ -1126,5 +1132,80 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
             Ecto.Changeset.add_error(changeset, :settings, "selected credential was not found")
         end
     end
+  end
+
+  defp maybe_validate_global_base_url_requirement(changeset, kind, provider) do
+    if provider_requires_global_base_url?(kind, provider) and
+         is_nil(Zaq.System.get_global_base_url()) do
+      Ecto.Changeset.add_error(
+        changeset,
+        :settings,
+        "Global base URL is required for webhook/watch capable providers. Configure it in System Configuration > Global."
+      )
+    else
+      changeset
+    end
+  end
+
+  defp provider_requires_global_base_url?(:data_source, provider) do
+    case DataSourceBridge.capability_snapshot(provider) do
+      {:ok, %{resolved: resolved}} when is_map(resolved) ->
+        webhook_capability_declared?(resolved)
+
+      _ ->
+        false
+    end
+  end
+
+  defp provider_requires_global_base_url?(_kind, provider) do
+    Application.get_env(:zaq, :channels, %{})
+    |> Enum.find_value(false, fn {key, cfg} ->
+      if to_string(key) == to_string(provider) do
+        Map.get(cfg, :ingress_mode) == :webhook
+      else
+        false
+      end
+    end)
+  end
+
+  defp webhook_capability_declared?(resolved) do
+    Enum.any?(
+      [
+        :watch_changes_webhook,
+        :receive_change_webhook,
+        "watch_changes_webhook",
+        "receive_change_webhook"
+      ],
+      fn key ->
+        match?(value when not is_nil(value), Map.get(resolved, key))
+      end
+    )
+  end
+
+  defp ensure_global_base_url_for_oauth2("oauth2") do
+    if is_nil(Zaq.System.get_global_base_url()) do
+      {:error,
+       "Global base URL is required before creating an OAuth2 credential. Configure it in Global settings."}
+    else
+      :ok
+    end
+  end
+
+  defp ensure_global_base_url_for_oauth2(_), do: :ok
+
+  defp open_credential_modal(socket, changeset, :ok) do
+    socket
+    |> assign(:credential_modal, true)
+    |> assign(:credential_changeset, changeset)
+    |> assign(:credential_form, to_form(changeset, as: :credential))
+    |> assign(:credential_errors, [])
+  end
+
+  defp open_credential_modal(socket, changeset, {:error, message}) do
+    socket
+    |> assign(:credential_modal, true)
+    |> assign(:credential_changeset, changeset)
+    |> assign(:credential_form, to_form(changeset, as: :credential))
+    |> assign(:credential_errors, [message])
   end
 end

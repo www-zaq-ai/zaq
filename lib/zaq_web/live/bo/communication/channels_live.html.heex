@@ -1431,6 +1431,13 @@
         >
           <span class="text-red-400">✗</span> {err}
         </p>
+        <.link
+          :if={Enum.any?(@credential_errors, &String.contains?(&1, "Global base URL"))}
+          navigate={@global_settings_path}
+          class="mt-2 inline-block font-mono text-[0.7rem] text-red-700 underline decoration-red-300 hover:decoration-red-600"
+        >
+          Open Global settings
+        </.link>
       </div>
 
       <div class="flex justify-end gap-3 pt-2">

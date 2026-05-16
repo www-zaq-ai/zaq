@@ -3,6 +3,15 @@
 This document covers runtime requirements for Back Office system settings,
 including AI model configuration and SMTP secret encryption.
 
+## Global Runtime Keys
+
+- `system.global.base_url`
+
+`system.global.base_url` is the canonical project base URL configured from
+Back Office (`/bo/system-config`, Global tab). Features that need to compose
+public callback/redirect URLs (OAuth2, webhooks, and future integrations)
+should read this key.
+
 ## AI Model Configuration (LLM, Embedding, Image-to-Text)
 
 AI model settings are configured in Back Office at `/bo/system-config` and

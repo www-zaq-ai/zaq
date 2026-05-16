@@ -519,6 +519,7 @@
       cancel_event="close_credential_modal"
       id_prefix="new-data-source-credential"
       submit_label="Create"
+      global_settings_path={if @credential_errors != [], do: @global_settings_path, else: nil}
     />
   </ZaqWeb.Components.BOModal.form_dialog>
 

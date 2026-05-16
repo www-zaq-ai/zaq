@@ -33,6 +33,7 @@ defmodule Zaq.System do
   @image_to_text_read_fields ~w(credential_id model)
   @image_to_text_write_fields ~w(credential_id model)
   @global_default_agent_key "channels.global_default_agent_id"
+  @global_base_url_key "system.global.base_url"
 
   # ── Generic key/value ─────────────────────────────────────────────────
 
@@ -72,6 +73,27 @@ defmodule Zaq.System do
     case parse_optional_int(agent_id, nil) do
       nil -> persist_global_default_agent_id("")
       id -> persist_global_default_agent_id(id)
+    end
+  end
+
+  @doc "Returns globally configured base URL, or nil when unset."
+  @spec get_global_base_url() :: String.t() | nil
+  def get_global_base_url do
+    case get_config(@global_base_url_key) do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+  end
+
+  @doc "Sets or clears globally configured base URL."
+  @spec set_global_base_url(String.t() | nil) :: :ok | {:error, term()}
+  def set_global_base_url(base_url) do
+    value = if is_binary(base_url), do: String.trim(base_url), else: ""
+
+    case set_config(@global_base_url_key, value) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

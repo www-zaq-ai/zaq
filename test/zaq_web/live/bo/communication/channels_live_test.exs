@@ -10,7 +10,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Engine.Connect
   alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
   alias ZaqWeb.Live.BO.Communication.ChannelsLive
+
+  setup do
+    original_base_url = ZaqSystem.get_global_base_url()
+    :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+    on_exit(fn ->
+      :ok = ZaqSystem.set_global_base_url(original_base_url)
+    end)
+
+    :ok
+  end
 
   defmodule BridgeFake do
     def test_connection(_config, _channel_id) do
@@ -856,6 +868,35 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute closed.assigns.credential_modal
   end
 
+  test "open_new_credential shows base URL requirement when unset" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    base_changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        provider: "mattermost",
+        kind: "retrieval",
+        name: "cfg"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: "mattermost",
+        kind: :retrieval,
+        changeset: base_changeset,
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: []
+      }
+    }
+
+    assert {:noreply, opened} = ChannelsLive.handle_event("open_new_credential", %{}, socket)
+    assert opened.assigns.credential_modal
+    assert Enum.any?(opened.assigns.credential_errors, &String.contains?(&1, "Global base URL"))
+  end
+
   test "save_credential handler covers success and error branches" do
     base_changeset =
       ChannelConfig.changeset(%ChannelConfig{}, %{
@@ -903,6 +944,48 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
              )
 
     assert %Ecto.Changeset{} = error_socket.assigns.credential_changeset
+  end
+
+  test "save_credential blocks oauth2 create when base URL is unset" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    base_changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        provider: "mattermost",
+        kind: "retrieval",
+        name: "cfg"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: "mattermost",
+        kind: :retrieval,
+        changeset: base_changeset,
+        credential_modal: true,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: []
+      }
+    }
+
+    assert {:noreply, updated} =
+             ChannelsLive.handle_event(
+               "save_credential",
+               %{
+                 "credential" => %{
+                   "name" => "credential-#{System.unique_integer([:positive])}",
+                   "auth_kind" => "oauth2",
+                   "client_id" => "client",
+                   "client_secret" => "secret",
+                   "scopes" => ["scope.read"]
+                 }
+               },
+               socket
+             )
+
+    assert Enum.any?(updated.assigns.credential_errors, &String.contains?(&1, "Global base URL"))
   end
 
   test "data source mount exercises connect_credentials and grants_by_config for google_drive" do

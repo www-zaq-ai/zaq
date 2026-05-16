@@ -52,6 +52,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:credential_changeset, nil)
      |> assign(:credential_form, nil)
      |> assign(:credential_errors, [])
+     |> assign(:global_settings_path, ~p"/bo/system-config?tab=global")
      |> assign(:confirm_delete, nil)
      |> assign(:capability_modal_config_id, nil)
      |> assign(:folder_info_modal, nil)
@@ -69,12 +70,23 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
         "metadata" => %{}
       })
 
-    {:noreply,
-     socket
-     |> assign(:credential_modal, true)
-     |> assign(:credential_changeset, changeset)
-     |> assign(:credential_form, to_form(changeset, as: :credential))
-     |> assign(:credential_errors, [])}
+    case ensure_global_base_url_for_oauth2("oauth2") do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:credential_modal, true)
+         |> assign(:credential_changeset, changeset)
+         |> assign(:credential_form, to_form(changeset, as: :credential))
+         |> assign(:credential_errors, [])}
+
+      {:error, message} ->
+        {:noreply,
+         socket
+         |> assign(:credential_modal, true)
+         |> assign(:credential_changeset, changeset)
+         |> assign(:credential_form, to_form(changeset, as: :credential))
+         |> assign(:credential_errors, [message])}
+    end
   end
 
   def handle_event("close_credential_modal", _params, socket) do
@@ -104,27 +116,30 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def handle_event("save_credential", %{"credential" => params}, socket) do
     params = credential_params_for_create(params, socket.assigns.provider)
 
-    case engine_connect_create_credential(params) do
-      {:ok, credential} ->
-        connect_settings =
-          socket.assigns.changeset
-          |> Ecto.Changeset.get_field(:settings, %{})
-          |> put_connect_credential_id(credential.id)
+    with :ok <- ensure_global_base_url_for_oauth2(Map.get(params, "auth_kind", "oauth2")),
+         {:ok, credential} <- engine_connect_create_credential(params) do
+      connect_settings =
+        socket.assigns.changeset
+        |> Ecto.Changeset.get_field(:settings, %{})
+        |> put_connect_credential_id(credential.id)
 
-        config_changeset =
-          socket.assigns.changeset
-          |> Ecto.Changeset.put_change(:settings, connect_settings)
+      config_changeset =
+        socket.assigns.changeset
+        |> Ecto.Changeset.put_change(:settings, connect_settings)
 
-        {:noreply,
-         socket
-         |> assign(:credential_modal, false)
-         |> assign(:credential_changeset, nil)
-         |> assign(:credential_form, nil)
-         |> assign(:credential_errors, [])
-         |> assign(:connect_credentials, connect_credentials_for(socket.assigns.provider))
-         |> assign(:changeset, config_changeset)
-         |> assign(:form, to_form(config_changeset, as: :form))
-         |> put_flash(:info, "Credential created.")}
+      {:noreply,
+       socket
+       |> assign(:credential_modal, false)
+       |> assign(:credential_changeset, nil)
+       |> assign(:credential_form, nil)
+       |> assign(:credential_errors, [])
+       |> assign(:connect_credentials, connect_credentials_for(socket.assigns.provider))
+       |> assign(:changeset, config_changeset)
+       |> assign(:form, to_form(config_changeset, as: :form))
+       |> put_flash(:info, "Credential created.")}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, assign(socket, :credential_errors, [message])}
 
       {:error, changeset} ->
         {:noreply,
@@ -206,6 +221,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       socket.assigns.changeset.data
       |> ChannelConfig.changeset(params)
       |> maybe_validate_connect_credential_provider(socket.assigns.provider)
+      |> maybe_validate_global_base_url_for_webhook_capability(socket.assigns.provider)
       |> Map.put(:action, :validate)
 
     {:noreply,
@@ -225,7 +241,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
         socket.assigns.changeset.data,
         params,
         socket.assigns.provider,
-        &maybe_validate_connect_credential_provider/2
+        &validate_channel_config/2
       )
 
     case result do
@@ -805,6 +821,59 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
         end
     end
   end
+
+  defp validate_channel_config(changeset, provider) do
+    changeset
+    |> maybe_validate_connect_credential_provider(provider)
+    |> maybe_validate_global_base_url_for_webhook_capability(provider)
+  end
+
+  defp maybe_validate_global_base_url_for_webhook_capability(changeset, provider) do
+    if provider_requires_global_base_url?(provider) and is_nil(Zaq.System.get_global_base_url()) do
+      Ecto.Changeset.add_error(
+        changeset,
+        :settings,
+        "Global base URL is required for webhook/watch capable providers. Configure it in System Configuration > Global."
+      )
+    else
+      changeset
+    end
+  end
+
+  defp provider_requires_global_base_url?(provider) do
+    case DataSourceBridge.capability_snapshot(provider) do
+      {:ok, %{resolved: resolved}} when is_map(resolved) ->
+        webhook_capability_declared?(resolved)
+
+      _ ->
+        false
+    end
+  end
+
+  defp webhook_capability_declared?(resolved) do
+    Enum.any?(
+      [
+        :watch_changes_webhook,
+        :receive_change_webhook,
+        "watch_changes_webhook",
+        "receive_change_webhook"
+      ],
+      fn key ->
+        match?(value when not is_nil(value), Map.get(resolved, key))
+      end
+    )
+  end
+
+  defp ensure_global_base_url_for_oauth2("oauth2") do
+    if is_nil(Zaq.System.get_global_base_url()) do
+      {:error,
+       "Global base URL is required before creating an OAuth2 credential. Configure it in Global settings."}
+    else
+      :ok
+    end
+  end
+
+  defp ensure_global_base_url_for_oauth2(_), do: :ok
 
   defp format_errors(%Ecto.Changeset{} = changeset) do
     ChangesetErrors.format(changeset,

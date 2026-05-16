@@ -5,7 +5,19 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
   alias ZaqWeb.Live.BO.DataSources.ProviderLive
+
+  setup do
+    original_base_url = ZaqSystem.get_global_base_url()
+    :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+    on_exit(fn ->
+      :ok = ZaqSystem.set_global_base_url(original_base_url)
+    end)
+
+    :ok
+  end
 
   defp socket_with(assigns) do
     assigns =
@@ -54,6 +66,24 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert closed.assigns.credential_changeset == nil
   end
 
+  test "open_new_credential shows base URL requirement when unset" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset: config_changeset("google_drive")
+      })
+
+    assert {:noreply, opened} = ProviderLive.handle_event("open_new_credential", %{}, socket)
+    assert opened.assigns.credential_modal
+
+    assert Enum.any?(
+             opened.assigns.credential_errors,
+             &String.contains?(&1, "Global base URL is required")
+           )
+  end
+
   test "save_credential success stores connect credential id in settings" do
     changeset = config_changeset("google_drive")
 
@@ -83,6 +113,32 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert {:ok, %Credential{id: id}} = Connect.fetch_credential(credential_id)
     assert Integer.to_string(id) == credential_id
     refute updated.assigns.credential_modal
+  end
+
+  test "save_credential blocks oauth2 create when base URL is unset" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset: config_changeset("google_drive"),
+        kind: :data_source,
+        service_available: false,
+        credential_errors: []
+      })
+
+    params = %{
+      "name" => "cred-#{System.unique_integer([:positive])}",
+      "auth_kind" => "oauth2",
+      "client_id" => "client",
+      "client_secret" => "secret",
+      "scopes" => ["scope.read"]
+    }
+
+    assert {:noreply, updated} =
+             ProviderLive.handle_event("save_credential", %{"credential" => params}, socket)
+
+    assert Enum.any?(updated.assigns.credential_errors, &String.contains?(&1, "Global base URL"))
   end
 
   test "save_credential validation error keeps modal changeset" do
