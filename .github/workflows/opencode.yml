@@ -91,7 +91,7 @@ jobs:
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
-          NOVITA_API_KEY: ${{ secrets.NOVITA_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         with:
-          model: novita-ai/moonshotai/kimi-k2.5
+          model: openrouter/deepseek/deepseek-v4-pro
           mentions: /zaq
