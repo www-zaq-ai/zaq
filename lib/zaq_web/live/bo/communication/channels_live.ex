@@ -519,6 +519,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
     status =
       case deliver_outgoing(provider, String.trim(channel_id), String.trim(message)) do
+        :ok -> :ok
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
       end
