@@ -19,9 +19,6 @@ defmodule Zaq.Engine.Workflows do
   }
 
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
-  alias Zaq.Engine.Workflows.Trigger.Chain
-  alias Zaq.Engine.Workflows.Trigger.Type.Manual
-  alias Zaq.Engine.Workflows.Trigger.Workflow, as: TriggerWorkflow
   alias Zaq.Repo
 
   @type run_trace :: %{
@@ -314,22 +311,44 @@ defmodule Zaq.Engine.Workflows do
   def list_triggers_for_workflow(workflow_id, _opts \\ []) do
     Repo.all(
       from t in Trigger,
-        join: tw in TriggerWorkflow,
+        join: tw in "trigger_workflows",
         on: tw.trigger_id == t.id,
-        where: tw.workflow_id == ^workflow_id,
+        where: type(tw.workflow_id, :binary_id) == ^workflow_id,
         order_by: [asc: tw.position]
     )
   end
 
-  @doc "Returns workflows assigned to a trigger, ordered by position."
-  @spec list_workflows_for_trigger(Trigger.t(), keyword()) :: [Workflow.t()]
-  def list_workflows_for_trigger(%Trigger{id: trigger_id}, _opts \\ []) do
+  @doc """
+  Returns active workflows linked to a trigger by its `event_name` string.
+
+  Only workflows with `status: "active"` are returned. Used by `TriggerNode`
+  to determine which workflows to fire when a trigger event is received.
+  """
+  @spec list_workflows_for_trigger(String.t(), keyword()) :: [Workflow.t()]
+  def list_workflows_for_trigger(event_name, _opts \\ []) when is_binary(event_name) do
     Repo.all(
       from w in Workflow,
-        join: tw in TriggerWorkflow,
-        on: tw.workflow_id == w.id,
-        where: tw.trigger_id == ^trigger_id,
+        join: tw in "trigger_workflows",
+        on: type(tw.workflow_id, :binary_id) == w.id,
+        join: t in Trigger,
+        on: t.id == type(tw.trigger_id, :binary_id),
+        where: t.event_name == ^event_name and t.enabled == true and w.status == "active",
         order_by: [asc: tw.position]
+    )
+  end
+
+  @doc """
+  Returns all enabled trigger event_name strings.
+
+  Used by `Engine.EventRegistry` on startup to pre-load which event names
+  are registered triggers.
+  """
+  @spec list_trigger_event_names(keyword()) :: [String.t()]
+  def list_trigger_event_names(_opts \\ []) do
+    Repo.all(
+      from t in Trigger,
+        where: t.enabled == true,
+        select: t.event_name
     )
   end
 
@@ -337,7 +356,7 @@ defmodule Zaq.Engine.Workflows do
   @spec get_trigger!(term()) :: Trigger.t()
   def get_trigger!(id) do
     Repo.get!(Trigger, id)
-    |> Repo.preload([:workflows, :downstream_triggers])
+    |> Repo.preload([:workflows])
   end
 
   @doc "Creates a standalone trigger with no workflows assigned."
@@ -357,7 +376,7 @@ defmodule Zaq.Engine.Workflows do
     |> Repo.update()
   end
 
-  @doc "Deletes a trigger. Cascades to trigger_workflows and trigger_chains via FK."
+  @doc "Deletes a trigger. Cascades to trigger_workflows via FK."
   @spec delete_trigger(Trigger.t(), keyword()) :: {:ok, Trigger.t()} | {:error, term()}
   def delete_trigger(%Trigger{} = trigger, _opts \\ []) do
     Repo.delete(trigger)
@@ -367,129 +386,52 @@ defmodule Zaq.Engine.Workflows do
   Assigns a workflow to a trigger. Idempotent — a second call with the same pair
   succeeds without inserting a duplicate row.
 
-  `opts` accepts `position: integer` (default 0) for serial execution ordering.
+  `opts` accepts `position: integer` (default 0) for ordering.
   """
   @spec assign_workflow_to_trigger(Trigger.t(), Workflow.t(), keyword()) ::
           {:ok, map()} | {:error, Ecto.Changeset.t()}
   def assign_workflow_to_trigger(%Trigger{} = trigger, %Workflow{} = workflow, opts \\ []) do
     position = Keyword.get(opts, :position, 0)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    {:ok, id} = Ecto.UUID.dump(Ecto.UUID.generate())
+    {:ok, trigger_id} = Ecto.UUID.dump(trigger.id)
+    {:ok, workflow_id} = Ecto.UUID.dump(workflow.id)
 
-    %TriggerWorkflow{}
-    |> TriggerWorkflow.changeset(%{
-      trigger_id: trigger.id,
-      workflow_id: workflow.id,
-      position: position
-    })
-    |> Repo.insert(
+    Repo.insert_all(
+      "trigger_workflows",
+      [
+        %{
+          id: id,
+          trigger_id: trigger_id,
+          workflow_id: workflow_id,
+          position: position,
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
       on_conflict: {:replace, [:position, :updated_at]},
-      conflict_target: [:trigger_id, :workflow_id]
+      conflict_target: [:trigger_id, :workflow_id],
+      returning: [:trigger_id, :workflow_id, :position]
     )
+    |> case do
+      {_, [row | _]} -> {:ok, row}
+      {_, []} -> {:ok, %{trigger_id: trigger.id, workflow_id: workflow.id, position: position}}
+    end
   end
 
   @doc "Removes a workflow assignment from a trigger."
   @spec remove_workflow_from_trigger(Trigger.t(), Workflow.t(), keyword()) ::
           {:ok, map()} | {:error, :not_found}
   def remove_workflow_from_trigger(%Trigger{} = trigger, %Workflow{} = workflow, _opts \\ []) do
-    case Repo.get_by(TriggerWorkflow, trigger_id: trigger.id, workflow_id: workflow.id) do
-      nil -> {:error, :not_found}
-      tw -> Repo.delete(tw)
-    end
-  end
-
-  @doc """
-  Chains `downstream` to fire after `upstream` completes.
-  Returns `{:error, :cycle_detected}` if the chain would introduce a cycle.
-  """
-  @spec chain_trigger(Trigger.t(), Trigger.t(), keyword()) ::
-          {:ok, map()} | {:error, :cycle_detected | term()}
-  def chain_trigger(upstream, downstream, opts \\ [])
-
-  def chain_trigger(%Trigger{id: id}, %Trigger{id: id}, _opts),
-    do: {:error, :cycle_detected}
-
-  def chain_trigger(%Trigger{} = upstream, %Trigger{} = downstream, _opts) do
-    if trigger_cycle?(upstream.id, downstream.id) do
-      {:error, :cycle_detected}
-    else
-      %Chain{}
-      |> Chain.changeset(%{trigger_id: upstream.id, downstream_trigger_id: downstream.id})
-      |> Repo.insert(
-        on_conflict: :nothing,
-        conflict_target: [:trigger_id, :downstream_trigger_id]
-      )
-      |> case do
-        # on_conflict :nothing returns struct with nil PKs; treat as success (already chained)
-        {:ok, %Chain{trigger_id: nil}} ->
-          {:ok, %Chain{trigger_id: upstream.id, downstream_trigger_id: downstream.id}}
-
-        {:ok, tc} ->
-          {:ok, tc}
-
-        error ->
-          error
-      end
-    end
-  end
-
-  @doc "Removes a trigger chain between upstream and downstream."
-  @spec unchain_trigger(Trigger.t(), Trigger.t(), keyword()) ::
-          {:ok, map()} | {:error, :not_found}
-  def unchain_trigger(%Trigger{} = upstream, %Trigger{} = downstream, _opts \\ []) do
     query =
-      from c in Chain,
-        where: c.trigger_id == ^upstream.id and c.downstream_trigger_id == ^downstream.id
+      from tw in "trigger_workflows",
+        where:
+          type(tw.trigger_id, :binary_id) == ^trigger.id and
+            type(tw.workflow_id, :binary_id) == ^workflow.id
 
     case Repo.delete_all(query) do
-      {1, _} ->
-        {:ok, %Chain{trigger_id: upstream.id, downstream_trigger_id: downstream.id}}
-
-      {0, _} ->
-        {:error, :not_found}
-    end
-  end
-
-  @doc """
-  Fires a workflow manually without requiring a trigger record.
-
-  Creates a pending `WorkflowRun` with `trigger_type: :manual` and executes it.
-  """
-  @spec run_workflow_manually(binary(), map(), keyword()) ::
-          {:ok, WorkflowRun.t()} | {:error, term()}
-  def run_workflow_manually(workflow_id, input, opts \\ []) do
-    workflow = get_workflow!(workflow_id)
-
-    with {:ok, run} <- Manual.fire_for_workflow(workflow, input) do
-      start_run(run, opts)
-    end
-  rescue
-    Ecto.NoResultsError -> {:error, :not_found}
-  end
-
-  # BFS cycle detection: starting from `downstream_id`, does any path reach `upstream_id`?
-  defp trigger_cycle?(upstream_id, downstream_id) do
-    bfs([downstream_id], upstream_id, %{})
-  end
-
-  @spec bfs([binary()], binary(), %{binary() => true}) :: boolean()
-  defp bfs([], _target, _visited), do: false
-
-  defp bfs([head | rest], target, visited) do
-    cond do
-      head == target ->
-        true
-
-      Map.has_key?(visited, head) ->
-        bfs(rest, target, visited)
-
-      true ->
-        next_ids =
-          Repo.all(
-            from tc in Chain,
-              where: tc.trigger_id == ^head,
-              select: tc.downstream_trigger_id
-          )
-
-        bfs(rest ++ next_ids, target, Map.put(visited, head, true))
+      {1, _} -> {:ok, %{trigger_id: trigger.id, workflow_id: workflow.id}}
+      {0, _} -> {:error, :not_found}
     end
   end
 end

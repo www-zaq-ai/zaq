@@ -3,6 +3,9 @@ defmodule Zaq.NodeRouterTest do
 
   alias Zaq.{Event, EventHop, NodeRouter}
 
+  @pubsub Zaq.PubSub
+  @topic "node_router:events"
+
   describe "supervisor_map/0" do
     test "returns a map of all expected roles" do
       map = NodeRouter.supervisor_map()
@@ -388,6 +391,64 @@ defmodule Zaq.NodeRouterTest do
 
     test "find_node/1 delegates to default runtime" do
       assert NodeRouter.find_node(ZaqWeb.Endpoint) == node()
+    end
+  end
+
+  describe "PubSub broadcast side-channel" do
+    setup do
+      Phoenix.PubSub.subscribe(@pubsub, @topic)
+      :ok
+    end
+
+    test "dispatch/1 broadcasts {:node_router_event, event} to node_router:events topic" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
+          opts: [action: :invoke]
+        )
+
+      NodeRouter.dispatch(event)
+
+      assert_receive {:node_router_event, received_event}
+      assert received_event.trace_id == event.trace_id
+    end
+
+    test "dispatch/1 still broadcasts when event name is nil" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
+          opts: [action: :invoke]
+        )
+
+      assert event.name == nil
+
+      NodeRouter.dispatch(event)
+
+      assert_receive {:node_router_event, received_event}
+      assert received_event.trace_id == event.trace_id
+    end
+
+    test "dispatch/1 broadcasts when event has a name" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
+          opts: [action: :invoke],
+          name: :manual_trigger
+        )
+
+      NodeRouter.dispatch(event)
+
+      assert_receive {:node_router_event, received_event}
+      assert received_event.name == :manual_trigger
+    end
+
+    test "broadcast does not change the returned event" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo,
+          opts: [action: :invoke]
+        )
+
+      result = NodeRouter.dispatch(event)
+
+      assert result.response == "HELLO"
+      assert result.trace_id == event.trace_id
     end
   end
 end

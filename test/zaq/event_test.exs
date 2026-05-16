@@ -36,4 +36,16 @@ defmodule Zaq.EventTest do
     assert event.opts == [action: :deliver_outgoing]
     assert event.version == 2
   end
+
+  describe "name field" do
+    test "new/3 with name: :manual_trigger sets name field" do
+      event = Event.new(%{hello: "world"}, :engine, name: :manual_trigger)
+      assert event.name == :manual_trigger
+    end
+
+    test "new/3 without name defaults to nil" do
+      event = Event.new(%{hello: "world"}, :engine)
+      assert event.name == nil
+    end
+  end
 end

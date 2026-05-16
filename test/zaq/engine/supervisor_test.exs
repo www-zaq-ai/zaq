@@ -5,14 +5,15 @@ defmodule Zaq.Engine.SupervisorTest do
 
   alias Zaq.Engine.Supervisor
 
-  test "init/1 defines Telemetry, Ingestion and Retrieval supervisors" do
+  test "init/1 defines Telemetry, Ingestion, Retrieval supervisors and EventRegistry" do
     assert {:ok, {spec, children}} = Supervisor.init([])
     assert spec.strategy == :one_for_one
 
     assert Enum.map(children, & &1.id) == [
              Zaq.Engine.Telemetry.Supervisor,
              Zaq.Engine.IngestionSupervisor,
-             Zaq.Engine.RetrievalSupervisor
+             Zaq.Engine.RetrievalSupervisor,
+             Zaq.Engine.EventRegistry
            ]
   end
 end

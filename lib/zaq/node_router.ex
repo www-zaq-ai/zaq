@@ -31,6 +31,9 @@ defmodule Zaq.NodeRouter do
 
   alias Zaq.{Event, EventHop}
 
+  @pubsub Zaq.PubSub
+  @trigger_topic "node_router:events"
+
   @supervisor_map %{
     agent: Zaq.Agent.Supervisor,
     ingestion: Zaq.Ingestion.Supervisor,
@@ -186,17 +189,27 @@ defmodule Zaq.NodeRouter do
   defp do_dispatch(%{hop_type: :sync} = dispatch_ctx) do
     dispatch_ctx
     |> do_dispatch_sync()
+    |> broadcast_event()
     |> continue_dispatch(dispatch_ctx.runtime)
   end
 
   defp do_dispatch(%{hop_type: :async} = dispatch_ctx) do
     _ =
       async_start(dispatch_ctx.runtime, fn ->
-        _ = do_dispatch_sync(dispatch_ctx) |> continue_dispatch(dispatch_ctx.runtime)
+        _ =
+          do_dispatch_sync(dispatch_ctx)
+          |> broadcast_event()
+          |> continue_dispatch(dispatch_ctx.runtime)
+
         :ok
       end)
 
     dispatch_ctx.event
+  end
+
+  defp broadcast_event(%Event{} = event) do
+    Phoenix.PubSub.broadcast(@pubsub, @trigger_topic, {:node_router_event, event})
+    event
   end
 
   defp do_dispatch_sync(%{

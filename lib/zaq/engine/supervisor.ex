@@ -33,7 +33,8 @@ defmodule Zaq.Engine.Supervisor do
     children = [
       Zaq.Engine.Telemetry.Supervisor,
       Zaq.Engine.IngestionSupervisor,
-      Zaq.Engine.RetrievalSupervisor
+      Zaq.Engine.RetrievalSupervisor,
+      Zaq.Engine.EventRegistry
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

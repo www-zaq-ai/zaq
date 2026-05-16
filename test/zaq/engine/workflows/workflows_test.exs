@@ -407,126 +407,49 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     end
   end
 
-  describe "Trigger.types/0" do
-    test "returns the expected type list" do
-      assert Trigger.types() == ~w(manual webhook scheduler signal)
-    end
-  end
-
   # --- Triggers ---
 
   describe "create_trigger/2" do
-    test "creates a trigger for a workflow" do
-      workflow = create_workflow()
-
+    test "creates a trigger with event_name" do
       assert {:ok, %Trigger{} = t} =
                Workflows.create_trigger(%{
-                 workflow_id: workflow.id,
-                 type: "manual",
-                 config: %{},
+                 event_name: "manual_trigger",
                  enabled: true
                })
 
-      assert t.type == "manual"
+      assert t.event_name == "manual_trigger"
       assert t.enabled == true
     end
 
-    test "returns error on invalid type" do
-      workflow = create_workflow()
-
-      assert {:error, changeset} =
-               Workflows.create_trigger(%{workflow_id: workflow.id, type: "unknown"})
-
-      assert changeset.errors[:type]
-    end
-
-    test "scheduler trigger requires cron in config" do
-      workflow = create_workflow()
-
-      assert {:error, changeset} =
-               Workflows.create_trigger(%{
-                 workflow_id: workflow.id,
-                 type: "scheduler",
-                 config: %{}
-               })
-
-      assert changeset.errors[:config]
-    end
-
-    test "scheduler trigger succeeds with cron key in config" do
-      workflow = create_workflow()
-
-      assert {:ok, t} =
-               Workflows.create_trigger(%{
-                 workflow_id: workflow.id,
-                 type: "scheduler",
-                 config: %{"cron" => "0 * * * *"}
-               })
-
-      assert t.type == "scheduler"
-    end
-
-    test "signal trigger requires topic in config" do
-      workflow = create_workflow()
-
-      assert {:error, changeset} =
-               Workflows.create_trigger(%{workflow_id: workflow.id, type: "signal", config: %{}})
-
-      assert changeset.errors[:config]
-    end
-
-    test "signal trigger succeeds with topic key in config" do
-      workflow = create_workflow()
-
-      assert {:ok, t} =
-               Workflows.create_trigger(%{
-                 workflow_id: workflow.id,
-                 type: "signal",
-                 config: %{"topic" => "user.created"}
-               })
-
-      assert t.type == "signal"
-    end
-
-    test "webhook and manual triggers accept empty config" do
-      workflow = create_workflow()
-
-      assert {:ok, _} =
-               Workflows.create_trigger(%{workflow_id: workflow.id, type: "webhook", config: %{}})
-
-      assert {:ok, _} =
-               Workflows.create_trigger(%{workflow_id: workflow.id, type: "manual", config: %{}})
+    test "returns error without event_name" do
+      assert {:error, changeset} = Workflows.create_trigger(%{})
+      assert changeset.errors[:event_name]
     end
   end
 
-  describe "list_triggers/2" do
-    test "returns triggers for a workflow" do
-      workflow = create_workflow()
-      {:ok, _} = Workflows.create_trigger(%{workflow_id: workflow.id, type: "manual"})
-      {:ok, _} = Workflows.create_trigger(%{workflow_id: workflow.id, type: "webhook"})
+  describe "list_triggers/0" do
+    test "returns all triggers" do
+      {:ok, _} = Workflows.create_trigger(%{event_name: "event_a"})
+      {:ok, _} = Workflows.create_trigger(%{event_name: "event_b"})
 
-      assert length(Workflows.list_triggers(workflow.id)) == 2
+      assert length(Workflows.list_triggers()) >= 2
     end
   end
 
   describe "update_trigger/3" do
     test "updates trigger fields" do
-      workflow = create_workflow()
-      {:ok, trigger} = Workflows.create_trigger(%{workflow_id: workflow.id, type: "manual"})
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "some_event"})
 
-      assert {:ok, updated} =
-               Workflows.update_trigger(trigger, %{enabled: false, config: %{"key" => "val"}})
+      assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: false})
 
       assert updated.enabled == false
-      assert updated.config == %{"key" => "val"}
     end
 
-    test "returns error on invalid type" do
-      workflow = create_workflow()
-      {:ok, trigger} = Workflows.create_trigger(%{workflow_id: workflow.id, type: "webhook"})
+    test "returns error with blank event_name" do
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "some_event"})
 
-      assert {:error, changeset} = Workflows.update_trigger(trigger, %{type: "invalid"})
-      assert changeset.errors[:type]
+      assert {:error, changeset} = Workflows.update_trigger(trigger, %{event_name: ""})
+      assert changeset.errors[:event_name]
     end
   end
 end
