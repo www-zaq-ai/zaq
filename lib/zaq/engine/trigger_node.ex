@@ -40,11 +40,10 @@ defmodule Zaq.Engine.TriggerNode do
   end
 
   defp build_source_event(workflow) do
-    %Event{
-      request: %{},
-      next_hop: nil,
-      trace_id: Ecto.UUID.generate(),
-      assigns: %{trigger_type: :event, workflow_id: workflow.id}
-    }
+    Event.new(
+      %{trigger_type: :event, workflow_id: workflow.id},
+      :engine,
+      name: :workflow_run_triggered
+    )
   end
 end
