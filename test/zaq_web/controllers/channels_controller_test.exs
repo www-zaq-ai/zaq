@@ -71,6 +71,104 @@ defmodule ZaqWeb.ChannelsControllerTest do
     assert json_response(conn, 400)["error"] == "Invalid webhook type"
   end
 
+  test "webhook data_source returns accepted with result when dispatch returns {:ok, result}", %{
+    conn: conn
+  } do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.OkResultRouter)
+
+    conn =
+      post(conn, "/channels/webhook/data_source/google_drive", %{
+        "event" => "file.changed",
+        "id" => "evt-1"
+      })
+
+    assert json_response(conn, 200)["status"] == "accepted"
+    assert json_response(conn, 200)["result"] == %{"processed" => true}
+  end
+
+  test "webhook returns rejected status on dispatch error", %{conn: conn} do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.ErrorRouter)
+
+    conn =
+      post(conn, "/channels/webhook/data_source/google_drive", %{
+        "event" => "file.changed"
+      })
+
+    assert json_response(conn, 200)["status"] == "rejected"
+    assert json_response(conn, 200)["reason"] =~ "unauthorized"
+  end
+
+  test "webhook handles unexpected response format gracefully", %{conn: conn} do
+    Application.put_env(
+      :zaq,
+      :channels_controller_node_router_module,
+      __MODULE__.UnexpectedResponseRouter
+    )
+
+    conn =
+      post(conn, "/channels/webhook/data_source/google_drive", %{
+        "event" => "file.changed"
+      })
+
+    assert json_response(conn, 200)["status"] =~ "accepted"
+    assert json_response(conn, 200)["result"] == "unexpected"
+  end
+
+  test "webhook conversation filters content-length and transfer-encoding headers", %{conn: conn} do
+    Application.put_env(
+      :zaq,
+      :channels_controller_node_router_module,
+      __MODULE__.FilteredHeadersRouter
+    )
+
+    conn =
+      post(conn, "/channels/webhook/conversation/telegram", %{
+        "event" => "message"
+      })
+
+    assert response(conn, 200) == "ok"
+
+    assert get_resp_header(conn, "content-length") == []
+    assert get_resp_header(conn, "transfer-encoding") == []
+    assert get_resp_header(conn, "x-custom-header") == ["present"]
+  end
+
+  test "webhook conversation with nil body returns empty response", %{conn: conn} do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.NilBodyRouter)
+
+    conn =
+      post(conn, "/channels/webhook/conversation/telegram", %{
+        "event" => "message"
+      })
+
+    assert response(conn, 204) == ""
+  end
+
+  test "webhook conversation with map body returns json response", %{conn: conn} do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.MapBodyRouter)
+
+    conn =
+      post(conn, "/channels/webhook/conversation/telegram", %{
+        "event" => "message"
+      })
+
+    assert json_response(conn, 200) == %{"message" => "hello"}
+  end
+
+  test "webhook conversation without integer status falls back to generic accepted response", %{
+    conn: conn
+  } do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.NoStatusRouter)
+
+    conn =
+      post(conn, "/channels/webhook/conversation/telegram", %{
+        "event" => "message"
+      })
+
+    assert json_response(conn, 200)["status"] == "accepted"
+    assert json_response(conn, 200)["result"]["webhook_response"]["status"] == "ok"
+  end
+
   defmodule SuccessOAuth do
     def finalize_callback(_provider, _params), do: {:ok, %{id: 7}}
   end
@@ -98,6 +196,92 @@ defmodule ZaqWeb.ChannelsControllerTest do
           _ ->
             :ok
         end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule OkResultRouter do
+    def dispatch(event) do
+      %{event | response: {:ok, %{processed: true}}}
+    end
+  end
+
+  defmodule ErrorRouter do
+    def dispatch(event) do
+      %{event | response: {:error, :unauthorized}}
+    end
+  end
+
+  defmodule UnexpectedResponseRouter do
+    def dispatch(event) do
+      %{event | response: "unexpected"}
+    end
+  end
+
+  defmodule FilteredHeadersRouter do
+    def dispatch(event) do
+      response =
+        {:ok,
+         %{
+           webhook_response: %{
+             status: 200,
+             headers: %{
+               "content-length" => "100",
+               "transfer-encoding" => "chunked",
+               "x-custom-header" => "present"
+             },
+             body: "ok"
+           }
+         }}
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule NilBodyRouter do
+    def dispatch(event) do
+      response =
+        {:ok,
+         %{
+           webhook_response: %{
+             status: 204,
+             headers: %{},
+             body: nil
+           }
+         }}
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule MapBodyRouter do
+    def dispatch(event) do
+      response =
+        {:ok,
+         %{
+           webhook_response: %{
+             status: 200,
+             headers: %{"content-type" => "application/json"},
+             body: %{"message" => "hello"}
+           }
+         }}
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule NoStatusRouter do
+    def dispatch(event) do
+      response =
+        {:ok,
+         %{
+           webhook_response: %{
+             status: "ok",
+             body: "test"
+           },
+           extra_data: "present"
+         }}
 
       %{event | response: response}
     end

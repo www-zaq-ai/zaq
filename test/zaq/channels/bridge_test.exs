@@ -3,7 +3,7 @@ defmodule Zaq.Channels.BridgeTest do
 
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.CommunicationBridge
+  alias Zaq.Channels.{CommunicationBridge, DataSourceBridge}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.Repo
@@ -132,6 +132,57 @@ defmodule Zaq.Channels.BridgeTest do
     def stop_runtime(config) do
       send(self(), {:fallback_stop_runtime_called, config.provider, config.enabled})
       :ok
+    end
+  end
+
+  defmodule FalseBeforeHookBridge do
+    def before_incoming(_config, _payload, _sink_opts, _bridge_module), do: false
+  end
+
+  defmodule UnknownErrorBridge do
+    def before_incoming(_config, _payload, _sink_opts, _bridge_module), do: :unexpected_format
+  end
+
+  defmodule CapabilitySnapshotBridge do
+    def capability_snapshot(_config) do
+      {:ok,
+       %{
+         required: [:text, :image, :streaming],
+         resolved: %{:text => true, "image" => false},
+         labels: %{text: "Text Support"}
+       }}
+    end
+  end
+
+  defmodule StringKeyCapabilityBridge do
+    def capability_snapshot(_config) do
+      {:ok,
+       %{
+         required: [:text, :image],
+         resolved: %{"text" => true}
+       }}
+    end
+  end
+
+  defmodule NonListUnsupportedBridge do
+    def capability_snapshot(_config) do
+      {:ok,
+       %{
+         required: [:text, :image],
+         resolved: %{text: true},
+         unsupported: "not_a_list"
+       }}
+    end
+  end
+
+  defmodule NonMapValueBridge do
+    def capability_snapshot(_config) do
+      {:ok,
+       %{
+         required: [:text, :image],
+         resolved: :not_a_map,
+         labels: "also_not_a_map"
+       }}
     end
   end
 
@@ -397,5 +448,116 @@ defmodule Zaq.Channels.BridgeTest do
 
     assert :ok = Bridge.sync_config_runtime(nil, %{provider: "mattermost", enabled: false})
     assert :ok = Bridge.sync_provider_runtime(:mattermost)
+  end
+
+  describe "route_incoming error handling" do
+    test "returns unsupported when before hook returns false" do
+      assert {:error, :unsupported} =
+               Bridge.route_incoming(
+                 FalseBeforeHookBridge,
+                 %{provider: "test"},
+                 %{"body" => "hi"},
+                 []
+               )
+    end
+
+    test "passes through unknown error formats" do
+      assert :unexpected_format =
+               Bridge.route_incoming(
+                 UnknownErrorBridge,
+                 %{provider: "test"},
+                 %{"body" => "hi"},
+                 []
+               )
+    end
+  end
+
+  describe "data source capabilities" do
+    test "required_capabilities returns data source capabilities" do
+      assert Bridge.required_capabilities(:data_source) ==
+               DataSourceBridge.required_capabilities()
+    end
+
+    test "capability_meta returns data source labels" do
+      assert Bridge.capability_meta(:data_source) ==
+               DataSourceBridge.capability_meta()
+    end
+
+    test "capability_snapshot normalizes with unsupported detection" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :google_drive, %{bridge: CapabilitySnapshotBridge})
+      )
+
+      insert_config(:google_drive, %{kind: "data_source"})
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:google_drive)
+      assert snapshot.kind == :data_source
+      assert snapshot.required == [:text, :image, :streaming]
+      # image resolved to false → unsupported; streaming missing from resolved → unsupported
+      assert snapshot.unsupported == [:image, :streaming]
+      assert snapshot.resolved == %{:text => true, "image" => false}
+      assert snapshot.labels[:text] == "Text Support"
+    end
+
+    test "capability_resolved handles atom and string key fallback" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :sharepoint, %{bridge: StringKeyCapabilityBridge})
+      )
+
+      insert_config(:sharepoint, %{kind: "data_source"})
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:sharepoint)
+      assert snapshot.resolved == %{"text" => true}
+      # :text is resolved via string key fallback in capability_resolved?
+      refute :text in snapshot.unsupported
+      assert :image in snapshot.unsupported
+    end
+  end
+
+  describe "private map helpers" do
+    test "map_get_list and map_get_map handle non-list/non-map values inside snapshot" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :discord, %{bridge: NonListUnsupportedBridge})
+      )
+
+      insert_config(:discord, %{kind: "data_source"})
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:discord)
+
+      # unsupported key is "not_a_list" → map_get_list returns nil → falls through to Enum.reject
+      assert :image in snapshot.unsupported
+      refute :text in snapshot.unsupported
+    end
+
+    test "map_get_map handles non-map resolved/labels values" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :telegram, %{bridge: NonMapValueBridge})
+      )
+
+      insert_config(:telegram, %{kind: "data_source"})
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:telegram)
+      # Non-map resolved/labels → map_get_map returns nil → falls back to %{}
+      assert snapshot.resolved == %{}
+      assert snapshot.labels != %{}
+      assert :text in snapshot.unsupported
+      assert :image in snapshot.unsupported
+    end
   end
 end

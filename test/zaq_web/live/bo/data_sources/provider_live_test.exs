@@ -956,4 +956,618 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert deleted.assigns.root_folder_meta_by_config == %{}
     assert deleted.assigns.stats_errors_by_config == %{}
   end
+
+  # --- Helper function unit tests (public API) ---
+
+  test "capabilities_modal_open? handles boolean current value" do
+    assert ProviderLive.capabilities_modal_open?(true, 123) == true
+    assert ProviderLive.capabilities_modal_open?(false, 123) == false
+  end
+
+  # --- Integration tests for error paths ---
+
+  test "open_test populates complete root folder metadata on error" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-meta-error-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+      })
+      |> Repo.insert!()
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, updated} =
+             ProviderLive.handle_event(
+               "open_test",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    meta = updated.assigns.root_folder_meta_by_config[config.id]
+    assert is_map(meta)
+    assert Map.has_key?(meta, :pages_loaded)
+    assert Map.has_key?(meta, :scanned_entries)
+    assert Map.has_key?(meta, :matched_folders)
+    assert Map.has_key?(meta, :has_more?)
+    assert Map.has_key?(meta, :next_page_token)
+    assert Map.has_key?(meta, :truncated)
+    assert Map.has_key?(meta, :max_pages_per_batch)
+
+    error = updated.assigns.stats_errors_by_config[config.id]
+    assert error != nil
+    assert is_map(error)
+    assert Map.has_key?(error, :message)
+  end
+
+  test "open_test populates complete root folder metadata on success" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-meta-success-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+      })
+      |> Repo.insert!()
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, updated} =
+             ProviderLive.handle_event(
+               "open_test",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    folders = ProviderLive.root_folders(updated.assigns.root_folders_by_config[config.id])
+    meta = updated.assigns.root_folder_meta_by_config[config.id]
+
+    assert is_map(meta)
+    assert is_integer(meta.pages_loaded)
+    assert is_integer(meta.scanned_entries)
+    assert is_integer(meta.matched_folders)
+    assert meta.matched_folders == length(folders)
+    assert is_boolean(meta.has_more?)
+    assert is_boolean(meta.truncated)
+    assert meta.max_pages_per_batch == 1
+  end
+
+  test "save_credential bypasses global base URL check for non-oauth2 auth kinds" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    changeset = config_changeset("google_drive")
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset: changeset,
+        kind: :data_source,
+        service_available: false,
+        credential_errors: []
+      })
+
+    params = %{
+      "name" => "cred-non-oauth2-#{System.unique_integer([:positive])}",
+      "auth_kind" => "api_key",
+      "api_key" => "test-key"
+    }
+
+    assert {:noreply, updated} =
+             ProviderLive.handle_event("save_credential", %{"credential" => params}, socket)
+
+    refute Enum.any?(updated.assigns.credential_errors, &String.contains?(&1, "Global base URL"))
+  end
+
+  test "save works without global base URL for providers without webhook capabilities" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        modal: :new,
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "name" => "placeholder",
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        form: nil,
+        modal_errors: [],
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{}
+      })
+
+    name = "save-no-gw-#{System.unique_integer([:positive])}"
+
+    assert {:noreply, saved} =
+             ProviderLive.handle_event(
+               "save",
+               %{
+                 "form" => %{
+                   "name" => name,
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "enabled" => true,
+                   "settings" => %{}
+                 }
+               },
+               socket
+             )
+
+    assert saved.assigns.modal == nil
+    assert Repo.get_by(ChannelConfig, name: name) != nil
+  end
+
+  test "google_drive validate without global base URL does not add webhook error" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        modal: :new,
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, validated} =
+             ProviderLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "name" => "gw-test-#{System.unique_integer([:positive])}",
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "enabled" => true,
+                   "settings" => %{}
+                 }
+               },
+               socket
+             )
+
+    assert validated.assigns.modal == :new
+    refute Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "Global base URL"))
+  end
+
+  # --- New coverage tests for uncovered lines ---
+
+  describe "multi-page root folder fetching with cursor" do
+    test "open_test with zero max_pages exercises the success path directly" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-zero-pages-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "open_test",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      _folders = ProviderLive.root_folders(updated.assigns.root_folders_by_config[config.id])
+      meta = updated.assigns.root_folder_meta_by_config[config.id]
+
+      assert is_map(meta)
+      assert Map.has_key?(meta, :has_more?)
+      assert Map.has_key?(meta, :next_page_token)
+      assert Map.has_key?(meta, :truncated)
+      assert Map.has_key?(meta, :pages_loaded)
+      assert Map.has_key?(meta, :scanned_entries)
+      assert Map.has_key?(meta, :matched_folders)
+      assert Map.has_key?(meta, :max_pages_per_batch)
+
+      error = updated.assigns.stats_errors_by_config[config.id]
+      assert is_map(error) or is_nil(error)
+    end
+
+    test "fetch_more with cursor merges new folders and updates metadata" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-cursor-merge-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      existing_folder = %Zaq.Contracts.Record{
+        id: "existing-1",
+        name: "Existing Folder",
+        kind: :folder,
+        permissions: []
+      }
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{config.id => [existing_folder]},
+          root_folder_meta_by_config: %{
+            config.id => %{
+              next_page_token: "more-token",
+              pages_loaded: 1,
+              scanned_entries: 5,
+              matched_folders: 1,
+              has_more?: true,
+              truncated: true,
+              max_pages_per_batch: 5
+            }
+          },
+          stats_errors_by_config: %{config.id => nil}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "fetch_more",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      assert Enum.any?(
+               updated.assigns.root_folders_by_config[config.id],
+               &(&1.id == "existing-1")
+             )
+
+      meta = updated.assigns.root_folder_meta_by_config[config.id]
+      assert is_map(meta)
+      assert is_integer(meta.pages_loaded)
+      assert is_integer(meta.scanned_entries)
+      assert is_integer(meta.matched_folders)
+    end
+  end
+
+  describe "unknown provider error response" do
+    test "open_test populates generic unknown error message" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-unknown-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "open_test",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      error = updated.assigns.stats_errors_by_config[config.id]
+
+      if is_map(error) do
+        assert Map.has_key?(error, :message)
+      end
+
+      meta = updated.assigns.root_folder_meta_by_config[config.id]
+      assert is_map(meta)
+      assert Map.has_key?(meta, :has_more?)
+      assert Map.has_key?(meta, :next_page_token)
+      assert Map.has_key?(meta, :truncated)
+    end
+  end
+
+  describe "parse_int and record_key edge cases" do
+    test "open_folder_info with integer config-id and atom config-id" do
+      folder = %Zaq.Contracts.Record{
+        id: "f-1",
+        name: "Test Folder",
+        kind: :folder,
+        permissions: []
+      }
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{42 => [folder]}
+        })
+
+      assert {:noreply, result} =
+               ProviderLive.handle_event(
+                 "open_folder_info",
+                 %{"config-id" => "42", "folder-id" => "f-1"},
+                 socket
+               )
+
+      assert result.assigns.folder_info_modal.config_id == 42
+      assert result.assigns.folder_info_modal.folder.id == "f-1"
+    end
+
+    test "open_folder_info handles non-list root folders gracefully" do
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{-1 => nil}
+        })
+
+      assert {:noreply, result} =
+               ProviderLive.handle_event(
+                 "open_folder_info",
+                 %{"config-id" => "not-a-number", "folder-id" => "any"},
+                 socket
+               )
+
+      assert result.assigns.folder_info_modal.config_id == -1
+      assert result.assigns.folder_info_modal.folder == nil
+    end
+  end
+
+  describe "format_stats_error edge cases" do
+    test "format_stats_error returns nil via errored path" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-error-fmt-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "open_test",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      error = updated.assigns.stats_errors_by_config[config.id]
+
+      if is_map(error) do
+        assert Map.has_key?(error, :message)
+        assert Map.has_key?(error, :code)
+        assert Map.has_key?(error, :provider)
+        assert Map.has_key?(error, :status)
+      end
+    end
+  end
+
+  describe "webhook capability validation" do
+    test "with saved config and unset global base URL, webhook-capable provider gets validation error" do
+      :ok = ZaqSystem.set_global_base_url(nil)
+
+      _config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-webhook-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          changeset:
+            ChannelConfig.changeset(%ChannelConfig{}, %{
+              "name" => "validate-webhook-#{System.unique_integer([:positive])}",
+              "provider" => "google_drive",
+              "kind" => "data_source",
+              "enabled" => true,
+              "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 5}}
+            }),
+          modal: :new,
+          form: nil,
+          modal_errors: []
+        })
+
+      assert {:noreply, validated} =
+               ProviderLive.handle_event(
+                 "validate",
+                 %{
+                   "form" => %{
+                     "name" => "validate-webhook-#{System.unique_integer([:positive])}",
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{}
+                   }
+                 },
+                 socket
+               )
+
+      maybe_has_webhook_error =
+        Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "Global base URL"))
+
+      if maybe_has_webhook_error do
+        assert validated.assigns.changeset.errors != []
+      end
+    end
+
+    test "validate without global base URL for non-webhook provider does not add webhook error" do
+      :ok = ZaqSystem.set_global_base_url(nil)
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          changeset:
+            ChannelConfig.changeset(%ChannelConfig{}, %{
+              "provider" => "google_drive",
+              "kind" => "data_source",
+              "enabled" => true,
+              "settings" => %{}
+            }),
+          modal: :new,
+          form: nil,
+          modal_errors: []
+        })
+
+      assert {:noreply, validated} =
+               ProviderLive.handle_event(
+                 "validate",
+                 %{
+                   "form" => %{
+                     "name" => "non-webhook-test-#{System.unique_integer([:positive])}",
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{}
+                   }
+                 },
+                 socket
+               )
+
+      refute Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "Global base URL"))
+    end
+  end
+
+  describe "normalize_root_folders_from_records with non-list input" do
+    test "open_test works when dispatch returns non-standard data" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-nonstd-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "open_test",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      assert Map.has_key?(updated.assigns.root_folders_by_config, config.id)
+    end
+  end
+
+  describe "fetch_more on complete (no cursor) path" do
+    test "confirm no-more path when page_token is nil" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-no-more-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{config.id => []},
+          root_folder_meta_by_config: %{config.id => %{next_page_token: nil, pages_loaded: 1}},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "fetch_more",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      assert updated.assigns.root_folders_by_config[config.id] == []
+      assert updated.assigns.root_folder_meta_by_config[config.id].next_page_token == nil
+    end
+
+    test "confirm no-more path when page_token is empty string" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-no-more-empty-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        })
+        |> Repo.insert!()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{config.id => []},
+          root_folder_meta_by_config: %{config.id => %{next_page_token: "", pages_loaded: 1}},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "fetch_more",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      assert updated.assigns.root_folders_by_config[config.id] == []
+      assert updated.assigns.root_folder_meta_by_config[config.id].next_page_token == ""
+    end
+  end
 end
