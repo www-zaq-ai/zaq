@@ -284,6 +284,19 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def insert(%Ecto.Changeset{} = changeset), do: {:error, changeset}
   end
 
+  defmodule StubAdapterCapabilities do
+    def capabilities do
+      %{
+        text: :native,
+        image: :unsupported,
+        reactions: :native,
+        threads: :fallback,
+        typing: :native,
+        file: :unsupported
+      }
+    end
+  end
+
   defmodule StubAdapterListenerError do
     def listener_child_specs(_bridge_id, _opts), do: {:error, :listener_boot_failed}
   end
@@ -1820,6 +1833,43 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  describe "capability_snapshot/1" do
+    test "resolves required capabilities and filters absent keys" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterCapabilities,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{resolved: resolved}} =
+               JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
+
+      # :mode always returns ingress mode string
+      assert resolved[:mode] == "gateway"
+
+      # :text returns :native from default capabilities
+      assert resolved[:text] == :native
+
+      # :reactions returns :native from stub capabilities override
+      assert resolved[:reactions] == :native
+
+      # :typing returns :native from stub capabilities override
+      assert resolved[:typing] == :native
+
+      # :image returns :unsupported (present, non-boolean)
+      assert resolved[:image] == :unsupported
+
+      # :streaming is absent (not in defaults or stub)
+      refute Map.has_key?(resolved, :streaming)
+    end
+  end
+
   describe "adapter and connectivity" do
     test "adapter_for/1 returns adapter for atom and binary providers" do
       previous = Application.get_env(:zaq, :channels, %{})
@@ -2696,6 +2746,31 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert request.payload == %{"event" => "message"}
       assert request.query == %{"challenge" => "abc"}
       assert request.raw == "{}"
+    end
+  end
+
+  describe "webhook payload normalization helpers" do
+    test "webhook_request_from_payload/2 decodes binary query strings" do
+      request =
+        JidoChatBridge.webhook_request_from_payload(%{"query" => "a=1&b=two"}, :mattermost)
+
+      assert request.query == %{"a" => "1", "b" => "two"}
+    end
+
+    test "webhook_request_from_payload/2 defaults query to empty map for unsupported input" do
+      request = JidoChatBridge.webhook_request_from_payload(%{"query" => 123}, :mattermost)
+      assert request.query == %{}
+
+      request = JidoChatBridge.webhook_request_from_payload(%{"query" => nil}, :mattermost)
+      assert request.query == %{}
+    end
+
+    test "normalize_webhook_response_payload/1 defaults invalid input" do
+      assert JidoChatBridge.normalize_webhook_response_payload(:invalid) ==
+               %{status: 200, headers: %{}, body: ""}
+
+      assert JidoChatBridge.normalize_webhook_response_payload(nil) ==
+               %{status: 200, headers: %{}, body: ""}
     end
   end
 

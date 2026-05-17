@@ -246,4 +246,6 @@ defmodule Zaq.NodeRouter.Behaviour do
   Used for testing and alternative routing strategies.
   """
   @callback find_node(supervisor :: atom()) :: node() | nil
+  @callback dispatch(Zaq.Event.t()) :: Zaq.Event.t()
+  @callback dispatch(Zaq.Event.t(), map()) :: Zaq.Event.t()
 end

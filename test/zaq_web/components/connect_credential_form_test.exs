@@ -111,6 +111,97 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
     assert html =~ "Client id can&#39;t be blank"
   end
 
+  test "renders Open Global settings link when global_settings_path is present and at least one error mentions Global base URL" do
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Drive OAuth",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "cid"
+      })
+
+    form = to_form(changeset, as: :credential)
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: form,
+        changeset: changeset,
+        errors: ["Global base URL is missing for provider", "Client id can't be blank"],
+        global_settings_path: "/bo/settings/global",
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal"
+      )
+
+    assert html =~ "Open Global settings"
+    assert html =~ ~s(href="/bo/settings/global")
+    assert html =~ "Global base URL is missing for provider"
+  end
+
+  test "does not render Open Global settings link when global_settings_path is nil even if Global base URL error exists" do
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Drive OAuth",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "cid"
+      })
+
+    form = to_form(changeset, as: :credential)
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: form,
+        changeset: changeset,
+        errors: ["Global base URL is missing"],
+        global_settings_path: nil,
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal"
+      )
+
+    assert html =~ "Global base URL is missing"
+    refute html =~ "Open Global settings"
+    refute html =~ ~s(href="/bo/settings/global")
+  end
+
+  test "does not render Open Global settings link when no error contains Global base URL even if global_settings_path is present" do
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Drive OAuth",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "cid"
+      })
+
+    form = to_form(changeset, as: :credential)
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: form,
+        changeset: changeset,
+        errors: ["Name can't be blank", "Client id can't be blank"],
+        global_settings_path: "/bo/settings/global",
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal"
+      )
+
+    assert html =~ "Name can&#39;t be blank"
+    assert html =~ "Client id can&#39;t be blank"
+    refute html =~ "Open Global settings"
+    refute html =~ ~s(href="/bo/settings/global")
+  end
+
   test "shows restore defaults button when default scopes are provided" do
     changeset =
       Credential.changeset(%Credential{}, %{

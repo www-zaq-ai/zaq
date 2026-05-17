@@ -1,6 +1,7 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   use ZaqWeb.ConnCase
 
+  import Mox
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
@@ -57,6 +58,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     def test_list_tools(_endpoint_id, _opts),
       do: {:error, :generic_failure}
   end
+
+  setup :verify_on_exit!
 
   setup %{conn: conn} do
     user = user_fixture(%{email: "admin@example.com", username: "testadmin_sc"})
@@ -3131,6 +3134,542 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       updated = Repo.get!(Zaq.Engine.Connect.Credential, credential.id)
       assert updated.name == "Sanitized Updated"
+    end
+  end
+
+  # ── NodeRouter mock helpers ─────────────────────────────────────────────
+
+  defp stub_mcp_entries do
+    [
+      %{
+        id: 999,
+        persisted?: true,
+        predefined?: false,
+        predefined_id: nil,
+        editable: true,
+        icon: nil,
+        description: nil,
+        auto_enabled: false,
+        name: "Mock MCP Entry",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        command: nil,
+        args: [],
+        url: "http://mock.dev",
+        headers: %{},
+        secret_headers: %{},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{},
+        endpoint: %Zaq.Agent.MCP.Endpoint{
+          id: 999,
+          name: "Mock MCP Entry",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://mock.dev",
+          command: nil,
+          predefined_id: nil,
+          args: [],
+          headers: %{},
+          secret_headers: %{},
+          environments: %{},
+          secret_environments: %{},
+          settings: %{}
+        }
+      }
+    ]
+  end
+
+  defp build_stub_response(%Zaq.Event{} = event) do
+    action = event.opts[:action]
+    response = stub_response_for_action(action)
+
+    %Zaq.Event{event | response: response}
+  end
+
+  defp stub_response_for_action(:system_config_list_ai_provider_credentials), do: []
+  defp stub_response_for_action(:system_config_connect_list_credentials), do: []
+  defp stub_response_for_action(:system_config_agent_list_active_agents), do: []
+  defp stub_response_for_action(:system_config_mcp_filter_endpoints), do: {stub_mcp_entries(), 1}
+  defp stub_response_for_action(:system_config_mcp_predefined_catalog), do: %{}
+
+  defp stub_response_for_action(:system_config_get_telemetry_config),
+    do: %Zaq.System.TelemetryConfig{}
+
+  defp stub_response_for_action(:system_config_get_llm_config), do: %Zaq.System.LLMConfig{}
+
+  defp stub_response_for_action(:system_config_get_embedding_config),
+    do: %Zaq.System.EmbeddingConfig{}
+
+  defp stub_response_for_action(:system_config_get_image_to_text_config),
+    do: %Zaq.System.ImageToTextConfig{}
+
+  defp stub_response_for_action(:system_config_embedding_ready), do: false
+  defp stub_response_for_action(:system_config_get_global_default_agent_id), do: nil
+  defp stub_response_for_action(:system_config_get_global_base_url), do: nil
+
+  defp stub_response_for_action(:system_config_change_ai_provider_credential) do
+    Ecto.Changeset.cast(
+      %Zaq.System.AIProviderCredential{},
+      %{},
+      ~w(name provider endpoint api_key sovereign description)a
+    )
+  end
+
+  defp stub_response_for_action(:system_config_mcp_change_endpoint) do
+    Ecto.Changeset.cast(
+      %Zaq.Agent.MCP.Endpoint{},
+      %{},
+      ~w(name type status timeout_ms command args url headers secret_headers
+         environments secret_environments settings predefined_id)a
+    )
+  end
+
+  defp stub_response_for_action(:system_config_mcp_get_endpoint) do
+    {:ok,
+     %Zaq.Agent.MCP.Endpoint{
+       id: 999,
+       name: "Mock MCP Entry",
+       type: "remote",
+       status: "enabled",
+       timeout_ms: 5000,
+       url: "http://mock.dev",
+       command: nil,
+       predefined_id: nil,
+       args: [],
+       headers: %{},
+       secret_headers: %{},
+       environments: %{},
+       secret_environments: %{},
+       settings: %{}
+     }}
+  end
+
+  defp stub_response_for_action(_), do: nil
+
+  defp with_node_router_mock_setup(_context) do
+    Application.put_env(:zaq, :node_router_module, Zaq.NodeRouterMock)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :node_router_module)
+    end)
+
+    :ok
+  end
+
+  # ── Global settings error branches ─────────────────────────────────────
+
+  describe "global settings error handling with mock" do
+    setup [:with_node_router_mock_setup]
+
+    test "save_global_default_agent error shows failure flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :system_config_set_global_default_agent_id do
+          %Zaq.Event{event | response: {:error, :boom}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html =
+        render_submit(view, "save_global_default_agent", %{
+          "global_default_agent_id" => "1"
+        })
+
+      assert html =~ "Failed to save global default agent"
+    end
+
+    test "save_global_base_url error shows failure flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :system_config_set_global_base_url do
+          %Zaq.Event{event | response: {:error, :boom}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html =
+        render_submit(view, "save_global_base_url", %{
+          "global_base_url" => "https://fail.example"
+        })
+
+      assert html =~ "Failed to save global base URL"
+    end
+  end
+
+  # ── MCP error branches (direct dispatch calls) ─────────────────────────
+
+  describe "confirm_delete_mcp_endpoint error branches" do
+    setup [:with_node_router_mock_setup]
+
+    test "changeset error path shows form validation", %{conn: conn} do
+      error_cs =
+        Ecto.Changeset.add_error(
+          Ecto.Changeset.cast(%Zaq.Agent.MCP.Endpoint{}, %{}, ~w(name)a),
+          :name,
+          "can't be blank"
+        )
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated and
+             event.request[:action] == :delete do
+          %Zaq.Event{event | response: {:error, error_cs}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      # Trigger edit to set mcp_endpoint_id
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='999']")
+      |> render_click()
+
+      render_click(view, "open_delete_mcp_endpoint_confirm", %{})
+      html = render_click(view, "confirm_delete_mcp_endpoint", %{})
+
+      assert html =~ "mcp-endpoint-modal"
+    end
+
+    test "reason error path shows error flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated and
+             event.request[:action] == :delete do
+          %Zaq.Event{event | response: {:error, :test_reason}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='999']")
+      |> render_click()
+
+      render_click(view, "open_delete_mcp_endpoint_confirm", %{})
+      html = render_click(view, "confirm_delete_mcp_endpoint", %{})
+
+      assert html =~ "Failed to delete MCP endpoint"
+      assert html =~ "test_reason"
+    end
+
+    test "unexpected response path shows fallback flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated and
+             event.request[:action] == :delete do
+          %Zaq.Event{event | response: :weird}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='999']")
+      |> render_click()
+
+      render_click(view, "open_delete_mcp_endpoint_confirm", %{})
+      html = render_click(view, "confirm_delete_mcp_endpoint", %{})
+
+      assert html =~ "Failed to delete MCP endpoint"
+      assert html =~ ":weird"
+    end
+  end
+
+  describe "enable_predefined_mcp error branches" do
+    setup [:with_node_router_mock_setup]
+
+    test "non-editable predefined endpoint does not open edit modal", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        cond do
+          event.opts[:action] == :mcp_endpoint_updated ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     endpoint: %{
+                       predefined_id: "non_editable_mcp",
+                       name: "NonEditable"
+                     },
+                     runtime: %{}
+                   }}
+            }
+
+          event.opts[:action] == :system_config_mcp_predefined_catalog ->
+            %Zaq.Event{
+              event
+              | response: %{
+                  "non_editable_mcp" => %{editable: false}
+                }
+            }
+
+          true ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "non_editable_mcp"})
+
+      assert html =~ "Predefined MCP enabled."
+      refute has_element?(view, "#mcp-endpoint-modal")
+    end
+
+    test "error reason shows failure flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated do
+          %Zaq.Event{event | response: {:error, :enable_failed}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "whatever"})
+
+      assert html =~ "Failed to enable MCP"
+      assert html =~ "enable_failed"
+    end
+
+    test "unexpected response shows fallback flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated do
+          %Zaq.Event{event | response: :weird}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "whatever"})
+
+      assert html =~ "Failed to enable MCP"
+      assert html =~ ":weird"
+    end
+  end
+
+  describe "save_mcp_endpoint error branches" do
+    setup [:with_node_router_mock_setup]
+
+    test "changeset error path preserves modal and rows", %{conn: conn} do
+      error_cs =
+        Ecto.Changeset.add_error(
+          Ecto.Changeset.cast(%Zaq.Agent.MCP.Endpoint{}, %{}, ~w(name)a),
+          :name,
+          "can't be blank"
+        )
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated do
+          %Zaq.Event{event | response: {:error, error_cs}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      render_submit(view, "save_mcp_endpoint", %{
+        "mcp_endpoint" => %{
+          "name" => "Error Test",
+          "type" => "remote",
+          "status" => "enabled",
+          "timeout_ms" => "5000",
+          "url" => "http://localhost:8000/mcp",
+          "command" => "",
+          "predefined_id" => "",
+          "headers_rows" => %{"0" => %{"key" => "X-Test", "value" => "val"}},
+          "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "args_rows" => %{"0" => %{"value" => ""}},
+          "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "settings_text" => "{}"
+        }
+      })
+
+      assert has_element?(view, "#mcp-endpoint-modal")
+    end
+
+    test "reason error path shows error flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated do
+          %Zaq.Event{event | response: {:error, :save_failed}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Reason Error",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://localhost:8000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "Failed to save MCP endpoint"
+      assert html =~ "save_failed"
+    end
+
+    test "unexpected response shows fallback flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :mcp_endpoint_updated do
+          %Zaq.Event{event | response: :weird}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Weird Response",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://localhost:8000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "Failed to save MCP endpoint"
+      assert html =~ ":weird"
+    end
+  end
+
+  # ── Provider pagination success path ────────────────────────────────────
+
+  describe "MCP provider pagination success" do
+    setup [:with_node_router_mock_setup]
+
+    test "change MCP page with multiple pages renders paginated results", %{conn: conn} do
+      entry_template = %{
+        persisted?: true,
+        predefined?: false,
+        predefined_id: nil,
+        editable: true,
+        icon: nil,
+        description: nil,
+        auto_enabled: false,
+        timeout_ms: 5000,
+        command: nil,
+        args: [],
+        url: "http://mock.dev",
+        headers: %{},
+        secret_headers: %{},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+
+      entries =
+        Enum.map(1..25, fn i ->
+          Map.merge(entry_template, %{
+            id: i,
+            name: "Paginated Endpoint #{i}",
+            type: "remote",
+            status: "disabled"
+          })
+        end)
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :system_config_mcp_filter_endpoints do
+          page = event.request[:page] || event.request["page"] || 1
+          per_page = event.request[:per_page] || event.request["per_page"] || 20
+
+          page_entries =
+            entries
+            |> Enum.drop((page - 1) * per_page)
+            |> Enum.take(per_page)
+
+          %Zaq.Event{event | response: {page_entries, 25}}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      assert render(view) =~ "Paginated Endpoint 1"
+      assert render(view) =~ "Paginated Endpoint 20"
+      refute render(view) =~ "Paginated Endpoint 21"
+
+      html = render_click(view, "change_mcp_page", %{"page" => "2"})
+
+      assert html =~ "Paginated Endpoint 21"
+      assert html =~ "Paginated Endpoint 25"
+      refute html =~ "Paginated Endpoint 1"
     end
   end
 end

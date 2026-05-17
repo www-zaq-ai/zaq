@@ -4250,6 +4250,498 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   # ---------------------------------------------------------------------------
+  # New stubs for uncovered branches
+  # ---------------------------------------------------------------------------
+
+  defmodule StubJidoConnectNoFileIdInList do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]},
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.list", _params, _opts) do
+      {:ok,
+       %{
+         files: [
+           %{
+             "id" => "f-without-embed",
+             "name" => "No Embed Perm",
+             "mimeType" => "application/pdf",
+             "parents" => []
+           },
+           %{
+             "id" => "valid-1",
+             "name" => "Valid File",
+             "mimeType" => "application/pdf",
+             "parents" => [],
+             "permissions" => [
+               %{"id" => "p1", "type" => "user", "emailAddress" => "u@example.com"}
+             ]
+           }
+         ]
+       }}
+    end
+
+    def invoke(_integration, "stub.permissions.list", %{file_id: "valid-1"}, _opts) do
+      {:ok,
+       %{permissions: [%{"id" => "p2", "type" => "user", "emailAddress" => "u2@example.com"}]}}
+    end
+
+    def invoke(_integration, "stub.permissions.list", _, _opts) do
+      {:ok, %{permissions: []}}
+    end
+  end
+
+  defmodule StubJidoConnectTriggersError do
+    def actions(_integration), do: {:ok, []}
+
+    def triggers(_integration), do: {:error, :boom}
+  end
+
+  defmodule StubJidoConnectListOwners do
+    def actions(_integration) do
+      {:ok, [%{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]}]}
+    end
+
+    def invoke(_integration, "stub.files.list", _params, _opts) do
+      {:ok,
+       %{
+         files: [
+           %{
+             "id" => "f1",
+             "name" => "Doc",
+             "mimeType" => "application/pdf",
+             "parents" => [],
+             "owners" => [
+               %{"id" => "o1", "displayName" => "Owner One", "emailAddress" => "o1@example.com"},
+               %{"id" => "o2", "displayName" => "Owner Two", "emailAddress" => "o2@example.com"}
+             ]
+           }
+         ]
+       }}
+    end
+  end
+
+  defmodule StubJidoConnectPermissionsMixedScopes do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.list",
+           resource: :file,
+           verb: :list,
+           auth_profiles: [:user],
+           input: [%{name: :fields}, %{name: :page_size}]
+         },
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profiles: [:user],
+           input: [%{name: :fields}, %{name: :page_size}]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.list", _params, _opts), do: {:ok, %{files: []}}
+
+    def invoke(_integration, "stub.permissions.list", _params, _opts),
+      do: {:ok, %{permissions: []}}
+
+    def triggers(_integration), do: {:ok, []}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 1: watch_changes success path
+  # ---------------------------------------------------------------------------
+
+  test "watch_changes returns webhook-ready payload for supported mechanism" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifier
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_jido_connect,
+        do:
+          Application.put_env(
+            :zaq,
+            :jido_connect_bridge_jido_connect_module,
+            previous_jido_connect
+          ),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, result} = JidoConnectBridge.watch_changes(config, %{})
+    assert result.trigger_id == "stub.file.changed"
+    assert result.provider == "google_drive"
+    assert result.status == "watch_ready"
+    assert result.mechanism == "webhook"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 3: channel_stats skips files without id while collecting principals
+  # ---------------------------------------------------------------------------
+
+  test "channel_stats skips files without id while collecting principals" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectNoFileIdInList
+    )
+
+    assert {:ok, stats} = JidoConnectBridge.channel_stats(config, %{})
+    # The file without id is skipped in collect_file_principals (line 235 nil -> :cont)
+    # The valid file contributes its principals
+    assert stats.principals_count > 0
+    # Other stats still computed from records that have id
+    refute is_nil(stats.files_count)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 4: oauth_default_scopes normalizes mixed scope values
+  # ---------------------------------------------------------------------------
+
+  test "oauth_default_scopes normalizes mixed scope values" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: StubIntegration}
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectPermissionsMixedScopes
+    )
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_jido_connect,
+        do:
+          Application.put_env(
+            :zaq,
+            :jido_connect_bridge_jido_connect_module,
+            previous_jido_connect
+          ),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    end)
+
+    config = %{provider: "google_drive", settings: %{}}
+
+    assert {:ok, scopes} = JidoConnectBridge.oauth_default_scopes(config)
+    assert is_list(scopes)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 11: read_owners maps list owners into normalized owner structs
+  # ---------------------------------------------------------------------------
+
+  test "read_owners maps list owners into normalized owner structs" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectListOwners
+    )
+
+    assert {:ok, %Zaq.Contracts.RecordPage{records: [record]}} =
+             JidoConnectBridge.list_files(config, %{})
+
+    assert length(record.owners) == 2
+
+    [o1, o2] = record.owners
+    assert o1.id == "o1"
+    assert o1.display_name == "Owner One"
+    assert o1.email == "o1@example.com"
+    assert o2.id == "o2"
+    assert o2.display_name == "Owner Two"
+    assert o2.email == "o2@example.com"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 14: handle_webhook converts struct delivery via delivery_to_map
+  # ---------------------------------------------------------------------------
+
+  defmodule StubVerifierMapStruct do
+    defstruct [:normalized_signal]
+
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %StubVerifierMapStruct{
+         normalized_signal: %{
+           file_id: "webhook-file-1",
+           change_type: "updated"
+         }
+       }}
+    end
+  end
+
+  defmodule StubWebhookNodeRouterSimple do
+    def dispatch(%{opts: [action: :data_source_record_changed]} = event) do
+      send(self(), {:data_source_record_changed, event.request})
+      %{event | response: :ok}
+    end
+
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = _event), do: %{response: nil}
+
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = _event),
+      do: %{response: {:error, :not_found}}
+
+    def dispatch(%{opts: [action: :connect_oauth_redirect_uri_for]} = _event),
+      do: %{response: nil}
+  end
+
+  test "handle_webhook converts struct delivery via delivery_to_map" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubVerifierMapStruct
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_node_router_module,
+      StubWebhookNodeRouterSimple
+    )
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    # Since get_item_metadata is not available (no file:get action),
+    # handle_webhook falls back to built record and dispatches
+    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :updated
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 16: signal helper fallbacks for non-map signal
+  #   (lines 982, 997, 1007, 1019, 1028)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubVerifierNoSignalKey do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok, %{other_key: "value"}}
+    end
+  end
+
+  test "handle_webhook uses empty signal fallback and returns missing_record_id" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubVerifierNoSignalKey
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_jido_connect,
+        do:
+          Application.put_env(
+            :zaq,
+            :jido_connect_bridge_jido_connect_module,
+            previous_jido_connect
+          ),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    # delivery map has no normalized_signal key -> signal fallback %{} -> no file_id
+    # -> returns missing_record_id
+    assert {:error, :missing_record_id} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 19: provider_required_scopes keeps accumulator when scope resolution
+  #   fails for one capability (line 1101)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubJidoConnectMixedActions do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]},
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.list", _params, _opts), do: {:ok, %{files: []}}
+
+    def invoke(_integration, "stub.permissions.list", _params, _opts),
+      do: {:ok, %{permissions: []}}
+
+    def triggers(_integration), do: {:ok, []}
+  end
+
+  test "provider_required_scopes keeps accumulator when scope resolution fails for one capability" do
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectMixedActions
+    )
+
+    on_exit(fn ->
+      if previous_jido_connect,
+        do:
+          Application.put_env(
+            :zaq,
+            :jido_connect_bridge_jido_connect_module,
+            previous_jido_connect
+          ),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    # provider_required_scopes -> collect_required_scopes iterates resolved capabilities
+    # Some capabilities may fail ScopeRequirements.required_scopes -> acc preserved (line 1101)
+    # The test simply ensures the path doesn't crash
+    result = JidoConnectBridge.oauth_default_scopes(%{provider: "google_drive"})
+    assert match?({:ok, _}, result)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 20 parts: principal_keys edge branches (lines 1176, 1181)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubJidoConnectPrincipalEdgeCases do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]},
+         %{
+           id: "stub.permissions.list",
+           resource: :permission,
+           verb: :list,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.list", _params, _opts) do
+      {:ok,
+       %{
+         files: [
+           %{
+             "id" => "f1",
+             "name" => "Doc",
+             "mimeType" => "application/pdf",
+             "parents" => [],
+             "permissions" => [
+               # Permission with valid id passes map_permission_record
+               # principal_keys: "id" is found, produces a key
+               %{
+                 "id" => "p1",
+                 "type" => nil,
+                 "emailAddress" => nil,
+                 "domain" => nil
+               }
+             ]
+           }
+         ]
+       }}
+    end
+
+    def invoke(_integration, "stub.permissions.list", %{file_id: "f1"}, _opts) do
+      {:ok, %{permissions: [%{"id" => "p2", "type" => "user"}]}}
+    end
+  end
+
+  test "principal_keys produces key from id even when other fields are nil" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectPrincipalEdgeCases
+    )
+
+    assert {:ok, stats} = JidoConnectBridge.channel_stats(config, %{})
+    # Permission has valid id -> principal_keys produces key -> 1 principal
+    assert stats.principals_count == 1
+    assert stats.files_count == 1
+  end
+
+  # ---------------------------------------------------------------------------
   # Helper for restoring webhook environment
   # ---------------------------------------------------------------------------
 

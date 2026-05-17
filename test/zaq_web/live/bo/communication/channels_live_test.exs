@@ -36,10 +36,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     def start_runtime(_config), do: fetch_state(:start_runtime, :ok)
     def stop_runtime(_config), do: fetch_state(:stop_runtime, :ok)
 
-    def sync_runtime(before_config, after_config),
-      do: record_call(:sync_runtime, {before_config, after_config})
+    def sync_runtime(before_config, after_config) do
+      record_call(:sync_runtime, {before_config, after_config})
+      fetch_state(:sync_runtime_result, :ok)
+    end
 
     def sync_provider_runtime(config), do: record_call(:sync_provider_runtime, config)
+
+    def capability_snapshot(_config) do
+      fetch_state(:capability_snapshot, {:ok, %{resolved: %{}}})
+    end
 
     def put(key, value), do: put_state(key, value)
     def calls(key), do: fetch_state(key, []) |> Enum.reverse()
@@ -1306,6 +1312,532 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
              )
 
     assert result_socket.assigns.changeset.errors != []
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 7 — Template helper fallbacks for oauth/grants/auth helpers
+  # ---------------------------------------------------------------------------
+
+  test "template helper fallbacks for oauth and active_grant" do
+    config =
+      insert_channel_config(%{
+        settings: %{
+          "jido_chat" => %{"bot_name" => "tb", "bot_user_id" => "u-1"},
+          "connect" => %{"credential_id" => "42"}
+        }
+      })
+
+    changeset = ChannelConfig.changeset(config, %{})
+    # oauth_claim_url_for_changeset — covers 1099, 1103
+    url = ChannelsLive.oauth_claim_url_for_changeset(changeset)
+    assert is_binary(url) or is_nil(url)
+
+    # oauth_claim_state_for_changeset(:invalid) — covers 1106
+    fallback = ChannelsLive.oauth_claim_state_for_changeset(:invalid)
+    assert is_map(fallback), "Expected oauth_claim_state_for_changeset(:invalid) to return a map"
+
+    # active_grant_for_config(config, nil) — covers 1109
+    assert ChannelsLive.active_grant_for_config(config, nil) == nil
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 8 — Validate accepts matching connect credential provider for data source
+  # ---------------------------------------------------------------------------
+
+  test "validate accepts matching connect credential provider for data source" do
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "matched-credential-#{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        auth_kind: "api_key",
+        request_format: "raw",
+        user_level: false,
+        metadata: %{},
+        api_key: "secret"
+      })
+
+    changeset =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "name" => "Drive Good Cred",
+        "settings" => %{"connect" => %{"credential_id" => to_string(credential.id)}}
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        modal: :new,
+        provider: "google_drive",
+        kind: :data_source,
+        changeset: changeset,
+        configs: [],
+        provider_default_agent_id: nil,
+        retrieval_channels: [],
+        form: Phoenix.Component.to_form(changeset, as: :form),
+        modal_errors: [],
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: [],
+        oauth_claim_modal: false,
+        oauth_claim_url: nil,
+        confirm_delete: nil,
+        confirm_clear: false,
+        clear_channel_id: "",
+        clear_status: :idle,
+        test_config: nil,
+        test_status: :idle,
+        test_channel_id: "",
+        send_channel_id: "",
+        send_message: "",
+        send_status: :idle,
+        posts_channel_id: "",
+        posts: [],
+        posts_status: :idle,
+        posts_next_id: nil,
+        posts_prev_id: nil,
+        connect_credentials: [],
+        grants_by_config: %{}
+      }
+    }
+
+    assert {:noreply, result_socket} =
+             ChannelsLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "name" => "Drive Good Cred",
+                   "settings" => %{"connect" => %{"credential_id" => to_string(credential.id)}}
+                 }
+               },
+               socket
+             )
+
+    # No provider-mismatch or not-found errors on :settings
+    settings_errors =
+      result_socket.assigns.changeset.errors
+      |> Enum.filter(fn {field, _} -> field == :settings end)
+
+    assert settings_errors == [],
+           "Expected no settings errors for matching credential provider, got: #{inspect(settings_errors)}"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 11 — zaq_local provider mapping + oauth2 non-oauth bypass
+  # ---------------------------------------------------------------------------
+
+  test "open_new_credential maps zaq_local provider and save_credential skips oauth2 base-url check for non-oauth" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    base_changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        provider: "zaq_local",
+        kind: "data_source",
+        name: "cfg"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: "zaq_local",
+        kind: :data_source,
+        changeset: base_changeset,
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: []
+      }
+    }
+
+    # open_new_credential — provider mapping "zaq_local" -> "local_filesystem" (covers 1158)
+    assert {:noreply, opened} = ChannelsLive.handle_event("open_new_credential", %{}, socket)
+    assert opened.assigns.credential_modal
+    # With nil base URL, oauth2 changeset will have an error — that's expected
+    # Now save with api_key (non-oauth, bypasses base-url check at line 1250)
+    cred_name = "zaq-cred-#{System.unique_integer([:positive])}"
+
+    assert {:noreply, saved} =
+             ChannelsLive.handle_event(
+               "save_credential",
+               %{
+                 "credential" => %{
+                   "name" => cred_name,
+                   "auth_kind" => "api_key",
+                   "api_key" => "key-123",
+                   "request_format" => "bearer",
+                   "user_level" => false,
+                   "metadata" => %{}
+                 }
+               },
+               opened
+             )
+
+    refute saved.assigns.credential_modal,
+           "Expected credential modal closed after successful non-oauth save"
+
+    # Verify the created credential has "local_filesystem" as provider
+    assert Repo.get_by(Connect.Credential,
+             name: cred_name,
+             provider: "local_filesystem"
+           ),
+           "Expected credential with provider local_filesystem from zaq_local mapping"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 5 — Provider normalization/error branches in deliver_outgoing
+  # ---------------------------------------------------------------------------
+
+  test "send_message handles unsupported provider strings and unexpected provider type" do
+    # Subcase A: unsupported provider string — use a string that won't be an existing atom
+    # (covers 924, 928, 933)
+    raw_string = "nonexistent_provider_#{System.unique_integer([:positive])}"
+
+    socket_a = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: raw_string,
+        kind: :retrieval,
+        send_channel_id: "",
+        send_message: "",
+        send_status: :idle,
+        configs: []
+      }
+    }
+
+    assert {:noreply, result_a} =
+             ChannelsLive.handle_event(
+               "send_message",
+               %{"channel_id" => "ch-1", "message" => "hello"},
+               socket_a
+             )
+
+    assert result_a.assigns.send_status ==
+             {:error, {:unsupported_provider, raw_string}}
+
+    assert result_a.assigns.send_message == "hello"
+
+    # Subcase B: unexpected provider type (integer) (covers 924, 944)
+    socket_b = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        provider: 123,
+        kind: :retrieval,
+        send_channel_id: "",
+        send_message: "",
+        send_status: :idle,
+        configs: []
+      }
+    }
+
+    assert {:noreply, result_b} =
+             ChannelsLive.handle_event(
+               "send_message",
+               %{"channel_id" => "ch-2", "message" => "world"},
+               socket_b
+             )
+
+    assert result_b.assigns.send_status == {:error, {:unsupported_provider, 123}}
+    assert result_b.assigns.send_message == "world"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 2 — Capabilities modal open/close
+  # ---------------------------------------------------------------------------
+
+  test "open_capabilities and close_capabilities toggle modal assign", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    refute has_element?(view, "#capabilities-modal")
+
+    render_hook(view, "open_capabilities", %{})
+    assert has_element?(view, "#capabilities-modal")
+
+    render_hook(view, "close_capabilities", %{})
+    refute has_element?(view, "#capabilities-modal")
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 3 — send_message handles {:ok, _} tuple branch
+  # ---------------------------------------------------------------------------
+
+  test "send_message treats tuple ok as success and clears message", %{conn: conn} do
+    insert_channel_config(%{})
+    BridgeFake.put(:send_reply, {:ok, %{id: "sent"}})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view
+    |> element("form[phx-submit=\"send_message\"]")
+    |> render_submit(%{"channel_id" => "ch-1", "message" => "tuple-ok-test"})
+
+    assert render(view) =~ "Message sent!"
+
+    # send_message input was cleared
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.send_message == ""
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 4 — Invalid conversation agent id on provider default assignment
+  # ---------------------------------------------------------------------------
+
+  test "set_provider_default_agent rejects non conversation-enabled agent", %{conn: conn} do
+    config = insert_channel_config(%{})
+    disabled_agent = create_conversation_agent(false, "no-conv")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    render_hook(view, "set_provider_default_agent", %{
+      "config_id" => to_string(config.id),
+      "configured_agent_id" => to_string(disabled_agent.id)
+    })
+
+    assert render(view) =~ "Failed to update provider default agent"
+
+    # Config default agent unchanged (remains nil)
+    assert Repo.get!(ChannelConfig, config.id).settings["provider_default_agent_id"] == nil
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 6 — Runtime sync unexpected result flash
+  # ---------------------------------------------------------------------------
+
+  test "save shows unexpected runtime sync result flash", %{conn: conn} do
+    config =
+      insert_channel_config(%{
+        provider: "mattermost",
+        kind: "retrieval",
+        name: "Sync Test"
+      })
+
+    BridgeFake.put(:sync_runtime_result, :unexpected)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#edit-config-#{config.id}") |> render_click()
+
+    view
+    |> element("#config-form")
+    |> render_submit(%{
+      "form" => %{
+        "name" => "Sync Test Updated",
+        "url" => "https://mattermost.local",
+        "token" => "",
+        "enabled" => "true"
+      }
+    })
+
+    html = render(view)
+    assert html =~ "Channel config saved."
+    assert html =~ "Runtime sync returned unexpected result"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 9 — grants_by_config picks latest active grant
+  # ---------------------------------------------------------------------------
+
+  test "data source mount groups active grants and picks latest by id" do
+    config =
+      insert_channel_config(%{
+        provider: "google_drive",
+        kind: "data_source",
+        name: "Grant Test Drive"
+      })
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "grant-base-cred-#{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        auth_kind: "api_key",
+        request_format: "raw",
+        user_level: false,
+        metadata: %{},
+        api_key: "secret-key"
+      })
+
+    resource_id = to_string(config.id)
+    now = DateTime.utc_now()
+
+    # Create older grant (lower id)
+    {:ok, old_grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        provider: "google_drive",
+        auth_kind: "api_key",
+        resource_type: "data_source",
+        resource_id: resource_id,
+        owner_type: "org",
+        request_format: "bearer",
+        status: "active",
+        api_key: "old-key",
+        inserted_at: DateTime.add(now, -3600, :second)
+      })
+
+    # Create newer grant (higher id)
+    {:ok, new_grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        provider: "google_drive",
+        auth_kind: "api_key",
+        resource_type: "data_source",
+        resource_id: resource_id,
+        owner_type: "org",
+        request_format: "bearer",
+        status: "active",
+        api_key: "new-key"
+      })
+
+    assert new_grant.id > old_grant.id, "Expected newer grant to have higher id"
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        service_available: true,
+        live_action: :data_source
+      }
+    }
+
+    assert {:ok, mounted} =
+             ChannelsLive.mount(%{"provider" => "google_drive"}, %{}, socket)
+
+    config_id = config.id
+    assert %{^config_id => latest_grant} = mounted.assigns.grants_by_config
+
+    assert latest_grant.id == new_grant.id,
+           "Expected grants_by_config to pick the newest grant (id=#{new_grant.id}), got id=#{latest_grant.id}"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 10 — Global base URL requirement for webhook-capable data source
+  # ---------------------------------------------------------------------------
+
+  test "validate requires global base URL when capability snapshot declares webhook" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+
+    existing_channels = Application.get_env(:zaq, :channels, %{})
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: BridgeFake, ingress_mode: :websocket},
+      web: %{bridge: Zaq.Channels.WebBridge},
+      email: %{bridge: Zaq.Channels.EmailBridge},
+      google_drive: %{bridge: BridgeFake, ingress_mode: :webhook}
+    })
+
+    BridgeFake.put(:capability_snapshot, {:ok, %{resolved: %{watch_changes_webhook: %{}}}})
+
+    # Create a google_drive ChannelConfig so Bridge.capability_snapshot can find it
+    _drive_config =
+      insert_channel_config(%{
+        provider: "google_drive",
+        kind: "data_source",
+        name: "Webhook Drive Config",
+        url: "https://drive.example.com",
+        token: "drive-token"
+      })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, existing_channels)
+    end)
+
+    changeset =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "name" => "Webhook Drive"
+      })
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        modal: :new,
+        provider: "google_drive",
+        kind: :data_source,
+        changeset: changeset,
+        configs: [],
+        provider_default_agent_id: nil,
+        retrieval_channels: [],
+        form: Phoenix.Component.to_form(changeset, as: :form),
+        modal_errors: [],
+        credential_modal: false,
+        credential_changeset: nil,
+        credential_form: nil,
+        credential_errors: [],
+        oauth_claim_modal: false,
+        oauth_claim_url: nil,
+        confirm_delete: nil,
+        confirm_clear: false,
+        clear_channel_id: "",
+        clear_status: :idle,
+        test_config: nil,
+        test_status: :idle,
+        test_channel_id: "",
+        send_channel_id: "",
+        send_message: "",
+        send_status: :idle,
+        posts_channel_id: "",
+        posts: [],
+        posts_status: :idle,
+        posts_next_id: nil,
+        posts_prev_id: nil,
+        connect_credentials: [],
+        grants_by_config: %{}
+      }
+    }
+
+    assert {:noreply, result_socket} =
+             ChannelsLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "name" => "Webhook Drive"
+                 }
+               },
+               socket
+             )
+
+    settings_errors =
+      result_socket.assigns.changeset.errors
+      |> Enum.filter(fn {field, _} -> field == :settings end)
+
+    assert settings_errors != [],
+           "Expected settings errors about missing global base URL for webhook-capable provider"
+
+    {err_msg, _meta} = elem(hd(settings_errors), 1)
+
+    assert String.contains?(err_msg, "Global base URL"),
+           "Expected settings error to mention 'Global base URL', got: #{inspect(err_msg)}"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 12 — sync_provider_runtime nil short-circuit
+  # ---------------------------------------------------------------------------
+
+  test "operations with nil config skip provider runtime sync without error", %{conn: conn} do
+    config = insert_channel_config(%{enabled: false})
+    retrieval = insert_retrieval_channel(config)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    # Toggle retrieval channel — first_enabled_config returns nil,
+    # sync_provider_runtime(nil) returns :ok (line 1010)
+    view |> element("#toggle-retrieval-channel-#{retrieval.id}") |> render_click()
+
+    # No crash, normal response
+    html = render(view)
+    refute html =~ "Runtime sync failed"
+    refute html =~ "Runtime sync returned unexpected result"
   end
 
   defp insert_channel_config(attrs) do

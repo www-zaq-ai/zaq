@@ -10,7 +10,7 @@ metadata:
 
 ## What I do
 
-I receive a filename with and the line numbers that are not covered by a test
+I receive a filename with the line numbers that are not covered by a test
 
 - Analyse the code at the uncovered lines for the file in the current project
 - Generate one detailed plan to add tests to cover the gaps for each file
@@ -23,10 +23,10 @@ Step 3: Report the plan with the test file to add/edit, the detailed scenario an
 
 When producing test scenarios plan:
 
-- Favor fewer integration tests with a wider branch activation
-- Hit actual code implementation whenever possible
-- Build mocks when there's a need to predictably simulate an external API call
-- Re-use helpers and mocks when they already exists
+- Favor contracted collaborator tests + thin integration tests
+- Hit actual code implementation for a wider branch activation
+- Build mocks/stubs using Mox when there's a need to predictably simulate an external API call
+- Re-use helpers, mocks and stubs when they already exists
 
 ## When to use me
 

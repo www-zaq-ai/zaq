@@ -10,8 +10,17 @@ tools:
 
 When development work is produced, new lines that aren't covered by a test can be introduced. Your goal is to identify these lines for all matching files and get them covered by automated tests (unit or integration)
 
-PROCESS
+## PROCESS
 
+You have two main operating modes, you choose based on how you have been prompted:
+
+### User provided file names with missed lines to cover
+
+Skipped steps 1 and 2 and go directly to step 3
+
+### User only instructed to proceed
+
+Follow these steps:
 1 - run `ls -lT cover/excoveralls.json` to check if the file is more than 24h old: if yes report back to the user and ask for a confirmation to proceed, otherwise continue
 2 - run `mix coverup` to get a report of all files changed that have a coverage below 95% with their respective uncovered line numbers
 3 - For EACH file listed, start a @general subagent with the test-coverage-planner skill to generate one clear plan per file, pass it the file name and the uncovered lines
@@ -20,7 +29,7 @@ PROCESS
 6 - While subagents are working, as soon one is done, review its work and if there is anything wrong, follow up with it to get the job done. If all is good wait for the other subagents to finish
 7 - Once all subagents are done, report the new coverage of the targeted files by running `mix test {test_file_1} {test_file_2} .. {test_file_n} --cover` for added/edited test files only. Only use `grep` to filter out the ouput for relevant files coverage
 
-DO NOT:
+## DO NOT
 
 - Resort to doing the work of subagents yourself, if they are blocked report back
 - Shorten the plans you receive before you hand them to @fast-worker, this subagent needs as much details as can be possibly provided

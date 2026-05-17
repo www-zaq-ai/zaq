@@ -3,7 +3,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   alias Zaq.Agent.MCP
   alias Zaq.Event
-  alias Zaq.NodeRouter
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
@@ -17,6 +16,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:current_path, "/bo/system-config")
      |> assign(:page_title, "System Configuration")
      |> assign(:active_tab, :ai_credentials)
+     |> assign(
+       :node_router_module,
+       Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
+     )
      |> assign(:ai_credential_modal, false)
      |> assign(:ai_credential_delete_confirm_modal, false)
      |> assign(:ai_credential_action, :new)
@@ -647,12 +650,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("confirm_delete_mcp_endpoint", _params, socket) do
+    router = socket.assigns.node_router_module
+
     event =
       Event.new(%{action: :delete, id: socket.assigns.mcp_endpoint_id}, :agent,
         opts: [action: :mcp_endpoint_updated]
       )
 
-    case NodeRouter.dispatch(event).response do
+    case router.dispatch(event).response do
       {:ok, %{endpoint: endpoint} = payload} ->
         socket =
           socket
@@ -688,12 +693,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("enable_predefined_mcp", %{"predefined_id" => predefined_id}, socket) do
+    router = socket.assigns.node_router_module
+
     event =
       Event.new(%{action: :enable_predefined, predefined_id: predefined_id}, :agent,
         opts: [action: :mcp_endpoint_updated]
       )
 
-    case NodeRouter.dispatch(event).response do
+    case router.dispatch(event).response do
       {:ok, %{endpoint: endpoint} = payload} ->
         socket =
           socket
@@ -757,10 +764,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           %{action: :create, attrs: parsed}
       end
 
+    router = socket.assigns.node_router_module
+
     event =
       Event.new(request, :agent, opts: [action: :mcp_endpoint_updated])
 
-    result = NodeRouter.dispatch(event).response
+    result = router.dispatch(event).response
 
     case result do
       {:ok, %{endpoint: endpoint} = payload} ->
@@ -816,6 +825,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("test_mcp_endpoint", %{"id" => id}, socket) do
     endpoint_id = ParseUtils.parse_optional_int(id)
+    router = socket.assigns.node_router_module
 
     event =
       Event.new(%{endpoint_id: endpoint_id}, :agent,
@@ -826,7 +836,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         ]
       )
 
-    result = NodeRouter.dispatch(event)
+    result = router.dispatch(event)
 
     case result.response do
       {:ok, _payload} ->
@@ -1468,20 +1478,26 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp dispatch_engine(action, request \\ %{}) do
+    router = Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
+
     Event.new(request, :engine, opts: [action: action])
-    |> NodeRouter.dispatch()
+    |> router.dispatch()
     |> Map.get(:response)
   end
 
   defp dispatch_agent(action, request \\ %{}) do
+    router = Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
+
     Event.new(request, :agent, opts: [action: action])
-    |> NodeRouter.dispatch()
+    |> router.dispatch()
     |> Map.get(:response)
   end
 
   defp dispatch_channels(action, request) do
+    router = Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
+
     Event.new(request, :channels, opts: [action: action])
-    |> NodeRouter.dispatch()
+    |> router.dispatch()
     |> Map.get(:response)
   end
 
