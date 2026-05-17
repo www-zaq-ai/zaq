@@ -11,6 +11,8 @@ defmodule Zaq.Engine.Workflows do
 
   import Ecto.Query
 
+  alias Zaq.Engine.EventRegistry
+
   alias Zaq.Engine.Workflows.{
     Trigger,
     Workflow,
@@ -371,9 +373,20 @@ defmodule Zaq.Engine.Workflows do
   @spec update_trigger(Trigger.t(), map(), keyword()) ::
           {:ok, Trigger.t()} | {:error, Ecto.Changeset.t()}
   def update_trigger(%Trigger{} = trigger, attrs, _opts \\ []) do
-    trigger
-    |> Trigger.changeset(attrs)
-    |> Repo.update()
+    with {:ok, updated} <- trigger |> Trigger.changeset(attrs) |> Repo.update() do
+      sync_registry(updated)
+      {:ok, updated}
+    end
+  end
+
+  defp sync_registry(%Trigger{event_name: name, enabled: true}) do
+    if Process.whereis(EventRegistry), do: EventRegistry.activate(name)
+    :ok
+  end
+
+  defp sync_registry(%Trigger{event_name: name, enabled: false}) do
+    if Process.whereis(EventRegistry), do: EventRegistry.deactivate(name)
+    :ok
   end
 
   @doc "Deletes a trigger. Cascades to trigger_workflows via FK."

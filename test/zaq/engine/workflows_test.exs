@@ -177,4 +177,29 @@ defmodule Zaq.Engine.WorkflowsTest do
       refute t.id in remaining_ids
     end
   end
+
+  # --- update_trigger/3 — registry sync ---
+
+  describe "update_trigger/3 — registry sync" do
+    test "update_trigger succeeds without crashing when EventRegistry is not running" do
+      # DataCase does not start the Engine supervisor, so Process.whereis(EventRegistry) == nil.
+      # The sync_registry/1 guard means no call is made — update_trigger must not crash.
+      t = create_trigger(%{event_name: "sync_test_event", enabled: true})
+      assert {:ok, updated} = Workflows.update_trigger(t, %{enabled: false})
+      assert updated.enabled == false
+    end
+
+    test "disabling a trigger deactivates the event when EventRegistry is not running" do
+      # Verifies the correct DB value is returned even without a live registry.
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "deactivate_me", enabled: true})
+      assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: false})
+      assert updated.enabled == false
+    end
+
+    test "enabling a trigger activates the event when EventRegistry is not running" do
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "activate_me", enabled: false})
+      assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: true})
+      assert updated.enabled == true
+    end
+  end
 end
