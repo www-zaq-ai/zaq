@@ -674,7 +674,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     :ok
   end
 
-  defp insert_data_source_config(provider, attrs \\ %{}) do
+  def insert_data_source_config(provider, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     base = %{
@@ -690,7 +690,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     |> Repo.insert!()
   end
 
-  defp create_credential! do
+  def create_credential! do
     {:ok, credential} =
       Connect.create_credential(%{
         name: "cred-#{System.unique_integer([:positive])}",
@@ -707,7 +707,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     credential
   end
 
-  defp create_active_grant!(credential, resource_id, owner_type \\ "org") do
+  def create_active_grant!(credential, resource_id, owner_type \\ "org") do
     {:ok, grant} =
       Connect.issue_grant(%{
         credential_id: credential.id,
@@ -4745,7 +4745,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # Helper for restoring webhook environment
   # ---------------------------------------------------------------------------
 
-  defp restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router) do
+  def restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router) do
     if previous_channels,
       do: Application.put_env(:zaq, :channels, previous_channels),
       else: Application.delete_env(:zaq, :channels)

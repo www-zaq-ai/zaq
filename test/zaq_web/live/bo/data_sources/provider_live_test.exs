@@ -6,14 +6,22 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
+  alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: BridgeStubs
   alias ZaqWeb.Live.BO.DataSources.ProviderLive
 
   setup do
     original_base_url = ZaqSystem.get_global_base_url()
+    original_channels = Application.get_env(:zaq, :channels)
+
     :ok = ZaqSystem.set_global_base_url("https://zaq.example")
 
     on_exit(fn ->
       :ok = ZaqSystem.set_global_base_url(original_base_url)
+
+      case original_channels do
+        nil -> Application.delete_env(:zaq, :channels)
+        channels -> Application.put_env(:zaq, :channels, channels)
+      end
     end)
 
     :ok
@@ -26,6 +34,10 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       |> Map.put_new(:flash, %{})
 
     %Phoenix.LiveView.Socket{assigns: assigns}
+  end
+
+  defp use_data_source_bridge(provider, bridge_module) do
+    BridgeStubs.put_bridge(provider, bridge_module)
   end
 
   defp config_changeset(provider) do
@@ -489,6 +501,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       })
       |> Repo.insert!()
 
+    use_data_source_bridge(:google_drive, BridgeStubs.UnexpectedResponse)
+
     socket =
       socket_with(%{
         provider: "google_drive",
@@ -504,9 +518,20 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
                socket
              )
 
-    assert Map.has_key?(updated.assigns.root_folders_by_config, config.id)
-    assert Map.has_key?(updated.assigns.root_folder_meta_by_config, config.id)
-    assert is_map(updated.assigns.root_folder_meta_by_config[config.id])
+    assert ProviderLive.root_folders(updated.assigns.root_folders_by_config[config.id]) == []
+
+    meta = updated.assigns.root_folder_meta_by_config[config.id]
+
+    assert meta.pages_loaded == 0
+    assert meta.scanned_entries == 0
+    assert meta.matched_folders == 0
+    assert meta.has_more? == false
+    assert meta.next_page_token == nil
+    assert meta.truncated == false
+
+    assert updated.assigns.stats_errors_by_config[config.id] == %{
+             message: "Unknown provider error while fetching root folders."
+           }
   end
 
   test "save creates a new data source config" do
@@ -966,7 +991,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
   # --- Integration tests for error paths ---
 
-  test "open_test populates complete root folder metadata on error" do
+  test "open_test formats display_message overrides in stats errors" do
     config =
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
@@ -978,6 +1003,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       })
       |> Repo.insert!()
 
+    use_data_source_bridge(:google_drive, BridgeStubs.DisplayMessageError)
+
     socket =
       socket_with(%{
         provider: "google_drive",
@@ -994,26 +1021,27 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
              )
 
     meta = updated.assigns.root_folder_meta_by_config[config.id]
-    assert is_map(meta)
-    assert Map.has_key?(meta, :pages_loaded)
-    assert Map.has_key?(meta, :scanned_entries)
-    assert Map.has_key?(meta, :matched_folders)
-    assert Map.has_key?(meta, :has_more?)
-    assert Map.has_key?(meta, :next_page_token)
-    assert Map.has_key?(meta, :truncated)
-    assert Map.has_key?(meta, :max_pages_per_batch)
 
-    error = updated.assigns.stats_errors_by_config[config.id]
-    assert error != nil
-    assert is_map(error)
-    assert Map.has_key?(error, :message)
+    assert meta.pages_loaded == 0
+    assert meta.scanned_entries == 0
+    assert meta.matched_folders == 0
+    assert meta.has_more? == false
+    assert meta.next_page_token == nil
+    assert meta.truncated == false
+
+    assert updated.assigns.stats_errors_by_config[config.id] == %{
+             message: "friendly",
+             code: "E42",
+             provider: "google_drive",
+             status: 503
+           }
   end
 
-  test "open_test populates complete root folder metadata on success" do
+  test "open_test keeps nil provider errors as nil while marking metadata errored" do
     config =
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
-        "name" => "cfg-meta-success-#{System.unique_integer([:positive])}",
+        "name" => "cfg-meta-nil-#{System.unique_integer([:positive])}",
         "provider" => "google_drive",
         "kind" => "data_source",
         "enabled" => true,
@@ -1021,6 +1049,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       })
       |> Repo.insert!()
 
+    use_data_source_bridge(:google_drive, BridgeStubs.NilError)
+
     socket =
       socket_with(%{
         provider: "google_drive",
@@ -1036,17 +1066,15 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
                socket
              )
 
-    folders = ProviderLive.root_folders(updated.assigns.root_folders_by_config[config.id])
     meta = updated.assigns.root_folder_meta_by_config[config.id]
 
-    assert is_map(meta)
-    assert is_integer(meta.pages_loaded)
-    assert is_integer(meta.scanned_entries)
-    assert is_integer(meta.matched_folders)
-    assert meta.matched_folders == length(folders)
-    assert is_boolean(meta.has_more?)
-    assert is_boolean(meta.truncated)
-    assert meta.max_pages_per_batch == 1
+    assert meta.pages_loaded == 0
+    assert meta.scanned_entries == 0
+    assert meta.matched_folders == 0
+    assert meta.has_more? == false
+    assert meta.next_page_token == nil
+    assert meta.truncated == false
+    assert updated.assigns.stats_errors_by_config[config.id] == nil
   end
 
   test "save_credential bypasses global base URL check for non-oauth2 auth kinds" do
@@ -1158,17 +1186,19 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   # --- New coverage tests for uncovered lines ---
 
   describe "multi-page root folder fetching with cursor" do
-    test "open_test with zero max_pages exercises the success path directly" do
+    test "open_test continues pagination until cursor halts and dedupes folders" do
       config =
         %ChannelConfig{}
         |> ChannelConfig.changeset(%{
-          "name" => "cfg-zero-pages-#{System.unique_integer([:positive])}",
+          "name" => "cfg-continuation-#{System.unique_integer([:positive])}",
           "provider" => "google_drive",
           "kind" => "data_source",
           "enabled" => true,
-          "settings" => %{}
+          "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 2}}
         })
         |> Repo.insert!()
+
+      use_data_source_bridge(:google_drive, BridgeStubs.ContinuationThenHalt)
 
       socket =
         socket_with(%{
@@ -1185,76 +1215,57 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
                  socket
                )
 
-      _folders = ProviderLive.root_folders(updated.assigns.root_folders_by_config[config.id])
+      folders = ProviderLive.root_folders(updated.assigns.root_folders_by_config[config.id])
       meta = updated.assigns.root_folder_meta_by_config[config.id]
 
-      assert is_map(meta)
-      assert Map.has_key?(meta, :has_more?)
-      assert Map.has_key?(meta, :next_page_token)
-      assert Map.has_key?(meta, :truncated)
-      assert Map.has_key?(meta, :pages_loaded)
-      assert Map.has_key?(meta, :scanned_entries)
-      assert Map.has_key?(meta, :matched_folders)
-      assert Map.has_key?(meta, :max_pages_per_batch)
-
-      error = updated.assigns.stats_errors_by_config[config.id]
-      assert is_map(error) or is_nil(error)
+      assert Enum.map(folders, & &1.name) == ["Alpha", "Bravo", "Zulu"]
+      assert meta.pages_loaded == 2
+      assert meta.scanned_entries == 5
+      assert meta.matched_folders == 3
+      assert meta.has_more? == false
+      assert meta.next_page_token == nil
+      assert meta.truncated == false
+      assert meta.max_pages_per_batch == 2
+      assert updated.assigns.stats_errors_by_config[config.id] == nil
     end
 
-    test "fetch_more with cursor merges new folders and updates metadata" do
+    test "open_test keeps a non-empty next_page_token when the max page limit stops pagination" do
       config =
         %ChannelConfig{}
         |> ChannelConfig.changeset(%{
-          "name" => "cfg-cursor-merge-#{System.unique_integer([:positive])}",
+          "name" => "cfg-still-more-#{System.unique_integer([:positive])}",
           "provider" => "google_drive",
           "kind" => "data_source",
           "enabled" => true,
-          "settings" => %{}
+          "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
         })
         |> Repo.insert!()
 
-      existing_folder = %Zaq.Contracts.Record{
-        id: "existing-1",
-        name: "Existing Folder",
-        kind: :folder,
-        permissions: []
-      }
+      use_data_source_bridge(:google_drive, BridgeStubs.StillMore)
 
       socket =
         socket_with(%{
           provider: "google_drive",
-          root_folders_by_config: %{config.id => [existing_folder]},
-          root_folder_meta_by_config: %{
-            config.id => %{
-              next_page_token: "more-token",
-              pages_loaded: 1,
-              scanned_entries: 5,
-              matched_folders: 1,
-              has_more?: true,
-              truncated: true,
-              max_pages_per_batch: 5
-            }
-          },
-          stats_errors_by_config: %{config.id => nil}
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
         })
 
       assert {:noreply, updated} =
                ProviderLive.handle_event(
-                 "fetch_more",
+                 "open_test",
                  %{"id" => Integer.to_string(config.id)},
                  socket
                )
 
-      assert Enum.any?(
-               updated.assigns.root_folders_by_config[config.id],
-               &(&1.id == "existing-1")
-             )
-
       meta = updated.assigns.root_folder_meta_by_config[config.id]
-      assert is_map(meta)
-      assert is_integer(meta.pages_loaded)
-      assert is_integer(meta.scanned_entries)
-      assert is_integer(meta.matched_folders)
+      assert meta.pages_loaded == 1
+      assert meta.scanned_entries == 1
+      assert meta.matched_folders == 1
+      assert meta.has_more? == true
+      assert meta.next_page_token == "still-more"
+      assert meta.truncated == true
+      assert updated.assigns.stats_errors_by_config[config.id] == nil
     end
   end
 
@@ -1301,7 +1312,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   end
 
   describe "parse_int and record_key edge cases" do
-    test "open_folder_info with integer config-id and atom config-id" do
+    test "open_folder_info accepts integer config-id and falls back to -1 for invalid types" do
       folder = %Zaq.Contracts.Record{
         id: "f-1",
         name: "Test Folder",
@@ -1309,21 +1320,38 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
         permissions: []
       }
 
+      fallback_folder = %Zaq.Contracts.Record{
+        id: "fallback",
+        name: "Fallback Folder",
+        kind: :folder,
+        permissions: []
+      }
+
       socket =
         socket_with(%{
           provider: "google_drive",
-          root_folders_by_config: %{42 => [folder]}
+          root_folders_by_config: %{42 => [folder], -1 => [fallback_folder]}
         })
 
       assert {:noreply, result} =
                ProviderLive.handle_event(
                  "open_folder_info",
-                 %{"config-id" => "42", "folder-id" => "f-1"},
+                 %{"config-id" => 42, "folder-id" => "f-1"},
                  socket
                )
 
       assert result.assigns.folder_info_modal.config_id == 42
       assert result.assigns.folder_info_modal.folder.id == "f-1"
+
+      assert {:noreply, fallback_result} =
+               ProviderLive.handle_event(
+                 "open_folder_info",
+                 %{"config-id" => %{bad: :type}, "folder-id" => "missing"},
+                 socket
+               )
+
+      assert fallback_result.assigns.folder_info_modal.config_id == -1
+      assert fallback_result.assigns.folder_info_modal.folder == nil
     end
 
     test "open_folder_info handles non-list root folders gracefully" do
@@ -1342,6 +1370,49 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
       assert result.assigns.folder_info_modal.config_id == -1
       assert result.assigns.folder_info_modal.folder == nil
+    end
+
+    test "open_test dedupes structurally equal records even without a binary id" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-nil-id-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+        })
+        |> Repo.insert!()
+
+      use_data_source_bridge(:google_drive, BridgeStubs.NilIdDuplicate)
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "open_test",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket
+               )
+
+      folders = ProviderLive.root_folders(updated.assigns.root_folders_by_config[config.id])
+      meta = updated.assigns.root_folder_meta_by_config[config.id]
+
+      assert length(folders) == 1
+      assert hd(folders).name == "Shared Folder"
+      assert meta.pages_loaded == 1
+      assert meta.scanned_entries == 2
+      assert meta.matched_folders == 1
+      assert meta.has_more? == false
+      assert meta.next_page_token == nil
+      assert meta.truncated == false
+      assert updated.assigns.stats_errors_by_config[config.id] == nil
     end
   end
 
