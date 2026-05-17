@@ -1688,6 +1688,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       refute has_element?(view, "#ai-credential-delete-confirm")
     end
+
+    test "edit_ai_credential with missing id raises Ecto.NoResultsError", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_ai_provider_credential_bang ->
+            %Zaq.Event{event | response: {:error, :not_found}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      previous = Process.flag(:trap_exit, true)
+      task = Task.async(fn -> render_click(view, "edit_ai_credential", %{"id" => "99999999"}) end)
+      task_pid = task.pid
+
+      assert_receive {:DOWN, _ref, :process, ^task_pid, _reason}
+      Process.flag(:trap_exit, previous)
+    end
   end
 
   describe "LLM fusion weight controls" do
@@ -1837,6 +1860,51 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "llm-config-form"
     end
+
+    test "validate_llm clamps float fusion weight inputs", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => "",
+            "model" => "test-model",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => 0.75,
+            "fusion_vector_weight" => 0.25
+          }
+        })
+
+      assert html =~ ~s(name="llm_config[fusion_bm25_weight]" value="0.75")
+      assert html =~ ~s(name="llm_config[fusion_vector_weight]" value="0.25")
+    end
+
+    test "validate_llm treats non-map credential ids as custom providers", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => %{},
+            "model" => "test-model",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+    end
   end
 
   describe "embedding dimension detection" do
@@ -1885,6 +1953,108 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
 
       assert html =~ "embedding-config-form"
+    end
+
+    test "validate_embedding fills default and max dimensions for known OpenAI models", %{
+      conn: conn
+    } do
+      credential =
+        ai_credential_fixture(%{
+          name: "Known Embedding Provider",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      view |> element("button[phx-click='unlock_embedding']") |> render_click()
+      view |> element("button[phx-click='confirm_unlock_embedding']") |> render_click()
+
+      _html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "model-not-in-lldb",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      html_small =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "text-embedding-3-small",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      assert html_small =~ ~s(name="embedding_config[dimension]" value="1536")
+
+      html_large =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "text-embedding-3-large",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      assert html_large =~ ~s(name="embedding_config[dimension]" value="3072")
+    end
+
+    test "validate_embedding keeps dimension when lookup returns nil", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "Unknown Model Embedding",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      view |> element("button[phx-click='unlock_embedding']") |> render_click()
+      view |> element("button[phx-click='confirm_unlock_embedding']") |> render_click()
+
+      _html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "model-not-in-lldb",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      _html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "text-embedding-3-small",
+            "dimension" => "1536",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "model-not-in-lldb",
+            "dimension" => "1536",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      assert html =~ ~s(name="embedding_config[dimension]" value="1536")
     end
   end
 
@@ -3134,6 +3304,598 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       updated = Repo.get!(Zaq.Engine.Connect.Credential, credential.id)
       assert updated.name == "Sanitized Updated"
+    end
+  end
+
+  describe "connect grants modal with mocked router" do
+    setup [:with_node_router_mock_setup]
+
+    test "delete and refresh grant error branches keep the modal open", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Mocked Grant Cred #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "123",
+          owner_type: "org",
+          owner_id: 1,
+          request_format: "bearer",
+          status: "active",
+          access_token: "access-live",
+          refresh_token: "refresh-live",
+          scopes: ["scope.read"],
+          expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+        })
+
+      error_changeset =
+        Ecto.Changeset.add_error(
+          Ecto.Changeset.change(%Zaq.Engine.Connect.Grant{}),
+          :base,
+          "boom"
+        )
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_connect_list_credentials ->
+            %Zaq.Event{event | response: [credential]}
+
+          :system_config_connect_list_grants ->
+            %Zaq.Event{event | response: [grant]}
+
+          :system_config_connect_next_refresh_jobs_for_grants ->
+            %Zaq.Event{event | response: %{grant.id => DateTime.utc_now()}}
+
+          :system_config_connect_delete_grant ->
+            %Zaq.Event{event | response: {:error, error_changeset}}
+
+          :system_config_connect_schedule_refresh ->
+            %Zaq.Event{event | response: {:error, error_changeset}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        view
+        |> element(
+          "button[phx-click='trigger_connect_grant_refresh'][phx-value-id='#{grant.id}']"
+        )
+        |> render_click()
+
+      assert html =~ "Unable to queue grant refresh."
+      assert render(view) =~ "#{grant.resource_type}:#{grant.resource_id}"
+
+      html =
+        view
+        |> element("button[phx-click='delete_connect_grant'][phx-value-id='#{grant.id}']")
+        |> render_click()
+
+      assert html =~ "Unable to erase grant."
+      assert render(view) =~ "#{grant.resource_type}:#{grant.resource_id}"
+    end
+
+    test "open_connect_grants with unknown id resets the grants modal state", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Mocked Empty Grants Cred #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_connect_list_credentials ->
+            %Zaq.Event{event | response: [credential]}
+
+          :system_config_connect_list_grants ->
+            %Zaq.Event{event | response: []}
+
+          :system_config_connect_next_refresh_jobs_for_grants ->
+            %Zaq.Event{event | response: %{}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      html = render_click(view, "open_connect_grants", %{"id" => "99999999"})
+
+      assert html =~ "Grants"
+      assert html =~ "No grants for this credential."
+      refute html =~ "Grants — #{credential.name}"
+    end
+
+    test "restore_connect_credential_scopes_defaults dedupes and tolerates nil and invalid defaults",
+         %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Scopes Cred #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_connect_list_credentials ->
+            %Zaq.Event{event | response: [credential]}
+
+          :connect_fetch_credential ->
+            %Zaq.Event{event | response: {:ok, credential}}
+
+          :system_config_connect_change_credential ->
+            scopes = Map.get(event.request[:attrs] || %{}, "scopes", [])
+
+            %Zaq.Event{
+              event
+              | response:
+                  Ecto.Changeset.change(credential, %{
+                    scopes: scopes
+                  })
+            }
+
+          :data_source_oauth_default_scopes ->
+            %Zaq.Event{event | response: {:ok, ["a", " a ", ""]}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert render(view) =~ "a,  a"
+
+      html = render_click(view, "restore_connect_credential_scopes_defaults", %{})
+      assert html =~ "a"
+
+      :sys.replace_state(view.pid, fn state ->
+        %{
+          state
+          | socket: %{
+              state.socket
+              | assigns: Map.put(state.socket.assigns, :connect_default_scopes_text, nil)
+            }
+        }
+      end)
+
+      html = render_click(view, "restore_connect_credential_scopes_defaults", %{})
+      assert html =~ "edit-connect-credential-modal"
+
+      :sys.replace_state(view.pid, fn state ->
+        %{
+          state
+          | socket: %{
+              state.socket
+              | assigns: Map.put(state.socket.assigns, :connect_default_scopes_text, 123)
+            }
+        }
+      end)
+
+      html = render_click(view, "restore_connect_credential_scopes_defaults", %{})
+      assert html =~ "edit-connect-credential-modal"
+    end
+  end
+
+  describe "MCP payload and warning edge cases" do
+    setup [:with_node_router_mock_setup]
+
+    test "edit_mcp_endpoint tolerates malformed row params and non-binary secrets", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_mcp_filter_endpoints ->
+            %Zaq.Event{
+              event
+              | response:
+                  {[
+                     %{
+                       id: 999,
+                       persisted?: true,
+                       predefined?: false,
+                       predefined_id: nil,
+                       editable: true,
+                       icon: nil,
+                       description: nil,
+                       auto_enabled: false,
+                       name: "Mocked MCP",
+                       type: "remote",
+                       status: "enabled",
+                       timeout_ms: 5000,
+                       command: nil,
+                       args: ["arg-1"],
+                       url: "http://mock.dev",
+                       headers: %{"X-Test" => "1"},
+                       secret_headers: %{"Authorization" => 123},
+                       environments: %{"ENV" => "1"},
+                       secret_environments: %{"SECRET" => 456},
+                       settings: %{}
+                     }
+                   ], 1}
+            }
+
+          :system_config_mcp_get_endpoint ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     id: 999,
+                     name: "Mocked MCP",
+                     type: "remote",
+                     status: "enabled",
+                     timeout_ms: 5000,
+                     command: nil,
+                     predefined_id: nil,
+                     args: ["arg-1"],
+                     headers: %{"X-Test" => "1"},
+                     secret_headers: %{"Authorization" => 123},
+                     environments: %{"ENV" => "1"},
+                     secret_environments: %{"SECRET" => 456},
+                     settings: %{}
+                   }}
+            }
+
+          :system_config_mcp_change_endpoint ->
+            %Zaq.Event{event | response: Ecto.Changeset.change(%Zaq.Agent.MCP.Endpoint{})}
+
+          :mcp_endpoint_updated ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     endpoint: %{
+                       id: 999,
+                       name: "Mocked MCP",
+                       persisted?: true,
+                       predefined?: false,
+                       predefined_id: nil,
+                       editable: true,
+                       icon: nil,
+                       description: nil,
+                       auto_enabled: false,
+                       type: "remote",
+                       status: "enabled",
+                       timeout_ms: 5000,
+                       command: nil,
+                       args: [],
+                       url: "http://mock.dev",
+                       headers: %{},
+                       secret_headers: %{},
+                       environments: %{},
+                       secret_environments: %{},
+                       settings: %{}
+                     },
+                     runtime: %{}
+                   }}
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='999']")
+      |> render_click()
+
+      html =
+        render_change(view, "validate_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Mocked MCP",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => 456,
+            "command" => 123,
+            "predefined_id" => 789,
+            "headers_rows" => "bad",
+            "secret_headers_rows" => "bad",
+            "args_rows" => "bad",
+            "environments_rows" => "bad",
+            "secret_environments_rows" => "bad",
+            "settings_text" => %{}
+          }
+        })
+
+      assert html =~ "MCP Administration"
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Mocked MCP",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => 456,
+            "command" => 123,
+            "predefined_id" => 789,
+            "headers_rows" => "bad",
+            "secret_headers_rows" => "bad",
+            "args_rows" => "bad",
+            "environments_rows" => "bad",
+            "secret_environments_rows" => "bad",
+            "settings_text" => %{}
+          }
+        })
+
+      assert html =~ "MCP endpoint saved (Mocked MCP)."
+    end
+
+    test "save MCP endpoint shows and hides runtime warning flash", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        case {event.opts[:action], event.request[:action]} do
+          {:system_config_mcp_filter_endpoints, _} ->
+            %Zaq.Event{event | response: {stub_mcp_entries(), 1}}
+
+          {:system_config_mcp_change_endpoint, _} ->
+            %Zaq.Event{event | response: Ecto.Changeset.change(%Zaq.Agent.MCP.Endpoint{})}
+
+          {:mcp_endpoint_updated, :update} ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     endpoint: %{
+                       id: 999,
+                       name: "Warnings MCP",
+                       persisted?: true,
+                       predefined?: false,
+                       predefined_id: nil,
+                       editable: true,
+                       icon: nil,
+                       description: nil,
+                       auto_enabled: false,
+                       type: "remote",
+                       status: "enabled",
+                       timeout_ms: 5000,
+                       command: nil,
+                       args: [],
+                       url: "http://mock.dev",
+                       headers: %{},
+                       secret_headers: %{},
+                       environments: %{},
+                       secret_environments: %{},
+                       settings: %{}
+                     },
+                     runtime: %{warnings: [:w1]}
+                   }}
+            }
+
+          {:system_config_mcp_get_endpoint, _} ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     id: 999,
+                     name: "Warnings MCP",
+                     type: "remote",
+                     status: "enabled",
+                     timeout_ms: 5000,
+                     command: nil,
+                     predefined_id: nil,
+                     args: [],
+                     headers: %{},
+                     secret_headers: %{},
+                     environments: %{},
+                     secret_environments: %{},
+                     settings: %{}
+                   }}
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='999']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Warnings MCP",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://mock.dev",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP endpoint saved (Warnings MCP)."
+    end
+
+    test "save MCP endpoint with ok payload does not show runtime warnings", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        case {event.opts[:action], event.request[:action]} do
+          {:system_config_mcp_filter_endpoints, _} ->
+            %Zaq.Event{event | response: {stub_mcp_entries(), 1}}
+
+          {:system_config_mcp_change_endpoint, _} ->
+            %Zaq.Event{event | response: Ecto.Changeset.change(%Zaq.Agent.MCP.Endpoint{})}
+
+          {:mcp_endpoint_updated, :update} ->
+            %Zaq.Event{
+              event
+              | response: {:ok, %{endpoint: %{id: 999, name: "Silent MCP"}, runtime: :ok}}
+            }
+
+          {:system_config_mcp_get_endpoint, _} ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     id: 999,
+                     name: "Silent MCP",
+                     type: "remote",
+                     status: "enabled",
+                     timeout_ms: 5000,
+                     command: nil,
+                     predefined_id: nil,
+                     args: [],
+                     headers: %{},
+                     secret_headers: %{},
+                     environments: %{},
+                     secret_environments: %{},
+                     settings: %{}
+                   }}
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='999']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Silent MCP",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://mock.dev",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      refute html =~ "MCP runtime warnings"
+    end
+
+    test "save MCP endpoint with non-map payload does not show runtime warnings", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        case {event.opts[:action], event.request[:action]} do
+          {:system_config_mcp_filter_endpoints, _} ->
+            %Zaq.Event{event | response: {stub_mcp_entries(), 1}}
+
+          {:system_config_mcp_change_endpoint, _} ->
+            %Zaq.Event{event | response: Ecto.Changeset.change(%Zaq.Agent.MCP.Endpoint{})}
+
+          {:mcp_endpoint_updated, :update} ->
+            %Zaq.Event{event | response: {:ok, :ok}}
+
+          {:system_config_mcp_get_endpoint, _} ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     id: 999,
+                     name: "Silent MCP",
+                     type: "remote",
+                     status: "enabled",
+                     timeout_ms: 5000,
+                     command: nil,
+                     predefined_id: nil,
+                     args: [],
+                     headers: %{},
+                     secret_headers: %{},
+                     environments: %{},
+                     secret_environments: %{},
+                     settings: %{}
+                   }}
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='999']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Silent MCP",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://mock.dev",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      refute html =~ "MCP runtime warnings"
     end
   end
 

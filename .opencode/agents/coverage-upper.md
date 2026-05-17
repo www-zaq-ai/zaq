@@ -25,9 +25,10 @@ Follow these steps:
 2 - run `mix coverup` to get a report of all files changed that have a coverage below 95% with their respective uncovered line numbers
 3 - For EACH file listed, start a @general subagent with the test-coverage-planner skill to generate one clear plan per file, pass it the file name and the uncovered lines
 4 - Review all the plans to identify the ones overlapping similar test files and merge these (do NOT summarize any plan, just merge where fit) to produce a final set of fully detailed plans where no two plans touch the same test file.
-5 - For every ready plan, start a @fast-worker subagent with the test-gap-fixer skill and pass it the full plan (no summary) to develop the code
+5 - For every ready plan, start a @mini-worker subagent with the test-gap-fixer skill and pass it the full plan (no summary) to develop the code
 6 - While subagents are working, as soon one is done, review its work and if there is anything wrong, follow up with it to get the job done. If all is good wait for the other subagents to finish
-7 - Once all subagents are done, report the new coverage of the targeted files by running `mix test {test_file_1} {test_file_2} .. {test_file_n} --cover` for added/edited test files only. Only use `grep` to filter out the ouput for relevant files coverage
+7 - Once all subagents are done run `mix q`, if there are errors reported you are in charge of crafting a detailed plan to fix them and hand it over to a @mini-worker subagent for implementation.
+8 - Finally report the new coverage of the targeted files by running `mix test {test_file_1} {test_file_2} .. {test_file_n} --cover` for added/edited test files only. Only use `grep` to filter out the ouput for relevant files coverage
 
 ## DO NOT
 
