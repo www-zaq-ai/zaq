@@ -71,6 +71,11 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       send(self(), {:sync_runtime, before_config, after_config})
       :ok
     end
+
+    def handle_webhook(config, payload) do
+      send(self(), {:handle_webhook, config, payload})
+      {:ok, %{processed: true}}
+    end
   end
 
   defmodule StubBridgeWithoutTyping do
@@ -96,6 +101,10 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
   end
 
   defmodule StubBridgeWithoutTestConnection do
+    def send_reply(_outgoing, _details), do: :ok
+  end
+
+  defmodule StubBridgeWithoutWebhook do
     def send_reply(_outgoing, _details), do: :ok
   end
 
@@ -426,6 +435,49 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     end
   end
 
+  describe "handle_webhook/2" do
+    setup do
+      insert_config(:mattermost)
+      :ok
+    end
+
+    test "delegates to bridge when callback is supported" do
+      payload = %{event: "message", text: "hello"}
+      assert {:ok, %{processed: true}} = CommunicationBridge.handle_webhook(:mattermost, payload)
+      assert_received {:handle_webhook, config, ^payload}
+      assert is_map(config)
+    end
+
+    test "returns no_bridge error when provider is unknown" do
+      assert {:error, {:no_bridge, "missing-provider"}} =
+               CommunicationBridge.handle_webhook("missing-provider", %{text: "hi"})
+    end
+
+    test "returns channel_not_configured when provider config is missing" do
+      assert {:error, {:channel_not_configured, :email}} =
+               CommunicationBridge.handle_webhook(:email, %{text: "hi"})
+    end
+
+    test "returns unsupported when bridge lacks handle_webhook callback" do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: StubBridgeWithoutWebhook}
+      })
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      assert {:error, :unsupported} =
+               CommunicationBridge.handle_webhook(:mattermost, %{text: "hi"})
+    end
+  end
+
   describe "run_pipeline_with_node_router/5" do
     test "normalizes all supported response shapes" do
       msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
@@ -538,6 +590,16 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       ]
 
       assert is_nil(CommunicationBridge.first_active_selection(candidates, StubAgent))
+    end
+
+    test "uses default Zaq.Agent module when not provided" do
+      candidates = [{:channel_assignment, "999"}]
+
+      # Call with 1 arg (uses default Agent module via line 243)
+      assert is_nil(CommunicationBridge.first_active_selection(candidates))
+
+      # Also call with explicit Zaq.Agent to exercise the default resolution path
+      assert is_nil(CommunicationBridge.first_active_selection(candidates, Zaq.Agent))
     end
   end
 end

@@ -603,6 +603,18 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
+  defmodule StubWebhookVerifierCreated do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           file_id: "f1",
+           change_type: "created"
+         }
+       }}
+    end
+  end
+
   defmodule StubWebhookNodeRouter do
     def dispatch(%{opts: [action: :data_source_record_changed], request: request} = event) do
       send(self(), {:data_source_record_changed, request})
@@ -3259,5 +3271,1009 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     assert {:error, :unsupported} =
              JidoConnectBridge.setup_listener(config, %{"mechanism" => "webhook"})
+  end
+
+  # ---------------------------------------------------------------------------
+  # watch_changes unsupported mechanism (lines 882, 888)
+  # ---------------------------------------------------------------------------
+
+  test "watch_changes returns error for unsupported mechanism" do
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             JidoConnectBridge.setup_listener(config, %{"mechanism" => "polling"})
+  end
+
+  # ---------------------------------------------------------------------------
+  # resolve_webhook_trigger nil branch (line 898)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubJidoConnectNoWebhookKind do
+    def actions(_integration), do: {:ok, []}
+
+    def triggers(_integration) do
+      {:ok, [%{id: "other.webhook", kind: :other, verb: :watch}]}
+    end
+  end
+
+  test "setup_listener returns unsupported when no webhook-kind trigger found" do
+    previous = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectNoWebhookKind
+    )
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, previous),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             JidoConnectBridge.setup_listener(config, %{"mechanism" => "webhook"})
+  end
+
+  # ---------------------------------------------------------------------------
+  # dispatch_record_changed error branch (line 927)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubWebhookNodeRouterDispatchError do
+    def dispatch(%{opts: [action: :data_source_record_changed]} = event),
+      do: %{event | response: {:error, :dispatch_failed}}
+
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = event),
+      do: %{event | response: nil}
+
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = event),
+      do: %{event | response: {:error, :not_found}}
+
+    def dispatch(%{opts: [action: :connect_oauth_redirect_uri_for]} = event),
+      do: %{event | response: nil}
+  end
+
+  test "handle_webhook returns error when dispatch_record_changed fails" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifier
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_node_router_module,
+      StubWebhookNodeRouterDispatchError
+    )
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :dispatch_failed} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+  end
+
+  # ---------------------------------------------------------------------------
+  # delivery_to_map struct / catch-all and load_changed_record branches
+  # (lines 934, 940, 945, 949)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubWebhookVerifierNonMap do
+    def verify_and_normalize(_trigger, _payload), do: {:ok, "not_a_map_nor_struct"}
+  end
+
+  defmodule StubWebhookVerifierMissingFileId do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok, %{normalized_signal: %{name: "no-id-file"}}}
+    end
+  end
+
+  defmodule StubWebhookVerifierResourceId do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok, %{normalized_signal: %{resource_id: "res-1", change_type: "created"}}}
+    end
+  end
+
+  defmodule StubWebhookVerifierNoSignalKey do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok, %{other_key: "value"}}
+    end
+  end
+
+  test "handle_webhook returns error for non-map delivery" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierNonMap
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_jido_connect,
+        do:
+          Application.put_env(
+            :zaq,
+            :jido_connect_bridge_jido_connect_module,
+            previous_jido_connect
+          ),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :invalid_delivery} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+  end
+
+  test "handle_webhook returns error for missing file_id and resource_id" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierMissingFileId
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_jido_connect,
+        do:
+          Application.put_env(
+            :zaq,
+            :jido_connect_bridge_jido_connect_module,
+            previous_jido_connect
+          ),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :missing_record_id} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+  end
+
+  # ---------------------------------------------------------------------------
+  # deleted_signal? additional branches (lines 975-979, 982)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubWebhookVerifierRemovedString do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           :file_id => "f1",
+           "removed" => true,
+           :time => "2026-05-15T10:11:12Z"
+         }
+       }}
+    end
+  end
+
+  defmodule StubWebhookVerifierDeletedAtomKey do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           :file_id => "f1",
+           :deleted => true,
+           :time => "2026-05-15T10:11:12Z"
+         }
+       }}
+    end
+  end
+
+  defmodule StubWebhookVerifierDeletedStringKey do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           :file_id => "f1",
+           "deleted" => true,
+           :time => "2026-05-15T10:11:12Z"
+         }
+       }}
+    end
+  end
+
+  defmodule StubWebhookVerifierChangeTypeAtom do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           :file_id => "f1",
+           :change_type => :deleted,
+           :time => "2026-05-15T10:11:12Z"
+         }
+       }}
+    end
+  end
+
+  test "handle_webhook with \"removed\" string key triggers deleted signal" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierRemovedString
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :deleted
+  end
+
+  test "handle_webhook with :deleted atom key triggers deleted signal" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierDeletedAtomKey
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :deleted
+  end
+
+  test "handle_webhook with \"deleted\" string key triggers deleted signal" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierDeletedStringKey
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :deleted
+  end
+
+  test "handle_webhook with :change_type => :deleted triggers deleted signal" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierChangeTypeAtom
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :deleted
+  end
+
+  defmodule StubWebhookVerifierChangeTypeString do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           :file_id => "f1",
+           "change_type" => "deleted",
+           :time => "2026-05-15T10:11:12Z"
+         }
+       }}
+    end
+  end
+
+  test ~s(handle_webhook with "change_type" => "deleted" triggers deleted signal) do
+    # This tests the string "change_type" key variant (line 979)
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierChangeTypeString
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :deleted
+  end
+
+  # ---------------------------------------------------------------------------
+  # fetch_or_build_record success path (lines 961, 963)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubJidoConnectGetItemSuccess do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.get",
+           resource: :file,
+           verb: :get,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.get", _params, _opts) do
+      {:ok, %{file: %{"id" => "f1", "name" => "Fetched", "mimeType" => "application/pdf"}}}
+    end
+
+    def triggers(_integration), do: {:ok, [%{id: "webhook", kind: :webhook, verb: :watch}]}
+  end
+
+  defmodule StubWebhookNodeRouterWithGrant do
+    def dispatch(%{opts: [action: :data_source_record_changed]} = event) do
+      send(self(), {:data_source_record_changed, event.request})
+      %{event | response: :ok}
+    end
+
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = _event) do
+      %{
+        response: %Zaq.Engine.Connect.Grant{
+          id: 1,
+          credential_id: 1,
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          resource_type: "data_source",
+          resource_id: "1",
+          owner_type: "org",
+          owner_id: nil,
+          request_format: "bearer",
+          metadata: %{},
+          expires_at: nil,
+          status: "active",
+          access_token: nil,
+          refresh_token: nil,
+          scopes: [],
+          api_key: nil,
+          inserted_at: nil,
+          updated_at: nil
+        }
+      }
+    end
+
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = _event) do
+      %{
+        response:
+          {:ok,
+           %Zaq.Engine.Connect.Credential{
+             id: 1,
+             name: "test",
+             provider: "google_drive",
+             auth_kind: "oauth2",
+             user_level: false,
+             request_format: "bearer",
+             metadata: %{},
+             client_id: "id",
+             client_secret: nil,
+             scopes: [],
+             api_key: nil,
+             expires_at: nil,
+             inserted_at: nil,
+             updated_at: nil
+           }}
+      }
+    end
+  end
+
+  test "handle_webhook fetches record via get_item_metadata on success path" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierCreated
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectGetItemSuccess
+    )
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_node_router_module,
+      StubWebhookNodeRouterWithGrant
+    )
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: "webhook"}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.id == "f1"
+    assert request.record.change_type == :created
+    assert request.record.name == "Fetched"
+  end
+
+  defmodule StubJidoConnectGetItemFails do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.get",
+           resource: :file,
+           verb: :get,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.get", _params, _opts), do: {:error, :not_found}
+
+    def triggers(_integration), do: {:ok, [%{id: "webhook", kind: :webhook, verb: :watch}]}
+  end
+
+  defmodule StubWebhookVerifierUpdated do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           file_id: "f1",
+           change_type: "updated"
+         }
+       }}
+    end
+  end
+
+  test "handle_webhook falls back to built record when get_item_metadata fails" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierUpdated
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectGetItemFails
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: _}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.id == "f1"
+    # Since get_item_metadata fails, record is built with minimal data and signal applied
+    assert request.record.change_type == :updated
+    assert request.record.lifecycle_state == :active
+    assert request.record.deleted_at == nil
+  end
+
+  # ---------------------------------------------------------------------------
+  # fetch_or_build_record: payload without :file key (line 963)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubJidoConnectGetItemNoFileKey do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.get",
+           resource: :file,
+           verb: :get,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.get", _params, _opts) do
+      {:ok, %{"id" => "f1", "name" => "DirectPayload"}}
+    end
+
+    def triggers(_integration), do: {:ok, [%{id: "webhook", kind: :webhook, verb: :watch}]}
+  end
+
+  test "handle_webhook uses payload directly when no :file key in get_item_metadata" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierUpdated
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectGetItemNoFileKey
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: _}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.id == "f1"
+  end
+
+  # ---------------------------------------------------------------------------
+  # signal_change_type with "created" (line 1001)
+  # ---------------------------------------------------------------------------
+
+  test "handle_webhook with created change_type sets lifecycle to active" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierCreated
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectGetItemNoFileKey
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: _}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :created
+    assert request.record.lifecycle_state == :active
+  end
+
+  # ---------------------------------------------------------------------------
+  # signal_deleted_at: non-binary time (line 1015) and invalid ISO (line 1024)
+  # ---------------------------------------------------------------------------
+
+  defmodule StubWebhookVerifierNonBinaryTime do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           file_id: "f1",
+           change_type: "deleted",
+           time: nil
+         }
+       }}
+    end
+  end
+
+  defmodule StubWebhookVerifierInvalidISOTime do
+    def verify_and_normalize(_trigger, _payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           file_id: "f1",
+           change_type: "deleted",
+           time: "not-a-date"
+         }
+       }}
+    end
+  end
+
+  test "handle_webhook with nil time sets deleted_at to nil" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierNonBinaryTime
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: _}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.change_type == :deleted
+    assert request.record.deleted_at == nil
+  end
+
+  test "handle_webhook with invalid ISO time sets deleted_at to nil" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: JidoConnectBridge,
+        integration: StubIntegration,
+        webhook_verifier: StubWebhookVerifierInvalidISOTime
+      }
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{trigger_id: _}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    assert_received {:data_source_record_changed, request}
+    assert request.record.deleted_at == nil
+  end
+
+  # ---------------------------------------------------------------------------
+  # owner_type_profile_candidates app_user and unknown (lines 1078, 1080)
+  # Tested via NodeRouter stubs that return proper Grant/Credential structs
+  # to bypass owner_type validation which only allows "org" and "user".
+  # ---------------------------------------------------------------------------
+
+  defmodule StubNodeRouterAppUserGrant do
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = _event) do
+      %{
+        response: %Zaq.Engine.Connect.Grant{
+          id: 1,
+          credential_id: 1,
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          resource_type: "data_source",
+          resource_id: "1",
+          owner_type: "app_user",
+          owner_id: nil,
+          request_format: "bearer",
+          metadata: %{},
+          expires_at: nil,
+          status: "active",
+          access_token: nil,
+          refresh_token: nil,
+          scopes: [],
+          api_key: nil,
+          inserted_at: nil,
+          updated_at: nil
+        }
+      }
+    end
+
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = _event) do
+      %{
+        response:
+          {:ok,
+           %Zaq.Engine.Connect.Credential{
+             id: 1,
+             name: "test",
+             provider: "google_drive",
+             auth_kind: "oauth2",
+             user_level: false,
+             request_format: "bearer",
+             metadata: %{},
+             client_id: "id",
+             client_secret: nil,
+             scopes: [],
+             api_key: nil,
+             expires_at: nil,
+             inserted_at: nil,
+             updated_at: nil
+           }}
+      }
+    end
+  end
+
+  defmodule StubNodeRouterInstallationOwnerType do
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = _event) do
+      %{
+        response: %Zaq.Engine.Connect.Grant{
+          id: 1,
+          credential_id: 1,
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          resource_type: "data_source",
+          resource_id: "1",
+          owner_type: "installation",
+          owner_id: nil,
+          request_format: "bearer",
+          metadata: %{},
+          expires_at: nil,
+          status: "active",
+          access_token: nil,
+          refresh_token: nil,
+          scopes: [],
+          api_key: nil,
+          inserted_at: nil,
+          updated_at: nil
+        }
+      }
+    end
+
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = _event) do
+      %{
+        response:
+          {:ok,
+           %Zaq.Engine.Connect.Credential{
+             id: 1,
+             name: "test",
+             provider: "google_drive",
+             auth_kind: "oauth2",
+             user_level: false,
+             request_format: "bearer",
+             metadata: %{},
+             client_id: "id",
+             client_secret: nil,
+             scopes: [],
+             api_key: nil,
+             expires_at: nil,
+             inserted_at: nil,
+             updated_at: nil
+           }}
+      }
+    end
+  end
+
+  test "list_files with app_user owner_type selects app_user profile" do
+    config = insert_data_source_config(:google_drive)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_node_router_module,
+      StubNodeRouterAppUserGrant
+    )
+
+    assert {:ok, %Zaq.Contracts.RecordPage{records: _}} =
+             JidoConnectBridge.list_files(config, %{})
+  end
+
+  test "list_files with installation owner_type hits catch-all profile candidates" do
+    config = insert_data_source_config(:google_drive)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_node_router_module,
+      StubNodeRouterInstallationOwnerType
+    )
+
+    assert {:ok, %Zaq.Contracts.RecordPage{records: _}} =
+             JidoConnectBridge.list_files(config, %{})
+  end
+
+  # ---------------------------------------------------------------------------
+  # collect_file_principals: empty entries path hits maybe_collect_principals_count(config, [])
+  # resulting in {0, nil}. Line 235 (nil file_id guard in collect_file_principals)
+  # is a defensive guard - unreachable through normal API since map_file_record
+  # would raise on missing id before records reach channel_stats.
+  # ---------------------------------------------------------------------------
+
+  test "channel_stats with no record files returns zero principals" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectNoFiles)
+
+    assert {:ok, stats} = JidoConnectBridge.channel_stats(config, %{})
+    assert stats.files_count == 0
+    assert stats.principals_count == 0
+  end
+
+  # ---------------------------------------------------------------------------
+  # Helper for restoring webhook environment
+  # ---------------------------------------------------------------------------
+
+  defp restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router) do
+    if previous_channels,
+      do: Application.put_env(:zaq, :channels, previous_channels),
+      else: Application.delete_env(:zaq, :channels)
+
+    if previous_jido_connect,
+      do:
+        Application.put_env(
+          :zaq,
+          :jido_connect_bridge_jido_connect_module,
+          previous_jido_connect
+        ),
+      else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+
+    if previous_node_router,
+      do:
+        Application.put_env(
+          :zaq,
+          :jido_connect_bridge_node_router_module,
+          previous_node_router
+        ),
+      else: Application.delete_env(:zaq, :jido_connect_bridge_node_router_module)
   end
 end

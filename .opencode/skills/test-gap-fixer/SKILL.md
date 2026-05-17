@@ -1,6 +1,6 @@
 ---
-name: test-coverage-fixer
-description: Produce test code for a given scenario and make sure they pass
+name: test-gap-fixer
+description: Produce test code for given scenarios and make sure they pass
 license: MIT
 compatibility: opencode
 metadata:
@@ -12,12 +12,12 @@ metadata:
 
 You receive:
 
-- A target implementation file to increase coverage for
+- A target implementation file to fill test gaps for
 - A detailed implementation plan
 
 Your job:
 
-- Produce the code to implement the scenario in tests
+- Produce the code to implement the scenarios in tests
 - Confirm the produced tests pass: `mix test {test_to_run_1} {test_to_run_2} ... {test_to_run_N}`
 
 Sidetrack:
@@ -26,7 +26,7 @@ Sidetrack:
 
 DO NOT:
 
-- Drift from the initial scenario provided
+- Drift from the scenarios provided
 - Generate a new test scenario
 - Make changes to the code implementation, only touch test files
 

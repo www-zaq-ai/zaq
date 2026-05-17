@@ -69,6 +69,26 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       send(self(), {:capability_snapshot, config.id})
       {:ok, %{required: [], resolved: %{}, unsupported: [], labels: %{}}}
     end
+
+    def watch_changes(config, params) do
+      send(self(), {:watch_changes, config.id, params})
+      {:ok, %{watch_id: "w1"}}
+    end
+
+    def unwatch_changes(config, params) do
+      send(self(), {:unwatch_changes, config.id, params})
+      :ok
+    end
+
+    def handle_webhook(config, payload) do
+      send(self(), {:handle_webhook, config.id, payload})
+      {:ok, %{processed: true}}
+    end
+
+    def oauth_default_scopes(config) do
+      send(self(), {:oauth_default_scopes, config.id})
+      {:ok, ["read", "write"]}
+    end
   end
 
   defmodule StubNoDataSourceCallbacks do
@@ -335,5 +355,128 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.list_files(:google_drive, %{"config_id" => config_id_str})
 
     assert_received {:list_files, ^config_id, %{"config_id" => ^config_id_str}}
+  end
+
+  test "watch_changes delegates to bridge with scoped config" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert {:ok, %{watch_id: "w1"}} =
+             DataSourceBridge.watch_changes(:google_drive, %{"config_id" => config_id})
+
+    assert_received {:watch_changes, ^config_id, %{"config_id" => ^config_id}}
+  end
+
+  test "watch_changes returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.watch_changes(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "unwatch_changes delegates to bridge with scoped config" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert :ok = DataSourceBridge.unwatch_changes(:google_drive, %{"config_id" => config_id})
+
+    assert_received {:unwatch_changes, ^config_id, %{"config_id" => ^config_id}}
+  end
+
+  test "unwatch_changes returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.unwatch_changes(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "handle_webhook delegates to bridge with default config" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    payload = %{"event" => "file.created", "file_id" => "f1"}
+
+    assert {:ok, %{processed: true}} = DataSourceBridge.handle_webhook(:google_drive, payload)
+
+    assert_received {:handle_webhook, ^config_id, ^payload}
+  end
+
+  test "handle_webhook returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.handle_webhook(:google_drive, %{"event" => "test"})
+  end
+
+  test "oauth_default_scopes delegates to bridge" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert {:ok, ["read", "write"]} = DataSourceBridge.oauth_default_scopes(:google_drive)
+
+    assert_received {:oauth_default_scopes, ^config_id}
+  end
+
+  test "oauth_default_scopes returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} = DataSourceBridge.oauth_default_scopes(:google_drive)
+  end
+
+  test "normalize_config_id falls back to default config for non-integer non-binary config_id" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => [1, 2, 3]})
+
+    assert_received {:list_files, ^config_id, %{"config_id" => [1, 2, 3]}}
+  end
+
+  test "scoped config returns error when config_id does not exist in database" do
+    non_existent_id = 99_999_999
+
+    assert {:error, {:channel_not_configured, :google_drive}} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => non_existent_id})
   end
 end
