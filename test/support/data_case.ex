@@ -54,6 +54,39 @@ defmodule Zaq.DataCase do
   end
 
   @doc """
+  Temporarily unregisters the globally-named EventRegistry singleton so that
+  `Workflows` trigger sync (`Process.whereis(EventRegistry)`) is inert during
+  DataCase tests. Tests that need to assert on sync register their own
+  instance under the name explicitly.
+
+  Race-safe under `async: true`: many DataCase setups run concurrently against
+  the single shared named process, so the (un)register calls are guarded — a
+  losing racer would otherwise crash setup with `ArgumentError`.
+  """
+  def isolate_event_registry do
+    alias Zaq.Engine.EventRegistry
+    existing = Process.whereis(EventRegistry)
+
+    if existing do
+      try do
+        Process.unregister(EventRegistry)
+      rescue
+        ArgumentError -> :ok
+      end
+    end
+
+    on_exit(fn ->
+      if existing && Process.alive?(existing) && is_nil(Process.whereis(EventRegistry)) do
+        try do
+          Process.register(existing, EventRegistry)
+        rescue
+          ArgumentError -> :ok
+        end
+      end
+    end)
+  end
+
+  @doc """
   A helper that transforms changeset errors into a map of messages.
 
       assert {:error, changeset} = Accounts.create_user(%{password: "short"})
@@ -61,18 +94,6 @@ defmodule Zaq.DataCase do
       assert %{password: ["password is too short"]} = errors_on(changeset)
 
   """
-  def isolate_event_registry do
-    alias Zaq.Engine.EventRegistry
-    existing = Process.whereis(EventRegistry)
-    if existing, do: Process.unregister(EventRegistry)
-
-    on_exit(fn ->
-      if existing && Process.alive?(existing) && is_nil(Process.whereis(EventRegistry)) do
-        Process.register(existing, EventRegistry)
-      end
-    end)
-  end
-
   def errors_on(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
       Regex.replace(~r"%{(\w+)}", message, fn _, key ->

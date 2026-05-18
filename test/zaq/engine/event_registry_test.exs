@@ -48,7 +48,7 @@ defmodule Zaq.Engine.EventRegistryTest do
 
     {:ok, pid} =
       start_supervised(
-        {EventRegistry, [caller: self(), name: nil, trigger_node_fn: trigger_fn]},
+        {EventRegistry, [name: nil, trigger_node_fn: trigger_fn]},
         id: :singleton_event_registry
       )
 
