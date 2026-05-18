@@ -45,6 +45,12 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
     end
   end
 
+  defmodule StubChatModuleInvalidWebhookState do
+    def handle_webhook_request(_chat, _provider, _request, _opts) do
+      {:ok, :invalid_chat_state, :noop, %{status: 200, headers: %{}, body: "ok"}}
+    end
+  end
+
   setup do
     previous_channels = Application.get_env(:zaq, :channels, %{})
 
@@ -177,5 +183,39 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
 
     assert {:error, {:unsupported_provider, :no_such_provider}} =
              State.send_reply(pid, outgoing, %{url: "https://mm.example.com", token: "tok"})
+  end
+
+  test "process_webhook_request/3 returns error when chat module returns invalid chat", %{
+    pid: pid,
+    config: config
+  } do
+    previous_chat_module = Application.get_env(:zaq, :chat_bridge_chat_module)
+
+    Application.put_env(:zaq, :chat_bridge_chat_module, StubChatModuleInvalidWebhookState)
+
+    on_exit(fn ->
+      if previous_chat_module do
+        Application.put_env(:zaq, :chat_bridge_chat_module, previous_chat_module)
+      else
+        Application.delete_env(:zaq, :chat_bridge_chat_module)
+      end
+    end)
+
+    payload = %{
+      "method" => "POST",
+      "path" => "/channels/webhook/conversation/mattermost",
+      "headers" => %{"x-test" => "1"},
+      "payload" => %{"event" => "message"}
+    }
+
+    before_state = :sys.get_state(pid)
+
+    assert {:error,
+            {:unexpected_webhook_result,
+             {:ok, :invalid_chat_state, :noop, %{body: "ok", headers: %{}, status: 200}}}} =
+             State.process_webhook_request(pid, config, payload)
+
+    after_state = :sys.get_state(pid)
+    assert after_state.chat == before_state.chat
   end
 end

@@ -143,7 +143,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
       with provider when is_atom(provider) <- provider,
            {:ok, adapter} <- bridge_module().adapter_for(config.provider),
            request <- bridge_module().webhook_request_from_payload(payload, provider),
-           {:ok, chat, event, response} <-
+           {:ok, %Chat{} = chat, event, response} <-
              chat_module().handle_webhook_request(
                state.chat,
                provider,
@@ -154,6 +154,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
       else
         nil -> {:error, :unsupported_provider}
         {:error, reason} -> {:error, reason}
+        other -> {:error, {:unexpected_webhook_result, other}}
       end
 
     next_state =

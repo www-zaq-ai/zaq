@@ -216,6 +216,10 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule StubWebhookStateUnexpected do
+    def process_webhook_request(_pid, _config, _payload), do: :unexpected
+  end
+
   defmodule StubAdapterTestConnection do
     def send_message(channel_id, message, opts) do
       send(self(), {:adapter_send_message, channel_id, message, opts})
@@ -2746,6 +2750,45 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert request.payload == %{"event" => "message"}
       assert request.query == %{"challenge" => "abc"}
       assert request.raw == "{}"
+    end
+
+    test "normalizes unexpected webhook state results" do
+      Process.register(self(), :bridge_test_observer)
+
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_bridge_cfg = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge, [])
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterListenerOpts}
+      })
+
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge,
+        state_module: StubWebhookStateUnexpected
+      )
+
+      on_exit(fn ->
+        if Process.whereis(:bridge_test_observer), do: Process.unregister(:bridge_test_observer)
+        Application.put_env(:zaq, :channels, previous_channels)
+        Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge_cfg)
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      payload = %{
+        "method" => "POST",
+        "path" => "/channels/webhook/conversation/mattermost",
+        "headers" => %{"x-test" => "1"},
+        "payload" => %{"event" => "message"}
+      }
+
+      assert {:error, {:unexpected_webhook_result, :unexpected}} =
+               JidoChatBridge.handle_webhook(config, payload)
     end
   end
 

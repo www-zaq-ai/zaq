@@ -112,6 +112,37 @@ defstruct [
 
 `Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
 
+### Webhook ingress
+
+Webhook deliveries enter through:
+
+- `POST /channels/webhook/:type/:provider`
+
+Supported `:type` values:
+
+- `conversation` — delegated to `Zaq.Channels.CommunicationBridge.handle_webhook/2`
+- `data_source` — delegated to `Zaq.Channels.DataSourceBridge.handle_webhook/2`
+
+The controller wraps each request into a normalized payload map before dispatch:
+
+```elixir
+%{
+  "method" => conn.method,
+  "path" => conn.request_path,
+  "headers" => Map.new(conn.req_headers),
+  "query" => conn.query_params,
+  "payload" => body_payload,
+  "raw" => conn.assigns[:raw_body]
+}
+```
+
+Response behavior:
+
+- Conversation providers can return `%{webhook_response: %{status, headers, body}}` to pass through transport-specific verification responses.
+- Data source providers return accepted/rejected JSON envelopes from the channels controller.
+
+Authentication and signature verification are provider-specific and handled inside bridge/verifier modules (for example jido_connect webhook verifiers and jido_chat adapter webhook handlers).
+
 ## Communication Bridge Helpers
 
 `Zaq.Channels.CommunicationBridge` is the stateless helper boundary used by API/bridge flows for provider-targeted operations.

@@ -172,6 +172,13 @@ defmodule Zaq.Channels.JidoConnectBridge do
   def unwatch_changes(config, _params) when is_map(config),
     do: :ok
 
+  @doc """
+  Handles an incoming data source webhook delivery.
+
+  The `payload` is expected to include request metadata used by provider-specific
+  verifiers (headers, query params, and raw body). Returns `{:ok, %{trigger_id,
+  delivery}}` when the webhook is verified, normalized, and dispatched.
+  """
   @impl true
   def handle_webhook(config, payload) when is_map(config) and is_map(payload) do
     with {:ok, trigger} <- resolve_webhook_trigger(config.provider),
