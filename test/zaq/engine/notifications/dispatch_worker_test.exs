@@ -9,27 +9,44 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
   alias Zaq.Repo
 
   # ---------------------------------------------------------------------------
-  # Stub router — injected via Application env
+  # Stub communication bridge — invoked through Channels Api
   # ---------------------------------------------------------------------------
 
-  defmodule OkRouter do
-    def deliver(%Outgoing{} = outgoing) do
+  defmodule OkCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
       send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
       :ok
     end
   end
 
-  defmodule ErrorRouter do
-    def deliver(%Outgoing{}), do: {:error, :delivery_failed}
+  defmodule ErrorCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+    def send_reply(%Outgoing{}, _connection_details), do: {:error, :delivery_failed}
   end
 
-  defmodule FirstFailRouter do
+  defmodule FirstFailCommunicationBridge do
     # Fails on email, succeeds on everything else
-    def deliver(%Outgoing{provider: :email}), do: {:error, :delivery_failed}
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
 
-    def deliver(%Outgoing{} = outgoing) do
+    def send_reply(%Outgoing{provider: :email}, _connection_details),
+      do: {:error, :delivery_failed}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
       send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
       :ok
+    end
+  end
+
+  defmodule StubNodeRouter do
+    def dispatch(event) do
+      api_module = Keyword.get(event.opts, :channels_api_module, Zaq.Channels.Api)
+      action = Keyword.get(event.opts, :action, :invoke)
+      api_module.handle_event(event, action, nil)
     end
   end
 
@@ -52,10 +69,18 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
   end
 
   setup do
-    Application.put_env(:zaq, :dispatch_worker_router_module, OkRouter)
+    Application.put_env(:zaq, :dispatch_worker_node_router_module, StubNodeRouter)
+
+    Application.put_env(
+      :zaq,
+      :dispatch_worker_channels_event_opts,
+      channels_api_module: Zaq.Channels.Api,
+      bridge_module: OkCommunicationBridge
+    )
 
     on_exit(fn ->
-      Application.delete_env(:zaq, :dispatch_worker_router_module)
+      Application.delete_env(:zaq, :dispatch_worker_node_router_module)
+      Application.delete_env(:zaq, :dispatch_worker_channels_event_opts)
     end)
 
     :ok
@@ -67,7 +92,13 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
 
   describe "perform/1" do
     test "real EmailNotification adapter path marks sent and emits email" do
-      Application.put_env(:zaq, :dispatch_worker_router_module, Zaq.Channels.Router)
+      Application.put_env(
+        :zaq,
+        :dispatch_worker_node_router_module,
+        Zaq.NodeRouter
+      )
+
+      Application.put_env(:zaq, :dispatch_worker_channels_event_opts, [])
 
       assert {:ok, _} =
                ChannelConfig.upsert_by_provider("email:smtp", %{
@@ -118,7 +149,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       assert reloaded.payload["subject"] == "Hello"
     end
 
-    test "successful delivery → attempt appended, log marked :sent" do
+    test "successful delivery -> attempt appended, log marked :sent" do
       log = create_log()
       args = %{"log_id" => log.id, "channels" => [channel("email:smtp")]}
 
@@ -130,7 +161,7 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       assert hd(reloaded.channels_tried)["status"] == "ok"
     end
 
-    test "successful delivery → stops after first success, does not try remaining channels" do
+    test "successful delivery -> stops after first success, does not try remaining channels" do
       log = create_log()
 
       args = %{
@@ -147,7 +178,12 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
     end
 
     test "all channels fail → all attempts logged, log marked :failed, returns :ok (no retry)" do
-      Application.put_env(:zaq, :dispatch_worker_router_module, ErrorRouter)
+      Application.put_env(
+        :zaq,
+        :dispatch_worker_channels_event_opts,
+        channels_api_module: Zaq.Channels.Api,
+        bridge_module: ErrorCommunicationBridge
+      )
 
       log = create_log()
 
@@ -176,7 +212,12 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
     end
 
     test "first channel fails, second succeeds → log marked :sent" do
-      Application.put_env(:zaq, :dispatch_worker_router_module, FirstFailRouter)
+      Application.put_env(
+        :zaq,
+        :dispatch_worker_channels_event_opts,
+        channels_api_module: Zaq.Channels.Api,
+        bridge_module: FirstFailCommunicationBridge
+      )
 
       log = create_log()
 
@@ -209,12 +250,12 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       assert reloaded.status == "failed"
     end
 
-    test "log not found → cancels job" do
+    test "log not found -> cancels job" do
       args = %{"log_id" => 999_999_999, "channels" => []}
       assert {:cancel, :log_not_found} = perform(args)
     end
 
-    test "%Outgoing{} delivered to Router carries log payload body" do
+    test "%Outgoing{} delivered through CommunicationBridge carries log payload body" do
       log = create_log(%{payload: %{"subject" => "Sub", "body" => "Notification text"}})
       args = %{"log_id" => log.id, "channels" => [channel("email:smtp")]}
 

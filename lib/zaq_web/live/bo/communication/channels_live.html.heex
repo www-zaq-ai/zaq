@@ -5,6 +5,7 @@
   current_path={@current_path}
   features_version={@features_version}
 >
+  <div id="oauth-popup-listener" phx-hook="OAuthPopupListener"></div>
   <!-- Back nav + Header -->
   <div class="mb-6">
     <.link
@@ -126,6 +127,12 @@
               <p class="font-mono text-[0.7rem] text-black/30 truncate max-w-[280px]">
                 {config.url}
               </p>
+            </div>
+            <div :if={@kind == :data_source} class="mt-2 font-mono text-[0.65rem] text-black/35">
+              <% grant = active_grant_for_config(config, @grants_by_config) %>
+              <span>
+                {if grant, do: "Grant active (#{grant.auth_kind})", else: "No active grant"}
+              </span>
             </div>
           </div>
         </div>
@@ -1079,154 +1086,370 @@
 <!-- ================================================================== -->
   <!-- MODAL: New / Edit Config -->
   <!-- ================================================================== -->
-  <div
+  <ZaqWeb.Components.BOModal.form_dialog
     :if={@modal in [:new, :edit]}
-    class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    phx-window-keydown="close_modal"
-    phx-key="Escape"
+    id="channel-config-modal"
+    cancel_event="close_modal"
+    title={if @modal == :new, do: "New Config", else: "Edit Config"}
+    max_width_class="max-w-2xl"
   >
-    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click="close_modal"></div>
-    <div class="relative w-full max-w-md bg-white rounded-2xl border border-black/10 p-8 shadow-2xl">
-      <h3 class="font-mono text-base font-bold text-black mb-1">
-        {if @modal == :new, do: "New Mattermost Config", else: "Edit Config"}
-      </h3>
-      <p class="font-mono text-[0.7rem] text-black/40 mb-6">
-        {if @modal == :new,
-          do: "Connect a Mattermost instance to start sending messages.",
-          else: "Update the details for this configuration."}
-      </p>
+    <h3 class="font-mono text-base font-bold text-black mb-1">
+      {if @modal == :new, do: "New Config", else: "Edit Config"}
+    </h3>
+    <p class="font-mono text-[0.7rem] text-black/40 mb-6">
+      {if @modal == :new,
+        do:
+          if(@kind == :data_source,
+            do: "Connect a data source configuration.",
+            else: "Connect a communication channel configuration."
+          ),
+        else: "Update the details for this configuration."}
+    </p>
 
-      <.form for={@form} id="config-form" phx-submit="save" phx-change="validate">
-        <input :if={@modal == :new} type="hidden" name="form[provider]" value={@provider} />
-        <input type="hidden" name="form[kind]" value={Atom.to_string(@live_action)} />
+    <.form for={@form} id="config-form" phx-submit="save" phx-change="validate">
+      <input :if={@modal == :new} type="hidden" name="form[provider]" value={@provider} />
+      <input type="hidden" name="form[kind]" value={Atom.to_string(@live_action)} />
 
-        <div class="mb-4">
-          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-            Name
-          </label>
-          <input
-            type="text"
-            name="form[name]"
-            value={@form[:name].value}
-            placeholder="e.g. Engineering Alerts"
-            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-          />
-        </div>
+      <div class="mb-4">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Name
+        </label>
+        <input
+          type="text"
+          name="form[name]"
+          value={@form[:name].value}
+          placeholder="e.g. Engineering Alerts"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
 
-        <div class="mb-4">
-          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-            Instance URL
-          </label>
-          <input
-            type="text"
-            name="form[url]"
-            value={@form[:url].value}
-            placeholder="https://mattermost.yourcompany.com"
-            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-          />
-        </div>
+      <div :if={@kind != :data_source} class="mb-4">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Instance URL
+        </label>
+        <input
+          type="text"
+          name="form[url]"
+          value={@form[:url].value}
+          placeholder="https://mattermost.yourcompany.com"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
 
-        <div class="mb-6">
-          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-            Bot Token
-          </label>
-          <.secret_input
-            id="mattermost-token"
-            name="form[token]"
-            value={@form[:token].value}
-            placeholder="••••••••••••••••"
-            input_class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-            button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
-          />
-          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
-            Bot or personal access token with post:write permissions
-          </p>
-        </div>
+      <div :if={@kind != :data_source} class="mb-6">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Bot Token
+        </label>
+        <.secret_input
+          id="mattermost-token"
+          name="form[token]"
+          value={@form[:token].value}
+          placeholder="••••••••••••••••"
+          input_class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+        />
+        <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+          Bot or personal access token with post:write permissions
+        </p>
+      </div>
 
-        <div class="mb-4">
-          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-            Bot Username
-          </label>
-          <input
-            type="text"
-            name="form[settings][jido_chat][bot_name]"
-            value={jido_chat_bot_name_from_changeset(@changeset)}
-            placeholder="zaq"
-            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-          />
-          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
-            Used for @mention detection (e.g. zaq)
-          </p>
-        </div>
-
-        <div class="mb-6">
-          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-            Bot User ID
-          </label>
-          <div class="flex items-center gap-2">
-            <input
-              type="text"
-              name="form[settings][jido_chat][bot_user_id]"
-              value={jido_chat_bot_user_id_from_changeset(@changeset)}
-              placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
-              class="flex-1 h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-            />
-            <button
-              :if={@provider == "mattermost"}
-              type="button"
-              phx-click="fetch_bot_user_id"
-              class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
-            >
-              Fetch
-            </button>
-          </div>
-          <p class="font-mono text-[0.6rem] text-black/30 mt-1">
-            Mattermost user ID of the bot account
-          </p>
-        </div>
-
-        <div class="flex items-center gap-3 mb-6">
-          <input type="hidden" name="form[enabled]" value="false" />
-          <input
-            type="checkbox"
-            name="form[enabled]"
-            id="form_enabled"
-            value="true"
-            checked={@form[:enabled].value}
-            class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
-          />
-          <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">
-            Enable this configuration
-          </label>
-        </div>
-
-        <div :if={@modal_errors != []} class="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
-          <p
-            :for={err <- @modal_errors}
-            class="font-mono text-[0.7rem] text-red-600 flex items-center gap-1.5"
+      <div :if={@kind == :data_source} class="mb-6">
+        <% claim = oauth_claim_state_for_changeset(@changeset) %>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Credential
+        </label>
+        <div class="flex items-center gap-2">
+          <select
+            name="form[settings][connect][credential_id]"
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           >
-            <span class="text-red-400">✗</span> {err}
-          </p>
-        </div>
-
-        <div class="flex items-center justify-end gap-3">
+            <option
+              value=""
+              selected={connect_credential_id_from_changeset(@changeset) in [nil, ""]}
+            >
+              No credential
+            </option>
+            <option
+              :for={credential <- @connect_credentials}
+              value={credential.id}
+              selected={
+                to_string(connect_credential_id_from_changeset(@changeset)) ==
+                  to_string(credential.id)
+              }
+            >
+              {credential.name} ({credential.auth_kind})
+            </option>
+          </select>
           <button
             type="button"
-            phx-click="close_modal"
-            class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+            phx-click="open_new_credential"
+            class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
           >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-all"
-          >
-            {if @modal == :new, do: "Create", else: "Update"}
+            New
           </button>
         </div>
-      </.form>
+        <button
+          :if={claim.enabled?}
+          type="button"
+          phx-click="open_oauth_claim"
+          phx-value-url={claim.url}
+          class="inline-flex mt-2 font-mono text-[0.65rem] px-3 py-1.5 rounded-lg border border-[#03b6d4]/30 text-[#03b6d4] hover:bg-[#03b6d4]/5 transition-all"
+        >
+          Claim OAuth2 Grant
+        </button>
+        <button
+          :if={not claim.enabled?}
+          type="button"
+          disabled
+          class="inline-flex mt-2 font-mono text-[0.65rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/35 bg-black/[0.03]"
+        >
+          Claim OAuth2 Grant
+        </button>
+        <p :if={claim.message} class="font-mono text-[0.62rem] text-black/35 mt-1">
+          {claim.message}
+        </p>
+      </div>
+
+      <div :if={@kind != :data_source} class="mb-4">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Bot Username
+        </label>
+        <input
+          type="text"
+          name="form[settings][jido_chat][bot_name]"
+          value={jido_chat_bot_name_from_changeset(@changeset)}
+          placeholder="zaq"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+        <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+          Used for @mention detection (e.g. zaq)
+        </p>
+      </div>
+
+      <div :if={@kind != :data_source} class="mb-6">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Bot User ID
+        </label>
+        <div class="flex items-center gap-2">
+          <input
+            type="text"
+            name="form[settings][jido_chat][bot_user_id]"
+            value={jido_chat_bot_user_id_from_changeset(@changeset)}
+            placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
+            class="flex-1 h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          />
+          <button
+            :if={@provider == "mattermost"}
+            type="button"
+            phx-click="fetch_bot_user_id"
+            class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
+          >
+            Fetch
+          </button>
+        </div>
+        <p class="font-mono text-[0.6rem] text-black/30 mt-1">
+          Mattermost user ID of the bot account
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3 mb-6">
+        <input type="hidden" name="form[enabled]" value="false" />
+        <input
+          type="checkbox"
+          name="form[enabled]"
+          id="form_enabled"
+          value="true"
+          checked={@form[:enabled].value}
+          class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
+        />
+        <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">
+          Enable this configuration
+        </label>
+      </div>
+
+      <div :if={@modal_errors != []} class="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
+        <p
+          :for={err <- @modal_errors}
+          class="font-mono text-[0.7rem] text-red-600 flex items-center gap-1.5"
+        >
+          <span class="text-red-400">✗</span> {err}
+        </p>
+      </div>
+
+      <div class="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          phx-click="close_modal"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-all"
+        >
+          {if @modal == :new, do: "Create", else: "Update"}
+        </button>
+      </div>
+    </.form>
+  </ZaqWeb.Components.BOModal.form_dialog>
+
+  <ZaqWeb.Components.BOModal.modal_shell
+    :if={@oauth_claim_modal}
+    id="oauth-claim-modal"
+    cancel_event="close_oauth_claim"
+    max_width_class="max-w-md"
+  >
+    <div class="text-center">
+      <div class="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-lg bg-[#03b6d4]/10 text-[#03b6d4]">
+        <.icon name="hero-arrow-top-right-on-square" class="h-5 w-5" />
+      </div>
+      <h3 class="mb-2 font-mono text-base font-bold text-black">
+        OAuth authorization in progress
+      </h3>
+      <p class="mb-6 font-mono text-[0.75rem] text-black/40">
+        Complete the provider authorization in the popup window. This dialog updates automatically when finished.
+      </p>
+      <button
+        type="button"
+        phx-click="close_oauth_claim"
+        class="rounded-xl border border-black/10 px-5 py-2.5 font-mono text-[0.75rem] text-black/40 transition-all hover:border-black/20 hover:text-black"
+      >
+        Cancel
+      </button>
     </div>
-  </div>
+  </ZaqWeb.Components.BOModal.modal_shell>
+
+  <ZaqWeb.Components.BOModal.form_dialog
+    :if={@credential_modal}
+    id="new-credential-modal"
+    cancel_event="close_credential_modal"
+    title="New Credential"
+    max_width_class="max-w-lg"
+  >
+    <.form
+      :if={@credential_form}
+      for={@credential_form}
+      id="credential-form"
+      phx-submit="save_credential"
+      phx-change="validate_credential"
+      class="space-y-4"
+    >
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Name
+        </label>
+        <input
+          type="text"
+          name="credential[name]"
+          value={@credential_form[:name].value}
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          placeholder="e.g. Google Drive OAuth"
+        />
+      </div>
+
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Provider
+        </label>
+        <input
+          type="text"
+          name="credential[provider]"
+          value={@credential_form[:provider].value}
+          readonly
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-black/5 text-black/50 text-sm font-mono outline-none"
+        />
+      </div>
+
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Auth Kind
+        </label>
+        <select
+          name="credential[auth_kind]"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        >
+          <option
+            value="oauth2"
+            selected={credential_auth_kind_from_changeset(@credential_changeset) == "oauth2"}
+          >
+            oauth2
+          </option>
+          <option
+            value="api_key"
+            selected={credential_auth_kind_from_changeset(@credential_changeset) == "api_key"}
+          >
+            api_key
+          </option>
+        </select>
+      </div>
+
+      <div :if={credential_auth_kind_from_changeset(@credential_changeset) == "oauth2"}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Client ID
+        </label>
+        <input
+          type="text"
+          name="credential[client_id]"
+          value={@credential_form[:client_id].value}
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
+
+      <div :if={credential_auth_kind_from_changeset(@credential_changeset) == "oauth2"}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Client Secret
+        </label>
+        <.secret_input
+          id="new-credential-client-secret"
+          name="credential[client_secret]"
+          value={@credential_form[:client_secret].value}
+          placeholder="••••••••"
+          input_class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+        />
+      </div>
+
+      <div :if={credential_auth_kind_from_changeset(@credential_changeset) == "api_key"}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          API Key
+        </label>
+        <.secret_input
+          id="new-credential-api-key"
+          name="credential[api_key]"
+          value={@credential_form[:api_key].value}
+          placeholder="••••••••"
+          input_class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+        />
+      </div>
+
+      <div :if={@credential_errors != []} class="rounded-xl bg-red-50 border border-red-200 p-3">
+        <p
+          :for={err <- @credential_errors}
+          class="font-mono text-[0.7rem] text-red-600 flex items-center gap-1.5"
+        >
+          <span class="text-red-400">✗</span> {err}
+        </p>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-2">
+        <button
+          type="button"
+          phx-click="close_credential_modal"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-all"
+        >
+          Create
+        </button>
+      </div>
+    </.form>
+  </ZaqWeb.Components.BOModal.form_dialog>
   
 <!-- ================================================================== -->
   <!-- MODAL: Delete Confirmation -->

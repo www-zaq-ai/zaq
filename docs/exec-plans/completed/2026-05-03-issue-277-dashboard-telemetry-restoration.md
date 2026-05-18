@@ -4,7 +4,7 @@
 
 **Date:** 2026-05-03
 **Author:** OpenCode (gpt-5.3-codex)
-**Status:** `active`
+**Status:** `completed`
 **Related debt:** N/A
 **PR(s):** TBD
 

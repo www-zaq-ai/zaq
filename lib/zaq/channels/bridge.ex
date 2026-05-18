@@ -2,59 +2,205 @@ defmodule Zaq.Channels.Bridge do
   @moduledoc """
   Behaviour and shared helpers for channel bridge modules.
 
-  All bridges must expose a canonical inbound mapper (`to_internal/2`) and
-  outbound sender (`send_reply/2`). Runtime/lifecycle callbacks vary by bridge
-  type and are optional.
+  Responsibilities:
+
+  - Define required bridge contract callbacks (`to_internal/2`, `send_reply/2`).
+  - Provide optional runtime/lifecycle callback contracts used by bridge-specific
+    runtimes.
+  - Provide shared provider resolution and connection/config lookup helpers.
+  - Provide shared incoming routing hooks and persistence helper
+    (`persist_from_incoming/5`) that routes through `NodeRouter.dispatch/1` when
+    using the default engine conversations module.
+
+  This module does not implement provider transport logic directly; concrete
+  bridge modules own transport-specific behavior.
   """
 
-  alias Zaq.{Agent, Event, NodeRouter}
+  alias Zaq.Channels.{ChannelConfig, CommunicationBridge}
   alias Zaq.Engine.Conversations
-  alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.Utils.ParseUtils
+  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.{Event, NodeRouter}
+
+  @smtp_provider "email:smtp"
+  @imap_provider "email:imap"
 
   @callback to_internal(map(), map()) :: Incoming.t() | {:error, term()}
-  @callback send_reply(term(), map()) :: :ok | {:error, term()}
 
   @callback start_runtime(map()) :: :ok | {:error, term()}
   @callback stop_runtime(map()) :: :ok | {:error, term()}
-  @callback send_typing(map() | atom() | String.t(), String.t(), map()) :: :ok | {:error, term()}
-
-  @callback add_reaction(
-              map() | atom() | String.t(),
-              String.t(),
-              String.t(),
-              String.t(),
-              map()
-            ) :: :ok | {:error, term()}
-
-  @callback remove_reaction(
-              map() | atom() | String.t(),
-              String.t(),
-              String.t(),
-              String.t(),
-              map()
-            ) :: :ok | {:error, term()}
-
-  @callback subscribe_thread_reply(map(), String.t(), String.t()) :: :ok | {:error, term()}
-  @callback unsubscribe_thread_reply(map(), String.t(), String.t()) :: :ok | {:error, term()}
-  @callback open_dm_channel(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
-  @callback fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sync_runtime(map() | nil, map()) :: :ok | {:error, term()}
+  @callback sync_provider_runtime(map()) :: :ok | {:error, term()}
+  @callback build_runtime_specs(map()) :: {:ok, {map() | nil, list()}} | {:error, term()}
+  @callback runtime_update_enabled_enabled(map(), map()) :: :ok | {:error, term()}
+  @callback runtime_supervisor_module() :: module()
+  @callback runtime_bridge_id(map()) :: String.t()
   @callback test_connection(map(), String.t()) :: {:ok, term()} | {:error, term()}
-  @callback list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
-  @callback resolve_agent_selection(map(), Incoming.t(), keyword()) :: map() | nil
+  @callback before_incoming(map(), map(), keyword(), module()) ::
+              {:ok, {map(), map(), keyword()}} | {:error, term()}
+  @callback after_incoming(map(), map(), keyword(), term(), module()) :: term()
 
   @optional_callbacks start_runtime: 1,
                       stop_runtime: 1,
-                      send_typing: 3,
-                      add_reaction: 5,
-                      remove_reaction: 5,
-                      subscribe_thread_reply: 3,
-                      unsubscribe_thread_reply: 3,
-                      open_dm_channel: 2,
-                      fetch_profile: 2,
-                      test_connection: 2,
-                      list_mailboxes: 2,
-                      resolve_agent_selection: 3
+                      sync_runtime: 2,
+                      sync_provider_runtime: 1,
+                      runtime_update_enabled_enabled: 2,
+                      build_runtime_specs: 1,
+                      runtime_supervisor_module: 0,
+                      runtime_bridge_id: 1,
+                      before_incoming: 4,
+                      after_incoming: 5,
+                      test_connection: 2
+
+  defmacro __using__(_opts) do
+    quote do
+      alias Zaq.Channels.Bridge, as: ChannelBridge
+
+      defdelegate route_incoming(bridge_module, config, payload, sink_opts),
+        to: Zaq.Channels.Bridge
+
+      defdelegate bridge_for(provider), to: Zaq.Channels.Bridge
+      defdelegate provider_to_bridge_key(provider), to: Zaq.Channels.Bridge
+      defdelegate resolve_bridge(provider), to: Zaq.Channels.Bridge
+      defdelegate fetch_connection_details(provider), to: Zaq.Channels.Bridge
+      defdelegate fetch_channel_config(provider), to: Zaq.Channels.Bridge
+      defdelegate fetch_any_channel_config(provider), to: Zaq.Channels.Bridge
+
+      defdelegate dispatch_provider_runtime_sync(bridge, config),
+        to: Zaq.Channels.Bridge
+
+      def start_runtime(config) do
+        bridge_id = runtime_bridge_id(config)
+
+        with true <-
+               function_exported?(__MODULE__, :build_runtime_specs, 1) || {:error, :unsupported},
+             {:ok, {state_spec, listeners}} <- build_runtime_specs(config) do
+          case runtime_supervisor_module().start_runtime(bridge_id, state_spec, listeners) do
+            {:ok, _runtime} -> :ok
+            {:error, :already_running} -> ChannelBridge.restart_runtime(__MODULE__, config)
+            {:error, reason} -> {:error, reason}
+          end
+        end
+      end
+
+      def stop_runtime(config),
+        do: ChannelBridge.stop_runtime_normalized(__MODULE__, config)
+
+      def sync_runtime(nil, %{enabled: true} = config), do: start_runtime(config)
+      def sync_runtime(nil, %{enabled: false}), do: :ok
+      def sync_runtime(%{enabled: true}, %{enabled: false} = config), do: stop_runtime(config)
+      def sync_runtime(%{enabled: false}, %{enabled: true} = config), do: start_runtime(config)
+
+      def sync_runtime(%{enabled: true} = before_config, %{enabled: true} = after_config),
+        do: runtime_update_enabled_enabled(before_config, after_config)
+
+      def sync_runtime(_before, _after), do: :ok
+
+      def sync_provider_runtime(%{enabled: false} = config), do: stop_runtime(config)
+      def sync_provider_runtime(%{enabled: true} = config), do: start_runtime(config)
+
+      def runtime_update_enabled_enabled(_before, _after), do: :ok
+
+      def runtime_supervisor_module, do: Zaq.Channels.Supervisor
+
+      def runtime_bridge_id(config), do: ChannelBridge.default_bridge_id(config)
+
+      defoverridable start_runtime: 1,
+                     stop_runtime: 1,
+                     sync_runtime: 2,
+                     sync_provider_runtime: 1,
+                     runtime_update_enabled_enabled: 2,
+                     runtime_supervisor_module: 0,
+                     runtime_bridge_id: 1
+    end
+  end
+
+  @spec default_bridge_id(map()) :: String.t()
+  def default_bridge_id(config),
+    do:
+      "#{Map.get(config, :provider) || Map.get(config, "provider")}_#{Map.get(config, :id) || Map.get(config, "id")}"
+
+  @spec stop_runtime_normalized(module(), map()) :: :ok | {:error, term()}
+  def stop_runtime_normalized(bridge_module, config)
+      when is_atom(bridge_module) and is_map(config) do
+    case bridge_module.runtime_supervisor_module().stop_bridge_runtime(
+           config,
+           bridge_module.runtime_bridge_id(config)
+         ) do
+      :ok -> :ok
+      {:error, :not_running} -> :ok
+      other -> other
+    end
+  end
+
+  @spec restart_runtime(module(), map()) :: :ok | {:error, term()}
+  def restart_runtime(bridge_module, config) when is_atom(bridge_module) and is_map(config) do
+    with true <-
+           function_exported?(bridge_module, :build_runtime_specs, 1) || {:error, :unsupported},
+         :ok <- stop_runtime_normalized(bridge_module, config),
+         {:ok, {state_spec, listeners}} <- bridge_module.build_runtime_specs(config) do
+      case bridge_module.runtime_supervisor_module().start_runtime(
+             bridge_module.runtime_bridge_id(config),
+             state_spec,
+             listeners
+           ) do
+        {:ok, _runtime} -> :ok
+        {:error, :already_running} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc "Routes inbound payloads through optional hooks and bridge handler."
+  @spec route_incoming(module(), map(), map(), keyword()) :: term()
+  def route_incoming(bridge_module, config, payload, sink_opts)
+      when is_atom(bridge_module) and is_map(config) and is_map(payload) and is_list(sink_opts) do
+    with {:ok, {hook_config, hook_payload, hook_sink_opts}} <-
+           before_incoming(config, payload, sink_opts, bridge_module),
+         true <-
+           function_exported?(bridge_module, :handle_from_listener, 3) || {:error, :unsupported},
+         result <- bridge_module.handle_from_listener(hook_config, hook_payload, hook_sink_opts) do
+      after_incoming(hook_config, hook_payload, hook_sink_opts, result, bridge_module)
+    else
+      {:error, _reason} = error -> error
+      false -> {:error, :unsupported}
+      other -> other
+    end
+  end
+
+  @doc "Default before-incoming hook pass-through."
+  @spec before_incoming(map(), map(), keyword(), module()) ::
+          {:ok, {map(), map(), keyword()}} | {:error, term()}
+  def before_incoming(config, payload, sink_opts, bridge_module)
+      when is_map(config) and is_map(payload) and is_list(sink_opts) and is_atom(bridge_module) do
+    if function_exported?(bridge_module, :before_incoming, 4) do
+      bridge_module.before_incoming(config, payload, sink_opts, __MODULE__)
+    else
+      {:ok, {config, payload, sink_opts}}
+    end
+  end
+
+  @doc "Default after-incoming hook pass-through."
+  @spec after_incoming(map(), map(), keyword(), term(), module()) :: term()
+  def after_incoming(config, payload, sink_opts, result, bridge_module)
+      when is_map(config) and is_map(payload) and is_list(sink_opts) and is_atom(bridge_module) do
+    if function_exported?(bridge_module, :after_incoming, 5) do
+      bridge_module.after_incoming(config, payload, sink_opts, result, __MODULE__)
+    else
+      result
+    end
+  end
+
+  @doc "Normalizes event/bridge ack responses to `:ok` or `{:error, reason}`."
+  @spec ack_from_event_response(term()) :: :ok | {:error, term()}
+  def ack_from_event_response(response)
+
+  def ack_from_event_response(:ok), do: :ok
+  def ack_from_event_response({:ok, _ack}), do: :ok
+  def ack_from_event_response({:error, _reason} = error), do: error
+  def ack_from_event_response(%{ack: ack}), do: ack_from_event_response(ack)
+  def ack_from_event_response(%{"ack" => ack}), do: ack_from_event_response(ack)
+  def ack_from_event_response(%Event{response: response}), do: ack_from_event_response(response)
+  def ack_from_event_response(other), do: {:error, {:invalid_ack, other}}
 
   @doc """
   Persists a processed incoming message and its metadata through the engine.
@@ -87,74 +233,112 @@ defmodule Zaq.Channels.Bridge do
     end
   end
 
-  @doc "Runs pipeline through NodeRouter and normalizes response shape."
-  @spec run_pipeline_with_node_router(Incoming.t(), keyword(), map() | nil, map(), module()) ::
-          Outgoing.t() | {:error, term()}
-  def run_pipeline_with_node_router(
-        %Incoming{} = msg,
-        pipeline_opts,
-        agent_selection,
-        actor,
-        node_router_module
-      )
-      when is_list(pipeline_opts) and is_map(actor) and is_atom(node_router_module) do
-    event =
-      Event.new(
-        msg,
-        :agent,
-        actor: actor,
-        opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
-      )
-      |> put_agent_selection_assign(agent_selection)
-
-    case node_router_module.dispatch(event).response do
-      %Outgoing{} = outgoing -> outgoing
-      {:error, _reason} = error -> error
-      other -> {:error, {:invalid_pipeline_response, other}}
+  @doc "Returns the configured bridge module for provider."
+  @spec bridge_for(atom() | String.t()) :: module() | nil
+  def bridge_for(provider) when is_binary(provider) do
+    provider
+    |> provider_to_bridge_key()
+    |> case do
+      nil -> nil
+      key -> bridge_for(key)
     end
   end
 
-  @doc "Adds validated agent selection into event assigns."
-  @spec put_agent_selection_assign(Event.t(), map() | nil) :: Event.t()
-  def put_agent_selection_assign(%Event{} = event, nil), do: event
-
-  def put_agent_selection_assign(%Event{} = event, %{"agent_id" => _} = selection) do
-    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
+  def bridge_for(provider) when is_atom(provider) do
+    :zaq
+    |> Application.get_env(:channels, %{})
+    |> get_in([provider, :bridge])
   end
 
-  def put_agent_selection_assign(%Event{} = event, _selection), do: event
+  @doc "Maps provider string keys to configured bridge keys."
+  @spec provider_to_bridge_key(String.t()) :: atom() | nil
+  def provider_to_bridge_key(@smtp_provider), do: :email
+  def provider_to_bridge_key(@imap_provider), do: :email
 
-  @doc """
-  Returns first conversation-eligible candidate agent selection from ordered candidates.
+  def provider_to_bridge_key(provider) do
+    String.to_existing_atom(provider)
+  rescue
+    ArgumentError -> nil
+  end
 
-  ## Parameters
-  - `candidates`: List of `{source_atom, agent_id}` tuples in priority order.
-    Sources: `:channel_assignment`, `:provider_default`, `:global_default`
-  - `agent_module`: Module implementing conversation eligibility lookup
-    (default: `Zaq.Agent`)
+  @doc "Resolves configured bridge for provider."
+  @spec resolve_bridge(atom() | String.t()) :: {:ok, module()} | {:error, term()}
+  def resolve_bridge(provider) do
+    case bridge_for(provider) do
+      nil -> {:error, {:no_bridge, provider}}
+      bridge -> {:ok, bridge}
+    end
+  end
 
-  ## Examples
+  @doc "Fetches connection details by provider."
+  @spec fetch_connection_details(atom() | String.t()) :: map()
+  def fetch_connection_details(:web), do: %{}
 
-      iex> candidates = [
-      ...>   {:channel_assignment, 42},
-      ...>   {:provider_default, 10},
-      ...>   {:global_default, 1}
-      ...> ]
-      iex> first_active_selection(candidates)
-      %{"agent_id" => 42, "source" => "channel_assignment"}
-  """
-  @spec first_active_selection([{atom(), term()}], module()) :: map() | nil
-  def first_active_selection(candidates, agent_module \\ Agent)
+  def fetch_connection_details(provider) do
+    case ChannelConfig.get_by_provider(to_string(provider)) do
+      nil -> %{}
+      config -> %{url: config.url, token: config.token}
+    end
+  end
 
-  def first_active_selection(candidates, agent_module)
-      when is_list(candidates) and is_atom(agent_module) do
-    Enum.find_value(candidates, fn {source, candidate_id} ->
-      with {:ok, id} <- ParseUtils.parse_int_strict(candidate_id),
-           {:ok, _agent} <- agent_module.get_conversation_enabled_agent(id) do
-        %{"agent_id" => id, "source" => Atom.to_string(source)}
-      else
-        _ -> nil
-      end
-    end)
+  @doc "Fetches enabled channel config by provider."
+  @spec fetch_channel_config(atom() | String.t()) :: {:ok, map()} | {:error, term()}
+  def fetch_channel_config(provider) do
+    case ChannelConfig.get_by_provider(to_string(provider)) do
+      nil -> {:error, {:channel_not_configured, provider}}
+      config -> {:ok, config}
+    end
+  end
+
+  @doc "Fetches channel config by provider, including disabled entries."
+  @spec fetch_any_channel_config(atom() | String.t()) :: {:ok, map()} | {:error, term()}
+  def fetch_any_channel_config(provider) do
+    case ChannelConfig.get_any_by_provider(to_string(provider)) do
+      nil -> {:error, {:channel_not_configured, provider}}
+      config -> {:ok, config}
+    end
+  end
+
+  @doc "Delegates provider runtime sync to bridge callback or fallback runtime hooks."
+  @spec dispatch_provider_runtime_sync(module(), map()) :: :ok | {:error, term()}
+  def dispatch_provider_runtime_sync(bridge, config) do
+    if bridge_supports?(bridge, :sync_provider_runtime, 1) do
+      bridge.sync_provider_runtime(config)
+    else
+      fallback_sync_provider_runtime(config)
+    end
+  end
+
+  @doc "Synchronizes runtime processes when a channel config changes via centralized Bridge resolution."
+  @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}
+  def sync_config_runtime(before_config, after_config),
+    do: CommunicationBridge.sync_config_runtime(before_config, after_config)
+
+  @doc "Synchronizes runtime processes from canonical DB config for provider."
+  @spec sync_provider_runtime(atom() | String.t()) :: :ok | {:error, term()}
+  def sync_provider_runtime(provider),
+    do: CommunicationBridge.sync_provider_runtime(provider)
+
+  defp fallback_sync_provider_runtime(config) do
+    if config.enabled do
+      with_bridge_runtime(config, :start_runtime)
+    else
+      with_bridge_runtime(config, :stop_runtime)
+    end
+  end
+
+  defp with_bridge_runtime(%{provider: provider} = config, fun)
+       when fun in [:start_runtime, :stop_runtime] do
+    with {:ok, bridge} <- resolve_bridge(provider),
+         true <- bridge_supports?(bridge, fun, 1) || :unsupported do
+      apply(bridge, fun, [config])
+    else
+      :unsupported -> :ok
+    end
+  end
+
+  defp bridge_supports?(bridge, fun, arity)
+       when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
+    Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
   end
 end

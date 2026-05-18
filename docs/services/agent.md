@@ -137,11 +137,12 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 ### Agent API + Executor
 - `Zaq.Agent.Api` is the role boundary entrypoint used by `NodeRouter.dispatch/1`
 - `:run_pipeline` is a single entrypoint with three sequential responsibilities:
-  1. **Guard**: `PromptGuard.validate/1` — if it fails, returns an error `Outgoing` immediately; neither route is entered
+  1. **Guard**: `PromptGuard.validate/1` — if it fails, returns a guard-blocked `Outgoing` through the standard persist + channels return-hop path (same delivery flow as regular pipeline responses)
   2. **Signal**: `Status.broadcast(:validating)` — fired once after the guard passes, before routing
   3. **Route**: no `event.assigns["agent_selection"]` → `Pipeline.run/2`; explicit `agent_id` → `Executor.run/2`
 - Both `prompt_guard:` and `status_module:` are injectable via event opts for testing
 - `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, then delegates to `Factory`
+- **Auditability rule (mandatory):** channel delivery is allowed only after persistence succeeds. In `Zaq.Agent.Api`, `persist_from_incoming` must complete successfully before scheduling the `:deliver_outgoing` return hop. If persistence fails, the API must return `{:error, {:persist_failed, reason}}` and must not dispatch to Channels.
 - Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
   - `:configured_agent_updated`
   - `:configured_agent_deleted`

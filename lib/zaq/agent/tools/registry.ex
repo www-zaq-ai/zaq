@@ -14,6 +14,19 @@ defmodule Zaq.Agent.Tools.Registry do
         }
 
   @tools [
+    %{
+      key: "answering.search_knowledge_base",
+      label: "Search knowledge base",
+      description: "Search the ZAQ knowledge base with a refined query (answering-only)",
+      module: Zaq.Agent.Tools.SearchKnowledgeBase
+    },
+    %{
+      key: "answering.knowledge_base_overview",
+      label: "Knowledge Base Overview",
+      description:
+        "Shows the user what documents exist in the knowledge base, how many are indexed, and their ingestion status — without reading document content (answering-only)",
+      module: Zaq.Agent.Tools.KnowledgeBaseOverview
+    },
     ## Requires permission
     # %{
     #   key: "files.read_file",
@@ -152,19 +165,6 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
       module: Jido.Tools.LuaEval
-    },
-    %{
-      key: "answering.search_knowledge_base",
-      label: "Search knowledge base",
-      description: "Search the ZAQ knowledge base with a refined query (answering-only)",
-      module: Zaq.Agent.Tools.SearchKnowledgeBase
-    },
-    %{
-      key: "answering.list_knowledge_base_files",
-      label: "List knowledge base files",
-      description:
-        "Count and list documents accessible to the user in the knowledge base (answering-only)",
-      module: Zaq.Agent.Tools.ListKnowledgeBaseFiles
     }
   ]
 
@@ -179,6 +179,16 @@ defmodule Zaq.Agent.Tools.Registry do
     do: Enum.any?(@tools, &(&1.key == tool_key))
 
   def valid_tool_key?(_), do: false
+
+  @doc """
+  Returns the subset of `keys` that are no longer registered in `@tools`.
+
+  Useful for detecting saved tool references that became stale after a tool was removed
+  from the registry.
+  """
+  @spec ghost_keys([String.t()]) :: [String.t()]
+  def ghost_keys(keys) when is_list(keys), do: Enum.reject(keys, &valid_tool_key?/1)
+  def ghost_keys(_), do: []
 
   @spec resolve_modules([String.t()]) ::
           {:ok, [module()]} | {:error, {:unknown_tools, [String.t()]}}
@@ -227,8 +237,10 @@ defmodule Zaq.Agent.Tools.Registry do
   end
 
   defp provider_atom_from_id(provider_id) when is_binary(provider_id) do
+    downcased = String.downcase(provider_id)
+
     Enum.find_value(LLMDB.providers(), fn provider ->
-      if Atom.to_string(provider.id) == provider_id, do: provider.id
+      if Atom.to_string(provider.id) == downcased, do: provider.id
     end)
   end
 end

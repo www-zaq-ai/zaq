@@ -8,11 +8,8 @@ defmodule Zaq.Engine.IngestionSupervisor do
 
   ## Adapter resolution
 
-  Adapters are resolved from the `provider` field on `Zaq.Channels.ChannelConfig`.
-  Each provider string maps to an adapter module:
-
-      "google_drive" => Zaq.Channels.Ingestion.GoogleDrive
-      "sharepoint"   => Zaq.Channels.Ingestion.SharePoint
+  This supervisor only starts engine-owned ingestion adapters.
+  Channel-managed Data Source providers are started by `Zaq.Channels.Supervisor`.
 
   ## Adding a new ingestion adapter
 
@@ -24,10 +21,7 @@ defmodule Zaq.Engine.IngestionSupervisor do
   alias Zaq.Engine.ChannelAdapterLoader
   use Supervisor
 
-  @adapters %{
-    "google_drive" => Zaq.Channels.Ingestion.GoogleDrive,
-    "sharepoint" => Zaq.Channels.Ingestion.SharePoint
-  }
+  @adapters %{}
 
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts, name: __MODULE__)

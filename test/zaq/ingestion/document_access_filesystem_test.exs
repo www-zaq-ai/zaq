@@ -1,9 +1,13 @@
 defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.{Document, DocumentAccess}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
+
+  import Zaq.SystemConfigFixtures
 
   setup do
+    seed_embedding_config(%{model: "test-model", dimension: "1536"})
+
     tmp =
       Path.join(System.tmp_dir!(), "doc_access_fs_#{System.unique_integer([:positive])}")
 
@@ -27,11 +31,16 @@ defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
     doc
   end
 
+  defp insert_chunk_for(doc) do
+    {:ok, _chunk} = Chunk.create(%{document_id: doc.id, content: "chunk", chunk_index: 0})
+  end
+
   describe "list_files_with_ingestion_status/1 — skip_permissions: true (filesystem walk)" do
     test "tags indexed files as ingested: true and unindexed as ingested: false", %{tmp: tmp} do
       File.write!("#{tmp}/indexed.md", "content")
       File.write!("#{tmp}/unindexed.txt", "other")
-      _doc = create_doc("indexed.md")
+      doc = create_doc("indexed.md")
+      insert_chunk_for(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
 
@@ -138,11 +147,39 @@ defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
       refute Enum.any?(sources, &String.starts_with?(&1, "dirc/"))
     end
 
+    test "sidecar .md is excluded when its source file exists", %{tmp: tmp} do
+      File.write!("#{tmp}/slides.pptx", "binary")
+      File.write!("#{tmp}/slides.md", "sidecar content")
+
+      Document.create(%{
+        source: "slides.md",
+        content: "sidecar content",
+        metadata: Sidecar.sidecar_metadata("slides.pptx")
+      })
+
+      result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
+      sources = Enum.map(result, & &1.source)
+
+      assert "slides.pptx" in sources
+      refute "slides.md" in sources
+    end
+
+    test "standalone .md with no paired source file is not excluded", %{tmp: tmp} do
+      File.write!("#{tmp}/notes.md", "standalone")
+
+      result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
+      sources = Enum.map(result, & &1.source)
+
+      assert "notes.md" in sources
+    end
+
     test "ingested doc carries its title field", %{tmp: tmp} do
       File.write!("#{tmp}/titled.md", "content")
 
       {:ok, doc} =
         Document.create(%{source: "titled.md", content: "c", title: "My Title", metadata: %{}})
+
+      insert_chunk_for(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
       entry = Enum.find(result, fn r -> r.source == doc.source end)

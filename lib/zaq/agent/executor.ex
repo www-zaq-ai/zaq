@@ -15,7 +15,7 @@ defmodule Zaq.Agent.Executor do
     `:system_prompt`).
   - Server orchestration through `Zaq.Agent.ServerManager.ensure_server/2`.
   - Query execution via `Zaq.Agent.Factory.ask_with_config/4` and await.
-  - User-facing side effects: typing signal (`Zaq.Channels.Router` through
+  - User-facing side effects: typing signal (Channels API through
     `Zaq.NodeRouter`) and answering status broadcasts (`Zaq.Agent.Status`).
   - Observability: execution counters, latency/confidence metrics, and
     normalized error classification through `Zaq.Engine.Telemetry`.
@@ -33,6 +33,7 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Agent.{Answering, ErrorMessage, Factory, LogprobsAnalyzer, ServerManager}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
+  alias Zaq.Event
   alias Zaq.Utils.DateUtils
 
   @doc """
@@ -130,10 +131,12 @@ defmodule Zaq.Agent.Executor do
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
            {:ok, server_id} <-
              ensure_agent_server(server_manager_module, configured_agent, opts),
-           node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
-             incoming.provider,
-             incoming.channel_id
-           ]),
+           _ <-
+             Event.new(%{provider: incoming.provider, channel_id: incoming.channel_id}, :channels,
+               opts: [action: :send_typing],
+               type: :async
+             )
+             |> node_router(opts).dispatch(),
            :ok <-
              status_mod(opts).broadcast(
                incoming,

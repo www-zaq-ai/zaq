@@ -75,8 +75,8 @@ ensure_role = fn role_name ->
   end
 end
 
-_ = ensure_role.("super_admin")
-admin_role = ensure_role.("admin")
+super_admin_role = ensure_role.("super_admin")
+_ = ensure_role.("admin")
 _ = ensure_role.("staff")
 
 username = System.get_env("E2E_ADMIN_USERNAME", "e2e_admin")
@@ -95,7 +95,7 @@ case Accounts.get_user_by_username(username) do
       Accounts.create_user_with_password(%{
         username: username,
         email: email,
-        role_id: admin_role.id,
+        role_id: super_admin_role.id,
         password: password
       })
 
@@ -106,7 +106,7 @@ case Accounts.get_user_by_username(username) do
       Accounts.update_user(user, %{
         username: user.username || username,
         email: resolve_user_email.(user),
-        role_id: admin_role.id,
+        role_id: super_admin_role.id,
         must_change_password: false
       })
 

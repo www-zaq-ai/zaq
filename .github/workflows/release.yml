@@ -192,13 +192,41 @@ jobs:
           fi
 
           BODY=$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq '.body // ""')
-          # Trim to Discord embed description limit (4096 chars)
-          BODY="${BODY:0:4000}"
           RELEASE_URL="https://github.com/${REPO}/releases/tag/${TAG}"
+
+          # Find the merged release-please PR and look for a 👍-approved bot summary
+          SUMMARY=""
+          PR_NUMBER=$(gh pr list \
+            --repo "${REPO}" \
+            --state merged \
+            --head "release-please--branches--main" \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -n "${PR_NUMBER}" ]; then
+            RAW_SUMMARY=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              --jq '[.[] | select(.user.login == "opencode-agent[bot]") | select(.reactions["+1"] > 0)] | last | .body // ""')
+
+            if [ -n "${RAW_SUMMARY}" ]; then
+              # Strip the opencode session badge/footer appended by the bot
+              SUMMARY=$(echo "${RAW_SUMMARY}" | awk '/^<a href="https:\/\/opencode\.ai/{exit} /^\[opencode session\]/{exit} {print}' | sed 's/[[:space:]]*$//')
+            fi
+          fi
+
+          # Prepend summary block if an approved one was found
+          if [ -n "${SUMMARY}" ]; then
+            DESC=$(printf '📝 **Summary**\n%s\n\n---\n\n%s' "${SUMMARY}" "${BODY}")
+          else
+            DESC="${BODY}"
+          fi
+
+          # Trim to Discord embed description limit (4096 chars)
+          DESC="${DESC:0:4000}"
 
           PAYLOAD=$(jq -n \
             --arg title "🚀 ZAQ ${TAG} is out!" \
-            --arg desc "${BODY}" \
+            --arg desc "${DESC}" \
             --arg url "${RELEASE_URL}" \
             '{
               username: "Release Bot",

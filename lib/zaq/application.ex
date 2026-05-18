@@ -8,16 +8,7 @@ defmodule Zaq.Application do
 
   @impl true
   def start(_type, _args) do
-    roles =
-      case System.get_env("ROLES") do
-        nil ->
-          Application.get_env(:zaq, :roles, [:all])
-
-        roles_str ->
-          roles_str
-          |> String.split(",")
-          |> Enum.map(&(&1 |> String.trim() |> String.to_atom()))
-      end
+    roles = Zaq.NodeRoles.current()
 
     ObanTelemetry.attach()
 
@@ -38,7 +29,7 @@ defmodule Zaq.Application do
       |> maybe_add(roles, :agent, Zaq.Agent.Supervisor)
       |> maybe_add(roles, :ingestion, Zaq.Ingestion.Supervisor)
       |> maybe_add(roles, :channels, Zaq.Channels.Supervisor)
-      |> maybe_add(roles, :bo, ZaqWeb.Endpoint)
+      |> maybe_add_web_endpoint(roles)
 
     children =
       if Application.get_env(:zaq, :e2e_routes, false) do
@@ -86,6 +77,14 @@ defmodule Zaq.Application do
   defp maybe_add(children, roles, role, child) do
     if :all in roles or role in roles do
       children ++ [child]
+    else
+      children
+    end
+  end
+
+  defp maybe_add_web_endpoint(children, roles) do
+    if :all in roles or :bo in roles or :channels in roles do
+      children ++ [ZaqWeb.Endpoint]
     else
       children
     end

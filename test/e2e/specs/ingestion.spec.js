@@ -70,6 +70,13 @@ function fileRow(page, filename) {
   return page.getByRole("row", { name: filename })
 }
 
+// Find a sidecar sub-row by filename. Sidecar rows use the distinct
+// `zaq-bg-accent-faint` class and contain a preview button rather than a
+// checkbox — they are not matched reliably by getByRole("row", { name }).
+function sidecarRow(page, filename) {
+  return page.locator("tr.zaq-bg-accent-faint").filter({ hasText: filename })
+}
+
 // Ensure the file is selected then ingest.
 // Uses check() (idempotent) instead of a point-in-time isChecked() read so that
 // an in-flight PubSub handle_info re-render cannot produce a stale DOM snapshot
@@ -215,7 +222,7 @@ test.describe("Ingestion", () => {
     // Document record. DirectorySnapshot attaches it as related_md on the PDF
     // entry → the template renders a row showing the sidecar filename.
 
-    await expect(fileRow(page, sidecarFilename)).toBeVisible({ timeout: 5_000 })
+    await expect(sidecarRow(page, sidecarFilename)).toBeVisible({ timeout: 5_000 })
 
     // ── Step 3c: Fail a re-ingest while "ingested" is still in the DB ─────────
     //
@@ -336,6 +343,84 @@ test.describe("Ingestion", () => {
     ).toBeVisible({ timeout: 15_000 })
 
     await expect(rowAfterReset.locator("span", { hasText: "failed" })).not.toBeVisible()
+  })
+
+  // ── Folder rename preserves ingested documents (issue #331) ──────────────
+  //
+  // When a folder is renamed, the Document records inside it must have their
+  // `source` path updated so the files remain findable (with their "ingested"
+  // tag intact) after navigating into the renamed folder.
+
+  test("renaming a folder keeps ingested file visible with ingested tag", async ({ page }) => {
+    const ts = Date.now()
+    const folderName = `zaq-rename-${ts}`
+    const renamedFolder = `product-rename-${ts}`
+    const pdfFilename = `e2e-in-folder-${ts}.pdf`
+    const sidecarFilename = pdfFilename.replace(/\.pdf$/, ".md")
+
+    await gotoBackOfficeLive(page, INGESTION_PATH)
+    await waitForLiveViewSettled(page)
+
+    // ── Create folder via UI ───────────────────────────────────────────────
+    await page.locator("#new-folder-button").click()
+    await expect(page.locator("#new-folder-input")).toBeVisible()
+    await page.locator("#new-folder-input").fill(folderName)
+    await page.locator("#new-folder-form").getByRole("button", { name: /create/i }).click()
+    await waitForLiveViewSettled(page)
+
+    // ── Navigate into the new folder ──────────────────────────────────────
+    await page.getByRole("button", { name: folderName }).click()
+    await waitForLiveViewSettled(page)
+
+    // ── Upload a PDF into the folder ──────────────────────────────────────
+    const tempPdfPath = path.join(os.tmpdir(), pdfFilename)
+    fs.writeFileSync(tempPdfPath, minimalPdfBuffer())
+
+    const fileChooserPromise = page.waitForEvent("filechooser")
+    await page.locator(SEL.uploadBrowseTrigger).click()
+    const fileChooser = await fileChooserPromise
+    await fileChooser.setFiles(tempPdfPath)
+
+    await page.locator(SEL.uploadSubmitButton).click()
+    await dismissFlash(page)
+
+    // ── Ingest the uploaded PDF ───────────────────────────────────────────
+    const row = fileRow(page, pdfFilename)
+    await expect(row).toBeVisible({ timeout: 10_000 })
+    await selectAndIngest(page, row)
+    await expect(row.locator("span", { hasText: "ingested" })).toBeVisible({ timeout: 15_000 })
+
+    // Sidecar .md must appear as a sub-row under the PDF before we rename.
+    await expect(sidecarRow(page, sidecarFilename)).toBeVisible({ timeout: 5_000 })
+
+    // ── Navigate back to root ─────────────────────────────────────────────
+    await page.getByRole("button", { name: "root" }).click()
+    await waitForLiveViewSettled(page)
+
+    // ── Rename the folder ─────────────────────────────────────────────────
+    const folderRow = fileRow(page, folderName)
+    await expect(folderRow).toBeVisible()
+    await folderRow.locator('button[phx-click="rename_item"]').click()
+
+    const renameInput = page.locator('input[name="name"]')
+    await expect(renameInput).toBeVisible()
+    await renameInput.fill(renamedFolder)
+    await page.locator("form[phx-submit='confirm_rename']").getByRole("button", { name: /rename/i }).click()
+    await waitForLiveViewSettled(page)
+
+    // ── Navigate into the renamed folder ──────────────────────────────────
+    await page.getByRole("button", { name: renamedFolder }).click()
+    await waitForLiveViewSettled(page)
+
+    // The PDF must still show the "ingested" tag, proving Document.source was
+    // updated when the folder was renamed.
+    await expect(fileRow(page, pdfFilename)).toBeVisible()
+    await expect(fileRow(page, pdfFilename).locator("span", { hasText: "ingested" })).toBeVisible()
+
+    // The sidecar sub-row must still appear under the PDF, proving the
+    // sidecar_source and source_document_source metadata pointers were also
+    // updated (not just Document.source).
+    await expect(sidecarRow(page, sidecarFilename)).toBeVisible()
   })
 
   // ── Duplicate filename deduplication ──────────────────────────────────────

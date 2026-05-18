@@ -9,8 +9,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
   alias Zaq.System
-  alias ZaqWeb.Live.BO.PreviewHelpers
   alias ZaqWeb.Live.BO.AI.UrlCrawlerPreview
+  alias ZaqWeb.Live.BO.PreviewHelpers
 
   @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
@@ -24,18 +24,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     {:ok,
      socket
-      |> assign(
-        current_path: "/bo/ingestion",
-        section: "files",
-        crawler_status_filter: "all",
-        crawler_status_filters: UrlCrawlerPreview.list_filters(),
-        crawler_search_query: "",
-        crawler_rows: UrlCrawlerPreview.list_rows(),
-        crawler_counters: UrlCrawlerPreview.counters(),
-        crawler_last_action: nil,
-        current_dir: ".",
-        breadcrumbs: [],
-        entries: [],
+     |> assign(
+       current_path: "/bo/ingestion",
+       section: "files",
+       crawler_status_filter: "all",
+       crawler_status_filters: UrlCrawlerPreview.list_filters(),
+       crawler_search_query: "",
+       crawler_rows: UrlCrawlerPreview.list_rows(),
+       crawler_counters: UrlCrawlerPreview.counters(),
+       crawler_last_action: nil,
+       current_dir: ".",
+       breadcrumbs: [],
+       entries: [],
        selected: MapSet.new(),
        jobs: [],
        status_filter: "all",
@@ -71,17 +71,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Raw MD modal state
        raw_content: "",
        raw_filename: "",
-        preview: nil,
-        crawl_output_details: nil
-      )
-      |> load_entries()
-      |> assign_crawl_output_details()
-      |> load_jobs()
-      |> allow_upload(:files,
-        accept: @allowed_extensions,
-        max_entries: 10,
-        max_file_size: 20_000_000
-      )}
+       preview: nil,
+       # Folder drop
+       folder_drop_skipped: [],
+       crawl_output_details: nil
+     )
+     |> load_entries()
+     |> assign_crawl_output_details()
+     |> load_jobs()
+     |> allow_upload(:files,
+       accept: @allowed_extensions,
+       max_entries: 10,
+       max_file_size: 20_000_000
+     )}
   end
 
   @impl true
@@ -676,13 +678,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
      |> load_jobs()}
   end
 
+  # Folder drop
+
+  # Payload: %{"skipped" => [%{"name" => string, "path" => string, "reason" => string}]}
+  def handle_event("folder_drop_skipped", %{"skipped" => skipped}, socket)
+      when is_list(skipped) do
+    {:noreply, assign(socket, folder_drop_skipped: skipped)}
+  end
+
+  def handle_event("folder_drop_skipped", _bad_payload, socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("relaunch_crawl", %{"id" => id}, socket) do
     configuration = UrlCrawlerPreview.configuration!(id)
 
     {:noreply,
      socket
      |> assign(crawler_last_action: "Run requested for #{configuration.crawl_label}")
-     |> put_flash(:info, "Preview only: open the configuration to choose an ingestion strategy and launch a run.")}
+     |> put_flash(
+       :info,
+       "Preview only: open the configuration to choose an ingestion strategy and launch a run."
+     )}
   end
 
   # Upload
@@ -694,27 +711,46 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("upload", _params, socket) do
-    volume = socket.assigns.current_volume
+    socket = assign(socket, folder_drop_skipped: [])
+    all_done? = Enum.all?(socket.assigns.uploads.files.entries, &(&1.progress == 100))
 
-    uploaded =
-      consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
-        binary = File.read!(tmp_path)
-        dest = Path.join(socket.assigns.current_dir, entry.client_name)
+    if all_done? do
+      volume = socket.assigns.current_volume
+      current_dir = socket.assigns.current_dir
 
-        case ingestion_call(:upload_file, [volume, dest, binary]) do
-          {:ok, actual_dest} ->
-            ingestion_call(:track_upload, [volume, actual_dest])
-            {:ok, actual_dest}
+      uploaded =
+        consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
+          upload_entry(volume, current_dir, tmp_path, entry)
+        end)
 
-          error ->
-            error
-        end
-      end)
+      {:noreply,
+       socket
+       |> load_entries()
+       |> put_flash(:info, "#{length(uploaded)} file(s) uploaded.")
+       |> push_event("folder_batch_done", %{})}
+    else
+      {:noreply, socket}
+    end
+  end
 
-    {:noreply,
-     socket
-     |> load_entries()
-     |> put_flash(:info, "#{length(uploaded)} file(s) uploaded.")}
+  defp upload_entry(volume, current_dir, tmp_path, entry) do
+    relative =
+      case entry.client_relative_path do
+        path when is_binary(path) and path != "" -> path
+        _ -> entry.client_name
+      end
+
+    dest = Path.join(current_dir, relative)
+    binary = File.read!(tmp_path)
+
+    case ingestion_call(:upload_file, [volume, dest, binary]) do
+      {:ok, actual_dest} ->
+        ingestion_call(:track_upload, [volume, actual_dest])
+        {:ok, actual_dest}
+
+      error ->
+        error
+    end
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -868,21 +904,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp sanitize_section(_), do: "files"
 
   defp sanitize_crawler_status(status)
-        when status in [
-               "all",
-               "active",
-               "attention",
-               "ingested",
-               "draft",
-               "analyzing",
-               "ready_for_approval",
-               "running",
-               "done",
+       when status in [
+              "all",
+              "active",
+              "attention",
+              "ingested",
+              "draft",
+              "analyzing",
+              "ready_for_approval",
+              "running",
+              "done",
               "partial_success",
               "failed",
               "cancelled"
             ],
-    do: status
+       do: status
 
   defp sanitize_crawler_status(_), do: "all"
 
@@ -953,13 +989,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp fetch_volumes do
     case ingestion_call(:list_volumes, []) do
-      volumes when is_map(volumes) and map_size(volumes) > 0 -> ensure_url_crawling_volume(volumes)
-      _ -> ensure_url_crawling_volume(%{"documents" => "priv/documents"})
+      volumes when is_map(volumes) and map_size(volumes) > 0 ->
+        ensure_url_crawling_volume(volumes)
+
+      _ ->
+        ensure_url_crawling_volume(%{"documents" => "priv/documents"})
     end
   end
 
   defp ensure_url_crawling_volume(volumes) do
-    base_root = Map.get(volumes, "documents") || Map.get(volumes, "default") || volumes |> Map.values() |> List.first()
+    base_root =
+      Map.get(volumes, "documents") || Map.get(volumes, "default") ||
+        volumes |> Map.values() |> List.first()
+
     crawler_root = Path.join(base_root, "web/crawled")
     File.mkdir_p!(crawler_root)
     Map.put_new(volumes, "URL Crawling", crawler_root)
@@ -967,8 +1009,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp default_volume_name(volumes) do
     cond do
-      Map.has_key?(volumes, "documents") -> "documents"
-      Map.has_key?(volumes, "default") -> "default"
+      Map.has_key?(volumes, "documents") ->
+        "documents"
+
+      Map.has_key?(volumes, "default") ->
+        "default"
+
       true ->
         volumes
         |> Map.keys()

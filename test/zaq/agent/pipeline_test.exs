@@ -17,6 +17,23 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubNodeRouter do
+    def dispatch(%Zaq.Event{request: %{provider: provider, channel_id: channel_id}}) do
+      send(:pipeline_test_pid, {:typing_called, provider, channel_id})
+      result = Process.get(:typing_router_result, :ok)
+
+      %Zaq.Event{
+        request: %{},
+        next_hop: %Zaq.EventHop{
+          destination: :channels,
+          type: :async,
+          timestamp: DateTime.utc_now()
+        },
+        response: result
+      }
+    end
+
+    def dispatch(%Zaq.Event{} = event), do: %{event | response: nil}
+
     def call(:channels, Zaq.Channels.Router, :send_typing, [provider, channel_id]) do
       send(:pipeline_test_pid, {:typing_called, provider, channel_id})
       Process.get(:typing_router_result, :ok)
@@ -95,11 +112,13 @@ defmodule Zaq.Agent.PipelineTest do
   end
 
   defmodule StubAnswering do
+    def system_prompt(_assigns), do: "system prompt"
     def no_answer?(_answer), do: false
     def clean_answer(answer), do: answer
   end
 
   defmodule StubNoAnswerAnswering do
+    def system_prompt(_assigns), do: "system prompt"
     def no_answer?(_answer), do: true
     def clean_answer(answer), do: answer
   end
@@ -154,7 +173,6 @@ defmodule Zaq.Agent.PipelineTest do
     identity_plug: StubIdentityPlug,
     hooks: StubHooks,
     node_router: StubNodeRouter,
-    prompt_template: StubPromptTemplate,
     retrieval: StubRetrieval,
     document_processor: StubDocumentProcessor,
     answering: StubAnswering,
@@ -259,7 +277,11 @@ defmodule Zaq.Agent.PipelineTest do
     end
 
     test "uses retrieval negative_answer message when retrieval returns no results" do
-      opts = Keyword.put(@base_opts, :retrieval, StubNoResultsRetrieval)
+      opts =
+        @base_opts
+        |> Keyword.put(:retrieval, StubNoResultsRetrieval)
+        |> Keyword.put(:answering, StubNoAnswerAnswering)
+
       result = Pipeline.run(@incoming, opts)
 
       assert result.body == "no info found"
@@ -416,7 +438,10 @@ defmodule Zaq.Agent.PipelineTest do
     end
 
     test "records message and no-answer telemetry in no-results path" do
-      opts = Keyword.put(@base_opts, :retrieval, StubNoResultsRetrieval)
+      opts =
+        @base_opts
+        |> Keyword.put(:retrieval, StubNoResultsRetrieval)
+        |> Keyword.put(:answering, StubNoAnswerAnswering)
 
       _result = Pipeline.run(@incoming, opts)
 

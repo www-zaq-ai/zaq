@@ -109,4 +109,30 @@ defmodule Zaq.Utils.ParseUtils do
   end
 
   def parse_optional_int(_value), do: nil
+
+  @doc """
+  Parses a positive integer, returning `default` for non-positive or invalid values.
+
+  ## Examples
+
+      iex> Zaq.Utils.ParseUtils.parse_positive_int(5, 1)
+      5
+
+      iex> Zaq.Utils.ParseUtils.parse_positive_int("5", 1)
+      5
+
+      iex> Zaq.Utils.ParseUtils.parse_positive_int("0", 1)
+      1
+
+      iex> Zaq.Utils.ParseUtils.parse_positive_int("abc", 1)
+      1
+
+  """
+  @spec parse_positive_int(term(), pos_integer()) :: pos_integer()
+  def parse_positive_int(value, default) when is_integer(default) and default > 0 do
+    case parse_int_strict(value) do
+      {:ok, int} when int > 0 -> int
+      _ -> default
+    end
+  end
 end

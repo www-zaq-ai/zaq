@@ -123,6 +123,75 @@ async function waitForServerRoundTrip(page) {
   await waitForLiveViewSettled(page);
 }
 
+async function pickSearchableSelect(page, containerSel, optionLabel) {
+  const trigger = page.locator(`${containerSel} [data-select-trigger]`)
+  const panel = page.locator(`${containerSel} [data-select-panel]`)
+  const search = page.locator(`${containerSel} [data-select-search]`)
+  const option = page.locator(`${containerSel} [data-select-option="${optionLabel}"]`)
+
+  await expect(trigger).toBeVisible()
+
+  // LiveView can patch/remount this hook while dependent fields update.
+  // Retry opening several times until the panel is actually visible.
+  let opened = false
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await trigger.click({ force: true })
+    try {
+      await expect(panel).toBeVisible({ timeout: 600 })
+      await expect(search).toBeVisible({ timeout: 600 })
+      opened = true
+      break
+    } catch (_error) {
+      await page.waitForTimeout(120)
+    }
+  }
+
+  expect(opened).toBeTruthy()
+  await search.fill(optionLabel)
+  await expect(option).toBeVisible({ timeout: process.env.CI ? 10_000 : 5_000 })
+  await option.click()
+}
+
+// Creates an AI credential via the System Config AI Credentials tab.
+// Caller must already be on the /bo/system-config page.
+// Returns the credential object so callers can reference its name/provider.
+async function createAiCredential(page, overrides = {}) {
+  const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`
+  const credential = {
+    name: overrides.name || `E2E Credential ${unique}`,
+    provider: overrides.provider || "Custom",
+    endpoint: overrides.endpoint,
+    apiKey: overrides.apiKey || `e2e-key-${unique}`,
+    sovereign: overrides.sovereign || false,
+    description: overrides.description || "E2E credential",
+  }
+
+  await page.locator('[phx-value-tab="ai_credentials"]').click()
+  await expect(page).toHaveURL(/tab=ai_credentials/)
+  await page.locator('[phx-click="new_ai_credential"]').click()
+  await expect(page.locator("#ai-credential-form")).toBeVisible()
+
+  await page.locator('input[name="ai_credential[name]"]').fill(credential.name)
+  await pickSearchableSelect(page, "#ai-credential-provider-select", credential.provider)
+  if (credential.endpoint !== undefined) {
+    await page.locator('input[name="ai_credential[endpoint]"]').fill(credential.endpoint)
+  }
+  await page.locator("#ai-credential-api-key-input").fill(credential.apiKey)
+
+  if (credential.sovereign) {
+    await page.locator('label:has(input[name="ai_credential[sovereign]"][type="checkbox"])').click()
+  }
+
+  await page.locator('textarea[name="ai_credential[description]"]').fill(credential.description)
+  await page.locator("#ai-credential-form").getByRole("button", { name: "Save credential" }).click()
+
+  await expect(page.getByText("AI credential saved.")).toBeVisible()
+  await expect(page.locator("#ai-credential-form")).not.toBeVisible()
+  await waitForLiveViewSettled(page)
+
+  return credential
+}
+
 // Hit POST /e2e/reset. Call from a describe-level beforeAll so tests start on
 // a predictable DB (baseline embedding config, baseline fixtures, empty
 // ingest_jobs, empty ai_provider_credentials, empty people/teams, etc).
@@ -157,6 +226,33 @@ async function touchE2EFile(request, relativePath, options = {}) {
   }
 }
 
+async function createE2EAiCredential(request, attrs, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/ai-credentials`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/ai-credentials returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+async function createE2EMcpEndpoint(request, attrs, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/mcp-endpoints`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/mcp-endpoints returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+async function createE2EAgent(request, attrs, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/agents`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/agents returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 module.exports = {
   gotoBackOfficeLive,
   loginToBackOffice,
@@ -168,4 +264,9 @@ module.exports = {
   resetE2EState,
   setE2ESystemConfig,
   touchE2EFile,
+  createE2EAiCredential,
+  createE2EMcpEndpoint,
+  createE2EAgent,
+  pickSearchableSelect,
+  createAiCredential,
 };

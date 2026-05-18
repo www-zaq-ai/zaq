@@ -13,7 +13,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
   alias Zaq.Agent.{CitationNormalizer, ErrorMessage, History}
-  alias Zaq.Channels.Router
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Ingestion.ContentSource
@@ -75,6 +74,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:active_filters, [])
      |> assign(:filter_suggestions, [])
      |> assign(:filter_query, "")
+     |> assign(:show_delete_confirm, false)
      |> assign(:tool_calls_modal_for, nil)
      |> assign(:tool_calls_modal_entries, [])
      |> assign(:expanded_tool_call_ids, MapSet.new())
@@ -126,6 +126,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
       session_id = socket.assigns.session_id
       request_id = user_msg.id
+      live_view_pid = self()
 
       {conversation_id, socket} =
         case resolve_or_create_conversation(socket) do
@@ -142,7 +143,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           socket.assigns.current_user,
           socket.assigns.selected_agent_id,
           active_filters,
-          conversation_id
+          %{conversation_id: conversation_id, live_view_pid: live_view_pid}
         )
       end)
 
@@ -182,7 +183,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     end
   end
 
-  def handle_event("clear_chat", _params, socket) do
+  def handle_event("new_chat", _params, socket) do
     {:noreply,
      socket
      |> assign(:messages, [welcome_message()])
@@ -191,6 +192,37 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
      |> assign(:status_message, "")
      |> assign(:current_conversation_id, nil)
      |> reload_sidebar_conversations()}
+  end
+
+  def handle_event("delete_chat_confirm", _params, socket) do
+    case socket.assigns.current_conversation_id do
+      nil -> {:noreply, socket}
+      _id -> {:noreply, assign(socket, :show_delete_confirm, true)}
+    end
+  end
+
+  def handle_event("close_delete_modal", _params, socket) do
+    {:noreply, assign(socket, :show_delete_confirm, false)}
+  end
+
+  def handle_event("delete_chat", _params, socket) do
+    case socket.assigns.current_conversation_id do
+      nil ->
+        {:noreply, assign(socket, :show_delete_confirm, false)}
+
+      id ->
+        NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
+
+        {:noreply,
+         socket
+         |> assign(:messages, [welcome_message()])
+         |> assign(:history, %{})
+         |> assign(:status, :idle)
+         |> assign(:status_message, "")
+         |> assign(:current_conversation_id, nil)
+         |> assign(:show_delete_confirm, false)
+         |> reload_sidebar_conversations()}
+    end
   end
 
   def handle_event("use_suggestion", %{"prompt" => prompt}, socket) do
@@ -524,7 +556,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          current_user,
          selected_agent_id,
          active_filters,
-         conversation_id
+         %{conversation_id: conversation_id, live_view_pid: live_view_pid}
        ) do
     source_filter = Enum.map(active_filters, & &1.source_prefix)
 
@@ -533,7 +565,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         content: user_msg,
         channel_id: "bo",
         message_id: request_id,
-        author_id: current_user.id,
+        author_id: to_string(current_user.id),
         provider: :web,
         person_id: Map.get(current_user, :person_id),
         content_filter: source_filter,
@@ -562,9 +594,53 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       )
       |> maybe_put_agent_selection(selected_agent_id)
 
-    outgoing = build_outgoing_from_event(node_router().dispatch(event), incoming)
+    dispatched_event = node_router().dispatch(event)
+    outgoing = build_outgoing_from_event(dispatched_event, incoming)
 
-    Router.deliver(outgoing)
+    maybe_emit_fallback_pipeline_result(
+      live_view_pid,
+      request_id,
+      outgoing,
+      user_msg,
+      dispatched_event
+    )
+
+    :ok
+  end
+
+  defp maybe_emit_fallback_pipeline_result(
+         live_view_pid,
+         request_id,
+         %Outgoing{} = outgoing,
+         user_msg,
+         %Event{
+           response: {:error, _reason}
+         }
+       )
+       when is_pid(live_view_pid) do
+    send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
+    :ok
+  end
+
+  defp maybe_emit_fallback_pipeline_result(
+         live_view_pid,
+         request_id,
+         %Outgoing{} = outgoing,
+         user_msg,
+         %Event{} = event
+       )
+       when is_pid(live_view_pid) do
+    case event do
+      %Event{request: %Outgoing{}, response: :ok} ->
+        :ok
+
+      %Event{response: %Outgoing{}} ->
+        :ok
+
+      _other ->
+        send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
+        :ok
+    end
   end
 
   defp maybe_put_agent_selection(%Event{} = event, selected_agent_id) do
@@ -580,6 +656,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp build_outgoing_from_event(%Event{response: %Outgoing{} = outgoing}, _incoming),
     do: outgoing
+
+  defp build_outgoing_from_event(
+         %Event{request: %Outgoing{} = outgoing, response: :ok},
+         _incoming
+       ),
+       do: outgoing
 
   defp build_outgoing_from_event(%Event{response: {:error, reason}}, incoming) do
     Outgoing.from_pipeline_result(incoming, %{

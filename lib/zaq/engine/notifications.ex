@@ -35,10 +35,10 @@ defmodule Zaq.Engine.Notifications do
   import Ecto.Query
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.Router
   alias Zaq.Engine.Notifications.DispatchWorker
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
+  alias Zaq.Event
   alias Zaq.Repo
 
   @doc """
@@ -46,7 +46,11 @@ defmodule Zaq.Engine.Notifications do
   """
   @spec bridge_available?(String.t()) :: boolean()
   def bridge_available?(platform) when is_binary(platform) do
-    not is_nil(Router.bridge_for(platform))
+    event = Event.new(%{platform: platform}, :channels, opts: [action: :bridge_available])
+
+    node_router_module().dispatch(event)
+    |> Map.get(:response, false)
+    |> Kernel.==(true)
   end
 
   # ---------------------------------------------------------------------------
@@ -135,4 +139,7 @@ defmodule Zaq.Engine.Notifications do
     |> Repo.all()
     |> MapSet.new()
   end
+
+  defp node_router_module,
+    do: Application.get_env(:zaq, :notifications_node_router_module, Zaq.NodeRouter)
 end

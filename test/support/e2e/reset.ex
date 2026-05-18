@@ -17,6 +17,8 @@ defmodule Zaq.E2E.Reset do
   # same fixtures rather than duplicating payload strings.
 
   alias Zaq.Accounts
+  alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.MCP.Endpoint, as: MCPEndpoint
   alias Zaq.E2E.DocumentProcessorFake
   alias Zaq.E2E.ProcessorState
   alias Zaq.Engine.Conversations
@@ -105,6 +107,8 @@ defmodule Zaq.E2E.Reset do
   end
 
   defp reset_system_config! do
+    Repo.delete_all(ConfiguredAgent)
+    Repo.delete_all(MCPEndpoint)
     Repo.delete_all(SystemConfig)
     Repo.delete_all(AIProviderCredential)
 

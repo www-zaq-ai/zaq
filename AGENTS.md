@@ -10,28 +10,31 @@ This file is your **map**. Read the relevant doc before starting any task.
 
 ### Core Docs
 
-| What you need                                   | Where to look           |
-| ----------------------------------------------- | ----------------------- |
-| Project overview, tech stack, project structure | `docs/project.md`       |
-| Architecture, multi-node roles, NodeRouter      | `docs/architecture.md`  |
-| Naming conventions, module & API design         | `docs/conventions.md`   |
-| Git workflow, branching, semantic versioning    | `docs/workflows.md`     |
-| Code quality standards, debt prevention         | `docs/code-quality.md`  |
-| Dev setup, tool usage, sub-agents               | `docs/dev-setup.md`     |
-| Elixir, Mix, Ecto, Test guidelines              | `docs/elixir.md`        |
+| What you need                                   | Where to look              |
+| ----------------------------------------------- | -------------------------- |
+| Project overview, tech stack, project structure | `docs/project.md`          |
+| Architecture, multi-node roles, NodeRouter      | `docs/architecture.md`     |
+| Naming conventions, module & API design         | `docs/conventions.md`      |
+| Git workflow, branching, semantic versioning    | `docs/workflows.md`        |
+| Code quality standards, debt prevention         | `docs/code-quality.md`     |
+| Dev setup, tool usage, sub-agents               | `docs/dev-setup.md`        |
+| Elixir, Mix, Ecto, Test guidelines              | `docs/elixir.md`           |
 | Production testing strategy & property testing  | `docs/testing-approach.md` |
-| Phoenix, LiveView, HTML, JS/CSS, UI/UX          | `docs/phoenix.md`       |
-| BO layout, design tokens, colors, components    | `docs/bo-components.md` |
+| E2E tests: running, seeding, helper conventions | `docs/e2e-testing.md`      |
+| Phoenix, LiveView, HTML, JS/CSS, UI/UX          | `docs/phoenix.md`          |
+| BO layout, design tokens, colors, components    | `docs/bo-components.md`    |
 
 ### Planning & Quality
 
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands. More details in `docs/beads.md`
+
 | What you need                          | Where to look                          |
 | -------------------------------------- | -------------------------------------- |
-| Agent workflow (plan → implement → PR) | `docs/WORKFLOW_AGENT.md`               |
-| Execution plan strategy (mandatory)    | `docs/exec-plans/PLAN_STRATEGY.md`     |
+| Agent workflow (plan via beads → implement → PR) | `docs/WORKFLOW_AGENT.md`               |
+| Planning strategy (mandatory)                   | `docs/exec-plans/PLAN_STRATEGY.md`     |
 | Quality grades per domain              | `docs/QUALITY_SCORE.md`                |
 | Harness improvement roadmap            | `docs/harness-roadmap.md`              |
-| Active execution plans                 | `docs/exec-plans/active/`              |
+| Planning issues (beads)                | `docs/beads.md`                         |
 | Completed plans & decision logs        | `docs/exec-plans/completed/`           |
 | Known technical debt                   | `docs/exec-plans/tech-debt-tracker.md` |
 
@@ -54,14 +57,15 @@ This file is your **map**. Read the relevant doc before starting any task.
 
 - **Follow `docs/WORKFLOW_AGENT.md`** on every task — orient, plan, implement, validate, PR, close out.
 - **Read the relevant doc first** before starting any task.
-- **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new execution plan** and start from `docs/exec-plans/PLAN_TEMPLATE.md`.
+- **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new complex plan** and represent planning in beads issues (not plan files).
+- **For planned work, create at least one beads issue per step** (split into additional issues when needed) and prefix each planned issue title with `[{issueId}]`.
 - **Never push directly to `main`** — all changes go through a PR.
 - **Run `mix precommit`** before every commit. Never replace it with ad-hoc checks.
 - **Target at least 90% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
 - **Apply `docs/testing-approach.md` on every code change** — add property tests when invariants or broad input spaces are touched.
 - **All cross-service BO calls go through `NodeRouter.call/4`** — never direct module calls.
 - **Before adding a function to any module, read its `@moduledoc`** — confirm the function fits the module's stated responsibility. If it doesn't belong, find the correct module first.
-- **Check `docs/exec-plans/active/`** before starting any complex or multi-step task.
+- **Check existing beads issues first** (`bd ready`, `bd list --status open`) before starting any complex or multi-step task.
 - **All related operations must be concurrent in a single message** — never split related reads/writes across messages.
 - When a task touches keys, tokens, passwords, or encrypted config fields — read `docs/services/system-config.md` first.
 
@@ -160,7 +164,7 @@ After /clear or /compact: knowledge base and session stats are preserved. Use `c
 
 ---
 
-## 🤖 Sub-Agents
+## 🤖 Claude Sub-Agents
 
 Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
@@ -168,7 +172,7 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
 | Task                                                | Use agent                          |
 | --------------------------------------------------- | ---------------------------------- |
-| Break down a complex task, write an exec plan       | `project-planner` or `planner`     |
+| Break down a complex task, create beads-planned steps | `project-planner` or `planner`     |
 | Build a new context API or domain module            | `api-developer`                    |
 | Write tests before implementing                     | `tdd-specialist` or `tdd`          |
 | Review a PR for quality and conventions             | `code-reviewer` or `reviewer`      |

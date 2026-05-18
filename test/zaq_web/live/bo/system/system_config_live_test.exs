@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
+  alias Zaq.Engine.Connect
+  alias Zaq.Repo
   alias Zaq.System
 
   defmodule MCPTestStub do
@@ -51,6 +53,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       do: {:error, {:mcp_runtime_call_exit, {:shutdown, :noproc}}}
   end
 
+  defmodule MCPTestGenericErrorStub do
+    def test_list_tools(_endpoint_id, _opts),
+      do: {:error, :generic_failure}
+  end
+
   setup %{conn: conn} do
     user = user_fixture(%{email: "admin@example.com", username: "testadmin_sc"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
@@ -59,23 +66,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "mount" do
-    test "renders telemetry by default", %{conn: conn} do
+    test "renders ai credentials by default", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/system-config")
-      assert html =~ "Telemetry Collection"
-      assert html =~ "telemetry-config-form"
+      assert html =~ "AI Credentials"
     end
 
-    test "does not render global default agent selector in telemetry tab", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+    test "does not render global default agent selector in ai credentials tab", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
       refute has_element?(view, "#global-default-agent-select")
     end
   end
 
   describe "tab navigation" do
-    test "falls back to telemetry for unknown tab", %{conn: conn} do
+    test "falls back to ai credentials for unknown tab", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/system-config?tab=unknown")
-      assert html =~ "Telemetry Collection"
+      assert html =~ "AI Credentials"
       refute html =~ "llm-config-form"
     end
 
@@ -95,10 +101,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
       view
-      |> element("button[phx-value-tab='global']")
+      |> element("button[phx-value-tab='agents']")
       |> render_click()
 
-      assert_patch(view, ~p"/bo/system-config?tab=global")
+      assert_patch(view, ~p"/bo/system-config?tab=agents")
       assert has_element?(view, "#global-default-agent-select")
       assert render(view) =~ "Default Zaq Agent"
     end
@@ -119,11 +125,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, _view, ai_credentials_html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       assert ai_credentials_html =~ "AI Credentials"
 
-      {:ok, _view, mcp_html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, _view, mcp_html} = live(conn, ~p"/bo/system-config?tab=mcps")
       assert mcp_html =~ "MCP Administration"
 
-      {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
-      assert global_html =~ "Global Configuration"
+      {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=agents")
+      assert global_html =~ "Agents"
       assert global_html =~ "Default Zaq Agent"
     end
   end
@@ -148,15 +154,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config")
 
       view
-      |> element("button[phx-value-tab='mcp']")
+      |> element("button[phx-value-tab='mcps']")
       |> render_click()
 
-      assert_patch(view, ~p"/bo/system-config?tab=mcp")
+      assert_patch(view, ~p"/bo/system-config?tab=mcps")
       assert render(view) =~ "MCP Administration"
     end
 
     test "creates MCP endpoint from modal", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -196,7 +202,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "MCP modal toggles local and remote fields", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -244,7 +250,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "adds and removes remote header rows", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -299,7 +305,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           secret_environments: %{"API_TOKEN" => "token-persisted"}
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -321,7 +327,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -353,7 +359,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -384,7 +390,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -405,7 +411,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
                  url: "http://localhost:8000/mcp"
                })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         render_change(view, "filter_mcp_endpoints", %{
@@ -418,7 +424,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "close_mcp_endpoint_modal hides modal after opening", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -440,7 +446,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -465,7 +471,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html = render_click(view, "change_mcp_page", %{"page" => "2"})
       assert html =~ "MCP Administration"
@@ -484,7 +490,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -514,7 +520,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "save MCP endpoint shows validation errors on invalid data", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='new_mcp_endpoint']")
@@ -544,7 +550,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "enable predefined MCP opens edit modal for editable predefined endpoint", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "github_mcp"})
 
@@ -563,7 +569,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       view
       |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
@@ -577,7 +583,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "enable predefined mcp failure shows error flash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html = render_click(view, "enable_predefined_mcp", %{"predefined_id" => "unknown"})
       assert html =~ "Failed to enable MCP"
@@ -604,7 +610,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -635,7 +641,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -666,7 +672,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -1898,11 +1904,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "global default agent saving" do
     test "accepts empty global_default_agent_id and saves", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=agents")
 
       html =
         render_submit(view, "save_global_default_agent", %{
           "global_default_agent_id" => ""
+        })
+
+      assert html =~ "Global default agent saved."
+    end
+
+    test "accepts numeric global_default_agent_id", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=agents")
+
+      html =
+        render_submit(view, "save_global_default_agent", %{
+          "global_default_agent_id" => "99999999"
         })
 
       assert html =~ "Global default agent saved."
@@ -1931,7 +1948,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           url: "http://localhost:8000/mcp"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcp")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
 
       html =
         view
@@ -1939,6 +1956,585 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         |> render_click()
 
       assert html =~ "MCP tools test returned"
+    end
+
+    test "shows generic fallback message for unknown mcp error", %{conn: conn} do
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestGenericErrorStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Generic Fail MCP #{:erlang.unique_integer([:positive])}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5000,
+          url: "http://localhost:8000/mcp"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      html =
+        view
+        |> element("#mcp-test-button-#{endpoint.id}")
+        |> render_click()
+
+      assert html =~ "MCP tools test failed"
+    end
+
+    test "save MCP endpoint with empty settings text falls back to empty map", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Settings Empty Test",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://localhost:8000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => ""
+          }
+        })
+
+      assert html =~ "MCP endpoint saved"
+    end
+
+    test "save MCP endpoint with invalid settings JSON falls back to empty map", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Settings Invalid JSON",
+            "type" => "remote",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://localhost:8000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "not-valid-json-content"
+          }
+        })
+
+      assert html =~ "MCP endpoint saved"
+    end
+
+    test "validate MCP endpoint with unknown type exercises apply_mcp_type_scope catch-all",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_change(view, "validate_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Unknown Type Draft",
+            "type" => "hybrid",
+            "status" => "enabled",
+            "timeout_ms" => "5000",
+            "url" => "http://localhost:8000/mcp",
+            "command" => "",
+            "predefined_id" => "",
+            "headers_rows" => %{"0" => %{"key" => "X-Test", "value" => "1"}},
+            "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "args_rows" => %{"0" => %{"value" => ""}},
+            "environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP Administration"
+      assert html =~ "Unknown Type Draft"
+    end
+
+    test "save MCP endpoint with empty args rows falls back to blank row", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Args Empty",
+            "type" => "local",
+            "status" => "disabled",
+            "timeout_ms" => "5000",
+            "url" => "",
+            "command" => "echo",
+            "predefined_id" => "",
+            "headers_rows" => %{},
+            "secret_headers_rows" => %{},
+            "args_rows" => %{},
+            "environments_rows" => %{},
+            "secret_environments_rows" => %{},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP endpoint saved"
+    end
+
+    test "save MCP endpoint validation error preserves changeset fields and rows", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      render_submit(view, "save_mcp_endpoint", %{
+        "mcp_endpoint" => %{
+          "name" => "",
+          "type" => "remote",
+          "status" => "enabled",
+          "timeout_ms" => "0",
+          "url" => "",
+          "command" => "",
+          "predefined_id" => "",
+          "headers_rows" => %{"0" => %{"key" => "X-Test", "value" => "val"}},
+          "secret_headers_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "args_rows" => %{"0" => %{"value" => "test-arg"}},
+          "environments_rows" => %{"0" => %{"key" => "ENV_VAR", "value" => "env_val"}},
+          "secret_environments_rows" => %{"0" => %{"key" => "", "value" => ""}},
+          "settings_text" => "{}"
+        }
+      })
+
+      assert has_element?(view, "#mcp-endpoint-modal")
+    end
+
+    test "save MCP endpoint with blank optional fields uses nil defaults", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='new_mcp_endpoint']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_mcp_endpoint", %{
+          "mcp_endpoint" => %{
+            "name" => "Optional Fields MCP",
+            "type" => "local",
+            "status" => "disabled",
+            "timeout_ms" => "5000",
+            "command" => "echo",
+            "url" => "",
+            "predefined_id" => "",
+            "args_rows" => %{},
+            "headers_rows" => %{},
+            "secret_headers_rows" => %{},
+            "environments_rows" => %{},
+            "secret_environments_rows" => %{},
+            "settings_text" => "{}"
+          }
+        })
+
+      assert html =~ "MCP endpoint saved"
+    end
+
+    test "local MCP endpoint edit shows command and hides url/headers", %{conn: conn} do
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "Local MCP Edit",
+          type: "local",
+          status: "disabled",
+          timeout_ms: 5000,
+          command: "echo hello"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+
+      view
+      |> element("button[phx-click='edit_mcp_endpoint'][phx-value-id='#{endpoint.id}']")
+      |> render_click()
+
+      assert has_element?(view, "input[name='mcp_endpoint[command]']")
+      refute has_element?(view, "input[name='mcp_endpoint[url]']")
+    end
+  end
+
+  describe "connect grants modal" do
+    test "edits connect credential from auth credentials tab", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+
+      html =
+        render_submit(view, "save_connect_credential", %{
+          "credential" => %{
+            "name" => "Credential Updated",
+            "provider" => "google_drive",
+            "request_format" => "bearer",
+            "auth_kind" => "oauth2",
+            "client_id" => "cid-updated",
+            "client_secret" => "",
+            "scopes" => "scope.read, scope.write\nscope.admin"
+          }
+        })
+
+      assert html =~ "Credential updated."
+      assert html =~ "Credential Updated"
+
+      updated = Repo.get!(Zaq.Engine.Connect.Credential, credential.id)
+      assert updated.scopes == ["scope.read", "scope.write", "scope.admin"]
+    end
+
+    test "shows expired status, allows erase, and queues manual refresh", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret",
+          token_url: "https://oauth.example/token",
+          scopes: ["scope.read"]
+        })
+
+      {:ok, expired_grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "123",
+          owner_type: "org",
+          owner_id: 1,
+          request_format: "bearer",
+          status: "active",
+          access_token: "access-expired",
+          refresh_token: "refresh-expired",
+          scopes: ["scope.read"],
+          expires_at: DateTime.add(DateTime.utc_now(), -60, :second)
+        })
+
+      {:ok, refreshable_grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "456",
+          owner_type: "org",
+          owner_id: 1,
+          request_format: "bearer",
+          status: "active",
+          access_token: "access-live",
+          refresh_token: "refresh-live",
+          expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      html =
+        view
+        |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+        |> render_click()
+
+      assert html =~ "Grants — #{credential.name}"
+      assert html =~ "bg-red-500"
+      assert html =~ "scopes: scope.read"
+
+      html =
+        view
+        |> element(
+          "button[phx-click='trigger_connect_grant_refresh'][phx-value-id='#{refreshable_grant.id}']"
+        )
+        |> render_click()
+
+      assert html =~ "Grant refresh queued."
+
+      html =
+        view
+        |> element("button[phx-click='delete_connect_grant'][phx-value-id='#{expired_grant.id}']")
+        |> render_click()
+
+      assert html =~ "Grant erased."
+      refute Repo.get(Zaq.Engine.Connect.Grant, expired_grant.id)
+    end
+
+    test "handles missing connect credential and missing grant ids", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      html = render_click(view, "edit_connect_credential", %{"id" => "99999999"})
+      assert html =~ "Credential not found."
+
+      view
+      |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html = render_click(view, "trigger_connect_grant_refresh", %{"id" => "99999999"})
+      assert html =~ "Grant not found."
+
+      html = render_click(view, "delete_connect_grant", %{"id" => "99999998"})
+      assert html =~ "Grant not found."
+    end
+
+    test "validates and keeps credential modal open when data is invalid", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        render_change(view, "validate_connect_credential", %{
+          "credential" => %{
+            "name" => "",
+            "provider" => "attempted-overwrite",
+            "request_format" => "raw",
+            "auth_kind" => "oauth2",
+            "client_id" => ""
+          }
+        })
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+
+      html =
+        render_submit(view, "save_connect_credential", %{
+          "credential" => %{
+            "name" => "",
+            "provider" => "attempted-overwrite",
+            "request_format" => "raw",
+            "auth_kind" => "oauth2",
+            "client_id" => ""
+          }
+        })
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+    end
+
+    test "close_connect_credential_modal hides modal and clears edited values", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+
+      html = render_click(view, "close_connect_credential_modal", %{})
+
+      refute has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+    end
+
+    test "close_connect_grants_modal resets grants state", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Grants — #{credential.name}"
+
+      render_click(view, "close_connect_grants_modal", %{})
+
+      html_after = render(view)
+      refute html_after =~ "Grants — #{credential.name}"
+    end
+
+    test "restore_connect_credential_scopes_defaults resets scopes to defaults", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+
+      html =
+        render_click(view, "restore_connect_credential_scopes_defaults", %{})
+
+      assert html =~ "edit-connect-credential-modal"
+    end
+
+    test "save_connect_credential error path shows validation errors", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_connect_credential", %{
+          "credential" => %{
+            "name" => "",
+            "provider" => "attempted-overwrite",
+            "request_format" => "raw",
+            "auth_kind" => "oauth2",
+            "client_id" => "",
+            "client_secret" => ""
+          }
+        })
+
+      assert has_element?(view, "#edit-connect-credential-modal")
+      refute html =~ "Credential updated."
+    end
+
+    test "save_connect_credential with newline-separated scopes parses correctly", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Scope Parse Cred #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='edit_connect_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        render_submit(view, "save_connect_credential", %{
+          "credential" => %{
+            "name" => "Scope Test Updated",
+            "provider" => "google_drive",
+            "request_format" => "bearer",
+            "auth_kind" => "oauth2",
+            "client_id" => "cid",
+            "client_secret" => "",
+            "scopes" => "scope.read,\nscope.write,\n,scope.admin\n\n\nscope.other"
+          }
+        })
+
+      assert html =~ "Credential updated."
+
+      updated = Repo.get!(Zaq.Engine.Connect.Credential, credential.id)
+      assert updated.name == "Scope Test Updated"
+      assert updated.scopes == ["scope.read", "scope.write", "scope.admin", "scope.other"]
+    end
+
+    test "open_connect_grants with credential having no grants shows empty state", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "No Grants Cred #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Grants — #{credential.name}"
+      refute html =~ "bg-red-500"
     end
   end
 end

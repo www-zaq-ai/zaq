@@ -36,12 +36,23 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerRunDetailLive do
   end
 
   @impl true
-  def handle_info(:tick_progress, %{assigns: %{run: %{status: "running", progress: progress}}} = socket) when progress < 100 do
+  def handle_info(
+        :tick_progress,
+        %{assigns: %{run: %{status: "running", progress: progress}}} = socket
+      )
+      when progress < 100 do
     next_progress = min(progress + 8, 100)
     next_status = if next_progress >= 100, do: "done", else: "running"
-    last_update = if next_status == "done", do: "Live just now", else: socket.assigns.run.last_update
 
-    run = %{socket.assigns.run | progress: next_progress, status: next_status, last_update: last_update}
+    last_update =
+      if next_status == "done", do: "Live just now", else: socket.assigns.run.last_update
+
+    run = %{
+      socket.assigns.run
+      | progress: next_progress,
+        status: next_status,
+        last_update: last_update
+    }
 
     if next_status == "running" do
       Process.send_after(self(), :tick_progress, @tick_ms)
@@ -54,5 +65,7 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerRunDetailLive do
 
   def status_classes(status), do: UrlCrawlerPreview.status_classes(status)
   def status_label(status), do: UrlCrawlerPreview.status_label(status)
-  def tree_rows(run, expanded_paths), do: UrlCrawlerPreview.tree_rows(run.approved_page_list, expanded_paths)
+
+  def tree_rows(run, expanded_paths),
+    do: UrlCrawlerPreview.tree_rows(run.approved_page_list, expanded_paths)
 end

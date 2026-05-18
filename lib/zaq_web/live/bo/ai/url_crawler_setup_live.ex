@@ -37,7 +37,10 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   end
 
   def handle_event("toggle_max_pages", _params, socket) do
-    draft = %{socket.assigns.draft | max_pages_enabled: not socket.assigns.draft.max_pages_enabled}
+    draft = %{
+      socket.assigns.draft
+      | max_pages_enabled: not socket.assigns.draft.max_pages_enabled
+    }
 
     {:noreply,
      socket
@@ -72,7 +75,10 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
      |> assign(:draft, draft)
      |> assign(:form, to_form(form_params(draft), as: :crawl))
      |> assign(:analyzing, true)
-     |> put_flash(:info, "Analysis started: we are discovering the pages that match your crawl configuration.")}
+     |> put_flash(
+       :info,
+       "Analysis started: we are discovering the pages that match your crawl configuration."
+     )}
   end
 
   def handle_event("close_preview", _params, socket) do
@@ -130,17 +136,27 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   end
 
   def handle_event("remove_share_target", %{"value" => value}, socket) do
-    {:noreply, assign(socket, :share_targets, Enum.reject(socket.assigns.share_targets, &(&1.value == value)))}
+    {:noreply,
+     assign(
+       socket,
+       :share_targets,
+       Enum.reject(socket.assigns.share_targets, &(&1.value == value))
+     )}
   end
 
   def handle_event("run_crawl", _params, socket) do
-    configuration_id = save_target_configuration_id(socket.assigns.preview_data, socket.assigns.draft)
+    configuration_id =
+      save_target_configuration_id(socket.assigns.preview_data, socket.assigns.draft)
+
     run = UrlCrawlerPreview.latest_run!(configuration_id)
 
     {:noreply,
      socket
      |> assign(:launch_modal_open, false)
-     |> put_flash(:info, "Preview only: the crawl would launch now using #{socket.assigns.selected_ingestion_strategy}.")
+     |> put_flash(
+       :info,
+       "Preview only: the crawl would launch now using #{socket.assigns.selected_ingestion_strategy}."
+     )
      |> push_navigate(to: ~p"/bo/ingestion/url_crawler/#{configuration_id}/runs/#{run.id}")}
   end
 
@@ -171,7 +187,10 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   end
 
   def tree_path_text(item), do: Enum.join(item.tree_path || [], " / ")
-  def preview_tree_rows(preview_data, expanded_paths), do: UrlCrawlerPreview.tree_rows(preview_data.tree_items, expanded_paths)
+
+  def preview_tree_rows(preview_data, expanded_paths),
+    do: UrlCrawlerPreview.tree_rows(preview_data.tree_items, expanded_paths)
+
   def selected_count(preview_data), do: length(preview_data.tree_items)
 
   def rule_title("include_paths"), do: "Include paths"
@@ -179,10 +198,17 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   def rule_title("include_query_rules"), do: "Include query rules"
   def rule_title("exclude_query_rules"), do: "Exclude query rules"
 
-  def rule_hint("include_paths"), do: "Add one path or pattern at a time, for example /guides/* or /pricing."
-  def rule_hint("exclude_paths"), do: "Use excludes to remove noisy or private branches such as /archive/* or /internal/*."
-  def rule_hint("include_query_rules"), do: "Use query rules to keep variants such as lang=en when they matter."
-  def rule_hint("exclude_query_rules"), do: "Use query rules to block duplicates such as utm_* or preview=true."
+  def rule_hint("include_paths"),
+    do: "Add one path or pattern at a time, for example /guides/* or /pricing."
+
+  def rule_hint("exclude_paths"),
+    do: "Use excludes to remove noisy or private branches such as /archive/* or /internal/*."
+
+  def rule_hint("include_query_rules"),
+    do: "Use query rules to keep variants such as lang=en when they matter."
+
+  def rule_hint("exclude_query_rules"),
+    do: "Use query rules to block duplicates such as utm_* or preview=true."
 
   defp merge_draft(draft, params) do
     content_filters = Map.get(params, "content_filters", %{})
@@ -196,15 +222,23 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
         max_pages: to_int(Map.get(params, "max_pages"), draft.max_pages),
         include_path_entry: Map.get(params, "include_path_entry", draft.include_path_entry),
         exclude_path_entry: Map.get(params, "exclude_path_entry", draft.exclude_path_entry),
-        include_query_rule_entry: Map.get(params, "include_query_rule_entry", draft.include_query_rule_entry),
-        exclude_query_rule_entry: Map.get(params, "exclude_query_rule_entry", draft.exclude_query_rule_entry),
+        include_query_rule_entry:
+          Map.get(params, "include_query_rule_entry", draft.include_query_rule_entry),
+        exclude_query_rule_entry:
+          Map.get(params, "exclude_query_rule_entry", draft.exclude_query_rule_entry),
         content_filters: %{
-          pdf_files: checkbox_enabled?(content_filters, "pdf_files", draft.content_filters.pdf_files),
-          img_files: checkbox_enabled?(content_filters, "img_files", draft.content_filters.img_files),
-          md_files: checkbox_enabled?(content_filters, "md_files", draft.content_filters.md_files),
-          docs_pages: checkbox_enabled?(content_filters, "docs_pages", draft.content_filters.docs_pages),
-          pptx_files: checkbox_enabled?(content_filters, "pptx_files", draft.content_filters.pptx_files),
-          excel_files: checkbox_enabled?(content_filters, "excel_files", draft.content_filters.excel_files)
+          pdf_files:
+            checkbox_enabled?(content_filters, "pdf_files", draft.content_filters.pdf_files),
+          img_files:
+            checkbox_enabled?(content_filters, "img_files", draft.content_filters.img_files),
+          md_files:
+            checkbox_enabled?(content_filters, "md_files", draft.content_filters.md_files),
+          docs_pages:
+            checkbox_enabled?(content_filters, "docs_pages", draft.content_filters.docs_pages),
+          pptx_files:
+            checkbox_enabled?(content_filters, "pptx_files", draft.content_filters.pptx_files),
+          excel_files:
+            checkbox_enabled?(content_filters, "excel_files", draft.content_filters.excel_files)
         }
     }
   end
@@ -251,7 +285,11 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
       end
 
     if preview.tree_items == [] do
-      %{preview | blocked?: true, block_reason: "No eligible pages were found with the current rules."}
+      %{
+        preview
+        | blocked?: true,
+          block_reason: "No eligible pages were found with the current rules."
+      }
     else
       preview
       |> Map.put(:root_url, draft.root_url)
@@ -261,7 +299,11 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
 
   defp normalize_preview_data(preview_data) do
     if preview_data.tree_items == [] do
-      %{preview_data | blocked?: true, block_reason: "Select at least one page before launching the crawl."}
+      %{
+        preview_data
+        | blocked?: true,
+          block_reason: "Select at least one page before launching the crawl."
+      }
     else
       %{preview_data | blocked?: false, block_reason: nil}
     end
@@ -271,9 +313,14 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
     preview_id = preview_data && preview_data.id
 
     case {draft.config_id, preview_id} do
-      {config_id, _} when is_binary(config_id) -> config_id
-      {_, preview_id} when is_binary(preview_id) -> UrlCrawlerPreview.save_target_configuration_id(preview_id)
-      _ -> "cfg-docs"
+      {config_id, _} when is_binary(config_id) ->
+        config_id
+
+      {_, preview_id} when is_binary(preview_id) ->
+        UrlCrawlerPreview.save_target_configuration_id(preview_id)
+
+      _ ->
+        "cfg-docs"
     end
   end
 
@@ -295,7 +342,10 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerSetupLive do
   defp assign_preview_state(socket, preview_data) do
     socket
     |> assign(:preview_data, preview_data)
-    |> assign(:preview_expanded_paths, UrlCrawlerPreview.default_expanded_paths(preview_data.tree_items))
+    |> assign(
+      :preview_expanded_paths,
+      UrlCrawlerPreview.default_expanded_paths(preview_data.tree_items)
+    )
   end
 
   defp form_params(value) when is_map(value) do

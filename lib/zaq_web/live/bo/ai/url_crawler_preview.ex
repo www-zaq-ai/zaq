@@ -18,15 +18,11 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
   def workflow_statuses, do: @statuses
 
   def list_rows(filter \\ "all", query \\ "") do
-    configurations()
-    |> Enum.filter(fn config -> filter_match?(config, filter) end)
-    |> Enum.filter(fn config ->
-      query = String.downcase(String.trim(query || ""))
+    query = String.downcase(String.trim(query || ""))
 
-      query == "" or
-        String.contains?(String.downcase(config.crawl_label), query) or
-        String.contains?(String.downcase(config.root_url), query) or
-        String.contains?(String.downcase(config.id), query)
+    configurations()
+    |> Enum.filter(fn config ->
+      filter_match?(config, filter) and search_match?(config, query)
     end)
   end
 
@@ -35,17 +31,31 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
 
     %{
       total: length(rows),
-      active: Enum.count(rows, &(&1.latest_status in ["analyzing", "ready_for_approval", "running"])),
+      active:
+        Enum.count(rows, &(&1.latest_status in ["analyzing", "ready_for_approval", "running"])),
       attention: Enum.count(rows, &(&1.latest_status in ["partial_success", "failed"])),
       ingested: Enum.reduce(rows, 0, &(&1.last_ingested_items + &2))
     }
   end
 
   defp filter_match?(_config, "all"), do: true
-  defp filter_match?(config, "active"), do: config.latest_status in ["analyzing", "ready_for_approval", "running"]
-  defp filter_match?(config, "attention"), do: config.latest_status in ["partial_success", "failed"]
+
+  defp filter_match?(config, "active"),
+    do: config.latest_status in ["analyzing", "ready_for_approval", "running"]
+
+  defp filter_match?(config, "attention"),
+    do: config.latest_status in ["partial_success", "failed"]
+
   defp filter_match?(config, "ingested"), do: config.last_ingested_items > 0
   defp filter_match?(config, filter), do: config.latest_status == filter
+
+  defp search_match?(_config, ""), do: true
+
+  defp search_match?(config, query) do
+    String.contains?(String.downcase(config.crawl_label), query) or
+      String.contains?(String.downcase(config.root_url), query) or
+      String.contains?(String.downcase(config.id), query)
+  end
 
   def configurations do
     [
@@ -113,7 +123,8 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
   end
 
   def run!(configuration_id, run_id) do
-    Enum.find(runs_for_configuration!(configuration_id), &(&1.id == run_id)) || latest_run!(configuration_id)
+    Enum.find(runs_for_configuration!(configuration_id), &(&1.id == run_id)) ||
+      latest_run!(configuration_id)
   end
 
   def run!(run_id) do
@@ -169,12 +180,20 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
   end
 
   def parse_share_target("team:" <> id) do
-    label = Enum.find_value(share_target_options(), fn {label, value} -> if value == "team:" <> id, do: label end)
+    label =
+      Enum.find_value(share_target_options(), fn {label, value} ->
+        if value == "team:" <> id, do: label
+      end)
+
     %{value: "team:" <> id, label: label || id, type: :team}
   end
 
   def parse_share_target("person:" <> id) do
-    label = Enum.find_value(share_target_options(), fn {label, value} -> if value == "person:" <> id, do: label end)
+    label =
+      Enum.find_value(share_target_options(), fn {label, value} ->
+        if value == "person:" <> id, do: label
+      end)
+
     %{value: "person:" <> id, label: label || id, type: :person}
   end
 
@@ -202,23 +221,27 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
     |> Map.values()
     |> List.flatten()
     |> Enum.find_value(fn run ->
-      Enum.find_value(run.created_knowledge_items, fn item ->
-        if item.path == relative_path do
-          %{
-            file_title: item.title,
-            source_url: item.source_url,
-            output_path: item.path,
-            run_id: run.id,
-            run_status: run.status,
-            run_launched_at: run.launched_at,
-            run_last_update: run.last_update,
-            configuration_id: run.configuration_id,
-            configuration_label: run.crawl_label,
-            ingestion_strategy: run.ingestion_strategy
-          }
-        end
-      end)
+      run.created_knowledge_items
+      |> Enum.find(&(&1.path == relative_path))
+      |> crawl_output_file_details_for_item(run)
     end)
+  end
+
+  defp crawl_output_file_details_for_item(nil, _run), do: nil
+
+  defp crawl_output_file_details_for_item(item, run) do
+    %{
+      file_title: item.title,
+      source_url: item.source_url,
+      output_path: item.path,
+      run_id: run.id,
+      run_status: run.status,
+      run_launched_at: run.launched_at,
+      run_last_update: run.last_update,
+      configuration_id: run.configuration_id,
+      configuration_label: run.crawl_label,
+      ingestion_strategy: run.ingestion_strategy
+    }
   end
 
   def status_label("ready_for_approval"), do: "Ready for approval"
@@ -269,7 +292,15 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
       |> Enum.take(length(item.tree_path) - length(rest))
       |> path_key()
 
-    node = Map.get(tree, key, %{kind: :branch, key: key, label: label, depth: path_depth(key), children: %{}})
+    node =
+      Map.get(tree, key, %{
+        kind: :branch,
+        key: key,
+        label: label,
+        depth: path_depth(key),
+        children: %{}
+      })
+
     children = insert_tree_node(node.children, rest, item)
     Map.put(tree, key, %{node | children: children})
   end
@@ -283,12 +314,29 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
     [%{kind: :leaf, key: key, depth: depth, item: item}]
   end
 
-  defp flatten_node(%{kind: :branch, key: key, label: label, depth: depth, children: children}, expanded_paths) do
+  defp flatten_node(
+         %{kind: :branch, key: key, label: label, depth: depth, children: children},
+         expanded_paths
+       ) do
     expanded? = MapSet.member?(expanded_paths, key)
-    branch = %{kind: :branch, key: key, label: label, depth: depth, expanded?: expanded?, children_count: map_size(children)}
+
+    branch = %{
+      kind: :branch,
+      key: key,
+      label: label,
+      depth: depth,
+      expanded?: expanded?,
+      children_count: map_size(children)
+    }
 
     if expanded? do
-      [branch | flatten_tree(children |> Map.values() |> Enum.sort_by(&{&1.kind != :branch, &1.label}), expanded_paths)]
+      [
+        branch
+        | flatten_tree(
+            children |> Map.values() |> Enum.sort_by(&{&1.kind != :branch, &1.label}),
+            expanded_paths
+          )
+      ]
     else
       [branch]
     end
@@ -405,12 +453,54 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
 
   defp previews do
     %{
-      "new" => %{id: "new", config_id: nil, root_url: "https://docs.zaq.ai", blocked?: false, block_reason: nil, tree_items: selected_tree(:new)},
-      "marketing" => %{id: "marketing", config_id: "cfg-marketing", root_url: "https://www.zaq.ai", blocked?: false, block_reason: nil, tree_items: selected_tree(:marketing)},
-      "docs" => %{id: "docs", config_id: "cfg-docs", root_url: "https://docs.zaq.ai", blocked?: false, block_reason: nil, tree_items: selected_tree(:docs)},
-      "investor" => %{id: "investor", config_id: "cfg-investor", root_url: "https://investors.zaq.ai", blocked?: false, block_reason: nil, tree_items: selected_tree(:investor)},
-      "support" => %{id: "support", config_id: "cfg-support", root_url: "https://support.zaq.ai", blocked?: false, block_reason: nil, tree_items: selected_tree(:support)},
-      "empty" => %{id: "empty", config_id: nil, root_url: "https://partners.zaq.ai/private", blocked?: true, block_reason: "No eligible pages were found with the current rules.", tree_items: []}
+      "new" => %{
+        id: "new",
+        config_id: nil,
+        root_url: "https://docs.zaq.ai",
+        blocked?: false,
+        block_reason: nil,
+        tree_items: selected_tree(:new)
+      },
+      "marketing" => %{
+        id: "marketing",
+        config_id: "cfg-marketing",
+        root_url: "https://www.zaq.ai",
+        blocked?: false,
+        block_reason: nil,
+        tree_items: selected_tree(:marketing)
+      },
+      "docs" => %{
+        id: "docs",
+        config_id: "cfg-docs",
+        root_url: "https://docs.zaq.ai",
+        blocked?: false,
+        block_reason: nil,
+        tree_items: selected_tree(:docs)
+      },
+      "investor" => %{
+        id: "investor",
+        config_id: "cfg-investor",
+        root_url: "https://investors.zaq.ai",
+        blocked?: false,
+        block_reason: nil,
+        tree_items: selected_tree(:investor)
+      },
+      "support" => %{
+        id: "support",
+        config_id: "cfg-support",
+        root_url: "https://support.zaq.ai",
+        blocked?: false,
+        block_reason: nil,
+        tree_items: selected_tree(:support)
+      },
+      "empty" => %{
+        id: "empty",
+        config_id: nil,
+        root_url: "https://partners.zaq.ai/private",
+        blocked?: true,
+        block_reason: "No eligible pages were found with the current rules.",
+        tree_items: []
+      }
     }
   end
 
@@ -442,9 +532,22 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
           created_knowledge_items: knowledge_items(:marketing),
           failed_items: [],
           timeline: [
-            %{label: "Run started", at: "2026-04-22 10:17 UTC", detail: "Crawler job started from configuration cfg-marketing."},
-            %{label: "Discovery", at: "2026-04-22 10:20 UTC", detail: "44 pages discovered under the configured perimeter."},
-            %{label: "Ingestion", at: "2026-04-22 10:42 UTC", detail: "24 files already replaced the previous crawl output in the URL Crawling volume."}
+            %{
+              label: "Run started",
+              at: "2026-04-22 10:17 UTC",
+              detail: "Crawler job started from configuration cfg-marketing."
+            },
+            %{
+              label: "Discovery",
+              at: "2026-04-22 10:20 UTC",
+              detail: "44 pages discovered under the configured perimeter."
+            },
+            %{
+              label: "Ingestion",
+              at: "2026-04-22 10:42 UTC",
+              detail:
+                "24 files already replaced the previous crawl output in the URL Crawling volume."
+            }
           ]
         },
         %{
@@ -472,7 +575,11 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
           created_knowledge_items: knowledge_items(:marketing),
           failed_items: [],
           timeline: [
-            %{label: "Run completed", at: "2026-04-15 09:18 UTC", detail: "All selected marketing pages were refreshed."}
+            %{
+              label: "Run completed",
+              at: "2026-04-15 09:18 UTC",
+              detail: "All selected marketing pages were refreshed."
+            }
           ]
         }
       ],
@@ -502,8 +609,16 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
           created_knowledge_items: knowledge_items(:docs),
           failed_items: [],
           timeline: [
-            %{label: "Run completed", at: "2026-04-21 16:03 UTC", detail: "All selected docs pages were crawled."},
-            %{label: "Knowledge updated", at: "2026-04-21 16:14 UTC", detail: "Existing files under web/crawled/docs were refreshed in place."}
+            %{
+              label: "Run completed",
+              at: "2026-04-21 16:03 UTC",
+              detail: "All selected docs pages were crawled."
+            },
+            %{
+              label: "Knowledge updated",
+              at: "2026-04-21 16:14 UTC",
+              detail: "Existing files under web/crawled/docs were refreshed in place."
+            }
           ]
         },
         %{
@@ -531,7 +646,12 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
           created_knowledge_items: knowledge_items(:docs),
           failed_items: [],
           timeline: [
-            %{label: "Run completed", at: "2026-04-12 11:31 UTC", detail: "Previous docs snapshot saved into history while filesystem output was replaced."}
+            %{
+              label: "Run completed",
+              at: "2026-04-12 11:31 UTC",
+              detail:
+                "Previous docs snapshot saved into history while filesystem output was replaced."
+            }
           ]
         }
       ],
@@ -560,11 +680,27 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
           approved_page_list: selected_tree(:investor),
           created_knowledge_items: knowledge_items(:investor),
           failed_items: [
-            %{title: "Q1 2026 results", url: "https://investors.zaq.ai/results/q1-2026", type: "html", reason: "403 blocked by upstream ACL", partially_ingested: false},
-            %{title: "Investor packet PDF", url: "https://investors.zaq.ai/files/investor-packet.pdf", type: "pdf", reason: "PDF normalization failed after download", partially_ingested: true}
+            %{
+              title: "Q1 2026 results",
+              url: "https://investors.zaq.ai/results/q1-2026",
+              type: "html",
+              reason: "403 blocked by upstream ACL",
+              partially_ingested: false
+            },
+            %{
+              title: "Investor packet PDF",
+              url: "https://investors.zaq.ai/files/investor-packet.pdf",
+              type: "pdf",
+              reason: "PDF normalization failed after download",
+              partially_ingested: true
+            }
           ],
           timeline: [
-            %{label: "Run completed with errors", at: "2026-04-20 13:04 UTC", detail: "Two selected items failed during crawl and normalization."}
+            %{
+              label: "Run completed with errors",
+              at: "2026-04-20 13:04 UTC",
+              detail: "Two selected items failed during crawl and normalization."
+            }
           ]
         }
       ],
@@ -594,7 +730,11 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
           created_knowledge_items: [],
           failed_items: [],
           timeline: [
-            %{label: "Analyzing", at: "2026-04-23 11:05 UTC", detail: "The run is computing the perimeter before content extraction starts."}
+            %{
+              label: "Analyzing",
+              at: "2026-04-23 11:05 UTC",
+              detail: "The run is computing the perimeter before content extraction starts."
+            }
           ]
         }
       ]
@@ -664,36 +804,162 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
     case kind do
       :new ->
         [
-          %{id: "docs-getting-started", title: "Getting started", url: "https://docs.zaq.ai/guides/getting-started", type: "html", depth_level: 2, tree_path: ["Docs", "Guides", "Getting started"], parent_title: "Guides", metadata: ["selected", "included", "group: guides", "parent: Guides"]},
-          %{id: "docs-auth-api", title: "Auth API", url: "https://docs.zaq.ai/api/auth", type: "html", depth_level: 2, tree_path: ["Docs", "API", "Auth API"], parent_title: "API", metadata: ["selected", "included", "group: api", "parent: API"]},
-          %{id: "docs-architecture-pdf", title: "Architecture PDF", url: "https://docs.zaq.ai/files/architecture.pdf", type: "pdf", depth_level: 2, tree_path: ["Files", "Architecture PDF"], parent_title: "Files", metadata: ["selected", "included", "format: pdf", "parent: Files"]}
+          %{
+            id: "docs-getting-started",
+            title: "Getting started",
+            url: "https://docs.zaq.ai/guides/getting-started",
+            type: "html",
+            depth_level: 2,
+            tree_path: ["Docs", "Guides", "Getting started"],
+            parent_title: "Guides",
+            metadata: ["selected", "included", "group: guides", "parent: Guides"]
+          },
+          %{
+            id: "docs-auth-api",
+            title: "Auth API",
+            url: "https://docs.zaq.ai/api/auth",
+            type: "html",
+            depth_level: 2,
+            tree_path: ["Docs", "API", "Auth API"],
+            parent_title: "API",
+            metadata: ["selected", "included", "group: api", "parent: API"]
+          },
+          %{
+            id: "docs-architecture-pdf",
+            title: "Architecture PDF",
+            url: "https://docs.zaq.ai/files/architecture.pdf",
+            type: "pdf",
+            depth_level: 2,
+            tree_path: ["Files", "Architecture PDF"],
+            parent_title: "Files",
+            metadata: ["selected", "included", "format: pdf", "parent: Files"]
+          }
         ]
 
       :marketing ->
         [
-          %{id: "marketing-homepage", title: "Homepage", url: "https://www.zaq.ai/", type: "html", depth_level: 1, tree_path: ["Product", "Homepage"], parent_title: "Product", metadata: ["selected", "included", "group: product", "parent: Product"]},
-          %{id: "marketing-kb", title: "Knowledge Base", url: "https://www.zaq.ai/product/knowledge-base", type: "html", depth_level: 2, tree_path: ["Product", "Features", "Knowledge Base"], parent_title: "Features", metadata: ["selected", "included", "group: features", "parent: Features"]},
-          %{id: "marketing-pricing", title: "Pricing", url: "https://www.zaq.ai/pricing", type: "html", depth_level: 1, tree_path: ["Commercial", "Pricing"], parent_title: "Commercial", metadata: ["selected", "included", "group: commercial", "parent: Commercial"]}
+          %{
+            id: "marketing-homepage",
+            title: "Homepage",
+            url: "https://www.zaq.ai/",
+            type: "html",
+            depth_level: 1,
+            tree_path: ["Product", "Homepage"],
+            parent_title: "Product",
+            metadata: ["selected", "included", "group: product", "parent: Product"]
+          },
+          %{
+            id: "marketing-kb",
+            title: "Knowledge Base",
+            url: "https://www.zaq.ai/product/knowledge-base",
+            type: "html",
+            depth_level: 2,
+            tree_path: ["Product", "Features", "Knowledge Base"],
+            parent_title: "Features",
+            metadata: ["selected", "included", "group: features", "parent: Features"]
+          },
+          %{
+            id: "marketing-pricing",
+            title: "Pricing",
+            url: "https://www.zaq.ai/pricing",
+            type: "html",
+            depth_level: 1,
+            tree_path: ["Commercial", "Pricing"],
+            parent_title: "Commercial",
+            metadata: ["selected", "included", "group: commercial", "parent: Commercial"]
+          }
         ]
 
       :docs ->
         [
-          %{id: "docs-guides-start", title: "Getting started", url: "https://docs.zaq.ai/guides/getting-started", type: "html", depth_level: 2, tree_path: ["Guides", "Getting started"], parent_title: "Guides", metadata: ["selected", "included", "group: guides", "parent: Guides"]},
-          %{id: "docs-guides-arch", title: "Architecture", url: "https://docs.zaq.ai/architecture", type: "html", depth_level: 1, tree_path: ["Guides", "Architecture"], parent_title: "Guides", metadata: ["selected", "included", "group: guides", "parent: Guides"]},
-          %{id: "docs-api-auth", title: "Authentication", url: "https://docs.zaq.ai/api/auth", type: "html", depth_level: 2, tree_path: ["API", "Authentication"], parent_title: "API", metadata: ["selected", "included", "group: api", "parent: API"]}
+          %{
+            id: "docs-guides-start",
+            title: "Getting started",
+            url: "https://docs.zaq.ai/guides/getting-started",
+            type: "html",
+            depth_level: 2,
+            tree_path: ["Guides", "Getting started"],
+            parent_title: "Guides",
+            metadata: ["selected", "included", "group: guides", "parent: Guides"]
+          },
+          %{
+            id: "docs-guides-arch",
+            title: "Architecture",
+            url: "https://docs.zaq.ai/architecture",
+            type: "html",
+            depth_level: 1,
+            tree_path: ["Guides", "Architecture"],
+            parent_title: "Guides",
+            metadata: ["selected", "included", "group: guides", "parent: Guides"]
+          },
+          %{
+            id: "docs-api-auth",
+            title: "Authentication",
+            url: "https://docs.zaq.ai/api/auth",
+            type: "html",
+            depth_level: 2,
+            tree_path: ["API", "Authentication"],
+            parent_title: "API",
+            metadata: ["selected", "included", "group: api", "parent: API"]
+          }
         ]
 
       :investor ->
         [
-          %{id: "investor-overview", title: "Overview", url: "https://investors.zaq.ai/overview", type: "html", depth_level: 1, tree_path: ["Approved", "Overview"], parent_title: "Approved", metadata: ["selected", "included", "group: approved", "parent: Approved"]},
-          %{id: "investor-governance", title: "Governance", url: "https://investors.zaq.ai/governance", type: "html", depth_level: 1, tree_path: ["Approved", "Governance"], parent_title: "Approved", metadata: ["selected", "included", "group: approved", "parent: Approved"]},
-          %{id: "investor-pdf", title: "Investor packet PDF", url: "https://investors.zaq.ai/files/investor-packet.pdf", type: "pdf", depth_level: 2, tree_path: ["Approved", "Files", "Investor packet PDF"], parent_title: "Files", metadata: ["selected", "included", "format: pdf", "parent: Files"]}
+          %{
+            id: "investor-overview",
+            title: "Overview",
+            url: "https://investors.zaq.ai/overview",
+            type: "html",
+            depth_level: 1,
+            tree_path: ["Approved", "Overview"],
+            parent_title: "Approved",
+            metadata: ["selected", "included", "group: approved", "parent: Approved"]
+          },
+          %{
+            id: "investor-governance",
+            title: "Governance",
+            url: "https://investors.zaq.ai/governance",
+            type: "html",
+            depth_level: 1,
+            tree_path: ["Approved", "Governance"],
+            parent_title: "Approved",
+            metadata: ["selected", "included", "group: approved", "parent: Approved"]
+          },
+          %{
+            id: "investor-pdf",
+            title: "Investor packet PDF",
+            url: "https://investors.zaq.ai/files/investor-packet.pdf",
+            type: "pdf",
+            depth_level: 2,
+            tree_path: ["Approved", "Files", "Investor packet PDF"],
+            parent_title: "Files",
+            metadata: ["selected", "included", "format: pdf", "parent: Files"]
+          }
         ]
 
       :support ->
         [
-          %{id: "support-faq", title: "FAQ home", url: "https://support.zaq.ai/faq", type: "html", depth_level: 1, tree_path: ["Support", "FAQ home"], parent_title: "Support", metadata: ["selected", "included", "group: support", "parent: Support"]},
-          %{id: "support-api", title: "API support", url: "https://support.zaq.ai/articles/api-support", type: "html", depth_level: 2, tree_path: ["Support", "Articles", "API support"], parent_title: "Articles", metadata: ["selected", "included", "group: articles", "parent: Articles"]}
+          %{
+            id: "support-faq",
+            title: "FAQ home",
+            url: "https://support.zaq.ai/faq",
+            type: "html",
+            depth_level: 1,
+            tree_path: ["Support", "FAQ home"],
+            parent_title: "Support",
+            metadata: ["selected", "included", "group: support", "parent: Support"]
+          },
+          %{
+            id: "support-api",
+            title: "API support",
+            url: "https://support.zaq.ai/articles/api-support",
+            type: "html",
+            depth_level: 2,
+            tree_path: ["Support", "Articles", "API support"],
+            parent_title: "Articles",
+            metadata: ["selected", "included", "group: articles", "parent: Articles"]
+          }
         ]
     end
   end
@@ -702,25 +968,58 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreview do
     case kind do
       :marketing ->
         [
-          %{title: "Homepage overview", source_url: "https://www.zaq.ai/", path: "web/crawled/marketing/home.md"},
-          %{title: "Pricing page", source_url: "https://www.zaq.ai/pricing", path: "web/crawled/marketing/pricing.md"},
-          %{title: "Knowledge base feature", source_url: "https://www.zaq.ai/product/knowledge-base", path: "web/crawled/marketing/product/knowledge-base.md"}
+          %{
+            title: "Homepage overview",
+            source_url: "https://www.zaq.ai/",
+            path: "web/crawled/marketing/home.md"
+          },
+          %{
+            title: "Pricing page",
+            source_url: "https://www.zaq.ai/pricing",
+            path: "web/crawled/marketing/pricing.md"
+          },
+          %{
+            title: "Knowledge base feature",
+            source_url: "https://www.zaq.ai/product/knowledge-base",
+            path: "web/crawled/marketing/product/knowledge-base.md"
+          }
         ]
 
       :docs ->
         [
-          %{title: "Getting started guide", source_url: "https://docs.zaq.ai/guides/getting-started", path: "web/crawled/docs/getting-started.md"},
-          %{title: "Architecture", source_url: "https://docs.zaq.ai/architecture", path: "web/crawled/docs/architecture.md"},
-          %{title: "Auth API", source_url: "https://docs.zaq.ai/api/auth", path: "web/crawled/docs/api/auth.md"}
+          %{
+            title: "Getting started guide",
+            source_url: "https://docs.zaq.ai/guides/getting-started",
+            path: "web/crawled/docs/getting-started.md"
+          },
+          %{
+            title: "Architecture",
+            source_url: "https://docs.zaq.ai/architecture",
+            path: "web/crawled/docs/architecture.md"
+          },
+          %{
+            title: "Auth API",
+            source_url: "https://docs.zaq.ai/api/auth",
+            path: "web/crawled/docs/api/auth.md"
+          }
         ]
 
       :investor ->
         [
-          %{title: "Investor overview", source_url: "https://investors.zaq.ai/overview", path: "web/crawled/investor/overview.md"},
-          %{title: "Governance", source_url: "https://investors.zaq.ai/governance", path: "web/crawled/investor/governance.md"}
+          %{
+            title: "Investor overview",
+            source_url: "https://investors.zaq.ai/overview",
+            path: "web/crawled/investor/overview.md"
+          },
+          %{
+            title: "Governance",
+            source_url: "https://investors.zaq.ai/governance",
+            path: "web/crawled/investor/governance.md"
+          }
         ]
 
-      _ -> []
+      _ ->
+        []
     end
   end
 end

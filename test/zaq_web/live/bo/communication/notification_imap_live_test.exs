@@ -59,6 +59,18 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     def sync_provider_runtime("email:imap"), do: nil
   end
 
+  defmodule NodeRouterDispatchStub do
+    def dispatch(event) do
+      if pid = Process.whereis(:notification_imap_dispatch_observer) do
+        send(pid, {:notification_imap_dispatch_called, event})
+      end
+
+      %{event | response: {:ok, ["INBOX", "Support", "Sales"]}}
+    end
+
+    def call(_role, _mod, _fun, _args), do: {:error, :unexpected_call_path}
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -275,6 +287,62 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     })
 
     view |> element("#load-imap-mailboxes") |> render_click()
+
+    assert_eventually(fn ->
+      has_element?(view, "#imap-mailboxes-status-ok", "Mailboxes loaded")
+    end)
+
+    assert_eventually(fn ->
+      has_element?(view, "#imap-selected-mailboxes option[value='Support']")
+    end)
+  end
+
+  test "load mailboxes uses NodeRouter dispatch when channels module is default API", %{
+    conn: conn
+  } do
+    previous_router = Application.get_env(:zaq, :notification_imap_router_module)
+    previous_node_router = Application.get_env(:zaq, :notification_imap_node_router_module)
+
+    Application.delete_env(:zaq, :notification_imap_router_module)
+    Application.put_env(:zaq, :notification_imap_node_router_module, NodeRouterDispatchStub)
+    Process.register(self(), :notification_imap_dispatch_observer)
+
+    on_exit(fn ->
+      if is_nil(previous_router) do
+        Application.delete_env(:zaq, :notification_imap_router_module)
+      else
+        Application.put_env(:zaq, :notification_imap_router_module, previous_router)
+      end
+
+      if is_nil(previous_node_router) do
+        Application.delete_env(:zaq, :notification_imap_node_router_module)
+      else
+        Application.put_env(:zaq, :notification_imap_node_router_module, previous_node_router)
+      end
+
+      if Process.whereis(:notification_imap_dispatch_observer) == self() do
+        Process.unregister(:notification_imap_dispatch_observer)
+      end
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    view
+    |> element("#imap-config-form")
+    |> render_change(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX"]
+      }
+    })
+
+    view |> element("#load-imap-mailboxes") |> render_click()
+
+    assert_receive {:notification_imap_dispatch_called, event}
+    assert event.opts[:action] == :list_mailboxes
+    assert event.request.provider == "email:imap"
 
     assert_eventually(fn ->
       has_element?(view, "#imap-mailboxes-status-ok", "Mailboxes loaded")

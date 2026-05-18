@@ -27,6 +27,7 @@ import topbar from "../vendor/topbar"
 import OntologyTree from "./hooks/ontology_tree_hook"
 import ChartTooltip from "./hooks/chart_tooltip_hook"
 import ContentFilter from "./hooks/content_filter"
+import FolderDrop from "./hooks/folder_drop"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -37,6 +38,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
     OntologyTree,
     ChartTooltip,
     ContentFilter,
+    FolderDrop,
     DownloadFile: {
       mounted() {
         this.handleEvent("download_file", ({ filename, content, content_type }) => {
@@ -63,13 +65,30 @@ const liveSocket = new LiveSocket("/live", Socket, {
     },
     FlashAutoDismiss: {
       mounted() {
-        const duration = parseInt(this.el.dataset.autoDismissDuration, 10)
-        this._timer = setTimeout(() => {
-          this.el.querySelector("[data-flash-dismiss]")?.click()
-        }, duration)
+        this._scrollToFlash()
+        this._startTimer()
+      },
+      updated() {
+        this._scrollToFlash()
+        clearTimeout(this._timer)
+        this._startTimer()
       },
       destroyed() {
         clearTimeout(this._timer)
+      },
+      _scrollToFlash() {
+        requestAnimationFrame(() => {
+          const top = this.el.getBoundingClientRect().top + window.scrollY - 16
+          window.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+        })
+      },
+      _startTimer() {
+        const duration = parseInt(this.el.dataset.autoDismissDuration, 10)
+        if (duration > 0) {
+          this._timer = setTimeout(() => {
+            this.el.querySelector("[data-flash-dismiss]")?.click()
+          }, duration)
+        }
       }
     },
     LoadingActionButton: {
@@ -187,6 +206,47 @@ const liveSocket = new LiveSocket("/live", Socket, {
       },
       updated() {
         if (!this.el.disabled) this.el.focus()
+      }
+    },
+    OAuthPopupListener: {
+      mounted() {
+        this._popup = null
+
+        this.handleEvent("open_oauth_popup", ({ url }) => {
+          if (!url) return
+
+          const width = 640
+          const height = 760
+          const left = Math.max(0, Math.floor((window.screen.width - width) / 2))
+          const top = Math.max(0, Math.floor((window.screen.height - height) / 2))
+          const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+
+          this._popup = window.open(url, "oauth_claim_popup", features)
+
+          if (!this._popup) {
+            this.pushEvent("oauth_popup_blocked", {})
+          }
+        })
+
+        this._handler = (event) => {
+          const data = event && event.data
+          if (!data || data.type !== "zaq:oauth2_result") return
+          this.pushEvent("oauth_popup_result", data.payload || {})
+
+          if (this._popup && !this._popup.closed) {
+            this._popup.close()
+          }
+
+          this._popup = null
+        }
+
+        window.addEventListener("message", this._handler)
+      },
+      destroyed() {
+        if (this._handler) {
+          window.removeEventListener("message", this._handler)
+          this._handler = null
+        }
       }
     },
     SearchableSelect: {
@@ -320,6 +380,17 @@ const liveSocket = new LiveSocket("/live", Socket, {
       destroyed() {
         if (this._outsideClick) document.removeEventListener('click', this._outsideClick, true)
         clearTimeout(this._searchTimer)
+      }
+    },
+    ScrollToFirstError: {
+      updated() {
+        requestAnimationFrame(() => {
+          const firstError = this.el.querySelector('[data-error-message]')
+          if (firstError && firstError.textContent.trim()) {
+            const top = firstError.getBoundingClientRect().top + window.scrollY - 80
+            window.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+          }
+        })
       }
     },
     DetailsKeepOpen: {

@@ -25,7 +25,6 @@ defmodule Zaq.Agent.Pipeline do
     * `:retrieval`          — Retrieval module override
     * `:document_processor` — DocumentProcessor module override
     * `:answering`          — Answering module override
-    * `:prompt_template`    — PromptTemplate module override
 
   ## Returns
 
@@ -41,14 +40,12 @@ defmodule Zaq.Agent.Pipeline do
   """
 
   require Logger
-  alias Zaq.Accounts.People
   alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
-
-  @no_answer_signal "I don't have enough information to answer that question."
+  alias Zaq.Event
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -60,9 +57,16 @@ defmodule Zaq.Agent.Pipeline do
     person_id = incoming.person_id
 
     team_ids =
-      case People.get_person(person_id) do
+      case node_router(opts).dispatch(
+             Event.new(
+               %{person_id: person_id},
+               :engine,
+               opts: [action: :get_person]
+             )
+           ).response do
         nil -> []
-        person -> person.team_ids || []
+        %{team_ids: ids} when not is_nil(ids) -> ids
+        _ -> []
       end
 
     opts =
@@ -78,11 +82,12 @@ defmodule Zaq.Agent.Pipeline do
 
   @spec pre_do_run(Incoming.t(), keyword()) :: Incoming.t()
   defp pre_do_run(incoming, opts) do
-    # Send the start typing event through the router for automatic routing
-    node_router(opts).call(:channels, Zaq.Channels.Router, :send_typing, [
-      incoming.provider,
-      incoming.channel_id
-    ])
+    _ =
+      Event.new(%{provider: incoming.provider, channel_id: incoming.channel_id}, :channels,
+        opts: [action: :send_typing],
+        type: :async
+      )
+      |> node_router(opts).dispatch()
 
     incoming
   end
@@ -263,11 +268,10 @@ defmodule Zaq.Agent.Pipeline do
       end)
 
     system_prompt =
-      prompt_template_mod(opts).render("answering", %{
+      answering_mod(opts).system_prompt(%{
         content: content,
         retrieved_data: Jason.encode!(retrieved_data),
         language: language,
-        no_answer_signal: @no_answer_signal,
         has_history: history != %{}
       })
 
@@ -408,14 +412,6 @@ defmodule Zaq.Agent.Pipeline do
       opts,
       :executor_module,
       Application.get_env(:zaq, :pipeline_executor_module, Executor)
-    )
-  end
-
-  defp prompt_template_mod(opts) do
-    Keyword.get(
-      opts,
-      :prompt_template,
-      Application.get_env(:zaq, :pipeline_prompt_template_module, Zaq.Agent.PromptTemplate)
     )
   end
 end

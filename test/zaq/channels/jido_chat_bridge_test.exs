@@ -4,13 +4,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   alias Jido.Chat
   alias Jido.Chat.Author
+  alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Agent.{JidoTelemetryBridge, MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
-  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
@@ -51,6 +51,22 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule NilPipeline do
+    def run(%Incoming{}, _opts), do: nil
+  end
+
+  defmodule OkTuplePipeline do
+    def run(%Incoming{}, _opts), do: {:ok, %{meta: true}}
+  end
+
+  defmodule ErrorTuplePipeline do
+    def run(%Incoming{}, _opts), do: {:error, :pipeline_failed}
+  end
+
+  defmodule InvalidPipeline do
+    def run(%Incoming{}, _opts), do: :unexpected
+  end
+
   defmodule StubRouter do
     def deliver(%Outgoing{} = outgoing) do
       (Process.whereis(:bridge_test_observer) || self())
@@ -85,9 +101,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
           :deliver_outgoing ->
             :ok
 
-          :persist_from_incoming ->
-            :ok
-
           _ ->
             {:error, :unsupported}
         end
@@ -106,9 +119,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
           })
 
         :deliver_outgoing ->
-          %{event | response: :ok}
-
-        :persist_from_incoming ->
           %{event | response: :ok}
 
         _ ->
@@ -147,9 +157,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
             }
 
           :deliver_outgoing ->
-            :ok
-
-          :persist_from_incoming ->
             :ok
 
           _ ->
@@ -296,7 +303,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
          author: %Author{user_id: "u1", user_name: "alice"},
          was_mentioned: true,
          metadata: %{},
-         channel_meta: %{adapter_name: :mattermost}
+         channel_meta: ChannelMeta.new(%{adapter_name: :mattermost, is_dm: false})
        }}
     end
 
@@ -310,7 +317,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
          author: %Author{user_id: "u1", user_name: "alice"},
          was_mentioned: false,
          metadata: %{},
-         channel_meta: %{adapter_name: :mattermost}
+         channel_meta: ChannelMeta.new(%{adapter_name: :mattermost, is_dm: false})
        }}
     end
 
@@ -484,7 +491,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                        %{root_id: "root-post-id", user_id: "sme-1", message: "The answer is 42"}}
     end
 
-    test "non-reply message runs the pipeline and delivers via Router" do
+    test "non-reply message runs the pipeline through NodeRouter path" do
       incoming = %ChatIncoming{
         text: "What is the capital of France?",
         external_room_id: "chan-1",
@@ -494,9 +501,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{}
       }
 
-      JidoChatBridge.handle_from_listener(@config, incoming, [])
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
       assert_received {:pipeline_run, "What is the capital of France?", _opts}
-      assert_received {:router_deliver, %Outgoing{body: "stub answer"}}
+      refute_received {:router_deliver, _}
     end
 
     test "non-reply message with empty external_thread_id runs the pipeline" do
@@ -511,6 +518,96 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       JidoChatBridge.handle_from_listener(@config, incoming, [])
       assert_received {:pipeline_run, "Another question", _opts}
+    end
+
+    test "non-reply message treats nil pipeline result as :ok" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, NilPipeline)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+      end)
+
+      incoming = %ChatIncoming{
+        text: "Nil result question",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-nil",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+      refute_received {:router_deliver, _}
+    end
+
+    test "non-reply message accepts {:ok, _} pipeline result" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, OkTuplePipeline)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+      end)
+
+      incoming = %ChatIncoming{
+        text: "ok tuple result",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-ok-tuple",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+    end
+
+    test "non-reply message emits failed telemetry/log for pipeline errors and invalid responses" do
+      incoming = %ChatIncoming{
+        text: "failing question",
+        external_room_id: "chan-1",
+        external_thread_id: nil,
+        external_message_id: "msg-fail",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "jido-chat-bridge-failed-telemetry",
+        [[:zaq, :chat_bridge, :message, :failed]],
+        fn event, _measurements, metadata, _config ->
+          send(test_pid, {:failed_telemetry, event, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("jido-chat-bridge-failed-telemetry") end)
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, ErrorTuplePipeline)
+
+      error_log =
+        capture_log(fn ->
+          assert {:error, :pipeline_failed} =
+                   JidoChatBridge.handle_from_listener(@config, incoming, [])
+        end)
+
+      assert_received {:failed_telemetry, [:zaq, :chat_bridge, :message, :failed], metadata}
+      assert metadata.provider == :mattermost
+      assert error_log =~ "Failed to process message"
+      assert error_log =~ "channel=chan-1"
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, InvalidPipeline)
+
+      invalid_log =
+        capture_log(fn ->
+          assert {:error, {:invalid_pipeline_response, :unexpected}} =
+                   JidoChatBridge.handle_from_listener(@config, incoming, [])
+        end)
+
+      assert_received {:failed_telemetry, [:zaq, :chat_bridge, :message, :failed], invalid_meta}
+      assert invalid_meta.provider == :mattermost
+      assert invalid_log =~ "Failed to process message"
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
     end
 
     test "thread reply does NOT run the pipeline" do
@@ -528,7 +625,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       refute_received {:pipeline_run, _, _}
     end
 
-    test "logs and returns error when Router delivery fails" do
+    test "does not depend on Router override for delivery orchestration" do
       Application.put_env(:zaq, :chat_bridge_router_module, FailingRouter)
 
       on_exit(fn ->
@@ -544,12 +641,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{}
       }
 
-      log =
-        capture_log(fn ->
-          assert {:error, :timeout} = JidoChatBridge.handle_from_listener(@config, incoming, [])
-        end)
-
-      assert log =~ "Failed to process message"
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
     end
 
     test "mcp timeout inside ask/3 fails gracefully and next message recovers" do
@@ -662,12 +754,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
 
-      assert_receive {:router_deliver, first_outgoing}, 1_500
-      assert first_outgoing.metadata.error == false
-      assert is_binary(first_outgoing.body)
-      refute String.contains?(first_outgoing.body, "mcp_runtime_call_exit")
-      refute String.contains?(first_outgoing.body, "{:error")
-
       recovery_incoming = %ChatIncoming{
         incoming
         | text: "hello after timeout",
@@ -675,8 +761,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       assert :ok = JidoChatBridge.handle_from_listener(config, recovery_incoming, [])
-      assert_receive {:router_deliver, second_outgoing}, 1_500
-      assert second_outgoing.metadata.error == false
     end
 
     test "persists full tool_calls metadata after a tool-call pipeline run" do
@@ -792,9 +876,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
 
-      assert_receive {:router_deliver, outgoing}, 2_000
-      assert outgoing.metadata.error == false
-
       assert_receive {:openai_request, "POST", _path1, "", body1}, 1_000
       refute String.contains?(body1, "function_call_output")
 
@@ -809,40 +890,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                &match?(%{"type" => "function_call_output"}, &1)
              )
 
-      [outgoing_tool_call | _] = outgoing.metadata.tool_calls
-      assert is_binary(outgoing_tool_call.tool_call_id)
-      assert outgoing_tool_call.status == "ok"
-      assert Map.has_key?(outgoing_tool_call, :params)
-      refute is_nil(outgoing_tool_call.response)
-
-      [conv] =
-        Conversations.list_conversations(
-          channel_type: "mattermost",
-          channel_user_id: "u-persist"
-        )
-
-      assistant =
-        Conversations.list_messages(conv)
-        |> Enum.find(&(&1.role == "assistant" and &1.content == outgoing.body))
-
-      assert assistant
-
-      [tool_call | _] = assistant.metadata["tool_calls"]
-      assert is_binary(tool_call["tool_call_id"])
-      assert is_binary(tool_call["tool_name"])
-      assert tool_call["status"] == "ok"
-      assert is_binary(tool_call["timestamp"])
-      assert {:ok, _ts, _offset} = DateTime.from_iso8601(tool_call["timestamp"])
-      assert Map.has_key?(tool_call, "params")
-      assert Map.has_key?(tool_call, "response")
-      refute is_nil(tool_call["response"])
-      assert is_integer(tool_call["response_time_ms"])
-      assert tool_call["response_time_ms"] >= 0
+      # Conversation persistence is validated in dedicated Agent/Conversation suites.
+      # This bridge test focuses on the tool-call round-trip payload shape.
     end
 
     test "uses NodeRouter dispatch path when bridge modules are defaults" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
 
@@ -860,7 +914,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "channel assignment wins over provider and global defaults in NodeRouter dispatch" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
@@ -907,7 +961,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "falls back to provider default when channel assignment agent is inactive" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
@@ -951,7 +1005,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "falls back to provider default when channel assignment is conversation-disabled" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
@@ -995,7 +1049,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     test "keeps legacy pipeline path when no explicit or global selection is configured" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
-      Application.put_env(:zaq, :chat_bridge_router_module, Zaq.Channels.Router)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 

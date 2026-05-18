@@ -65,7 +65,7 @@ File path
 - `list_document_sources/1` — builds @-mention source choices from configured connectors + indexed document sources; supports name search and folder browse semantics
 
 **Access control**
-- `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; files with no permissions record are public by default
+- `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; documents tagged `"public"` are accessible to all; documents with no permission rows and no public tag are private (admin-only)
 - `list_document_permissions/1` — list all permissions for a document (preloads `:person`, `:team`)
 - `list_person_permissions/1` — list all permissions for a person (preloads `:document`)
 - `list_folder_permissions/2` — unique set of person/team permissions across all documents under a folder
@@ -128,10 +128,10 @@ File path
 ### Document Access (`Zaq.Ingestion.DocumentAccess`)
 - Centralized permission-filtered queries for counts/listings and source-filter handling
 - Permission model:
-  - documents tagged `"public"` are accessible
-  - documents with matching person/team permissions are accessible
-  - documents with no permission rows are treated as public by default in full-access scans
-  - `skip_permissions: true` bypasses filtering for admin/internal callers
+  - documents tagged `"public"` are accessible to all
+  - documents with matching person/team permission rows are accessible to the matched person/team
+  - documents with no permission rows and no public tag are private — only `skip_permissions: true` (BO admin) can access them
+  - `skip_permissions: true` bypasses all filtering for admin/internal callers
 - Exposes `build_source_filter_condition/1` used for consistent folder/file filter semantics
 
 ### Content Source (`Zaq.Ingestion.ContentSource`)
@@ -385,7 +385,7 @@ Ingestion invariants that should be property-tested when affected:
 - **Rename/delete consistency** (`RenameService`, `DeleteService`, `Sidecar`): sidecar/source remapping never produces mismatched document/source pairs.
 - **Chunking bounds** (`DocumentChunker`): emitted chunks respect configured token bounds and preserve deterministic ordering/indexing.
 - **Job counter/state consistency** (`IngestChunkWorker`, `JobLifecycle`): parent totals and terminal statuses remain coherent for any mix of completed/failed chunk states.
-- **Permission safety defaults** (`Permission` and access checks): missing permission rows keep files public by default unless explicit restrictions exist.
+- **Permission safety defaults** (`Permission` and access checks): missing permission rows make files private by default — only `"public"`-tagged documents or explicit person/team permission rows grant access.
 
 If a change touches one of these areas and no property test is added, document the reason in the PR.
 

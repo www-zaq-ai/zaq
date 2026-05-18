@@ -4,11 +4,30 @@ This strategy is mandatory for every new execution plan.
 
 ---
 
+## Basic Planning rules
+
+- Steps execution order should be set according to identified dependencies: Step 1 should build the primitives that would be needed by Step 2.
+- Cleanly separate concerns between modules based on functional domain requirements (merge when same domain, split if different domain)
+
+---
+
 ## Required Inputs
 
-- Start every plan from `docs/exec-plans/PLAN_TEMPLATE.md`.
-- Save new plans to `docs/exec-plans/active/YYYY-MM-DD-short-description.md`.
-- Do not author ad-hoc plan formats.
+- Planning is tracked in beads issues, not in `docs/exec-plans/active/` files.
+- For planned work, create at least one beads issue per step (create more issues when a step must be split).
+- Split a step into multiple issues when any of these apply: different owning module/domain, independent test surface, different deploy/review risk, or expected effort over one day.
+- Prefix every planned issue title with `[{issueId}]`.
+- Encode execution order with issue dependencies (`bd dep add <issue> <depends-on>`).
+- Canonical dependency direction: if issue `X` needs issue `Y`, run `bd dep add X Y` (X is blocked by Y).
+- Dependency graph requirement: planning dependencies must form a DAG (no cycles). Avoid diamond dependency shapes unless they are required and justified in issue notes.
+- Do not use ad-hoc planning formats outside beads.
+
+### Dependency validation checklist (mandatory before implementation)
+
+- Run `bd blocked --json` and confirm blocked issues match planned prerequisites.
+- Run `bd ready --json` and confirm only intended root issues are ready.
+- Run `bd show <id> --json` for each planned issue and verify both `depends_on` and `blocks` edges are correct.
+- Fix dependency direction mistakes before implementation starts.
 
 ---
 
@@ -19,12 +38,14 @@ An agent that skips this will duplicate infrastructure, create parallel code pat
 generate avoidable review comments.
 
 For agent service work, verify:
+
 - Does `Factory` already cover the LLM call? If yes, use it. If no, extend it — never bypass it.
 - Does `Executor.run` already cover the execution path? If yes, route through it.
 - Does an `Outgoing` builder already construct the response? If yes, use it or extend it.
 - Are provider credentials / URL formatting already handled in `get_ai_provider_credential/1` or `Factory`?
 
 For any domain, verify:
+
 - Read the `@moduledoc` of every module you plan to add code to. Confirm the function fits the module's stated responsibility.
 - If a module's `@moduledoc` does not cover your use case, find the correct module first — do not add misplaced code.
 
@@ -43,9 +64,15 @@ Each step must identify which module(s) will own new code. For each module, conf
 If a step places temporary code in a non-ideal module (acceptable when tracked), add a `# Temporary:` inline
 comment in the code explaining the placement and the condition for moving it. `TODO` tags are blocked by Credo —
 use this format instead:
+
 ```elixir
 # Temporary: <reason it's here>. Move to <target> once <condition>.
 ```
+
+When detailing the implementation for a module:
+
+- Public function signatures represent boundaries between modules and should be treated with high care, their modifications should be avoided when possible.
+- When creating new public functions account for `opt \\ []` keyword list as a last future proofing param.
 
 ---
 
@@ -72,7 +99,7 @@ Each step must include:
 2. `Tests to add before implementation`
 3. `Branches/paths validated`
 4. `Mocking plan` (only for edge external API calls)
-5. `Documentations to update for both code and AGENTS.md related descriptions`
+5. `Documentations to update for both code and docs/ related content`
 
 If any item is missing, the step is incomplete and cannot be executed.
 
@@ -82,7 +109,7 @@ If any item is missing, the step is incomplete and cannot be executed.
 
 - Favor integration tests that validate multi-branch behavior.
 - Avoid seams as much as possible; test through real module boundaries.
-- Use mocks only for edge API calls that are external to Zaq's primitives (separate deps or outside API).
+- Use mocks only for edge API calls that are external to Zaq's primitives (separate deps or third party APIs).
 - Keep internal dependencies real unless there is a hard technical constraint.
 
 ---

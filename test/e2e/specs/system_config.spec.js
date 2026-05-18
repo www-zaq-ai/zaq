@@ -4,6 +4,8 @@ const {
   loginToBackOffice,
   resetE2EState,
   waitForLiveViewSettled,
+  pickSearchableSelect,
+  createAiCredential,
 } = require("../support/bo")
 
 // At least one of the two locators becomes visible. Use in place of
@@ -18,6 +20,7 @@ async function expectEitherVisible(a, b, options = {}) {
 }
 
 const CONFIG_PATH = "/bo/system-config"
+const E2E_ENDPOINT = "http://localhost:11434/v1"
 
 // Selectors using phx-click/phx-value attributes — never rely on text position
 const SEL = {
@@ -52,48 +55,6 @@ async function differentDimension(page) {
   return current === 512 ? 768 : 512
 }
 
-async function pickSearchableSelect(page, containerSel, optionLabel) {
-  await page.locator(`${containerSel} [data-select-trigger]`).click()
-  await page.locator(`${containerSel} [data-select-search]`).fill(optionLabel)
-  await page.locator(`${containerSel} [data-select-option="${optionLabel}"]`).click()
-}
-
-async function createAiCredential(page, overrides = {}) {
-  const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`
-  const credential = {
-    name: overrides.name || `E2E Credential ${unique}`,
-    provider: overrides.provider || "Custom",
-    endpoint: overrides.endpoint || "http://localhost:11434/v1",
-    apiKey: overrides.apiKey || `e2e-key-${unique}`,
-    sovereign: overrides.sovereign || false,
-    description: overrides.description || "E2E credential",
-  }
-
-  await page.locator(SEL.tabAICredentials).click()
-  await expect(page).toHaveURL(/tab=ai_credentials/)
-  await page.locator('[phx-click="new_ai_credential"]').click()
-  await expect(page.locator(SEL.aiCredentialForm)).toBeVisible()
-
-  await page.locator('input[name="ai_credential[name]"]').fill(credential.name)
-  await pickSearchableSelect(page, "#ai-credential-provider-select", credential.provider)
-  await page.locator('input[name="ai_credential[endpoint]"]').fill(credential.endpoint)
-  await page.locator("#ai-credential-api-key-input").fill(credential.apiKey)
-
-  if (credential.sovereign) {
-    await page.locator('label:has(input[name="ai_credential[sovereign]"][type="checkbox"])').click()
-  }
-
-  await page.locator('textarea[name="ai_credential[description]"]').fill(credential.description)
-  await page.locator(SEL.aiCredentialForm).getByRole("button", { name: "Save credential" }).click()
-
-  await expect(page.getByText("AI credential saved.")).toBeVisible()
-  await expect(page.locator(SEL.aiCredentialForm)).not.toBeVisible()
-  // Drain any trailing phx-submit events before the caller switches tabs
-  await waitForLiveViewSettled(page)
-
-  return credential
-}
-
 test.describe("System Config", () => {
   test.beforeAll(async () => {
     const req = await apiRequest.newContext()
@@ -109,8 +70,8 @@ test.describe("System Config", () => {
   // ── Tab navigation ─────────────────────────────────────────────────────
 
   test.describe("tab navigation", () => {
-    test("default tab is Telemetry", async ({ page }) => {
-      await expect(page.locator(SEL.telemetryForm)).toBeVisible()
+    test("default tab is AI Credentials", async ({ page }) => {
+      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
       await expect(page.locator(SEL.llmForm)).not.toBeVisible()
       await expect(page.locator(SEL.embeddingForm)).not.toBeVisible()
       await expect(page.locator(SEL.imageToTextForm)).not.toBeVisible()
@@ -161,9 +122,9 @@ test.describe("System Config", () => {
       await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
     })
 
-    test("unknown ?tab value falls back to Telemetry", async ({ page }) => {
+    test("unknown ?tab value falls back to AI Credentials", async ({ page }) => {
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=nonexistent`)
-      await expect(page.locator(SEL.telemetryForm)).toBeVisible()
+      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
     })
   })
 
@@ -177,7 +138,7 @@ test.describe("System Config", () => {
     })
 
     test.beforeEach(async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
       // Wait for the tab's phx-click to settle so the credential dropdown is
@@ -204,7 +165,7 @@ test.describe("System Config", () => {
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
 
@@ -219,7 +180,7 @@ test.describe("System Config", () => {
     // This is a real UI bug — the default can never be saved without first adjusting top_p.
     // Tests that save must set top_p to a valid step value first.
     test("successful save shows flash message (requires valid top_p step value)", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
       await pickSearchableSelect(page, "#llm-credential-select", credential.name)
 
@@ -323,7 +284,7 @@ test.describe("System Config", () => {
     // ── API key persistence ───────────────────────────────────────────────
 
     test("changing credential saves and persists after page reload", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
       await pickSearchableSelect(page, "#llm-credential-select", credential.name)
 
@@ -345,7 +306,7 @@ test.describe("System Config", () => {
 
   test.describe("Embedding tab", () => {
     test.beforeEach(async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabEmbedding).click()
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
       await waitForLiveViewSettled(page)
@@ -361,7 +322,7 @@ test.describe("System Config", () => {
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabEmbedding).click()
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
 
@@ -547,7 +508,7 @@ test.describe("System Config", () => {
     // ── API key persistence ───────────────────────────────────────────────
 
     test("changing credential saves and persists after page reload", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabEmbedding).click()
       await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
 
@@ -567,7 +528,7 @@ test.describe("System Config", () => {
 
   test.describe("Image to Text tab", () => {
     test.beforeEach(async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
       await waitForLiveViewSettled(page)
@@ -584,7 +545,7 @@ test.describe("System Config", () => {
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
 
@@ -595,7 +556,7 @@ test.describe("System Config", () => {
     })
 
     test("successful save shows flash message", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
       await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
 
@@ -612,7 +573,7 @@ test.describe("System Config", () => {
     // ── API key persistence ───────────────────────────────────────────────
 
     test("changing credential saves and persists after page reload", async ({ page }) => {
-      const credential = await createAiCredential(page)
+      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
       await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
 
@@ -638,7 +599,10 @@ test.describe("System Config", () => {
     })
 
     test("create credential shows success and renders in list", async ({ page }) => {
-      const credential = await createAiCredential(page, { provider: "Custom" })
+      const credential = await createAiCredential(page, {
+        provider: "Custom",
+        endpoint: E2E_ENDPOINT,
+      })
 
       const row =
         page
@@ -673,7 +637,10 @@ test.describe("System Config", () => {
     })
 
     test("new credential can be selected in LLM form and saved", async ({ page }) => {
-      const credential = await createAiCredential(page, { provider: "Custom" })
+      const credential = await createAiCredential(page, {
+        provider: "Custom",
+        endpoint: E2E_ENDPOINT,
+      })
 
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()

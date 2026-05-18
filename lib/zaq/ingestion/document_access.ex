@@ -6,17 +6,18 @@ defmodule Zaq.Ingestion.DocumentAccess do
   determine which documents they can access and return counts or listings.
 
   Permission model:
-  - Documents with no permission rows → public by default (accessible to all).
+  - Documents with no permission rows → not accessible to regular users (admin-only via `skip_permissions`).
   - Documents tagged `"public"` → accessible to all.
   - Documents with explicit permission rows → accessible only to matched persons/teams.
   - `skip_permissions: true` → all documents, used for admin/internal callers.
 
-  `nil person_id` is never an implicit permission grant. Without
-  `skip_permissions: true`, a nil person_id returns only public-tagged documents
-  and documents with team-matched permissions (if team_ids are provided).
+  `nil person_id` is never an implicit permission grant. Both nil and authenticated
+  callers require either a `"public"` tag or a matching permission row. Documents
+  with no permission rows and no public tag are private — only `skip_permissions: true`
+  (BO admin) can access them.
   """
 
-  alias Zaq.Ingestion.{Document, FileExplorer, Permission, SourcePath}
+  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, Permission, SourcePath}
   alias Zaq.Repo
 
   import Ecto.Query
@@ -146,6 +147,20 @@ defmodule Zaq.Ingestion.DocumentAccess do
 
   # All three access conditions unified in one named-binding dynamic to avoid
   # mixing positional and named bindings in the same where expression.
+  #
+  # Both nil and authenticated person_id require either a "public" tag or a matching
+  # permission row. Docs with no permission rows and no public tag are NOT accessible
+  # here — only skip_permissions: true (BO admin) bypasses this.
+  defp build_accessible_where(nil, team_ids) do
+    perm_cond = Permission.build_perm_join_condition(nil, team_ids)
+
+    dynamic(
+      [doc: d, perm: p],
+      fragment("? @> ARRAY['public']::varchar[]", d.tags) or
+        ^perm_cond
+    )
+  end
+
   defp build_accessible_where(person_id, team_ids) do
     perm_cond = Permission.build_perm_join_condition(person_id, team_ids)
 
@@ -174,15 +189,16 @@ defmodule Zaq.Ingestion.DocumentAccess do
     skip_permissions = Keyword.get(opts, :skip_permissions, false)
     source_filter = Keyword.get(opts, :source_filter)
 
-    ingested_docs = list_accessible_documents(opts)
+    doc_map = list_accessible_documents(opts) |> Map.new(fn doc -> {doc.source, doc} end)
+    ingested_set = list_ingested_source_set()
 
     if skip_permissions do
-      ingested_map = Map.new(ingested_docs, fn doc -> {doc.source, doc} end)
-
       walk_file_sources(source_filter)
-      |> Enum.map(&tag_ingestion_status(&1, ingested_map))
+      |> Enum.map(&tag_ingestion_status(&1, doc_map, ingested_set))
     else
-      Enum.map(ingested_docs, &Map.put(&1, :ingested, true))
+      doc_map
+      |> Map.values()
+      |> Enum.map(&Map.put(&1, :ingested, MapSet.member?(ingested_set, &1.source)))
     end
   end
 
@@ -200,7 +216,19 @@ defmodule Zaq.Ingestion.DocumentAccess do
     |> Enum.flat_map(&list_files_recursive/1)
     |> Enum.map(&abs_path_to_source/1)
     |> Enum.reject(&is_nil/1)
+    |> reject_sidecar_sources()
     |> filter_by_source_filter(source_filter)
+  end
+
+  defp reject_sidecar_sources(sources) do
+    confirmed_sidecars =
+      from(d in Document, select: {d.source, d.metadata})
+      |> Repo.all()
+      |> Enum.filter(fn {_src, meta} -> Map.has_key?(meta || %{}, "source_document_source") end)
+      |> Enum.map(fn {src, _} -> src end)
+      |> MapSet.new()
+
+    Enum.reject(sources, fn source -> source in confirmed_sidecars end)
   end
 
   defp list_files_recursive(dir) do
@@ -232,11 +260,21 @@ defmodule Zaq.Ingestion.DocumentAccess do
     end
   end
 
-  defp tag_ingestion_status(source, ingested_map) do
-    case Map.get(ingested_map, source) do
-      nil -> %{source: source, ingested: false}
-      doc -> Map.put(doc, :ingested, true)
-    end
+  defp list_ingested_source_set do
+    from(d in Document,
+      join: _c in Chunk,
+      on: _c.document_id == d.id,
+      where: is_nil(fragment("? ->> 'source_document_source'", d.metadata)),
+      select: d.source,
+      distinct: true
+    )
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  defp tag_ingestion_status(source, doc_map, ingested_set) do
+    doc = Map.get(doc_map, source, %{source: source})
+    Map.put(doc, :ingested, MapSet.member?(ingested_set, source))
   end
 
   defp abs_path_to_source(abs_path) do

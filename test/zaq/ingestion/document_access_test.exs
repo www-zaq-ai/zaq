@@ -3,7 +3,12 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, DocumentAccess}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
+
+  setup do
+    Chunk.create_table(1536)
+    :ok
+  end
 
   # ---------------------------------------------------------------------------
   # Helpers
@@ -37,6 +42,10 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
 
   defp create_chunk(source) do
     create_doc(source, %{"source_document_source" => "parent.md"})
+  end
+
+  defp insert_chunk_for(doc) do
+    {:ok, _chunk} = Chunk.create(%{document_id: doc.id, content: "chunk", chunk_index: 0})
   end
 
   defp grant(doc_id, :person, id),
@@ -435,8 +444,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   # ---------------------------------------------------------------------------
 
   describe "list_files_with_ingestion_status/1 — permission-scoped" do
-    test "returns accessible docs tagged ingested: true" do
+    test "returns accessible docs tagged ingested: true when chunks exist" do
       doc = create_doc(uid("lfwis-person"))
+      insert_chunk_for(doc)
       person = create_person()
       {:ok, _} = grant(doc.id, :person, person.id)
 
@@ -444,6 +454,17 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       entry = Enum.find(result, fn r -> r.source == doc.source end)
       assert entry != nil
       assert entry.ingested == true
+    end
+
+    test "returns accessible docs tagged ingested: false when no chunks exist" do
+      doc = create_doc(uid("lfwis-person-nochunks"))
+      person = create_person()
+      {:ok, _} = grant(doc.id, :person, person.id)
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry != nil
+      assert entry.ingested == false
     end
 
     test "excludes inaccessible docs" do
@@ -456,8 +477,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       refute Enum.any?(result, fn r -> r.source == doc.source end)
     end
 
-    test "returns public docs tagged ingested: true" do
+    test "returns public docs tagged ingested: true when chunks exist" do
       doc = create_doc(uid("lfwis-pub"))
+      insert_chunk_for(doc)
       {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
       person = create_person()
 
@@ -580,6 +602,208 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       sources = Enum.map(listed, & &1.source)
       assert open_doc.source in sources
       refute locked_doc.source in sources
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Permission model: no permission rows → NOT accessible (not "public by default")
+  # ---------------------------------------------------------------------------
+
+  describe "list_accessible_documents/1 — no-permission-rows" do
+    test "authenticated person cannot see doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-list"))
+      person = create_person()
+
+      result = DocumentAccess.list_accessible_documents(person_id: person.id)
+      sources = Enum.map(result, & &1.source)
+      refute doc.source in sources
+    end
+
+    test "nil person_id does NOT see doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-nil"))
+
+      result = DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [])
+      sources = Enum.map(result, & &1.source)
+      refute doc.source in sources
+    end
+
+    test "skip_permissions: true returns doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-admin"))
+
+      result = DocumentAccess.list_accessible_documents(skip_permissions: true)
+      sources = Enum.map(result, & &1.source)
+      assert doc.source in sources
+    end
+
+    test "public-tagged doc with no other permission rows is visible to authenticated user" do
+      doc = create_doc(uid("no-perm-rows-public-auth"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      person = create_person()
+
+      result = DocumentAccess.list_accessible_documents(person_id: person.id)
+      sources = Enum.map(result, & &1.source)
+      assert doc.source in sources
+    end
+
+    test "public-tagged doc with no other permission rows is visible to nil person_id" do
+      doc = create_doc(uid("no-perm-rows-public-nil"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [])
+      sources = Enum.map(result, & &1.source)
+      assert doc.source in sources
+    end
+
+    test "explicitly-permitted doc is visible to that person and not to others" do
+      doc = create_doc(uid("explicit-perm-person"))
+      permitted = create_person()
+      stranger = create_person()
+      {:ok, _} = grant(doc.id, :person, permitted.id)
+
+      permitted_result = DocumentAccess.list_accessible_documents(person_id: permitted.id)
+      assert doc.source in Enum.map(permitted_result, & &1.source)
+
+      stranger_result = DocumentAccess.list_accessible_documents(person_id: stranger.id)
+      refute doc.source in Enum.map(stranger_result, & &1.source)
+    end
+
+    test "team-permitted doc is visible to team member and not to non-member" do
+      doc = create_doc(uid("explicit-perm-team"))
+      team = create_team()
+      member = create_person()
+      outsider = create_person()
+      {:ok, _} = grant(doc.id, :team, team.id)
+
+      member_result =
+        DocumentAccess.list_accessible_documents(person_id: member.id, team_ids: [team.id])
+
+      assert doc.source in Enum.map(member_result, & &1.source)
+
+      outsider_result =
+        DocumentAccess.list_accessible_documents(person_id: outsider.id, team_ids: [])
+
+      refute doc.source in Enum.map(outsider_result, & &1.source)
+    end
+
+    test "mix: user sees their permitted doc + public doc but not other private docs" do
+      person = create_person()
+      other = create_person()
+
+      permitted_doc = create_doc(uid("mix-permitted"))
+      {:ok, _} = grant(permitted_doc.id, :person, person.id)
+
+      public_doc = create_doc(uid("mix-public"))
+      {:ok, _} = Ingestion.add_document_tag(public_doc.id, "public")
+
+      private_doc = create_doc(uid("mix-private"))
+      {:ok, _} = grant(private_doc.id, :person, other.id)
+
+      result = DocumentAccess.list_accessible_documents(person_id: person.id)
+      sources = Enum.map(result, & &1.source)
+
+      assert permitted_doc.source in sources
+      assert public_doc.source in sources
+      refute private_doc.source in sources
+    end
+  end
+
+  describe "count_accessible_documents/1 — no-permission-rows" do
+    test "authenticated person does NOT count doc with no permission rows" do
+      person = create_person()
+      count_before = DocumentAccess.count_accessible_documents(person_id: person.id, team_ids: [])
+      _doc = create_doc(uid("no-perm-rows-count"))
+      count_after = DocumentAccess.count_accessible_documents(person_id: person.id, team_ids: [])
+      assert count_after == count_before
+    end
+
+    test "nil person_id does NOT count doc with no permission rows" do
+      count_before = DocumentAccess.count_accessible_documents(person_id: nil, team_ids: [])
+      _doc = create_doc(uid("no-perm-rows-count-nil"))
+      count_after = DocumentAccess.count_accessible_documents(person_id: nil, team_ids: [])
+      assert count_after == count_before
+    end
+
+    test "skip_permissions: true counts doc with no permission rows" do
+      count_before = DocumentAccess.count_accessible_documents(skip_permissions: true)
+      _doc = create_doc(uid("no-perm-rows-count-admin"))
+      count_after = DocumentAccess.count_accessible_documents(skip_permissions: true)
+      assert count_after == count_before + 1
+    end
+  end
+
+  describe "list_files_with_ingestion_status/1 — no-permission-rows" do
+    test "authenticated person does NOT see doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-lfwis"))
+      person = create_person()
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry == nil
+    end
+
+    test "nil person_id does NOT see doc with no permission rows" do
+      doc = create_doc(uid("no-perm-rows-lfwis-nil"))
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry == nil
+    end
+
+    test "public-tagged doc appears in list_files_with_ingestion_status for nil person_id" do
+      doc = create_doc(uid("no-perm-rows-lfwis-public"))
+      insert_chunk_for(doc)
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+      assert entry != nil
+      assert entry.ingested == true
+    end
+  end
+
+  describe "list_files_with_ingestion_status/1 — nil person_id edge cases" do
+    test "nil person_id + public doc with chunks is tagged ingested: true" do
+      doc = create_doc(uid("lfwis-nil-pub-chunks"))
+      insert_chunk_for(doc)
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+
+      assert entry != nil
+      assert entry.ingested == true
+    end
+
+    test "nil person_id + public doc without chunks is tagged ingested: false" do
+      doc = create_doc(uid("lfwis-nil-pub-nochunks"))
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entry = Enum.find(result, fn r -> r.source == doc.source end)
+
+      assert entry != nil
+      assert entry.ingested == false
+    end
+
+    test "nil person_id cannot see private doc even with chunks" do
+      doc = create_doc(uid("lfwis-nil-private"))
+      insert_chunk_for(doc)
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      refute Enum.any?(result, fn r -> r.source == doc.source end)
+    end
+
+    test "doc with multiple chunks is ingested: true exactly once" do
+      doc = create_doc(uid("lfwis-multi-chunk"))
+      {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk 1", chunk_index: 0})
+      {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk 2", chunk_index: 1})
+      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+
+      result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
+      entries = Enum.filter(result, fn r -> r.source == doc.source end)
+
+      assert length(entries) == 1
+      assert hd(entries).ingested == true
     end
   end
 

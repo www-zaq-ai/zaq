@@ -16,7 +16,8 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerPreviewLive do
 
   @impl true
   def handle_event("save_configuration", _params, socket) do
-    configuration_id = UrlCrawlerPreview.save_target_configuration_id(socket.assigns.preview_data.id)
+    configuration_id =
+      UrlCrawlerPreview.save_target_configuration_id(socket.assigns.preview_data.id)
 
     {:noreply,
      socket

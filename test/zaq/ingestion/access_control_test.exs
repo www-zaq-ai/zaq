@@ -63,12 +63,43 @@ defmodule Zaq.Ingestion.AccessControlTest do
     end
   end
 
-  describe "can_access_file?/2 — public (no permissions set)" do
-    test "document with no permissions is accessible to all", %{admin: admin, staff: staff} do
+  describe "can_access_file?/2 — no permissions, no public tag (private)" do
+    test "non-admin cannot access document with no permissions", %{admin: admin, staff: staff} do
       source = unique_source()
       {:ok, _} = Document.upsert(%{source: source})
 
+      refute Ingestion.can_access_file?(source, admin)
+      refute Ingestion.can_access_file?(source, staff)
+    end
+
+    test "super admin can access document with no permissions", %{super_admin: super_admin} do
+      source = unique_source()
+      {:ok, _} = Document.upsert(%{source: source})
+
+      assert Ingestion.can_access_file?(source, super_admin)
+    end
+  end
+
+  describe "can_access_file?/2 — public tag" do
+    test "document tagged public is accessible to all regardless of role", %{
+      admin: admin,
+      staff: staff,
+      super_admin: super_admin
+    } do
+      source = unique_source()
+      {:ok, _} = Document.upsert(%{source: source, tags: ["public"]})
+
       assert Ingestion.can_access_file?(source, admin)
+      assert Ingestion.can_access_file?(source, staff)
+      assert Ingestion.can_access_file?(source, super_admin)
+    end
+
+    test "document tagged public with no permission rows is accessible to non-admin", %{
+      staff: staff
+    } do
+      source = unique_source()
+      {:ok, _} = Document.upsert(%{source: source, tags: ["public"]})
+
       assert Ingestion.can_access_file?(source, staff)
     end
   end

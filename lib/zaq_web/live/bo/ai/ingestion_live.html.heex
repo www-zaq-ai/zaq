@@ -10,7 +10,12 @@
     :if={not @embedding_ready and @section == "files"}
     class="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4"
   >
-    <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg
+      class="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       <path
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -94,56 +99,98 @@
           />
         </div>
 
-        <.upload_section :if={@current_volume != "URL Crawling"} uploads={@uploads} embedding_ready={@embedding_ready} />
+        <.upload_section
+          :if={@current_volume != "URL Crawling"}
+          uploads={@uploads}
+          embedding_ready={@embedding_ready}
+          folder_drop_skipped={@folder_drop_skipped}
+        />
       </div>
 
       <div :if={@current_volume == "URL Crawling"} class="space-y-6">
         <div class="bg-white rounded-xl border border-black/10 p-5">
-          <p class="font-mono text-[0.64rem] uppercase tracking-[0.24em] text-black/30">Run metadata</p>
+          <p class="font-mono text-[0.64rem] uppercase tracking-[0.24em] text-black/30">
+            Run metadata
+          </p>
           <div :if={@crawl_output_details} class="mt-5 space-y-3">
             <div>
-              <p class="font-mono text-[0.62rem] uppercase tracking-[0.18em] text-black/30">Output file</p>
-              <p class="mt-1 font-mono text-[0.82rem] font-semibold text-black">{@crawl_output_details.file_title}</p>
-              <p class="mt-1 break-all font-mono text-[0.68rem] text-black/45">{@crawl_output_details.output_path}</p>
+              <p class="font-mono text-[0.62rem] uppercase tracking-[0.18em] text-black/30">
+                Output file
+              </p>
+              <p class="mt-1 font-mono text-[0.82rem] font-semibold text-black">
+                {@crawl_output_details.file_title}
+              </p>
+              <p class="mt-1 break-all font-mono text-[0.68rem] text-black/45">
+                {@crawl_output_details.output_path}
+              </p>
             </div>
             <div class="space-y-3 border-t border-black/5 pt-4">
               <div class="flex items-center justify-between">
                 <span class="font-mono text-[0.72rem] text-black/40">Configuration</span>
-                <span class="font-mono text-[0.72rem] text-black">{@crawl_output_details.configuration_label}</span>
+                <span class="font-mono text-[0.72rem] text-black">
+                  {@crawl_output_details.configuration_label}
+                </span>
               </div>
               <div class="flex items-center justify-between">
                 <span class="font-mono text-[0.72rem] text-black/40">Run</span>
-                <span class="font-mono text-[0.72rem] text-black">{@crawl_output_details.run_id}</span>
+                <span class="font-mono text-[0.72rem] text-black">
+                  {@crawl_output_details.run_id}
+                </span>
               </div>
               <div class="flex items-center justify-between">
                 <span class="font-mono text-[0.72rem] text-black/40">Status</span>
-                <span class={["rounded-full px-2 py-1 font-mono text-[0.62rem] uppercase tracking-[0.16em]", crawler_status_classes(@crawl_output_details.run_status)]}>{crawler_status_label(@crawl_output_details.run_status)}</span>
+                <span class={[
+                  "rounded-full px-2 py-1 font-mono text-[0.62rem] uppercase tracking-[0.16em]",
+                  crawler_status_classes(@crawl_output_details.run_status)
+                ]}>
+                  {crawler_status_label(@crawl_output_details.run_status)}
+                </span>
               </div>
               <div class="flex items-center justify-between">
                 <span class="font-mono text-[0.72rem] text-black/40">Launched</span>
-                <span class="font-mono text-[0.72rem] text-black">{@crawl_output_details.run_launched_at}</span>
+                <span class="font-mono text-[0.72rem] text-black">
+                  {@crawl_output_details.run_launched_at}
+                </span>
               </div>
               <div class="flex items-center justify-between">
                 <span class="font-mono text-[0.72rem] text-black/40">Strategy</span>
-                <span class="font-mono text-[0.72rem] text-black">{@crawl_output_details.ingestion_strategy}</span>
+                <span class="font-mono text-[0.72rem] text-black">
+                  {@crawl_output_details.ingestion_strategy}
+                </span>
               </div>
             </div>
             <div class="rounded-xl border border-black/10 bg-[#fafafa] px-4 py-4">
-              <p class="font-mono text-[0.66rem] uppercase tracking-[0.18em] text-black/35">Source URL</p>
-              <p class="mt-2 break-all font-mono text-[0.72rem] text-black/60">{@crawl_output_details.source_url}</p>
+              <p class="font-mono text-[0.66rem] uppercase tracking-[0.18em] text-black/35">
+                Source URL
+              </p>
+              <p class="mt-2 break-all font-mono text-[0.72rem] text-black/60">
+                {@crawl_output_details.source_url}
+              </p>
             </div>
-            <.link navigate={~p"/bo/ingestion/url_crawler/#{@crawl_output_details.configuration_id}/runs/#{@crawl_output_details.run_id}"} class="inline-flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-[0.75rem] font-bold zaq-bg-accent text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)]">
+            <.link
+              navigate={
+                ~p"/bo/ingestion/url_crawler/#{@crawl_output_details.configuration_id}/runs/#{@crawl_output_details.run_id}"
+              }
+              class="inline-flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-[0.75rem] font-bold zaq-bg-accent text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)]"
+            >
               Open run detail
             </.link>
           </div>
-          <div :if={is_nil(@crawl_output_details)} class="mt-5 rounded-xl border border-black/10 bg-[#fafafa] px-4 py-4">
-            <p class="font-mono text-[0.72rem] font-semibold text-black/70">Select a crawled file</p>
-            <p class="mt-2 font-mono text-[0.74rem] text-black/45">The metadata panel shows the source run, configuration, strategy, and a direct link to the run detail screen.</p>
+          <div
+            :if={is_nil(@crawl_output_details)}
+            class="mt-5 rounded-xl border border-black/10 bg-[#fafafa] px-4 py-4"
+          >
+            <p class="font-mono text-[0.72rem] font-semibold text-black/70">
+              Select a crawled file
+            </p>
+            <p class="mt-2 font-mono text-[0.74rem] text-black/45">
+              The metadata panel shows the source run, configuration, strategy, and a direct link to the run detail screen.
+            </p>
           </div>
         </div>
       </div>
 
-      <.jobs_panel :if={@current_volume != "URL Crawling"} jobs={@jobs} status_filter={@status_filter} />
+      <.jobs_panel jobs={@jobs} status_filter={@status_filter} />
     </div>
 
     <.modal_add_raw
@@ -194,7 +241,9 @@
         <p class="mt-1 font-mono text-[0.74rem] leading-relaxed zaq-text-ink-soft">
           Each crawl is configured once, then run as many times as needed. Open a configuration to inspect its run history and launch the next run.
         </p>
-        <p :if={@crawler_last_action} class="mt-2 font-mono text-[0.72rem] zaq-text-ink">{@crawler_last_action}</p>
+        <p :if={@crawler_last_action} class="mt-2 font-mono text-[0.72rem] zaq-text-ink">
+          {@crawler_last_action}
+        </p>
       </div>
       <div class="flex flex-wrap gap-3">
         <.link
@@ -202,20 +251,37 @@
           navigate={~p"/bo/ingestion/url_crawler/new"}
           class="inline-flex items-center gap-2 rounded-lg zaq-bg-accent px-4 py-2 font-mono text-[0.75rem] font-bold text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)]"
         >
-          <.icon name="hero-plus" class="h-4 w-4" />
-          Create new configuration
+          <.icon name="hero-plus" class="h-4 w-4" /> Create new configuration
         </.link>
       </div>
     </div>
 
     <div class="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 max-w-3xl">
-      <.link patch={~p"/bo/ingestion?section=url_crawler&crawler_status=active&q=#{@crawler_search_query}"} class="rounded-xl border border-black/10 bg-white px-4 py-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-black/20 hover:bg-black/[0.02] hover:shadow-md">
-        <p class="font-mono text-[0.58rem] uppercase tracking-[0.18em] text-black/30">Active configs</p>
-        <p class="mt-1 font-mono text-base font-bold zaq-text-accent">{@crawler_counters.active}</p>
+      <.link
+        patch={
+          ~p"/bo/ingestion?section=url_crawler&crawler_status=active&q=#{@crawler_search_query}"
+        }
+        class="rounded-xl border border-black/10 bg-white px-4 py-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-black/20 hover:bg-black/[0.02] hover:shadow-md"
+      >
+        <p class="font-mono text-[0.58rem] uppercase tracking-[0.18em] text-black/30">
+          Active configs
+        </p>
+        <p class="mt-1 font-mono text-base font-bold zaq-text-accent">
+          {@crawler_counters.active}
+        </p>
       </.link>
-      <.link patch={~p"/bo/ingestion?section=url_crawler&crawler_status=attention&q=#{@crawler_search_query}"} class="rounded-xl border border-black/10 bg-white px-4 py-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-black/20 hover:bg-black/[0.02] hover:shadow-md">
-        <p class="font-mono text-[0.58rem] uppercase tracking-[0.18em] text-black/30">Requires attention</p>
-        <p class="mt-1 font-mono text-base font-bold text-amber-600">{@crawler_counters.attention}</p>
+      <.link
+        patch={
+          ~p"/bo/ingestion?section=url_crawler&crawler_status=attention&q=#{@crawler_search_query}"
+        }
+        class="rounded-xl border border-black/10 bg-white px-4 py-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-black/20 hover:bg-black/[0.02] hover:shadow-md"
+      >
+        <p class="font-mono text-[0.58rem] uppercase tracking-[0.18em] text-black/30">
+          Requires attention
+        </p>
+        <p class="mt-1 font-mono text-base font-bold text-amber-600">
+          {@crawler_counters.attention}
+        </p>
       </.link>
     </div>
 
@@ -224,7 +290,10 @@
         <input type="hidden" name="section" value="url_crawler" />
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div class="flex flex-1 flex-col gap-2 xl:max-w-[34rem]">
-            <label for="crawler-search-input" class="font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+            <label
+              for="crawler-search-input"
+              class="font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35"
+            >
               Search
             </label>
             <input
@@ -238,7 +307,10 @@
           </div>
 
           <div class="flex flex-col gap-2 xl:w-56">
-            <label for="crawler-status-filter" class="font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+            <label
+              for="crawler-status-filter"
+              class="font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35"
+            >
               Filter
             </label>
             <select
@@ -246,14 +318,21 @@
               name="crawler_status"
               class="h-11 rounded-xl border border-black/10 bg-[#fafafa] px-4 font-mono text-[0.76rem] text-black"
             >
-              <option :for={status <- @crawler_status_filters} value={status} selected={@crawler_status_filter == status}>
+              <option
+                :for={status <- @crawler_status_filters}
+                value={status}
+                selected={@crawler_status_filter == status}
+              >
                 {crawler_status_label(status)}
               </option>
             </select>
           </div>
 
           <div class="xl:self-end">
-            <button type="submit" class="rounded-lg border border-black/10 px-4 py-2.5 font-mono text-[0.74rem] text-black/60 transition-colors hover:border-black/20 hover:text-black">
+            <button
+              type="submit"
+              class="rounded-lg border border-black/10 px-4 py-2.5 font-mono text-[0.74rem] text-black/60 transition-colors hover:border-black/20 hover:text-black"
+            >
               Search
             </button>
           </div>
@@ -266,30 +345,61 @@
         <table class="min-w-full bg-white">
           <thead class="bg-black/[0.03]">
             <tr>
-               <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Source config</th>
-              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Root URL</th>
-              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Latest run</th>
-              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Latest status</th>
-              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Scope summary</th>
-              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Runs</th>
-              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Last ingested</th>
-               <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Output folder</th>
-              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">Open</th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Source config
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Root URL
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Latest run
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Latest status
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Scope summary
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Runs
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Last ingested
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Output folder
+              </th>
+              <th class="px-4 py-3 text-left font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/35">
+                Open
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr :if={@crawler_rows == []}>
-              <td colspan="9" class="px-6 py-10 text-center font-mono text-[0.78rem] text-black/35">
+              <td
+                colspan="9"
+                class="px-6 py-10 text-center font-mono text-[0.78rem] text-black/35"
+              >
                 No crawl configurations match the current search and filters.
               </td>
             </tr>
-            <tr :for={configuration <- @crawler_rows} id={"crawler-config-row-#{configuration.id}"} class="border-t border-black/5 align-top">
+            <tr
+              :for={configuration <- @crawler_rows}
+              id={"crawler-config-row-#{configuration.id}"}
+              class="border-t border-black/5 align-top"
+            >
               <td class="px-4 py-4">
-                <p class="font-mono text-[0.8rem] font-semibold text-black">{configuration.crawl_label}</p>
+                <p class="font-mono text-[0.8rem] font-semibold text-black">
+                  {configuration.crawl_label}
+                </p>
                 <p class="mt-1 font-mono text-[0.68rem] text-black/40">{configuration.id}</p>
               </td>
-              <td class="px-4 py-4 font-mono text-[0.72rem] zaq-text-accent">{configuration.root_url}</td>
-              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">{configuration.latest_run_at}</td>
+              <td class="px-4 py-4 font-mono text-[0.72rem] zaq-text-accent">
+                {configuration.root_url}
+              </td>
+              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">
+                {configuration.latest_run_at}
+              </td>
               <td class="px-4 py-4">
                 <span class={[
                   "rounded-full px-2.5 py-1 font-mono text-[0.62rem] uppercase tracking-[0.16em]",
@@ -298,16 +408,30 @@
                   {crawler_status_label(configuration.latest_status)}
                 </span>
               </td>
-              <td class="px-4 py-4 font-mono text-[0.72rem] leading-relaxed text-black/55">{configuration.scope_summary}</td>
-              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">{configuration.runs_count}</td>
-              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">{configuration.last_ingested_items}</td>
-              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">{configuration.volume_namespace}</td>
+              <td class="px-4 py-4 font-mono text-[0.72rem] leading-relaxed text-black/55">
+                {configuration.scope_summary}
+              </td>
+              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">
+                {configuration.runs_count}
+              </td>
+              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">
+                {configuration.last_ingested_items}
+              </td>
+              <td class="px-4 py-4 font-mono text-[0.72rem] text-black/55">
+                {configuration.volume_namespace}
+              </td>
               <td class="px-4 py-4">
                 <div class="flex flex-col gap-2">
-                  <.link navigate={~p"/bo/ingestion/url_crawler/#{configuration.id}"} class="font-mono text-[0.68rem] zaq-text-accent hover:underline">
+                  <.link
+                    navigate={~p"/bo/ingestion/url_crawler/#{configuration.id}"}
+                    class="font-mono text-[0.68rem] zaq-text-accent hover:underline"
+                  >
                     Open runs
                   </.link>
-                  <.link navigate={~p"/bo/ingestion/url_crawler/new?from=#{configuration.id}"} class="font-mono text-[0.68rem] text-black/45 hover:text-black">
+                  <.link
+                    navigate={~p"/bo/ingestion/url_crawler/new?from=#{configuration.id}"}
+                    class="font-mono text-[0.68rem] text-black/45 hover:text-black"
+                  >
                     Edit configuration
                   </.link>
                 </div>

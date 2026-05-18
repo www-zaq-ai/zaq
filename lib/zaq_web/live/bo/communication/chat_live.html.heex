@@ -49,7 +49,8 @@
             My Chats
           </span>
           <button
-            phx-click="clear_chat"
+            id="new-chat-button"
+            phx-click="new_chat"
             class="flex items-center gap-1 font-mono text-[0.65rem] px-2 py-1 rounded-lg text-[#03b6d4] hover:bg-[#f0f9fb] transition-colors"
             title="New chat"
           >
@@ -156,8 +157,8 @@
           </form>
 
           <button
-            id="clear-chat-button"
-            phx-click="clear_chat"
+            id="delete-chat-button"
+            phx-click="delete_chat_confirm"
             class="flex items-center gap-1.5 text-[0.75rem] font-mono text-[#9e9b94] hover:text-red-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-red-50"
           >
             <svg
@@ -173,7 +174,7 @@
                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
               />
             </svg>
-            Clear chat
+            Delete chat
           </button>
         </div>
 
@@ -700,6 +701,44 @@
       preview={@preview}
       cancel_event="close_preview_modal"
     />
+
+    <%= if @show_delete_confirm do %>
+      <div
+        id="delete-confirm-modal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        phx-click="close_delete_modal"
+      >
+        <div
+          class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden"
+          phx-click="noop"
+        >
+          <div class="px-6 pt-6 pb-4">
+            <h3 class="text-base font-semibold mb-2" style="color:#2c2b28;">Delete this chat?</h3>
+            <p class="text-sm" style="color:#9e9b94;">
+              This conversation will be permanently deleted and cannot be recovered.
+            </p>
+          </div>
+          <div class="flex items-center justify-end gap-3 px-6 pb-5">
+            <button
+              id="delete-modal-cancel"
+              phx-click="close_delete_modal"
+              class="px-4 py-2 text-sm transition-colors"
+              style="color:#9e9b94;"
+            >
+              Cancel
+            </button>
+            <button
+              id="delete-modal-confirm"
+              phx-click="delete_chat"
+              class="px-5 py-2 text-sm font-medium text-white rounded-lg transition-all active:scale-95"
+              style="background:#ef4444;"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    <% end %>
 
     <%= if @show_feedback_modal do %>
       <div

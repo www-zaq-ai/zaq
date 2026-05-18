@@ -43,7 +43,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   # based on the `sink_opts` we might be using GenServer.call
   # Refering back to slack implementation: https://github.com/agentjido/jido_chat_slack/blob/f072de707c08540a08398436db5d7c668e778514/lib/jido/chat/slack/socket_mode_worker.ex#L162
   def process_listener_payload(pid, config, payload, sink_opts) do
-    GenServer.cast(pid, {:process_listener_payload, config, payload, sink_opts})
+    GenServer.call(pid, {:process_listener_payload, config, payload, sink_opts})
   end
 
   def subscribe_thread(pid, provider, channel_id, thread_id) do
@@ -94,56 +94,46 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   @impl GenServer
-  def handle_cast({:process_listener_payload, config, payload, sink_opts}, state) do
-    {:ok, adapter} = JidoChatBridge.adapter_for(config.provider)
+  def handle_call({:process_listener_payload, config, payload, sink_opts}, _from, state) do
+    {:ok, adapter} = bridge_module().adapter_for(config.provider)
     transport = sink_opts[:transport] || :websocket
 
-    result =
-      with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
-           incoming <- with_transport(incoming, transport),
-           thread_id <-
-             JidoChatBridge.thread_key(
-               incoming.channel_meta.adapter_name,
-               incoming.external_room_id,
-               incoming.external_thread_id || incoming.external_room_id
-             ),
-           {:ok, updated_chat, _} <-
-             Chat.process_message(
-               state.chat,
-               incoming.channel_meta.adapter_name,
-               thread_id,
-               incoming,
-               []
-             ) do
-        {:ok, updated_chat}
-      end
-
-    case result do
-      {:ok, updated_chat} ->
-        {:noreply, %{state | config: config, chat: updated_chat}}
-
-      {:error, _reason} ->
-        {:noreply, %{state | config: config}}
+    with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
+         incoming <- with_transport(incoming, transport),
+         thread_id <-
+           bridge_module().thread_key(
+             incoming.channel_meta.adapter_name,
+             incoming.external_room_id,
+             incoming.external_thread_id || incoming.external_room_id
+           ) do
+      Chat.process_message(
+        state.chat,
+        incoming.channel_meta.adapter_name,
+        thread_id,
+        incoming,
+        []
+      )
     end
+
+    {:reply, :ok, state}
   end
 
-  @impl GenServer
   def handle_call({:subscribe_thread, provider, channel_id, thread_id}, _from, state) do
-    key = JidoChatBridge.thread_key(provider, channel_id, thread_id)
+    key = bridge_module().thread_key(provider, channel_id, thread_id)
     {:reply, :ok, %{state | chat: Chat.subscribe(state.chat, key)}}
   end
 
   def handle_call({:unsubscribe_thread, provider, channel_id, thread_id}, _from, state) do
-    key = JidoChatBridge.thread_key(provider, channel_id, thread_id)
+    key = bridge_module().thread_key(provider, channel_id, thread_id)
     {:reply, :ok, %{state | chat: Chat.unsubscribe(state.chat, key)}}
   end
 
   def handle_call({:send_reply, outgoing, connection_details}, _from, state) do
-    {:reply, JidoChatBridge.do_send_reply(outgoing, connection_details), state}
+    {:reply, bridge_module().do_send_reply(outgoing, connection_details), state}
   end
 
   def handle_call({:send_typing, provider, channel_id, connection_details}, _from, state) do
-    {:reply, JidoChatBridge.send_typing(provider, channel_id, connection_details), state}
+    {:reply, bridge_module().send_typing(provider, channel_id, connection_details), state}
   end
 
   def handle_call(
@@ -152,7 +142,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
         state
       ) do
     {:reply,
-     JidoChatBridge.add_reaction(provider, channel_id, message_id, emoji, connection_details),
+     bridge_module().add_reaction(provider, channel_id, message_id, emoji, connection_details),
      state}
   end
 
@@ -162,7 +152,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
         state
       ) do
     {:reply,
-     JidoChatBridge.remove_reaction(provider, channel_id, message_id, emoji, connection_details),
+     bridge_module().remove_reaction(provider, channel_id, message_id, emoji, connection_details),
      state}
   end
 
@@ -173,7 +163,8 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     # Preserve runtime state while replacing handlers/adapters from latest config.
     chat = %{
       chat
-      | subscriptions: state.chat.subscriptions,
+      | state: state.chat.state,
+        subscriptions: state.chat.subscriptions,
         dedupe: state.chat.dedupe,
         dedupe_order: state.chat.dedupe_order,
         thread_state: state.chat.thread_state,
@@ -191,12 +182,19 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   defp build_chat(config, provider, handler_opts) do
     bot_name = ChannelConfig.jido_chat_bot_name(config) || "zaq"
 
-    {:ok, adapter} = JidoChatBridge.adapter_for(config.provider)
+    {:ok, adapter} = bridge_module().adapter_for(config.provider)
 
-    Chat.new(
-      user_name: bot_name,
-      adapters: %{provider => adapter}
-    )
-    |> JidoChatBridge.register_handlers(config, handler_opts)
+    chat =
+      Chat.new(
+        user_name: bot_name,
+        adapters: %{provider => adapter}
+      )
+
+    bridge_module().register_handlers(chat, config, handler_opts)
+  end
+
+  defp bridge_module do
+    Application.get_env(:zaq, Zaq.Channels.JidoChatBridge, [])
+    |> Keyword.get(:bridge_module, JidoChatBridge)
   end
 end

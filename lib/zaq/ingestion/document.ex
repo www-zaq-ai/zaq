@@ -67,6 +67,21 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @doc """
+  Inserts a document only if no record with the same source exists.
+  Used by upload tracking to make a file visible in the browser without
+  overwriting content from a prior ingestion run.
+  """
+  def insert_new(attrs) do
+    %__MODULE__{}
+    |> changeset(attrs)
+    |> Repo.insert(on_conflict: :nothing, conflict_target: :source, returning: true)
+    |> case do
+      {:ok, %__MODULE__{} = doc} -> {:ok, doc}
+      {:ok, nil} -> {:ok, Repo.get_by!(__MODULE__, source: attrs[:source] || attrs["source"])}
+    end
+  end
+
+  @doc """
   Returns a document by ID.
   """
   def get(id), do: Repo.get(__MODULE__, id)
@@ -96,6 +111,50 @@ defmodule Zaq.Ingestion.Document do
   """
   def delete(%__MODULE__{} = document) do
     Repo.delete(document)
+  end
+
+  @doc """
+  Returns a query that bulk-renames document sources beginning with `old_prefix/`.
+  Intended for use inside an `Ecto.Multi` — does not execute any DB call.
+  """
+  def rename_source_prefix_query(old_prefix, new_prefix) do
+    from(d in __MODULE__,
+      where: like(d.source, ^"#{old_prefix}/%"),
+      update: [
+        set: [
+          source:
+            fragment(
+              "? || substring(source from char_length(?) + 1)",
+              ^new_prefix,
+              ^old_prefix
+            ),
+          updated_at: ^DateTime.utc_now()
+        ]
+      ]
+    )
+  end
+
+  @doc """
+  Returns a query that bulk-renames one JSONB metadata key (e.g. `"sidecar_source"`)
+  whose value begins with `old_prefix/`. Intended for use inside an `Ecto.Multi`.
+  """
+  def rename_metadata_key_query(key, old_prefix, new_prefix) do
+    from(d in __MODULE__,
+      where: like(fragment("?->>(?::text)", d.metadata, ^key), ^"#{old_prefix}/%"),
+      update: [
+        set: [
+          metadata:
+            fragment(
+              "metadata || jsonb_build_object((?::text), ? || substring(metadata->>(?::text) from char_length((?::text)) + 1))",
+              ^key,
+              ^new_prefix,
+              ^key,
+              ^old_prefix
+            ),
+          updated_at: ^DateTime.utc_now()
+        ]
+      ]
+    )
   end
 
   @doc """

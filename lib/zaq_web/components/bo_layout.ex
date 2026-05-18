@@ -524,8 +524,8 @@ defmodule ZaqWeb.Components.BOLayout do
             :if={Phoenix.Flash.get(@flash, :info)}
             id="flash-info"
             class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
-            phx-hook={@auto_dismiss && "FlashAutoDismiss"}
-            data-auto-dismiss-duration={@auto_dismiss_duration}
+            phx-hook="FlashAutoDismiss"
+            data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
           >
             <svg
               class="w-4 h-4 shrink-0"
@@ -559,8 +559,8 @@ defmodule ZaqWeb.Components.BOLayout do
             :if={Phoenix.Flash.get(@flash, :error)}
             id="flash-error"
             class="mb-4 rounded-xl bg-red-100 border border-red-200 text-red-600 text-sm px-4 py-3 flex items-center gap-2 font-mono"
-            phx-hook={@auto_dismiss && "FlashAutoDismiss"}
-            data-auto-dismiss-duration={@auto_dismiss_duration}
+            phx-hook="FlashAutoDismiss"
+            data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
           >
             <svg
               class="w-4 h-4 shrink-0"

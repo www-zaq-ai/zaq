@@ -3,8 +3,10 @@ defmodule ZaqWeb.E2EController do
 
   use ZaqWeb, :controller
 
+  alias Zaq.Agent.MCP
   alias Zaq.E2E.{LogCollector, ProcessorState, Reset}
   alias Zaq.Engine.Telemetry
+  alias Zaq.System, as: SystemContext
 
   @e2e_enabled Application.compile_env(:zaq, :e2e, false)
 
@@ -52,6 +54,64 @@ defmodule ZaqWeb.E2EController do
       end
     else
       conn |> put_status(:bad_request) |> json(%{error: "missing key"})
+    end
+  end
+
+  # POST /e2e/ai-credentials
+  def create_ai_credential(conn, params) do
+    case SystemContext.create_ai_provider_credential(params) do
+      {:ok, credential} ->
+        json(conn, %{
+          ok: true,
+          id: credential.id,
+          name: credential.name,
+          provider: credential.provider,
+          endpoint: credential.endpoint
+        })
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_ai_credential", details: inspect(changeset.errors)})
+    end
+  end
+
+  # POST /e2e/agents
+  def create_agent(conn, params) do
+    alias Zaq.Agent
+
+    case Agent.create_agent(params) do
+      {:ok, agent} ->
+        json(conn, %{
+          ok: true,
+          id: agent.id,
+          name: agent.name,
+          model: agent.model,
+          credential_id: agent.credential_id
+        })
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_agent", details: inspect(changeset.errors)})
+    end
+  end
+
+  # POST /e2e/mcp-endpoints
+  def create_mcp_endpoint(conn, params) do
+    case MCP.create_mcp_endpoint(params) do
+      {:ok, endpoint} ->
+        json(conn, %{
+          ok: true,
+          id: endpoint.id,
+          name: endpoint.name,
+          status: endpoint.status
+        })
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_mcp_endpoint", details: inspect(changeset.errors)})
     end
   end
 

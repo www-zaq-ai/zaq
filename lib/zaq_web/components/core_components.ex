@@ -285,7 +285,10 @@ defmodule ZaqWeb.CoreComponents do
             <option :if={@prompt} value="">{@prompt}</option>
             {Phoenix.HTML.Form.options_for_select(@options, @value)}
           </select>
-          <div :if={!@multiple} class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-black/45">
+          <div
+            :if={!@multiple}
+            class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-black/45"
+          >
             <.icon name="hero-chevron-down" class="size-4" />
           </div>
         </div>

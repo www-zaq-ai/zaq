@@ -265,7 +265,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mr-auto">
         {if @read_only, do: "Crawl Output", else: "File Browser"}
       </p>
-      <span :if={@read_only} class="font-mono text-[0.68rem] text-black/40 mr-auto md:mr-0 md:order-3 w-full md:w-auto">
+      <span
+        :if={@read_only}
+        class="font-mono text-[0.68rem] text-black/40 mr-auto md:mr-0 md:order-3 w-full md:w-auto"
+      >
         This volume shows the latest files produced by crawl runs. Use sharing and run metadata only.
       </span>
       <div class="flex items-center gap-2 flex-wrap">
@@ -313,8 +316,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           Delete ({MapSet.size(@selected)})
         </button>
         <button
-          :if={not @read_only}
           :for={mode <- ~w(async inline)}
+          :if={not @read_only}
           id={"ingest-mode-#{mode}"}
           phx-click="set_mode"
           phx-value-mode={mode}
@@ -1150,6 +1153,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   attr :uploads, :any, required: true
   attr :embedding_ready, :boolean, default: true
+  attr :folder_drop_skipped, :list, default: []
 
   def upload_section(assigns) do
     ~H"""
@@ -1157,8 +1161,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Upload</p>
       <form id="upload-form" phx-submit="upload" phx-change="validate_upload">
         <div
+          id="upload-drop-zone"
           class="bg-white rounded-2xl border-2 border-dashed border-black/10 hover:border-[var(--zaq-color-accent)] transition-colors p-6"
           phx-drop-target={@uploads.files.ref}
+          phx-hook="FolderDrop"
         >
           <div class="text-center">
             <svg
@@ -1231,10 +1237,26 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         >
           Upload {length(@uploads.files.entries)} file(s)
         </button>
+
+        <div :if={@folder_drop_skipped != []} class="mt-3 space-y-1" data-testid="skipped-files">
+          <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">Skipped</p>
+          <div :for={item <- @folder_drop_skipped} class="flex items-start gap-2">
+            <span
+              class="font-mono text-[0.75rem] text-amber-600 truncate max-w-[70%]"
+              title={item["path"]}
+            >
+              {item["name"]}
+            </span>
+            <span class="font-mono text-[0.65rem] text-black/30">{skip_reason(item["reason"])}</span>
+          </div>
+        </div>
       </form>
     </div>
     """
   end
+
+  def skip_reason("unsupported_format"), do: "unsupported format"
+  def skip_reason(_), do: "skipped"
 
   defp upload_error_message(:too_large), do: "File exceeds 20 MB limit."
   defp upload_error_message(:not_accepted), do: "File type not supported."
@@ -1322,6 +1344,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                 Error details
               </summary>
               <pre class="mt-1 text-[0.65rem] text-red-400 whitespace-pre-wrap break-all">{job.error}</pre>
+              <a
+                :if={String.starts_with?(job.error, "Embedding dimension mismatch")}
+                href="/bo/system-config?tab=embedding"
+                class="mt-1 inline-block text-[0.65rem] text-blue-400 hover:underline"
+              >
+                Go to Embedding settings →
+              </a>
             </details>
           </div>
 

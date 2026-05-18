@@ -108,7 +108,7 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
 | Agent | Purpose | When to run |
 |---|---|---|
-| `project-planner` | Break down tasks, create exec plans | Before complex tasks |
+| `project-planner` | Break down tasks and create beads planning issues | Before complex tasks |
 | `api-developer` | Build context/domain APIs | New context functions |
 | `tdd-specialist` | Write tests first, drive implementation | New features |
 | `code-reviewer` | Review PRs for quality and conventions | Before merge |

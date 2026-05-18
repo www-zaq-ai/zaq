@@ -4,6 +4,7 @@
   page_title="Agents"
   current_path={@current_path}
   features_version={@features_version}
+  auto_dismiss={false}
 >
   <div class="mx-auto max-w-[1500px] space-y-5">
     <section class="rounded-xl border border-[#e6e2db] bg-white px-5 py-4">
@@ -233,6 +234,7 @@
             id="configured-agent-form"
             phx-change="validate"
             phx-submit="save"
+            phx-hook="ScrollToFirstError"
             class="mt-4 space-y-4"
           >
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -244,11 +246,18 @@
                   type="text"
                   name="configured_agent[name]"
                   value={@form[:name].value}
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :name) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :name)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -259,7 +268,13 @@
                 </label>
                 <select
                   name="configured_agent[strategy]"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :strategy) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 >
                   <option value="react" selected={@form[:strategy].value == "react"}>
                     react
@@ -268,7 +283,8 @@
                 </select>
                 <p
                   :for={msg <- error_messages(@changeset, :strategy)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -283,11 +299,18 @@
                 type="text"
                 name="configured_agent[description]"
                 value={@form[:description].value || ""}
-                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                class={[
+                  "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                  if(error_messages(@changeset, :description) != [],
+                    do: "border-red-500",
+                    else: "border-[#e6e2db]"
+                  )
+                ]}
               />
               <p
                 :for={msg <- error_messages(@changeset, :description)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                data-error-message
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -300,11 +323,18 @@
               <textarea
                 name="configured_agent[job]"
                 rows="4"
-                class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                class={[
+                  "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                  if(error_messages(@changeset, :job) != [],
+                    do: "border-red-500",
+                    else: "border-[#e6e2db]"
+                  )
+                ]}
               >{@form[:job].value}</textarea>
               <p
                 :for={msg <- error_messages(@changeset, :job)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                data-error-message
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -317,7 +347,13 @@
                 </label>
                 <select
                   name="configured_agent[credential_id]"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :credential_id) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 >
                   <option value="">Select credential</option>
                   <option
@@ -330,7 +366,8 @@
                 </select>
                 <p
                   :for={msg <- error_messages(@changeset, :credential_id)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -354,11 +391,18 @@
                   type="text"
                   name="configured_agent[model]"
                   value={@form[:model].value || ""}
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class={[
+                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    if(error_messages(@changeset, :model) != [],
+                      do: "border-red-500",
+                      else: "border-[#e6e2db]"
+                    )
+                  ]}
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :model)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -392,14 +436,14 @@
               >
                 <span :if={@mcp_notice}>{@mcp_notice}</span>
                 <span :if={@mcp_notice}>
-                  <a href={~p"/bo/system-config?tab=mcp"} class="underline hover:text-[#3e3b36]">
+                  <a href={~p"/bo/system-config?tab=mcps"} class="underline hover:text-[#3e3b36]">
                     Open MCP settings
                   </a>
                   .
                 </span>
                 <span :if={!@mcp_notice}>
                   No MCP endpoints are configured. Activate one in <a
-                    href={~p"/bo/system-config?tab=mcp"}
+                    href={~p"/bo/system-config?tab=mcps"}
                     class="underline hover:text-[#3e3b36]"
                   >
                     System Config
@@ -420,7 +464,8 @@
               />
               <p
                 :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                data-error-message
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -463,7 +508,8 @@
               />
               <p
                 :for={msg <- error_messages(@changeset, :enabled_tool_keys)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                data-error-message
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -486,7 +532,8 @@
               </p>
               <p
                 :for={msg <- error_messages(@changeset, :advanced_options)}
-                class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                data-error-message
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
               >
                 {msg}
               </p>
@@ -509,7 +556,8 @@
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :idle_time_seconds)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -530,7 +578,8 @@
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :memory_context_max_size)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -578,7 +627,8 @@
                 </button>
                 <p
                   :for={msg <- error_messages(@changeset, :conversation_enabled)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>
@@ -620,7 +670,8 @@
                 </button>
                 <p
                   :for={msg <- error_messages(@changeset, :active)}
-                  class="mt-1 font-mono text-[0.64rem] text-[#a35246]"
+                  data-error-message
+                  class="mt-1 font-mono text-[0.64rem] text-red-500"
                 >
                   {msg}
                 </p>

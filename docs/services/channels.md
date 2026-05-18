@@ -4,7 +4,7 @@
 
 The Channels service provides transport and runtime infrastructure for communication adapters.
 
-- **Ingestion channels** ingest external documents (Google Drive, SharePoint, etc.).
+- **Data Sources** (ingestion channels in routes/API) ingest external documents (Google Drive, SharePoint, etc.).
 - **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
 
 All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For cross-node routing, payloads are wrapped in `%Zaq.Event{}`.
@@ -15,19 +15,42 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 
 | Module                              | File                                         | Role                                          |
 | ----------------------------------- | -------------------------------------------- | --------------------------------------------- |
-| `Zaq.Channels.Router`               | `lib/zaq/channels/router.ex`                 | Stateless outbound router — public entrypoint |
+| `Zaq.Channels.Api`                  | `lib/zaq/channels/api.ex`                    | Channels role boundary for `NodeRouter` events |
+| `Zaq.Channels.CommunicationBridge`  | `lib/zaq/channels/communication_bridge.ex`   | Communication-domain routing/delegation helpers |
+| `Zaq.Channels.DataSourceBridge`     | `lib/zaq/channels/data_source_bridge.ex`     | DataSource-domain routing/delegation helpers   |
 | `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers             |
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters        |
+| `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder             |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery              |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub   |
 | `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle         |
 | `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs               |
+| `Zaq.Engine.Connect`                | `lib/zaq/engine/connect.ex`                  | Credential/grant lifecycle for Data Source auth |
 | `Zaq.Channels.RetrievalChannel`     | `lib/zaq/channels/retrieval_channel.ex`      | Ecto schema — per-channel subscriptions       |
 | `Zaq.Channels.MattermostAdmin`      | `lib/zaq/channels/mattermost_admin.ex`       | Admin helpers for Mattermost UI               |
 | `Zaq.Channels.SmtpHelpers`          | `lib/zaq/channels/smtp_helpers.ex`           | Internal SMTP settings key normalizer         |
 | `Zaq.Engine.Messages.Incoming`      | `lib/zaq/engine/messages/incoming.ex`        | Canonical inbound message struct              |
 | `Zaq.Engine.Messages.Outgoing`      | `lib/zaq/engine/messages/outgoing.ex`        | Canonical outbound message struct             |
+
+---
+
+## Data Source Credentials and Grants
+
+Data Source provider configs in BO (`/bo/channels/ingestion/:provider`) can attach
+reusable Connect credentials and claim context-bound grants.
+
+At System Configuration level (`/bo/system-config?tab=credentials`), admins can list
+all Connect credentials and open a grants modal per credential to review every
+grant bound to that credential.
+
+- Credential definitions are provider-scoped and reusable.
+- Grants are bound to resource + owner context (for Data Sources, `resource_type: "data_source"`).
+- OAuth2 claims open in a popup and finalize through the channels node callback:
+  - `GET /channels/oauth2/:provider/redirect`
+  - callback page posts result to the opener and auto-closes.
+
+The callback route remains minimal; claim context is carried in signed OAuth state.
 
 ---
 
@@ -56,7 +79,7 @@ defstruct [
 
 ### `Zaq.Engine.Messages.Outgoing`
 
-Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered via `Zaq.Channels.Router.deliver/1`.
+Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered through `NodeRouter.dispatch/1` to `Zaq.Channels.Api` (`:deliver_outgoing`).
 
 When routed across nodes, this payload is typically returned in `%Zaq.Event.response`.
 
@@ -79,15 +102,24 @@ defstruct [
 
 ---
 
-## Router
+## Channels API and Communication Routing
 
-`Zaq.Channels.Router` is the stateless public entrypoint for all outbound operations. It resolves the correct bridge module from app config (by provider atom key), fetches connection details from the DB, and delegates to `bridge.send_reply/2`.
+`Zaq.Channels.Api` is the role boundary entrypoint for channel delivery/runtime events routed through `Zaq.NodeRouter.dispatch/1`.
+
+`Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
+
+`Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, listener setup/teardown).
+
+`Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
+
+## Communication Bridge Helpers
+
+`Zaq.Channels.CommunicationBridge` is the stateless helper boundary used by API/bridge flows for provider-targeted operations.
 
 ### Public API
 
 | Function                     | Description                                                  |
 | ---------------------------- | ------------------------------------------------------------ |
-| `deliver/1`                  | Delivers `%Outgoing{}` to the correct bridge                 |
 | `send_typing/2`              | Sends typing indicator through the provider bridge           |
 | `add_reaction/4`             | Adds a reaction through the provider bridge                  |
 | `remove_reaction/5`          | Removes a reaction through the provider bridge               |
@@ -173,7 +205,7 @@ Shared helper:
 
 ### Outbound flow
 
-Called by `Router.deliver/1`:
+Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_reply/2`):
 
 1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token}`.
 2. Resolves the adapter module for the provider.
@@ -210,7 +242,7 @@ All cross-service calls are overridable via Application env:
 | Key                                 | Default                    |
 | ----------------------------------- | -------------------------- |
 | `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`       |
-| `:chat_bridge_router_module`        | `Zaq.Channels.Router`      |
+| `:chat_bridge_router_module`        | `Zaq.Channels.CommunicationBridge` |
 | `:chat_bridge_conversations_module` | `Zaq.Engine.Conversations` |
 | `:chat_bridge_accounts_module`      | `Zaq.Accounts`             |
 | `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions` |
@@ -319,12 +351,12 @@ bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
 | `stop_bridge_runtime/2` | Stops all children and removes ETS entry for a bridge ID                 |
 | `lookup_runtime/1`      | Returns `{:ok, %{listener_pids, state_pid}}` or `{:error, :not_running}` |
 | `lookup_state_pid/1`    | Returns `{:ok, pid}` or `{:error, :not_running}`                         |
-| `start_listener/1`      | Convenience — delegates to `Router.sync_config_runtime/2`                |
-| `stop_listener/1`       | Convenience — delegates to `Router.sync_config_runtime/2`                |
+| `start_listener/1`      | Convenience — delegates to `CommunicationBridge.sync_config_runtime/2`   |
+| `stop_listener/1`       | Convenience — delegates to `CommunicationBridge.sync_config_runtime/2`   |
 
 ### Bootstrap
 
-On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_kind(:retrieval, providers)` for all providers that have a configured `:adapter` in app config, and calls `Router.sync_config_runtime/2` for each.
+On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_kind(:retrieval, providers)` for all providers that have a configured `:adapter` in app config, and calls `CommunicationBridge.sync_config_runtime/2` for each.
 
 `Zaq.NodeRouter` locates the channels node by calling `Process.whereis(Zaq.Channels.Supervisor)`.
 
@@ -408,7 +440,7 @@ When `list_active_by_config/1` returns non-empty results, the listener is starte
 
 ## What's Done
 
-- Router with full outbound API: `deliver`, `send_typing`, `add_reaction`, `remove_reaction`, `subscribe_thread_reply`, `unsubscribe_thread_reply`, `sync_config_runtime`, `test_connection`
+- Communication bridge helpers with full provider API: `send_typing`, `add_reaction`, `remove_reaction`, `subscribe_thread_reply`, `unsubscribe_thread_reply`, `sync_config_runtime`, `test_connection`
 - `JidoChatBridge` with ingress via `from_listener` / `sink_mfa`, outbound via `send_reply`, thread watch management, configurable ingress modes, and Oban-based on_reply dispatch
 - `JidoChatBridge.State` GenServer with serialized message processing, config refresh preserving runtime state, and full reaction/typing delegation
 - `EmailBridge` for SMTP delivery

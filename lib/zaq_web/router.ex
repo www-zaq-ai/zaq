@@ -22,6 +22,14 @@ defmodule ZaqWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :bo_node_only do
+    plug ZaqWeb.Plugs.RequireAnyRole, roles: [:bo]
+  end
+
+  pipeline :channels_node_only do
+    plug ZaqWeb.Plugs.RequireAnyRole, roles: [:channels]
+  end
+
   pipeline :api_stream do
     plug :fetch_query_params
   end
@@ -35,7 +43,7 @@ defmodule ZaqWeb.Router do
 
   # BO - Public
   scope "/bo", ZaqWeb do
-    pipe_through :browser
+    pipe_through [:browser, :bo_node_only]
 
     live "/login", Live.BO.LoginLive
     get "/bootstrap-login", BOSessionController, :bootstrap_login
@@ -47,7 +55,7 @@ defmodule ZaqWeb.Router do
 
   # BO - Protected
   scope "/bo", ZaqWeb do
-    pipe_through [:browser, :bo_auth]
+    pipe_through [:browser, :bo_node_only, :bo_auth]
 
     # File serving — raw content with correct Content-Type (opens in browser tab)
     get "/files/*path", FileController, :show
@@ -90,9 +98,9 @@ defmodule ZaqWeb.Router do
       live "/channels/retrieval", Live.BO.Communication.ChannelsIndexLive, :retrieval
       live "/channels/retrieval/:provider", Live.BO.Communication.ChannelsLive, :retrieval
 
-      # Ingestion channels — provider detail pages
-      live "/channels/ingestion", Live.BO.Communication.ChannelsIndexLive, :ingestion
-      live "/channels/ingestion/:provider", Live.BO.Communication.ChannelsLive, :ingestion
+      # Data Source channels — provider detail pages
+      live "/channels/data_source", Live.BO.Communication.ChannelsIndexLive, :data_source
+      live "/channels/data_source/:provider", Live.BO.DataSources.ProviderLive, :show
 
       live "/channels/notifications/logs", Live.BO.Communication.NotificationLogsLive
 
@@ -111,6 +119,13 @@ defmodule ZaqWeb.Router do
     jido_studio("/studio")
   end
 
+  scope "/channels", ZaqWeb do
+    pipe_through [:api, :channels_node_only]
+
+    get "/health", ChannelsController, :health
+    get "/oauth2/:provider/redirect", ChannelsController, :oauth2_redirect
+  end
+
   if Application.compile_env(:zaq, :e2e_routes, false) do
     scope "/e2e", ZaqWeb do
       pipe_through :api
@@ -122,6 +137,9 @@ defmodule ZaqWeb.Router do
       # docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md.
       post "/reset", E2EController, :reset_all
       post "/system-config", E2EController, :set_system_config
+      post "/ai-credentials", E2EController, :create_ai_credential
+      post "/mcp-endpoints", E2EController, :create_mcp_endpoint
+      post "/agents", E2EController, :create_agent
       post "/ingestion/touch_file", E2EController, :touch_file
     end
 

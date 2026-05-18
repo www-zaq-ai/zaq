@@ -60,6 +60,29 @@ defmodule Zaq.Ingestion.ListDocumentSourcesTest do
 
       assert Ingestion.list_document_sources("nomatch") == []
     end
+
+    test "name search is case-insensitive" do
+      seed("archives/ZAQ/file.pdf")
+
+      results_lower = Ingestion.list_document_sources("zaq")
+      results_upper = Ingestion.list_document_sources("ZAQ")
+      results_mixed = Ingestion.list_document_sources("Zaq")
+
+      assert Enum.any?(results_lower, &(&1.label == "ZAQ")),
+             "lowercase query should find uppercase folder name"
+
+      assert Enum.any?(results_upper, &(&1.label == "ZAQ"))
+      assert Enum.any?(results_mixed, &(&1.label == "ZAQ"))
+    end
+
+    test "name search finds files with case-insensitive filename match" do
+      seed("archives/folder/Report.PDF")
+
+      results = Ingestion.list_document_sources("report")
+
+      assert Enum.any?(results, &(&1.label == "Report.PDF")),
+             "lowercase query should find mixed-case filename"
+    end
   end
 
   # ── Path browse (query contains "/") ───────────────────────────────────────
@@ -170,6 +193,31 @@ defmodule Zaq.Ingestion.ListDocumentSourcesTest do
 
       assert "readme.md" in labels
       assert "report.pdf" in labels
+      refute "other.pdf" in labels
+    end
+
+    test "browse mode is case-insensitive for the folder label" do
+      seed("archives/ZAQ/file.pdf")
+
+      results_lower = Ingestion.list_document_sources("zaq/")
+      results_upper = Ingestion.list_document_sources("ZAQ/")
+
+      assert Enum.any?(results_lower, &(&1.type == :current_folder and &1.label == "ZAQ")),
+             "lowercase browse query should find uppercase folder"
+
+      assert Enum.any?(results_upper, &(&1.type == :current_folder and &1.label == "ZAQ"))
+    end
+
+    test "browse child_query filter is case-insensitive" do
+      seed("archives/zaq/Report.pdf")
+      seed("archives/zaq/readme.md")
+      seed("archives/zaq/other.pdf")
+
+      results = Ingestion.list_document_sources("zaq/re")
+      labels = results |> Enum.map(& &1.label) |> Enum.sort()
+
+      assert "readme.md" in labels
+      assert "Report.pdf" in labels
       refute "other.pdf" in labels
     end
   end

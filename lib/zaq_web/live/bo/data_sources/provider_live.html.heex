@@ -1,0 +1,559 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title={@provider_label}
+  current_path={@current_path}
+  features_version={@features_version}
+>
+  <div id="oauth-popup-listener" phx-hook="OAuthPopupListener"></div>
+  <div class="mb-6">
+    <.link
+      navigate={~p"/bo/channels/data_source"}
+      class="inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-black/40 hover:text-black transition-colors mb-4"
+    >
+      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M19 12H5M12 5l-7 7 7 7" />
+      </svg>
+      Data Sources
+    </.link>
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h1 class="font-mono text-lg font-bold text-black">{@provider_label}</h1>
+        <p class="font-mono text-[0.7rem] text-black/40 mt-1">
+          Active grant insights for this data source provider.
+        </p>
+      </div>
+      <button
+        id="new-config-button"
+        phx-click="open_modal"
+        phx-value-action="new"
+        class="font-mono text-[0.75rem] tracking-wide px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors"
+      >
+        Add Config
+      </button>
+    </div>
+  </div>
+
+  <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">
+    Configurations
+  </p>
+
+  <div
+    :if={@configs == []}
+    class="bg-white rounded-xl border border-dashed border-black/15 p-8 text-center"
+  >
+    <p class="font-mono text-sm font-bold text-black mb-1">No configs yet</p>
+    <p class="font-mono text-[0.7rem] text-black/40">
+      Create a data source config to see insights.
+    </p>
+  </div>
+
+  <div :if={@configs != []} class="space-y-4">
+    <div
+      :for={config <- @configs}
+      id={"data-source-config-#{config.id}"}
+      class="bg-white rounded-xl border border-black/10 p-5"
+    >
+      <% grant = active_grant_for_config(config, @grants_by_config) %>
+      <% root_folders_list = Map.get(@root_folders_by_config, config.id) %>
+      <% stats_error = Map.get(@stats_errors_by_config, config.id) %>
+      <% root_meta = Map.get(@root_folder_meta_by_config, config.id, %{}) %>
+
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <p class="font-mono text-sm font-bold text-black">{config.name}</p>
+            <button
+              type="button"
+              phx-click="open_capabilities"
+              phx-value-id={config.id}
+              class="w-6 h-6 rounded-md border border-black/10 grid place-items-center text-black/35 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
+              title="Show capabilities"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 16v.01" />
+                <path d="M12 8a2.5 2.5 0 0 1 2.5 2.5c0 1.5-1.5 2-2.5 2.75" />
+                <circle cx="12" cy="12" r="9" />
+              </svg>
+            </button>
+          </div>
+          <p class="font-mono text-[0.7rem] text-black/35 mt-1">
+            {if grant, do: "Grant active (#{grant.auth_kind})", else: "No active grant"}
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class={[
+            "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
+            if(config.enabled,
+              do: "bg-emerald-100 text-emerald-700",
+              else: "bg-black/5 text-black/30"
+            )
+          ]}>
+            {if config.enabled, do: "Active", else: "Disabled"}
+          </span>
+          <button
+            id={"toggle-config-#{config.id}"}
+            phx-click="toggle_enabled"
+            phx-value-id={config.id}
+            class="font-mono text-[0.65rem] px-2.5 py-1.5 rounded-lg border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+          >
+            {if config.enabled, do: "Disable", else: "Enable"}
+          </button>
+          <button
+            id={"edit-config-#{config.id}"}
+            phx-click="open_modal"
+            phx-value-action="edit"
+            phx-value-id={config.id}
+            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
+            title="Edit"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
+          <button
+            id={"open-test-config-#{config.id}"}
+            phx-click="open_test"
+            phx-value-id={config.id}
+            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-amber-500 hover:border-amber-300 transition-all"
+            title="Refresh"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M4 4v6h6" />
+              <path d="M20 20v-6h-6" />
+              <path d="M20 9a8 8 0 0 0-13.66-5.66L4 10m16 4-2.34 2.34A8 8 0 0 1 4 15" />
+            </svg>
+          </button>
+          <button
+            id={"confirm-delete-config-#{config.id}"}
+            phx-click="confirm_delete"
+            phx-value-id={config.id}
+            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-red-500 hover:border-red-200 transition-all"
+            title="Delete"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div :if={stats_error} class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <p class="font-mono text-[0.72rem] text-amber-800">{stats_error.message}</p>
+        <p class="font-mono text-[0.62rem] text-amber-700 mt-1">
+          Code: {stats_error[:code] || "n/a"} · Provider: {stats_error[:provider] || "n/a"} · HTTP: {stats_error[
+            :status
+          ] || "n/a"}
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-black/10 p-3 mb-4">
+        <p class="font-mono text-[0.62rem] uppercase tracking-wider text-black/35 mb-2">
+          Root folders
+          <span :if={Map.get(root_meta, :pages_loaded, 0) > 0}>
+            ({Map.get(root_meta, :pages_loaded, 0)} pages loaded)
+          </span>
+        </p>
+        <div :if={root_folders_list == nil} class="font-mono text-[0.75rem] text-black/45">
+          N/A
+        </div>
+        <div
+          :if={root_folders_list != nil and root_folders(root_folders_list) == []}
+          class="font-mono text-[0.75rem] text-black/45"
+        >
+          None found
+        </div>
+        <ul :if={root_folders(root_folders_list) != []} class="space-y-1">
+          <li
+            :for={folder <- root_folders(root_folders_list)}
+            class="font-mono text-[0.75rem] text-black/70 flex items-center gap-2"
+          >
+            <img
+              :if={folder_icon(folder)}
+              src={folder_icon(folder)}
+              class="w-4 h-4"
+              alt="icon"
+              loading="lazy"
+              decoding="async"
+            />
+            <a
+              :if={folder_url(folder)}
+              href={folder_url(folder)}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="underline decoration-black/20 hover:decoration-black"
+            >
+              {folder_name(folder)}
+            </a>
+            <span :if={!folder_url(folder)}>{folder_name(folder)}</span>
+            <button
+              type="button"
+              phx-click="open_folder_info"
+              phx-value-config-id={config.id}
+              phx-value-folder-id={folder.id}
+              class="w-5 h-5 rounded border border-black/10 grid place-items-center text-black/40 hover:text-[#03b6d4] hover:border-[#03b6d4]/30"
+              title="Folder details"
+            >
+              <svg
+                class="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 10v6" />
+                <path d="M12 7h.01" />
+                <circle cx="12" cy="12" r="9" />
+              </svg>
+            </button>
+          </li>
+        </ul>
+        <div :if={Map.get(root_meta, :has_more?, false)} class="mt-3">
+          <button
+            type="button"
+            phx-click="fetch_more"
+            phx-value-id={config.id}
+            class="font-mono text-[0.68rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/55 hover:text-black hover:border-black/20 transition-all"
+          >
+            Fetch more (+{Map.get(root_meta, :max_pages_per_batch, 5)} pages)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <% selected_config = selected_config(@configs, @capability_modal_config_id) %>
+  <ZaqWeb.Components.BOModal.form_dialog
+    :if={selected_config}
+    id="capabilities-modal"
+    cancel_event="close_capabilities"
+    title="Capabilities"
+    max_width_class="max-w-lg"
+  >
+    <div class="space-y-3">
+      <p class="font-mono text-[0.75rem] text-black/65">{selected_config.name} capabilities</p>
+      <ul class="space-y-1 max-h-[55vh] overflow-auto pr-1">
+        <li
+          :for={capability <- capabilities_for_modal(selected_config, @capabilities_by_config)}
+          class={[
+            "font-mono text-[0.74rem]",
+            if(capability.supported?, do: "text-emerald-700", else: "text-black/40")
+          ]}
+        >
+          {capability.label}
+        </li>
+      </ul>
+      <div class="flex justify-end pt-2">
+        <button
+          type="button"
+          phx-click="close_capabilities"
+          class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/10 text-black/50 hover:text-black"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </ZaqWeb.Components.BOModal.form_dialog>
+
+  <ZaqWeb.Components.BOModal.form_dialog
+    :if={selected_folder_info(@folder_info_modal)}
+    id="folder-info-modal"
+    cancel_event="close_folder_info"
+    title="Folder info"
+    max_width_class="max-w-lg"
+  >
+    <% folder = selected_folder_info(@folder_info_modal) %>
+    <div class="space-y-2 font-mono text-[0.73rem] text-black/75">
+      <p><span class="text-black/40">Name:</span> {folder_name(folder)}</p>
+      <p><span class="text-black/40">ID:</span> {folder.id}</p>
+      <p :if={folder.description}>
+        <span class="text-black/40">Description:</span> {folder.description}
+      </p>
+      <p :if={folder.created_at}>
+        <span class="text-black/40">Created:</span> {folder.created_at}
+      </p>
+      <p :if={folder.modified_at}>
+        <span class="text-black/40">Modified:</span> {folder.modified_at}
+      </p>
+      <p :if={folder.size}><span class="text-black/40">Size:</span> {folder.size}</p>
+      <p :if={folder.mime_type}><span class="text-black/40">Mime:</span> {folder.mime_type}</p>
+      <p :if={folder.parent_id}><span class="text-black/40">Parent:</span> {folder.parent_id}</p>
+      <p :if={folder_url(folder)}>
+        <span class="text-black/40">URL:</span>
+        <a href={folder_url(folder)} target="_blank" rel="noopener noreferrer" class="underline">
+          Open
+        </a>
+      </p>
+      <div :if={folder.owners != []}>
+        <p class="text-black/40 mb-1">Owners:</p>
+        <ul class="space-y-2">
+          <li :for={owner <- folder.owners} class="rounded-md border border-black/10 p-2">
+            <div class="flex items-center gap-2 mb-1">
+              <img
+                :if={is_binary(owner[:photo_url]) and owner[:photo_url] != ""}
+                src={owner[:photo_url]}
+                alt="owner"
+                class="w-5 h-5 rounded-full"
+                loading="lazy"
+                decoding="async"
+                referrerpolicy="no-referrer"
+              />
+              <span class="font-semibold">
+                {owner[:display_name] || owner[:email] || owner[:id] || "Unknown owner"}
+              </span>
+            </div>
+            <pre class="text-[0.64rem] text-black/55 whitespace-pre-wrap break-words">{inspect(owner[:raw], pretty: true)}</pre>
+          </li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-black/40 mb-1">Permissions:</p>
+        <p :if={folder_permissions(folder) == []} class="text-[0.68rem] text-black/50">Empty</p>
+        <ul :if={folder_permissions(folder) != []} class="space-y-2">
+          <li
+            :for={permission <- folder_permissions(folder)}
+            class="rounded-md border border-black/10 p-2"
+          >
+            <p class="font-semibold">{permission_label(permission)}</p>
+            <pre class="text-[0.64rem] text-black/55 whitespace-pre-wrap break-words">{inspect(permission.raw, pretty: true)}</pre>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </ZaqWeb.Components.BOModal.form_dialog>
+
+  <ZaqWeb.Components.BOModal.form_dialog
+    :if={@modal in [:new, :edit]}
+    id="data-source-config-modal"
+    cancel_event="close_modal"
+    title={if @modal == :new, do: "New Data Source Config", else: "Edit Data Source Config"}
+    max_width_class="max-w-2xl"
+  >
+    <% claim = oauth_claim_state_for_changeset(@changeset) %>
+    <.form for={@form} id="config-form" phx-submit="save" phx-change="validate">
+      <input :if={@modal == :new} type="hidden" name="form[provider]" value={@provider} />
+      <input type="hidden" name="form[kind]" value="data_source" />
+
+      <div class="mb-4">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Name
+        </label>
+        <input
+          type="text"
+          name="form[name]"
+          value={@form[:name].value}
+          placeholder="e.g. Product Drive"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
+
+      <div class="mb-6">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Credential
+        </label>
+        <div class="flex items-center gap-2">
+          <select
+            name="form[settings][connect][credential_id]"
+            class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          >
+            <option
+              value=""
+              selected={connect_credential_id_from_changeset(@changeset) in [nil, ""]}
+            >
+              No credential
+            </option>
+            <option
+              :for={credential <- @connect_credentials}
+              value={credential.id}
+              selected={
+                to_string(connect_credential_id_from_changeset(@changeset)) ==
+                  to_string(credential.id)
+              }
+            >
+              {credential.name} ({credential.auth_kind})
+            </option>
+          </select>
+          <button
+            type="button"
+            phx-click="open_new_credential"
+            class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
+          >
+            + New
+          </button>
+        </div>
+        <button
+          :if={claim.enabled?}
+          type="button"
+          phx-click="open_oauth_claim"
+          phx-value-url={claim.url}
+          class="inline-flex mt-2 font-mono text-[0.65rem] px-3 py-1.5 rounded-lg border border-[#03b6d4]/30 text-[#03b6d4] hover:bg-[#03b6d4]/5 transition-all"
+        >
+          Claim OAuth2 Grant
+        </button>
+        <button
+          :if={not claim.enabled?}
+          type="button"
+          disabled
+          class="inline-flex mt-2 font-mono text-[0.65rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/35 bg-black/[0.03]"
+        >
+          Claim OAuth2 Grant
+        </button>
+        <p :if={claim.message} class="font-mono text-[0.62rem] text-black/35 mt-1">
+          {claim.message}
+        </p>
+      </div>
+
+      <div class="mb-6">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Root folder
+        </label>
+        <input
+          type="text"
+          name="form[settings][connect][root_selector]"
+          value={root_selector_from_changeset(@changeset, @provider)}
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+        <p class="font-mono text-[0.62rem] text-black/35 mt-1">
+          Provider-specific folder selector used to namespace this config.
+        </p>
+      </div>
+
+      <div class="mb-6">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Max pages per fetch
+        </label>
+        <input
+          type="number"
+          min="1"
+          step="1"
+          name="form[settings][connect][max_pages]"
+          value={
+            @changeset
+            |> Ecto.Changeset.get_field(:settings, %{})
+            |> Map.get("connect", %{})
+            |> Map.get("max_pages", 5)
+          }
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+        <p class="font-mono text-[0.62rem] text-black/35 mt-1">
+          Number of pages to load per refresh/fetch-more batch.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3 mb-6">
+        <input type="hidden" name="form[enabled]" value="false" />
+        <input
+          type="checkbox"
+          name="form[enabled]"
+          id="form_enabled"
+          value="true"
+          checked={@form[:enabled].value}
+          class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
+        />
+        <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">
+          Enable this configuration
+        </label>
+      </div>
+
+      <div :if={@modal_errors != []} class="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
+        <p :for={err <- @modal_errors} class="font-mono text-[0.7rem] text-red-600">{err}</p>
+      </div>
+
+      <div class="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          phx-click="close_modal"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-all"
+        >
+          {if @modal == :new, do: "Create", else: "Update"}
+        </button>
+      </div>
+    </.form>
+  </ZaqWeb.Components.BOModal.form_dialog>
+
+  <ZaqWeb.Components.BOModal.form_dialog
+    :if={@credential_modal}
+    id="new-credential-modal"
+    cancel_event="close_credential_modal"
+    title="New Credential"
+    max_width_class="max-w-lg"
+  >
+    <ZaqWeb.Components.ConnectCredentialForm.credential_form
+      :if={@credential_form}
+      form={@credential_form}
+      changeset={@credential_changeset}
+      errors={@credential_errors}
+      submit_event="save_credential"
+      change_event="validate_credential"
+      cancel_event="close_credential_modal"
+      id_prefix="new-data-source-credential"
+      submit_label="Create"
+    />
+  </ZaqWeb.Components.BOModal.form_dialog>
+
+  <ZaqWeb.Components.BOModal.modal_shell
+    :if={@oauth_claim_modal}
+    id="oauth-claim-modal"
+    cancel_event="close_oauth_claim"
+    title="Claim OAuth2 Grant"
+    max_width_class="max-w-lg"
+  >
+    <div class="space-y-2">
+      <p class="font-mono text-[0.75rem] text-black/70">
+        Continue the OAuth flow in the popup window. This dialog will close when the grant is created.
+      </p>
+      <div class="font-mono text-[0.62rem] text-black/35 break-all">{@oauth_claim_url}</div>
+      <div class="flex justify-end">
+        <button
+          type="button"
+          phx-click="close_oauth_claim"
+          class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/10 text-black/50 hover:text-black"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </ZaqWeb.Components.BOModal.modal_shell>
+
+  <ZaqWeb.Components.BOModal.confirm_dialog
+    :if={@confirm_delete}
+    id="delete-data-source-config-modal"
+    title="Delete Data Source Config"
+    message="Are you sure you want to delete this data source config? This action cannot be undone."
+    cancel_event="cancel_delete"
+    confirm_event="delete"
+    confirm_button_id="delete-config-button"
+    confirm_value_id={@confirm_delete}
+  />
+</ZaqWeb.Components.BOLayout.bo_layout>

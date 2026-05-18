@@ -38,7 +38,10 @@ defmodule ZaqWeb.Live.BO.AI.UrlCrawlerDetailLive do
     {:noreply,
      socket
      |> assign(:launch_modal_open, false)
-     |> put_flash(:info, "Preview only: a new run would launch now using #{socket.assigns.selected_ingestion_strategy}.")
+     |> put_flash(
+       :info,
+       "Preview only: a new run would launch now using #{socket.assigns.selected_ingestion_strategy}."
+     )
      |> push_navigate(to: ~p"/bo/ingestion/url_crawler/#{configuration_id}/runs/#{run.id}")}
   end
 

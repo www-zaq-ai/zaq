@@ -14,15 +14,10 @@ defmodule Zaq.Agent.Api do
 
   @behaviour Zaq.InternalBoundaries
 
-  alias Zaq.Agent.ErrorMessage
-  alias Zaq.Agent.Executor
-  alias Zaq.Agent.MCP
-  alias Zaq.Agent.Pipeline
-  alias Zaq.Agent.PromptGuard
-  alias Zaq.Agent.RuntimeSync
-  alias Zaq.Agent.Status
+  alias Zaq.Agent
+  alias Zaq.Agent.{ErrorMessage, Executor, MCP, Pipeline, PromptGuard, RuntimeSync, Status}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.Event
+  alias Zaq.{Event, EventHop}
   alias Zaq.InternalBoundaries
 
   @doc """
@@ -73,7 +68,7 @@ defmodule Zaq.Agent.Api do
 
         case prompt_guard_mod.validate(incoming.content) do
           {:error, _reason} ->
-            %{event | response: guard_error_outgoing(incoming)}
+            maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
 
           {:ok, _} ->
             dispatch_pipeline(event, incoming)
@@ -148,6 +143,50 @@ defmodule Zaq.Agent.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :system_config_agent_list_active_agents, _context) do
+    %{event | response: Agent.list_active_agents()}
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_get_endpoint, _context) do
+    case event.request do
+      %{id: id} ->
+        endpoint = MCP.get_mcp_endpoint!(id)
+        %{event | response: {:ok, endpoint}}
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  rescue
+    Ecto.NoResultsError -> %{event | response: {:error, :not_found}}
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_change_endpoint, _context) do
+    case event.request do
+      %{endpoint: endpoint, attrs: attrs} when is_map(attrs) ->
+        %{event | response: MCP.change_mcp_endpoint(endpoint, attrs)}
+
+      %{endpoint: endpoint} ->
+        %{event | response: MCP.change_mcp_endpoint(endpoint)}
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_filter_endpoints, _context) do
+    case event.request do
+      %{filters: filters, page: page, per_page: per_page} when is_map(filters) ->
+        %{event | response: MCP.filter_mcp_endpoints(filters, page: page, per_page: per_page)}
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_mcp_predefined_catalog, _context) do
+    %{event | response: MCP.predefined_catalog()}
+  end
+
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
@@ -213,9 +252,15 @@ defmodule Zaq.Agent.Api do
     pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
     pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
     executor_module = Keyword.get(event.opts, :executor_module, Executor)
+    node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
     # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
     incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
+
+    incoming_dims = incoming.metadata |> Map.get("telemetry_dimensions", %{})
+
+    pipeline_opts =
+      Keyword.put_new(pipeline_opts, :telemetry_dimensions, incoming_dims)
 
     outgoing =
       case selected_agent_id(event.assigns) do
@@ -228,16 +273,93 @@ defmodule Zaq.Agent.Api do
           )
 
         selected_id ->
+          person_id = incoming.person_id
+
+          team_ids =
+            case node_router_mod.dispatch(
+                   Event.new(
+                     %{person_id: person_id},
+                     :engine,
+                     actor: event.actor,
+                     opts: [action: :get_person],
+                     trace_id: event.trace_id
+                   )
+                 ).response do
+              nil -> []
+              %{team_ids: ids} when not is_nil(ids) -> ids
+              _ -> []
+            end
+
           executor_module.run(incoming,
             agent_id: selected_id,
             scope: Executor.derive_scope(incoming),
+            person_id: person_id,
+            team_ids: team_ids,
+            source_filter: incoming.content_filter,
+            skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
             history: Keyword.get(pipeline_opts, :history, %{}),
             telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
             event: event
           )
       end
 
-    %{event | response: outgoing}
+    maybe_dispatch_return_hop(event, incoming, outgoing)
+  end
+
+  # This function is a good candidate to go into the NodeRouter for generalization
+  defp maybe_dispatch_return_hop(%Event{} = event, %Incoming{} = incoming, %Outgoing{} = outgoing) do
+    if delivery_through_channels?(outgoing.provider) do
+      node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
+
+      case persist_response_context(node_router_mod, event, incoming, outgoing) do
+        :ok ->
+          event
+          |> schedule_return_hop(outgoing)
+
+        {:error, reason} ->
+          %{event | response: {:error, {:persist_failed, reason}}}
+      end
+    else
+      %{event | response: outgoing}
+    end
+  end
+
+  defp maybe_dispatch_return_hop(%Event{} = event, _incoming, other),
+    do: %{event | response: other}
+
+  defp delivery_through_channels?(provider), do: not is_nil(provider)
+
+  defp schedule_return_hop(%Event{} = event, %Outgoing{} = outgoing) do
+    hop = EventHop.new(:channels, :sync, DateTime.utc_now())
+
+    %{
+      event
+      | request: outgoing,
+        response: outgoing,
+        next_hop: hop,
+        opts: Keyword.put(event.opts, :action, :deliver_outgoing)
+    }
+  end
+
+  defp persist_response_context(
+         node_router_mod,
+         %Event{} = event,
+         %Incoming{} = incoming,
+         %Outgoing{} = outgoing
+       ) do
+    persist_event =
+      Event.new(%{incoming: incoming, metadata: outgoing.metadata}, :engine,
+        actor: event.actor,
+        opts: [action: :persist_from_incoming],
+        trace_id: event.trace_id
+      )
+
+    case node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response do
+      :ok -> :ok
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_persist_response, other}}
+    end
   end
 
   defp guard_error_outgoing(%Incoming{} = incoming) do

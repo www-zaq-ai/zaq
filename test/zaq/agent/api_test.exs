@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.ApiTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Api
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -69,6 +69,59 @@ defmodule Zaq.Agent.ApiTest do
     def broadcast(_ctx, _stage, _message, _node_router), do: :ok
   end
 
+  defmodule SpyNodeRouter do
+    def dispatch(event) do
+      send(self(), {:node_router_dispatch, Keyword.get(event.opts, :action), event})
+      %{event | response: :ok}
+    end
+  end
+
+  defmodule PersistFailNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :persist_from_incoming -> {:error, :db_down}
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule PersistInvalidResponseNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :persist_from_incoming -> :unexpected
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule PersistOkTupleNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :persist_from_incoming -> {:ok, %{persisted: true}}
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule NilProviderPipeline do
+    def run(%Incoming{} = incoming, _opts) do
+      %Outgoing{body: "no-channel", channel_id: incoming.channel_id, provider: nil}
+    end
+  end
+
+  defmodule BadPipelineResult do
+    def run(_incoming, _opts), do: {:unexpected, :shape}
+  end
+
   defmodule StubRuntimeSyncInvalidRequestError do
     def configured_agent_updated(_id, _attrs), do: {:error, {:invalid_request, :bad_update}}
     def configured_agent_deleted(_id), do: {:error, {:invalid_request, :bad_delete}}
@@ -125,6 +178,7 @@ defmodule Zaq.Agent.ApiTest do
           pipeline_module: StubPipeline,
           pipeline_opts: [foo: :bar],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -156,6 +210,7 @@ defmodule Zaq.Agent.ApiTest do
           executor_module: StubExecutor,
           pipeline_opts: [history: %{"x" => 1}, telemetry_dimensions: %{channel_type: "bo"}],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -187,6 +242,7 @@ defmodule Zaq.Agent.ApiTest do
           executor_module: StubExecutor,
           pipeline_opts: [],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -204,6 +260,86 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :telemetry_dimensions) == %{}
   end
 
+  test "pipeline path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{"channel_type" => "mattermost"}
+  end
+
+  test "pipeline_opts telemetry_dimensions takes precedence over incoming metadata" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [telemetry_dimensions: %{channel_type: "custom"}],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{channel_type: "custom"}
+  end
+
+  test "executor path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:executor_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{"channel_type" => "mattermost"}
+  end
+
   test "falls back to pipeline when selection is empty or assigns are malformed" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
@@ -214,6 +350,7 @@ defmodule Zaq.Agent.ApiTest do
           pipeline_module: StubPipeline,
           pipeline_opts: [foo: :bar],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -235,6 +372,7 @@ defmodule Zaq.Agent.ApiTest do
           pipeline_module: StubPipeline,
           pipeline_opts: [],
           identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
       )
@@ -252,7 +390,12 @@ defmodule Zaq.Agent.ApiTest do
 
     event =
       Event.new(incoming, :agent,
-        opts: [action: :run_pipeline, pipeline_module: StubPipeline, pipeline_opts: [foo: :bar]]
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [foo: :bar],
+          node_router: SpyNodeRouter
+        ]
       )
 
     event = %{event | assigns: %{"agent_selection" => %{source: "bo"}}}
@@ -263,6 +406,148 @@ defmodule Zaq.Agent.ApiTest do
     assert result.response.body == "ok"
     assert_received {:pipeline_called, ^incoming, opts}
     assert Keyword.get(opts, :foo) == :bar
+  end
+
+  test "run_pipeline schedules channels delivery hop from outgoing response" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    defmodule ReturnHopPipeline do
+      def run(%Incoming{} = incoming, _opts) do
+        %Outgoing{
+          body: "ok",
+          channel_id: incoming.channel_id,
+          provider: incoming.provider
+        }
+      end
+    end
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: ReturnHopPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+    assert %Outgoing{} = result.response
+    assert result.response.body == "ok"
+
+    assert_receive {:node_router_dispatch, first_action, first_event}
+    refute_receive {:node_router_dispatch, :deliver_outgoing, _}, 50
+
+    assert first_action == :persist_from_incoming
+
+    persist_event = first_event
+
+    assert persist_event.next_hop.destination == :engine
+    assert result.next_hop.destination == :channels
+    assert result.next_hop.type == :sync
+    assert result.opts[:action] == :deliver_outgoing
+    assert result.request == result.response
+  end
+
+  test "run_pipeline returns persist_failed when persist_from_incoming fails" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: PersistFailNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.response == {:error, {:persist_failed, :db_down}}
+  end
+
+  test "run_pipeline returns persist_failed for invalid persist response" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: PersistInvalidResponseNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.response ==
+             {:error, {:persist_failed, {:invalid_persist_response, :unexpected}}}
+  end
+
+  test "run_pipeline returns outgoing directly when provider is nil" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: NilProviderPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "no-channel"
+    assert result.response.provider == nil
+    refute_received {:node_router_dispatch, :persist_from_incoming, _}
+  end
+
+  test "run_pipeline accepts {:ok, _} persist response and passes through unexpected pipeline output" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    ok_tuple_event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: PersistOkTupleNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result_ok_tuple = Api.handle_event(ok_tuple_event, :run_pipeline, nil)
+    assert result_ok_tuple.next_hop.destination == :channels
+    assert result_ok_tuple.opts[:action] == :deliver_outgoing
+
+    bad_pipeline_event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: BadPipelineResult,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result_bad = Api.handle_event(bad_pipeline_event, :run_pipeline, nil)
+    assert result_bad.response == {:unexpected, :shape}
   end
 
   test "delegates invoke to shared internal boundaries helper" do
@@ -445,6 +730,7 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_module: StubPipeline,
             pipeline_opts: [],
             identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -466,7 +752,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: SpyIdentityPlug
+            identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -492,7 +779,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: NilPersonIdentityPlug
+            identity_plug: NilPersonIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -511,7 +799,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [foo: :bar],
-            identity_plug: SpyIdentityPlug
+            identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -534,6 +823,7 @@ defmodule Zaq.Agent.ApiTest do
             executor_module: StubExecutor,
             pipeline_opts: [],
             identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -565,6 +855,7 @@ defmodule Zaq.Agent.ApiTest do
             executor_module: StubExecutor,
             pipeline_opts: [],
             identity_plug: NilPersonIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -590,6 +881,7 @@ defmodule Zaq.Agent.ApiTest do
             executor_module: StubExecutor,
             pipeline_opts: [history: %{"x" => 1}, telemetry_dimensions: %{channel_type: "bo"}],
             identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
         )
@@ -617,7 +909,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: BlockingPromptGuard,
-            status_module: NoopStatus
+            status_module: NoopStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -640,7 +933,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: PassthroughPromptGuard,
-            status_module: SpyStatus
+            status_module: SpyStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -661,7 +955,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: BlockingPromptGuard,
-            status_module: NoopStatus
+            status_module: NoopStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -681,7 +976,8 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_opts: [],
             identity_plug: PassthroughIdentityPlug,
             prompt_guard: PassthroughPromptGuard,
-            status_module: SpyStatus
+            status_module: SpyStatus,
+            node_router: SpyNodeRouter
           ]
         )
 
@@ -701,7 +997,8 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: SpyIdentityPlug
+            identity_plug: SpyIdentityPlug,
+            node_router: SpyNodeRouter
           ]
         )
       end
@@ -714,6 +1011,28 @@ defmodule Zaq.Agent.ApiTest do
       assert_received {:pipeline_called, resolved2, _opts2}
       assert resolved1.person_id == 99
       assert resolved2.person_id == 99
+    end
+  end
+
+  describe "system config and MCP action guards" do
+    test "system_config_mcp_predefined_catalog returns a map" do
+      result =
+        Api.handle_event(Event.new(%{}, :agent), :system_config_mcp_predefined_catalog, nil)
+
+      assert is_map(result.response)
+    end
+
+    test "returns invalid request for malformed MCP system config payloads" do
+      invalid_requests = [
+        {:system_config_mcp_get_endpoint, %{}},
+        {:system_config_mcp_change_endpoint, %{attrs: %{name: "x"}}},
+        {:system_config_mcp_filter_endpoints, %{filters: :bad, page: 1, per_page: 20}}
+      ]
+
+      Enum.each(invalid_requests, fn {action, request} ->
+        result = Api.handle_event(Event.new(request, :agent), action, nil)
+        assert result.response == {:error, {:invalid_request, request}}
+      end)
     end
   end
 end
