@@ -3255,7 +3255,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3335,7 +3335,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       do: %{event | response: nil}
   end
 
-  test "handle_webhook returns error when dispatch_record_changed fails" do
+  test "handle_webhook acknowledges even when async dispatch later fails" do
     previous_channels = Application.get_env(:zaq, :channels)
     previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
     previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
@@ -3366,7 +3366,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:error, :dispatch_failed} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
   end
 
@@ -3436,7 +3436,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
   end
 
-  test "handle_webhook returns error for missing file_id and resource_id" do
+  test "handle_webhook acknowledges when downstream payload misses file identifiers" do
     previous_channels = Application.get_env(:zaq, :channels)
     previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
 
@@ -3471,7 +3471,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:error, :missing_record_id} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
   end
 
@@ -3558,7 +3558,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3592,7 +3592,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3626,7 +3626,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3660,7 +3660,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3708,7 +3708,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3825,7 +3825,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "webhook"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3891,7 +3891,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: _}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3953,7 +3953,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: _}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -3991,7 +3991,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: _}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -4056,7 +4056,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: _}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -4091,7 +4091,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: _}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -4562,7 +4562,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     # Since get_item_metadata is not available (no file:get action),
     # handle_webhook falls back to built record and dispatches
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}
@@ -4580,7 +4580,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
-  test "handle_webhook uses empty signal fallback and returns missing_record_id" do
+  test "handle_webhook uses empty signal fallback and still acknowledges" do
     previous_channels = Application.get_env(:zaq, :channels)
     previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
 
@@ -4615,9 +4615,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     config = insert_data_source_config(:google_drive)
 
-    # delivery map has no normalized_signal key -> signal fallback %{} -> no file_id
-    # -> returns missing_record_id
-    assert {:error, :missing_record_id} =
+    # delivery map has no normalized_signal key -> signal fallback %{} -> no file_id,
+    # which is handled by the async worker path.
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
   end
 

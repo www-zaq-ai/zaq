@@ -315,7 +315,7 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
 
     config = BridgeTest.insert_data_source_config(:google_drive)
 
-    assert {:ok, %{trigger_id: "stub.file.changed"}} =
+    assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
     assert_received {:data_source_record_changed, request}

@@ -140,6 +140,7 @@ Response behavior:
 
 - Conversation providers can return `%{webhook_response: %{status, headers, body}}` to pass through transport-specific verification responses.
 - Data source providers return accepted/rejected JSON envelopes from the channels controller.
+- For `jido_connect` data source webhooks, verification remains synchronous in `handle_webhook/2`, then post-verification record loading and `:data_source_record_changed` dispatch run asynchronously via `Zaq.Channels.JidoConnectBridge.WebhookWorker` (Oban queue `:channels`).
 
 Authentication and signature verification are provider-specific and handled inside bridge/verifier modules (for example jido_connect webhook verifiers and jido_chat adapter webhook handlers).
 

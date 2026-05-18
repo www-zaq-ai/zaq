@@ -13,13 +13,16 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Jido.Connect.Authorization
   alias Jido.Connect.ScopeRequirements
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
+  alias Zaq.Channels.JidoConnectBridge.WebhookWorker
   alias Zaq.Channels.ProviderCatalog
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias Zaq.Repo
   require Logger
 
   @impl true
@@ -185,9 +188,25 @@ defmodule Zaq.Channels.JidoConnectBridge do
          {:ok, verifier} <- webhook_verifier_for(config.provider),
          {:ok, delivery} <- verifier.verify_and_normalize(trigger, payload),
          {:ok, delivery_map} <- delivery_to_map(delivery),
+         {:ok, job} <- enqueue_webhook_job(config, payload, trigger, delivery_map) do
+      {:ok, %{accepted: true, job_id: job.id}}
+    end
+  end
+
+  @doc false
+  @spec process_verified_webhook_job(map()) :: :ok | {:error, term()} | {:cancel, term()}
+  def process_verified_webhook_job(args) when is_map(args) do
+    with {:ok, config} <- fetch_webhook_config(args),
+         {:ok, trigger} <- fetch_webhook_trigger(args),
+         {:ok, payload} <- fetch_webhook_payload(args),
+         {:ok, delivery_map} <- fetch_webhook_delivery(args),
          {:ok, record} <- load_changed_record(config, delivery_map),
          :ok <- dispatch_record_changed(config, payload, trigger, delivery_map, record) do
-      {:ok, %{trigger_id: trigger.id, delivery: delivery}}
+      :ok
+    else
+      {:cancel, _reason} = cancel -> cancel
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_webhook_job_args, other}}
     end
   end
 
@@ -915,6 +934,53 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
+  defp enqueue_webhook_job(config, payload, trigger, delivery_map) do
+    args = %{
+      "config_id" => Map.get(config, :id),
+      "provider" => to_string(config.provider),
+      "trigger_id" => trigger.id,
+      "payload" => payload,
+      "delivery" => delivery_map
+    }
+
+    args
+    |> webhook_worker_module().new()
+    |> oban_module().insert()
+    |> case do
+      {:ok, job} -> {:ok, job}
+      {:error, reason} -> {:error, {:webhook_enqueue_failed, reason}}
+    end
+  end
+
+  defp fetch_webhook_config(%{"config_id" => id, "provider" => provider}) do
+    case Repo.get(ChannelConfig, id) do
+      %ChannelConfig{kind: "data_source", provider: config_provider} = config ->
+        if to_string(config_provider) == to_string(provider) do
+          {:ok, config}
+        else
+          {:cancel, :provider_mismatch}
+        end
+
+      _ ->
+        {:cancel, :config_not_found}
+    end
+  end
+
+  defp fetch_webhook_config(_), do: {:cancel, :missing_config}
+
+  defp fetch_webhook_trigger(%{"trigger_id" => trigger_id}) when is_binary(trigger_id),
+    do: {:ok, %{id: trigger_id}}
+
+  defp fetch_webhook_trigger(_), do: {:cancel, :missing_trigger_id}
+
+  defp fetch_webhook_payload(%{"payload" => payload}) when is_map(payload), do: {:ok, payload}
+  defp fetch_webhook_payload(_), do: {:cancel, :missing_payload}
+
+  defp fetch_webhook_delivery(%{"delivery" => delivery}) when is_map(delivery),
+    do: {:ok, delivery}
+
+  defp fetch_webhook_delivery(_), do: {:cancel, :missing_delivery}
+
   defp dispatch_record_changed(config, payload, trigger, delivery, record) do
     event =
       Event.new(
@@ -936,13 +1002,13 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp delivery_to_map(delivery) when is_map(delivery), do: {:ok, delivery}
-
   defp delivery_to_map(delivery) when is_struct(delivery) do
     {:ok, Map.from_struct(delivery)}
   rescue
     _ -> {:error, :invalid_delivery}
   end
+
+  defp delivery_to_map(delivery) when is_map(delivery), do: {:ok, delivery}
 
   defp delivery_to_map(_), do: {:error, :invalid_delivery}
 
@@ -1231,6 +1297,12 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp node_router_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_node_router_module, NodeRouter)
+
+  defp webhook_worker_module,
+    do: Application.get_env(:zaq, :jido_connect_bridge_webhook_worker_module, WebhookWorker)
+
+  defp oban_module,
+    do: Application.get_env(:zaq, :jido_connect_bridge_oban_module, Oban)
 
   defp jido_connect_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module, Jido.Connect)
