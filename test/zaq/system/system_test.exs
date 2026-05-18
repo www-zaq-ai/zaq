@@ -3,6 +3,7 @@ defmodule Zaq.SystemTest do
 
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
+  alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig, TelemetryConfig}
   alias Zaq.SystemConfigFixtures
@@ -61,6 +62,16 @@ defmodule Zaq.SystemTest do
       assert :ok = System.set_global_default_agent_id(nil)
       assert System.get_global_default_agent_id() == nil
     end
+
+    test "set_global_default_agent_id/1 clears invalid values" do
+      assert :ok = System.set_global_default_agent_id("12abc")
+      assert System.get_global_default_agent_id() == nil
+      assert System.get_config("channels.global_default_agent_id") in [nil, ""]
+
+      assert :ok = System.set_global_default_agent_id(%{})
+      assert System.get_global_default_agent_id() == nil
+      assert System.get_config("channels.global_default_agent_id") in [nil, ""]
+    end
   end
 
   describe "global base URL config" do
@@ -74,6 +85,22 @@ defmodule Zaq.SystemTest do
 
       assert :ok = System.set_global_base_url(nil)
       assert System.get_global_base_url() == nil
+    end
+
+    test "set_global_base_url/1 trims whitespace to empty" do
+      assert :ok = System.set_global_base_url("   https://zaq.example   ")
+      assert System.get_global_base_url() == "https://zaq.example"
+
+      assert :ok = System.set_global_base_url("   ")
+      assert System.get_global_base_url() == nil
+    end
+
+    test "set_global_base_url/1 raises when the config table is missing" do
+      Repo.query!("DROP TABLE IF EXISTS system_configs CASCADE", [])
+
+      assert_raise Postgrex.Error, fn ->
+        System.set_global_base_url("https://x")
+      end
     end
   end
 
@@ -284,6 +311,23 @@ defmodule Zaq.SystemTest do
         })
 
       assert {:error, %Ecto.Changeset{valid?: false}} = System.save_embedding_config(changeset)
+    end
+
+    test "raises when chunk table creation fails" do
+      credential = SystemConfigFixtures.ai_credential_fixture()
+
+      Repo.query!("DROP TABLE IF EXISTS documents CASCADE", [])
+
+      changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
+          model: "bge-multilingual-gemma2",
+          dimension: "768"
+        })
+
+      assert_raise Postgrex.Error, fn ->
+        System.save_embedding_config(changeset)
+      end
     end
   end
 

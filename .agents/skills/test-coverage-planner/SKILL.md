@@ -24,9 +24,10 @@ Step 3: Report the plan with the test file to add/edit, the detailed scenario an
 When producing test scenarios plan:
 
 - Favor contracted collaborator tests + thin integration tests
-- Hit actual code implementation for a wider branch activation
+- Write tests that hit actual code implementation for a wider branch activation
 - Build mocks/stubs using Mox when there's a need to predictably simulate an external API call
 - Re-use helpers, mocks and stubs when they already exists
+- DO NOT leak test concerns into implementation code
 
 ## When to use me
 

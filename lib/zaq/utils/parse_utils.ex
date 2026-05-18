@@ -111,6 +111,46 @@ defmodule Zaq.Utils.ParseUtils do
   def parse_optional_int(_value), do: nil
 
   @doc """
+  Parses an optional integer with a fallback default.
+
+  Returns the parsed integer when valid, otherwise returns `default`.
+  """
+  @spec parse_optional_int(term(), term()) :: integer() | term()
+  def parse_optional_int(value, default) do
+    case parse_optional_int(value) do
+      nil -> default
+      int -> int
+    end
+  end
+
+  @doc """
+  Parses a float-like value, returning `default` for nil/blank/invalid values.
+  """
+  @spec parse_float(term(), float()) :: float()
+  def parse_float(nil, default), do: default
+  def parse_float("", default), do: default
+
+  def parse_float(value, default) when is_binary(value) do
+    case Float.parse(value) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+
+  def parse_float(value, _default) when is_float(value), do: value
+  def parse_float(value, _default) when is_integer(value), do: value / 1
+
+  @doc """
+  Parses a boolean-like value with a default for nil.
+
+  Accepted true values: `true`, `"true"`, `"1"`, and `1`.
+  """
+  @spec parse_bool(term(), boolean()) :: boolean()
+  def parse_bool(nil, default), do: default
+  def parse_bool(value, _default) when value in [true, "true", "1", 1], do: true
+  def parse_bool(_value, _default), do: false
+
+  @doc """
   Parses a positive integer, returning `default` for non-positive or invalid values.
 
   ## Examples

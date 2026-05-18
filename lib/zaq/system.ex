@@ -64,13 +64,13 @@ defmodule Zaq.System do
   def get_global_default_agent_id do
     @global_default_agent_key
     |> get_config()
-    |> parse_optional_int(nil)
+    |> ParseUtils.parse_optional_int(nil)
   end
 
   @doc "Sets or clears globally configured default agent id."
   @spec set_global_default_agent_id(integer() | String.t() | nil) :: :ok | {:error, term()}
   def set_global_default_agent_id(agent_id) do
-    case parse_optional_int(agent_id, nil) do
+    case ParseUtils.parse_optional_int(agent_id, nil) do
       nil -> persist_global_default_agent_id("")
       id -> persist_global_default_agent_id(id)
     end
@@ -111,11 +111,15 @@ defmodule Zaq.System do
       end)
 
     %TelemetryConfig{
-      capture_infra_metrics: parse_bool(raw["capture_infra_metrics"], false),
-      request_duration_threshold_ms: parse_int(raw["request_duration_threshold_ms"], 10),
-      repo_query_duration_threshold_ms: parse_int(raw["repo_query_duration_threshold_ms"], 5),
-      no_answer_alert_threshold_percent: parse_int(raw["no_answer_alert_threshold_percent"], 10),
-      conversation_response_sla_ms: parse_int(raw["conversation_response_sla_ms"], 1500)
+      capture_infra_metrics: ParseUtils.parse_bool(raw["capture_infra_metrics"], false),
+      request_duration_threshold_ms:
+        ParseUtils.parse_int(raw["request_duration_threshold_ms"], 10),
+      repo_query_duration_threshold_ms:
+        ParseUtils.parse_int(raw["repo_query_duration_threshold_ms"], 5),
+      no_answer_alert_threshold_percent:
+        ParseUtils.parse_int(raw["no_answer_alert_threshold_percent"], 10),
+      conversation_response_sla_ms:
+        ParseUtils.parse_int(raw["conversation_response_sla_ms"], 1500)
     }
   end
 
@@ -148,20 +152,20 @@ defmodule Zaq.System do
   defp build_llm_config(raw) do
     config =
       %LLMConfig{
-        credential_id: parse_int(raw["credential_id"], nil),
+        credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
         provider: "custom",
         endpoint: "http://localhost:11434/v1",
         api_key: "",
         model: raw["model"] || "llama-3.3-70b-instruct",
-        temperature: parse_float(raw["temperature"], 0.0),
-        top_p: parse_float(raw["top_p"], 0.9),
+        temperature: ParseUtils.parse_float(raw["temperature"], 0.0),
+        top_p: ParseUtils.parse_float(raw["top_p"], 0.9),
         path: raw["path"] || "/chat/completions",
-        supports_logprobs: parse_bool(raw["supports_logprobs"], true),
-        supports_json_mode: parse_bool(raw["supports_json_mode"], true),
-        max_context_window: parse_int(raw["max_context_window"], 5_000),
-        distance_threshold: parse_float(raw["distance_threshold"], 1.2),
-        fusion_bm25_weight: parse_float(raw["fusion_bm25_weight"], 0.5),
-        fusion_vector_weight: parse_float(raw["fusion_vector_weight"], 0.5)
+        supports_logprobs: ParseUtils.parse_bool(raw["supports_logprobs"], true),
+        supports_json_mode: ParseUtils.parse_bool(raw["supports_json_mode"], true),
+        max_context_window: ParseUtils.parse_int(raw["max_context_window"], 5_000),
+        distance_threshold: ParseUtils.parse_float(raw["distance_threshold"], 1.2),
+        fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
+        fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
       }
 
     merge_connection_fields_from_credential(config)
@@ -192,14 +196,14 @@ defmodule Zaq.System do
   defp build_embedding_config(raw) do
     config =
       %EmbeddingConfig{
-        credential_id: parse_int(raw["credential_id"], nil),
+        credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
         provider: "custom",
         endpoint: "http://localhost:11434/v1",
         api_key: "",
         model: raw["model"] || "bge-multilingual-gemma2",
-        dimension: parse_int(raw["dimension"], 3584),
-        chunk_min_tokens: parse_int(raw["chunk_min_tokens"], 400),
-        chunk_max_tokens: parse_int(raw["chunk_max_tokens"], 900)
+        dimension: ParseUtils.parse_int(raw["dimension"], 3584),
+        chunk_min_tokens: ParseUtils.parse_int(raw["chunk_min_tokens"], 400),
+        chunk_max_tokens: ParseUtils.parse_int(raw["chunk_max_tokens"], 900)
       }
 
     merge_connection_fields_from_credential(config)
@@ -237,7 +241,7 @@ defmodule Zaq.System do
 
     config =
       %ImageToTextConfig{
-        credential_id: parse_int(raw["credential_id"], nil),
+        credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
         provider: "custom",
         endpoint: "http://localhost:11434/v1",
         api_key: "",
@@ -446,40 +450,6 @@ defmodule Zaq.System do
   defp secret_encryption_error(changeset, field, _reason) do
     Ecto.Changeset.add_error(changeset, field, "could not be encrypted")
   end
-
-  # ── Helpers ───────────────────────────────────────────────────────────
-
-  defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
-
-  defp parse_optional_int(nil, default), do: default
-  defp parse_optional_int("", default), do: default
-  defp parse_optional_int(value, _default) when is_integer(value), do: value
-
-  defp parse_optional_int(value, default) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} -> int
-      _ -> default
-    end
-  end
-
-  defp parse_optional_int(_value, default), do: default
-
-  defp parse_float(nil, default), do: default
-  defp parse_float("", default), do: default
-
-  defp parse_float(str, default) when is_binary(str) do
-    case Float.parse(str) do
-      {n, _} -> n
-      :error -> default
-    end
-  end
-
-  defp parse_float(n, _default) when is_float(n), do: n
-  defp parse_float(n, _default) when is_integer(n), do: n / 1
-
-  defp parse_bool(nil, default), do: default
-  defp parse_bool(value, _default) when value in [true, "true", "1", 1], do: true
-  defp parse_bool(_value, _default), do: false
 
   defp maybe_reload_telemetry_collector do
     if Process.whereis(Collector) do

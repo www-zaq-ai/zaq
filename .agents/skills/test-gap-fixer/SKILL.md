@@ -28,7 +28,7 @@ DO NOT:
 
 - Drift from the scenarios provided
 - Generate a new test scenario
-- Make changes to the code implementation, only touch test files
+- Make changes to the code implementation, only edit test files
 
 ## When to use me
 
