@@ -145,21 +145,20 @@ defmodule Zaq.Engine.EventRegistryTest do
   end
 
   describe "list_events/2" do
-    test "returns [] when no events in state" do
+    test "returns empty map when no events in state" do
       pid = start_registry()
-      assert [] = EventRegistry.list_events([], pid)
+      assert %{} = EventRegistry.list_events([], pid)
     end
 
     test "returns all events (both true and false) when no filter" do
       {:ok, _trigger} = Workflows.create_trigger(%{event_name: "trigger_evt", enabled: true})
       pid = start_registry()
 
-      # Trigger an unknown event to populate a false entry
       broadcast(build_event(:unknown_evt))
       :sys.get_state(pid)
 
       result = EventRegistry.list_events([], pid)
-      assert length(result) == 2
+      assert map_size(result) == 2
     end
 
     test "returns only trigger events when is_trigger: true" do
@@ -170,8 +169,8 @@ defmodule Zaq.Engine.EventRegistryTest do
       :sys.get_state(pid)
 
       result = EventRegistry.list_events([is_trigger: true], pid)
-      assert Enum.all?(result, & &1.is_trigger)
-      assert Enum.any?(result, &(&1.name == "active_trigger"))
+      assert Enum.all?(result, fn {_k, v} -> v == true end)
+      assert Map.has_key?(result, "active_trigger")
     end
 
     test "returns only non-trigger events when is_trigger: false" do
@@ -182,18 +181,17 @@ defmodule Zaq.Engine.EventRegistryTest do
       :sys.get_state(pid)
 
       result = EventRegistry.list_events([is_trigger: false], pid)
-      assert Enum.all?(result, &(not &1.is_trigger))
-      assert Enum.any?(result, &(&1.name == "seen_but_not_trigger"))
-      refute Enum.any?(result, &(&1.name == "trigger_only"))
+      assert Enum.all?(result, fn {_k, v} -> v == false end)
+      assert Map.has_key?(result, "seen_but_not_trigger")
+      refute Map.has_key?(result, "trigger_only")
     end
 
-    test "each entry is a map with :name (string) and :is_trigger (boolean)" do
+    test "keys are strings and values are booleans" do
       {:ok, _} = Workflows.create_trigger(%{event_name: "named_trigger", enabled: true})
       pid = start_registry()
 
-      [entry] = EventRegistry.list_events([], pid)
-      assert is_binary(entry.name)
-      assert is_boolean(entry.is_trigger)
+      result = EventRegistry.list_events([], pid)
+      assert Enum.all?(result, fn {k, v} -> is_binary(k) and is_boolean(v) end)
     end
   end
 
