@@ -83,11 +83,26 @@ The `steps` column on `Workflow` (and `steps_snapshot` on `WorkflowRun`) must fo
 
 ## Fact Flow
 
-1. `Manual.fire/3` builds a `%Zaq.Event{}` with `assigns: %{trigger_type: :manual, input: payload}`.
-2. `WorkflowAgent` extracts `run.source_event.assigns[:input]` as the initial Runic fact.
-3. Each action node receives the accumulated fact map as `params` and returns `{:ok, result_map}`.
-4. Runic merges the result map into the running fact for downstream nodes.
-5. Condition nodes receive the full accumulated fact and either pass it through or skip downstream.
+For **event-driven triggers** (e.g., email received, webhook posted):
+
+1. `NodeRouter.dispatch/1` broadcasts a `%Zaq.Event{}` via PubSub.
+2. `Engine.EventRegistry` receives the event and calls `TriggerNode.fire(event_name, event)` for each matching trigger.
+3. `TriggerNode.build_source_event/2` extracts the event's `request` payload and packages it into:
+   ```elixir
+   assigns: %{
+     trigger_type: :event,
+     input: %{
+       event: %{name, trace_id, payload: event.request, assigns: event.assigns}
+     }
+   }
+   ```
+4. `Workflows.create_run/4` snapshots this as the run's `source_event`.
+5. `WorkflowAgent` extracts `run.source_event.assigns[:input]` (safely handling both atom and string keys from JSONB round-trips) as the initial Runic fact.
+6. Each action node receives the accumulated fact map as `params` and returns `{:ok, result_map}`.
+7. Runic merges the result map into the running fact for downstream nodes.
+8. Condition nodes receive the full accumulated fact and either pass it through or skip downstream.
+
+The triggering event's payload is preserved through the fact flow as `params.event.payload` in the first action node.
 
 ---
 
