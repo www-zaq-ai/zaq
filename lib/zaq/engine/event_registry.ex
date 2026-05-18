@@ -8,8 +8,10 @@ defmodule Zaq.Engine.EventRegistry do
   - `:fire_fn`  — `(event_name, event -> :ok)` — defaults to `TriggerNode.fire/2`,
                    injectable via `opts` for tests.
 
-  On init, loads all enabled trigger `event_name` values from the DB and marks
-  them `true` in the `:events` map. On each incoming event:
+  Shortly after init (via `handle_continue`), loads all enabled trigger
+  `event_name` values from the DB and marks them `true` in the `:events` map.
+  A DB failure during this load degrades to an empty registry rather than
+  crashing the process. On each incoming event:
   - The event key is derived from `event.name` if set, otherwise `event.opts[:action]`
   - If neither is set → ignored
   - If `events[event_key] == true` → delegates to `fire_fn`
@@ -18,7 +20,8 @@ defmodule Zaq.Engine.EventRegistry do
 
   use GenServer
 
-  alias Ecto.Adapters.SQL.Sandbox
+  require Logger
+
   alias Zaq.Engine.{TriggerNode, Workflows}
 
   @pubsub Zaq.PubSub
@@ -54,14 +57,30 @@ defmodule Zaq.Engine.EventRegistry do
 
   @impl true
   def init(opts) do
-    if caller = Keyword.get(opts, :caller) do
-      Sandbox.allow(Zaq.Repo, caller, self())
-    end
-
     Phoenix.PubSub.subscribe(@pubsub, @topic)
     fire_fn = Keyword.get(opts, :trigger_node_fn, &TriggerNode.fire/2)
-    events = load_trigger_state()
-    {:ok, %{events: events, fire_fn: fire_fn}}
+    {:ok, %{events: %{}, fire_fn: fire_fn}, {:continue, :load_triggers}}
+  end
+
+  # Trigger state is loaded after init returns so a DB failure (e.g. a
+  # supervisor restart while the test sandbox is in :manual mode) degrades
+  # to an empty registry instead of crash-looping and taking down the repo.
+  @impl true
+  def handle_continue(:load_triggers, state) do
+    events =
+      try do
+        load_trigger_state()
+      rescue
+        error ->
+          Logger.warning(
+            "EventRegistry: failed to load trigger state on startup: " <>
+              Exception.message(error)
+          )
+
+          state.events
+      end
+
+    {:noreply, %{state | events: events}}
   end
 
   @impl true
