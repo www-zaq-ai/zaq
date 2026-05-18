@@ -640,9 +640,9 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   test "returns unsupported_action when action payload shape does not match callback guards" do
-    bad_send_typing = Event.new(%{provider: :mattermost, channel_id: 123}, :channels)
-    bad_fetch_profile = Event.new(%{provider: :mattermost, author_id: 123}, :channels)
-    bad_open_dm = Event.new(%{provider: :mattermost, author_id: 123}, :channels)
+    bad_send_typing = Event.new(%{provider: :mattermost}, :channels)
+    bad_fetch_profile = Event.new(%{provider: :mattermost}, :channels)
+    bad_open_dm = Event.new(%{provider: :mattermost}, :channels)
     bad_list_mailboxes = Event.new(%{provider: :mattermost, config: "bad"}, :channels)
     bad_bridge_available = Event.new(%{platform: :mattermost}, :channels)
     bad_data_source_auth = Event.new(%{provider: :google_drive, params: "bad"}, :channels)
