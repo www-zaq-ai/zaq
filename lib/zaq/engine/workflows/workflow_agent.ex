@@ -9,8 +9,14 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   2. Builds the DAG from `run.steps_snapshot` with `DagBuilder.build/2`, passing
      `run_id:` so every action node is wrapped in `ActionWrapper`. ActionWrapper
      writes one `StepRun` row per step (running → completed/failed).
-  3. Feeds `run.source_event.assigns` as the initial fact into
-     `Runic.Workflow.react_until_satisfied/2`, which executes the DAG inline.
+  3. Extracts the initial fact from `run.source_event.assigns[:input]` (or string
+     key equivalent after a JSONB round-trip), defaulting to `%{}` if absent. The
+     event-envelope structural keys (`:event`, and within it `:name`, `:trace_id`,
+     `:payload`, `:assigns`) are normalized to atoms at this single point so action
+     authors always read `params.event.payload` with atom keys regardless of
+     whether the run was reloaded from the DB. Arbitrary payload/assigns values are
+     preserved verbatim. Feeds this as the initial fact into
+     `Runic.Workflow.react_until_satisfied/2`.
   4. After execution, checks `StepRun` rows: any `"failed"` row → run becomes
      `"failed"`, otherwise `"completed"`.
 
@@ -40,17 +46,12 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     Logger.info("[workflow] run started",
       workflow_id: run.workflow_id,
       run_id: run.id,
-      trigger_type: run.source_event && run.source_event.assigns[:trigger_type]
+      trigger_type: run.source_event && fetch_trigger_type(run.source_event.assigns)
     )
 
     with {:ok, run} <- Workflows.update_run(run, %{status: "running", started_at: now}),
          {:ok, dag} <- DagBuilder.build(run.steps_snapshot, run_id: run.id) do
-      # Use assigns.input (the workflow payload) as the initial fact, not the
-      # full assigns map which also contains ZAQ event metadata (trigger_type etc.).
-      input =
-        (run.source_event && get_in(run.source_event.assigns, [:input])) ||
-          (run.source_event && run.source_event.assigns) ||
-          %{}
+      input = fetch_input(run.source_event)
 
       Workflow.react_until_satisfied(dag, input)
       finalize(run, started_ms)
@@ -125,5 +126,55 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
         log_summary: log_summary
       })
     end
+  end
+
+  # Safely fetch the input from assigns, handling both atom and string keys
+  # (JSONB round-trip converts atom keys to strings). The resolved input is
+  # normalized to atom keys at this single point so action authors always see
+  # `params.event.payload` as atoms, independent of whether the run was
+  # reloaded from the DB (synchronous path keeps atoms; reloaded path is
+  # deeply string-keyed by JSONB).
+  defp fetch_input(source_event) when is_nil(source_event), do: %{}
+
+  defp fetch_input(source_event) do
+    assigns = source_event.assigns || %{}
+
+    (fetch_either(assigns, :input, "input") || %{})
+    |> normalize_input()
+  end
+
+  # Normalizes only the known event-envelope structural keys to atoms. Arbitrary
+  # payload/assigns values are preserved verbatim. No dynamic atom creation
+  # (atom-exhaustion safe) — only the fixed keys this module controls.
+  defp normalize_input(input) when is_map(input) do
+    case fetch_either(input, :event, "event") do
+      event_map when is_map(event_map) ->
+        input
+        |> Map.drop([:event, "event"])
+        |> Map.put(:event, normalize_event(event_map))
+
+      _ ->
+        input
+    end
+  end
+
+  defp normalize_input(input), do: input
+
+  defp normalize_event(event_map) do
+    %{
+      name: fetch_either(event_map, :name, "name"),
+      trace_id: fetch_either(event_map, :trace_id, "trace_id"),
+      payload: fetch_either(event_map, :payload, "payload"),
+      assigns: fetch_either(event_map, :assigns, "assigns") || %{}
+    }
+  end
+
+  # Safely fetch trigger_type from assigns, handling both atom and string keys.
+  defp fetch_trigger_type(assigns) do
+    fetch_either(assigns, :trigger_type, "trigger_type")
+  end
+
+  defp fetch_either(map, atom_key, string_key) do
+    Map.get(map, atom_key) || Map.get(map, string_key)
   end
 end
