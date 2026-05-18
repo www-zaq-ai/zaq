@@ -257,12 +257,13 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   def fetch_profile(_author_id, _connection_details), do: {:error, :missing_connection_details}
 
-  @spec send_typing(map() | String.t() | atom(), String.t(), map()) :: :ok | {:error, term()}
+  @spec send_typing(map() | String.t() | atom(), String.t() | integer(), map()) ::
+          :ok | {:error, term()}
   @impl true
   def send_typing(%{provider: provider}, channel_id, details),
     do: send_typing(provider, channel_id, details)
 
-  def send_typing(provider, channel_id, %{url: url, token: token}) when is_binary(channel_id) do
+  def send_typing(provider, channel_id, %{url: url, token: token}) do
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :start_typing, 2) || {:error, :unsupported},
          result <- adapter.start_typing(channel_id, url: url, token: token) do
@@ -273,7 +274,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   def send_typing(_provider, _channel_id, _connection_details),
     do: {:error, :missing_connection_details}
 
-  @spec add_reaction(map() | String.t() | atom(), String.t(), String.t(), String.t(), map()) ::
+  @spec add_reaction(
+          map() | String.t() | atom(),
+          String.t() | integer(),
+          String.t(),
+          String.t(),
+          map()
+        ) ::
           :ok | {:error, term()}
 
   @impl true
@@ -281,7 +288,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     do: add_reaction(provider, channel_id, message_id, emoji, details)
 
   def add_reaction(provider, channel_id, message_id, emoji, %{url: url, token: token})
-      when is_binary(channel_id) and is_binary(message_id) and is_binary(emoji) do
+      when is_binary(message_id) and is_binary(emoji) do
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :add_reaction, 4) || {:error, :unsupported},
          result <- adapter.add_reaction(channel_id, message_id, emoji, url: url, token: token) do
@@ -292,7 +299,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   def add_reaction(_provider, _channel_id, _message_id, _emoji, _connection_details),
     do: {:error, :missing_connection_details}
 
-  @spec remove_reaction(map() | String.t() | atom(), String.t(), String.t(), String.t(), map()) ::
+  @spec remove_reaction(
+          map() | String.t() | atom(),
+          String.t() | integer(),
+          String.t(),
+          String.t(),
+          map()
+        ) ::
           :ok | {:error, term()}
 
   @impl true
@@ -306,7 +319,7 @@ defmodule Zaq.Channels.JidoChatBridge do
         emoji,
         %{url: url, token: token} = details
       )
-      when is_binary(channel_id) and is_binary(message_id) and is_binary(emoji) do
+      when is_binary(message_id) and is_binary(emoji) do
     opts =
       [url: url, token: token]
       |> maybe_put_user_id(details)

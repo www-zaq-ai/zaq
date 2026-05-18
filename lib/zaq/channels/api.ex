@@ -38,8 +38,7 @@ defmodule Zaq.Channels.Api do
         %Event{request: %{provider: provider, channel_id: channel_id}} = event,
         :send_typing,
         _context
-      )
-      when is_binary(channel_id) do
+      ) do
     bridge_module = bridge_module(event)
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
@@ -60,8 +59,7 @@ defmodule Zaq.Channels.Api do
         %Event{request: %{provider: provider, author_id: author_id}} = event,
         :fetch_profile,
         _context
-      )
-      when is_binary(author_id) do
+      ) do
     bridge_module = bridge_module(event)
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
@@ -77,8 +75,7 @@ defmodule Zaq.Channels.Api do
         %Event{request: %{provider: provider, author_id: author_id}} = event,
         :open_dm_channel,
         _context
-      )
-      when is_binary(author_id) do
+      ) do
     bridge_module = bridge_module(event)
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),

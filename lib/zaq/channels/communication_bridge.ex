@@ -77,8 +77,8 @@ defmodule Zaq.Channels.CommunicationBridge do
   end
 
   @doc "Sends typing indicator through the provider bridge."
-  @spec send_typing(atom() | String.t(), String.t()) :: :ok | {:error, term()}
-  def send_typing(provider, channel_id) when is_binary(channel_id) do
+  @spec send_typing(atom() | String.t(), String.t() | integer()) :: :ok | {:error, term()}
+  def send_typing(provider, channel_id) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- bridge_supports?(bridge, :send_typing, 3) || :ok do
@@ -87,10 +87,10 @@ defmodule Zaq.Channels.CommunicationBridge do
   end
 
   @doc "Adds a reaction through the provider bridge."
-  @spec add_reaction(atom() | String.t(), String.t(), String.t(), String.t()) ::
+  @spec add_reaction(atom() | String.t(), String.t() | integer(), String.t(), String.t()) ::
           :ok | {:error, term()}
   def add_reaction(provider, channel_id, message_id, emoji)
-      when is_binary(channel_id) and is_binary(message_id) and is_binary(emoji) do
+      when is_binary(message_id) and is_binary(emoji) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- Bridge.fetch_channel_config(provider) do
       bridge.add_reaction(
@@ -104,12 +104,18 @@ defmodule Zaq.Channels.CommunicationBridge do
   end
 
   @doc "Removes a reaction through the provider bridge."
-  @spec remove_reaction(atom() | String.t(), String.t(), String.t(), String.t(), map()) ::
+  @spec remove_reaction(
+          atom() | String.t(),
+          String.t() | integer(),
+          String.t(),
+          String.t(),
+          map()
+        ) ::
           :ok | {:error, term()}
   def remove_reaction(provider, channel_id, message_id, emoji, opts \\ %{})
 
   def remove_reaction(provider, channel_id, message_id, emoji, opts)
-      when is_binary(channel_id) and is_binary(message_id) and is_binary(emoji) and is_map(opts) do
+      when is_binary(message_id) and is_binary(emoji) and is_map(opts) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- Bridge.fetch_channel_config(provider) do
       bridge.remove_reaction(
