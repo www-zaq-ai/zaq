@@ -275,9 +275,20 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert no_click_html =~ "href=\"/bo/files/file-123\""
     assert no_click_html =~ "href=\"/bo/preview/docs/plain.txt\""
     assert no_click_html =~ "disabled"
+
+    atom_no_click_html =
+      render_component(&ChatMessage.assistant_bubble/1,
+        content: "Atom no-click source",
+        timestamp: ~N[2026-04-15 09:39:00],
+        sources: [
+          %{path: "docs/atom-no-click.md"}
+        ]
+      )
+
+    assert atom_no_click_html =~ "href=\"/bo/preview/docs/atom-no-click.md\""
   end
 
-  test "tool_calls_popin initializes expanded_ids and hides details by default" do
+  test "tool_calls_popin renders row and keeps details collapsed by default" do
     html =
       render_component(&ChatMessage.tool_calls_popin/1,
         visible: true,
@@ -301,6 +312,70 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert html =~ "Tool calls (1)"
     assert html =~ "data-testid=\"tool-call-row-call-1\""
     refute html =~ "data-testid=\"tool-call-details-call-1\""
+  end
+
+  test "tool_calls_popin expanded details format response time and fallback values" do
+    html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: "msg-2",
+        tool_calls: [
+          %{
+            "tool_call_id" => "call-edge",
+            "tool_name" => "fetch.metrics",
+            "timestamp" => "",
+            "params" => nil,
+            "response" => fn -> :ok end,
+            "response_time_ms" => 12.345
+          }
+        ],
+        expanded_ids: MapSet.new(["call-edge"]),
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+
+    assert html =~ "data-testid=\"tool-call-details-call-edge\""
+    assert html =~ "12.35 ms"
+    assert html =~ "Timestamp:</span>"
+    assert html =~ "n/a"
+    assert html =~ "null"
+    assert html =~ "#Function&lt;"
+  end
+
+  test "tool_calls_popin handles non-list tool_calls by showing zero count" do
+    html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: "msg-3",
+        tool_calls: nil,
+        expanded_ids: MapSet.new(),
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+
+    assert html =~ "data-testid=\"tool-calls-popin\""
+    assert html =~ "Tool calls (0)"
+  end
+
+  test "tool_calls_popin raises on mixed entries with non-map tool call" do
+    assert_raise BadMapError, fn ->
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: "msg-4",
+        tool_calls: [
+          "not-a-map",
+          %{
+            "tool_call_id" => "valid-call",
+            "tool_name" => "search_code",
+            "timestamp" => "2026-05-02T10:00:00Z",
+            "response_time_ms" => 11
+          }
+        ],
+        expanded_ids: MapSet.new(),
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+    end
   end
 
   test "tool_calls_popin does not render when hidden or message id is not binary" do
