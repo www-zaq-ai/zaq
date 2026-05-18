@@ -27,8 +27,8 @@ defmodule Zaq.Engine.EventRegistry do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @doc "Returns all known events as a list of maps. Optionally filter with `is_trigger: true | false`."
-  @spec list_events(keyword(), GenServer.server()) :: [%{name: String.t(), is_trigger: boolean()}]
+  @doc "Returns all known events as `%{event_name => boolean}`. Optionally filter with `is_trigger: true | false`."
+  @spec list_events(keyword(), GenServer.server()) :: %{String.t() => boolean()}
   def list_events(opts \\ [], server \\ __MODULE__) do
     GenServer.call(server, {:list_events, opts})
   end
@@ -59,12 +59,7 @@ defmodule Zaq.Engine.EventRegistry do
 
   @impl true
   def handle_call({:list_events, opts}, _from, state) do
-    result =
-      state.events
-      |> Enum.map(fn {name, is_trigger} -> %{name: name, is_trigger: is_trigger} end)
-      |> maybe_filter(opts[:is_trigger])
-
-    {:reply, result, state}
+    {:reply, maybe_filter(state.events, opts[:is_trigger]), state}
   end
 
   def handle_call({:set_event, event_name, value}, _from, state) do
@@ -95,5 +90,5 @@ defmodule Zaq.Engine.EventRegistry do
   end
 
   defp maybe_filter(events, nil), do: events
-  defp maybe_filter(events, filter), do: Enum.filter(events, &(&1.is_trigger == filter))
+  defp maybe_filter(events, filter), do: Map.filter(events, fn {_k, v} -> v == filter end)
 end
