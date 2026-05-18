@@ -133,7 +133,7 @@ defmodule Zaq.Agent.Factory do
 
   ## Options
 
-  - `:timeout` — ask timeout in milliseconds; defaults to `30_000`
+  - `:timeout` — ask timeout in milliseconds; defaults to `300_000`
   - `:context` — map passed into retrieval for permission scoping (`:person_id`, `:team_ids`)
   - Any other opts are forwarded to the underlying `Jido.AI.Agent` ask call
   """
@@ -146,7 +146,7 @@ defmodule Zaq.Agent.Factory do
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
-        |> Keyword.put_new(:timeout, 30_000)
+        |> Keyword.put_new(:timeout, 300_000)
 
       ask(server, query, ask_opts)
     end

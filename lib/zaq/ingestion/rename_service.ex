@@ -3,6 +3,8 @@ defmodule Zaq.Ingestion.RenameService do
 
   require Logger
 
+  import Ecto.Query
+
   alias Ecto.Multi
   alias Zaq.Ingestion.{Document, FileExplorer, Sidecar, SourcePath}
   alias Zaq.Repo
@@ -15,12 +17,12 @@ defmodule Zaq.Ingestion.RenameService do
     end
   end
 
-  defp rename_by_type(:directory, volume_name, old_path, new_path, _volumes) do
+  defp rename_by_type(:directory, volume_name, old_path, new_path, volumes) do
     old_relative = SourcePath.normalize_relative(old_path)
     new_relative = SourcePath.normalize_relative(new_path)
 
     rename_ops = [%{volume: volume_name, old_relative: old_relative, new_relative: new_relative}]
-    db_multi = build_directory_multi(volume_name, old_relative, new_relative)
+    db_multi = build_directory_multi(volume_name, old_relative, new_relative, volumes)
 
     rename_with_saga(rename_ops, db_multi)
   end
@@ -79,9 +81,13 @@ defmodule Zaq.Ingestion.RenameService do
     end
   end
 
-  defp build_directory_multi(volume_name, old_relative, new_relative) do
-    volume_name
-    |> SourcePath.source_candidates(old_relative)
+  defp build_directory_multi(volume_name, old_relative, new_relative, volumes) do
+    all_prefixes =
+      SourcePath.source_candidates(volume_name, old_relative) ++
+        legacy_directory_prefixes(volume_name, old_relative, volumes)
+
+    all_prefixes
+    |> Enum.uniq()
     |> Enum.reduce(Multi.new(), fn old_prefix, multi ->
       new_prefix = SourcePath.remap_source(old_prefix, volume_name, new_relative)
 
@@ -102,6 +108,73 @@ defmodule Zaq.Ingestion.RenameService do
         []
       )
     end)
+    |> Multi.run(:sync_stranded_legacy, fn repo, _ ->
+      sync_stranded_legacy_docs(repo, volume_name, new_relative, volumes)
+    end)
+  end
+
+  # Legacy sources were stored as "volume_name/<absolute_path_without_leading_slash>"
+  # when absolute_to_source was broken. Compute that prefix so the prefix-based
+  # rename query also migrates rows created with the SAME name as the current rename.
+  defp legacy_directory_prefixes(volume_name, old_relative, volumes),
+    do: SourcePath.legacy_folder_prefixes(volume_name, old_relative, volumes)
+
+  # Handles legacy docs that are "stranded" because a previous rename (before this
+  # fix existed) moved the folder on disk but left their absolute-path sources
+  # pointing to the old folder name.  After the FS rename completes, any legacy doc
+  # whose embedded file now exists under new_relative on disk belongs to this folder
+  # and must be rewritten to the canonical relative-path format.
+  defp sync_stranded_legacy_docs(repo, volume_name, new_relative, volumes) do
+    case Map.get(volumes, volume_name) do
+      nil ->
+        {:ok, 0}
+
+      base_path ->
+        expanded_base = Path.expand(base_path)
+        base_without_slash = String.trim_leading(expanded_base, "/")
+        volume_legacy_prefix = volume_name <> "/" <> base_without_slash <> "/"
+
+        legacy_docs =
+          from(d in Document, where: like(d.source, ^"#{volume_legacy_prefix}%"))
+          |> repo.all()
+
+        count =
+          Enum.count(legacy_docs, fn doc ->
+            embedded =
+              doc.source
+              |> String.replace_prefix(volume_legacy_prefix, "")
+              |> strip_legacy_prefix(base_without_slash)
+
+            migrate_stranded_doc(repo, doc, embedded, expanded_base, volume_name, new_relative)
+          end)
+
+        {:ok, count}
+    end
+  end
+
+  defp migrate_stranded_doc(repo, doc, embedded, expanded_base, volume_name, new_relative) do
+    case String.split(embedded, "/", parts: 2) do
+      [_historical_folder, rest] ->
+        new_abs = Path.join([expanded_base, new_relative, rest])
+
+        if File.exists?(new_abs) do
+          new_source = volume_name <> "/" <> new_relative <> "/" <> rest
+          upsert_migrated_doc(repo, doc, new_source)
+          true
+        else
+          false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp upsert_migrated_doc(repo, doc, new_source) do
+    case repo.get_by(Document, source: new_source) do
+      nil -> doc |> Ecto.Changeset.change(source: new_source) |> repo.update!()
+      _exists -> repo.delete!(doc)
+    end
   end
 
   defp build_file_multi(source_update, sidecar_update) do
@@ -217,6 +290,19 @@ defmodule Zaq.Ingestion.RenameService do
           new_relative: sidecar_update.new_relative
         }
       ]
+  end
+
+  # Strips repeated absolute-path prefix layers from a legacy embedded path.
+  # Handles the case where the source was double-corrupted (e.g. corrupt script
+  # ran on an already-corrupted source), leaving the base path embedded twice.
+  defp strip_legacy_prefix(path, base_without_slash) do
+    prefix = base_without_slash <> "/"
+
+    if String.starts_with?(path, prefix) do
+      path |> String.replace_prefix(prefix, "") |> strip_legacy_prefix(base_without_slash)
+    else
+      path
+    end
   end
 
   defp maybe_update_document(multi, _name, nil), do: multi

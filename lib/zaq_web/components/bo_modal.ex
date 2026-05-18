@@ -131,4 +131,30 @@ defmodule ZaqWeb.Components.BOModal do
     </div>
     """
   end
+
+  attr :id, :string, default: nil
+  attr :cancel_event, :string, required: true
+  attr :title, :string, required: true
+  attr :src, :string, required: true
+  attr :max_width_class, :string, default: "max-w-4xl"
+  attr :height_class, :string, default: "h-[75vh]"
+
+  def iframe_dialog(assigns) do
+    ~H"""
+    <.modal_shell id={@id} cancel_event={@cancel_event} max_width_class={@max_width_class}>
+      <div class="mb-3 flex items-center justify-between">
+        <h3 class="font-mono text-[0.95rem] font-bold text-black">{@title}</h3>
+        <button
+          type="button"
+          phx-click={@cancel_event}
+          aria-label="Close dialog"
+          class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 text-black/50 hover:bg-black/[0.04] hover:text-black/70"
+        >
+          <.icon name="hero-x-mark" class="h-4 w-4" />
+        </button>
+      </div>
+      <iframe src={@src} class={["w-full rounded-xl border border-black/10", @height_class]}></iframe>
+    </.modal_shell>
+    """
+  end
 end

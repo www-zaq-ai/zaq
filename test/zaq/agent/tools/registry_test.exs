@@ -7,6 +7,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     keys = Registry.tools() |> Enum.map(& &1.key)
 
     assert keys == [
+             "answering.search_knowledge_base",
+             "answering.knowledge_base_overview",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -21,9 +23,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
-             "advanced.lua_eval",
-             "answering.search_knowledge_base",
-             "answering.list_knowledge_base_files"
+             "advanced.lua_eval"
            ]
   end
 
@@ -35,6 +35,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
+             "answering.search_knowledge_base",
+             "answering.knowledge_base_overview",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -49,9 +51,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
-             "advanced.lua_eval",
-             "answering.search_knowledge_base",
-             "answering.list_knowledge_base_files"
+             "advanced.lua_eval"
            ]
   end
 
@@ -82,6 +82,24 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
   test "resolve_modules on non-list input returns empty unknown set" do
     assert {:error, {:unknown_tools, []}} = Registry.resolve_modules("files.read_file")
+  end
+
+  test "ghost_keys returns keys not in the registry" do
+    assert Registry.ghost_keys(["basic.sleep", "removed.old_tool", "files.unknown"]) ==
+             ["removed.old_tool", "files.unknown"]
+  end
+
+  test "ghost_keys returns empty list when all keys are valid" do
+    assert Registry.ghost_keys(["basic.sleep", "basic.log"]) == []
+  end
+
+  test "ghost_keys returns empty list for empty input" do
+    assert Registry.ghost_keys([]) == []
+  end
+
+  test "ghost_keys returns empty list for non-list input" do
+    assert Registry.ghost_keys(nil) == []
+    assert Registry.ghost_keys("basic.sleep") == []
   end
 
   test "model_supports_tools? treats unknown or missing values as false" do

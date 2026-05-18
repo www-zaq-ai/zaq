@@ -270,16 +270,28 @@ defmodule ZaqWeb.CoreComponents do
     ~H"""
     <.input_shell label={@label} errors={@errors}>
       <:field>
-        <select
-          id={@id}
-          name={@name}
-          class={[@class || "w-full select", @errors != [] && (@error_class || "select-error")]}
-          multiple={@multiple}
-          {@rest}
-        >
-          <option :if={@prompt} value="">{@prompt}</option>
-          {Phoenix.HTML.Form.options_for_select(@options, @value)}
-        </select>
+        <div class="relative">
+          <select
+            id={@id}
+            name={@name}
+            class={[
+              @class || "w-full select",
+              @class && "w-full appearance-none bg-white pr-10",
+              @errors != [] && (@error_class || "select-error")
+            ]}
+            multiple={@multiple}
+            {@rest}
+          >
+            <option :if={@prompt} value="">{@prompt}</option>
+            {Phoenix.HTML.Form.options_for_select(@options, @value)}
+          </select>
+          <div
+            :if={!@multiple}
+            class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-black/45"
+          >
+            <.icon name="hero-chevron-down" class="size-4" />
+          </div>
+        </div>
       </:field>
     </.input_shell>
     """

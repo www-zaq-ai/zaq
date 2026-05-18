@@ -133,6 +133,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       sink_mfa: {__MODULE__, :sink, []},
       sink_opts: [],
       client: dead_client,
+      imap_adapter: __MODULE__.PassiveAdapter,
       retry_interval: 5,
       mark_as_read: true,
       load_initial_unread: false,
@@ -146,7 +147,114 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       end)
 
     assert_receive :reconnect, 50
-    assert log =~ "fetch unseen failed" or log =~ "IMAP client exited"
+    assert log =~ "stale IMAP client before IDLE"
+  end
+
+  test "handle_info/2 idle_notify clears client when IDLE re-entry returns error" do
+    client = self()
+
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_idle_error",
+      mailbox: "INBOX",
+      sink_mfa: {__MODULE__, :sink, []},
+      sink_opts: [],
+      client: client,
+      imap_adapter: __MODULE__.IdleErrorAdapter,
+      retry_interval: 5,
+      mark_as_read: true,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+        assert updated.client == nil
+      end)
+
+    assert_receive :reconnect, 50
+    assert log =~ "IDLE re-entry failed"
+  end
+
+  test "handle_info/2 idle_notify rescues exceptions from fetch_unseen" do
+    client = self()
+
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_fetch_rescue",
+      mailbox: :bad_mailbox,
+      sink_mfa: {__MODULE__, :sink, []},
+      sink_opts: [],
+      client: client,
+      retry_interval: 5,
+      mark_as_read: true,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+        assert updated.client == nil
+      end)
+
+    assert_receive :reconnect, 50
+    assert log =~ "fetch unseen failed"
+  end
+
+  test "handle_info/2 idle_notify rescues exceptions from enter_idle" do
+    client = self()
+
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_idle_rescue",
+      mailbox: "INBOX",
+      sink_mfa: {__MODULE__, :sink, []},
+      sink_opts: [],
+      client: client,
+      imap_adapter: __MODULE__.IdleRaiseAdapter,
+      retry_interval: 5,
+      mark_as_read: true,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+        assert updated.client == nil
+      end)
+
+    assert_receive :reconnect, 50
+    assert log =~ "IDLE re-entry failed"
+  end
+
+  test "handle_info/2 idle_notify catches exits from enter_idle" do
+    client = self()
+
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_idle_exit",
+      mailbox: "INBOX",
+      sink_mfa: {__MODULE__, :sink, []},
+      sink_opts: [],
+      client: client,
+      imap_adapter: __MODULE__.IdleExitAdapter,
+      retry_interval: 5,
+      mark_as_read: true,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+        assert updated.client == nil
+      end)
+
+    assert_receive :reconnect, 50
+    assert log =~ "IDLE re-entry failed"
   end
 
   test "handle_info/2 connect keeps client nil when connection fails" do
@@ -351,6 +459,64 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     def dispatch(_config, _payload, _opts), do: raise("sink exploded")
   end
 
+  defmodule IdleErrorAdapter do
+    def connect(_config, _mailbox), do: {:error, :unsupported}
+    def fetch_unseen(_client, _mailbox, _on_message), do: :ok
+    def enter_idle(_client, _timeout), do: {:error, :idle_failed}
+    def mark_as_read(_client, _seq), do: :ok
+    def disconnect(_client), do: :ok
+  end
+
+  defmodule PassiveAdapter do
+    def connect(_config, _mailbox), do: {:error, :unsupported}
+    def fetch_unseen(_client, _mailbox, _on_message), do: :ok
+    def enter_idle(_client, _timeout), do: :ok
+    def mark_as_read(_client, _seq), do: :ok
+    def disconnect(_client), do: :ok
+  end
+
+  defmodule IdleRaiseAdapter do
+    def connect(_config, _mailbox), do: {:error, :unsupported}
+    def fetch_unseen(_client, _mailbox, _on_message), do: :ok
+    def enter_idle(_client, _timeout), do: raise("idle exploded")
+    def mark_as_read(_client, _seq), do: :ok
+    def disconnect(_client), do: :ok
+  end
+
+  defmodule IdleExitAdapter do
+    def connect(_config, _mailbox), do: {:error, :unsupported}
+    def fetch_unseen(_client, _mailbox, _on_message), do: :ok
+    def enter_idle(_client, _timeout), do: exit(:idle_exit)
+    def mark_as_read(_client, _seq), do: :ok
+    def disconnect(_client), do: :ok
+  end
+
+  defmodule MarkReadErrorAdapter do
+    def connect(_config, _mailbox), do: {:error, :unsupported}
+
+    def fetch_unseen(_client, _mailbox, on_message) do
+      on_message.(%{"seq" => 1, "mailbox" => "INBOX", "subject" => "test"})
+      :ok
+    end
+
+    def enter_idle(_client, _timeout), do: :ok
+    def mark_as_read(_client, _seq), do: {:error, :store_failed}
+    def disconnect(_client), do: :ok
+  end
+
+  defmodule NonIntegerSeqAdapter do
+    def connect(_config, _mailbox), do: {:error, :unsupported}
+
+    def fetch_unseen(_client, _mailbox, on_message) do
+      on_message.(%{"seq" => "1", "mailbox" => "INBOX", "subject" => "test"})
+      :ok
+    end
+
+    def enter_idle(_client, _timeout), do: :ok
+    def mark_as_read(_client, _seq), do: send(self(), :mark_called)
+    def disconnect(_client), do: :ok
+  end
+
   test "sink dispatch errors are rescued and do not crash listener" do
     fake = start_supervised!({FakeImapServer, owner: self()})
 
@@ -382,6 +548,54 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
       end)
 
     assert log =~ "sink dispatch failed"
+  end
+
+  test "handle_info/2 idle_notify does not mark as read when seq is not an integer" do
+    client = self()
+
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_seq_string",
+      mailbox: "INBOX",
+      sink_mfa: {__MODULE__, :sink, []},
+      sink_opts: [],
+      client: client,
+      imap_adapter: __MODULE__.NonIntegerSeqAdapter,
+      retry_interval: 5,
+      mark_as_read: true,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
+
+    assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+    assert updated.client == client
+    refute_receive :mark_called, 100
+  end
+
+  test "handle_info/2 idle_notify logs warning when mark-as-read returns error" do
+    client = self()
+
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_mark_read_error",
+      mailbox: "INBOX",
+      sink_mfa: {__MODULE__, :sink, []},
+      sink_opts: [],
+      client: client,
+      imap_adapter: __MODULE__.MarkReadErrorAdapter,
+      retry_interval: 5,
+      mark_as_read: true,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+        assert updated.client == client
+      end)
+
+    assert log =~ "mark-as-read failed"
   end
 
   test "listener terminate/2 disconnects IMAP client" do

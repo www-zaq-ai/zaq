@@ -127,6 +127,26 @@ defmodule Zaq.Ingestion.SourcePath do
     end
   end
 
+  @doc """
+  Returns legacy absolute-path-style prefixes for a volume-relative folder path.
+
+  Legacy sources were stored as `"volume_name/<abs_path_without_leading_slash>"`.
+  Returns `[]` when the legacy prefix is already covered by `source_candidates/2`
+  (i.e. no migration needed) or when the volume is unknown.
+  """
+  def legacy_folder_prefixes(volume_name, relative_path, volumes) do
+    case Map.get(volumes, volume_name) do
+      nil ->
+        []
+
+      base_path ->
+        abs_folder = Path.join(Path.expand(base_path), relative_path)
+        legacy = volume_name <> "/" <> String.trim_leading(abs_folder, "/")
+        standard = source_candidates(volume_name, relative_path)
+        if legacy in standard, do: [], else: [legacy]
+    end
+  end
+
   defp configured_volumes do
     Application.get_env(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:volumes, %{})

@@ -119,10 +119,12 @@ defmodule Zaq.Ingestion do
         do:
           dynamic(
             [d],
-            like(d.source, ^"%#{name}%") and
+            ilike(d.source, ^"%#{name}%") and
               fragment("(? ->> 'source_document_source') IS NULL", d.metadata)
           ),
         else: dynamic([d], fragment("(? ->> 'source_document_source') IS NULL", d.metadata))
+
+    name_lower = name && String.downcase(name)
 
     from(d in Document,
       where: ^condition,
@@ -140,7 +142,9 @@ defmodule Zaq.Ingestion do
     |> Enum.map(&ContentSource.from_source/1)
     |> Enum.reject(&is_nil/1)
     |> then(fn sources ->
-      if name, do: Enum.filter(sources, &String.contains?(&1.label, name)), else: sources
+      if name_lower,
+        do: Enum.filter(sources, &String.contains?(String.downcase(&1.label), name_lower)),
+        else: sources
     end)
     |> Enum.sort_by(&String.length(&1.source_prefix))
     |> Enum.uniq_by(&{&1.connector, &1.label})
@@ -173,9 +177,12 @@ defmodule Zaq.Ingestion do
       end)
       |> Enum.uniq_by(& &1.source_prefix)
       |> then(fn sources ->
-        if child_query != "",
-          do: Enum.filter(sources, &String.contains?(&1.label, child_query)),
-          else: sources
+        if child_query != "" do
+          child_lower = String.downcase(child_query)
+          Enum.filter(sources, &String.contains?(String.downcase(&1.label), child_lower))
+        else
+          sources
+        end
       end)
 
     if child_query == "" do
@@ -202,10 +209,12 @@ defmodule Zaq.Ingestion do
   # Keeps the shallowest path per connector so @zaq/ always browses the top-level
   # "zaq" folder, not a nested "zaq" that happens to exist deeper.
   defp find_canonical_paths(folder_label) do
+    label_lower = String.downcase(folder_label)
+
     from(d in Document,
       where:
-        (like(d.source, ^"#{folder_label}/%") or
-           like(d.source, ^"%/#{folder_label}/%")) and
+        (ilike(d.source, ^"#{folder_label}/%") or
+           ilike(d.source, ^"%/#{folder_label}/%")) and
           fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
       select: d.source,
       limit: 100
@@ -213,7 +222,9 @@ defmodule Zaq.Ingestion do
     |> Repo.all()
     |> Enum.flat_map(&derive_folder_prefixes/1)
     |> Enum.uniq()
-    |> Enum.filter(fn prefix -> List.last(String.split(prefix, "/")) == folder_label end)
+    |> Enum.filter(fn prefix ->
+      String.downcase(List.last(String.split(prefix, "/"))) == label_lower
+    end)
     |> Enum.sort_by(&String.length/1)
     |> Enum.uniq_by(fn path -> List.first(String.split(path, "/")) end)
   end
@@ -237,7 +248,7 @@ defmodule Zaq.Ingestion do
   defp derive_folder_prefixes(source) do
     parts = String.split(source, "/", trim: true)
 
-    0..(length(parts) - 2)
+    0..(length(parts) - 2)//1
     |> Enum.map(fn i -> parts |> Enum.take(i + 1) |> Enum.join("/") end)
   end
 
@@ -247,7 +258,8 @@ defmodule Zaq.Ingestion do
   Returns true if the given person can access a file at `relative_path`.
   - Super admins bypass all checks.
   - Files with no Document record are accessible to all (backward compat).
-  - Files with no permissions set are accessible to all (public by default).
+  - Documents tagged `"public"` are accessible to all.
+  - Documents with no permission rows and no public tag are private (admin-only).
   - Otherwise: person must have a direct permission or a team permission.
   """
   def can_access_file?(relative_path, current_user) do
@@ -263,7 +275,7 @@ defmodule Zaq.Ingestion do
         person_id = Map.get(current_user, :person_id)
         team_ids = Map.get(current_user, :team_ids) || []
 
-        super_admin? or permissions == [] or
+        super_admin? or "public" in doc.tags or
           Enum.any?(permissions, fn p ->
             (not is_nil(p.person_id) and p.person_id == person_id) or
               (not is_nil(p.team_id) and p.team_id in team_ids)
@@ -314,9 +326,9 @@ defmodule Zaq.Ingestion do
   Records a newly uploaded file in the documents table.
   Called immediately at upload time so the file browser sees it right away.
   """
-  def track_upload(volume_name, path) do
-    source = SourcePath.build_source(volume_name, path)
-    Document.upsert(%{source: source})
+  def track_upload(_volume_name, path) do
+    {:ok, source} = SourcePath.absolute_to_source(path)
+    Document.insert_new(%{source: source})
   end
 
   def delete_path(volume_name, path, type, volumes \\ nil) do

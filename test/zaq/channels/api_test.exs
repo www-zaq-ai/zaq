@@ -79,6 +79,48 @@ defmodule Zaq.Channels.ApiTest do
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
   end
 
+  defmodule StubDataSourceBridge do
+    def auth_handshake(provider, params) do
+      send(self(), {:ds_auth_handshake, provider, params})
+      {:ok, %{provider: provider}}
+    end
+
+    def list_resources(provider, params) do
+      send(self(), {:ds_list_resources, provider, params})
+      {:ok, [%{"id" => "r1"}]}
+    end
+
+    def download_resource(provider, resource, params) do
+      send(self(), {:ds_download_resource, provider, resource, params})
+      {:ok, %{resource: resource, params: params}}
+    end
+
+    def setup_listener(provider, params) do
+      send(self(), {:ds_setup_listener, provider, params})
+      {:ok, %{listener_id: "l1"}}
+    end
+
+    def teardown_listener(provider, params) do
+      send(self(), {:ds_teardown_listener, provider, params})
+      :ok
+    end
+
+    def channel_stats(provider, params) do
+      send(self(), {:ds_channel_stats, provider, params})
+      {:ok, %{files_count: 10, folders_count: 3, principals_count: 7, root_folders: ["Root"]}}
+    end
+
+    def sync_config_runtime(before_config, after_config) do
+      send(self(), {:ds_sync_config_runtime, before_config, after_config})
+      :ok
+    end
+
+    def sync_provider_runtime(provider) do
+      send(self(), {:ds_sync_provider_runtime, provider})
+      :ok
+    end
+  end
+
   test "handles deliver_outgoing action" do
     outgoing = %Outgoing{body: "ok", channel_id: "c1", provider: :web}
 
@@ -157,6 +199,121 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == {:ok, %{id: "ok"}}
     assert_received {:bridge_test_connection, 42, "chan-1"}
+  end
+
+  test "handles data_source_auth_handshake action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"scope" => "read"}}, :channels,
+        opts: [
+          action: :data_source_auth_handshake,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_auth_handshake, nil)
+    assert result.response == {:ok, %{provider: :google_drive}}
+    assert_received {:ds_auth_handshake, :google_drive, %{"scope" => "read"}}
+  end
+
+  test "handles data_source_list_resources action" do
+    event =
+      Event.new(%{provider: "google_drive", params: %{}}, :channels,
+        opts: [
+          action: :data_source_list_resources,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_list_resources, nil)
+    assert result.response == {:ok, [%{"id" => "r1"}]}
+    assert_received {:ds_list_resources, "google_drive", %{}}
+  end
+
+  test "handles data_source_download_resource action" do
+    event =
+      Event.new(
+        %{provider: :google_drive, resource: %{"id" => "r1"}, params: %{"target" => "tmp"}},
+        :channels,
+        opts: [
+          action: :data_source_download_resource,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_download_resource, nil)
+    assert {:ok, %{resource: %{"id" => "r1"}, params: %{"target" => "tmp"}}} = result.response
+    assert_received {:ds_download_resource, :google_drive, %{"id" => "r1"}, %{"target" => "tmp"}}
+  end
+
+  test "handles data_source_setup_listener action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"mode" => "delta"}}, :channels,
+        opts: [
+          action: :data_source_setup_listener,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_setup_listener, nil)
+    assert result.response == {:ok, %{listener_id: "l1"}}
+    assert_received {:ds_setup_listener, :google_drive, %{"mode" => "delta"}}
+  end
+
+  test "handles data_source_teardown_listener action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"listener_id" => "l1"}}, :channels,
+        opts: [
+          action: :data_source_teardown_listener,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_teardown_listener, nil)
+    assert result.response == :ok
+    assert_received {:ds_teardown_listener, :google_drive, %{"listener_id" => "l1"}}
+  end
+
+  test "handles data_source_channel_stats action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"resource_id" => 9}}, :channels,
+        opts: [
+          action: :data_source_channel_stats,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_channel_stats, nil)
+
+    assert result.response ==
+             {:ok,
+              %{files_count: 10, folders_count: 3, principals_count: 7, root_folders: ["Root"]}}
+
+    assert_received {:ds_channel_stats, :google_drive, %{"resource_id" => 9}}
+  end
+
+  test "handles sync_data_source_runtime action" do
+    before_config = %{id: 1, enabled: true}
+    after_config = %{id: 1, enabled: false}
+
+    event =
+      Event.new(%{before_config: before_config, after_config: after_config}, :channels,
+        opts: [action: :sync_data_source_runtime, runtime_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :sync_data_source_runtime, nil)
+    assert result.response == :ok
+    assert_received {:ds_sync_config_runtime, ^before_config, ^after_config}
+  end
+
+  test "handles sync_data_source_provider_runtime action" do
+    event =
+      Event.new(%{provider: :google_drive}, :channels,
+        opts: [action: :sync_data_source_provider_runtime, runtime_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :sync_data_source_provider_runtime, nil)
+    assert result.response == :ok
+    assert_received {:ds_sync_provider_runtime, :google_drive}
   end
 
   test "delegates incoming_async_hop to shared helper" do
@@ -367,6 +524,10 @@ defmodule Zaq.Channels.ApiTest do
     bad_open_dm = Event.new(%{provider: :mattermost, author_id: 123}, :channels)
     bad_list_mailboxes = Event.new(%{provider: :mattermost, config: "bad"}, :channels)
     bad_bridge_available = Event.new(%{platform: :mattermost}, :channels)
+    bad_data_source_auth = Event.new(%{provider: :google_drive, params: "bad"}, :channels)
+
+    bad_data_source_download =
+      Event.new(%{provider: :google_drive, resource: %{}, params: "bad"}, :channels)
 
     assert Api.handle_event(bad_send_typing, :send_typing, nil).response ==
              {:error, {:unsupported_action, :send_typing}}
@@ -382,6 +543,12 @@ defmodule Zaq.Channels.ApiTest do
 
     assert Api.handle_event(bad_bridge_available, :bridge_available, nil).response ==
              {:error, {:unsupported_action, :bridge_available}}
+
+    assert Api.handle_event(bad_data_source_auth, :data_source_auth_handshake, nil).response ==
+             {:error, {:unsupported_action, :data_source_auth_handshake}}
+
+    assert Api.handle_event(bad_data_source_download, :data_source_download_resource, nil).response ==
+             {:error, {:unsupported_action, :data_source_download_resource}}
   end
 
   test "uses communication_bridge_module option when bridge_module is missing" do

@@ -208,6 +208,47 @@ const liveSocket = new LiveSocket("/live", Socket, {
         if (!this.el.disabled) this.el.focus()
       }
     },
+    OAuthPopupListener: {
+      mounted() {
+        this._popup = null
+
+        this.handleEvent("open_oauth_popup", ({ url }) => {
+          if (!url) return
+
+          const width = 640
+          const height = 760
+          const left = Math.max(0, Math.floor((window.screen.width - width) / 2))
+          const top = Math.max(0, Math.floor((window.screen.height - height) / 2))
+          const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+
+          this._popup = window.open(url, "oauth_claim_popup", features)
+
+          if (!this._popup) {
+            this.pushEvent("oauth_popup_blocked", {})
+          }
+        })
+
+        this._handler = (event) => {
+          const data = event && event.data
+          if (!data || data.type !== "zaq:oauth2_result") return
+          this.pushEvent("oauth_popup_result", data.payload || {})
+
+          if (this._popup && !this._popup.closed) {
+            this._popup.close()
+          }
+
+          this._popup = null
+        }
+
+        window.addEventListener("message", this._handler)
+      },
+      destroyed() {
+        if (this._handler) {
+          window.removeEventListener("message", this._handler)
+          this._handler = null
+        }
+      }
+    },
     SearchableSelect: {
       mounted() {
         const root = this.el

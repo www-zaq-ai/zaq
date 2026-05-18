@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.ApiTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Api
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -258,6 +258,86 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :agent_id) == 7
     assert Keyword.get(opts, :history) == %{}
     assert Keyword.get(opts, :telemetry_dimensions) == %{}
+  end
+
+  test "pipeline path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{"channel_type" => "mattermost"}
+  end
+
+  test "pipeline_opts telemetry_dimensions takes precedence over incoming metadata" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [telemetry_dimensions: %{channel_type: "custom"}],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{channel_type: "custom"}
+  end
+
+  test "executor path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{"telemetry_dimensions" => %{"channel_type" => "mattermost"}}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:executor_called, _, opts}
+    assert Keyword.get(opts, :telemetry_dimensions) == %{"channel_type" => "mattermost"}
   end
 
   test "falls back to pipeline when selection is empty or assigns are malformed" do
@@ -931,6 +1011,28 @@ defmodule Zaq.Agent.ApiTest do
       assert_received {:pipeline_called, resolved2, _opts2}
       assert resolved1.person_id == 99
       assert resolved2.person_id == 99
+    end
+  end
+
+  describe "system config and MCP action guards" do
+    test "system_config_mcp_predefined_catalog returns a map" do
+      result =
+        Api.handle_event(Event.new(%{}, :agent), :system_config_mcp_predefined_catalog, nil)
+
+      assert is_map(result.response)
+    end
+
+    test "returns invalid request for malformed MCP system config payloads" do
+      invalid_requests = [
+        {:system_config_mcp_get_endpoint, %{}},
+        {:system_config_mcp_change_endpoint, %{attrs: %{name: "x"}}},
+        {:system_config_mcp_filter_endpoints, %{filters: :bad, page: 1, per_page: 20}}
+      ]
+
+      Enum.each(invalid_requests, fn {action, request} ->
+        result = Api.handle_event(Event.new(request, :agent), action, nil)
+        assert result.response == {:error, {:invalid_request, request}}
+      end)
     end
   end
 end

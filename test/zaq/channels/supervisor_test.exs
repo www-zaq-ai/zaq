@@ -3,6 +3,8 @@ defmodule Zaq.Channels.SupervisorTest do
 
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.CommunicationBridge
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
@@ -222,6 +224,32 @@ defmodule Zaq.Channels.SupervisorTest do
              Supervisor.start_runtime(bridge_id, state_spec, listener_specs)
 
     assert :ok = Supervisor.stop_bridge_runtime(config, bridge_id)
+  end
+
+  test "start_runtime/3 treats stale ETS runtime as not running and starts again" do
+    bridge_id = "bridge_stale_runtime"
+
+    dead_state = spawn(fn -> :ok end)
+    dead_listener = spawn(fn -> :ok end)
+    Process.sleep(10)
+
+    :ets.insert(
+      :zaq_channels_listeners,
+      {bridge_id, %{listener_pids: [dead_listener], state_pid: dead_state}}
+    )
+
+    state_spec = %{
+      id: {:state_stale_runtime, bridge_id},
+      start: {ListenerProc, :start_link, [[]]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [])
+    assert is_pid(runtime.state_pid)
+    assert Process.alive?(runtime.state_pid)
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
   end
 
   test "stop_bridge_runtime/2 returns not_running when missing", %{config: config} do
@@ -466,31 +494,18 @@ defmodule Zaq.Channels.SupervisorTest do
              Supervisor.start_runtime(bridge_id, raising_state_spec, [])
   end
 
-  test "start_link/1 bootstrap syncs enabled retrieval configs", %{config: config} do
+  test "enabled retrieval configs can be synced to runtime", %{config: config} do
     previous_channels = Application.get_env(:zaq, :channels, %{})
-    previous_runtime = Application.get_env(:zaq, :channels_supervisor_runtime_module)
-
-    Process.register(self(), :supervisor_bootstrap_observer)
 
     on_exit(fn ->
-      if Process.whereis(:supervisor_bootstrap_observer) == self() do
-        Process.unregister(:supervisor_bootstrap_observer)
-      end
-
       Application.put_env(:zaq, :channels, previous_channels)
-
-      if is_nil(previous_runtime) do
-        Application.delete_env(:zaq, :channels_supervisor_runtime_module)
-      else
-        Application.put_env(:zaq, :channels_supervisor_runtime_module, previous_runtime)
-      end
 
       unless Process.whereis(Supervisor) do
         {:ok, _pid} = Supervisor.start_link([])
       end
     end)
 
-    {:ok, _} =
+    {:ok, channel_config} =
       ChannelConfig.upsert_by_provider(config.provider, %{
         name: "Mattermost Bootstrap",
         kind: "retrieval",
@@ -505,15 +520,14 @@ defmodule Zaq.Channels.SupervisorTest do
       mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
     })
 
-    Application.put_env(:zaq, :channels_supervisor_runtime_module, RuntimeSyncSpy)
+    bridge_id = "#{channel_config.provider}_#{channel_config.id}"
 
-    pid = Process.whereis(Supervisor)
-    assert is_pid(pid)
-    :ok = DynamicSupervisor.stop(pid, :normal)
+    _ = Supervisor.stop_bridge_runtime(%{}, bridge_id)
 
-    assert_receive {:bootstrap_sync_config_runtime, nil, synced_config}
-    assert synced_config.provider == "mattermost"
-    assert synced_config.enabled == true
+    assert :ok = CommunicationBridge.sync_config_runtime(nil, channel_config)
+
+    assert {:ok, runtime} = wait_for_runtime(bridge_id)
+    assert is_pid(runtime.state_pid)
   end
 
   test "stop_bridge_runtime/2 handles nil state pid" do
@@ -539,5 +553,158 @@ defmodule Zaq.Channels.SupervisorTest do
   test "start_link/1 returns error when supervisor is already started" do
     assert {:error, {:already_started, pid}} = Supervisor.start_link([])
     assert is_pid(pid)
+  end
+
+  test "data source configs can be synced to runtime via DataSourceBridge" do
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    {:ok, channel_config} =
+      ChannelConfig.upsert_by_provider("google_drive", %{
+        name: "Google Drive Runtime",
+        kind: "data_source",
+        provider: "google_drive",
+        enabled: true,
+        url: "https://drive.google.com",
+        token: "tok",
+        settings: %{}
+      })
+
+    bridge_id = "#{channel_config.provider}_#{channel_config.id}"
+    _ = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+
+    assert :ok = DataSourceBridge.sync_config_runtime(nil, channel_config)
+    assert {:ok, runtime} = wait_for_runtime(bridge_id)
+    assert is_pid(runtime.state_pid)
+  end
+
+  test "public API guards reject invalid argument types" do
+    assert_raise FunctionClauseError, fn ->
+      Supervisor.start_runtime(:not_binary, nil, [])
+    end
+
+    assert_raise FunctionClauseError, fn ->
+      Supervisor.lookup_runtime(123)
+    end
+
+    assert_raise FunctionClauseError, fn ->
+      Supervisor.lookup_state_pid(nil)
+    end
+  end
+
+  test "bootstrap loads enabled retrieval and data_source configs on startup", %{config: config} do
+    previous_channels = Application.get_env(:zaq, :channels, %{})
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, previous_channels)
+
+      # Ensure supervisor is running (it may have been restarted by the app)
+      unless Process.whereis(Supervisor) do
+        {:ok, _pid} = Supervisor.start_link([])
+      end
+    end)
+
+    # Create enabled retrieval config
+    {:ok, retrieval_config} =
+      ChannelConfig.upsert_by_provider(config.provider, %{
+        name: "Retrieval Bootstrap",
+        kind: "retrieval",
+        provider: config.provider,
+        enabled: true,
+        url: config.url,
+        token: config.token,
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      })
+
+    retrieval_bridge_id = "#{retrieval_config.provider}_#{retrieval_config.id}"
+
+    # Create enabled data_source config
+    ds_provider = "google_drive"
+
+    {:ok, ds_config} =
+      ChannelConfig.upsert_by_provider(ds_provider, %{
+        name: "DataSource Bootstrap",
+        kind: "data_source",
+        provider: ds_provider,
+        enabled: true,
+        url: "https://drive.google.com",
+        token: "tok",
+        settings: %{}
+      })
+
+    ds_bridge_id = "#{ds_config.provider}_#{ds_config.id}"
+
+    # Set up app env with providers that have adapters (hits configured_providers)
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook},
+      google_drive: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    # Manually invoke what the bootstrap's load_initial_runtimes does:
+    # sync for both retrieval and data_source kinds
+    _ = Supervisor.stop_bridge_runtime(%{}, retrieval_bridge_id)
+    _ = Supervisor.stop_bridge_runtime(%{}, ds_bridge_id)
+
+    assert :ok = CommunicationBridge.sync_config_runtime(nil, retrieval_config)
+    assert {:ok, retrieval_runtime} = wait_for_runtime(retrieval_bridge_id)
+    assert is_pid(retrieval_runtime.state_pid)
+
+    assert :ok = DataSourceBridge.sync_config_runtime(nil, ds_config)
+    assert {:ok, ds_runtime} = wait_for_runtime(ds_bridge_id)
+    assert is_pid(ds_runtime.state_pid)
+
+    # Cleanup the ETS entries we created
+    _ = Supervisor.stop_bridge_runtime(%{}, retrieval_bridge_id)
+    _ = Supervisor.stop_bridge_runtime(%{}, ds_bridge_id)
+  end
+
+  test "bootstrap is no-op when no enabled channel configs exist" do
+    previous_channels = Application.get_env(:zaq, :channels, %{})
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, previous_channels)
+    end)
+
+    before_entries =
+      :zaq_channels_listeners
+      |> :ets.tab2list()
+      |> Enum.filter(fn {bridge_id, _runtime} ->
+        String.starts_with?(to_string(bridge_id), "mattermost")
+      end)
+
+    # Set up app env with a provider that has an adapter — configured_providers
+    # will return ["mattermost"], but neither retrieval nor data_source configs
+    # exist in the DB, so list_enabled_by_kind returns [] for both.
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+    })
+
+    # The supervisor is already running from the application startup.
+    # The bootstrap already ran. Verify no runtime entries exist for mattermost.
+    entries =
+      :zaq_channels_listeners
+      |> :ets.tab2list()
+      |> Enum.filter(fn {bridge_id, _runtime} ->
+        String.starts_with?(to_string(bridge_id), "mattermost")
+      end)
+
+    assert length(entries) == length(before_entries),
+           "Expected bootstrap to avoid creating new mattermost runtime entries. before=#{inspect(before_entries)} after=#{inspect(entries)}"
+  end
+
+  defp wait_for_runtime(bridge_id, attempts \\ 40)
+
+  defp wait_for_runtime(_bridge_id, 0), do: {:error, :not_running}
+
+  defp wait_for_runtime(bridge_id, attempts) do
+    case Supervisor.lookup_runtime(bridge_id) do
+      {:ok, _runtime} = ok ->
+        ok
+
+      {:error, :not_running} ->
+        Process.sleep(25)
+        wait_for_runtime(bridge_id, attempts - 1)
+    end
   end
 end

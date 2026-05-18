@@ -59,7 +59,7 @@ defmodule Zaq.Agent.MCP do
         type: "remote",
         status: "disabled",
         timeout_ms: 5000,
-        url: "https://mcp.stripe.com",
+        url: "https://mcp.stripe.com/",
         headers: %{},
         secret_headers: %{"Authorization" => "Bearer {restricted api key}"},
         environments: %{},

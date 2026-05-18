@@ -652,12 +652,20 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   attr :selected_keys, :list, required: true
 
   defp selected_tools_panel(assigns) do
-    assigns =
-      assign(
-        assigns,
-        :selected_tools,
-        Enum.filter(assigns.tools, &(&1.key in assigns.selected_keys))
-      )
+    tool_index = Map.new(assigns.tools, &{&1.key, &1})
+
+    selected_tools =
+      Enum.map(assigns.selected_keys, fn key ->
+        Map.get(tool_index, key) ||
+          %{
+            key: key,
+            label: key,
+            description: "This tool has been removed from the system.",
+            ghost: true
+          }
+      end)
+
+    assigns = assign(assigns, :selected_tools, selected_tools)
 
     ~H"""
     <div class="rounded-lg border border-[#efece6]">
@@ -668,10 +676,24 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
         <div
           :for={tool <- @selected_tools}
           data-selected-tool-key={tool.key}
-          class="flex items-start justify-between gap-3 px-3 py-2 hover:bg-[#faf8f5]"
+          class={[
+            "flex items-start justify-between gap-3 px-3 py-2",
+            if(Map.get(tool, :ghost), do: "bg-red-50 hover:bg-red-100", else: "hover:bg-[#faf8f5]")
+          ]}
         >
           <div>
-            <p class="font-mono text-[0.72rem] text-[#3e3b36]">{tool.label}</p>
+            <p class={[
+              "font-mono text-[0.72rem]",
+              if(Map.get(tool, :ghost), do: "text-red-600", else: "text-[#3e3b36]")
+            ]}>
+              {tool.label}
+              <span
+                :if={Map.get(tool, :ghost)}
+                class="ml-1.5 inline-block rounded bg-red-100 px-1 py-px font-mono text-[0.58rem] text-red-600"
+              >
+                Removed
+              </span>
+            </p>
             <p class="font-mono text-[0.64rem] text-[#8f8a82]">{tool.description}</p>
           </div>
           <button

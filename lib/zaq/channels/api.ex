@@ -16,7 +16,7 @@ defmodule Zaq.Channels.Api do
 
   @behaviour Zaq.InternalBoundaries
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge}
+  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.InternalBoundaries
@@ -131,6 +131,143 @@ defmodule Zaq.Channels.Api do
       ) do
     runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
     %{event | response: runtime_module.sync_provider_runtime(provider)}
+  end
+
+  def handle_event(
+        %Event{request: %{before_config: before_config, after_config: after_config}} = event,
+        :sync_data_source_runtime,
+        _context
+      ) do
+    runtime_module = Keyword.get(event.opts, :runtime_module, DataSourceBridge)
+    %{event | response: runtime_module.sync_config_runtime(before_config, after_config)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider}} = event,
+        :sync_data_source_provider_runtime,
+        _context
+      ) do
+    runtime_module = Keyword.get(event.opts, :runtime_module, DataSourceBridge)
+    %{event | response: runtime_module.sync_provider_runtime(provider)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_auth_handshake,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.auth_handshake(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_list_resources,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.list_resources(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, resource: resource, params: params}} = event,
+        :data_source_download_resource,
+        _context
+      )
+      when is_map(resource) and is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.download_resource(provider, resource, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_setup_listener,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.setup_listener(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_list_files,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.list_files(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_list_permissions,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.list_permissions(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_teardown_listener,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.teardown_listener(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_channel_stats,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.channel_stats(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_oauth_authorize_url,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.oauth_authorize_url(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_oauth_exchange_code,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.oauth_exchange_code(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_oauth_refresh_token,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.oauth_refresh_token(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider}} = event,
+        :data_source_oauth_default_scopes,
+        _context
+      ) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.oauth_default_scopes(provider)}
   end
 
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)

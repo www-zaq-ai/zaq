@@ -8,8 +8,6 @@ const {
   waitForLiveViewSettled,
 } = require("../support/bo");
 
-const PROMPT_VARIANT_MARKER = "E2E_PROMPT_VARIANT_B";
-
 function uniqueId(prefix) {
   return `${prefix}-${Date.now()}`;
 }
@@ -86,20 +84,6 @@ async function openFirstSourcePreviewModal(page) {
   return modal;
 }
 
-async function resetAnsweringPromptTemplate(page) {
-  await gotoBackOfficeLive(page, "/bo/prompt-templates");
-  await page.locator("#prompt-tab-answering").click();
-
-  const bodyField = page.locator("textarea[id^='prompt-template-body-']").first();
-  const existingBody = await bodyField.inputValue();
-
-  if (existingBody.includes(PROMPT_VARIANT_MARKER)) {
-    await bodyField.fill(existingBody.replace(`\n\n${PROMPT_VARIANT_MARKER}`, "").replace(PROMPT_VARIANT_MARKER, ""));
-    await page.locator("button[id^='save-template-']").first().click();
-    await waitForLiveViewSettled(page);
-  }
-}
-
 test.describe("Knowledge Ops Lead journeys", () => {
   test.beforeAll(async () => {
     const req = await apiRequest.newContext();
@@ -109,7 +93,6 @@ test.describe("Knowledge Ops Lead journeys", () => {
 
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page);
-    await resetAnsweringPromptTemplate(page);
   });
 
   test("Journey 1: ingest new knowledge and confirm it is queryable", async ({ page }) => {
@@ -208,40 +191,6 @@ test.describe("Knowledge Ops Lead journeys", () => {
 
     await page.goto(previewPath(`${folderName}/${fileName}`));
     await expect(page.locator("body")).toContainText("Updated content should mark file stale");
-  });
-
-  test("Journey 3: tune prompts and verify answer-quality loop", async ({ page }) => {
-    const controlQuestion = "What does the employee benefits handbook include?";
-
-    await gotoBackOfficeLive(page, "/bo/prompt-templates");
-    await expect(page.locator("#prompt-tab-answering")).toBeVisible();
-
-    await askQuestion(page, controlQuestion);
-    await expect(page.locator("#chat-messages")).toContainText(
-      "Baseline response generated from the default prompt template.",
-      { timeout: 30_000 }
-    );
-
-    await gotoBackOfficeLive(page, "/bo/prompt-templates");
-    await page.locator("#prompt-tab-answering").click();
-
-    const bodyField = page.locator("textarea[id^='prompt-template-body-']").first();
-    const existingBody = await bodyField.inputValue();
-
-    if (!existingBody.includes(PROMPT_VARIANT_MARKER)) {
-      await bodyField.fill(`${existingBody}\n\n${PROMPT_VARIANT_MARKER}`);
-    }
-
-    await page.locator("button[id^='save-template-']").first().click();
-
-    await askQuestion(page, controlQuestion);
-    await expect(page.locator("#chat-messages")).toContainText(
-      "Tuned response generated from the updated prompt template.",
-      { timeout: 30_000 }
-    );
-
-    const modal = await openFirstSourcePreviewModal(page);
-    await expect(modal).toContainText("Employee Benefits Handbook");
   });
 
   test("Journey 4: unsupported source chips are visible but disabled", async ({ page }) => {

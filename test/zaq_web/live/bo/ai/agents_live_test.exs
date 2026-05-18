@@ -59,6 +59,86 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert render(view) =~ "Create Agent"
   end
 
+  test "displays ghost tools with Removed badge when agent has stale tool keys", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Ghost Tool Agent #{System.unique_integer([:positive])}",
+        job: "test job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: []
+      })
+
+    Repo.update!(
+      Ecto.Changeset.change(
+        Repo.get!(Zaq.Agent.ConfiguredAgent, agent.id),
+        enabled_tool_keys: ["removed.ghost_tool"]
+      )
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#agent-row-#{agent.id}"))
+
+    html = render(view)
+    assert html =~ "removed.ghost_tool"
+    assert html =~ "Removed"
+  end
+
+  test "ghost tool can be removed and agent saved successfully", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Ghost Remove Agent #{System.unique_integer([:positive])}",
+        job: "test job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: []
+      })
+
+    Repo.update!(
+      Ecto.Changeset.change(
+        Repo.get!(Zaq.Agent.ConfiguredAgent, agent.id),
+        enabled_tool_keys: ["removed.ghost_tool"]
+      )
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    render_click(element(view, "#agent-row-#{agent.id}"))
+    assert has_element?(view, ~s([data-selected-tool-key="removed.ghost_tool"]))
+
+    view
+    |> element(
+      ~s(#configured-agent-form button[phx-click="remove_tool"][phx-value-key="removed.ghost_tool"])
+    )
+    |> render_click()
+
+    refute has_element?(view, ~s([data-selected-tool-key="removed.ghost_tool"]))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => agent.name,
+        "job" => agent.job,
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(agent.credential_id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Agent updated"
+  end
+
   test "shows unselected tools in searchable add-tools modal", %{conn: conn} do
     _credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
@@ -72,7 +152,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Add tools"
     assert html =~ "Lua eval"
     assert html =~ "Search knowledge base"
-    assert html =~ "List knowledge base files"
+    assert html =~ "Knowledge Base Overview"
   end
 
   test "renders MCP section above tools and supports add/remove", %{conn: conn} do
@@ -224,7 +304,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     html = render(view)
     assert html =~ "No active MCP endpoints found. Activate one in System Config."
-    assert has_element?(view, ~s(a[href="/bo/system-config?tab=mcp"]))
+    assert has_element?(view, ~s(a[href="/bo/system-config?tab=mcps"]))
   end
 
   test "clicking a row opens edit form", %{conn: conn} do

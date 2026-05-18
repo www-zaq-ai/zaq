@@ -10,7 +10,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   import Ecto.Query
 
   @retrieval_providers ~w(slack teams mattermost discord telegram webhook email)
-  @ingestion_providers ~w(zaq_local google_drive sharepoint)
+  @data_source_providers ~w(zaq_local google_drive sharepoint)
   @notification_providers ~w(email:smtp)
 
   # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     }
   ]
 
-  @ingestion_cards [
+  @data_source_cards [
     %{
       id: "zaq_local",
       label: "ZAQ Local",
@@ -100,7 +100,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   # Provider IDs shown as mini-logos inside category cards on the index page
   @retrieval_preview ~w(slack teams mattermost discord telegram)
-  @ingestion_preview ~w(zaq_local google_drive sharepoint)
+  @data_source_preview ~w(zaq_local google_drive sharepoint)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -109,7 +109,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     {:ok,
      socket
      |> assign(:retrieval_preview, @retrieval_preview)
-     |> assign(:ingestion_preview, @ingestion_preview)
+     |> assign(:data_source_preview, @data_source_preview)
      |> assign(:stats, if(available, do: compute_stats(), else: %{}))}
   end
 
@@ -122,8 +122,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
         :retrieval ->
           {"Communication Channels", "/bo/channels/retrieval", @retrieval_cards}
 
-        :ingestion ->
-          {"Ingestion Channels", "/bo/channels/ingestion", @ingestion_cards}
+        :data_source ->
+          {"Data Sources", "/bo/channels/data_source", @data_source_cards}
 
         :notification ->
           {"Notification Channels", "/bo/channels/notifications", @notification_cards}
@@ -161,8 +161,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     end)
   end
 
-  def ingestion_total(stats) do
-    Enum.reduce(@ingestion_providers, 0, fn p, acc ->
+  def data_source_total(stats) do
+    Enum.reduce(@data_source_providers, 0, fn p, acc ->
       acc + Map.get(stats, String.to_existing_atom(p), 0)
     end)
   end
@@ -176,13 +176,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   def provider_path(_kind, "zaq_local"), do: "/bo/ingestion"
   def provider_path(:retrieval, "email"), do: "/bo/channels/retrieval/email"
   def provider_path(:retrieval, id), do: "/bo/channels/retrieval/#{id}"
-  def provider_path(:ingestion, id), do: "/bo/channels/ingestion/#{id}"
+  def provider_path(:data_source, id), do: "/bo/channels/data_source/#{id}"
   def provider_path(:notification, id), do: "/bo/channels/notifications/#{id}"
 
   # --- Private ---
 
   defp compute_stats do
-    all_providers = @retrieval_providers ++ @ingestion_providers ++ @notification_providers
+    all_providers = @retrieval_providers ++ @data_source_providers ++ @notification_providers
 
     counts =
       ChannelConfig

@@ -21,8 +21,8 @@ defmodule ZaqWeb.RouterTest do
     assert html =~ "Knowledge Gap"
   end
 
-  test "channels ingestion provider live route mounts", %{authed_conn: conn} do
-    assert {:ok, _view, html} = live(conn, ~p"/bo/channels/ingestion/slack")
+  test "channels data source provider live route mounts", %{authed_conn: conn} do
+    assert {:ok, _view, html} = live(conn, ~p"/bo/channels/data_source/slack")
     assert html =~ "Channels"
   end
 

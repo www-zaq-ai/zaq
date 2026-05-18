@@ -43,7 +43,8 @@ defmodule Zaq.MixProject do
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
-        "coveralls.html": :test
+        "coveralls.html": :test,
+        "coveralls.json": :test
       ]
     ]
   end
@@ -103,7 +104,7 @@ defmodule Zaq.MixProject do
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
       {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
-      # {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"}
+      {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"},
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
@@ -111,6 +112,26 @@ defmodule Zaq.MixProject do
       {:jido_mcp, github: "www-zaq-ai/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
       {:req_llm, github: "agentjido/req_llm", branch: "main", override: true},
+      # {:jido_connect,
+      #  path:
+      #    "/Users/julien/Documents/Repos/Github/OSS/jido/connect/jido_connect/apps/jido_connect",
+      #  override: true},
+      # {:jido_connect_google_drive,
+      #  path:
+      #    "/Users/julien/Documents/Repos/Github/OSS/jido/connect/jido_connect/apps/jido_connect_google_drive",
+      #  override: true},
+      {:jido_connect,
+       github: "jfayad/jido_connect", branch: "main", sparse: "apps/jido_connect", override: true},
+      {:jido_connect_google,
+       github: "jfayad/jido_connect",
+       branch: "main",
+       sparse: "apps/jido_connect_google",
+       override: true},
+      {:jido_connect_google_drive,
+       github: "jfayad/jido_connect",
+       branch: "main",
+       sparse: "apps/jido_connect_google_drive",
+       override: true},
 
       # Dev/Test
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
@@ -152,7 +173,7 @@ defmodule Zaq.MixProject do
         "format",
         "credo --strict",
         "hooks.verify",
-        "test"
+        "test --stale"
       ],
       q: ["quality"],
       quality: [
@@ -162,7 +183,45 @@ defmodule Zaq.MixProject do
         "credo --strict"
         # "doctor --summary --raise"
         # "dialyzer"
-      ]
+      ],
+      coverup: fn args ->
+        # call mix coverup [threshold|95] [limit|3]
+        {threshold, limit} =
+          case args do
+            [threshold, limit] -> {threshold, limit}
+            [threshold] -> {threshold, "3"}
+            _ -> {"95", "3"}
+          end
+
+        command = """
+        git --no-pager diff --name-only --diff-filter=AM main...HEAD |
+        grep '^lib/.*\\.ex$' |
+        sort -u |
+        while read -r file; do
+          jq -r \
+            --arg file "$file" \
+            --argjson threshold "#{threshold}" '
+              .source_files[]
+              | select(.name == $file)
+              | {
+                  file: .name,
+                  covered: ([.coverage[] | select(. != null and . > 0)] | length),
+                  relevant: ([.coverage[] | select(. != null)] | length),
+                  missed: [.coverage | to_entries[] | select(.value == 0) | .key + 1]
+                }
+              | select(.relevant > 0)
+              | .percent = ((.covered * 100 / .relevant))
+              | select(.percent < $threshold)
+              | "\\(.percent) \\(.file) — \\(.percent | floor)% — missed line numbers: \\(.missed | join(", "))"
+            ' cover/excoveralls.json
+        done |
+        sort -n |
+        head -n #{limit} |
+        cut -d' ' -f2-
+        """
+
+        Mix.shell().cmd(command)
+      end
     ]
   end
 

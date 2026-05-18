@@ -27,6 +27,24 @@ defmodule Zaq.Agent.AnsweringTest do
     end
   end
 
+  describe "answering_tools/0" do
+    test "returns a list containing the expected tool modules" do
+      tools = Answering.answering_tools()
+      assert is_list(tools)
+      assert Zaq.Agent.Tools.SearchKnowledgeBase in tools
+      assert Zaq.Agent.Tools.KnowledgeBaseOverview in tools
+    end
+  end
+
+  describe "no_answer_signals/0" do
+    test "returns a non-empty list of signal strings" do
+      signals = Answering.no_answer_signals()
+      assert is_list(signals)
+      assert match?([_ | _], signals)
+      assert Enum.all?(signals, &is_binary/1)
+    end
+  end
+
   describe "clean_answer/1" do
     test "trims whitespace" do
       assert Answering.clean_answer("  hello  ") == "hello"

@@ -113,6 +113,39 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "td", "Empty directory")
   end
 
+  test "renders URL Crawling tab from ingestion screen", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion?section=url_crawler")
+
+    assert has_element?(view, "a", "Files")
+    assert has_element?(view, "a", "URL Crawling")
+    assert has_element?(view, "#create-new-crawl-link")
+    assert has_element?(view, "#crawler-config-row-cfg-marketing")
+    assert render(view) =~ "Crawl Configurations"
+  end
+
+  test "renders URL Crawling setup and preview screens", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/bo/ingestion/url_crawler/new")
+    assert html =~ "Configuration Setup"
+    assert html =~ "Analyze tree"
+
+    {:ok, _view, html} = live(conn, ~p"/bo/ingestion/url_crawler/preview/investor")
+    assert html =~ "Analysis Preview"
+    assert html =~ "Save configuration"
+  end
+
+  test "renders URL Crawling runs and run detail under ingestion namespace", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion/url_crawler/cfg-investor")
+
+    assert has_element?(view, "h1", "Investor perimeter review")
+    assert render(view) =~ "Run crawl"
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion/url_crawler/cfg-investor/runs/run-2026-029")
+
+    assert has_element?(view, "h1", "run-2026-029")
+    assert render(view) =~ "Run metadata"
+    assert render(view) =~ "Failed item list"
+  end
+
   test "supports selection, modal open/close, and view mode toggle", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -120,10 +153,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "button", "Delete (1)")
 
     render_hook(view, "select_all", %{})
-    assert has_element?(view, "button", "Delete (4)")
+    assert has_element?(view, "button", "Delete (5)")
 
     render_hook(view, "select_all", %{})
-    refute has_element?(view, "button", "Delete (4)")
+    refute has_element?(view, "button", "Delete (5)")
 
     render_hook(view, "show_delete_confirmation", %{})
     assert has_element?(view, "h3", "Delete Selected")

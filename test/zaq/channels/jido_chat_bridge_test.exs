@@ -4,13 +4,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   alias Jido.Chat
   alias Jido.Chat.Author
+  alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Agent.{JidoTelemetryBridge, MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
-  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
@@ -303,7 +303,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
          author: %Author{user_id: "u1", user_name: "alice"},
          was_mentioned: true,
          metadata: %{},
-         channel_meta: %{adapter_name: :mattermost}
+         channel_meta: ChannelMeta.new(%{adapter_name: :mattermost, is_dm: false})
        }}
     end
 
@@ -317,7 +317,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
          author: %Author{user_id: "u1", user_name: "alice"},
          was_mentioned: false,
          metadata: %{},
-         channel_meta: %{adapter_name: :mattermost}
+         channel_meta: ChannelMeta.new(%{adapter_name: :mattermost, is_dm: false})
        }}
     end
 

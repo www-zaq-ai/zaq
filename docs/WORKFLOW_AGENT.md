@@ -26,10 +26,18 @@ Before writing a single line of code:
 ### Complex tasks (multiple files, multiple concerns, or architectural changes)
 1. Break the work into explicit implementation steps.
 2. Create beads issues for the plan: at least one issue per step (create more when a step should be split for safe delivery/review).
+   - Split one step into multiple issues when any of these apply: different owning module/domain, independent test surface, different deploy/review risk, or expected effort over one day.
 3. Prefix every planned issue title with `[{issueId}]`.
 4. Link dependencies between the created issues (`bd dep add`) to represent execution order.
-5. Start implementation only after issue creation and dependency wiring.
-6. If the task requires architectural changes not covered in `docs/architecture.md` — stop, create the related beads issue(s), and wait for human approval before proceeding.
+   - Canonical direction: if issue `X` needs issue `Y`, run `bd dep add X Y` (X is blocked by Y).
+   - Planned dependency graph must be a DAG: no cycles, and no diamond dependencies unless they are necessary and explained in issue notes.
+5. Validate the dependency graph before coding:
+   - `bd blocked --json`
+   - `bd ready --json`
+   - `bd show <id> --json` for each newly planned issue
+   - Confirm only intended root issues are ready and all dependents are blocked by their prerequisites.
+6. Start implementation only after issue creation and dependency wiring.
+7. If the task requires architectural changes not covered in `docs/architecture.md` — stop, create the related beads issue(s), and wait for human approval before proceeding.
 
 ---
 

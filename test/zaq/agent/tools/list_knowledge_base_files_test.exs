@@ -1,7 +1,7 @@
-defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
+defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Agent.Tools.ListKnowledgeBaseFiles
+  alias Zaq.Agent.Tools.KnowledgeBaseOverview
   alias Zaq.Ingestion.DocumentAccess
 
   # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "returns total, ingested_count, and documents on success" do
       context = %{person_id: 1, node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.total == 2
       assert result.ingested_count == 1
       assert length(result.documents) == 2
@@ -77,7 +77,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "adds preview_url to each document" do
       context = %{person_id: 1, node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       sources = Enum.map(result.documents, & &1.source)
       assert "folder/doc.md" in sources
 
@@ -88,7 +88,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "preview_url uses /bo/preview base path" do
       context = %{person_id: 1, node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
 
       Enum.each(result.documents, fn doc ->
         assert String.starts_with?(doc.preview_url, "/bo/preview/")
@@ -98,7 +98,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "returns zero totals when document list is empty" do
       context = %{node_router: EmptyRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.total == 0
       assert result.ingested_count == 0
       assert result.documents == []
@@ -107,7 +107,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "ingested_count counts only ingested: true documents" do
       context = %{person_id: 1, node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.ingested_count == Enum.count(result.documents, & &1.ingested)
     end
   end
@@ -120,14 +120,14 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "unwraps {:ok, list} result from router" do
       context = %{node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.total == 2
     end
 
     test "passes through plain list result (no {:ok, _} wrapper)" do
       context = %{node_router: PlainListRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.total == 1
       assert hd(result.documents).source == "plain.md"
     end
@@ -135,7 +135,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "returns error tuple when router returns error and downstream raises" do
       context = %{node_router: ErrorRouter}
 
-      assert {:error, message} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:error, message} = KnowledgeBaseOverview.run(%{}, context)
       assert String.contains?(message, "Document count failed:")
     end
   end
@@ -148,7 +148,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "forwards person_id and team_ids from context to router" do
       context = %{person_id: 42, team_ids: [1, 2], node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       assert opts[:person_id] == 42
@@ -158,7 +158,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "nil person_id is excluded from opts (nil is not an implicit permission grant)" do
       context = %{person_id: nil, node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       refute Keyword.has_key?(opts, :person_id)
@@ -167,7 +167,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "person_id absent from context is also excluded from opts" do
       context = %{node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       refute Keyword.has_key?(opts, :person_id)
@@ -176,7 +176,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "team_ids defaults to [] when absent from context" do
       context = %{person_id: 1, node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       assert opts[:team_ids] == []
@@ -185,7 +185,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "skip_permissions defaults to false" do
       context = %{person_id: 1, node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       assert opts[:skip_permissions] == false
@@ -194,7 +194,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "skip_permissions: true is forwarded from context" do
       context = %{skip_permissions: true, node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       assert opts[:skip_permissions] == true
@@ -203,7 +203,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "source_filter is forwarded when set" do
       context = %{source_filter: ["docs"], node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       assert opts[:source_filter] == ["docs"]
@@ -212,7 +212,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "nil source_filter is excluded from opts" do
       context = %{source_filter: nil, node_router: CaptureRouter}
 
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
 
       assert_received {:captured_opts, opts}
       refute Keyword.has_key?(opts, :source_filter)
@@ -221,7 +221,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "forwards exact person_id and team_ids to PermissionRouter without extra opts" do
       context = %{person_id: 42, team_ids: [1, 2], node_router: PermissionRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert result.documents == []
     end
   end
@@ -233,7 +233,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
   describe "run/2 — resilience" do
     test "runs without error when status_context is absent from context" do
       context = %{node_router: EmptyRouter}
-      assert {:ok, _} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, _} = KnowledgeBaseOverview.run(%{}, context)
     end
   end
 
@@ -245,7 +245,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "tool result is JSON-encodable (LLM can receive it)" do
       context = %{person_id: 1, node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert {:ok, encoded} = Jason.encode(result)
       decoded = Jason.decode!(encoded)
 
@@ -257,7 +257,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "each document in output has source, ingested, and preview_url keys" do
       context = %{person_id: 1, node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
 
       Enum.each(result.documents, fn doc ->
         assert Map.has_key?(doc, :source)
@@ -269,7 +269,7 @@ defmodule Zaq.Agent.Tools.ListKnowledgeBaseFilesTest do
     test "ingested_count matches number of ingested: true documents in JSON output" do
       context = %{person_id: 1, node_router: StubRouter}
 
-      assert {:ok, result} = ListKnowledgeBaseFiles.run(%{}, context)
+      assert {:ok, result} = KnowledgeBaseOverview.run(%{}, context)
       assert {:ok, encoded} = Jason.encode(result)
       decoded = Jason.decode!(encoded)
 
