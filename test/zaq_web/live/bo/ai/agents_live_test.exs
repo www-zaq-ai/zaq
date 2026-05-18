@@ -57,6 +57,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert has_element?(view, "#configured-agent-form")
     assert has_element?(view, "#agents-detail-pane")
     assert render(view) =~ "Create Agent"
+    assert render(view) =~ "Max number of iterations"
+    assert render(view) =~ "Default: 10"
   end
 
   test "displays ghost tools with Removed badge when agent has stale tool keys", %{conn: conn} do
@@ -531,6 +533,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
+        "max_iterations" => "2",
         "idle_time_seconds" => "900",
         "active" => "true"
       }
@@ -591,6 +594,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "strategy" => "react",
         "enabled_tool_keys" => [""],
         "advanced_options_json" => "{}",
+        "max_iterations" => "2",
         "idle_time_seconds" => "900",
         "active" => "true"
       }
@@ -599,7 +603,12 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     assert render(view) =~ "Agent created"
     assert render(view) =~ agent_name
-    assert Enum.any?(Zaq.Agent.list_agents(), &(&1.name == agent_name))
+
+    assert Enum.any?(Zaq.Agent.list_agents(), fn agent ->
+             agent.name == agent_name and agent.max_iterations == 2
+           end)
+
+    assert has_element?(view, "#configured_agent_max_iterations[value='2']")
   end
 
   test "does not show field validation errors on change before save", %{conn: conn} do

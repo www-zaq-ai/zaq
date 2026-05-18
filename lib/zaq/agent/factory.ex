@@ -146,6 +146,7 @@ defmodule Zaq.Agent.Factory do
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
+        |> Keyword.put(:max_iterations, configured_agent.max_iterations || 10)
         |> Keyword.put_new(:timeout, 300_000)
 
       ask(server, query, ask_opts)

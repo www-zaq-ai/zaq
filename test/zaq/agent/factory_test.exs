@@ -101,6 +101,41 @@ defmodule Zaq.Agent.FactoryTest do
              Factory.runtime_config(configured_agent)
   end
 
+  test "runtime_config returns standard config fields when max iterations is unset" do
+    configured_agent = %Agent.ConfiguredAgent{enabled_tool_keys: [], credential: nil}
+
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    assert is_list(config.llm_opts)
+    assert config.system_prompt == ""
+  end
+
+  test "runtime_config does not expose max iterations directly" do
+    configured_agent = %Agent.ConfiguredAgent{
+      enabled_tool_keys: [],
+      credential: nil,
+      max_iterations: 2
+    }
+
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    refute Map.has_key?(config, :max_iterations)
+  end
+
+  test "Jido ReAct start schema preserves request max iterations" do
+    instruction = %Jido.Instruction{
+      action: :ai_react_start,
+      params: %{query: "hello", request_id: "req-1", max_iterations: 2}
+    }
+
+    normalized =
+      Jido.Agent.Strategy.normalize_instruction(
+        Jido.AI.Reasoning.ReAct.Strategy,
+        instruction,
+        %{}
+      )
+
+    assert normalized.params.max_iterations == 2
+  end
+
   test "ask_with_config builds llm opts across option-key and credential branches" do
     credential =
       ai_credential_fixture(%{
