@@ -82,104 +82,63 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 
 ## Running ZAQ
 
-### Local Auto Installer (recommended first run)
+### Single Image (recommended)
 
-Use the local installer to bootstrap a complete Docker-based ZAQ setup in one command.
-
-```bash
-./zaq-local.sh
-```
-
-What it does automatically:
-
-- verifies Docker + Docker Compose are available
-- creates `ingestion-volumes/documents`
-- downloads the latest `docker-compose.yml`
-- generates `.env` with `SECRET_KEY_BASE` and `SYSTEM_CONFIG_ENCRYPTION_KEY`
-- starts ZAQ and pgvector containers in background
-- opens `http://localhost:4000` and tails logs
-
-Use this path when you want the fastest local startup.
-
-### Docker Compose (local Docker image testing)
-
-Use this path to explicitly test the local Docker image/runtime flow.
-
-This path uses `docker-compose.yml` with:
-
-- `pgvector` service (PostgreSQL + pgvector)
-- `zaq` service (Phoenix release built from `Dockerfile`)
-- automatic DB migration on container start
-
-Defaults used by the Docker setup:
-
-- ingestion volume root: `/zaq/volumes`
-- default ingestion folder: `/zaq/volumes/documents`
-- named volume map: `documents -> /zaq/volumes/documents`
-
-1. Create the host folder used by the default bind mount:
+The easiest way to run ZAQ — one image, no docker-compose, no configuration required.
 
 ```bash
-mkdir -p ingestion-volumes/documents
+docker run -d \
+  --name zaq \
+  -p 4000:4000 \
+  -v zaq-pgdata:/var/lib/postgresql/data \
+  -v zaq-volumes:/zaq/volumes \
+  docker-hub-image/zaq:latest
 ```
 
-2. Set a production secret key base (required by `runtime.exs`):
+Open [http://localhost:4000](http://localhost:4000) in your browser. On first boot you will be prompted to set your admin password — no default credentials needed.
+
+`SECRET_KEY_BASE` and `SYSTEM_CONFIG_ENCRYPTION_KEY` are auto-generated on first boot and persisted inside the `zaq-pgdata` volume.
+
+> **Warning:** Always use named volumes (`-v zaq-pgdata:...`). Without them, data is lost when the container is removed.
+
+To stop:
 
 ```bash
-export SECRET_KEY_BASE="$(openssl rand -hex 64)"
+docker stop zaq && docker rm zaq
 ```
 
-3. Optionally override base URL and ingestion paths from your host environment:
+To update:
 
 ```bash
-export BASE_URL_SCHEME="http"
-export BASE_URL="http://localhost:4000"
-
-export INGESTION_VOLUMES="documents"
-export INGESTION_VOLUMES_BASE="/zaq/volumes"
-export INGESTION_BASE_PATH="/zaq/volumes/documents"
+docker pull docker-hub-image/zaq:latest
+docker stop zaq && docker rm zaq
+docker run -d --name zaq -p 4000:4000 \
+  -v zaq-pgdata:/var/lib/postgresql/data \
+  -v zaq-volumes:/zaq/volumes \
+  docker-hub-image/zaq:latest
 ```
 
-LLM, embedding, and image-to-text provider/model settings are configured from Back Office at
-`/bo/system-config` and persisted in the database (`system_configs`).
+### Docker Compose (local development)
 
-4. Configure SMTP secret encryption (required to save SMTP passwords from BO):
-
-```bash
-# recommended: base64 key that decodes to exactly 32 bytes
-export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
-```
-
-`SYSTEM_CONFIG_ENCRYPTION_KEY` accepts one of:
-
-- raw 32-byte value
-- Base64 value decoding to 32 bytes (recommended)
-- 64-char hex value (32 bytes)
-
-If the key is missing or invalid, ZAQ blocks saving sensitive SMTP settings (strict mode).
-
-5. Build and start the stack:
+Use this path to build and test the image locally from source.
 
 ```bash
 docker compose up --build
 ```
 
-6. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
+Open [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
 
-To stop containers:
+To stop:
 
 ```bash
 docker compose down
 ```
 
-To stop and remove DB data volume:
+To stop and remove all data:
 
 ```bash
 docker compose down -v
 ```
-
-`docker compose down -v` removes the Postgres named volume only. Files in `./ingestion-volumes` are bind-mounted and remain on disk.
 
 ### Environment Variables (required vs optional)
 
@@ -401,7 +360,7 @@ On every published release, GitHub Actions builds and pushes a Docker image to G
 - `ghcr.io/www-zaq-ai/zaq:X.Y.Z`
 - `ghcr.io/www-zaq-ai/zaq:X.Y`
 - `ghcr.io/www-zaq-ai/zaq:X`
-- `ghcr.io/www-zaq-ai/zaq:latest` (only for stable releases)
+- `docker-hub-image/zaq:latest` (only for stable releases)
 
 ## Community
 
