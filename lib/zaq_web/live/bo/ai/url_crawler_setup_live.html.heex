@@ -1,0 +1,666 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title={@page_title}
+  current_path={@current_path}
+  features_version={@features_version}
+>
+  <div class="mb-3">
+    <.link
+      navigate={~p"/bo/ingestion?section=url_crawler"}
+      class="mb-2 inline-flex items-center gap-1.5 font-mono text-[0.68rem] text-black/40 transition-colors hover:text-black"
+    >
+      <.icon name="hero-arrow-left" class="h-3 w-3" /> Crawl configurations
+    </.link>
+    <div>
+      <p class="font-mono text-[0.58rem] uppercase tracking-[0.22em] text-black/30">
+        Configuration Setup
+      </p>
+      <h1 class="mt-0.5 font-mono text-[1.1rem] font-bold tracking-tight text-black">
+        Crawl setup
+      </h1>
+      <p class="mt-0.5 max-w-4xl font-mono text-[0.68rem] leading-relaxed text-black/45">
+        Define the crawl perimeter once, analyze the matching tree, then launch as many runs as needed from the saved configuration.
+      </p>
+    </div>
+  </div>
+
+  <div class="mb-2 rounded-xl border zaq-border-accent-soft zaq-bg-accent-soft px-3 py-1.5">
+    <p class="font-mono text-[0.64rem] font-semibold zaq-text-ink">
+      Analyze previews the perimeter only.
+    </p>
+    <p class="mt-0.5 font-mono text-[0.64rem] zaq-text-ink-soft">
+      After the tree preview, you can deselect pages, choose the ingestion strategy, and launch the run directly.
+    </p>
+  </div>
+
+  <div :if={@analyzing} class="mb-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5">
+    <p class="font-mono text-[0.64rem] font-semibold text-sky-900">
+      Analyzing crawl perimeter...
+    </p>
+    <p class="mt-0.5 font-mono text-[0.64rem] text-sky-800">
+      Please wait while the matching pages and files are being discovered.
+    </p>
+  </div>
+
+  <.form
+    for={@form}
+    id="url-crawler-setup-form"
+    phx-change="validate_setup"
+    phx-submit="analyze_site"
+  >
+    <div class="space-y-3">
+      <section class="rounded-xl border border-black/10 bg-white p-3.5">
+        <div class="flex flex-col gap-1">
+          <p class="font-mono text-[0.58rem] uppercase tracking-[0.22em] text-black/30">
+            Configuration
+          </p>
+          <p class="font-mono text-[0.64rem] text-black/45">
+            Core settings for the crawl source and perimeter.
+          </p>
+        </div>
+
+        <div class="mt-2.5 grid grid-cols-1 gap-2.5 xl:grid-cols-12">
+          <div class="xl:col-span-5">
+            <label
+              for={@form[:root_url].id}
+              class="mb-1 block font-mono text-[0.64rem] font-semibold text-black/70"
+            >
+              Root URL
+            </label>
+            <.input
+              field={@form[:root_url]}
+              type="url"
+              label=""
+              class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.74rem] text-black"
+            />
+          </div>
+
+          <div class="xl:col-span-3">
+            <label
+              for={@form[:crawl_label].id}
+              class="mb-1 block font-mono text-[0.64rem] font-semibold text-black/70"
+            >
+              Crawl label
+            </label>
+            <.input
+              field={@form[:crawl_label]}
+              type="text"
+              label=""
+              class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.74rem] text-black"
+            />
+          </div>
+
+          <div class="xl:col-span-2">
+            <label
+              for={@form[:depth].id}
+              class="mb-1 block font-mono text-[0.64rem] font-semibold text-black/70"
+            >
+              Depth
+            </label>
+            <.input
+              field={@form[:depth]}
+              type="select"
+              label=""
+              options={depth_options()}
+              class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.74rem] text-black"
+            />
+          </div>
+
+          <div class="xl:col-span-2">
+            <label
+              for={@form[:subdomain_policy].id}
+              class="mb-1 block font-mono text-[0.64rem] font-semibold text-black/70"
+            >
+              Subdomain policy
+            </label>
+            <.input
+              field={@form[:subdomain_policy]}
+              type="select"
+              label=""
+              options={subdomain_policy_options()}
+              class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.74rem] text-black"
+            />
+          </div>
+
+          <div class="rounded-xl border border-black/10 bg-[#fafafa] px-3 py-2 xl:col-span-12">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="font-mono text-[0.64rem] font-semibold text-black/70">Max pages</p>
+                <p class="mt-0.5 font-mono text-[0.6rem] text-black/45">
+                  Keep unlimited discovery or set a hard cap.
+                </p>
+              </div>
+              <button
+                type="button"
+                phx-click="toggle_max_pages"
+                class={[
+                  "rounded-full px-2 py-0.5 font-mono text-[0.54rem] uppercase tracking-[0.14em] transition-colors",
+                  if(@draft.max_pages_enabled,
+                    do: "zaq-bg-ink text-white",
+                    else: "bg-white text-black/55 ring-1 ring-black/10"
+                  )
+                ]}
+              >
+                {if @draft.max_pages_enabled, do: "Limit pages", else: "No limit"}
+              </button>
+            </div>
+
+            <div :if={@draft.max_pages_enabled} class="mt-1.5 max-w-[9rem]">
+              <label
+                for={@form[:max_pages].id}
+                class="mb-1 block font-mono text-[0.6rem] font-semibold text-black/60"
+              >
+                Page limit
+              </label>
+              <.input
+                field={@form[:max_pages]}
+                type="number"
+                label=""
+                min="1"
+                class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.74rem] text-black"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-xl border border-black/10 bg-white p-3.5">
+        <div class="flex flex-col gap-1">
+          <p class="font-mono text-[0.58rem] uppercase tracking-[0.22em] text-black/30">Rules</p>
+          <p class="font-mono text-[0.64rem] text-black/45">
+            Add one path or query rule at a time. Everything stays visible as a compact live list.
+          </p>
+        </div>
+
+        <div class="mt-2.5 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+          <div class="space-y-3">
+            <p class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-black/35">
+              Path rules
+            </p>
+
+            <div class="rounded-xl border border-black/10 bg-[#fafafa] p-2.5">
+              <p class="font-mono text-[0.64rem] font-semibold text-black/70">Include paths</p>
+              <p class="mt-0.5 font-mono text-[0.58rem] text-black/45">
+                {rule_hint("include_paths")}
+              </p>
+              <div class="mt-1.5 flex gap-2">
+                <.input
+                  field={@form[:include_path_entry]}
+                  type="text"
+                  label=""
+                  placeholder="/guides/*"
+                  class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.72rem] text-black"
+                />
+                <button
+                  type="button"
+                  phx-click="add_rule"
+                  phx-value-list="include_paths"
+                  phx-value-field="include_path_entry"
+                  class="rounded-lg px-2.5 py-2 font-mono text-[0.64rem] font-bold zaq-bg-accent text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)]"
+                >
+                  Add
+                </button>
+              </div>
+              <div class="mt-1.5 flex flex-wrap gap-1">
+                <div
+                  :for={{rule, index} <- Enum.with_index(@draft.include_paths)}
+                  class="inline-flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-0.5"
+                >
+                  <span class="font-mono text-[0.58rem] text-black/70">{rule}</span>
+                  <button
+                    type="button"
+                    phx-click="remove_rule"
+                    phx-value-list="include_paths"
+                    phx-value-index={index}
+                    class="font-mono text-[0.56rem] text-black/40 transition-colors hover:text-black"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <p class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-black/35">
+              Path rules
+            </p>
+
+            <div class="rounded-xl border border-black/10 bg-[#fafafa] p-2.5">
+              <p class="font-mono text-[0.64rem] font-semibold text-black/70">Exclude paths</p>
+              <p class="mt-0.5 font-mono text-[0.58rem] text-black/45">
+                {rule_hint("exclude_paths")}
+              </p>
+              <div class="mt-1.5 flex gap-2">
+                <.input
+                  field={@form[:exclude_path_entry]}
+                  type="text"
+                  label=""
+                  placeholder="/archive/*"
+                  class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.72rem] text-black"
+                />
+                <button
+                  type="button"
+                  phx-click="add_rule"
+                  phx-value-list="exclude_paths"
+                  phx-value-field="exclude_path_entry"
+                  class="rounded-lg px-2.5 py-2 font-mono text-[0.64rem] font-bold zaq-bg-ink text-white transition-colors hover:opacity-80"
+                >
+                  Add
+                </button>
+              </div>
+              <div class="mt-1.5 flex flex-wrap gap-1">
+                <div
+                  :for={{rule, index} <- Enum.with_index(@draft.exclude_paths)}
+                  class="inline-flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-0.5"
+                >
+                  <span class="font-mono text-[0.58rem] text-black/70">{rule}</span>
+                  <button
+                    type="button"
+                    phx-click="remove_rule"
+                    phx-value-list="exclude_paths"
+                    phx-value-index={index}
+                    class="font-mono text-[0.56rem] text-black/40 transition-colors hover:text-black"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <p class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-black/35">
+              Query rules
+            </p>
+
+            <div class="rounded-xl border border-black/10 bg-[#fafafa] p-2.5">
+              <p class="font-mono text-[0.64rem] font-semibold text-black/70">
+                Include query rules
+              </p>
+              <p class="mt-0.5 font-mono text-[0.58rem] text-black/45">
+                {rule_hint("include_query_rules")}
+              </p>
+              <div class="mt-1.5 flex gap-2">
+                <.input
+                  field={@form[:include_query_rule_entry]}
+                  type="text"
+                  label=""
+                  placeholder="lang=en"
+                  class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.72rem] text-black"
+                />
+                <button
+                  type="button"
+                  phx-click="add_rule"
+                  phx-value-list="include_query_rules"
+                  phx-value-field="include_query_rule_entry"
+                  class="rounded-lg px-2.5 py-2 font-mono text-[0.64rem] font-bold zaq-bg-accent text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)]"
+                >
+                  Add
+                </button>
+              </div>
+              <div class="mt-1.5 flex flex-wrap gap-1">
+                <div
+                  :for={{rule, index} <- Enum.with_index(@draft.include_query_rules)}
+                  class="inline-flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-0.5"
+                >
+                  <span class="font-mono text-[0.58rem] text-black/70">{rule}</span>
+                  <button
+                    type="button"
+                    phx-click="remove_rule"
+                    phx-value-list="include_query_rules"
+                    phx-value-index={index}
+                    class="font-mono text-[0.56rem] text-black/40 transition-colors hover:text-black"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <p class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-black/35">
+              Query rules
+            </p>
+
+            <div class="rounded-xl border border-black/10 bg-[#fafafa] p-2.5">
+              <p class="font-mono text-[0.64rem] font-semibold text-black/70">
+                Exclude query rules
+              </p>
+              <p class="mt-0.5 font-mono text-[0.58rem] text-black/45">
+                {rule_hint("exclude_query_rules")}
+              </p>
+              <div class="mt-1.5 flex gap-2">
+                <.input
+                  field={@form[:exclude_query_rule_entry]}
+                  type="text"
+                  label=""
+                  placeholder="preview=true"
+                  class="h-9 rounded-xl border border-black/10 bg-white px-3 font-mono text-[0.72rem] text-black"
+                />
+                <button
+                  type="button"
+                  phx-click="add_rule"
+                  phx-value-list="exclude_query_rules"
+                  phx-value-field="exclude_query_rule_entry"
+                  class="rounded-lg px-2.5 py-2 font-mono text-[0.64rem] font-bold zaq-bg-ink text-white transition-colors hover:opacity-80"
+                >
+                  Add
+                </button>
+              </div>
+              <div class="mt-1.5 flex flex-wrap gap-1">
+                <div
+                  :for={{rule, index} <- Enum.with_index(@draft.exclude_query_rules)}
+                  class="inline-flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-0.5"
+                >
+                  <span class="font-mono text-[0.58rem] text-black/70">{rule}</span>
+                  <button
+                    type="button"
+                    phx-click="remove_rule"
+                    phx-value-list="exclude_query_rules"
+                    phx-value-index={index}
+                    class="font-mono text-[0.56rem] text-black/40 transition-colors hover:text-black"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-xl border border-black/10 bg-white p-3.5">
+        <div class="flex flex-col gap-1">
+          <p class="font-mono text-[0.58rem] uppercase tracking-[0.22em] text-black/30">
+            Content filters
+          </p>
+          <p class="font-mono text-[0.64rem] text-black/45">
+            Select the formats and document families you want this crawl to keep.
+          </p>
+        </div>
+        <div class="mt-2.5 grid grid-cols-3 gap-2 xl:grid-cols-6">
+          <label
+            :for={
+              {label, key, enabled} <- [
+                {"PDF", "pdf_files", @draft.content_filters.pdf_files},
+                {"Img", "img_files", @draft.content_filters.img_files},
+                {".md", "md_files", @draft.content_filters.md_files},
+                {"docs", "docs_pages", @draft.content_filters.docs_pages},
+                {"PPTX", "pptx_files", @draft.content_filters.pptx_files},
+                {"excel", "excel_files", @draft.content_filters.excel_files}
+              ]
+            }
+            class="flex items-center gap-2 rounded-xl border border-black/10 bg-[#fafafa] px-2.5 py-1.5 font-mono text-[0.64rem] text-black"
+          >
+            <input
+              type="checkbox"
+              name={"crawl[content_filters][#{key}]"}
+              checked={enabled}
+              class="h-4 w-4 rounded border-black/20 text-[var(--zaq-color-accent)] focus:ring-[var(--zaq-color-accent)]"
+            />
+            {label}
+          </label>
+        </div>
+      </section>
+    </div>
+
+    <div class="mt-3 flex flex-wrap justify-end gap-3 border-t border-black/10 pt-3">
+      <.link
+        navigate={~p"/bo/ingestion?section=url_crawler"}
+        class="inline-flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-[0.75rem] font-bold zaq-bg-ink text-white transition-colors hover:opacity-80"
+      >
+        Cancel
+      </.link>
+      <button
+        type="submit"
+        disabled={@analyzing}
+        class="inline-flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-[0.75rem] font-bold zaq-bg-accent text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)] disabled:cursor-not-allowed disabled:bg-zinc-300"
+      >
+        Analyze tree
+      </button>
+    </div>
+  </.form>
+
+  <ZaqWeb.Components.BOModal.modal_shell
+    :if={@preview_open and @preview_data}
+    id="url-crawler-preview-modal"
+    cancel_event="close_preview"
+    max_width_class="max-w-4xl"
+    panel_class="p-0 overflow-hidden max-h-[85vh]"
+  >
+    <div class="flex max-h-[85vh] flex-col">
+      <div class="shrink-0 border-b border-black/10 bg-white px-6 py-5">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="font-mono text-[0.64rem] uppercase tracking-[0.24em] text-black/30">
+              Analysis Preview
+            </p>
+            <h2 class="mt-2 font-mono text-lg font-bold text-black">Selected crawl tree</h2>
+            <p class="mt-1 font-mono text-[0.76rem] leading-relaxed text-black/45">
+              Review the selected pages, remove anything irrelevant, then launch the crawl run directly.
+            </p>
+          </div>
+          <button
+            phx-click="close_preview"
+            class="rounded-lg border border-black/10 p-2 text-black/40 transition-colors hover:border-black/20 hover:text-black"
+          >
+            <.icon name="hero-x-mark" class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--zaq-color-surface)] px-6 py-5 pb-6">
+        <div
+          :if={@preview_data.blocked?}
+          class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-4"
+        >
+          <p class="font-mono text-[0.72rem] font-semibold text-rose-900">Analysis blocked</p>
+          <p class="mt-2 font-mono text-[0.74rem] text-rose-800">{@preview_data.block_reason}</p>
+        </div>
+
+        <div
+          :if={not @preview_data.blocked?}
+          class="rounded-xl border border-black/10 bg-white p-4"
+        >
+          <div class="mb-4 flex items-center justify-between border-b border-black/5 pb-3">
+            <div>
+              <p class="font-mono text-[0.64rem] uppercase tracking-[0.18em] text-black/30">
+                Preview tree
+              </p>
+              <p class="mt-1 font-mono text-[0.74rem] text-black/45">
+                Expand folders, inspect metadata, and select or deselect pages directly in the tree.
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <div
+              :for={row <- preview_tree_rows(@preview_data, @preview_expanded_paths)}
+              class="rounded-lg border border-black/5 bg-[#fcfcfc] px-3 py-2"
+            >
+              <div
+                class="flex items-start justify-between gap-3"
+                style={"padding-left: #{row.depth * 18}px"}
+              >
+                <div class="min-w-0 flex-1">
+                  <button
+                    :if={row.kind == :branch}
+                    type="button"
+                    phx-click="toggle_preview_branch"
+                    phx-value-path={row.key}
+                    class="flex items-center gap-2 font-mono text-[0.76rem] font-semibold text-black/70 transition-colors hover:text-black"
+                  >
+                    <.icon
+                      name={if row.expanded?, do: "hero-chevron-down", else: "hero-chevron-right"}
+                      class="h-4 w-4 text-black/35"
+                    />
+                    <.icon name="hero-folder" class="h-4 w-4 text-amber-500" />
+                    <span>{row.label}</span>
+                    <span class="font-mono text-[0.64rem] text-black/35">
+                      ({row.children_count})
+                    </span>
+                  </button>
+
+                  <div :if={row.kind == :leaf} class="flex items-start gap-2">
+                    <.icon
+                      name="hero-document-text"
+                      class="mt-0.5 h-4 w-4 text-[var(--zaq-color-accent)]"
+                    />
+                    <div class="min-w-0 flex-1">
+                      <p class="font-mono text-[0.78rem] font-semibold text-black">
+                        {row.item.title}
+                      </p>
+                      <p class="mt-0.5 break-all font-mono text-[0.68rem] text-black/45">
+                        {row.item.url}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div :if={row.kind == :leaf} class="flex flex-wrap justify-end gap-2">
+                  <span class="rounded-full bg-black/[0.04] px-2.5 py-1 font-mono text-[0.58rem] uppercase tracking-[0.16em] text-black/50">
+                    {row.item.type}
+                  </span>
+                  <span class="rounded-full bg-black/[0.04] px-2.5 py-1 font-mono text-[0.58rem] uppercase tracking-[0.16em] text-black/50">
+                    depth {row.item.depth_level}
+                  </span>
+                  <span
+                    :for={meta <- row.item.metadata}
+                    class="rounded-full bg-white px-2.5 py-1 font-mono text-[0.6rem] text-black/55 ring-1 ring-black/10"
+                  >
+                    {meta}
+                  </span>
+                  <button
+                    type="button"
+                    phx-click="toggle_preview_item"
+                    phx-value-id={row.item.id}
+                    class="rounded-full border border-black/10 bg-white px-2.5 py-1 font-mono text-[0.6rem] font-semibold text-black/55 transition-colors hover:border-black/20 hover:text-black"
+                  >
+                    Unselect
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="shrink-0 border-t border-black/10 bg-white px-6 py-5 shadow-[0_-8px_24px_rgba(0,0,0,0.04)]">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div class="font-mono text-[0.72rem] text-black/45">
+            {selected_count(@preview_data)} selected page(s) in the current tree preview
+          </div>
+          <div class="flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              phx-click="open_launch_modal"
+              disabled={@preview_data.blocked?}
+              class="inline-flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-[0.75rem] font-bold zaq-bg-accent text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)] disabled:cursor-not-allowed disabled:bg-zinc-300"
+            >
+              Run Crawl
+            </button>
+            <button
+              type="button"
+              phx-click="close_preview"
+              class="inline-flex items-center gap-2 rounded-lg border border-black/10 px-4 py-2 font-mono text-[0.75rem] font-bold text-black/60 transition-colors hover:border-black/20 hover:text-black"
+            >
+              Back to setup
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </ZaqWeb.Components.BOModal.modal_shell>
+
+  <ZaqWeb.Components.BOModal.modal_shell
+    :if={@launch_modal_open}
+    id="crawl-preview-launch-modal"
+    cancel_event="close_launch_modal"
+    max_width_class="max-w-xl"
+  >
+    <div class="space-y-5 p-1">
+      <div>
+        <p class="font-mono text-[0.64rem] uppercase tracking-[0.24em] text-black/30">
+          Run launch
+        </p>
+        <h2 class="mt-2 font-mono text-lg font-bold text-black">Choose ingestion strategy</h2>
+        <p class="mt-1 font-mono text-[0.76rem] leading-relaxed text-black/45">
+          The crawl run starts immediately after this choice and opens the live run detail screen.
+        </p>
+      </div>
+
+      <div class="space-y-3">
+        <button
+          :for={{label, value} <- strategy_options()}
+          type="button"
+          phx-click="set_ingestion_strategy"
+          phx-value-strategy={value}
+          class={[
+            "flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors",
+            if(@selected_ingestion_strategy == value,
+              do: "zaq-border-accent zaq-bg-accent-soft",
+              else: "border-black/10 bg-white hover:bg-black/[0.02]"
+            )
+          ]}
+        >
+          <span class="font-mono text-[0.78rem] font-semibold text-black">{label}</span>
+          <span class="font-mono text-[0.68rem] text-black/45">
+            {if @selected_ingestion_strategy == value, do: "selected", else: "click to choose"}
+          </span>
+        </button>
+      </div>
+
+      <div>
+        <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
+          Share with people & teams
+        </p>
+        <form phx-change="add_share_target">
+          <ZaqWeb.Components.SearchableSelect.searchable_select
+            id="crawl-share-target-select"
+            name="value"
+            value=""
+            options={@share_target_options}
+            placeholder="Search people or teams…"
+            empty_label="No matches"
+          />
+        </form>
+        <div :if={@share_targets != []} class="mt-3 space-y-2">
+          <div
+            :for={entry <- @share_targets}
+            class="flex items-center justify-between rounded-xl border border-black/10 bg-[#fafafa] px-3 py-2"
+          >
+            <span class="font-mono text-[0.76rem] text-black/70">{entry.label}</span>
+            <button
+              type="button"
+              phx-click="remove_share_target"
+              phx-value-value={entry.value}
+              class="font-mono text-[0.68rem] text-black/40 transition-colors hover:text-black"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap justify-end gap-3">
+        <button
+          type="button"
+          phx-click="close_launch_modal"
+          class="rounded-lg border border-black/10 px-4 py-2 font-mono text-[0.75rem] font-bold text-black/60 transition-colors hover:border-black/20 hover:text-black"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          phx-click="run_crawl"
+          class="rounded-lg px-4 py-2 font-mono text-[0.75rem] font-bold zaq-bg-accent text-white transition-colors hover:bg-[var(--zaq-color-accent-hover)]"
+        >
+          Launch run
+        </button>
+      </div>
+    </div>
+  </ZaqWeb.Components.BOModal.modal_shell>
+</ZaqWeb.Components.BOLayout.bo_layout>
