@@ -208,6 +208,9 @@ defmodule Zaq.Channels.JidoChatBridge do
          handled: true,
          webhook_response: normalize_webhook_response_payload(ingress_result.response)
        }}
+    else
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_webhook_result, other}}
     end
   end
 

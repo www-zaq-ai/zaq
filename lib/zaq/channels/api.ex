@@ -271,25 +271,20 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{type: "data_source", provider: provider, payload: payload}} = event,
+        %Event{request: %{type: type, provider: provider, payload: payload}} = event,
         :webhook_delivered,
         _context
       )
-      when is_map(payload) do
-    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.handle_webhook(provider, payload)}
-  end
+      when type in ["data_source", "conversation"] and is_map(payload) do
+    {module_key, default_module} =
+      if type == "data_source" do
+        {:data_source_bridge_module, DataSourceBridge}
+      else
+        {:communication_bridge_module, CommunicationBridge}
+      end
 
-  def handle_event(
-        %Event{request: %{type: "conversation", provider: provider, payload: payload}} = event,
-        :webhook_delivered,
-        _context
-      )
-      when is_map(payload) do
-    communication_module =
-      Keyword.get(event.opts, :communication_bridge_module, CommunicationBridge)
-
-    %{event | response: communication_module.handle_webhook(provider, payload)}
+    handler_module = Keyword.get(event.opts, module_key, default_module)
+    %{event | response: handler_module.handle_webhook(provider, payload)}
   end
 
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)
