@@ -400,7 +400,7 @@ defmodule Zaq.Agent.ServerManagerTest do
     refute pid_before == pid_after
   end
 
-  test "ensure_server restarts when max_iterations changes" do
+  test "ensure_server does not restart when only max_iterations changes" do
     credential =
       ai_credential_fixture(%{
         name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
@@ -441,7 +441,7 @@ defmodule Zaq.Agent.ServerManagerTest do
     pid_after = Jido.AgentServer.whereis(registry, key)
 
     assert is_pid(pid_after)
-    refute pid_before == pid_after
+    assert pid_before == pid_after
   end
 
   test "ensure_server restarts when memory_context_max_size changes" do

@@ -101,35 +101,23 @@ defmodule Zaq.Agent.FactoryTest do
              Factory.runtime_config(configured_agent)
   end
 
-  test "runtime_config uses default max iterations when unset" do
+  test "runtime_config returns standard config fields when max iterations is unset" do
     configured_agent = %Agent.ConfiguredAgent{enabled_tool_keys: [], credential: nil}
 
-    assert {:ok, %{max_iterations: 10}} = Factory.runtime_config(configured_agent)
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    assert is_list(config.llm_opts)
+    assert config.system_prompt == ""
   end
 
-  test "runtime_config uses configured max iterations" do
+  test "runtime_config does not expose max iterations directly" do
     configured_agent = %Agent.ConfiguredAgent{
       enabled_tool_keys: [],
       credential: nil,
       max_iterations: 2
     }
 
-    assert {:ok, %{max_iterations: 2}} = Factory.runtime_config(configured_agent)
-  end
-
-  test "react_request_payload forwards max iterations to ReAct runtime" do
-    payload =
-      Factory.react_request_payload("hello", "req-1",
-        max_iterations: 2,
-        llm_opts: [temperature: 0.1],
-        tool_context: %{person_id: 123},
-        extra_refs: %{zaq_status_context: %{request_id: "req-1"}}
-      )
-
-    assert payload.max_iterations == 2
-    assert payload.llm_opts == [temperature: 0.1]
-    assert payload.tool_context == %{person_id: 123}
-    assert payload.extra_refs == %{zaq_status_context: %{request_id: "req-1"}}
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    refute Map.has_key?(config, :max_iterations)
   end
 
   test "Jido ReAct start schema preserves request max iterations" do

@@ -704,8 +704,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              )
   end
 
-  test "configured_agent_updated treats max_iterations change as runtime change" do
-    assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
+  test "configured_agent_updated treats max_iterations change as no runtime change" do
+    assert {:ok, %{runtime: %{strategy: :no_runtime_change}}} =
              RuntimeSync.configured_agent_updated(
                79,
                %{max_iterations: 2},
