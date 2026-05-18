@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.9.0](https://github.com/www-zaq-ai/zaq/compare/v0.8.1...v0.9.0) (2026-05-15)
+
+
+### Features
+
+* **channels:** add datasource bridge and jido connect flow ([9908e95](https://github.com/www-zaq-ai/zaq/commit/9908e952e045606e7afedc3026a69e208e411653))
+* **Data Source:** add data sources infrastructure and oAuth2 credentials support ([2843fea](https://github.com/www-zaq-ai/zaq/commit/2843fea50ca438131c71db2eb43c4e5e8773f47d))
+* **Data Source:** request permissions with Records ([f11c3ab](https://github.com/www-zaq-ai/zaq/commit/f11c3ab59a2e0ef1b60055230753a7637ef171fd))
+* **engine:** add :get_person engine api handler and update agent/pipeline dispatch to use it ([5407c88](https://github.com/www-zaq-ai/zaq/commit/5407c88821a1e7b88b2a0e7fbde42b524ebf9a2f))
+* **system-config:** restore auth credential actions and rename tabs ([71c5799](https://github.com/www-zaq-ai/zaq/commit/71c5799d868927a9350c7cb9fe25855b53c5f864))
+
+
+### Bug Fixes
+
+* **agent:** enforce tool calls for listing queries, fix no-permission doc access, and hardcode answering ([056ffca](https://github.com/www-zaq-ai/zaq/commit/056ffca6b538a01b833974c55b723aa63e7015da))
+* **agent:** replace list_knowledge_base_files with knowledge_base_overview, enforce tool_choice, fix ([36cc077](https://github.com/www-zaq-ai/zaq/commit/36cc07753f63a96aa65579ef8d402ffd476f8a58))
+* **agents:** display stale tool keys with Removed badge and unblock editing ([abe8270](https://github.com/www-zaq-ai/zaq/commit/abe827042a79250b3194a2be719eecc7fe4b7826))
+* **channel:** add incoming context to executor path ([dd64e32](https://github.com/www-zaq-ai/zaq/commit/dd64e3214186b32f6582df10a2bb830d07cd1049))
+* forward telemetry dimensions through agent pipeline and increase ask timeout to 300s ([c8b958a](https://github.com/www-zaq-ai/zaq/commit/c8b958a029586f33fa178495f6531e10bc2c4082))
+* **ingestion:** base ingested status on chunk existence instead of DB record presence ([68c4ff8](https://github.com/www-zaq-ai/zaq/commit/68c4ff8d319830f5a30c1bbd71860bafaec3dbde))
+* **ingestion:** case-insensitive @ mention suggestions and rename regression tests (issue [#330](https://github.com/www-zaq-ai/zaq/issues/330)) ([0bdae1c](https://github.com/www-zaq-ai/zaq/commit/0bdae1cb28da36d264a84b7f0244b46904879667))
+* **ingestion:** clean up orphaned document records when deleting a folder ([fb05282](https://github.com/www-zaq-ai/zaq/commit/fb05282de5ed1048f5efcfcf765630067ebae63a))
+* **ingestion:** detect sidecar .md files by filesystem name matching instead of DB lookup ([a85b92d](https://github.com/www-zaq-ai/zaq/commit/a85b92df70f146cfb8a2bc65b9b0f0f52211563f))
+* **ingestion:** handle legacy absolute-path sources in rename, delete, and upload tracking ([f64ad99](https://github.com/www-zaq-ai/zaq/commit/f64ad99b46bf55f9a1c533d6b77e6c3780bb875d))
+* **ingestion:** include no-permission-rows docs as public by default in list_accessible_documents ([0617ae4](https://github.com/www-zaq-ai/zaq/commit/0617ae4a4a6efee23a81f0c4861ee9c2a421707a))
+* **ingestion:** prevent track_upload from wiping ingested content on re-upload ([d92d29b](https://github.com/www-zaq-ai/zaq/commit/d92d29b0d53c935e57434e132d7d29eaa5091634))
+* **ingestion:** rename tool and reject side car count ([43799da](https://github.com/www-zaq-ai/zaq/commit/43799da25c6deb446236fcc4fa5fad09a5462b85))
+
+
+### Refactoring
+
+* **BO:** split the system config tabs into specific components ([e4cd26f](https://github.com/www-zaq-ai/zaq/commit/e4cd26f61a6c7d9fa5dbf4050b787e3e4ef7716f))
+* **channels:** align BO livechat with new Event passing logic, unify error management ([830fdbf](https://github.com/www-zaq-ai/zaq/commit/830fdbfc9bb622fb00a801463b570e0401f6452d))
+* **channels:** node route dispatch chains multiple hops, leverage noderouter on Agents and Zaq -&gt; Channels node calls ([2635ed8](https://github.com/www-zaq-ai/zaq/commit/2635ed81663c3a48cef1dd1e0591b74e5bdee959))
+* **channels:** restructure bridge behavior and split Zaq technical domains from communication domains ([a03ee66](https://github.com/www-zaq-ai/zaq/commit/a03ee661682485c2734866d30f6cb7eb374a4e43))
+* **channels:** route channel delivery through API event boundary ([dba6162](https://github.com/www-zaq-ai/zaq/commit/dba61623d81fa8fd24b9b544d5886bc2afd42f80))
+* **data source:** implement code changes to comply with code review ([a05bf13](https://github.com/www-zaq-ai/zaq/commit/a05bf13468f86a83629cdb4d2a72061ea3957049))
+* **Endpoints:** enable channel specific routes ([40597f2](https://github.com/www-zaq-ai/zaq/commit/40597f234e2e38bd20d20249e768588df6dd9e6f))
+
 ## [0.8.1](https://github.com/www-zaq-ai/zaq/compare/v0.8.0...v0.8.1) (2026-05-08)
 
 
