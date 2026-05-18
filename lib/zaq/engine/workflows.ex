@@ -364,9 +364,10 @@ defmodule Zaq.Engine.Workflows do
   @doc "Creates a standalone trigger with no workflows assigned."
   @spec create_trigger(map(), keyword()) :: {:ok, Trigger.t()} | {:error, Ecto.Changeset.t()}
   def create_trigger(attrs, _opts \\ []) do
-    %Trigger{}
-    |> Trigger.changeset(attrs)
-    |> Repo.insert()
+    with {:ok, trigger} <- %Trigger{} |> Trigger.changeset(attrs) |> Repo.insert() do
+      sync_registry(trigger)
+      {:ok, trigger}
+    end
   end
 
   @doc "Updates a trigger."

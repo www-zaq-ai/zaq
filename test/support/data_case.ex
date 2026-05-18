@@ -24,6 +24,7 @@ defmodule Zaq.DataCase do
 
   setup tags do
     Zaq.DataCase.setup_sandbox(tags)
+    Zaq.DataCase.isolate_event_registry()
     :ok
   end
 
@@ -60,6 +61,18 @@ defmodule Zaq.DataCase do
       assert %{password: ["password is too short"]} = errors_on(changeset)
 
   """
+  def isolate_event_registry do
+    alias Zaq.Engine.EventRegistry
+    existing = Process.whereis(EventRegistry)
+    if existing, do: Process.unregister(EventRegistry)
+
+    on_exit(fn ->
+      if existing && Process.alive?(existing) && is_nil(Process.whereis(EventRegistry)) do
+        Process.register(existing, EventRegistry)
+      end
+    end)
+  end
+
   def errors_on(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
       Regex.replace(~r"%{(\w+)}", message, fn _, key ->

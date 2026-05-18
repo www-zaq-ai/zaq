@@ -38,5 +38,6 @@ defmodule Zaq.Engine.Workflows.Trigger do
     |> cast(attrs, [:event_name, :enabled])
     |> validate_required([:event_name])
     |> validate_length(:event_name, min: 1)
+    |> validate_format(:event_name, ~r/\S/, message: "can't be blank")
   end
 end

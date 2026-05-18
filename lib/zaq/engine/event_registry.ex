@@ -10,9 +10,10 @@ defmodule Zaq.Engine.EventRegistry do
 
   On init, loads all enabled trigger `event_name` values from the DB and marks
   them `true` in the `:events` map. On each incoming event:
-  - If `event.name` is nil → ignored
-  - If `events[event_name] == true` → delegates to `fire_fn`
-  - Otherwise → stores the event name as `false`
+  - The event key is derived from `event.name` if set, otherwise `event.opts[:action]`
+  - If neither is set → ignored
+  - If `events[event_key] == true` → delegates to `fire_fn`
+  - Otherwise → stores the event key as `false`
   """
 
   use GenServer
@@ -24,7 +25,13 @@ defmodule Zaq.Engine.EventRegistry do
   @topic "node_router:events"
 
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    gen_opts =
+      case Keyword.get(opts, :name, __MODULE__) do
+        nil -> []
+        name -> [name: name]
+      end
+
+    GenServer.start_link(__MODULE__, opts, gen_opts)
   end
 
   @doc "Returns all known events as `%{event_name => boolean}`. Optionally filter with `is_trigger: true | false`."
@@ -67,22 +74,38 @@ defmodule Zaq.Engine.EventRegistry do
   end
 
   @impl true
-  def handle_info({:node_router_event, %{name: nil}}, state), do: {:noreply, state}
-
-  def handle_info({:node_router_event, %{name: name} = event}, state) do
-    event_key = to_string(name)
-
-    case Map.get(state.events, event_key) do
-      true ->
-        state.fire_fn.(event_key, event)
+  def handle_info({:node_router_event, event}, state) do
+    case derive_event_key(event) do
+      nil ->
         {:noreply, state}
 
-      _ ->
-        {:noreply, %{state | events: Map.put_new(state.events, event_key, false)}}
+      event_key ->
+        case Map.get(state.events, event_key) do
+          true ->
+            state.fire_fn.(event_key, event)
+            {:noreply, state}
+
+          _ ->
+            {:noreply, %{state | events: Map.put_new(state.events, event_key, false)}}
+        end
     end
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
+
+  defp derive_event_key(%{name: name}) when is_binary(name) and name != "", do: name
+
+  defp derive_event_key(%{name: name}) when is_atom(name) and not is_nil(name),
+    do: Atom.to_string(name)
+
+  defp derive_event_key(%{opts: opts}) when is_list(opts) do
+    case Keyword.get(opts, :action) do
+      nil -> nil
+      action -> Atom.to_string(action)
+    end
+  end
+
+  defp derive_event_key(_), do: nil
 
   defp load_trigger_state do
     Workflows.list_trigger_event_names()

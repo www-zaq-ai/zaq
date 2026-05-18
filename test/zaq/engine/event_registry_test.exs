@@ -13,9 +13,14 @@ defmodule Zaq.Engine.EventRegistryTest do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {:node_router_event, event})
   end
 
-  # Helper: build a minimal Event struct (bypasses NodeRouter).
+  # Helper: build a named Event struct (bypasses NodeRouter).
   defp build_event(name) do
     Event.new(%{}, :engine, name: name)
+  end
+
+  # Helper: build an Event with opts[:action] and no name (as NodeRouter dispatch does).
+  defp build_action_event(action) do
+    Event.new(%{}, :engine, opts: [action: action])
   end
 
   # Returns the events sub-map from the GenServer state.
@@ -28,6 +33,33 @@ defmodule Zaq.Engine.EventRegistryTest do
   defp start_registry(opts \\ []) do
     name = :"event_registry_#{System.unique_integer([:positive])}"
     start_supervised!({EventRegistry, Keyword.put(opts, :name, name)})
+  end
+
+  # Temporarily registers an isolated EventRegistry under the global name so
+  # sync_registry/1 (which uses Process.whereis(EventRegistry)) hits our test
+  # process. Injects a no-op trigger_node_fn by default to prevent real DB calls.
+  defp with_registry_as_singleton(fun), do: with_registry_as_singleton([], fun)
+
+  defp with_registry_as_singleton(opts, fun) do
+    existing = Process.whereis(EventRegistry)
+    if existing, do: Process.unregister(EventRegistry)
+
+    trigger_fn = Keyword.get(opts, :trigger_node_fn, fn _n, _e -> :ok end)
+
+    {:ok, pid} =
+      start_supervised(
+        {EventRegistry, [caller: self(), name: nil, trigger_node_fn: trigger_fn]},
+        id: :singleton_event_registry
+      )
+
+    Process.register(pid, EventRegistry)
+
+    try do
+      fun.(pid)
+    after
+      if Process.alive?(pid), do: Process.unregister(EventRegistry)
+      if existing && Process.alive?(existing), do: Process.register(existing, EventRegistry)
+    end
   end
 
   describe "init/1 — loads trigger state from DB" do
@@ -54,8 +86,8 @@ defmodule Zaq.Engine.EventRegistryTest do
     end
   end
 
-  describe "handle_info/2 — nil name events" do
-    test "ignores events with name: nil — state unchanged" do
+  describe "handle_info/2 — ignored events (no name, no action)" do
+    test "ignores events with name: nil and no opts[:action] — state unchanged" do
       pid = start_registry()
       initial_events = get_events(pid)
 
@@ -64,6 +96,45 @@ defmodule Zaq.Engine.EventRegistryTest do
       :sys.get_state(pid)
 
       assert get_events(pid) == initial_events
+    end
+  end
+
+  describe "handle_info/2 — opts[:action] fallback" do
+    test "stores unseen opts[:action] as false when no name is set" do
+      pid = start_registry()
+
+      broadcast(build_action_event(:persist_from_incoming))
+      :sys.get_state(pid)
+
+      assert Map.get(get_events(pid), "persist_from_incoming") == false
+    end
+
+    test "fires TriggerNode when opts[:action] matches a known trigger event_name" do
+      {:ok, _} = Workflows.create_trigger(%{event_name: "persist_from_incoming", enabled: true})
+      test_pid = self()
+
+      trigger_node_fn = fn event_name, _event ->
+        send(test_pid, {:trigger_node_fired, event_name})
+        :ok
+      end
+
+      with_registry_as_singleton([trigger_node_fn: trigger_node_fn], fn pid ->
+        broadcast(build_action_event(:persist_from_incoming))
+        :sys.get_state(pid)
+
+        assert_receive {:trigger_node_fired, "persist_from_incoming"}
+      end)
+    end
+
+    test "name takes precedence over opts[:action] when both are set" do
+      pid = start_registry()
+
+      event = Event.new(%{}, :engine, name: :explicit_name, opts: [action: :some_action])
+      broadcast(event)
+      :sys.get_state(pid)
+
+      assert Map.get(get_events(pid), "explicit_name") == false
+      refute Map.has_key?(get_events(pid), "some_action")
     end
   end
 
@@ -272,27 +343,67 @@ defmodule Zaq.Engine.EventRegistryTest do
     end
   end
 
-  describe "Workflows.update_trigger/3 — registry sync integration" do
-    # The global EventRegistry singleton may or may not be running.
-    # sync_registry/1 uses Process.whereis(EventRegistry) — so we call
-    # activate/deactivate directly on the default server to verify the
-    # wiring without fighting process registration.
+  describe "Workflows.create_trigger/2 — registry sync integration" do
+    test "creating an enabled trigger immediately marks it true in the running registry" do
+      with_registry_as_singleton(fn pid ->
+        refute Map.has_key?(get_events(pid), "get_person")
 
+        {:ok, _} = Workflows.create_trigger(%{event_name: "get_person", enabled: true})
+
+        assert Map.get(get_events(pid), "get_person") == true
+      end)
+    end
+
+    test "creating a disabled trigger marks it false in the running registry" do
+      with_registry_as_singleton(fn pid ->
+        {:ok, _} = Workflows.create_trigger(%{event_name: "get_person", enabled: false})
+
+        assert Map.get(get_events(pid), "get_person") == false
+      end)
+    end
+
+    test "on restart, registry loads created enabled trigger as true from DB" do
+      with_registry_as_singleton(fn _pid ->
+        {:ok, _} = Workflows.create_trigger(%{event_name: "get_person", enabled: true})
+      end)
+
+      pid = start_registry()
+      assert Map.get(get_events(pid), "get_person") == true
+    end
+
+    test "create_trigger sync is skipped gracefully when EventRegistry is not running" do
+      existing = Process.whereis(EventRegistry)
+      if existing, do: Process.unregister(EventRegistry)
+
+      try do
+        assert {:ok, trigger} =
+                 Workflows.create_trigger(%{event_name: "no_registry_create", enabled: true})
+
+        assert trigger.event_name == "no_registry_create"
+      after
+        if existing && Process.alive?(existing), do: Process.register(existing, EventRegistry)
+      end
+    end
+  end
+
+  describe "Workflows.update_trigger/3 — registry sync integration" do
     test "disabling a trigger via Workflows.update_trigger/3 returns enabled: false" do
-      {:ok, trigger} = Workflows.create_trigger(%{event_name: "sync_deactivate", enabled: true})
-      assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: false})
-      assert updated.enabled == false
+      with_registry_as_singleton(fn _pid ->
+        {:ok, trigger} = Workflows.create_trigger(%{event_name: "sync_deactivate", enabled: true})
+        assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: false})
+        assert updated.enabled == false
+      end)
     end
 
     test "enabling a trigger via Workflows.update_trigger/3 returns enabled: true" do
-      {:ok, trigger} = Workflows.create_trigger(%{event_name: "sync_activate", enabled: false})
-      assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: true})
-      assert updated.enabled == true
+      with_registry_as_singleton(fn _pid ->
+        {:ok, trigger} = Workflows.create_trigger(%{event_name: "sync_activate", enabled: false})
+        assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: true})
+        assert updated.enabled == true
+      end)
     end
 
     test "sync_registry is skipped gracefully when EventRegistry singleton is not registered" do
-      # Verify by calling update_trigger when the global EventRegistry is not running.
-      # We stop the singleton if it is alive, run the update, then verify no crash.
       existing = Process.whereis(EventRegistry)
       if existing, do: Process.unregister(EventRegistry)
 
@@ -302,10 +413,7 @@ defmodule Zaq.Engine.EventRegistryTest do
         assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: false})
         assert updated.enabled == false
       after
-        # Re-register the original pid if we unregistered it
-        if existing && Process.alive?(existing) do
-          Process.register(existing, EventRegistry)
-        end
+        if existing && Process.alive?(existing), do: Process.register(existing, EventRegistry)
       end
     end
   end
