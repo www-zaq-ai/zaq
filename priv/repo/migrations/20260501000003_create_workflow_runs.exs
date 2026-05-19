@@ -10,6 +10,7 @@ defmodule Zaq.Repo.Migrations.CreateWorkflowRuns do
       add :settings_snapshot, :map, null: false, default: %{}
       add :status, :string, null: false, default: "pending"
       add :source_event, :map, null: false
+      add :log_summary, :map
       add :started_at, :utc_datetime
       add :finished_at, :utc_datetime
 
