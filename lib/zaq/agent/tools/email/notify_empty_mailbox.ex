@@ -4,6 +4,8 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailbox do
   Logs that no emails were found and sends a notification email to the configured address.
   """
 
+  # THIS JIDO ACTION IS FOR TESTING PURPOSES
+  # IT WILL GET REMOVED IN THE FUTURE
   use Jido.Action,
     name: "notify_empty_mailbox",
     schema: [
@@ -17,6 +19,17 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailbox do
   require Logger
 
   alias Zaq.Engine.Notifications.EmailNotification
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(error, _context) do
+    Logger.warning("[NotifyEmptyMailbox] step failed: #{inspect(error)}")
+    :ok
+  end
 
   @impl true
   def run(%{notify_address: notify_address}, _context) do

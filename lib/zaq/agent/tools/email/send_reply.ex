@@ -5,6 +5,8 @@ defmodule Zaq.Agent.Tools.Email.SendReply do
   Returns a summary: `%{sent: n, failed: n, results: [...]}`.
   """
 
+  # THIS JIDO ACTION IS FOR TESTING PURPOSES
+  # IT WILL GET REMOVED IN THE FUTURE
   use Jido.Action,
     name: "send_reply",
     schema: [
@@ -19,6 +21,17 @@ defmodule Zaq.Agent.Tools.Email.SendReply do
   require Logger
 
   alias Zaq.Engine.Notifications.EmailNotification
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(error, _context) do
+    Logger.warning("[SendReply] step failed: #{inspect(error)}")
+    :ok
+  end
 
   @impl true
   def run(%{drafts: drafts}, _context) do

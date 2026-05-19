@@ -7,6 +7,8 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
   (default: "MailResponder"). An empty emails list short-circuits to `%{drafts: []}`.
   """
 
+  # THIS JIDO ACTION IS FOR TESTING PURPOSES
+  # IT WILL GET REMOVED IN THE FUTURE
   use Jido.Action,
     name: "draft_reply",
     schema: [
@@ -17,10 +19,23 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
       drafts: [type: {:list, :map}, required: true]
     ]
 
+  require Logger
+
   alias Zaq.Agent.{ConfiguredAgent, Executor}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Repo
   import Ecto.Query
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(error, _context) do
+    Logger.warning("[DraftReply] step failed: #{inspect(error)}")
+    :ok
+  end
 
   @impl true
   def run(%{emails: emails} = params, _context) do
