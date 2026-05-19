@@ -11,6 +11,7 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   use Jido.Action,
     name: "fetch_emails",
     schema: [
+      imap_config: [type: :any, required: false],
       mailbox: [type: :string, default: "INBOX"]
     ],
     output_schema: [
@@ -39,9 +40,15 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
     mailbox = Map.get(params, :mailbox, "INBOX")
 
     imap_config =
-      case ChannelConfig.get_by_provider("email:imap") do
-        nil -> raise "No enabled email:imap channel config found in the database"
-        config -> ImapConfigHelpers.normalize_bridge_config(config)
+      case Map.get(params, :imap_config) do
+        nil ->
+          case ChannelConfig.get_by_provider("email:imap") do
+            nil -> raise "No enabled email:imap channel config found in the database"
+            config -> ImapConfigHelpers.normalize_bridge_config(config)
+          end
+
+        provided ->
+          provided
       end
 
     task =
