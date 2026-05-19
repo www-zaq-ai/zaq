@@ -65,11 +65,11 @@ defmodule Zaq.Engine.EventRegistryTest do
   describe "init/1 — loads trigger state from DB" do
     test "starts with trigger event_names marked as true in state" do
       {:ok, _trigger} =
-        Workflows.create_trigger(%{event_name: "order_placed", enabled: true})
+        Workflows.create_trigger(%{event_name: "engine:order_placed", enabled: true})
 
       pid = start_registry()
 
-      assert Map.get(get_events(pid), "order_placed") == true
+      assert Map.get(get_events(pid), "engine:order_placed") == true
     end
 
     test "starts with empty events map when no triggers exist" do
@@ -79,10 +79,10 @@ defmodule Zaq.Engine.EventRegistryTest do
 
     test "excludes disabled triggers from initial state" do
       {:ok, _trigger} =
-        Workflows.create_trigger(%{event_name: "disabled_event", enabled: false})
+        Workflows.create_trigger(%{event_name: "engine:disabled_event", enabled: false})
 
       pid = start_registry()
-      refute Map.has_key?(get_events(pid), "disabled_event")
+      refute Map.has_key?(get_events(pid), "engine:disabled_event")
     end
   end
 
@@ -106,11 +106,13 @@ defmodule Zaq.Engine.EventRegistryTest do
       broadcast(build_action_event(:persist_from_incoming))
       :sys.get_state(pid)
 
-      assert Map.get(get_events(pid), "persist_from_incoming") == false
+      assert Map.get(get_events(pid), "engine:persist_from_incoming") == false
     end
 
     test "fires TriggerNode when opts[:action] matches a known trigger event_name" do
-      {:ok, _} = Workflows.create_trigger(%{event_name: "persist_from_incoming", enabled: true})
+      {:ok, _} =
+        Workflows.create_trigger(%{event_name: "engine:persist_from_incoming", enabled: true})
+
       test_pid = self()
 
       trigger_node_fn = fn event_name, _event ->
@@ -122,7 +124,7 @@ defmodule Zaq.Engine.EventRegistryTest do
         broadcast(build_action_event(:persist_from_incoming))
         :sys.get_state(pid)
 
-        assert_receive {:trigger_node_fired, "persist_from_incoming"}
+        assert_receive {:trigger_node_fired, "engine:persist_from_incoming"}
       end)
     end
 
@@ -133,8 +135,8 @@ defmodule Zaq.Engine.EventRegistryTest do
       broadcast(event)
       :sys.get_state(pid)
 
-      assert Map.get(get_events(pid), "explicit_name") == false
-      refute Map.has_key?(get_events(pid), "some_action")
+      assert Map.get(get_events(pid), "engine:explicit_name") == false
+      refute Map.has_key?(get_events(pid), "engine:some_action")
     end
   end
 
@@ -145,7 +147,7 @@ defmodule Zaq.Engine.EventRegistryTest do
       broadcast(build_event(:some_unknown_event))
       :sys.get_state(pid)
 
-      assert Map.get(get_events(pid), "some_unknown_event") == false
+      assert Map.get(get_events(pid), "engine:some_unknown_event") == false
     end
 
     test "does not update state to true for repeated false events" do
@@ -156,14 +158,14 @@ defmodule Zaq.Engine.EventRegistryTest do
       broadcast(build_event(:another_unknown))
       :sys.get_state(pid)
 
-      assert Map.get(get_events(pid), "another_unknown") == false
+      assert Map.get(get_events(pid), "engine:another_unknown") == false
     end
   end
 
   describe "handle_info/2 — known trigger events" do
     test "fires TriggerNode when a known trigger event arrives" do
       {:ok, _trigger} =
-        Workflows.create_trigger(%{event_name: "invoice_created", enabled: true})
+        Workflows.create_trigger(%{event_name: "engine:invoice_created", enabled: true})
 
       test_pid = self()
 
@@ -177,12 +179,12 @@ defmodule Zaq.Engine.EventRegistryTest do
       broadcast(build_event(:invoice_created))
       :sys.get_state(pid)
 
-      assert_receive {:trigger_node_fired, "invoice_created"}
+      assert_receive {:trigger_node_fired, "engine:invoice_created"}
     end
 
     test "does not change events map after firing a known trigger" do
       {:ok, _trigger} =
-        Workflows.create_trigger(%{event_name: "payment_received", enabled: true})
+        Workflows.create_trigger(%{event_name: "engine:payment_received", enabled: true})
 
       pid = start_registry(trigger_node_fn: fn _name, _event -> :ok end)
 
@@ -211,7 +213,7 @@ defmodule Zaq.Engine.EventRegistryTest do
       broadcast(build_event(:not_a_trigger))
       :sys.get_state(pid)
 
-      refute_receive {:trigger_node_fired, "not_a_trigger"}
+      refute_receive {:trigger_node_fired, "engine:not_a_trigger"}
     end
   end
 
@@ -222,7 +224,9 @@ defmodule Zaq.Engine.EventRegistryTest do
     end
 
     test "returns all events (both true and false) when no filter" do
-      {:ok, _trigger} = Workflows.create_trigger(%{event_name: "trigger_evt", enabled: true})
+      {:ok, _trigger} =
+        Workflows.create_trigger(%{event_name: "engine:trigger_evt", enabled: true})
+
       pid = start_registry()
 
       broadcast(build_event(:unknown_evt))
@@ -233,7 +237,9 @@ defmodule Zaq.Engine.EventRegistryTest do
     end
 
     test "returns only trigger events when is_trigger: true" do
-      {:ok, _} = Workflows.create_trigger(%{event_name: "active_trigger", enabled: true})
+      {:ok, _} =
+        Workflows.create_trigger(%{event_name: "engine:active_trigger", enabled: true})
+
       pid = start_registry()
 
       broadcast(build_event(:not_a_trigger_evt))
@@ -241,11 +247,13 @@ defmodule Zaq.Engine.EventRegistryTest do
 
       result = EventRegistry.list_events([is_trigger: true], pid)
       assert Enum.all?(result, fn {_k, v} -> v == true end)
-      assert Map.has_key?(result, "active_trigger")
+      assert Map.has_key?(result, "engine:active_trigger")
     end
 
     test "returns only non-trigger events when is_trigger: false" do
-      {:ok, _} = Workflows.create_trigger(%{event_name: "trigger_only", enabled: true})
+      {:ok, _} =
+        Workflows.create_trigger(%{event_name: "engine:trigger_only", enabled: true})
+
       pid = start_registry()
 
       broadcast(build_event(:seen_but_not_trigger))
@@ -253,12 +261,14 @@ defmodule Zaq.Engine.EventRegistryTest do
 
       result = EventRegistry.list_events([is_trigger: false], pid)
       assert Enum.all?(result, fn {_k, v} -> v == false end)
-      assert Map.has_key?(result, "seen_but_not_trigger")
-      refute Map.has_key?(result, "trigger_only")
+      assert Map.has_key?(result, "engine:seen_but_not_trigger")
+      refute Map.has_key?(result, "engine:trigger_only")
     end
 
     test "keys are strings and values are booleans" do
-      {:ok, _} = Workflows.create_trigger(%{event_name: "named_trigger", enabled: true})
+      {:ok, _} =
+        Workflows.create_trigger(%{event_name: "engine:named_trigger", enabled: true})
+
       pid = start_registry()
 
       result = EventRegistry.list_events([], pid)
@@ -268,24 +278,28 @@ defmodule Zaq.Engine.EventRegistryTest do
 
   describe "deactivate/2" do
     test "sets a known trigger event to false in state" do
-      {:ok, _} = Workflows.create_trigger(%{event_name: "order_placed", enabled: true})
+      {:ok, _} =
+        Workflows.create_trigger(%{event_name: "engine:order_placed", enabled: true})
+
       pid = start_registry()
 
-      assert Map.get(get_events(pid), "order_placed") == true
-      :ok = EventRegistry.deactivate("order_placed", pid)
-      assert Map.get(get_events(pid), "order_placed") == false
+      assert Map.get(get_events(pid), "engine:order_placed") == true
+      :ok = EventRegistry.deactivate("engine:order_placed", pid)
+      assert Map.get(get_events(pid), "engine:order_placed") == false
     end
 
     test "stores unknown event name as false (creates the entry)" do
       pid = start_registry()
-      refute Map.has_key?(get_events(pid), "brand_new_event")
+      refute Map.has_key?(get_events(pid), "engine:brand_new_event")
 
-      :ok = EventRegistry.deactivate("brand_new_event", pid)
-      assert Map.get(get_events(pid), "brand_new_event") == false
+      :ok = EventRegistry.deactivate("engine:brand_new_event", pid)
+      assert Map.get(get_events(pid), "engine:brand_new_event") == false
     end
 
     test "after deactivate, incoming node_router_event does NOT fire TriggerNode" do
-      {:ok, _} = Workflows.create_trigger(%{event_name: "ship_order", enabled: true})
+      {:ok, _} =
+        Workflows.create_trigger(%{event_name: "engine:ship_order", enabled: true})
+
       test_pid = self()
 
       trigger_node_fn = fn event_name, _event ->
@@ -294,23 +308,23 @@ defmodule Zaq.Engine.EventRegistryTest do
       end
 
       pid = start_registry(trigger_node_fn: trigger_node_fn)
-      :ok = EventRegistry.deactivate("ship_order", pid)
+      :ok = EventRegistry.deactivate("engine:ship_order", pid)
 
       broadcast(build_event(:ship_order))
       :sys.get_state(pid)
 
-      refute_receive {:triggered, "ship_order"}
+      refute_receive {:triggered, "engine:ship_order"}
     end
   end
 
   describe "activate/2" do
     test "sets a false event to true in state" do
       pid = start_registry()
-      :ok = EventRegistry.deactivate("my_event", pid)
-      assert Map.get(get_events(pid), "my_event") == false
+      :ok = EventRegistry.deactivate("engine:my_event", pid)
+      assert Map.get(get_events(pid), "engine:my_event") == false
 
-      :ok = EventRegistry.activate("my_event", pid)
-      assert Map.get(get_events(pid), "my_event") == true
+      :ok = EventRegistry.activate("engine:my_event", pid)
+      assert Map.get(get_events(pid), "engine:my_event") == true
     end
 
     test "after activate, incoming node_router_event DOES fire TriggerNode" do
@@ -324,51 +338,56 @@ defmodule Zaq.Engine.EventRegistryTest do
       pid = start_registry(trigger_node_fn: trigger_node_fn)
 
       # Seed the event as false first
-      :ok = EventRegistry.deactivate("re_enable_evt", pid)
-      :ok = EventRegistry.activate("re_enable_evt", pid)
+      :ok = EventRegistry.deactivate("engine:re_enable_evt", pid)
+      :ok = EventRegistry.activate("engine:re_enable_evt", pid)
 
       broadcast(build_event(:re_enable_evt))
       :sys.get_state(pid)
 
-      assert_receive {:triggered, "re_enable_evt"}
+      assert_receive {:triggered, "engine:re_enable_evt"}
     end
 
     test "activating an already-true event keeps it true" do
-      {:ok, _} = Workflows.create_trigger(%{event_name: "already_true", enabled: true})
+      {:ok, _} =
+        Workflows.create_trigger(%{event_name: "engine:already_true", enabled: true})
+
       pid = start_registry()
 
-      assert Map.get(get_events(pid), "already_true") == true
-      :ok = EventRegistry.activate("already_true", pid)
-      assert Map.get(get_events(pid), "already_true") == true
+      assert Map.get(get_events(pid), "engine:already_true") == true
+      :ok = EventRegistry.activate("engine:already_true", pid)
+      assert Map.get(get_events(pid), "engine:already_true") == true
     end
   end
 
   describe "Workflows.create_trigger/2 — registry sync integration" do
     test "creating an enabled trigger immediately marks it true in the running registry" do
       with_registry_as_singleton(fn pid ->
-        refute Map.has_key?(get_events(pid), "get_person")
+        refute Map.has_key?(get_events(pid), "engine:get_person")
 
-        {:ok, _} = Workflows.create_trigger(%{event_name: "get_person", enabled: true})
+        {:ok, _} =
+          Workflows.create_trigger(%{event_name: "engine:get_person", enabled: true})
 
-        assert Map.get(get_events(pid), "get_person") == true
+        assert Map.get(get_events(pid), "engine:get_person") == true
       end)
     end
 
     test "creating a disabled trigger marks it false in the running registry" do
       with_registry_as_singleton(fn pid ->
-        {:ok, _} = Workflows.create_trigger(%{event_name: "get_person", enabled: false})
+        {:ok, _} =
+          Workflows.create_trigger(%{event_name: "engine:get_person", enabled: false})
 
-        assert Map.get(get_events(pid), "get_person") == false
+        assert Map.get(get_events(pid), "engine:get_person") == false
       end)
     end
 
     test "on restart, registry loads created enabled trigger as true from DB" do
       with_registry_as_singleton(fn _pid ->
-        {:ok, _} = Workflows.create_trigger(%{event_name: "get_person", enabled: true})
+        {:ok, _} =
+          Workflows.create_trigger(%{event_name: "engine:get_person", enabled: true})
       end)
 
       pid = start_registry()
-      assert Map.get(get_events(pid), "get_person") == true
+      assert Map.get(get_events(pid), "engine:get_person") == true
     end
 
     test "create_trigger sync is skipped gracefully when EventRegistry is not running" do
@@ -377,9 +396,12 @@ defmodule Zaq.Engine.EventRegistryTest do
 
       try do
         assert {:ok, trigger} =
-                 Workflows.create_trigger(%{event_name: "no_registry_create", enabled: true})
+                 Workflows.create_trigger(%{
+                   event_name: "engine:no_registry_create",
+                   enabled: true
+                 })
 
-        assert trigger.event_name == "no_registry_create"
+        assert trigger.event_name == "engine:no_registry_create"
       after
         if existing && Process.alive?(existing), do: Process.register(existing, EventRegistry)
       end
@@ -389,7 +411,9 @@ defmodule Zaq.Engine.EventRegistryTest do
   describe "Workflows.update_trigger/3 — registry sync integration" do
     test "disabling a trigger via Workflows.update_trigger/3 returns enabled: false" do
       with_registry_as_singleton(fn _pid ->
-        {:ok, trigger} = Workflows.create_trigger(%{event_name: "sync_deactivate", enabled: true})
+        {:ok, trigger} =
+          Workflows.create_trigger(%{event_name: "engine:sync_deactivate", enabled: true})
+
         assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: false})
         assert updated.enabled == false
       end)
@@ -397,7 +421,9 @@ defmodule Zaq.Engine.EventRegistryTest do
 
     test "enabling a trigger via Workflows.update_trigger/3 returns enabled: true" do
       with_registry_as_singleton(fn _pid ->
-        {:ok, trigger} = Workflows.create_trigger(%{event_name: "sync_activate", enabled: false})
+        {:ok, trigger} =
+          Workflows.create_trigger(%{event_name: "engine:sync_activate", enabled: false})
+
         assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: true})
         assert updated.enabled == true
       end)
@@ -407,7 +433,8 @@ defmodule Zaq.Engine.EventRegistryTest do
       existing = Process.whereis(EventRegistry)
       if existing, do: Process.unregister(EventRegistry)
 
-      {:ok, trigger} = Workflows.create_trigger(%{event_name: "no_registry_event", enabled: true})
+      {:ok, trigger} =
+        Workflows.create_trigger(%{event_name: "engine:no_registry_event", enabled: true})
 
       try do
         assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: false})
