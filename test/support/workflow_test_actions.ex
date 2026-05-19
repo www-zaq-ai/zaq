@@ -69,6 +69,26 @@ defmodule Zaq.Engine.Workflows.Test.ParamCapture do
   def reset, do: Agent.update(__MODULE__, fn _ -> nil end)
 end
 
+defmodule Zaq.Engine.Workflows.Test.OkWithLogsAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_ok_with_logs_action",
+    schema: [input: [type: :any]],
+    output_schema: [value: [type: :any, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(_params, _context),
+    do: {:ok, %{value: "with_logs"}, logs: [%{level: "info", message: "step log"}]}
+end
+
 defmodule Zaq.Engine.Workflows.Test.ParamProbe do
   @moduledoc false
   use Jido.Action,

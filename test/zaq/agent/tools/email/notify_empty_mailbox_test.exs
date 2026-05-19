@@ -49,6 +49,17 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailboxTest do
     end
   end
 
+  describe "callbacks" do
+    test "on_success/2 returns {:ok, result}" do
+      result = %{status: :skipped, notified: true}
+      assert {:ok, ^result} = NotifyEmptyMailbox.on_success(result, %{})
+    end
+
+    test "on_failure/2 returns :ok" do
+      assert :ok = NotifyEmptyMailbox.on_failure(:some_error, %{})
+    end
+  end
+
   describe "run/2 — delivery failure path" do
     setup do
       original = Application.get_env(:zaq, Zaq.Mailer)
