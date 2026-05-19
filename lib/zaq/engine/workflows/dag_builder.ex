@@ -23,7 +23,11 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       }
 
   Node types:
-  - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`, requires `"module"`
+  - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`, requires `"module"`.
+    The module must satisfy the `Zaq.Engine.Workflows.Action` contract
+    (`on_success/2`, `on_failure/2`, non-empty `schema/0` + `output_schema/0`);
+    a non-conforming module fails the build with
+    `{:error, {:contract_violation, module, missing}}`.
   - `"condition"`           — a `FieldComparison` or custom Jido.Action that raises
     `ConditionNotMet` on false. Two forms:
     - **Inline** (preferred): omit `"module"`, use `"params"` with `"field"`, `"op"`, and
@@ -37,6 +41,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   """
 
   alias Jido.Runic.ActionNode
+  alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.ActionWrapper
   alias Zaq.Engine.Workflows.Conditions.FieldComparison
 
@@ -107,7 +112,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp build_node(type, module, params, name, index, run_id)
        when type in ["action", "agent"] do
-    with {:ok, mod} <- resolve_module(module) do
+    with {:ok, mod} <- resolve_module(module),
+         :ok <- Action.validate(mod) do
       {:ok, build_action_node(mod, atomize_keys(params), name, index, run_id)}
     end
   end
