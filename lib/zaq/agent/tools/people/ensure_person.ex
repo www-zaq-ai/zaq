@@ -5,6 +5,8 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   Passes drafts enriched with `:person_id` to the next action.
   """
 
+  # THIS JIDO ACTION IS FOR TESTING PURPOSES
+  # IT WILL GET REMOVED IN THE FUTURE
   use Jido.Action,
     name: "ensure_person",
     schema: [
@@ -18,6 +20,17 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
 
   alias Zaq.Accounts.{People, Person}
   alias Zaq.Repo
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(error, _context) do
+    Logger.warning("[EnsurePerson] step failed: #{inspect(error)}")
+    :ok
+  end
 
   @impl true
   def run(%{drafts: drafts}, _context) do

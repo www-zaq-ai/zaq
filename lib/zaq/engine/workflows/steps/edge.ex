@@ -10,6 +10,8 @@ defmodule Zaq.Engine.Workflows.Step.Edge do
 
   @primary_key false
 
+  # This file will change it should contain the mapping between previous node outputs
+  # and the next node inputs
   embedded_schema do
     field :from, :string
     field :to, :string

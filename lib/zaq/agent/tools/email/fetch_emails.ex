@@ -6,6 +6,8 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   Expects `imap_config` to be a normalized map from `ImapConfigHelpers.normalize_bridge_config/1`.
   """
 
+  # THIS JIDO ACTION IS FOR TESTING PURPOSES
+  # IT WILL GET REMOVED IN THE FUTURE
   use Jido.Action,
     name: "fetch_emails",
     schema: [
@@ -20,6 +22,17 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   require Logger
 
   alias Zaq.Channels.EmailBridge.ImapAdapter
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(error, _context) do
+    Logger.warning("[FetchEmails] step failed: #{inspect(error)}")
+    :ok
+  end
 
   @impl true
   def run(%{imap_config: imap_config} = params, _context) do
