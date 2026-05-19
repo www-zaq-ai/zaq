@@ -12,8 +12,9 @@ defmodule Zaq.Engine.EventRegistry do
   `event_name` values from the DB and marks them `true` in the `:events` map.
   A DB failure during this load degrades to an empty registry rather than
   crashing the process. On each incoming event:
-  - The event key is derived from `event.name` if set, otherwise `event.opts[:action]`
-  - If neither is set → ignored
+  - The event key is `"destination:name"` — destination from `event.next_hop.destination`,
+    name from `event.name` if set, otherwise `event.opts[:action]`
+  - If neither name nor action is set → ignored
   - If `events[event_key] == true` → delegates to `fire_fn`
   - Otherwise → stores the event key as `false`
   """
@@ -95,36 +96,47 @@ defmodule Zaq.Engine.EventRegistry do
   @impl true
   def handle_info({:node_router_event, event}, state) do
     case derive_event_key(event) do
-      nil ->
-        {:noreply, state}
-
-      event_key ->
-        case Map.get(state.events, event_key) do
-          true ->
-            state.fire_fn.(event_key, event)
-            {:noreply, state}
-
-          _ ->
-            {:noreply, %{state | events: Map.put_new(state.events, event_key, false)}}
-        end
+      nil -> {:noreply, state}
+      event_key -> {:noreply, fire_or_register(event_key, event, state)}
     end
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  defp derive_event_key(%{name: name}) when is_binary(name) and name != "", do: name
+  defp fire_or_register(event_key, event, state) do
+    case Map.get(state.events, event_key) do
+      true ->
+        Task.start(fn -> state.fire_fn.(event_key, event) end)
+        state
 
-  defp derive_event_key(%{name: name}) when is_atom(name) and not is_nil(name),
+      _ ->
+        %{state | events: Map.put_new(state.events, event_key, false)}
+    end
+  end
+
+  defp derive_event_key(%{next_hop: %{destination: destination}} = event)
+       when is_atom(destination) do
+    case derive_base_name(event) do
+      nil -> nil
+      base -> "#{destination}:#{base}"
+    end
+  end
+
+  defp derive_event_key(_), do: nil
+
+  defp derive_base_name(%{name: name}) when is_binary(name) and name != "", do: name
+
+  defp derive_base_name(%{name: name}) when is_atom(name) and not is_nil(name),
     do: Atom.to_string(name)
 
-  defp derive_event_key(%{opts: opts}) when is_list(opts) do
+  defp derive_base_name(%{opts: opts}) when is_list(opts) do
     case Keyword.get(opts, :action) do
       nil -> nil
       action -> Atom.to_string(action)
     end
   end
 
-  defp derive_event_key(_), do: nil
+  defp derive_base_name(_), do: nil
 
   defp load_trigger_state do
     Workflows.list_trigger_event_names()
