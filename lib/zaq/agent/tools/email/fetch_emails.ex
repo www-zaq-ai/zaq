@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   Connects to IMAP, fetches all unseen emails from a mailbox, and returns them.
 
   Returns `%{emails: [...], count: n}`. An empty list means no unseen messages.
-  Expects `imap_config` to be a normalized map from `ImapConfigHelpers.normalize_bridge_config/1`.
+  Resolves the IMAP config from the database via `ChannelConfig.get_by_provider/1`.
   """
 
   # THIS JIDO ACTION IS FOR TESTING PURPOSES
@@ -11,7 +11,6 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   use Jido.Action,
     name: "fetch_emails",
     schema: [
-      imap_config: [type: :any, required: true],
       mailbox: [type: :string, default: "INBOX"]
     ],
     output_schema: [
@@ -21,7 +20,8 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
 
   require Logger
 
-  alias Zaq.Channels.EmailBridge.ImapAdapter
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.EmailBridge.{ImapAdapter, ImapConfigHelpers}
 
   @behaviour Zaq.Engine.Workflows.Action
 
@@ -35,8 +35,14 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   end
 
   @impl true
-  def run(%{imap_config: imap_config} = params, _context) do
+  def run(params, _context) do
     mailbox = Map.get(params, :mailbox, "INBOX")
+
+    imap_config =
+      case ChannelConfig.get_by_provider("email:imap") do
+        nil -> raise "No enabled email:imap channel config found in the database"
+        config -> ImapConfigHelpers.normalize_bridge_config(config)
+      end
 
     task =
       Task.async(fn ->
