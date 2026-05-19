@@ -3,7 +3,8 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.ActionWrapper
-  alias Zaq.Engine.Workflows.Test.{ErrorAction, OkAction}
+  alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+  alias Zaq.Engine.Workflows.Test.{ErrorAction, OkAction, OkWithLogsAction}
 
   @valid_workflow_attrs %{
     name: "ActionWrapper Test Workflow",
@@ -54,6 +55,18 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
 
       assert {:ok, _} = ActionWrapper.run(params, %{})
     end
+
+    test "calls wrapped module returning 3-tuple with logs and writes completed StepRun" do
+      run = create_run()
+
+      assert {:ok, %{value: "with_logs"}} =
+               ActionWrapper.run(wp(run, OkWithLogsAction, "fetch_logs", 0), %{})
+
+      [ar] = Workflows.list_step_runs(run.id)
+      assert ar.status == "completed"
+      assert ar.results == %{"value" => "with_logs"}
+      assert ar.finished_at != nil
+    end
   end
 
   describe "run/2 — error path" do
@@ -103,6 +116,36 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "failed"
       assert ar.errors["reason"] =~ "boom"
+      assert ar.finished_at != nil
+    end
+  end
+
+  describe "run/2 — ConditionNotMet rescue" do
+    test "StepRun is marked skipped, ConditionNotMet is re-raised" do
+      defmodule ConditionRaisingAction do
+        @moduledoc false
+        use Jido.Action, name: "condition_raising_test_action_aw", schema: []
+
+        def run(_params, _context) do
+          raise Zaq.Engine.Workflows.Conditions.ConditionNotMet,
+            condition_name: "test_cond",
+            field: "status",
+            op: "eq",
+            actual: "open",
+            expected: "closed"
+        end
+      end
+
+      run = create_run()
+
+      assert_raise ConditionNotMet, fn ->
+        ActionWrapper.run(wp(run, ConditionRaisingAction, "cond_step", 0), %{})
+      end
+
+      [ar] = Workflows.list_step_runs(run.id)
+      assert ar.status == "skipped"
+      assert ar.results["field"] == "status"
+      assert ar.results["op"] == "eq"
       assert ar.finished_at != nil
     end
   end
