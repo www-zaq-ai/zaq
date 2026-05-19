@@ -13,6 +13,7 @@ defmodule Zaq.Repo.Migrations.CreateWorkflowActionResults do
       add :status, :string, null: false, default: "running"
       add :results, :map
       add :errors, :map
+      add :logs, {:array, :map}, null: false, default: []
       add :started_at, :utc_datetime
       add :finished_at, :utc_datetime
 

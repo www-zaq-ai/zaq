@@ -7,7 +7,8 @@ defmodule Zaq.Repo.Migrations.CreateWorkflows do
       add :name, :string, null: false
       add :description, :string
       add :status, :string, null: false, default: "draft"
-      add :steps, :map, null: false, default: %{}
+      add :nodes, :map, null: false, default: "[]"
+      add :edges, :map, null: false, default: "[]"
       add :settings, :map, null: false, default: %{}
 
       timestamps(type: :utc_datetime)
