@@ -108,7 +108,47 @@ defstruct [
 
 `Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
 
-`Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, listener setup/teardown).
+`Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, `list_files`, file CRUD/search, listener setup/teardown).
+
+### Data source required capabilities
+
+`Zaq.Channels.DataSourceBridge.required_capabilities/0` defines the standardized capability contract ZAQ expects connectors to support:
+
+- `list_items`
+- `count_items`
+- `list_principals`
+- `count_principals`
+- `get_item_metadata`
+- `list_item_versions`
+- `download_items`
+- `create_item`
+- `update_item`
+- `delete_item`
+- `search_items`
+- `watch_changes_webhook`
+- `receive_change_webhook`
+
+### Data source API actions
+
+`Zaq.Channels.Api.handle_event/3` exposes the following data-source actions:
+
+- `:data_source_auth_handshake`
+- `:data_source_list_resources`
+- `:data_source_download_resource`
+- `:data_source_list_files`
+- `:data_source_create_file`
+- `:data_source_get_file`
+- `:data_source_update_file`
+- `:data_source_delete_file`
+- `:data_source_search_files`
+- `:data_source_list_permissions`
+- `:data_source_setup_listener`
+- `:data_source_teardown_listener`
+- `:data_source_channel_stats`
+- `:data_source_oauth_authorize_url`
+- `:data_source_oauth_exchange_code`
+- `:data_source_oauth_refresh_token`
+- `:data_source_oauth_default_scopes`
 
 `Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
 

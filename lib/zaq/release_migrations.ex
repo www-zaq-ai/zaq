@@ -1,6 +1,6 @@
 defmodule Zaq.Release do
   @moduledoc """
-  This module is in charge of exposing methods to handle DB tasks on released environment
+  Exposes methods to handle DB tasks on released environment
   where mix is not available
   """
   @app :zaq
