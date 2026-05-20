@@ -15,6 +15,13 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   Wrapper keys (`wrapped_module`, `run_id`, `step_name`, `step_index`) are stripped
   from params before the wrapped module is called, so the wrapped module only sees
   its own domain params.
+
+  ## Resume idempotency
+
+  On resume after a pause, `run/2` checks for an existing `"completed"` `StepRun`
+  row for `(run_id, step_name)`. If found, the stored results are returned
+  immediately — no new row is created and the wrapped module is never called.
+  This makes `WorkflowAgent.execute/2` safe to call on a paused run.
   """
 
   require Logger
@@ -23,6 +30,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+  alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.WorkflowRun
 
   @wrapper_keys [:wrapped_module, :run_id, :step_name, :step_index]
@@ -30,6 +38,30 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   @impl true
   def run(params, context) do
     %{wrapped_module: mod, run_id: run_id, step_name: step_name, step_index: step_index} = params
+
+    case Workflows.get_run!(run_id).status do
+      "paused" ->
+        throw(:pause_requested)
+
+      _ ->
+        :ok
+    end
+
+    case Workflows.get_completed_step_run(run_id, step_name) do
+      %StepRun{results: results} ->
+        Logger.debug("[workflow] step skipped — already completed on resume",
+          run_id: run_id,
+          step_name: step_name
+        )
+
+        {:ok, results || %{}}
+
+      nil ->
+        execute_step(mod, run_id, step_name, step_index, params, context)
+    end
+  end
+
+  defp execute_step(mod, run_id, step_name, step_index, params, context) do
     started_ms = System.monotonic_time(:millisecond)
 
     Logger.debug("[workflow] step started",
