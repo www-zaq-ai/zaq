@@ -126,12 +126,43 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     Map.merge(base, remapped)
   end
 
-  # Look up a key in the fact trying atom first, then string.
+  # Look up a key in the fact. Supports dotted cascade paths ("A.gender")
+  # which navigate into the __cascade__ accumulator built by ActionWrapper.
+  # Depth > 2 (e.g., "A.b.c") is not supported and returns nil with a warning.
   defp lookup(fact, key) when is_binary(key) do
-    Map.get(fact, to_key(key), Map.get(fact, key))
+    case String.split(key, ".", parts: 2) do
+      [step_name, nested_key] -> lookup_cascade(fact, step_name, nested_key)
+      [simple_key] -> Map.get(fact, to_key(simple_key), Map.get(fact, simple_key))
+    end
   end
 
   defp lookup(fact, key), do: Map.get(fact, key)
+
+  defp lookup_cascade(fact, step_name, nested_key) do
+    if String.contains?(nested_key, ".") do
+      require Logger
+
+      Logger.warning(
+        "[workflow] edge condition: cascade path depth > 2 is not supported, " <>
+          "field=#{step_name}.#{nested_key}"
+      )
+
+      nil
+    else
+      cascade = Map.get(fact, :__cascade__, Map.get(fact, "__cascade__", %{}))
+
+      case Map.get(cascade, step_name) do
+        nil ->
+          nil
+
+        step_result when is_map(step_result) ->
+          Map.get(step_result, to_key(nested_key), Map.get(step_result, nested_key))
+
+        _ ->
+          nil
+      end
+    end
+  end
 
   # Convert a string to an atom. Uses String.to_atom/1 since field names come
   # from workflow definitions (bounded set). Safe for pre-production use.

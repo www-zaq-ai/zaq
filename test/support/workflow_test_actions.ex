@@ -225,6 +225,28 @@ defmodule Zaq.Engine.Workflows.Test.RequirePersonName do
   end
 end
 
+defmodule Zaq.Engine.Workflows.Test.EmitGender do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_emit_gender",
+    schema: [gender: [type: :string, required: true]],
+    output_schema: [gender: [type: :string, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(params, _context) do
+    gender = Map.get(params, :gender) || Map.get(params, "gender")
+    {:ok, %{gender: gender}}
+  end
+end
+
 defmodule Zaq.Engine.Workflows.Test.RequireFirstName do
   @moduledoc false
 
