@@ -45,9 +45,8 @@ defmodule Zaq.Engine.Workflows.Action do
   `{:error, {:contract_violation, module, missing}}` where `missing` is a subset
   of `[:on_success, :on_failure, :schema, :output_schema]`.
 
-  `condition` nodes (`Zaq.Engine.Workflows.Conditions.FieldComparison` and
-  module-backed conditions) are a distinct raise-based node type and are
-  intentionally **not** subject to this contract.
+  Edge guard nodes (`Steps.EdgeStep`) are infrastructure and are intentionally
+  **not** subject to this contract.
   """
 
   @doc """
