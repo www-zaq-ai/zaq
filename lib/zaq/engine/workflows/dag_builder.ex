@@ -7,18 +7,18 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
       %{
         "nodes" => [
-          %{"name" => "fetch", "type" => "action",
+          %{"name" => "fetch",  "type" => "action",
             "module" => "Zaq.Agent.Tools.Email.FetchEmails",
             "params" => %{}, "index" => 0},
-          %{"name" => "emails_found", "type" => "condition",
-            "params" => %{"field" => "count", "op" => "gt", "value" => 0}, "index" => 1},
-          %{"name" => "no_emails", "type" => "condition",
-            "params" => %{"field" => "count", "op" => "eq", "value" => 0}, "index" => 1}
+          %{"name" => "draft",  "type" => "action",
+            "module" => "Zaq.Agent.Tools.Email.DraftReply",
+            "params" => %{}, "index" => 1}
         ],
         "edges" => [
-          %{"from" => "fetch", "to" => "emails_found"},
-          %{"from" => "fetch", "to" => "no_emails"},
-          %{"from" => "emails_found", "to" => "draft"}
+          %{"from" => "fetch", "to" => "draft"},
+          %{"from" => "fetch", "to" => "notify",
+            "condition" => %{"field" => "count", "op" => "gt", "value" => 0},
+            "mapping"   => %{"email_count" => "count"}}
         ]
       }
 
@@ -28,13 +28,17 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     (`on_success/2`, `on_failure/2`, non-empty `schema/0` + `output_schema/0`);
     a non-conforming module fails the build with
     `{:error, {:contract_violation, module, missing}}`.
-  - `"condition"`           — a `FieldComparison` or custom Jido.Action that raises
-    `ConditionNotMet` on false. Two forms:
-    - **Inline** (preferred): omit `"module"`, use `"params"` with `"field"`, `"op"`, and
-      optionally `"value"`. Supported ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`,
-      `not_empty`, `empty`, `in` (value must be a list).
-    - **Module**: set `"module"` to a Jido.Action module that raises `ConditionNotMet`
-      on false.
+
+  Edge attributes (both optional):
+  - `"condition"` — map with `"field"`, `"op"`, and optionally `"value"`. Supported
+    ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. When
+    present, an `EdgeStep` is injected between the two nodes; a false condition
+    prunes the downstream branch (`ConditionNotMet` → `skip_downstream_subgraph`).
+  - `"mapping"` — map of `target_key => source_key` string pairs. The EdgeStep
+    renames upstream fact keys before delivering them to the downstream node.
+    Source keys that appear in the mapping are consumed (not passed through).
+
+  Plain `%{"from", "to"}`-only edges work exactly as before (no EdgeStep injected).
 
   Module resolution uses `Module.concat/1` guarded by `Code.ensure_loaded/1` — never
   `String.to_atom/1`.
@@ -43,7 +47,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   alias Jido.Runic.ActionNode
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.ActionWrapper
-  alias Zaq.Engine.Workflows.Conditions.FieldComparison
+  alias Zaq.Engine.Workflows.Predicate
+  alias Zaq.Engine.Workflows.Steps.EdgeStep
 
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}
@@ -60,7 +65,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
          :ok <- validate_non_empty(nodes_list),
          {:ok, node_map} <- build_node_map(nodes_list, run_id),
          :ok <- validate_edges(edges_list, node_map) do
-      assemble(node_map, edges_list)
+      assemble(node_map, edges_list, run_id)
     end
   end
 
@@ -95,19 +100,6 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
           {:halt, err}
       end
     end)
-  end
-
-  # Inline condition — no module, default to FieldComparison with the given params
-  defp build_node("condition", mod, params, name, index, run_id)
-       when mod in [nil, ""] do
-    {:ok, build_action_node(FieldComparison, atomize_keys(params), name, index, run_id)}
-  end
-
-  # Module-backed condition — must be a Jido.Action that raises ConditionNotMet on false
-  defp build_node("condition", module, params, name, index, run_id) do
-    with {:ok, mod} <- resolve_module(module) do
-      {:ok, build_action_node(mod, atomize_keys(params), name, index, run_id)}
-    end
   end
 
   defp build_node(type, module, params, name, index, run_id)
@@ -150,58 +142,92 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp validate_edges(edges, node_map) do
     Enum.reduce_while(edges, :ok, fn edge, :ok ->
-      to = Map.get(edge, "to")
-
-      if to && Map.has_key?(node_map, to) do
-        {:cont, :ok}
-      else
-        {:halt, {:error, {:unknown_node, to}}}
-      end
+      validate_single_edge(edge, node_map)
     end)
   end
 
-  defp assemble(node_map, edges) do
-    # Root nodes: those with no incoming edges
-    all_targets = Enum.map(edges, &Map.get(&1, "to")) |> MapSet.new()
+  defp validate_single_edge(edge, node_map) do
+    to = Map.get(edge, "to")
 
+    if is_nil(to) or not Map.has_key?(node_map, to) do
+      {:halt, {:error, {:unknown_node, to}}}
+    else
+      case validate_edge_condition(Map.get(edge, "condition")) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end
+  end
+
+  defp validate_edge_condition(nil), do: :ok
+
+  defp validate_edge_condition(%{"op" => op}) when is_binary(op) do
+    op_atom = String.to_existing_atom(op)
+
+    if op_atom in Predicate.ops(),
+      do: :ok,
+      else: {:error, {:invalid_edge_condition, op}}
+  rescue
+    ArgumentError -> {:error, {:invalid_edge_condition, op}}
+  end
+
+  defp validate_edge_condition(_), do: :ok
+
+  defp assemble(node_map, edges, _run_id) do
     workflow =
       node_map
       |> Enum.sort_by(fn {_name, %{index: i}} -> i end)
       |> Enum.reduce(Runic.Workflow.new(:workflow), fn {name, %{node: runic_node}}, wf ->
         incoming = Enum.filter(edges, &(Map.get(&1, "to") == name))
-
-        if Enum.empty?(incoming) and MapSet.member?(all_targets, name) do
-          # Node is referenced as a target but has no edges pointing to it — skip
-          # (this shouldn't happen after validate_edges, but guard defensively)
-          wf
-        else
-          add_node(wf, runic_node, incoming, node_map)
-        end
+        add_node(wf, runic_node, name, incoming, node_map)
       end)
 
     {:ok, workflow}
   end
 
-  defp add_node(workflow, runic_node, [], _node_map) do
+  defp add_node(workflow, runic_node, _to_name, [], _node_map) do
     Runic.Workflow.add(workflow, runic_node)
   end
 
-  defp add_node(workflow, runic_node, incoming, node_map) do
+  defp add_node(workflow, runic_node, to_name, incoming, node_map) do
     Enum.reduce(incoming, workflow, fn edge, wf ->
-      from_name = Map.get(edge, "from")
-
-      # Always skip static port validation — DagBuilder is a general-purpose
-      # runtime assembler. Actions pass data through the live fact map, not
-      # through statically declared port contracts.
-      opts =
-        if from_name && Map.has_key?(node_map, from_name) do
-          [to: String.to_atom(from_name), validate: :off]
-        else
-          [validate: :off]
-        end
-
-      Runic.Workflow.add(wf, runic_node, opts)
+      add_edge(wf, runic_node, to_name, edge, node_map)
     end)
+  end
+
+  defp add_edge(wf, runic_node, to_name, edge, node_map) do
+    from_name = Map.get(edge, "from")
+    condition = Map.get(edge, "condition")
+    mapping = Map.get(edge, "mapping") || %{}
+
+    if not is_nil(condition) or map_size(mapping) > 0 do
+      guard_name = "#{from_name}__to__#{to_name}__edge"
+      guard_node = build_edge_step_node(condition, mapping, guard_name)
+
+      wf
+      |> Runic.Workflow.add(guard_node, to: String.to_atom(from_name), validate: :off)
+      |> Runic.Workflow.add(runic_node, to: String.to_atom(guard_name), validate: :off)
+    else
+      Runic.Workflow.add(wf, runic_node, direct_edge_opts(from_name, node_map))
+    end
+  end
+
+  defp direct_edge_opts(from_name, node_map) do
+    if from_name && Map.has_key?(node_map, from_name) do
+      [to: String.to_atom(from_name), validate: :off]
+    else
+      [validate: :off]
+    end
+  end
+
+  defp build_edge_step_node(condition, mapping, name) do
+    params = %{
+      __edge_condition__: condition,
+      __edge_mapping__: mapping,
+      __edge_name__: name
+    }
+
+    ActionNode.new(EdgeStep, params, name: String.to_atom(name))
   end
 
   defp atomize_keys(map) when is_map(map) do
