@@ -22,9 +22,37 @@ defmodule Zaq.Engine.Workflows.EdgeCondition do
 
   @ops [:eq, :neq, :gt, :lt, :gte, :lte, :not_empty, :empty, :in]
 
+  import Ecto.Changeset
+
   @doc "Returns the list of supported operator atoms."
   @spec ops() :: [atom()]
   def ops, do: @ops
+
+  @doc """
+  Validates a raw condition map (string or atom keys) using a schemaless Ecto
+  changeset. Returns a changeset — inspect `.valid?` and `.errors` as needed.
+  """
+  @spec changeset(map()) :: Ecto.Changeset.t()
+  def changeset(attrs) do
+    types = %{field: :string, op: :string}
+
+    {%{field: nil, op: nil}, types}
+    |> cast(normalize_attrs(attrs), [:field, :op])
+    |> validate_required([:field, :op])
+    |> validate_length(:field, min: 1)
+    |> validate_inclusion(:op, Enum.map(@ops, &to_string/1))
+  end
+
+  # Ecto's string type cast rejects atoms. Normalize keys to strings and
+  # coerce the op value from atom to string so :eq → "eq" passes validation.
+  defp normalize_attrs(map) do
+    map
+    |> Map.new(fn {k, v} -> {to_string(k), v} end)
+    |> Map.update("op", nil, fn
+      op when is_atom(op) -> to_string(op)
+      op -> op
+    end)
+  end
 
   @doc """
   Evaluates `actual` against `expected` using `op`.
