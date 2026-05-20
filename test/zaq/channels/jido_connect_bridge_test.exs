@@ -642,6 +642,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   setup do
     original_channels = Application.get_env(:zaq, :channels)
     original_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    original_catalog = Application.get_env(:zaq, :jido_connect_bridge_catalog_module)
     original_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
 
     Application.put_env(:zaq, :channels, %{
@@ -649,6 +650,13 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     })
 
     Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnect)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_catalog_module,
+      Zaq.Test.Channels.CatalogAdapterStub
+    )
+
     Application.put_env(:zaq, :jido_connect_bridge_node_router_module, Zaq.NodeRouter)
 
     on_exit(fn ->
@@ -662,6 +670,12 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
         Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, original_jido_connect)
       else
         Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
+      end
+
+      if original_catalog do
+        Application.put_env(:zaq, :jido_connect_bridge_catalog_module, original_catalog)
+      else
+        Application.delete_env(:zaq, :jido_connect_bridge_catalog_module)
       end
 
       if original_node_router do
@@ -865,7 +879,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     )
 
     assert {:ok, snapshot} = JidoConnectBridge.capability_snapshot(config)
-    assert snapshot.resolved[:list_items] == "stub.files.list"
+    assert snapshot.resolved[:list_items] == "google.drive.files.list"
     assert :list_principals in snapshot.unsupported
   end
 
@@ -974,13 +988,11 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:error, :boom} = JidoConnectBridge.capability_snapshot(config)
   end
 
-  test "capability_snapshot returns error when provider not configured" do
-    # sharepoint is valid in ChannelConfig but not in :channels app env
+  test "capability_snapshot resolves provider capabilities when implementation is present" do
     config = insert_data_source_config(:sharepoint)
 
-    # integration_for_provider catches provider_cfg errors and wraps as :unsupported
-    assert {:error, :unsupported} =
-             JidoConnectBridge.capability_snapshot(config)
+    assert {:ok, snapshot} = JidoConnectBridge.capability_snapshot(config)
+    assert snapshot.resolved[:list_items] == "sharepoint.files.list"
   end
 
   # ---------------------------------------------------------------------------
@@ -2645,6 +2657,50 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
+  defmodule StubJidoConnectStringFieldsInput do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.list",
+           resource: :file,
+           verb: :list,
+           auth_profiles: [:user],
+           input: [%{"name" => "fields"}, %{name: :page_size}]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.list", params, opts) do
+      send(self(), {:invoke_files, params, opts})
+      {:ok, %{files: [%{"id" => "f1", "name" => "Doc", "mimeType" => "application/pdf"}]}}
+    end
+  end
+
+  defmodule StubCatalogWithDescribeTool do
+    def tools(provider: provider) do
+      [
+        %{
+          provider: provider,
+          type: :action,
+          id: "google.drive.files.list",
+          resource: :file,
+          verb: :list,
+          auth_profiles: [:user]
+        }
+      ]
+    end
+
+    def describe_tool({_provider, "google.drive.files.list"}, _opts) do
+      {:ok, %{input: [%{"name" => "fields"}, %{name: :page_size}]}}
+    end
+
+    def call_tool({_provider, "google.drive.files.list"}, params, opts) do
+      send(self(), {:invoke_files, params, opts})
+      {:ok, %{files: [%{"id" => "f1", "name" => "Doc", "mimeType" => "application/pdf"}]}}
+    end
+  end
+
   test "supports_fields_input? returns false for non-list input" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
@@ -2660,6 +2716,50 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
              JidoConnectBridge.list_files(config, %{include_permissions: true})
 
     assert record.id == "f1"
+  end
+
+  test "supports_fields_input? accepts string fields input names" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectStringFieldsInput
+    )
+
+    assert {:ok, _} = JidoConnectBridge.list_files(config, %{include_permissions: true})
+
+    assert_received {:invoke_files, params, _opts}
+    fields = Map.get(params, :fields) || Map.get(params, "fields")
+    assert is_binary(fields)
+    assert String.contains?(fields, "permissions(")
+  end
+
+  test "permissions projection uses catalog describe_tool input metadata" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    previous_catalog = Application.get_env(:zaq, :jido_connect_bridge_catalog_module)
+
+    Application.put_env(:zaq, :jido_connect_bridge_catalog_module, StubCatalogWithDescribeTool)
+
+    on_exit(fn ->
+      if previous_catalog do
+        Application.put_env(:zaq, :jido_connect_bridge_catalog_module, previous_catalog)
+      else
+        Application.delete_env(:zaq, :jido_connect_bridge_catalog_module)
+      end
+    end)
+
+    assert {:ok, _} = JidoConnectBridge.list_files(config, %{include_permissions: true})
+
+    assert_received {:invoke_files, params, _opts}
+    fields = Map.get(params, :fields) || Map.get(params, "fields")
+    assert is_binary(fields)
+    assert String.contains?(fields, "permissions(")
   end
 
   # ---------------------------------------------------------------------------
@@ -2965,10 +3065,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   # ---------------------------------------------------------------------------
-  # channel_stats with {:error, :unsupported} from list_files (line 148)
+  # channel_stats still works when provider falls back to channel config integration
   # ---------------------------------------------------------------------------
 
-  test "channel_stats enters {:error, :unsupported} branch when integration missing" do
+  test "channel_stats falls back to integration from channel config when provider registry is missing" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
     _grant = create_active_grant!(credential, config.id)
@@ -2982,13 +3082,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       })
     end)
 
-    # runtime_ctx succeeds (we have a grant), but integration_for_provider fails
-    # with {:error, :unsupported} -> list_files returns {:error, :unsupported}
     assert {:ok, stats} = JidoConnectBridge.channel_stats(config, %{})
-    assert stats.files_count == nil
-    assert stats.folders_count == nil
-    # principals_count is set by maybe_collect_principals_count(config, []) -> {0, nil}
-    assert stats.root_folders == nil
+    assert stats.files_count == 1
+    assert stats.folders_count == 1
+    assert stats.root_folders == ["Root Folder"]
   end
 
   # ---------------------------------------------------------------------------

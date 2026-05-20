@@ -2626,11 +2626,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "start_runtime/1 normalizes already_running races to :ok" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
       previous = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterListenerOpts}
+      })
 
       Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorAlreadyRunning)
 
       on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+
         if previous do
           Application.put_env(:zaq, :chat_bridge_supervisor_module, previous)
         else

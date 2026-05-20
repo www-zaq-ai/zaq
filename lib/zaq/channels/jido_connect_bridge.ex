@@ -11,7 +11,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   use Zaq.Channels.Bridge
 
   alias Jido.Connect.Authorization
-  alias Jido.Connect.ScopeRequirements
+  alias Jido.Connect.Catalog.ToolEntry
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
@@ -43,24 +43,45 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
     with {:ok, payload} <- invoke_intent(config, :list_items, params) do
       files = read_list(payload, [:files, "files"], []) |> Enum.filter(&is_map/1)
-      next_cursor = read_stringish(payload, [:next_page_token, "next_page_token"])
-      page_size = map_get_integer(params, [:page_size, "page_size"])
+      {:ok, build_item_record_page(files, params, payload)}
+    end
+  end
 
-      {:ok,
-       %RecordPage{
-         resource_type: :item,
-         records: Enum.map(files, &map_file_record/1),
-         pagination: %{
-           cursor: next_cursor,
-           has_more?: is_binary(next_cursor) and next_cursor != "",
-           page_size: page_size,
-           pages_loaded: 1,
-           truncated?: false
-         },
-         stats: %{scanned: length(files), returned: length(files)},
-         filters: map_get_map(params, [:filters, "filters"]),
-         metadata: %{}
-       }}
+  @impl true
+  def create_file(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :create_item, params),
+         {:ok, record} <- map_file_from_payload(payload) do
+      {:ok, %{status: "created", record: record}}
+    end
+  end
+
+  @impl true
+  def get_file(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :get_item_metadata, params),
+         {:ok, record} <- map_file_from_payload(payload) do
+      {:ok, %{record: record}}
+    end
+  end
+
+  @impl true
+  def update_file(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :update_item, params),
+         {:ok, record} <- map_file_from_payload(payload) do
+      {:ok, %{status: "updated", record: record}}
+    end
+  end
+
+  @impl true
+  def delete_file(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :delete_item, params) do
+      {:ok, %{status: "deleted", result: payload}}
+    end
+  end
+
+  @impl true
+  def search_files(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :search_items, params) do
+      map_file_page(payload, params)
     end
   end
 
@@ -93,12 +114,51 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
+  defp map_file_from_payload(payload) when is_map(payload) do
+    raw = read_any(payload, [:file, "file"]) || payload
+
+    if is_map(raw) do
+      {:ok, map_file_record(raw)}
+    else
+      {:error, :unsupported}
+    end
+  rescue
+    _ -> {:error, :unsupported}
+  end
+
+  defp map_file_from_payload(_), do: {:error, :unsupported}
+
+  defp map_file_page(payload, params) when is_map(payload) and is_map(params) do
+    files = read_list(payload, [:files, "files"], []) |> Enum.filter(&is_map/1)
+
+    {:ok, build_item_record_page(files, params, payload)}
+  end
+
+  defp build_item_record_page(files, params, payload)
+       when is_list(files) and is_map(params) and is_map(payload) do
+    next_cursor = read_stringish(payload, [:next_page_token, "next_page_token"])
+    page_size = map_get_integer(params, [:page_size, "page_size"])
+
+    %RecordPage{
+      resource_type: :item,
+      records: Enum.map(files, &map_file_record/1),
+      pagination: %{
+        cursor: next_cursor,
+        has_more?: is_binary(next_cursor) and next_cursor != "",
+        page_size: page_size,
+        pages_loaded: 1,
+        truncated?: false
+      },
+      stats: %{scanned: length(files), returned: length(files)},
+      filters: map_get_map(params, [:filters, "filters"]),
+      metadata: %{}
+    }
+  end
+
   @impl true
   def capability_snapshot(config) when is_map(config) do
-    with {:ok, integration} <- integration_for_provider(config.provider),
-         {:ok, actions} <- jido_connect_module().actions(integration),
-         {:ok, triggers} <- triggers_for(integration) do
-      {resolved, unsupported} = resolve_capabilities(actions, triggers)
+    with {:ok, tools} <- provider_tools(config.provider) do
+      {resolved, unsupported} = resolve_capabilities(config.provider, tools)
 
       {:ok,
        %{
@@ -110,10 +170,10 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp resolve_capabilities(actions, triggers) do
+  defp resolve_capabilities(provider, tools) do
     DataSourceBridge.required_capabilities()
     |> Enum.reduce({%{}, []}, fn capability, {acc_resolved, acc_unsupported} ->
-      case resolve_capability_ref(actions, triggers, capability) do
+      case resolve_capability_ref(provider, tools, capability) do
         {:ok, ref} -> {Map.put(acc_resolved, capability, ref), acc_unsupported}
         _ -> {acc_resolved, [capability | acc_unsupported]}
       end
@@ -121,22 +181,22 @@ defmodule Zaq.Channels.JidoConnectBridge do
     |> then(fn {resolved, unsupported} -> {resolved, Enum.reverse(unsupported)} end)
   end
 
-  defp resolve_capability_ref(_actions, triggers, :watch_changes_webhook) do
-    case Enum.find(triggers, &(&1.kind == :webhook and &1.verb == :watch)) do
+  defp resolve_capability_ref(_provider, tools, :watch_changes_webhook) do
+    case find_webhook_watch_trigger(tools) do
       nil -> {:error, :unsupported}
       trigger -> {:ok, trigger.id}
     end
   end
 
-  defp resolve_capability_ref(_actions, triggers, :receive_change_webhook) do
-    case Enum.find(triggers, &(&1.kind == :webhook and &1.verb == :watch)) do
+  defp resolve_capability_ref(_provider, tools, :receive_change_webhook) do
+    case find_webhook_watch_trigger(tools) do
       nil -> {:error, :unsupported}
       trigger -> {:ok, trigger.id}
     end
   end
 
-  defp resolve_capability_ref(actions, _triggers, capability) do
-    case resolve_action_spec(actions, capability) do
+  defp resolve_capability_ref(provider, tools, capability) do
+    case resolve_action_spec(tools, capability, provider) do
       {:ok, action} -> {:ok, action.id}
       _ -> {:error, :unsupported}
     end
@@ -498,10 +558,35 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
+  defp provider_tools(provider) do
+    provider_key = Bridge.provider_to_bridge_key(to_string(provider))
+    module = catalog_module()
+
+    with true <- module_supports?(module, :tools, 1) || {:error, :unsupported},
+         tools <- module.tools(provider: provider_key) do
+      finalize_provider_tools(tools, provider_key)
+    end
+  rescue
+    _ -> {:error, :unsupported}
+  end
+
+  defp finalize_provider_tools({:error, _} = error, _provider_key), do: error
+
+  defp finalize_provider_tools(tools, provider_key) do
+    tools
+    |> List.wrap()
+    |> Enum.filter(fn tool ->
+      to_string(map_get_atom(tool, [:provider, "provider"])) == to_string(provider_key)
+    end)
+    |> case do
+      [] -> {:error, :unsupported}
+      list -> {:ok, list}
+    end
+  end
+
   defp invoke_intent(config, intent, params) when is_map(config) and is_map(params) do
     with {:ok, runtime} <- runtime_ctx(config),
-         {:ok, integration} <- integration_for_provider(config.provider),
-         {:ok, action} <- resolve_action(integration, intent) do
+         {:ok, action} <- resolve_action(config.provider, intent) do
       runtime = normalize_runtime_profile(runtime, action)
 
       opts = [
@@ -515,10 +600,23 @@ defmodule Zaq.Channels.JidoConnectBridge do
         credential_lease: runtime.lease
       ]
 
-      case jido_connect_module().invoke(integration, action.id, params, opts) do
+      case call_provider_tool(action, params, opts, config.provider) do
         {:ok, payload} -> {:ok, payload}
         {:error, reason} -> {:error, sanitize_error(reason)}
       end
+    end
+  end
+
+  defp call_provider_tool(action, params, opts, provider)
+       when is_map(action) and is_map(params) do
+    module = catalog_module()
+
+    with true <- module_supports?(module, :call_tool, 3) || {:error, :unsupported} do
+      provider_ref =
+        map_get_atom(action, [:provider, "provider"]) ||
+          Bridge.provider_to_bridge_key(to_string(provider))
+
+      module.call_tool({provider_ref, action.id}, params, opts)
     end
   end
 
@@ -617,7 +715,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp maybe_embed_permissions_projection(params, %{provider: provider} = _config)
-       when is_map(params) and is_binary(provider) do
+       when is_map(params) and (is_binary(provider) or is_atom(provider)) do
     if truthy?(Map.get(params, :include_permissions) || Map.get(params, "include_permissions")) do
       enrich_permissions_projection(provider, params)
     else
@@ -628,23 +726,58 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp maybe_embed_permissions_projection(params, _), do: params
 
   defp enrich_permissions_projection(provider, params) do
-    with {:ok, integration} <- integration_for_provider(provider),
-         {:ok, action} <- resolve_action(integration, :list_items),
-         true <- supports_fields_input?(action) do
+    provider = to_string(provider)
+
+    with {:ok, action} <- resolve_action(provider, :list_items),
+         true <- action_supports_fields_input?(provider, action) do
       maybe_set_provider_permission_fields(provider, params)
     else
       _ -> params
     end
   end
 
+  defp action_supports_fields_input?(provider, action)
+       when (is_binary(provider) or is_atom(provider)) and is_map(action) do
+    module = catalog_module()
+
+    provider_ref =
+      map_get_atom(action, [:provider, "provider"]) ||
+        Bridge.provider_to_bridge_key(to_string(provider))
+
+    with true <- module_supports?(module, :describe_tool, 2),
+         {:ok, descriptor} <- module.describe_tool({provider_ref, action.id}, []),
+         true <- descriptor_supports_fields_input?(descriptor) do
+      true
+    else
+      _ -> supports_fields_input?(action)
+    end
+  end
+
+  defp action_supports_fields_input?(_provider, action), do: supports_fields_input?(action)
+
+  defp descriptor_supports_fields_input?(%{input: input}) when is_list(input),
+    do: Enum.any?(input, &fields_input?/1)
+
+  defp descriptor_supports_fields_input?(%{"input" => input}) when is_list(input),
+    do: Enum.any?(input, &fields_input?/1)
+
+  defp descriptor_supports_fields_input?(_), do: false
+
   defp supports_fields_input?(%{input: input}) when is_list(input) do
-    Enum.any?(input, fn
-      %{name: :fields} -> true
-      _ -> false
-    end)
+    Enum.any?(input, &fields_input?/1)
   end
 
   defp supports_fields_input?(_), do: false
+
+  defp fields_input?(entry) when is_map(entry) do
+    case Map.get(entry, :name) || Map.get(entry, "name") do
+      :fields -> true
+      "fields" -> true
+      _ -> false
+    end
+  end
+
+  defp fields_input?(_), do: false
 
   defp maybe_set_provider_permission_fields("google_drive", params) do
     permission_fields =
@@ -895,15 +1028,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp integration_for_provider(provider) do
-    with {:ok, cfg} <- provider_cfg(provider),
-         integration when is_atom(integration) <- Map.get(cfg, :integration) do
-      {:ok, integration}
-    else
-      _ -> {:error, :unsupported}
-    end
-  end
-
   defp ensure_supported_watch_mechanism("webhook"), do: :ok
   defp ensure_supported_watch_mechanism(_), do: {:error, :unsupported}
 
@@ -914,10 +1038,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp resolve_watch_trigger(_provider, _mechanism), do: {:error, :unsupported}
 
   defp resolve_webhook_trigger(provider) do
-    with {:ok, integration} <- integration_for_provider(provider),
-         {:ok, triggers} <- triggers_for(integration),
-         trigger when not is_nil(trigger) <-
-           Enum.find(triggers, &(&1.kind == :webhook and &1.verb == :watch)) do
+    with {:ok, tools} <- provider_tools(provider),
+         trigger when not is_nil(trigger) <- find_webhook_watch_trigger(tools) do
       {:ok, trigger}
     else
       nil -> {:error, :unsupported}
@@ -1100,39 +1222,119 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp parse_iso_datetime(_), do: nil
 
-  defp resolve_action(integration, capability) do
-    with {:ok, actions} <- jido_connect_module().actions(integration) do
-      resolve_action_spec(actions, capability)
+  defp resolve_action(provider, capability) do
+    with {:ok, tools} <- provider_tools(provider) do
+      resolve_action_spec(tools, capability, provider)
     end
   end
 
-  defp resolve_action_spec(actions, :list_items), do: find_action(actions, :file, :list)
-  defp resolve_action_spec(actions, :count_items), do: find_action(actions, :file, :list)
+  defp resolve_action_spec(_tools, capability, _provider)
+       when capability in [:watch_changes_webhook, :receive_change_webhook],
+       do: {:error, :unsupported}
 
-  defp resolve_action_spec(actions, :list_principals),
-    do: find_action(actions, :permission, :list)
+  defp resolve_action_spec(tools, :list_items, provider),
+    do: resolve_action_by_candidates(tools, provider, :list_items)
 
-  defp resolve_action_spec(actions, :count_principals),
-    do: find_action(actions, :permission, :list)
+  defp resolve_action_spec(tools, :count_items, provider),
+    do: resolve_action_by_candidates(tools, provider, :list_items)
 
-  defp resolve_action_spec(actions, :get_item_metadata), do: find_action(actions, :file, :get)
+  defp resolve_action_spec(tools, :list_principals, provider),
+    do: resolve_action_by_candidates(tools, provider, :list_principals)
 
-  defp resolve_action_spec(actions, :list_item_versions),
-    do: find_action(actions, :revision, :list)
+  defp resolve_action_spec(tools, :count_principals, provider),
+    do: resolve_action_by_candidates(tools, provider, :list_principals)
 
-  defp resolve_action_spec(actions, :download_items), do: find_action(actions, :file, :download)
-  defp resolve_action_spec(actions, :create_item), do: find_action(actions, :file, :create)
-  defp resolve_action_spec(actions, :update_item), do: find_action(actions, :file, :update)
-  defp resolve_action_spec(_actions, :watch_changes_webhook), do: {:error, :unsupported}
-  defp resolve_action_spec(_actions, :receive_change_webhook), do: {:error, :unsupported}
-  defp resolve_action_spec(_actions, _), do: {:error, :unsupported}
+  defp resolve_action_spec(tools, :get_item_metadata, provider),
+    do: resolve_action_by_candidates(tools, provider, :get_item_metadata)
 
-  defp find_action(actions, resource, verb) do
-    case Enum.find(actions, &(&1.resource == resource and &1.verb == verb)) do
+  defp resolve_action_spec(tools, :list_item_versions, provider),
+    do: resolve_action_by_candidates(tools, provider, :list_item_versions)
+
+  defp resolve_action_spec(tools, :download_items, provider),
+    do: resolve_action_by_candidates(tools, provider, :download_items)
+
+  defp resolve_action_spec(tools, :create_item, provider),
+    do: resolve_action_by_candidates(tools, provider, :create_item)
+
+  defp resolve_action_spec(tools, :update_item, provider),
+    do: resolve_action_by_candidates(tools, provider, :update_item)
+
+  defp resolve_action_spec(tools, :delete_item, provider),
+    do: resolve_action_by_candidates(tools, provider, :delete_item)
+
+  defp resolve_action_spec(tools, :search_items, provider),
+    do: resolve_action_by_candidates(tools, provider, :search_items)
+
+  defp resolve_action_spec(_tools, _capability, _provider), do: {:error, :unsupported}
+
+  defp resolve_action_by_candidates(tools, provider, capability)
+       when is_list(tools) and not is_nil(provider) do
+    prefix = provider_tool_prefix(provider)
+
+    capability
+    |> capability_tool_candidates(prefix)
+    |> Enum.find_value(fn id -> find_action_by_id(tools, id) end)
+    |> case do
       nil -> {:error, :unsupported}
       action -> {:ok, action}
     end
   end
+
+  defp resolve_action_by_candidates(_tools, _provider, _capability), do: {:error, :unsupported}
+
+  defp capability_tool_candidates(:list_items, prefix),
+    do: ["#{prefix}.files.list", "#{prefix}.file.list"]
+
+  defp capability_tool_candidates(:list_principals, prefix),
+    do: ["#{prefix}.permissions.list", "#{prefix}.permission.list"]
+
+  defp capability_tool_candidates(:get_item_metadata, prefix), do: ["#{prefix}.file.get"]
+
+  defp capability_tool_candidates(:list_item_versions, prefix),
+    do: ["#{prefix}.revisions.list", "#{prefix}.revision.list"]
+
+  defp capability_tool_candidates(:download_items, prefix), do: ["#{prefix}.file.download"]
+  defp capability_tool_candidates(:create_item, prefix), do: ["#{prefix}.file.create"]
+  defp capability_tool_candidates(:update_item, prefix), do: ["#{prefix}.file.update"]
+
+  defp capability_tool_candidates(:delete_item, prefix), do: ["#{prefix}.file.delete"]
+
+  defp capability_tool_candidates(:search_items, prefix),
+    do: ["#{prefix}.files.search", "#{prefix}.file.search", "#{prefix}.files.list"]
+
+  defp capability_tool_candidates(_capability, _prefix), do: []
+
+  defp provider_tool_prefix(provider) do
+    provider
+    |> to_string()
+    |> String.trim()
+    |> String.replace("_", ".")
+  end
+
+  defp find_action_by_id(tools, id) when is_list(tools) and is_binary(id) do
+    Enum.find(tools, fn
+      %ToolEntry{id: tool_id, type: :action} -> tool_id == id
+      %{id: tool_id} = tool -> tool_id == id and map_get_atom(tool, [:type, "type"]) == :action
+      _ -> false
+    end)
+  end
+
+  defp find_action_by_id(_tools, _id), do: nil
+
+  defp find_webhook_watch_trigger(tools) do
+    Enum.find(tools, &match_webhook_watch_trigger?/1)
+  end
+
+  defp match_webhook_watch_trigger?(%ToolEntry{} = tool),
+    do: tool.type == :trigger and tool.trigger_kind == :webhook and tool.verb == :watch
+
+  defp match_webhook_watch_trigger?(tool) when is_map(tool),
+    do:
+      map_get_atom(tool, [:type, "type"]) == :trigger and
+        map_get_atom(tool, [:trigger_kind, "trigger_kind", :kind, "kind"]) == :webhook and
+        map_get_atom(tool, [:verb, "verb"]) == :watch
+
+  defp match_webhook_watch_trigger?(_), do: false
 
   defp normalize_runtime_profile(runtime, action) when is_map(runtime) do
     allowed_profiles = Authorization.operation_auth_profiles(action)
@@ -1153,27 +1355,33 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp owner_type_profile_candidates(_), do: [:user]
 
   defp provider_required_scopes(provider) do
-    with {:ok, integration} <- integration_for_provider(provider),
-         {:ok, actions} <- jido_connect_module().actions(integration),
+    with {:ok, tools} <- provider_tools(provider),
          {:ok, snapshot} <- capability_snapshot(%{provider: provider}),
-         scopes <- collect_required_scopes(actions, snapshot) do
+         scopes <- collect_required_scopes(tools, snapshot, provider) do
       scopes
     else
       _ -> nil
     end
   end
 
-  defp collect_required_scopes(actions, %{resolved: resolved}) when is_map(resolved) do
+  defp collect_required_scopes(tools, %{resolved: resolved}, provider)
+       when is_list(tools) and is_map(resolved) do
+    provider_ref = provider || map_get_atom(List.first(tools), [:provider, "provider"])
+
     resolved
     |> Map.keys()
     |> Enum.reduce([], fn capability, acc ->
-      with {:ok, action} <- resolve_action_spec(actions, capability),
-           {:ok, scopes} <- ScopeRequirements.required_scopes(action, %{}, nil) do
-        acc ++ scopes
-      else
+      case resolve_action_spec(tools, capability, provider_ref) do
+        {:ok, action} -> acc ++ List.wrap(Map.get(action, :scopes, []))
         _ -> acc
       end
     end)
+    |> Enum.map(fn
+      scope when is_binary(scope) -> String.trim(scope)
+      scope when is_atom(scope) -> scope |> to_string() |> String.trim()
+      _ -> ""
+    end)
+    |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
 
@@ -1304,16 +1512,18 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp oban_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_oban_module, Oban)
 
-  defp jido_connect_module,
-    do: Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module, Jido.Connect)
+  defp catalog_module,
+    do:
+      Application.get_env(
+        :zaq,
+        :jido_connect_bridge_catalog_module,
+        Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module, Jido.Connect.Catalog)
+      )
 
-  defp triggers_for(integration) do
-    module = jido_connect_module()
-
-    if function_exported?(module, :triggers, 1) do
-      module.triggers(integration)
-    else
-      {:ok, []}
-    end
+  defp module_supports?(module, fun, arity)
+       when is_atom(module) and is_atom(fun) and is_integer(arity) do
+    Code.ensure_loaded?(module) and function_exported?(module, fun, arity)
   end
+
+  defp module_supports?(_module, _fun, _arity), do: false
 end

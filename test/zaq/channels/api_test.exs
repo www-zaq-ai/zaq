@@ -118,6 +118,31 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{listener_id: "l1"}}
     end
 
+    def create_file(provider, params) do
+      send(self(), {:ds_create_file, provider, params})
+      {:ok, %{status: "created", record: %{"id" => "f1"}}}
+    end
+
+    def get_file(provider, params) do
+      send(self(), {:ds_get_file, provider, params})
+      {:ok, %{record: %{"id" => "f1"}}}
+    end
+
+    def update_file(provider, params) do
+      send(self(), {:ds_update_file, provider, params})
+      {:ok, %{status: "updated", record: %{"id" => "f1"}}}
+    end
+
+    def delete_file(provider, params) do
+      send(self(), {:ds_delete_file, provider, params})
+      {:ok, %{status: "deleted", result: %{}}}
+    end
+
+    def search_files(provider, params) do
+      send(self(), {:ds_search_files, provider, params})
+      {:ok, %{records: [%{"id" => "f1"}]}}
+    end
+
     def teardown_listener(provider, params) do
       send(self(), {:ds_teardown_listener, provider, params})
       :ok
@@ -302,6 +327,63 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :data_source_setup_listener, nil)
     assert result.response == {:ok, %{listener_id: "l1"}}
     assert_received {:ds_setup_listener, :google_drive, %{"mode" => "delta"}}
+  end
+
+  test "handles data_source_create_file action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"name" => "Doc"}}, :channels,
+        opts: [action: :data_source_create_file, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_create_file, nil)
+    assert {:ok, %{status: "created", record: %{"id" => "f1"}}} = result.response
+    assert_received {:ds_create_file, :google_drive, %{"name" => "Doc"}}
+  end
+
+  test "handles data_source_get_file action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"file_id" => "f1"}}, :channels,
+        opts: [action: :data_source_get_file, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_get_file, nil)
+    assert {:ok, %{record: %{"id" => "f1"}}} = result.response
+    assert_received {:ds_get_file, :google_drive, %{"file_id" => "f1"}}
+  end
+
+  test "handles data_source_update_file action" do
+    event =
+      Event.new(
+        %{provider: :google_drive, params: %{"file_id" => "f1", "name" => "Renamed"}},
+        :channels,
+        opts: [action: :data_source_update_file, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_update_file, nil)
+    assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} = result.response
+    assert_received {:ds_update_file, :google_drive, %{"file_id" => "f1", "name" => "Renamed"}}
+  end
+
+  test "handles data_source_delete_file action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"file_id" => "f1"}}, :channels,
+        opts: [action: :data_source_delete_file, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_delete_file, nil)
+    assert {:ok, %{status: "deleted", result: %{}}} = result.response
+    assert_received {:ds_delete_file, :google_drive, %{"file_id" => "f1"}}
+  end
+
+  test "handles data_source_search_files action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"query" => "invoice"}}, :channels,
+        opts: [action: :data_source_search_files, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_search_files, nil)
+    assert {:ok, %{records: [%{"id" => "f1"}]}} = result.response
+    assert_received {:ds_search_files, :google_drive, %{"query" => "invoice"}}
   end
 
   test "handles webhook_delivered for data_source" do

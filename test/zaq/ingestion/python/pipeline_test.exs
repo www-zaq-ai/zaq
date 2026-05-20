@@ -32,7 +32,7 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
   end
 
   # ---------------------------------------------------------------------------
-  # step skipping — no api_key
+  # skipping — no api_key
   # ---------------------------------------------------------------------------
 
   describe "run/1 without api_key" do

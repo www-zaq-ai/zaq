@@ -2,6 +2,26 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
   use Zaq.DataCase, async: false
   setup {Req.Test, :verify_on_exit!}
 
+  setup do
+    previous_catalog = Application.get_env(:zaq, :jido_connect_bridge_catalog_module)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_catalog_module,
+      Zaq.Test.Channels.CatalogAdapterStub
+    )
+
+    on_exit(fn ->
+      if previous_catalog do
+        Application.put_env(:zaq, :jido_connect_bridge_catalog_module, previous_catalog)
+      else
+        Application.delete_env(:zaq, :jido_connect_bridge_catalog_module)
+      end
+    end)
+
+    :ok
+  end
+
   alias Jido.Connect.Spec
   alias StubIntegration, as: BridgeStubIntegration
   alias Zaq.Channels.ChannelConfig
@@ -1214,8 +1234,8 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
                JidoConnectBridge.list_files(atom_config, %{include_permissions: true})
 
       assert_received {:invoke_files, atom_params, atom_opts}
-      assert atom_params[:fields] == nil
-      assert atom_params["fields"] == nil
+      assert is_binary(atom_params[:fields] || atom_params["fields"])
+      assert String.contains?(atom_params[:fields] || atom_params["fields"], "permissions(")
       assert atom_opts[:context].connection.profile == :user
 
       sharepoint_credential = create_credential!()

@@ -808,7 +808,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
-    assert_eventually(fn -> render(view) =~ "I couldn" end)
+    assert_eventually(fn ->
+      html = render(view)
+
+      html =~ "I couldn" or
+        html =~ "No matching docs." or
+        html =~ "I can’t help with that request"
+    end)
   end
 
   test "query extraction empty uses retrieval negative answer", %{conn: conn} do

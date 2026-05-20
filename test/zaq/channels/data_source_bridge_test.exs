@@ -55,6 +55,31 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       {:ok, %{records: []}}
     end
 
+    def create_file(config, params) do
+      send(self(), {:create_file, config.id, params})
+      {:ok, %{status: "created", record: %{"id" => "f1"}}}
+    end
+
+    def get_file(config, params) do
+      send(self(), {:get_file, config.id, params})
+      {:ok, %{record: %{"id" => "f1"}}}
+    end
+
+    def update_file(config, params) do
+      send(self(), {:update_file, config.id, params})
+      {:ok, %{status: "updated", record: %{"id" => "f1"}}}
+    end
+
+    def delete_file(config, params) do
+      send(self(), {:delete_file, config.id, params})
+      {:ok, %{status: "deleted", result: %{}}}
+    end
+
+    def search_files(config, params) do
+      send(self(), {:search_files, config.id, params})
+      {:ok, %{records: [%{"id" => "f1"}]}}
+    end
+
     def list_permissions(config, params) do
       send(self(), {:list_permissions, config.id, params})
       {:ok, %{records: []}}
@@ -217,6 +242,42 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert_received {:list_files, ^config_id, %{config_id: ^config_id}}
 
+    assert {:ok, %{status: "created", record: %{"id" => "f1"}}} =
+             DataSourceBridge.create_file(:google_drive, %{"name" => "Doc", config_id: config_id})
+
+    assert_received {:create_file, ^config_id, %{"name" => "Doc", config_id: ^config_id}}
+
+    assert {:ok, %{record: %{"id" => "f1"}}} =
+             DataSourceBridge.get_file(:google_drive, %{"file_id" => "f1", config_id: config_id})
+
+    assert_received {:get_file, ^config_id, %{"file_id" => "f1", config_id: ^config_id}}
+
+    assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} =
+             DataSourceBridge.update_file(:google_drive, %{
+               "file_id" => "f1",
+               "name" => "Renamed",
+               config_id: config_id
+             })
+
+    assert_received {:update_file, ^config_id,
+                     %{"file_id" => "f1", "name" => "Renamed", config_id: ^config_id}}
+
+    assert {:ok, %{status: "deleted", result: %{}}} =
+             DataSourceBridge.delete_file(:google_drive, %{
+               "file_id" => "f1",
+               config_id: config_id
+             })
+
+    assert_received {:delete_file, ^config_id, %{"file_id" => "f1", config_id: ^config_id}}
+
+    assert {:ok, %{records: [%{"id" => "f1"}]}} =
+             DataSourceBridge.search_files(:google_drive, %{
+               "query" => "invoice",
+               config_id: config_id
+             })
+
+    assert_received {:search_files, ^config_id, %{"query" => "invoice", config_id: ^config_id}}
+
     assert {:ok, %{records: []}} =
              DataSourceBridge.list_permissions(:google_drive, %{"config_id" => config_id_string})
 
@@ -303,6 +364,50 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert {:error, :unsupported} =
              DataSourceBridge.list_files(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "file CRUD/search wrappers return unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.create_file(:google_drive, %{
+               "config_id" => config.id,
+               "name" => "Doc"
+             })
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.get_file(:google_drive, %{
+               "config_id" => config.id,
+               "file_id" => "f1"
+             })
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.update_file(:google_drive, %{
+               "config_id" => config.id,
+               "file_id" => "f1"
+             })
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.delete_file(:google_drive, %{
+               "config_id" => config.id,
+               "file_id" => "f1"
+             })
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.search_files(:google_drive, %{
+               "config_id" => config.id,
+               "query" => "invoice"
+             })
   end
 
   test "list_permissions returns unsupported when callback not implemented" do

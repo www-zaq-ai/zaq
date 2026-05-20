@@ -25,6 +25,11 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback oauth_refresh_token(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_default_scopes(map()) :: {:ok, [String.t()]} | {:error, term()}
   @callback list_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
+  @callback create_file(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback get_file(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback update_file(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback delete_file(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback search_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback list_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
 
@@ -38,6 +43,8 @@ defmodule Zaq.Channels.DataSourceBridge do
     :download_items,
     :create_item,
     :update_item,
+    :delete_item,
+    :search_items,
     :watch_changes_webhook,
     :receive_change_webhook
   ]
@@ -52,6 +59,8 @@ defmodule Zaq.Channels.DataSourceBridge do
     download_items: "Download file/folder selection",
     create_item: "Add file",
     update_item: "Edit file",
+    delete_item: "Delete a file/folder",
+    search_items: "Search for a file",
     watch_changes_webhook: "Register webhook watch for change notifications",
     receive_change_webhook: "Verify and normalize webhook change payloads"
   }
@@ -184,6 +193,56 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :list_files, 2) || {:error, :unsupported} do
       bridge.list_files(config, params)
+    end
+  end
+
+  @doc "Creates a provider file through the configured DataSource bridge."
+  @spec create_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def create_file(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :create_file, 2) || {:error, :unsupported} do
+      bridge.create_file(config, params)
+    end
+  end
+
+  @doc "Gets a provider file by id through the configured DataSource bridge."
+  @spec get_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def get_file(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :get_file, 2) || {:error, :unsupported} do
+      bridge.get_file(config, params)
+    end
+  end
+
+  @doc "Updates a provider file through the configured DataSource bridge."
+  @spec update_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def update_file(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :update_file, 2) || {:error, :unsupported} do
+      bridge.update_file(config, params)
+    end
+  end
+
+  @doc "Deletes a provider file through the configured DataSource bridge."
+  @spec delete_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def delete_file(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :delete_file, 2) || {:error, :unsupported} do
+      bridge.delete_file(config, params)
+    end
+  end
+
+  @doc "Searches provider files through the configured DataSource bridge."
+  @spec search_files(atom() | String.t(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
+  def search_files(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :search_files, 2) || {:error, :unsupported} do
+      bridge.search_files(config, params)
     end
   end
 

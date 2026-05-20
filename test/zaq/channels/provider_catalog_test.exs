@@ -3,35 +3,11 @@ defmodule Zaq.Channels.ProviderCatalogTest do
 
   alias Zaq.Channels.ProviderCatalog
 
-  defmodule IntegrationStub do
+  test "integration_module/1 resolves known provider from catalog discovery" do
+    assert {:ok, Jido.Connect.Google.Drive} = ProviderCatalog.integration_module("google_drive")
   end
 
-  setup do
-    original_channels = Application.get_env(:zaq, :channels)
-
-    on_exit(fn ->
-      if is_nil(original_channels) do
-        Application.delete_env(:zaq, :channels)
-      else
-        Application.put_env(:zaq, :channels, original_channels)
-      end
-    end)
-
-    :ok
-  end
-
-  test "integration_module/1 returns configured integration module" do
-    Application.put_env(:zaq, :channels, %{
-      email: %{integration: IntegrationStub}
-    })
-
-    assert {:ok, IntegrationStub} = ProviderCatalog.integration_module("email:imap")
-  end
-
-  test "integration_module/1 returns provider_not_configured when integration is missing" do
-    Application.put_env(:zaq, :channels, %{})
-
-    assert {:error, {:provider_not_configured, "zaq_local"}} =
-             ProviderCatalog.integration_module("zaq_local")
+  test "integration_module/1 returns unsupported when provider is unknown" do
+    assert {:error, :unsupported} = ProviderCatalog.integration_module("zaq_local")
   end
 end
