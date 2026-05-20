@@ -197,7 +197,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
     if not is_nil(condition) or map_size(mapping) > 0 do
       guard_name = "#{from_name}__to__#{to_name}__edge"
-      guard_node = build_edge_step_node(condition, mapping, guard_name, run_id)
+      from_index = get_in(node_map, [from_name, :index]) || 0
+      guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, from_index)
 
       wf
       |> Runic.Workflow.add(guard_node, to: String.to_atom(from_name), validate: :off)
@@ -215,9 +216,14 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  defp build_edge_step_node(condition, mapping, name, run_id) do
+  defp build_edge_step_node(condition, mapping, name, run_id, source_index) do
     params =
-      %{__edge_condition__: condition, __edge_mapping__: mapping, __edge_name__: name}
+      %{
+        __edge_condition__: condition,
+        __edge_mapping__: mapping,
+        __edge_name__: name,
+        __edge_source_index__: source_index
+      }
       |> then(fn p -> if run_id, do: Map.put(p, :run_id, run_id), else: p end)
 
     ActionNode.new(EdgeStep, params, name: String.to_atom(name))

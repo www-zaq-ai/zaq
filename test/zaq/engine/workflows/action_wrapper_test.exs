@@ -120,6 +120,68 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
     end
   end
 
+  describe "run/2 — resume idempotency (skip already-completed step)" do
+    test "returns stored results without calling the wrapped module" do
+      run = create_run()
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
+      {:ok, _} = Workflows.complete_step_run(sr, %{cached: true})
+
+      call_count = :counters.new(1, [])
+
+      defmodule CountingAction do
+        @moduledoc false
+        use Jido.Action, name: "counting_action_aw", schema: []
+
+        def run(_params, _context) do
+          :counters.add(:persistent_term.get(:aw_counter), 1, 1)
+          {:ok, %{called: true}}
+        end
+      end
+
+      :persistent_term.put(:aw_counter, call_count)
+
+      result = ActionWrapper.run(wp(run, CountingAction, "fetch", 0), %{})
+      assert {:ok, %{"cached" => true}} = result
+      assert :counters.get(call_count, 1) == 0, "wrapped module must not be called on resume"
+    end
+
+    test "does not insert a new StepRun row when step is already completed" do
+      run = create_run()
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
+      {:ok, _} = Workflows.complete_step_run(sr, %{value: "original"})
+
+      ActionWrapper.run(wp(run, OkAction, "fetch", 0), %{})
+
+      rows = Workflows.list_step_runs(run.id)
+      assert length(rows) == 1, "must not create a duplicate StepRun on resume"
+    end
+
+    test "returns empty map when completed step has nil results" do
+      run = create_run()
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
+      Workflows.complete_step_run(sr, nil)
+
+      assert {:ok, %{}} = ActionWrapper.run(wp(run, OkAction, "fetch", 0), %{})
+    end
+
+    test "runs normally when no completed StepRun exists" do
+      run = create_run()
+      assert {:ok, %{value: "done"}} = ActionWrapper.run(wp(run, OkAction, "fetch", 0), %{})
+
+      [ar] = Workflows.list_step_runs(run.id)
+      assert ar.status == "completed"
+    end
+  end
+
   describe "run/2 — ConditionNotMet rescue" do
     test "StepRun is marked skipped, ConditionNotMet is re-raised" do
       defmodule ConditionRaisingAction do
