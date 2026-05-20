@@ -1,13 +1,3 @@
-defmodule Zaq.Engine.Workflows.Test.AlwaysCondition do
-  @moduledoc false
-  def call(_fact), do: true
-end
-
-defmodule Zaq.Engine.Workflows.Test.NeverCondition do
-  @moduledoc false
-  def call(_fact), do: false
-end
-
 defmodule Zaq.Engine.Workflows.Test.OkAction do
   @moduledoc false
   use Jido.Action,
@@ -110,5 +100,116 @@ defmodule Zaq.Engine.Workflows.Test.ParamProbe do
   def run(params, _context) do
     ParamCapture.put_params(params)
     {:ok, %{params_captured: true}}
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Actions for Step 6 edge-routing E2E test
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.Noop do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_noop",
+    schema: [input: [type: :any]],
+    output_schema: [noop: [type: :boolean, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(_params, _context), do: {:ok, %{noop: true}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitPerson do
+  @moduledoc false
+
+  use Jido.Action,
+    name: "test_emit_person",
+    schema: [gender: [type: :string, required: true]],
+    output_schema: [
+      name: [type: :string, required: true],
+      age: [type: :integer, required: true],
+      gender: [type: :string, required: true]
+    ]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(params, _context) do
+    gender = Map.get(params, :gender) || Map.get(params, "gender")
+    {:ok, %{name: "Sam", age: 30, gender: gender}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.RequirePersonName do
+  @moduledoc false
+
+  use Jido.Action,
+    name: "test_require_person_name",
+    schema: [person_name: [type: :any]],
+    output_schema: [
+      c_ran: [type: :boolean, required: true],
+      person_name: [type: :string, required: true]
+    ]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(params, _context) do
+    # Asserts mapping correctness: person_name present, raw name must NOT be present.
+    person_name = Map.fetch!(params, :person_name)
+
+    if Map.has_key?(params, :name),
+      do: raise("C received raw :name key — mapping isolation failed")
+
+    {:ok, %{c_ran: true, person_name: person_name}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.RequireFirstName do
+  @moduledoc false
+
+  use Jido.Action,
+    name: "test_require_first_name",
+    schema: [first_name: [type: :any]],
+    output_schema: [
+      f_ran: [type: :boolean, required: true],
+      first_name: [type: :string, required: true]
+    ]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(params, _context) do
+    first_name = Map.fetch!(params, :first_name)
+
+    if Map.has_key?(params, :name),
+      do: raise("F received raw :name key — mapping isolation failed")
+
+    {:ok, %{f_ran: true, first_name: first_name}}
   end
 end
