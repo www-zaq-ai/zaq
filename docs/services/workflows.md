@@ -30,7 +30,7 @@ Trigger.fire/3
                     ├─ update_run status: "running"
                     ├─ DagBuilder.build(steps_snapshot, run_id: run.id)
                     │    └─ wraps each action/agent node in ActionWrapper
-                    │    └─ builds condition nodes as Runic.Workflow.Step
+                    │    └─ injects EdgeStep on conditional/mapping edges
                     ├─ Runic.Workflow.react_until_satisfied(dag, input)
                     │    └─ ActionWrapper.run/2 (per step)
                     │         ├─ create_action_result  status: "running"
@@ -50,34 +50,27 @@ The `steps` column on `Workflow` (and `steps_snapshot` on `WorkflowRun`) must fo
 ```json
 {
   "nodes": [
-    {
-      "name": "fetch_emails",
-      "type": "action",
-      "module": "Zaq.Agent.Tools.Email.FetchEmails",
-      "params": {},
-      "index": 0
-    },
-    {
-      "name": "emails_found",
-      "type": "condition",
-      "module": "Zaq.Engine.Workflows.Conditions.EmailsFound",
-      "params": {},
-      "index": 1
-    }
+    {"name": "fetch_emails", "type": "action", "module": "Zaq.Agent.Tools.Email.FetchEmails", "params": {}, "index": 0},
+    {"name": "notify_team",  "type": "action", "module": "Zaq.Agent.Tools.Notify",            "params": {}, "index": 1},
+    {"name": "skip_notify",  "type": "action", "module": "Zaq.Agent.Tools.Noop",              "params": {}, "index": 2}
   ],
   "edges": [
-    {"from": "fetch_emails", "to": "emails_found"}
+    {"from": "fetch_emails", "to": "notify_team",
+     "condition": {"field": "count", "op": "gt", "value": 0},
+     "mapping":   {"email_count": "count"}},
+    {"from": "fetch_emails", "to": "skip_notify"}
   ]
 }
 ```
 
 **Node types:**
 - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`. When `run_id` is present, wrapped further by `ActionWrapper`.
-- `"condition"` — built as a `Runic.Workflow.Step`. The step passes the fact through if `mod.call(fact)` returns truthy, or raises `"condition_not_met:<name>"` to skip the downstream subgraph.
 
 **Edge fields:**
-- `"from"` / `"to"` — node names (strings, matched to node `"name"` field)
-- `validate_ports: false` is always set by `DagBuilder` — port validation is disabled system-wide
+- `"from"` / `"to"` — node names (strings, matched to node `"name"` field).
+- `"condition"` — optional map with `"field"`, `"op"`, and optionally `"value"`. Supported ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. When present, an `EdgeStep` is injected between the two nodes; a false condition raises `ConditionNotMet`, pruning that branch while sibling edges continue.
+- `"mapping"` — optional map of `"target_key" => "source_key"` string pairs. The `EdgeStep` renames source keys to target keys in the downstream fact. Source keys in the mapping are consumed (not passed through); all other keys pass through unchanged.
+- `validate_ports: false` is always set by `DagBuilder` — port validation is disabled system-wide.
 
 ---
 
@@ -100,7 +93,7 @@ For **event-driven triggers** (e.g., email received, webhook posted):
 5. `WorkflowAgent` extracts `run.source_event.assigns[:input]` (safely handling both atom and string keys from JSONB round-trips) as the initial Runic fact.
 6. Each action node receives the accumulated fact map as `params` and returns `{:ok, result_map}`.
 7. Runic merges the result map into the running fact for downstream nodes.
-8. Condition nodes receive the full accumulated fact and either pass it through or skip downstream.
+8. On edges with a `condition`, an `EdgeStep` evaluates the condition against the upstream fact. A false result raises `ConditionNotMet`, pruning that branch. On edges with a `mapping`, the `EdgeStep` renames keys before the fact reaches the downstream node.
 
 The triggering event's payload is preserved through the fact flow as `params.event.payload` in the first action node.
 
@@ -174,21 +167,48 @@ ORDER BY step_index ASC;
 
 ---
 
-## Adding a New Condition Type
+## Conditional & Data-Connector Edges — Worked Example
 
-1. Create a module with a `call/1` function that accepts the accumulated fact map and returns a truthy/falsy value.
-2. Register it in the workflow steps with `"type": "condition"`.
-3. `DagBuilder` wraps it in a `Runic.Workflow.Step` automatically.
+```
+A → B → C  condition {gender == "male"}   mapping {person_name ← name}  → D
+     B → F  condition {gender == "female"} mapping {first_name  ← name}
+```
 
-There is no behaviour to implement — only `call/1` is required.
+```json
+{
+  "nodes": [
+    {"name": "A", "type": "action", "module": "..Noop",          "params": {}, "index": 0},
+    {"name": "B", "type": "action", "module": "..EmitPerson",    "params": {}, "index": 1},
+    {"name": "C", "type": "action", "module": "..RequirePersonName", "params": {}, "index": 2},
+    {"name": "D", "type": "action", "module": "..Noop",          "params": {}, "index": 3},
+    {"name": "F", "type": "action", "module": "..RequireFirstName",  "params": {}, "index": 4}
+  ],
+  "edges": [
+    {"from": "A", "to": "B"},
+    {"from": "B", "to": "C",
+     "condition": {"field": "gender", "op": "eq", "value": "male"},
+     "mapping":   {"person_name": "name"}},
+    {"from": "C", "to": "D"},
+    {"from": "B", "to": "F",
+     "condition": {"field": "gender", "op": "eq", "value": "female"},
+     "mapping":   {"first_name": "name"}}
+  ]
+}
+```
+
+- `B` emits `%{name: "Sam", age: 30, gender: "male"}`.
+- `DagBuilder` injects an `EdgeStep` on `B→C` and on `B→F`.
+- For `gender = "male"`: `B→C` EdgeStep passes (renames `name` → `person_name`); `B→F` EdgeStep raises `ConditionNotMet` → `F` is pruned, its `ActionResult` records `"skipped"`. Run status = `"completed"`.
+- For `gender = "female"`: inverse — `C` and `D` are pruned.
+- For `gender = "other"`: both conditions fail; both branches pruned; run still `"completed"`.
 
 ---
 
 ## Key Invariants (Never Break)
 
-**1. Condition nodes must be `Runic.Workflow.Step`, not `Runic.Workflow.Condition`.**
+**1. EdgeStep must not use `Runic.condition/2`.**
 
-`Runic.Workflow.Condition` is a `:match` node. It emits `ConditionSatisfied` events consumed only by Rule reactions — it does NOT produce `FactProduced` events that downstream `:execute` (ActionNode) nodes wait for. A condition built with `Runic.condition/2` will silently starve all downstream action nodes. `DagBuilder` intentionally builds conditions as Steps that raise on false. Do not change this.
+`Runic.Workflow.Condition` is a `:match` node. It emits `ConditionSatisfied` events consumed only by Rule reactions — it does NOT produce `FactProduced` events that downstream `:execute` (ActionNode) nodes wait for. A guard built with `Runic.condition/2` will silently starve all downstream action nodes. `DagBuilder` injects `EdgeStep` as a `Jido.Runic.ActionNode` (a `:execute` node) that raises on false. Do not change this.
 
 **2. Steps snapshot is immutable for in-progress runs.**
 
@@ -210,7 +230,7 @@ There is no behaviour to implement — only `call/1` is required.
 
 ## What NOT to Do
 
-- **Do not call `Runic.condition/2`** to build condition nodes. It creates `:match` nodes that do not propagate facts to downstream `:execute` nodes. Use `Runic.Workflow.Step` with a raise on false (already done by `DagBuilder`).
+- **Do not call `Runic.condition/2`** to build guard logic. It creates `:match` nodes that do not propagate facts to downstream `:execute` nodes. Routing conditions belong on edges via the `"condition"` field — `DagBuilder` injects an `EdgeStep` (`ActionNode`) that raises on false.
 - **Do not read the live `Workflow` row inside `WorkflowAgent`** — only the snapshot fields on `WorkflowRun` are authoritative for a running execution.
 - **Do not skip `ActionWrapper`** when `run_id` is present. Calling action modules directly bypasses the crash-safe cursor and leaves no audit trail.
 - **Do not use `String.to_atom/1` for module resolution** from untrusted JSONB data. Always use `Module.concat/1` + `Code.ensure_loaded/1`.
