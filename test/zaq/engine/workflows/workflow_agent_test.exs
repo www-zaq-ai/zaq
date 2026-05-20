@@ -10,6 +10,8 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   @error_module "Zaq.Engine.Workflows.Test.ErrorAction"
   @probe_module "Zaq.Engine.Workflows.Test.ParamProbe"
   @pause_module "Zaq.Engine.Workflows.Test.PauseAction"
+  @noop_module "Zaq.Engine.Workflows.Test.Noop"
+  @emit_gender_module "Zaq.Engine.Workflows.Test.EmitGender"
 
   setup do
     start_supervised!(ParamCapture)
@@ -278,6 +280,93 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       {:ok, updated} = WorkflowAgent.execute(run)
 
       assert updated.status == "completed"
+    end
+  end
+
+  describe "execute/1 — cross-step edge conditions (cascade)" do
+    # Workflow: A → B → C → D  (if A.gender == "female")
+    #                    C → E  (if A.gender == "male")
+    defp cascade_workflow(gender) do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Cascade #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "A",
+              type: "action",
+              module: @emit_gender_module,
+              params: %{"gender" => gender},
+              index: 0
+            },
+            %{name: "B", type: "action", module: @ok_module, params: %{}, index: 1},
+            %{name: "C", type: "action", module: @ok_module, params: %{}, index: 2},
+            %{name: "D", type: "action", module: @noop_module, params: %{}, index: 3},
+            %{name: "E", type: "action", module: @noop_module, params: %{}, index: 3}
+          ],
+          edges: [
+            %{from: "A", to: "B"},
+            %{from: "B", to: "C"},
+            %{from: "C", to: "D", condition: %{field: "A.gender", op: :eq, value: "female"}},
+            %{from: "C", to: "E", condition: %{field: "A.gender", op: :eq, value: "male"}}
+          ]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      run
+    end
+
+    test "female: D runs, E is pruned" do
+      run = cascade_workflow("female")
+      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert finished.status == "completed"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      by_name = Map.new(step_runs, &{&1.step_name, &1})
+
+      assert by_name["A"].status == "completed"
+      assert by_name["B"].status == "completed"
+      assert by_name["C"].status == "completed"
+      assert by_name["D"].status == "completed"
+      refute Map.has_key?(by_name, "E")
+    end
+
+    test "male: E runs, D is pruned" do
+      run = cascade_workflow("male")
+      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert finished.status == "completed"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      by_name = Map.new(step_runs, &{&1.step_name, &1})
+
+      assert by_name["A"].status == "completed"
+      assert by_name["B"].status == "completed"
+      assert by_name["C"].status == "completed"
+      assert by_name["E"].status == "completed"
+      refute Map.has_key?(by_name, "D")
+    end
+
+    test "absent step name in cascade condition → branch pruned, run still completes" do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Cascade Missing #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "A", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "B", type: "action", module: @noop_module, params: %{}, index: 1}
+          ],
+          edges: [
+            %{from: "A", to: "B", condition: %{field: "nonexistent.field", op: :eq, value: "x"}}
+          ]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert finished.status == "completed"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      names = Enum.map(step_runs, & &1.step_name)
+      refute "B" in names
     end
   end
 

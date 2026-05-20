@@ -61,6 +61,12 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
     end
   end
 
+  defp inject_cascade(result, prev_cascade, step_name) when is_map(result) do
+    Map.put(result, :__cascade__, Map.put(prev_cascade, step_name, result))
+  end
+
+  defp inject_cascade(result, _prev_cascade, _step_name), do: result
+
   defp execute_step(mod, run_id, step_name, step_index, params, context) do
     started_ms = System.monotonic_time(:millisecond)
 
@@ -78,12 +84,14 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
         status: "running"
       })
 
-    action_params = Map.drop(params, @wrapper_keys)
+    prev_cascade = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
+    action_params = Map.drop(params, @wrapper_keys ++ [:__cascade__, "__cascade__"])
 
     try do
       case mod.run(action_params, context) do
         {:ok, result, logs: logs} ->
-          Workflows.complete_step_run(step_run, result, logs)
+          cascaded = inject_cascade(result, prev_cascade, step_name)
+          Workflows.complete_step_run(step_run, cascaded, logs)
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
@@ -92,10 +100,11 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
             duration_ms: System.monotonic_time(:millisecond) - started_ms
           )
 
-          {:ok, result}
+          {:ok, cascaded}
 
         {:ok, result} ->
-          Workflows.complete_step_run(step_run, result)
+          cascaded = inject_cascade(result, prev_cascade, step_name)
+          Workflows.complete_step_run(step_run, cascaded)
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
@@ -104,7 +113,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
             duration_ms: System.monotonic_time(:millisecond) - started_ms
           )
 
-          {:ok, result}
+          {:ok, cascaded}
 
         {:error, reason} = err ->
           Workflows.fail_step_run(step_run, %{reason: inspect(reason)})
