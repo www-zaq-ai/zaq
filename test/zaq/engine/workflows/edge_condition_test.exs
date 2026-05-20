@@ -1,12 +1,12 @@
-defmodule Zaq.Engine.Workflows.PredicateTest do
+defmodule Zaq.Engine.Workflows.EdgeConditionTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias Zaq.Engine.Workflows.Predicate
+  alias Zaq.Engine.Workflows.EdgeCondition
 
   describe "ops/0" do
     test "returns the full operator vocabulary" do
-      ops = Predicate.ops()
+      ops = EdgeCondition.ops()
       assert :eq in ops
       assert :neq in ops
       assert :gt in ops
@@ -21,98 +21,98 @@ defmodule Zaq.Engine.Workflows.PredicateTest do
 
   describe "evaluate/3 — :eq" do
     test "returns true when equal" do
-      assert Predicate.evaluate(:eq, "male", "male")
-      assert Predicate.evaluate(:eq, 1, 1)
-      assert Predicate.evaluate(:eq, nil, nil)
+      assert EdgeCondition.evaluate(:eq, "male", "male")
+      assert EdgeCondition.evaluate(:eq, 1, 1)
+      assert EdgeCondition.evaluate(:eq, nil, nil)
     end
 
     test "returns false when not equal" do
-      refute Predicate.evaluate(:eq, "male", "female")
-      refute Predicate.evaluate(:eq, 1, 2)
+      refute EdgeCondition.evaluate(:eq, "male", "female")
+      refute EdgeCondition.evaluate(:eq, 1, 2)
     end
   end
 
   describe "evaluate/3 — :neq" do
     test "returns true when not equal" do
-      assert Predicate.evaluate(:neq, "male", "female")
-      assert Predicate.evaluate(:neq, 1, 2)
+      assert EdgeCondition.evaluate(:neq, "male", "female")
+      assert EdgeCondition.evaluate(:neq, 1, 2)
     end
 
     test "returns false when equal" do
-      refute Predicate.evaluate(:neq, "x", "x")
+      refute EdgeCondition.evaluate(:neq, "x", "x")
     end
   end
 
   describe "evaluate/3 — :gt / :lt / :gte / :lte" do
     test ":gt" do
-      assert Predicate.evaluate(:gt, 5, 3)
-      refute Predicate.evaluate(:gt, 3, 5)
-      refute Predicate.evaluate(:gt, 3, 3)
+      assert EdgeCondition.evaluate(:gt, 5, 3)
+      refute EdgeCondition.evaluate(:gt, 3, 5)
+      refute EdgeCondition.evaluate(:gt, 3, 3)
     end
 
     test ":lt" do
-      assert Predicate.evaluate(:lt, 2, 4)
-      refute Predicate.evaluate(:lt, 4, 2)
-      refute Predicate.evaluate(:lt, 2, 2)
+      assert EdgeCondition.evaluate(:lt, 2, 4)
+      refute EdgeCondition.evaluate(:lt, 4, 2)
+      refute EdgeCondition.evaluate(:lt, 2, 2)
     end
 
     test ":gte" do
-      assert Predicate.evaluate(:gte, 5, 5)
-      assert Predicate.evaluate(:gte, 6, 5)
-      refute Predicate.evaluate(:gte, 4, 5)
+      assert EdgeCondition.evaluate(:gte, 5, 5)
+      assert EdgeCondition.evaluate(:gte, 6, 5)
+      refute EdgeCondition.evaluate(:gte, 4, 5)
     end
 
     test ":lte" do
-      assert Predicate.evaluate(:lte, 3, 3)
-      assert Predicate.evaluate(:lte, 2, 3)
-      refute Predicate.evaluate(:lte, 4, 3)
+      assert EdgeCondition.evaluate(:lte, 3, 3)
+      assert EdgeCondition.evaluate(:lte, 2, 3)
+      refute EdgeCondition.evaluate(:lte, 4, 3)
     end
   end
 
   describe "evaluate/3 — :not_empty / :empty" do
     test ":empty returns true for nil, empty string, empty list, empty map" do
-      assert Predicate.evaluate(:empty, nil, nil)
-      assert Predicate.evaluate(:empty, "", nil)
-      assert Predicate.evaluate(:empty, [], nil)
-      assert Predicate.evaluate(:empty, %{}, nil)
+      assert EdgeCondition.evaluate(:empty, nil, nil)
+      assert EdgeCondition.evaluate(:empty, "", nil)
+      assert EdgeCondition.evaluate(:empty, [], nil)
+      assert EdgeCondition.evaluate(:empty, %{}, nil)
     end
 
     test ":empty returns false for non-empty values" do
-      refute Predicate.evaluate(:empty, "x", nil)
-      refute Predicate.evaluate(:empty, [1], nil)
-      refute Predicate.evaluate(:empty, %{a: 1}, nil)
-      refute Predicate.evaluate(:empty, 0, nil)
+      refute EdgeCondition.evaluate(:empty, "x", nil)
+      refute EdgeCondition.evaluate(:empty, [1], nil)
+      refute EdgeCondition.evaluate(:empty, %{a: 1}, nil)
+      refute EdgeCondition.evaluate(:empty, 0, nil)
     end
 
     test ":not_empty is the inverse of :empty" do
-      assert Predicate.evaluate(:not_empty, "x", nil)
-      assert Predicate.evaluate(:not_empty, [1], nil)
-      refute Predicate.evaluate(:not_empty, nil, nil)
-      refute Predicate.evaluate(:not_empty, "", nil)
+      assert EdgeCondition.evaluate(:not_empty, "x", nil)
+      assert EdgeCondition.evaluate(:not_empty, [1], nil)
+      refute EdgeCondition.evaluate(:not_empty, nil, nil)
+      refute EdgeCondition.evaluate(:not_empty, "", nil)
     end
   end
 
   describe "evaluate/3 — :in" do
     test "returns true when actual is in expected list" do
-      assert Predicate.evaluate(:in, "male", ["male", "female"])
-      assert Predicate.evaluate(:in, 3, [1, 2, 3])
+      assert EdgeCondition.evaluate(:in, "male", ["male", "female"])
+      assert EdgeCondition.evaluate(:in, 3, [1, 2, 3])
     end
 
     test "returns false when actual is not in expected list" do
-      refute Predicate.evaluate(:in, "other", ["male", "female"])
+      refute EdgeCondition.evaluate(:in, "other", ["male", "female"])
     end
 
     test "raises ArgumentError when expected is not a list" do
       assert_raise ArgumentError, ~r/requires a list/, fn ->
-        Predicate.evaluate(:in, "x", "not_a_list")
+        EdgeCondition.evaluate(:in, "x", "not_a_list")
       end
     end
   end
 
   describe "evaluate/3 — unknown op" do
     test "raises ArgumentError" do
-      assert_raise ArgumentError, ~r/unknown predicate op/, fn ->
-        Predicate.evaluate(:bogus_op, "x", "y")
+      assert_raise ArgumentError, ~r/unknown edge condition op/, fn ->
+        EdgeCondition.evaluate(:bogus_op, "x", "y")
       end
     end
   end
@@ -125,7 +125,7 @@ defmodule Zaq.Engine.Workflows.PredicateTest do
               a <- one_of([integer(), float(), string(:alphanumeric), constant(nil)]),
               b <- one_of([integer(), float(), string(:alphanumeric), constant(nil)])
             ) do
-        result = Predicate.evaluate(op, a, b)
+        result = EdgeCondition.evaluate(op, a, b)
         assert is_boolean(result)
       end
     end
@@ -135,7 +135,7 @@ defmodule Zaq.Engine.Workflows.PredicateTest do
               actual <- one_of([integer(), string(:alphanumeric), constant(nil)]),
               expected <- list_of(one_of([integer(), string(:alphanumeric), constant(nil)]))
             ) do
-        result = Predicate.evaluate(:in, actual, expected)
+        result = EdgeCondition.evaluate(:in, actual, expected)
         assert is_boolean(result)
       end
     end
@@ -151,13 +151,13 @@ defmodule Zaq.Engine.Workflows.PredicateTest do
                   constant(%{})
                 ])
             ) do
-        assert is_boolean(Predicate.evaluate(:empty, val, nil))
-        assert is_boolean(Predicate.evaluate(:not_empty, val, nil))
+        assert is_boolean(EdgeCondition.evaluate(:empty, val, nil))
+        assert is_boolean(EdgeCondition.evaluate(:not_empty, val, nil))
       end
     end
 
     property "unknown op always raises ArgumentError" do
-      known = MapSet.new(Predicate.ops())
+      known = MapSet.new(EdgeCondition.ops())
 
       check all(
               op <-
@@ -166,7 +166,7 @@ defmodule Zaq.Engine.Workflows.PredicateTest do
                 |> filter(&(&1 != :""))
             ) do
         assert_raise ArgumentError, fn ->
-          Predicate.evaluate(op, "x", "y")
+          EdgeCondition.evaluate(op, "x", "y")
         end
       end
     end
