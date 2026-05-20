@@ -13,7 +13,8 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   Statuses:
   - `pending`   — created, agent not yet started
   - `running`   — agent actively executing steps
-  - `waiting`   — paused at a human-in-the-loop step
+  - `waiting`   — reserved for future human-in-the-loop steps; not yet driven
+  - `paused`    — externally paused; resume via `Workflows.resume_run/2`
   - `completed` — all steps finished successfully
   - `failed`    — a step exceeded retries or a fatal error occurred
   """
@@ -26,7 +27,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(pending running waiting completed failed)
+  @statuses ~w(pending running waiting paused completed failed)
 
   @type t :: %__MODULE__{}
 

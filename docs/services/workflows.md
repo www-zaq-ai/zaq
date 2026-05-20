@@ -36,12 +36,15 @@ Trigger.fire/3
                     ├─ DagBuilder.build(steps_snapshot, run_id: run.id)
                     │    └─ wraps each action/agent node in ActionWrapper
                     │    └─ injects EdgeStep on conditional/mapping edges
-                    ├─ Runic.Workflow.react_until_satisfied(dag, input)
+                    ├─ Runic.Workflow.react_until_satisfied(dag, input, checkpoint: ...)
                     │    └─ ActionWrapper.run/2 (per step)
+                    │         ├─ if run.status == "paused" → throw(:pause_requested)
+                    │         ├─ if completed Step.Run exists → return stored result
                     │         ├─ insert Step.Run  status: "running"
                     │         ├─ mod.run(params, context)
                     │         └─ update Step.Run  status: "completed" | "failed"
-                    └─ finalize/1
+                    ├─ catch :pause_requested → return paused run
+                    └─ finalize/2
                          ├─ any Step.Run "failed" or "running" → run = "failed"
                          └─ all Step.Run "completed" → run = "completed"
 ```
@@ -116,7 +119,9 @@ The triggering event's payload is preserved through the fact flow as `params.eve
 
 `Steps.EdgeStep` is NOT wrapped by `ActionWrapper` — it is infrastructure and never appears in `Step.Run` rows.
 
-After `react_until_satisfied/2` returns, `WorkflowAgent.finalize/1` queries all `Step.Run` rows for the run. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`.
+After `react_until_satisfied/3` returns, `WorkflowAgent.finalize/2` queries all `Step.Run` rows for the run. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`.
+
+On resume, `ActionWrapper` first checks for an existing completed `Step.Run` for the `(run_id, step_name)` pair and returns its stored results without calling the wrapped module. This makes resume idempotent and prevents duplicate step rows.
 
 ---
 
@@ -125,6 +130,10 @@ After `react_until_satisfied/2` returns, `WorkflowAgent.finalize/1` queries all 
 ```
 pending → running → completed
                  → failed
+                 → paused → running (on resume)
+                               → completed
+                               → failed
+                               → paused
 ```
 
 - `waiting` is defined in the schema for future human-in-the-loop support but not yet driven by the engine.
