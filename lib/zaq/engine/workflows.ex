@@ -140,7 +140,9 @@ defmodule Zaq.Engine.Workflows do
         end),
       "edges" =>
         Enum.map(edges || [], fn e ->
-          %{"from" => e.from, "to" => e.to}
+          edge = %{"from" => e.from, "to" => e.to}
+          edge = if e.condition, do: Map.put(edge, "condition", e.condition), else: edge
+          if map_size(e.mapping || %{}) > 0, do: Map.put(edge, "mapping", e.mapping), else: edge
         end)
     }
   end
