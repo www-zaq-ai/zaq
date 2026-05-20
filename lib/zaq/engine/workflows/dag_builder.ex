@@ -161,48 +161,43 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp validate_edge_condition(nil), do: :ok
 
-  defp validate_edge_condition(%{"op" => op}) when is_binary(op) do
-    op_atom = String.to_existing_atom(op)
-
-    if op_atom in EdgeCondition.ops(),
-      do: :ok,
-      else: {:error, {:invalid_edge_condition, op}}
-  rescue
-    ArgumentError -> {:error, {:invalid_edge_condition, op}}
+  defp validate_edge_condition(condition) when is_map(condition) do
+    cs = EdgeCondition.changeset(condition)
+    if cs.valid?, do: :ok, else: {:error, {:invalid_edge_condition, condition}}
   end
 
   defp validate_edge_condition(_), do: :ok
 
-  defp assemble(node_map, edges, _run_id) do
+  defp assemble(node_map, edges, run_id) do
     workflow =
       node_map
       |> Enum.sort_by(fn {_name, %{index: i}} -> i end)
       |> Enum.reduce(Runic.Workflow.new(:workflow), fn {name, %{node: runic_node}}, wf ->
         incoming = Enum.filter(edges, &(Map.get(&1, "to") == name))
-        add_node(wf, runic_node, name, incoming, node_map)
+        add_node(wf, runic_node, name, incoming, node_map, run_id)
       end)
 
     {:ok, workflow}
   end
 
-  defp add_node(workflow, runic_node, _to_name, [], _node_map) do
+  defp add_node(workflow, runic_node, _to_name, [], _node_map, _run_id) do
     Runic.Workflow.add(workflow, runic_node)
   end
 
-  defp add_node(workflow, runic_node, to_name, incoming, node_map) do
+  defp add_node(workflow, runic_node, to_name, incoming, node_map, run_id) do
     Enum.reduce(incoming, workflow, fn edge, wf ->
-      add_edge(wf, runic_node, to_name, edge, node_map)
+      add_edge(wf, runic_node, to_name, edge, node_map, run_id)
     end)
   end
 
-  defp add_edge(wf, runic_node, to_name, edge, node_map) do
+  defp add_edge(wf, runic_node, to_name, edge, node_map, run_id) do
     from_name = Map.get(edge, "from")
     condition = Map.get(edge, "condition")
     mapping = Map.get(edge, "mapping") || %{}
 
     if not is_nil(condition) or map_size(mapping) > 0 do
       guard_name = "#{from_name}__to__#{to_name}__edge"
-      guard_node = build_edge_step_node(condition, mapping, guard_name)
+      guard_node = build_edge_step_node(condition, mapping, guard_name, run_id)
 
       wf
       |> Runic.Workflow.add(guard_node, to: String.to_atom(from_name), validate: :off)
@@ -220,12 +215,10 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  defp build_edge_step_node(condition, mapping, name) do
-    params = %{
-      __edge_condition__: condition,
-      __edge_mapping__: mapping,
-      __edge_name__: name
-    }
+  defp build_edge_step_node(condition, mapping, name, run_id) do
+    params =
+      %{__edge_condition__: condition, __edge_mapping__: mapping, __edge_name__: name}
+      |> then(fn p -> if run_id, do: Map.put(p, :run_id, run_id), else: p end)
 
     ActionNode.new(EdgeStep, params, name: String.to_atom(name))
   end

@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: false
 
+  alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.Steps.EdgeStep
 
@@ -206,6 +207,106 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
       # EdgeStep strips known keys; if they are absent from params it still works.
       fact = %{foo: "bar"}
       assert {:ok, ^fact} = run(fact)
+    end
+  end
+
+  describe "Step.Run trace — condition failure with run_id" do
+    defp create_run_for_edge_step do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "EdgeStep Trace #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "a",
+              type: "action",
+              module: "Zaq.Engine.Workflows.Test.OkAction",
+              params: %{},
+              index: 0
+            }
+          ],
+          edges: []
+        })
+
+      {:ok, run} =
+        Workflows.create_run(wf, %{"request" => nil, "assigns" => %{}, "trace_id" => "t"})
+
+      run
+    end
+
+    test "condition fails + run_id present → Step.Run written with status skipped" do
+      run = create_run_for_edge_step()
+
+      params = %{
+        __edge_condition__: %{"field" => "gender", "op" => "eq", "value" => "male"},
+        __edge_mapping__: %{},
+        __edge_name__: "b_to_c_edge",
+        run_id: run.id,
+        gender: "female"
+      }
+
+      assert_raise ConditionNotMet, fn -> EdgeStep.run(params, %{}) end
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.step_name == "b_to_c_edge"
+      assert step_run.step_index == -1
+      assert step_run.status == "skipped"
+      assert step_run.results["field"] == "gender"
+      assert step_run.results["op"] == "eq"
+      assert step_run.results["actual"] == "\"female\""
+      assert step_run.results["expected"] == "\"male\""
+    end
+
+    test "condition fails + run_id absent → no Step.Run written, ConditionNotMet still raised" do
+      run = create_run_for_edge_step()
+
+      params = %{
+        __edge_condition__: %{"field" => "score", "op" => "gt", "value" => 5},
+        __edge_mapping__: %{},
+        __edge_name__: "b_to_c_edge",
+        score: 1
+      }
+
+      assert_raise ConditionNotMet, fn -> EdgeStep.run(params, %{}) end
+
+      assert Workflows.list_step_runs(run.id) == []
+    end
+
+    test "condition passes + run_id present → no Step.Run written" do
+      run = create_run_for_edge_step()
+
+      params = %{
+        __edge_condition__: %{"field" => "gender", "op" => "eq", "value" => "male"},
+        __edge_mapping__: %{},
+        __edge_name__: "b_to_c_edge",
+        run_id: run.id,
+        gender: "male"
+      }
+
+      assert {:ok, _} = EdgeStep.run(params, %{})
+
+      assert Workflows.list_step_runs(run.id) == []
+    end
+
+    test "run_id is stripped from the output fact" do
+      run = create_run_for_edge_step()
+
+      fact = %{name: "Sam"}
+
+      params =
+        Map.merge(
+          %{
+            __edge_condition__: nil,
+            __edge_mapping__: %{},
+            __edge_name__: "e",
+            run_id: run.id
+          },
+          fact
+        )
+
+      assert {:ok, result} = EdgeStep.run(params, %{})
+      refute Map.has_key?(result, :run_id)
+      assert result == fact
     end
   end
 end
