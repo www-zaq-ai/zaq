@@ -328,7 +328,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       assert {:error, {:unknown_node, "ghost"}} = DagBuilder.build(steps)
     end
 
-    test "conditional edge with unknown op returns {:error, {:invalid_edge_condition, op}}" do
+    test "conditional edge with unknown op returns {:error, {:invalid_edge_condition, condition}}" do
       steps = %{
         "nodes" => [
           %{
@@ -351,7 +351,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         ]
       }
 
-      assert {:error, {:invalid_edge_condition, "totally_bogus"}} = DagBuilder.build(steps)
+      assert {:error, {:invalid_edge_condition, _condition}} = DagBuilder.build(steps)
     end
 
     test "conditional edge to unknown node returns {:error, {:unknown_node, target}}" do
