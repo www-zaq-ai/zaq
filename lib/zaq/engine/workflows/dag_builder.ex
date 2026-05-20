@@ -47,7 +47,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   alias Jido.Runic.ActionNode
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.ActionWrapper
-  alias Zaq.Engine.Workflows.Predicate
+  alias Zaq.Engine.Workflows.EdgeCondition
   alias Zaq.Engine.Workflows.Steps.EdgeStep
 
   @type steps :: map()
@@ -164,7 +164,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp validate_edge_condition(%{"op" => op}) when is_binary(op) do
     op_atom = String.to_existing_atom(op)
 
-    if op_atom in Predicate.ops(),
+    if op_atom in EdgeCondition.ops(),
       do: :ok,
       else: {:error, {:invalid_edge_condition, op}}
   rescue
