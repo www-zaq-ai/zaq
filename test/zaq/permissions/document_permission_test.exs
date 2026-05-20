@@ -4,6 +4,7 @@ defmodule Zaq.Permissions.DocumentPermissionTest do
   alias Zaq.Accounts.People
   alias Zaq.Ingestion.Document
   alias Zaq.Permissions.DocumentPermission, as: Permission
+  alias Zaq.Permissions.ResourcePermission
 
   defp create_doc do
     {:ok, doc} =
@@ -27,6 +28,12 @@ defmodule Zaq.Permissions.DocumentPermissionTest do
   defp create_team do
     {:ok, team} = People.create_team(%{name: "Team #{System.unique_integer([:positive])}"})
     team
+  end
+
+  describe "__after_compile__/2" do
+    test "succeeds silently when @valid_rights is a valid subset of ResourcePermission" do
+      assert Permission.__after_compile__(:env, :bytecode) == nil
+    end
   end
 
   describe "changeset/2" do
@@ -125,6 +132,31 @@ defmodule Zaq.Permissions.DocumentPermissionTest do
 
       assert changeset.valid?
       assert Ecto.Changeset.get_field(changeset, :access_rights) == ["read"]
+    end
+  end
+end
+
+defmodule Zaq.Permissions.DocumentPermissionCompileGuardTest do
+  use Zaq.DataCase, async: false
+
+  alias Zaq.Permissions.DocumentPermission
+  alias Zaq.Permissions.ResourcePermission
+
+  describe "__after_compile__/2 — guard" do
+    test "raises when @valid_rights contains rights not in ResourcePermission" do
+      {mod, beam, filename} = :code.get_object_code(ResourcePermission)
+
+      Code.compile_string("""
+        defmodule Zaq.Permissions.ResourcePermission do
+          def valid_rights, do: ["limited_only"]
+        end
+      """)
+
+      on_exit(fn -> :code.load_binary(mod, filename, beam) end)
+
+      assert_raise RuntimeError, ~r/contains rights not in ResourcePermission/, fn ->
+        DocumentPermission.__after_compile__(:env, :bytecode)
+      end
     end
   end
 end

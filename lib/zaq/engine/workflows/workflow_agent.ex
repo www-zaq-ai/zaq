@@ -16,9 +16,17 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
      authors always read `params.event.payload` with atom keys regardless of
      whether the run was reloaded from the DB. Arbitrary payload/assigns values are
      preserved verbatim. Feeds this as the initial fact into
-     `Runic.Workflow.react_until_satisfied/2`.
+     `Runic.Workflow.react_until_satisfied/3`.
   4. After execution, checks `StepRun` rows: any `"failed"` row → run becomes
      `"failed"`, otherwise `"completed"`.
+
+  ## Pause / Resume
+
+  A `:checkpoint` function is passed to `react_until_satisfied/3`. After each
+  react cycle it re-reads the `WorkflowRun` row; if the status is `"paused"` it
+  throws `:pause_requested`, which is caught and returned as `{:ok, paused_run}`.
+  To resume, call `Workflows.resume_run/2` — `ActionWrapper` skips completed steps
+  so execution continues from the first incomplete step.
 
   ## Crash safety
 
@@ -51,10 +59,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
     with {:ok, run} <- Workflows.update_run(run, %{status: "running", started_at: now}),
          {:ok, dag} <- DagBuilder.build(run.steps_snapshot, run_id: run.id) do
-      input = fetch_input(run.source_event)
-
-      Workflow.react_until_satisfied(dag, input)
-      finalize(run, started_ms)
+      execute_dag_with_pause(dag, run, started_ms)
     else
       {:error, reason} ->
         Logger.error("[workflow] run failed to start",
@@ -65,6 +70,27 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
         Workflows.update_run(run, %{status: "failed", finished_at: DateTime.utc_now(:second)})
         {:error, reason}
+    end
+  end
+
+  defp execute_dag_with_pause(dag, %WorkflowRun{} = run, started_ms) do
+    input = fetch_input(run.source_event)
+    checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
+
+    try do
+      Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
+      finalize(run, started_ms)
+    catch
+      :throw, :pause_requested ->
+        Logger.info("[workflow] run paused", run_id: run.id)
+        {:ok, Workflows.get_run!(run.id)}
+    end
+  end
+
+  defp pause_checkpoint!(run_id) do
+    case Workflows.get_run!(run_id) do
+      %WorkflowRun{status: "paused"} -> throw(:pause_requested)
+      _ -> :ok
     end
   end
 
