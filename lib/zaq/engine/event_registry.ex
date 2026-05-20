@@ -106,7 +106,8 @@ defmodule Zaq.Engine.EventRegistry do
   defp fire_or_register(event_key, event, state) do
     case Map.get(state.events, event_key) do
       true ->
-        Task.start(fn -> state.fire_fn.(event_key, event) end)
+        Task.Supervisor.start_child(Zaq.TaskSupervisor, fn -> state.fire_fn.(event_key, event) end)
+
         state
 
       _ ->

@@ -22,10 +22,7 @@ defmodule Zaq.Agent.Tools.Email.SendReply do
 
   alias Zaq.Engine.Notifications.EmailNotification
 
-  @behaviour Zaq.Engine.Workflows.Action
-
-  @impl Zaq.Engine.Workflows.Action
-  def on_success(result, _context), do: {:ok, result}
+  use Zaq.Engine.Workflows.Action
 
   @impl Zaq.Engine.Workflows.Action
   def on_failure(error, _context) do

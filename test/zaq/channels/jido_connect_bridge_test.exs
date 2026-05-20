@@ -4935,7 +4935,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
         else: Application.delete_env(:zaq, :jido_connect_bridge_jido_connect_module)
     end)
 
-    config = insert_data_source_config(:google_drive)
+    _config = insert_data_source_config(:google_drive)
 
     # provider_required_scopes -> collect_required_scopes iterates resolved capabilities
     # Some capabilities may fail ScopeRequirements.required_scopes -> acc preserved (line 1101)

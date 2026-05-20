@@ -21,10 +21,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   alias Zaq.Accounts.{People, Person}
   alias Zaq.Repo
 
-  @behaviour Zaq.Engine.Workflows.Action
-
-  @impl Zaq.Engine.Workflows.Action
-  def on_success(result, _context), do: {:ok, result}
+  use Zaq.Engine.Workflows.Action
 
   @impl Zaq.Engine.Workflows.Action
   def on_failure(error, _context) do

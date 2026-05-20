@@ -25,15 +25,15 @@ defmodule Zaq.Types.WorkflowEvent do
   def cast(map) when is_map(map) do
     {:ok,
      %Event{
-       request: fetch(map, :request, "request"),
-       assigns: fetch(map, :assigns, "assigns") || %{},
-       response: fetch(map, :response, "response"),
-       hops: fetch(map, :hops, "hops") || [],
-       next_hop: fetch(map, :next_hop, "next_hop"),
-       trace_id: fetch(map, :trace_id, "trace_id"),
-       opts: fetch(map, :opts, "opts") || [],
-       version: fetch(map, :version, "version") || 1,
-       actor: fetch(map, :actor, "actor")
+       request: Zaq.MapUtils.fetch_either(map, :request, "request"),
+       assigns: Zaq.MapUtils.fetch_either(map, :assigns, "assigns") || %{},
+       response: Zaq.MapUtils.fetch_either(map, :response, "response"),
+       hops: Zaq.MapUtils.fetch_either(map, :hops, "hops") || [],
+       next_hop: Zaq.MapUtils.fetch_either(map, :next_hop, "next_hop"),
+       trace_id: Zaq.MapUtils.fetch_either(map, :trace_id, "trace_id"),
+       opts: Zaq.MapUtils.fetch_either(map, :opts, "opts") || [],
+       version: Zaq.MapUtils.fetch_either(map, :version, "version") || 1,
+       actor: Zaq.MapUtils.fetch_either(map, :actor, "actor")
      }}
   end
 
@@ -81,8 +81,4 @@ defmodule Zaq.Types.WorkflowEvent do
   @impl true
   def equal?(%Event{trace_id: t1}, %Event{trace_id: t2}), do: t1 == t2
   def equal?(a, b), do: a == b
-
-  defp fetch(map, atom_key, string_key) do
-    Map.get(map, atom_key) || Map.get(map, string_key)
-  end
 end

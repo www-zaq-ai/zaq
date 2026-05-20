@@ -50,6 +50,34 @@ defmodule Zaq.Engine.Workflows.Action do
   intentionally **not** subject to this contract.
   """
 
+  @doc """
+  Injects `@behaviour Zaq.Engine.Workflows.Action` and provides overridable
+  default implementations of `on_success/2` and `on_failure/2`.
+
+  Modules that want custom lifecycle hooks simply override after calling `use`:
+
+      use Zaq.Engine.Workflows.Action
+
+      @impl Zaq.Engine.Workflows.Action
+      def on_failure(error, _ctx) do
+        Logger.warning("step failed: \#{inspect(error)}")
+        :ok
+      end
+  """
+  defmacro __using__(_opts) do
+    quote do
+      @behaviour Zaq.Engine.Workflows.Action
+
+      @impl Zaq.Engine.Workflows.Action
+      def on_success(result, _context), do: {:ok, result}
+
+      @impl Zaq.Engine.Workflows.Action
+      def on_failure(_error, _context), do: :ok
+
+      defoverridable on_success: 2, on_failure: 2
+    end
+  end
+
   @typedoc "A piece of the contract a module failed to satisfy."
   @type missing :: :on_success | :on_failure | :schema | :output_schema
 

@@ -39,16 +39,22 @@ defmodule Zaq.Channels.JidoConnectBridge.WebhookWorkerTest do
     :code.purge(original_bridge)
     :code.delete(original_bridge)
 
+    Code.compiler_options(ignore_module_conflict: true)
+
     Code.compile_string("""
     defmodule Zaq.Channels.JidoConnectBridge do
       def process_verified_webhook_job(_args), do: {:cancel, :stubbed_cancel}
     end
     """)
 
+    Code.compiler_options(ignore_module_conflict: false)
+
     on_exit(fn ->
       :code.purge(original_bridge)
       :code.delete(original_bridge)
+      Code.compiler_options(ignore_module_conflict: true)
       Code.compile_file(original_path)
+      Code.compiler_options(ignore_module_conflict: false)
     end)
 
     result = WebhookWorker.perform(%Job{args: %{}})

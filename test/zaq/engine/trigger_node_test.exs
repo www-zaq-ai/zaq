@@ -12,7 +12,7 @@ defmodule Zaq.Engine.TriggerNodeTest do
     index: 0
   }
 
-  defp create_active_workflow(name \\ "TestWorkflow") do
+  defp create_active_workflow(name) do
     {:ok, workflow} =
       Workflows.create_workflow(%{name: name, status: "active", nodes: [@valid_node], edges: []})
 

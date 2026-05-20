@@ -20,11 +20,23 @@ defmodule Zaq.Permissions.DocumentPermission do
   import Ecto.Query
 
   alias Zaq.Accounts.{Person, Team}
+  alias Zaq.Permissions.ResourcePermission
 
   @resource_type "document"
   # Documents support only CRUD rights. Workflow and other resource types
   # may support additional rights (run, view, edit, manage) via ResourcePermission.
   @valid_rights ~w(read write update delete)
+
+  @after_compile __MODULE__
+  @doc false
+  def __after_compile__(_env, _bytecode) do
+    all = ResourcePermission.valid_rights()
+    diff = @valid_rights -- all
+
+    unless diff == [] do
+      raise "DocumentPermission @valid_rights contains rights not in ResourcePermission: #{inspect(diff)}"
+    end
+  end
 
   schema "resource_permissions" do
     field :resource_type, :string, default: @resource_type
