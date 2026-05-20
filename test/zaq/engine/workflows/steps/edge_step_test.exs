@@ -202,6 +202,101 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
     end
   end
 
+  describe "cascade-aware field lookup" do
+    test "dotted path 'A.gender' resolves into __cascade__ (atom keys in step result)" do
+      cascade = %{"A" => %{gender: "female"}}
+
+      params = %{
+        __edge_condition__: %{"field" => "A.gender", "op" => "eq", "value" => "female"},
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: cascade
+      }
+
+      assert {:ok, _} = run(params)
+    end
+
+    test "dotted path 'A.gender' resolves into __cascade__ (string keys after JSONB round-trip)" do
+      cascade = %{"A" => %{"gender" => "female"}}
+
+      params =
+        %{
+          __edge_condition__: %{"field" => "A.gender", "op" => "eq", "value" => "female"},
+          __edge_mapping__: %{},
+          __edge_name__: "e"
+        }
+        |> Map.put("__cascade__", cascade)
+
+      assert {:ok, _} = run(params)
+    end
+
+    test "dotted path where step name is absent in cascade → nil → condition false" do
+      params = %{
+        __edge_condition__: %{"field" => "missing.gender", "op" => "eq", "value" => "female"},
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: %{}
+      }
+
+      assert_raise ConditionNotMet, fn -> run(params) end
+    end
+
+    test "dotted path where __cascade__ is absent → nil → condition false" do
+      params = %{
+        __edge_condition__: %{"field" => "A.gender", "op" => "eq", "value" => "female"},
+        __edge_mapping__: %{},
+        __edge_name__: "e"
+      }
+
+      assert_raise ConditionNotMet, fn -> run(params) end
+    end
+
+    test "depth > 2 (A.b.c) returns nil and logs a warning" do
+      import ExUnit.CaptureLog
+
+      cascade = %{"A" => %{b: %{c: "deep"}}}
+
+      params = %{
+        __edge_condition__: %{"field" => "A.b.c", "op" => "eq", "value" => "deep"},
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: cascade
+      }
+
+      log = capture_log(fn -> assert_raise ConditionNotMet, fn -> run(params) end end)
+      assert log =~ "cascade"
+    end
+
+    test "__cascade__ is preserved in the output fact" do
+      cascade = %{"A" => %{gender: "female"}}
+
+      params = %{
+        __edge_condition__: nil,
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: cascade,
+        value: "x"
+      }
+
+      assert {:ok, result} = run(params)
+      assert result[:__cascade__] == cascade
+    end
+
+    test "plain field lookup is unaffected by cascade presence" do
+      cascade = %{"A" => %{gender: "female"}}
+
+      params = %{
+        __edge_condition__: %{"field" => "status", "op" => "eq", "value" => "open"},
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: cascade,
+        status: "open"
+      }
+
+      assert {:ok, _} = run(params)
+    end
+  end
+
   describe "absent edge metadata keys" do
     test "works with no edge keys in params at all (identity)" do
       # EdgeStep strips known keys; if they are absent from params it still works.
