@@ -23,38 +23,66 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
 
   use Jido.Action, name: "zaq_edge_step", schema: []
 
+  alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.EdgeCondition
+  alias Zaq.Engine.Workflows.WorkflowRun
 
-  @edge_keys [:__edge_condition__, :__edge_mapping__, :__edge_name__]
+  @edge_keys [:__edge_condition__, :__edge_mapping__, :__edge_name__, :run_id]
 
   @impl true
   def run(params, _context) do
     condition = Map.get(params, :__edge_condition__)
     mapping = Map.get(params, :__edge_mapping__) || %{}
     edge_name = Map.get(params, :__edge_name__, "edge")
+    run_id = Map.get(params, :run_id)
 
     fact = Map.drop(params, @edge_keys)
 
-    maybe_check_condition(condition, fact, edge_name)
+    maybe_check_condition(condition, fact, edge_name, run_id)
     {:ok, apply_mapping(fact, mapping)}
   end
 
-  defp maybe_check_condition(nil, _fact, _name), do: :ok
+  defp maybe_check_condition(nil, _fact, _name, _run_id), do: :ok
 
-  defp maybe_check_condition(condition, fact, edge_name) do
+  defp maybe_check_condition(condition, fact, edge_name, run_id) do
     field = condition["field"] || condition[:field]
     op = to_op(condition["op"] || condition[:op])
     expected = Map.get(condition, "value", Map.get(condition, :value))
     actual = lookup(fact, field)
 
     unless EdgeCondition.evaluate(op, actual, expected) do
+      write_skip_trace(run_id, edge_name, field, op, actual, expected)
+
       raise ConditionNotMet,
         condition_name: edge_name,
         field: field,
         op: op,
         actual: actual,
         expected: expected
+    end
+  end
+
+  # Writes a Step.Run row with status "skipped" when a condition fails and the
+  # run is instrumented (run_id present). Idempotent — Jido may retry on failure,
+  # so we only write if no row already exists for this edge name.
+  defp write_skip_trace(nil, _edge_name, _field, _op, _actual, _expected), do: :ok
+
+  defp write_skip_trace(run_id, edge_name, field, op, actual, expected) do
+    unless Workflows.get_step_run_by_name(run_id, edge_name) do
+      {:ok, step_run} =
+        Workflows.create_step_run(%WorkflowRun{id: run_id}, %{
+          step_name: edge_name,
+          step_index: -1,
+          status: "running"
+        })
+
+      Workflows.skip_step_run(step_run, %{
+        field: field,
+        op: to_string(op),
+        actual: inspect(actual),
+        expected: inspect(expected)
+      })
     end
   end
 
