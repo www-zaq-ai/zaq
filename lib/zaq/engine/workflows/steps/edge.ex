@@ -24,11 +24,11 @@ defmodule Zaq.Engine.Workflows.Step.Edge do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Zaq.Engine.Workflows.Predicate
+  alias Zaq.Engine.Workflows.EdgeCondition
 
   @primary_key false
 
-  @valid_ops Enum.map(Predicate.ops(), &to_string/1)
+  @valid_ops Enum.map(EdgeCondition.ops(), &to_string/1)
 
   embedded_schema do
     field :from, :string
