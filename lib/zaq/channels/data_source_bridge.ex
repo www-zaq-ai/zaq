@@ -30,8 +30,10 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback update_file(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback delete_file(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback search_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
+  @callback download_document(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback export_options(map(), map()) :: {:ok, map()} | {:error, term()}
 
   @required_capabilities [
     :list_items,
@@ -246,6 +248,16 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
+  @doc "Downloads a provider document through the configured DataSource bridge."
+  @spec download_document(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def download_document(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :download_document, 2) || {:error, :unsupported} do
+      bridge.download_document(config, params)
+    end
+  end
+
   @doc "Lists provider file permissions through the configured DataSource bridge."
   @spec list_permissions(atom() | String.t(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   def list_permissions(provider, params) when is_map(params) do
@@ -263,6 +275,19 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :channel_stats, 2) || {:error, :unsupported} do
       bridge.channel_stats(config, params)
+    end
+  end
+
+  @doc "Fetches provider export options (native mime -> export mime types)."
+  @spec export_options(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def export_options(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :export_options, 2) || {:error, :unsupported} do
+      bridge.export_options(config, params)
+    else
+      {:error, :unsupported} -> {:ok, %{native_types: [], export_formats_by_native_type: %{}}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -314,6 +339,25 @@ defmodule Zaq.Channels.DataSourceBridge do
   @doc "Returns capability labels for BO and diagnostics."
   @spec capability_meta() :: map()
   def capability_meta, do: @capability_meta
+
+  @doc "Normalizes export format map values (native mime => non-empty unique mime types)."
+  @spec normalize_export_formats_map(map()) :: map()
+  def normalize_export_formats_map(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn
+      {native_mime, mime_types}, acc when is_binary(native_mime) and is_list(mime_types) ->
+        values =
+          mime_types
+          |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+          |> Enum.uniq()
+
+        if values == [], do: acc, else: Map.put(acc, native_mime, values)
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  def normalize_export_formats_map(_), do: %{}
 
   @doc "Returns connector capability resolution for a provider."
   @spec capability_snapshot(atom() | String.t()) :: {:ok, map()} | {:error, term()}

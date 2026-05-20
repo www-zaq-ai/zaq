@@ -1,10 +1,37 @@
 defmodule Zaq.Contracts.Record do
   @moduledoc "Canonical domain-agnostic record payload."
 
+  @derive {
+    Jason.Encoder,
+    only: [
+      :id,
+      :kind,
+      :content,
+      :name,
+      :parent_id,
+      :mime_type,
+      :path,
+      :url,
+      :size,
+      :description,
+      :icon,
+      :created_at,
+      :modified_at,
+      :change_type,
+      :lifecycle_state,
+      :deleted_at,
+      :permissions,
+      :parent_ids,
+      :owners,
+      :attributes
+    ]
+  }
+
   @enforce_keys [:id, :kind]
   defstruct [
     :id,
     :kind,
+    :content,
     :name,
     :parent_id,
     :mime_type,
@@ -28,6 +55,7 @@ defmodule Zaq.Contracts.Record do
   @type t :: %__MODULE__{
           id: String.t(),
           kind: atom(),
+          content: String.t() | [term()] | map() | nil,
           name: String.t() | nil,
           parent_id: String.t() | nil,
           parent_ids: [String.t()],

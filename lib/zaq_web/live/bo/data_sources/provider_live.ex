@@ -4,7 +4,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   import Ecto.Query
 
-  alias Zaq.Channels.{Bridge, ChannelConfig}
+  alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge}
   alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
@@ -42,6 +42,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:root_folder_meta_by_config, root_folder_meta)
      |> assign(:stats_errors_by_config, stats_errors)
      |> assign(:capabilities_snapshot, capabilities)
+     |> assign(:native_export_options, export_options_for_provider(provider))
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
      |> assign(:form, nil)
@@ -171,6 +172,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     {:noreply,
      socket
      |> assign(:modal, :new)
+     |> assign(:native_export_options, export_options_for_provider(socket.assigns.provider))
      |> assign(:changeset, changeset)
      |> assign(:form, to_form(changeset, as: :form))
      |> assign(:modal_errors, [])}
@@ -183,6 +185,10 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     {:noreply,
      socket
      |> assign(:modal, :edit)
+     |> assign(
+       :native_export_options,
+       export_options_for_provider(socket.assigns.provider, config.id)
+     )
      |> assign(:changeset, changeset)
      |> assign(:form, to_form(changeset, as: :form))
      |> assign(:modal_errors, [])}
@@ -195,6 +201,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:changeset, nil)
      |> assign(:form, nil)
      |> assign(:modal_errors, [])
+     |> assign(:native_export_options, export_options_for_provider(socket.assigns.provider))
      |> assign(:oauth_claim_modal, false)
      |> assign(:oauth_claim_url, nil)}
   end
@@ -493,6 +500,18 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     end
   end
 
+  def selected_export_mime_from_changeset(%Ecto.Changeset{} = changeset, native_mime_type) do
+    changeset
+    |> Ecto.Changeset.get_field(:settings, %{})
+    |> Map.get("connect", %{})
+    |> Map.get("export_defaults_by_native_mime", %{})
+    |> Map.get(native_mime_type)
+    |> case do
+      value when is_binary(value) -> value
+      _ -> ""
+    end
+  end
+
   def oauth_claim_state_for_changeset(%Ecto.Changeset{} = changeset) do
     OAuthClaimState.for_changeset(changeset)
   end
@@ -722,6 +741,34 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       )
 
     NodeRouter.dispatch(event).response
+  end
+
+  defp dispatch_export_options(provider, params) do
+    event =
+      Event.new(
+        %{provider: provider, params: params},
+        :channels,
+        opts: [action: :data_source_export_options]
+      )
+
+    NodeRouter.dispatch(event).response
+  end
+
+  defp export_options_for_provider(provider, config_id \\ nil) do
+    params = if is_nil(config_id), do: %{}, else: %{"config_id" => config_id}
+
+    case dispatch_export_options(provider, params) do
+      {:ok, %{} = payload} ->
+        payload
+        |> Map.get(
+          :export_formats_by_native_type,
+          Map.get(payload, "export_formats_by_native_type", %{})
+        )
+        |> DataSourceBridge.normalize_export_formats_map()
+
+      _ ->
+        %{}
+    end
   end
 
   defp connect_credentials_for(provider) do

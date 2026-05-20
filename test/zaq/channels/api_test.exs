@@ -143,6 +143,11 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{records: [%{"id" => "f1"}]}}
     end
 
+    def download_document(provider, params) do
+      send(self(), {:ds_download_document, provider, params})
+      {:ok, %{record: %{id: "f1", kind: :file, content: "hello"}}}
+    end
+
     def teardown_listener(provider, params) do
       send(self(), {:ds_teardown_listener, provider, params})
       :ok
@@ -151,6 +156,18 @@ defmodule Zaq.Channels.ApiTest do
     def channel_stats(provider, params) do
       send(self(), {:ds_channel_stats, provider, params})
       {:ok, %{files_count: 10, folders_count: 3, principals_count: 7, root_folders: ["Root"]}}
+    end
+
+    def export_options(provider, params) do
+      send(self(), {:ds_export_options, provider, params})
+
+      {:ok,
+       %{
+         native_types: ["application/vnd.google-apps.document"],
+         export_formats_by_native_type: %{
+           "application/vnd.google-apps.document" => ["text/plain", "application/pdf"]
+         }
+       }}
     end
 
     def sync_config_runtime(before_config, after_config) do
@@ -384,6 +401,35 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :data_source_search_files, nil)
     assert {:ok, %{records: [%{"id" => "f1"}]}} = result.response
     assert_received {:ds_search_files, :google_drive, %{"query" => "invoice"}}
+  end
+
+  test "handles data_source_download_document action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"file_id" => "f1"}}, :channels,
+        opts: [
+          action: :data_source_download_document,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_download_document, nil)
+    assert {:ok, %{record: %{id: "f1", kind: :file, content: "hello"}}} = result.response
+    assert_received {:ds_download_document, :google_drive, %{"file_id" => "f1"}}
+  end
+
+  test "handles data_source_export_options action" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"config_id" => "12"}}, :channels,
+        opts: [
+          action: :data_source_export_options,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_export_options, nil)
+
+    assert {:ok, %{native_types: [_ | _], export_formats_by_native_type: %{}}} = result.response
+    assert_received {:ds_export_options, :google_drive, %{"config_id" => "12"}}
   end
 
   test "handles webhook_delivered for data_source" do

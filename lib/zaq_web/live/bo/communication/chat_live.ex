@@ -8,7 +8,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   decided on the Agent node (`Pipeline` by default, or explicit selected
   configured agent when present in event assigns).
   """
-
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 

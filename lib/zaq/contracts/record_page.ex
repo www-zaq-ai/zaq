@@ -3,6 +3,8 @@ defmodule Zaq.Contracts.RecordPage do
 
   alias Zaq.Contracts.Record
 
+  @derive {Jason.Encoder, only: [:resource_type, :records, :pagination, :stats]}
+
   @enforce_keys [:resource_type, :records]
   defstruct [
     :resource_type,

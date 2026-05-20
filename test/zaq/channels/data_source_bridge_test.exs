@@ -80,6 +80,11 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       {:ok, %{records: [%{"id" => "f1"}]}}
     end
 
+    def download_document(config, params) do
+      send(self(), {:download_document, config.id, params})
+      {:ok, %{record: %{id: "f1", kind: :file, content: "hello"}}}
+    end
+
     def list_permissions(config, params) do
       send(self(), {:list_permissions, config.id, params})
       {:ok, %{records: []}}
@@ -88,6 +93,18 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     def channel_stats(config, params) do
       send(self(), {:channel_stats, config.id, params})
       {:ok, %{files_count: 0}}
+    end
+
+    def export_options(config, params) do
+      send(self(), {:export_options, config.id, params})
+
+      {:ok,
+       %{
+         native_types: ["application/vnd.google-apps.document"],
+         export_formats_by_native_type: %{
+           "application/vnd.google-apps.document" => ["text/plain"]
+         }
+       }}
     end
 
     def capability_snapshot(config) do
@@ -278,6 +295,14 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert_received {:search_files, ^config_id, %{"query" => "invoice", config_id: ^config_id}}
 
+    assert {:ok, %{record: %{id: "f1", kind: :file, content: "hello"}}} =
+             DataSourceBridge.download_document(:google_drive, %{
+               "file_id" => "f1",
+               config_id: config_id
+             })
+
+    assert_received {:download_document, ^config_id, %{"file_id" => "f1", config_id: ^config_id}}
+
     assert {:ok, %{records: []}} =
              DataSourceBridge.list_permissions(:google_drive, %{"config_id" => config_id_string})
 
@@ -442,6 +467,33 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert {:error, :unsupported} =
              DataSourceBridge.channel_stats(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "export_options delegates to bridge with scoped config" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert {:ok, %{native_types: ["application/vnd.google-apps.document"]}} =
+             DataSourceBridge.export_options(:google_drive, %{"config_id" => config_id})
+
+    assert_received {:export_options, ^config_id, %{"config_id" => ^config_id}}
+  end
+
+  test "export_options returns empty defaults when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    insert_data_source_config(:google_drive)
+
+    assert {:ok, %{native_types: [], export_formats_by_native_type: %{}}} =
+             DataSourceBridge.export_options(:google_drive, %{})
   end
 
   test "scoped config id with non-integer string falls back to default config" do

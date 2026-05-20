@@ -250,6 +250,16 @@ defmodule Zaq.Channels.Api do
 
   def handle_event(
         %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_download_document,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.download_document(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
         :data_source_list_permissions,
         _context
       )
@@ -276,6 +286,16 @@ defmodule Zaq.Channels.Api do
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
     %{event | response: data_source_module.channel_stats(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_export_options,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.export_options(provider, params)}
   end
 
   def handle_event(

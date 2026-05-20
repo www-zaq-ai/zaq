@@ -420,6 +420,46 @@
         </p>
       </div>
 
+      <div :if={map_size(@native_export_options || %{}) > 0} class="mb-6">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Native Export Defaults
+        </label>
+        <p class="font-mono text-[0.62rem] text-black/35 mb-3">
+          Used when document MIME type is provided and no export MIME type is explicitly set.
+        </p>
+        <div class="space-y-3">
+          <div
+            :for={{native_mime_type, export_mime_types} <- @native_export_options}
+            class="grid grid-cols-1 md:grid-cols-2 gap-2 items-center"
+          >
+            <div class="font-mono text-[0.68rem] text-black/60 break-all">{native_mime_type}</div>
+            <select
+              name={"form[settings][connect][export_defaults_by_native_mime][#{native_mime_type}]"}
+              class="w-full h-10 px-3 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-xs font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            >
+              <option
+                value=""
+                selected={
+                  selected_export_mime_from_changeset(@changeset, native_mime_type) in [nil, ""]
+                }
+              >
+                No default
+              </option>
+              <option
+                :for={export_mime_type <- export_mime_types}
+                value={export_mime_type}
+                selected={
+                  selected_export_mime_from_changeset(@changeset, native_mime_type) ==
+                    export_mime_type
+                }
+              >
+                {export_mime_type}
+              </option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div class="flex items-center gap-3 mb-6">
         <input type="hidden" name="form[enabled]" value="false" />
         <input

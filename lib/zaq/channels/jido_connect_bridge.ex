@@ -15,11 +15,11 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
+  alias Zaq.Channels.JidoConnectBridge.FieldNormalization
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
   alias Zaq.Channels.JidoConnectBridge.WebhookWorker
   alias Zaq.Channels.ProviderCatalog
-  alias Zaq.Contracts.Record
-  alias Zaq.Contracts.RecordPage
+  alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
@@ -86,6 +86,49 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
+  def download_document(config, params) when is_map(config) and is_map(params) do
+    params = maybe_apply_default_export_mime_type(config, params)
+
+    with {:ok, payload} <- invoke_intent(config, :download_items, params),
+         {:ok, record} <- map_downloaded_document_record(payload, params) do
+      {:ok, %{record: record}}
+    end
+  end
+
+  @impl true
+  def export_options(config, params) when is_map(config) and is_map(params) do
+    case invoke_intent(config, :get_export_options, params) do
+      {:ok, payload} ->
+        normalized =
+          payload
+          |> extract_export_formats_map()
+          |> DataSourceBridge.normalize_export_formats_map()
+
+        {:ok,
+         %{
+           native_types: Map.keys(normalized) |> Enum.sort(),
+           export_formats_by_native_type: normalized
+         }}
+
+      _ ->
+        default_export_options_response()
+    end
+  end
+
+  defp extract_export_formats_map(payload) when is_map(payload) do
+    about = read_any(payload, [:about, "about"]) || %{}
+
+    read_any(about, [:export_formats, "export_formats"]) ||
+      read_any(payload, [:export_formats, "export_formats"]) ||
+      %{}
+  end
+
+  defp extract_export_formats_map(_), do: %{}
+
+  defp default_export_options_response,
+    do: {:ok, %{native_types: [], export_formats_by_native_type: %{}}}
+
+  @impl true
   def list_permissions(config, params) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :list_principals, params) do
       permissions =
@@ -127,6 +170,69 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp map_file_from_payload(_), do: {:error, :unsupported}
+
+  defp map_downloaded_document_record(payload, params) when is_map(payload) and is_map(params) do
+    with content_payload when is_map(content_payload) <-
+           read_any(payload, [:file_content, "file_content"]),
+         file_id when is_binary(file_id) and file_id != "" <-
+           resolve_downloaded_file_id(content_payload, params) do
+      {:ok, build_downloaded_record(file_id, content_payload, payload)}
+    else
+      _ -> {:error, :unsupported}
+    end
+  end
+
+  defp map_downloaded_document_record(_, _), do: {:error, :unsupported}
+
+  defp maybe_put_attr(attrs, _key, nil), do: attrs
+  defp maybe_put_attr(attrs, key, value), do: Map.put(attrs, key, value)
+
+  defp resolve_downloaded_file_id(content_payload, params) do
+    read_stringish(content_payload, [:file_id, "file_id"]) ||
+      read_stringish(params, [:file_id, "file_id"]) ||
+      read_stringish(params, [:document_id, "document_id"])
+  end
+
+  defp extract_downloaded_content(content_payload) do
+    declared_encoding = read_stringish(content_payload, [:encoding, "encoding"])
+    raw_content = read_any(content_payload, [:content, "content"])
+
+    if declared_encoding == "rows" do
+      case raw_content do
+        rows when is_list(rows) -> {rows, "rows"}
+        _ -> {[], "rows"}
+      end
+    else
+      text_content = read_stringish(content_payload, [:content, "content"])
+      base64_content = read_stringish(content_payload, [:content_base64, "content_base64"])
+
+      cond do
+        is_binary(text_content) -> {text_content, "utf-8"}
+        is_binary(base64_content) -> {base64_content, "base64"}
+        true -> {nil, nil}
+      end
+    end
+  end
+
+  defp build_downloaded_record(file_id, content_payload, payload) do
+    mime_type = read_stringish(content_payload, [:mime_type, "mime_type"])
+    size = read_integer(content_payload, [:size, "size"])
+    {content, encoding} = extract_downloaded_content(content_payload)
+
+    %Record{
+      id: file_id,
+      kind: :file,
+      content: content,
+      mime_type: mime_type,
+      size: size,
+      lifecycle_state: :active,
+      attributes:
+        %{}
+        |> maybe_put_attr("encoding", encoding)
+        |> maybe_put_attr("mime_type", mime_type),
+      raw: payload
+    }
+  end
 
   defp map_file_page(payload, params) when is_map(payload) and is_map(params) do
     files = read_list(payload, [:files, "files"], []) |> Enum.filter(&is_map/1)
@@ -586,8 +692,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp invoke_intent(config, intent, params) when is_map(config) and is_map(params) do
     with {:ok, runtime} <- runtime_ctx(config),
-         {:ok, action} <- resolve_action(config.provider, intent) do
+         {:ok, action} <- resolve_action(config.provider, intent, params) do
       runtime = normalize_runtime_profile(runtime, action)
+      normalized_params = FieldNormalization.normalize_all(config.provider, action.id, params)
 
       opts = [
         context: %{
@@ -600,12 +707,21 @@ defmodule Zaq.Channels.JidoConnectBridge do
         credential_lease: runtime.lease
       ]
 
-      case call_provider_tool(action, params, opts, config.provider) do
+      case call_provider_tool(action, normalized_params, opts, config.provider) do
         {:ok, payload} -> {:ok, payload}
         {:error, reason} -> {:error, sanitize_error(reason)}
       end
     end
   end
+
+  defp resolve_action(provider, capability, params)
+       when capability == :download_items and is_map(params) do
+    with {:ok, tools} <- provider_tools(provider) do
+      resolve_action_spec(tools, capability, provider, params)
+    end
+  end
+
+  defp resolve_action(provider, capability, _params), do: resolve_action(provider, capability)
 
   defp call_provider_tool(action, params, opts, provider)
        when is_map(action) and is_map(params) do
@@ -984,6 +1100,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp sanitize_map(map) when is_map(map) do
     map
+    |> maybe_from_struct()
     |> Enum.map(fn {k, v} -> {to_string(k), sanitize_value(v)} end)
     |> Map.new()
   end
@@ -997,6 +1114,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp sanitize_value(value) when is_boolean(value), do: value
   defp sanitize_value(nil), do: nil
   defp sanitize_value(_), do: "[omitted]"
+
+  defp maybe_from_struct(%_{} = struct), do: Map.from_struct(struct)
+  defp maybe_from_struct(map), do: map
 
   defp map_get_string(map, keys) do
     case Enum.find_value(keys, &Map.get(map, &1)) do
@@ -1253,6 +1373,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp resolve_action_spec(tools, :download_items, provider),
     do: resolve_action_by_candidates(tools, provider, :download_items)
 
+  defp resolve_action_spec(tools, :get_export_options, provider),
+    do: resolve_action_by_candidates(tools, provider, :get_export_options)
+
   defp resolve_action_spec(tools, :create_item, provider),
     do: resolve_action_by_candidates(tools, provider, :create_item)
 
@@ -1266,6 +1389,19 @@ defmodule Zaq.Channels.JidoConnectBridge do
     do: resolve_action_by_candidates(tools, provider, :search_items)
 
   defp resolve_action_spec(_tools, _capability, _provider), do: {:error, :unsupported}
+
+  defp resolve_action_spec(tools, :download_items, provider, params)
+       when is_list(tools) and is_map(params) do
+    if export_requested?(params) do
+      resolve_action_by_candidates(tools, provider, :export_items)
+      |> case do
+        {:ok, _} = ok -> ok
+        _ -> resolve_action_by_candidates(tools, provider, :download_items)
+      end
+    else
+      resolve_action_by_candidates(tools, provider, :download_items)
+    end
+  end
 
   defp resolve_action_by_candidates(tools, provider, capability)
        when is_list(tools) and not is_nil(provider) do
@@ -1294,6 +1430,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
     do: ["#{prefix}.revisions.list", "#{prefix}.revision.list"]
 
   defp capability_tool_candidates(:download_items, prefix), do: ["#{prefix}.file.download"]
+  defp capability_tool_candidates(:export_items, prefix), do: ["#{prefix}.file.export"]
+  defp capability_tool_candidates(:get_export_options, prefix), do: ["#{prefix}.about.get"]
   defp capability_tool_candidates(:create_item, prefix), do: ["#{prefix}.file.create"]
   defp capability_tool_candidates(:update_item, prefix), do: ["#{prefix}.file.update"]
 
@@ -1303,6 +1441,38 @@ defmodule Zaq.Channels.JidoConnectBridge do
     do: ["#{prefix}.files.search", "#{prefix}.file.search", "#{prefix}.files.list"]
 
   defp capability_tool_candidates(_capability, _prefix), do: []
+
+  defp export_requested?(params) when is_map(params) do
+    case read_stringish(params, [:export_mime_type, "export_mime_type"]) do
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> false
+    end
+  end
+
+  defp maybe_apply_default_export_mime_type(config, params)
+       when is_map(config) and is_map(params) do
+    if export_requested?(params), do: params, else: put_default_export_mime_type(config, params)
+  end
+
+  defp put_default_export_mime_type(config, params) do
+    document_mime_type = read_stringish(params, [:document_mime_type, "document_mime_type"])
+
+    export_mime_type =
+      config
+      |> Map.get(:settings, %{})
+      |> Map.get("connect", %{})
+      |> Map.get("export_defaults_by_native_mime", %{})
+      |> Map.get(document_mime_type)
+
+    with value when is_binary(value) <- export_mime_type,
+         trimmed when trimmed != "" <- String.trim(value) do
+      params
+      |> Map.put(:export_mime_type, trimmed)
+      |> Map.put("export_mime_type", trimmed)
+    else
+      _ -> params
+    end
+  end
 
   defp provider_tool_prefix(provider) do
     provider

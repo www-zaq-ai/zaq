@@ -166,6 +166,85 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       do: {:ok, %{permissions: []}}
   end
 
+  defmodule StubJidoConnectRowsDownload do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.file.download",
+           resource: :file,
+           verb: :download,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.file.download", _params, _opts) do
+      {:ok,
+       %{
+         file_content: %{
+           file_id: "sheet-1",
+           mime_type: "text/csv",
+           encoding: "rows",
+           content: [["A", "B"], ["1", "2"]],
+           binary: false,
+           size: 8
+         }
+       }}
+    end
+  end
+
+  defmodule StubJidoConnectRowsDownloadMalformed do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.file.download",
+           resource: :file,
+           verb: :download,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.file.download", _params, _opts) do
+      {:ok,
+       %{
+         file_content: %{
+           file_id: "sheet-2",
+           mime_type: "text/csv",
+           encoding: "rows",
+           content: "not-rows",
+           binary: false,
+           size: 8
+         }
+       }}
+    end
+  end
+
+  defmodule StubJidoConnectExportDownload do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{id: "stub.file.export", resource: :file, verb: :download, auth_profiles: [:user]}
+       ]}
+    end
+
+    def invoke(_integration, "stub.file.export", params, _opts) do
+      send(self(), {:invoke_export, params})
+
+      {:ok,
+       %{
+         file_content: %{
+           file_id: "sheet-export-1",
+           mime_type: Map.get(params, "mime_type") || Map.get(params, :mime_type),
+           content: "a,b\n1,2\n",
+           size: 8
+         }
+       }}
+    end
+  end
+
   defmodule StubJidoConnectUnsupportedPermissions do
     def actions(_integration) do
       {:ok,
@@ -2936,6 +3015,21 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
+  defmodule StubJidoConnectErrorStructDetails do
+    def actions(_integration) do
+      {:ok, [%{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]}]}
+    end
+
+    def invoke(_integration, "stub.files.list", _params, _opts) do
+      {:error,
+       %{
+         message: "error with struct details",
+         status: 500,
+         details: %Zoi.Error{code: :required, message: "is required", path: [:mime_type]}
+       }}
+    end
+  end
+
   test "sanitize_map returns empty map for non-map input" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
@@ -2950,6 +3044,22 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:error, error} = JidoConnectBridge.list_files(config, %{})
     # Non-map details triggers sanitize_map(_,) -> %{} at line 772
     assert error.details == %{}
+  end
+
+  test "sanitize_map handles struct details without crashing" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectErrorStructDetails
+    )
+
+    assert {:error, error} = JidoConnectBridge.list_files(config, %{})
+    assert is_map(error.details)
+    assert error.details["message"] == "is required"
   end
 
   # ---------------------------------------------------------------------------
@@ -3049,6 +3159,66 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     # are all unknown -> {:error, :unsupported} -> in unsupported list
     assert :list_item_versions in snapshot.unsupported or
              :list_item_versions not in Map.keys(snapshot.resolved)
+  end
+
+  test "download_document keeps rows content as-is when encoding is rows" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectRowsDownload
+    )
+
+    assert {:ok, %{record: record}} =
+             JidoConnectBridge.download_document(config, %{"file_id" => "sheet-1"})
+
+    assert record.content == [["A", "B"], ["1", "2"]]
+    assert record.attributes["encoding"] == "rows"
+  end
+
+  test "download_document uses empty list when rows encoding content is malformed" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectRowsDownloadMalformed
+    )
+
+    assert {:ok, %{record: record}} =
+             JidoConnectBridge.download_document(config, %{"file_id" => "sheet-2"})
+
+    assert record.content == []
+    assert record.attributes["encoding"] == "rows"
+  end
+
+  test "download_document uses export action and passes mime_type when export_mime_type is set" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectExportDownload
+    )
+
+    assert {:ok, %{record: record}} =
+             JidoConnectBridge.download_document(config, %{
+               "file_id" => "sheet-export-1",
+               "export_mime_type" => "text/plain"
+             })
+
+    assert record.content == "a,b\n1,2\n"
+    assert record.mime_type == "text/plain"
+
+    assert_received {:invoke_export, params}
+    assert params["mime_type"] == "text/plain" or params[:mime_type] == "text/plain"
   end
 
   # ---------------------------------------------------------------------------

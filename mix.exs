@@ -131,8 +131,8 @@ defmodule Zaq.MixProject do
        sparse: "apps/jido_connect_google",
        override: true},
       {:jido_connect_google_drive,
-       github: "agentjido/jido_connect",
-       branch: "main",
+       github: "jfayad/jido_connect",
+       branch: "fix/google_drive-csv",
        sparse: "apps/jido_connect_google_drive",
        override: true},
 

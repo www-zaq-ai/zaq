@@ -27,6 +27,30 @@ defmodule Zaq.Agent.Tools.Registry do
         "Shows the user what documents exist in the knowledge base, how many are indexed, and their ingestion status — without reading document content (answering-only)",
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
+    %{
+      key: "data_source.get_document",
+      label: "Get document",
+      description: "Get a document by id from a specific datasource provider",
+      module: Zaq.Agent.Tools.GetDocument
+    },
+    %{
+      key: "data_source.list_documents",
+      label: "List documents",
+      description: "List document metadata in a specific path for a specific datasource provider",
+      module: Zaq.Agent.Tools.ListDocuments
+    },
+    %{
+      key: "data_source.search_documents",
+      label: "Search documents",
+      description: "Search document metadata for a specific datasource provider",
+      module: Zaq.Agent.Tools.SearchDocuments
+    },
+    %{
+      key: "data_source.download_document",
+      label: "Download document",
+      description: "Download a document and return a normalized record with content",
+      module: Zaq.Agent.Tools.DownloadDocument
+    },
     ## Requires permission
     # %{
     #   key: "files.read_file",

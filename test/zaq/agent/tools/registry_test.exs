@@ -9,6 +9,10 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert keys == [
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
+             "data_source.get_document",
+             "data_source.list_documents",
+             "data_source.search_documents",
+             "data_source.download_document",
              "basic.sleep",
              "basic.log",
              "basic.todo",
@@ -37,6 +41,10 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert Registry.keys() == [
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
+             "data_source.get_document",
+             "data_source.list_documents",
+             "data_source.search_documents",
+             "data_source.download_document",
              "basic.sleep",
              "basic.log",
              "basic.todo",
