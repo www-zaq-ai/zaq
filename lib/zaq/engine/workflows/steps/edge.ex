@@ -28,8 +28,6 @@ defmodule Zaq.Engine.Workflows.Step.Edge do
 
   @primary_key false
 
-  @valid_ops Enum.map(EdgeCondition.ops(), &to_string/1)
-
   embedded_schema do
     field :from, :string
     field :to, :string
@@ -53,19 +51,16 @@ defmodule Zaq.Engine.Workflows.Step.Edge do
   end
 
   defp validate_condition_map(changeset, c) do
-    field = to_string_key(c, "field")
-    op_str = c |> to_string_key("op") |> normalize_op()
+    cond_cs = EdgeCondition.changeset(c)
 
-    cond do
-      is_nil(field) or field == "" -> add_error(changeset, :condition, "field is required")
-      is_nil(op_str) or op_str == "" -> add_error(changeset, :condition, "op is required")
-      op_str not in @valid_ops -> add_error(changeset, :condition, "unknown op: #{op_str}")
-      true -> changeset
+    if cond_cs.valid? do
+      changeset
+    else
+      Enum.reduce(cond_cs.errors, changeset, fn {key, {msg, _}}, cs ->
+        add_error(cs, :condition, "#{key} #{msg}")
+      end)
     end
   end
-
-  defp normalize_op(nil), do: nil
-  defp normalize_op(op), do: to_string(op)
 
   defp validate_mapping(changeset) do
     case get_field(changeset, :mapping) do
@@ -82,11 +77,5 @@ defmodule Zaq.Engine.Workflows.Step.Edge do
           do: changeset,
           else: add_error(changeset, :mapping, "keys and values must be non-empty strings")
     end
-  end
-
-  # Looks up a key in a map trying both string and atom forms.
-  # Keys are always bounded ("field", "op") so String.to_atom/1 is safe.
-  defp to_string_key(map, key) when is_binary(key) do
-    Map.get(map, key) || Map.get(map, String.to_atom(key))
   end
 end

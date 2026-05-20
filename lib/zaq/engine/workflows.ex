@@ -235,6 +235,12 @@ defmodule Zaq.Engine.Workflows do
     |> Repo.update()
   end
 
+  @doc "Returns the first Step.Run for a run with the given step name, or nil."
+  @spec get_step_run_by_name(binary(), String.t(), keyword()) :: StepRun.t() | nil
+  def get_step_run_by_name(run_id, step_name, _opts \\ []) do
+    Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name)
+  end
+
   @doc """
   Returns all step runs for a workflow run, ordered by step_index ascending.
 
