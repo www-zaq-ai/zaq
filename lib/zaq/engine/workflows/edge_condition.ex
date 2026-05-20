@@ -1,8 +1,8 @@
-defmodule Zaq.Engine.Workflows.Predicate do
+defmodule Zaq.Engine.Workflows.EdgeCondition do
   @moduledoc """
   Single home for the edge-condition operator vocabulary and pure evaluation.
 
-  Used by `Step.Edge.Condition` for schema validation and by `Steps.EdgeStep`
+  Used by `Step.Edge` for schema validation and by `Steps.EdgeStep`
   for runtime evaluation.
 
   ## Supported operators
@@ -50,7 +50,7 @@ defmodule Zaq.Engine.Workflows.Predicate do
     do: raise(ArgumentError, "op :in requires a list expected value, got: #{inspect(expected)}")
 
   def evaluate(op, _actual, _expected, _opts),
-    do: raise(ArgumentError, "unknown predicate op: #{inspect(op)}")
+    do: raise(ArgumentError, "unknown edge condition op: #{inspect(op)}")
 
   defp empty?(nil), do: true
   defp empty?(""), do: true
