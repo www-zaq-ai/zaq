@@ -8,7 +8,10 @@ defmodule Zaq.Engine.Workflows.Step.Node do
 
   Node types:
   - `"action"` / `"agent"` — requires `module`
-  - `"condition"`           — `module` is optional (inline conditions omit it)
+
+  Conditional routing is handled by edge attributes (`condition`, `mapping`), not by
+  a dedicated node type. See `Step.Edge` and `DagBuilder` for the edge-based routing
+  mechanism.
   """
 
   use Ecto.Schema
@@ -16,7 +19,7 @@ defmodule Zaq.Engine.Workflows.Step.Node do
 
   @primary_key false
 
-  @types ~w(action agent condition)
+  @types ~w(action agent)
 
   embedded_schema do
     field :name, :string
