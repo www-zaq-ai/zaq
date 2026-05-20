@@ -115,15 +115,15 @@ defmodule Zaq.Engine.EventRegistry do
     end
   end
 
-  defp derive_event_key(%{next_hop: %{destination: destination}} = event)
-       when is_atom(destination) do
-    case derive_base_name(event) do
-      nil -> nil
-      base -> "#{destination}:#{base}"
+  defp derive_event_key(event) do
+    case {derive_destination(event), derive_base_name(event)} do
+      {destination, base} when is_atom(destination) and is_binary(base) ->
+        maybe_prefix_destination(base, destination)
+
+      _ ->
+        nil
     end
   end
-
-  defp derive_event_key(_), do: nil
 
   defp derive_base_name(%{name: name}) when is_binary(name) and name != "", do: name
 
@@ -142,6 +142,27 @@ defmodule Zaq.Engine.EventRegistry do
   defp load_trigger_state do
     Workflows.list_trigger_event_names()
     |> Enum.into(%{}, &{&1, true})
+  end
+
+  defp derive_destination(%{next_hop: %{destination: destination}}) when is_atom(destination),
+    do: destination
+
+  defp derive_destination(%{hops: hops}) when is_list(hops) do
+    case List.last(hops) do
+      %{destination: destination} when is_atom(destination) -> destination
+      _ -> nil
+    end
+  end
+
+  defp derive_destination(_), do: nil
+
+  defp maybe_prefix_destination(base, destination)
+       when is_binary(base) and is_atom(destination) do
+    if String.contains?(base, ":") do
+      base
+    else
+      "#{destination}:#{base}"
+    end
   end
 
   defp maybe_filter(events, nil), do: events
