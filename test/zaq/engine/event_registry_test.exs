@@ -217,6 +217,44 @@ defmodule Zaq.Engine.EventRegistryTest do
     end
   end
 
+  describe "fire_or_register — task fault isolation" do
+    test "EventRegistry process survives a raising fire_fn" do
+      {:ok, _} = Workflows.create_trigger(%{event_name: "engine:fault_test", enabled: true})
+
+      trigger_node_fn = fn _name, _event -> raise "simulated failure" end
+      pid = start_registry(trigger_node_fn: trigger_node_fn)
+
+      broadcast(build_event(:fault_test))
+      :sys.get_state(pid)
+      Process.sleep(20)
+
+      assert Process.alive?(pid)
+    end
+
+    test "EventRegistry continues firing after a previous task failure" do
+      {:ok, _} = Workflows.create_trigger(%{event_name: "engine:resilience_test", enabled: true})
+      test_pid = self()
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      trigger_node_fn = fn name, _event ->
+        count = Agent.get_and_update(counter, fn n -> {n, n + 1} end)
+        if count == 0, do: raise("first attempt fails"), else: send(test_pid, {:fired, name})
+      end
+
+      pid = start_registry(trigger_node_fn: trigger_node_fn)
+
+      broadcast(build_event(:resilience_test))
+      :sys.get_state(pid)
+      Process.sleep(20)
+
+      broadcast(build_event(:resilience_test))
+      :sys.get_state(pid)
+
+      assert_receive {:fired, "engine:resilience_test"}, 500
+      assert Process.alive?(pid)
+    end
+  end
+
   describe "list_events/2" do
     test "returns empty map when no events in state" do
       pid = start_registry()

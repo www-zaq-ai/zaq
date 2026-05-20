@@ -402,6 +402,7 @@ defmodule Zaq.Channels.SupervisorTest do
     assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
 
     assert Process.alive?(prestarted)
+    Process.unlink(prestarted)
     Process.exit(prestarted, :kill)
   end
 
@@ -420,7 +421,13 @@ defmodule Zaq.Channels.SupervisorTest do
     assert runtime.state_pid == prestarted
 
     assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
-    if Process.alive?(prestarted), do: Process.exit(prestarted, :kill)
+
+    if Process.alive?(prestarted),
+      do:
+        (
+          Process.unlink(prestarted)
+          Process.exit(prestarted, :kill)
+        )
   end
 
   test "start_runtime/3 accepts already started listener child" do
@@ -450,6 +457,7 @@ defmodule Zaq.Channels.SupervisorTest do
     assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
 
     assert Process.alive?(listener_pid)
+    Process.unlink(listener_pid)
     Process.exit(listener_pid, :kill)
   end
 
@@ -477,7 +485,13 @@ defmodule Zaq.Channels.SupervisorTest do
     assert runtime.listener_pids == [prestarted_listener]
 
     assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
-    if Process.alive?(prestarted_listener), do: Process.exit(prestarted_listener, :kill)
+
+    if Process.alive?(prestarted_listener),
+      do:
+        (
+          Process.unlink(prestarted_listener)
+          Process.exit(prestarted_listener, :kill)
+        )
   end
 
   test "start_runtime/3 rescue path returns exception message" do

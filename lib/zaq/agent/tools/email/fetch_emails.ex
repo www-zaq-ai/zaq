@@ -24,10 +24,7 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge.{ImapAdapter, ImapConfigHelpers}
 
-  @behaviour Zaq.Engine.Workflows.Action
-
-  @impl Zaq.Engine.Workflows.Action
-  def on_success(result, _context), do: {:ok, result}
+  use Zaq.Engine.Workflows.Action
 
   @impl Zaq.Engine.Workflows.Action
   def on_failure(error, _context) do

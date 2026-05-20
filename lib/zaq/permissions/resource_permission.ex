@@ -33,6 +33,9 @@ defmodule Zaq.Permissions.ResourcePermission do
 
   @valid_rights ~w(read write update delete run view edit manage)
 
+  @doc false
+  def valid_rights, do: @valid_rights
+
   @type t :: %__MODULE__{}
 
   schema "resource_permissions" do

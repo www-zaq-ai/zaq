@@ -44,7 +44,15 @@ defmodule Zaq.Engine.Workflows.Conditions.FieldComparison do
   def run(%{field: field, op: op} = params, _context) do
     with {:ok, %{op: cast_op}} <- cast_op(op) do
       expected = Map.get(params, :value)
-      actual = Map.get(params, String.to_atom(field)) || Map.get(params, field)
+
+      atom_key = params |> Map.keys() |> Enum.find(&(is_atom(&1) and Atom.to_string(&1) == field))
+
+      actual =
+        case atom_key do
+          nil -> Map.get(params, field)
+          key -> Map.get(params, key) || Map.get(params, field)
+        end
+
       step_name = Map.get(params, :step_name, "condition")
 
       logs = [

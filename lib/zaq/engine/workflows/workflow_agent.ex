@@ -139,7 +139,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   defp fetch_input(source_event) do
     assigns = source_event.assigns || %{}
 
-    (fetch_either(assigns, :input, "input") || %{})
+    (Zaq.MapUtils.fetch_either(assigns, :input, "input") || %{})
     |> normalize_input()
   end
 
@@ -147,7 +147,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   # payload/assigns values are preserved verbatim. No dynamic atom creation
   # (atom-exhaustion safe) — only the fixed keys this module controls.
   defp normalize_input(input) when is_map(input) do
-    case fetch_either(input, :event, "event") do
+    case Zaq.MapUtils.fetch_either(input, :event, "event") do
       event_map when is_map(event_map) ->
         input
         |> Map.drop([:event, "event"])
@@ -162,19 +162,15 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
   defp normalize_event(event_map) do
     %{
-      name: fetch_either(event_map, :name, "name"),
-      trace_id: fetch_either(event_map, :trace_id, "trace_id"),
-      payload: fetch_either(event_map, :payload, "payload"),
-      assigns: fetch_either(event_map, :assigns, "assigns") || %{}
+      name: Zaq.MapUtils.fetch_either(event_map, :name, "name"),
+      trace_id: Zaq.MapUtils.fetch_either(event_map, :trace_id, "trace_id"),
+      payload: Zaq.MapUtils.fetch_either(event_map, :payload, "payload"),
+      assigns: Zaq.MapUtils.fetch_either(event_map, :assigns, "assigns") || %{}
     }
   end
 
   # Safely fetch trigger_type from assigns, handling both atom and string keys.
   defp fetch_trigger_type(assigns) do
-    fetch_either(assigns, :trigger_type, "trigger_type")
-  end
-
-  defp fetch_either(map, atom_key, string_key) do
-    Map.get(map, atom_key) || Map.get(map, string_key)
+    Zaq.MapUtils.fetch_either(assigns, :trigger_type, "trigger_type")
   end
 end
