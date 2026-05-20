@@ -249,7 +249,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
 
       [step_run] = Workflows.list_step_runs(run.id)
       assert step_run.step_name == "b_to_c_edge"
-      assert step_run.step_index == -1
+      assert step_run.step_index == 0
       assert step_run.status == "skipped"
       assert step_run.results["field"] == "gender"
       assert step_run.results["op"] == "eq"
@@ -272,20 +272,24 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
       assert Workflows.list_step_runs(run.id) == []
     end
 
-    test "condition passes + run_id present → no Step.Run written" do
+    test "condition passes + run_id present → Step.Run written with status completed" do
       run = create_run_for_edge_step()
 
       params = %{
         __edge_condition__: %{"field" => "gender", "op" => "eq", "value" => "male"},
         __edge_mapping__: %{},
         __edge_name__: "b_to_c_edge",
+        __edge_source_index__: 2,
         run_id: run.id,
         gender: "male"
       }
 
       assert {:ok, _} = EdgeStep.run(params, %{})
 
-      assert Workflows.list_step_runs(run.id) == []
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.step_name == "b_to_c_edge"
+      assert step_run.step_index == 2
+      assert step_run.status == "completed"
     end
 
     test "run_id is stripped from the output fact" do

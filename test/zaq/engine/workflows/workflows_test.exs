@@ -397,13 +397,13 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
   describe "WorkflowRun.statuses/0" do
     test "returns the expected status list" do
-      assert WorkflowRun.statuses() == ~w(pending running waiting completed failed)
+      assert WorkflowRun.statuses() == ~w(pending running waiting paused completed failed)
     end
   end
 
   describe "StepRun.statuses/0" do
     test "returns the expected status list" do
-      assert StepRun.statuses() == ~w(running completed failed skipped)
+      assert StepRun.statuses() == ~w(running paused completed failed skipped)
     end
   end
 
@@ -450,6 +450,121 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
       assert {:error, changeset} = Workflows.update_trigger(trigger, %{event_name: ""})
       assert changeset.errors[:event_name]
+    end
+  end
+
+  # --- pause_run/2 ---
+
+  describe "pause_run/2" do
+    test "transitions a running run to paused" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+      {:ok, running} = Workflows.update_run(run, %{status: "running"})
+
+      assert {:ok, paused} = Workflows.pause_run(running)
+      assert paused.status == "paused"
+    end
+
+    test "returns :not_running for a pending run" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+      assert run.status == "pending"
+
+      assert {:error, :not_running} = Workflows.pause_run(run)
+    end
+
+    test "returns :not_running for an already completed run" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+      {:ok, completed} = Workflows.update_run(run, %{status: "completed"})
+
+      assert {:error, :not_running} = Workflows.pause_run(completed)
+    end
+
+    test "returns :not_running for a failed run" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+      {:ok, failed} = Workflows.update_run(run, %{status: "failed"})
+
+      assert {:error, :not_running} = Workflows.pause_run(failed)
+    end
+
+    test "marks in-flight step runs as paused" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+      {:ok, running} = Workflows.update_run(run, %{status: "running"})
+
+      {:ok, _sr} =
+        Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
+      assert {:ok, paused} = Workflows.pause_run(running)
+      assert paused.status == "paused"
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.status == "paused"
+    end
+  end
+
+  # --- resume_run/2 ---
+
+  describe "resume_run/2" do
+    test "returns :not_paused for a pending run" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+
+      assert {:error, :not_paused} = Workflows.resume_run(run)
+    end
+
+    test "returns :not_paused for a running run" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+      {:ok, running} = Workflows.update_run(run, %{status: "running"})
+
+      assert {:error, :not_paused} = Workflows.resume_run(running)
+    end
+
+    test "returns :not_paused for a completed run" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+      {:ok, completed} = Workflows.update_run(run, %{status: "completed"})
+
+      assert {:error, :not_paused} = Workflows.resume_run(completed)
+    end
+  end
+
+  # --- get_completed_step_run/2 ---
+
+  describe "get_completed_step_run/2" do
+    test "returns the completed StepRun when it exists" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
+      {:ok, _} = Workflows.complete_step_run(sr, %{value: "done"})
+
+      result = Workflows.get_completed_step_run(run.id, "fetch")
+      assert %StepRun{} = result
+      assert result.status == "completed"
+      assert result.step_name == "fetch"
+    end
+
+    test "returns nil when no completed step exists for that step_name" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+
+      assert nil == Workflows.get_completed_step_run(run.id, "fetch")
+    end
+
+    test "returns nil when step exists but is not completed" do
+      wf = create_workflow(@valid_active_attrs)
+      run = create_run(wf)
+
+      {:ok, _} =
+        Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
+      assert nil == Workflows.get_completed_step_run(run.id, "fetch")
     end
   end
 end

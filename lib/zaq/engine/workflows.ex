@@ -64,6 +64,54 @@ defmodule Zaq.Engine.Workflows do
     WorkflowAgent.execute(run, opts)
   end
 
+  @doc """
+  Pauses a running workflow run.
+
+  Returns `{:error, :not_running}` if the run is not in `"running"` state.
+  The `WorkflowAgent` detects the status change at its next checkpoint and
+  halts cleanly before starting the next step.
+  """
+  @spec pause_run(WorkflowRun.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :not_running | Ecto.Changeset.t()}
+  def pause_run(%WorkflowRun{} = run, _opts \\ []) do
+    case run.status do
+      "running" ->
+        Repo.transaction(fn ->
+          {:ok, paused_run} = update_run(run, %{status: "paused"})
+
+          from(sr in StepRun,
+            where: sr.workflow_run_id == ^run.id and sr.status == "running"
+          )
+          |> Repo.update_all(set: [status: "paused", updated_at: DateTime.utc_now(:second)])
+
+          paused_run
+        end)
+        |> case do
+          {:ok, paused_run} -> {:ok, paused_run}
+          {:error, reason} -> {:error, reason}
+        end
+
+      _ ->
+        {:error, :not_running}
+    end
+  end
+
+  @doc """
+  Resumes a paused workflow run from where it stopped.
+
+  Delegates to `WorkflowAgent.execute/2`. `ActionWrapper` skips any step whose
+  `StepRun` is already `"completed"`, so the run continues from the first
+  incomplete step. Returns `{:error, :not_paused}` if the run is not paused.
+  """
+  @spec resume_run(WorkflowRun.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :not_paused | term()}
+  def resume_run(%WorkflowRun{} = run, opts \\ []) do
+    case run.status do
+      "paused" -> WorkflowAgent.execute(run, opts)
+      _ -> {:error, :not_paused}
+    end
+  end
+
   # --- Workflows ---
 
   @doc "Returns all workflows ordered by name."
@@ -239,6 +287,12 @@ defmodule Zaq.Engine.Workflows do
   @spec get_step_run_by_name(binary(), String.t(), keyword()) :: StepRun.t() | nil
   def get_step_run_by_name(run_id, step_name, _opts \\ []) do
     Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name)
+  end
+
+  @doc "Returns the completed StepRun for a given run and step name, or nil."
+  @spec get_completed_step_run(binary(), String.t(), keyword()) :: StepRun.t() | nil
+  def get_completed_step_run(run_id, step_name, _opts \\ []) do
+    Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name, status: "completed")
   end
 
   @doc """
