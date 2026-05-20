@@ -24,7 +24,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   use Jido.Action, name: "zaq_edge_step", schema: []
 
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
-  alias Zaq.Engine.Workflows.Predicate
+  alias Zaq.Engine.Workflows.EdgeCondition
 
   @edge_keys [:__edge_condition__, :__edge_mapping__, :__edge_name__]
 
@@ -48,7 +48,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     expected = Map.get(condition, "value", Map.get(condition, :value))
     actual = lookup(fact, field)
 
-    unless Predicate.evaluate(op, actual, expected) do
+    unless EdgeCondition.evaluate(op, actual, expected) do
       raise ConditionNotMet,
         condition_name: edge_name,
         field: field,
@@ -85,7 +85,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   defp to_key(s) when is_binary(s), do: String.to_atom(s)
   defp to_key(k), do: k
 
-  # Convert a string or atom op to an atom understood by Predicate.
+  # Convert a string or atom op to an atom understood by EdgeCondition.
   defp to_op(op) when is_atom(op), do: op
   defp to_op(op) when is_binary(op), do: String.to_atom(op)
 end
