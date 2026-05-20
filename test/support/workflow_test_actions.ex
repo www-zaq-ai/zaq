@@ -104,6 +104,47 @@ defmodule Zaq.Engine.Workflows.Test.ParamProbe do
 end
 
 # ---------------------------------------------------------------------------
+# Pause / Resume test support
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.PauseSignal do
+  @moduledoc false
+  use Agent
+
+  def start_link(_), do: Agent.start_link(fn -> nil end, name: __MODULE__)
+  def put_run_id(run_id), do: Agent.update(__MODULE__, fn _ -> run_id end)
+  def get_run_id, do: Agent.get(__MODULE__, & &1)
+  def reset, do: Agent.update(__MODULE__, fn _ -> nil end)
+end
+
+defmodule Zaq.Engine.Workflows.Test.PauseAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_pause_action",
+    schema: [input: [type: :any]],
+    output_schema: [signaled: [type: :boolean, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.Test.PauseSignal
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(_params, _context) do
+    run_id = PauseSignal.get_run_id()
+    run = Workflows.get_run!(run_id)
+    {:ok, _} = Workflows.update_run(run, %{status: "paused"})
+    {:ok, %{signaled: true}}
+  end
+end
+
+# ---------------------------------------------------------------------------
 # Actions for Step 6 edge-routing E2E test
 # ---------------------------------------------------------------------------
 
