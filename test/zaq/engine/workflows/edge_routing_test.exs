@@ -168,6 +168,61 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
     end
   end
 
+  describe "trace completeness — edge condition observability" do
+    # gender = "other": both B→C and B→F conditions fail → 2 guard rows expected.
+
+    test "get_run_trace includes skipped EdgeStep guard rows for failed conditions" do
+      run = create_run("other")
+      {:ok, _finished} = WorkflowAgent.execute(run)
+
+      trace = Workflows.get_run_trace(run.id)
+
+      skipped = Enum.filter(trace.steps, &(&1.status == "skipped"))
+      assert length(skipped) == 2
+    end
+
+    test "EdgeStep guard nodes write a skipped Step.Run row on condition failure" do
+      run = create_run("other")
+      {:ok, _finished} = WorkflowAgent.execute(run)
+
+      step_runs = Workflows.list_step_runs(run.id)
+      names = Enum.map(step_runs, & &1.step_name)
+
+      assert Enum.any?(names, &(&1 == "B__to__C__edge"))
+      assert Enum.any?(names, &(&1 == "B__to__F__edge"))
+
+      guard_runs = Enum.filter(step_runs, &String.contains?(&1.step_name, "__edge"))
+      assert Enum.all?(guard_runs, &(&1.status == "skipped"))
+      assert Enum.all?(guard_runs, &(&1.step_index == -1))
+    end
+
+    test "condition metadata (field, op, actual, expected) is present in guard row results" do
+      run = create_run("other")
+      {:ok, _finished} = WorkflowAgent.execute(run)
+
+      trace = Workflows.get_run_trace(run.id)
+
+      guard = Enum.find(trace.steps, &(&1.step_name == "B__to__C__edge"))
+      assert guard, "B__to__C__edge guard row must be present in trace"
+      assert guard.results["field"] == "gender"
+      assert guard.results["op"] == "eq"
+      assert is_binary(guard.results["actual"])
+      assert is_binary(guard.results["expected"])
+    end
+
+    test "pruned downstream action nodes still have no Step.Run row" do
+      run = create_run("other")
+      {:ok, _finished} = WorkflowAgent.execute(run)
+
+      step_runs = Workflows.list_step_runs(run.id)
+      names = Enum.map(step_runs, & &1.step_name)
+
+      refute "C" in names
+      refute "D" in names
+      refute "F" in names
+    end
+  end
+
   describe "mapping isolation" do
     test "C never receives the raw :name key from B's output" do
       # RequirePersonName.run/2 raises if it receives :name — so test passing proves isolation.
