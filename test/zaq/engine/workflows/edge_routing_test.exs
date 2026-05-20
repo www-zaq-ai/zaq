@@ -193,7 +193,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
       guard_runs = Enum.filter(step_runs, &String.contains?(&1.step_name, "__edge"))
       assert Enum.all?(guard_runs, &(&1.status == "skipped"))
-      assert Enum.all?(guard_runs, &(&1.step_index == -1))
+      assert Enum.all?(guard_runs, &(&1.step_index == 0))
     end
 
     test "condition metadata (field, op, actual, expected) is present in guard row results" do
