@@ -82,7 +82,7 @@ Flags any direct call to `Zaq.Agent.*`, `Zaq.Ingestion.*`, `Zaq.Engine.*`, or
 
 ```
 lib/zaq_web/live/bo/communication/chat_live.ex:42
-  [C] Direct cross-service call detected. Use NodeRouter.call/4 instead.
+  [C] Direct cross-service call detected. Use NodeRouter.dispatch/1 instead.
   Zaq.Agent.Retrieval.ask(question, opts)
 ```
 

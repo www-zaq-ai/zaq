@@ -79,7 +79,7 @@ For bug fixes specifically:
 A few rules that reviewers will check:
 
 - Business logic lives in `lib/zaq/` contexts — not in LiveViews, controllers, or workers.
-- Back Office (`lib/zaq_web/`) must not query the DB or call integrations directly. Use context APIs and `NodeRouter.call/4` for cross-service calls.
+- Back Office (`lib/zaq_web/`) must not query the DB or call integrations directly. Use context APIs and `NodeRouter.dispatch/1` with `%Zaq.Event{}` for cross-service calls.
 - Keep Ecto queries in context/domain modules, never in templates or components.
 
 ## Code Quality

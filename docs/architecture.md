@@ -58,13 +58,12 @@ All cross-service calls from BO go through `Zaq.NodeRouter`, not direct module c
 Zaq.Agent.Retrieval.ask(question, opts)
 
 # CORRECT
-NodeRouter.call(:agent, Zaq.Agent.Retrieval, :ask, [question, opts])
+event = Zaq.Event.new(%{question: question, opts: opts}, :agent, opts: [action: :ask])
+NodeRouter.dispatch(event).response
 ```
 
 `NodeRouter.dispatch/1` is the preferred API. It routes a `%Zaq.Event{}` by
 `event.next_hop.destination`, checks locally first, then performs remote dispatch on peer nodes.
-
-`NodeRouter.call/4` is deprecated and kept as a compatibility wrapper while call sites migrate.
 
 Event envelope fields:
 - `request`
@@ -95,9 +94,8 @@ Multi-hop behavior is recursive:
 - If role handling returns an event with a new `next_hop`, `NodeRouter` dispatches again.
 - This supports chained cross-role flows (for example agent -> channels return hops) without callers coordinating per-hop RPC.
 
-Compatibility note:
+Dispatch note:
 
-- `NodeRouter.call/4` is a compatibility wrapper that builds an `:invoke` event and unwraps `event.response`.
 - New code should use `dispatch/1` + `%Zaq.Event{}` directly.
 
 Role mapping:
@@ -127,7 +125,7 @@ Engine is the largest service. It owns several internal subsystems:
 
 ### Conversations (`lib/zaq/engine/conversations/`)
 Persists every Q&A exchange as a structured Conversation with Messages.
-All BO calls go through `NodeRouter` (prefer `dispatch/1`; `call/4` is deprecated compatibility).
+All BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ### Notifications (`lib/zaq/engine/notifications/`)
 Email notifications, dispatch workers, notification logs.
@@ -290,7 +288,7 @@ mechanically via custom linters and structural tests.
 - Don't move `embedding/client.ex` under `agent/` without discussion
 - Don't add BO routes without updating auth plug and router
 - Don't hardcode LLM endpoints — customer-configured via BO system config
-- Don't call Agent, Ingestion, Engine, or Channel modules directly from BO — always use `NodeRouter` (`dispatch/1` preferred; `call/4` deprecated)
+- Don't call Agent, Ingestion, Engine, or Channel modules directly from BO — always use `NodeRouter.dispatch/1` with `%Zaq.Event{}`
 - Don't use `:httpoison`, `:tesla`, or `:httpc` — use `:req` (`Req`) for all HTTP requests
 - Don't read system config keys directly — always use the dedicated `Zaq.System.*Config` accessors
 

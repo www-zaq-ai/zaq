@@ -321,7 +321,7 @@ All cross-service calls are overridable via Application env:
 | `:pipeline_hooks_module`            | `Zaq.Hooks`                |
 
 When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
-Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}`. `NodeRouter.call/4` remains temporary compatibility and is deprecated.
+Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ---
 

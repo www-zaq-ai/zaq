@@ -37,9 +37,8 @@
 - Cross-context calls use public context functions, not internal helpers.
 - Cross-service BO calls always go through `NodeRouter`.
 - Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}` for new work.
-- `NodeRouter.call/4` is deprecated and temporary compatibility only.
 - Role-level event boundary handlers live under `Zaq.<Role>.Api` (including `Zaq.Bo.Api` for `:bo`).
-- BO channel configuration flows must call channels role APIs via `NodeRouter` (`dispatch/1` preferred), with provider operations delegated to `Zaq.Channels.CommunicationBridge`; they must not call bridge or adapter modules directly.
+- BO channel configuration flows must call channels role APIs via `NodeRouter.dispatch/1`, with provider operations delegated to `Zaq.Channels.CommunicationBridge`; they must not call bridge or adapter modules directly.
 
 ---
 

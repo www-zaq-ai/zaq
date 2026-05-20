@@ -129,7 +129,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 ### Status (`Zaq.Agent.Status`)
 - `broadcast/4` — fire-and-forget status broadcast for pipeline stage transitions
 - Accepts `%Incoming{}`, a `%{session_id: _, request_id: _}` context map, or `nil`; 4th arg is a `node_router` module (defaults to `Zaq.NodeRouter`)
-- Routes the PubSub broadcast via `NodeRouter.call(:bo, Phoenix.PubSub, :broadcast, [...])` so the broadcast executes on the BO node where `ChatLive` is subscribed — safe for multi-node deployments where the agent node and BO node are separate
+- Routes the PubSub broadcast via `NodeRouter.dispatch/1` to BO so the broadcast executes on the BO node where `ChatLive` is subscribed — safe for multi-node deployments where the agent node and BO node are separate
 - Broadcasts `{:status_update, request_id, stage, message}` to `"chat:<session_id>"` — same topic and format `ChatLive` already handles
 - Nil or incomplete context is silently ignored — missing context never crashes the pipeline
 - Injectable via `status_module:` opt in `Api` and `Executor`; inject a `FakeNodeRouter` (calls `apply/3` locally) in unit tests to avoid real RPC
@@ -380,7 +380,7 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 
 - **`Api` is the security boundary** — `PromptGuard.validate/1` runs once in `Api` before routing; neither `Pipeline` nor `Executor` call it for input validation; Pipeline still calls `output_safe?/1` on the LLM response
 - **Status ownership follows work ownership** — each module broadcasts its own stage signal (`Api` → `:validating`, `Retrieval` → `:retrieving`, `Executor` → `:answering`); orchestrators (`Pipeline`) broadcast nothing
-- **Status broadcasts route via NodeRouter** — `Status.broadcast/4` calls `NodeRouter.call(:bo, ...)` so the PubSub broadcast runs on the BO node where `ChatLive` is subscribed; the 4th `node_router` arg is injectable (default `Zaq.NodeRouter`) so unit tests pass a `FakeNodeRouter` that calls `apply/3` locally
+- **Status broadcasts route via NodeRouter** — `Status.broadcast/4` routes through `NodeRouter.dispatch/1` so the PubSub broadcast runs on the BO node where `ChatLive` is subscribed; the 4th `node_router` arg is injectable (default `Zaq.NodeRouter`) so unit tests pass a `FakeNodeRouter` that calls `apply/3` locally
 - **`Api` is the only supported entrypoint** — route with `NodeRouter.dispatch/1` to `Zaq.Agent.Api` (`:run_pipeline`); direct `Pipeline.run/2` calls are deprecated outside agent internals
 - **All sub-modules injectable** — Pipeline accepts module overrides for every dependency, enabling isolated unit tests without mocking globals
 - **Hook system** — sync and async hooks dispatched at pipeline stage boundaries; external features attach via hooks without modifying core pipeline logic
@@ -388,7 +388,7 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 - **Prompt templates in DB** — editable at runtime without deploys; agents raise if missing
 - **ChunkTitle is injectable** — `Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)` allows test mocking
 - **Confidence is optional** — gracefully skipped when `supports_logprobs?` is false
-- **NodeRouter for cross-node calls** — BO never calls agent modules directly; prefer `NodeRouter.dispatch/1` (`call/4` is deprecated compatibility)
+- **NodeRouter for cross-node calls** — BO never calls agent modules directly; use `NodeRouter.dispatch/1` with `%Zaq.Event{}`
 - **Answering.Result struct** — canonical shape shared across channels; `normalize_result/1` converts legacy maps
 
 ### Harness-Critical Checks for Coding Agents

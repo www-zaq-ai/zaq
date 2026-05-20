@@ -74,7 +74,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 - **Run `mix precommit`** before every commit. Never replace it with ad-hoc checks.
 - **Target at least 90% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
 - **Apply `docs/testing-approach.md` on every code change** — add property tests when invariants or broad input spaces are touched.
-- **All cross-service BO calls go through `NodeRouter.call/4`** — never direct module calls.
+- **All cross-service BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`** — never direct module calls.
 - **Before adding a function to any module, read its `@moduledoc`** — confirm the function fits the module's stated responsibility. If it doesn't belong, find the correct module first.
 - **Check existing Beadwork issues first** before starting any complex or multi-step task.
 - **All related operations must be concurrent in a single message** — never split related reads/writes across messages.

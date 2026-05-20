@@ -18,7 +18,7 @@ The Engine runs under the `:engine` role. The top-level `Zaq.Engine.Supervisor` 
 Telemetry is a separate concern — see `docs/services/telemetry.md`.
 
 **Important**: BO LiveViews must never call `Zaq.Engine.Conversations` directly. All calls
-from BO go through `Zaq.NodeRouter` (prefer `dispatch/1`; `call/4` is deprecated compatibility).
+from BO go through `Zaq.NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ---
 
@@ -99,7 +99,7 @@ Adapter inbound path:
 
 ### Conversations Context (`Zaq.Engine.Conversations`)
 - Public API for the full conversation/message/rating/share lifecycle.
-- Access via `NodeRouter` from BO (`dispatch/1` preferred; `call/4` deprecated).
+- Access via `NodeRouter.dispatch/1` from BO.
 - Dispatches `Zaq.Hooks` `:feedback_provided` event after a rating is saved.
 
 **Key functions:**
