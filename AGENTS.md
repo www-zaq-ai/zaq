@@ -40,14 +40,14 @@ This is for AI task management.
 
 The overall project management is still handled on GitHub (issues, PRs, discussions).
 
-| What you need                          | Where to look                          |
-| -------------------------------------- | -------------------------------------- |
+| What you need                                       | Where to look                          |
+| --------------------------------------------------- | -------------------------------------- |
 | Agent workflow (plan via Beadwork → implement → PR) | `docs/WORKFLOW_AGENT.md`               |
-| Planning strategy (mandatory)                   | `docs/exec-plans/PLAN_STRATEGY.md`     |
-| Quality grades per domain              | `docs/QUALITY_SCORE.md`                |
-| Harness improvement roadmap            | `docs/harness-roadmap.md`              |
-| Completed plans & decision logs        | `docs/exec-plans/completed/`           |
-| Known technical debt                   | `docs/exec-plans/tech-debt-tracker.md` |
+| Planning strategy (mandatory)                       | `docs/exec-plans/PLAN_STRATEGY.md`     |
+| Quality grades per domain                           | `docs/QUALITY_SCORE.md`                |
+| Harness improvement roadmap                         | `docs/harness-roadmap.md`              |
+| Completed plans & decision logs                     | `docs/exec-plans/completed/`           |
+| Known technical debt                                | `docs/exec-plans/tech-debt-tracker.md` |
 
 ### Service Deep-Dives
 
@@ -70,9 +70,10 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 - **Read the relevant doc first** before starting any task.
 - **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new complex plan** and represent planning in Beadwork issues (not plan files).
 - **For planned work, create at least one Beadwork issue per step** (split into additional issues when needed) and prefix each planned issue title with `[{issueId}]`.
+- **Always run `mix format`** after any code file change to keep code well formatted
 - **Never push directly to `main`** — all changes go through a PR.
-- **Run `mix precommit`** before every commit. Never replace it with ad-hoc checks.
-- **Target at least 90% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
+- **Run `mix q`** before every commit. Never replace it with ad-hoc checks.
+- **Target at least 95% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
 - **Apply `docs/testing-approach.md` on every code change** — add property tests when invariants or broad input spaces are touched.
 - **All cross-service BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`** — never direct module calls.
 - **Before adding a function to any module, read its `@moduledoc`** — confirm the function fits the module's stated responsibility. If it doesn't belong, find the correct module first.
@@ -181,23 +182,19 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
 ### Use the right agent for the task
 
-| Task                                                | Use agent                          |
-| --------------------------------------------------- | ---------------------------------- |
+| Task                                                     | Use agent                          |
+| -------------------------------------------------------- | ---------------------------------- |
 | Break down a complex task, create Beadwork-planned steps | `project-planner` or `planner`     |
-| Build a new context API or domain module            | `api-developer`                    |
-| Write tests before implementing                     | `tdd-specialist` or `tdd`          |
-| Review a PR for quality and conventions             | `code-reviewer` or `reviewer`      |
-| Reproduce and fix a bug                             | `debugger`                         |
-| Clean up or restructure existing code               | `refactor`                         |
-| **Audit existing docs for drift against real code** | `doc-gardening` ← not `doc-writer` |
-| Write new documentation from scratch                | `doc-writer`                       |
-| Audit for security vulnerabilities                  | `security-scanner`                 |
-| CI, deployment, infrastructure changes              | `devops-engineer`                  |
-| Translate requirements into specs                   | `product-manager`                  |
-| Run test suites and report results                  | `test-runner`                      |
-| Detect direct module calls bypassing NodeRouter     | `node-router-enforcer`             |
-| Detect unencrypted secret fields in schemas         | `secret-field-auditor`             |
-
-### All agents
-
-`project-planner` · `planner` · `api-developer` · `tdd-specialist` · `tdd` · `code-reviewer` · `reviewer` · `debugger` · `refactor` · `doc-gardening` · `doc-writer` · `security-scanner` · `devops-engineer` · `product-manager` · `test-runner` · `node-router-enforcer` · `secret-field-auditor`
+| Build a new context API or domain module                 | `api-developer`                    |
+| Write tests before implementing                          | `tdd-specialist` or `tdd`          |
+| Review a PR for quality and conventions                  | `code-reviewer` or `reviewer`      |
+| Reproduce and fix a bug                                  | `debugger`                         |
+| Clean up or restructure existing code                    | `refactor`                         |
+| **Audit existing docs for drift against real code**      | `doc-gardening` ← not `doc-writer` |
+| Write new documentation from scratch                     | `doc-writer`                       |
+| Audit for security vulnerabilities                       | `security-scanner`                 |
+| CI, deployment, infrastructure changes                   | `devops-engineer`                  |
+| Translate requirements into specs                        | `product-manager`                  |
+| Run test suites and report results                       | `test-runner`                      |
+| Detect direct module calls bypassing NodeRouter          | `node-router-enforcer`             |
+| Detect unencrypted secret fields in schemas              | `secret-field-auditor`             |
