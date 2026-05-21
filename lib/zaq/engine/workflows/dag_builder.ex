@@ -133,7 +133,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         step_index: step_index
       })
 
-    ActionNode.new(ActionWrapper, wrapper_params, name: String.to_atom(name))
+    ActionNode.new(ActionWrapper, wrapper_params, name: String.to_atom(name), max_retries: 0)
   end
 
   defp build_action_node(mod, params, name, _step_index, _run_id) do

@@ -79,12 +79,17 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
   defp collect_unseen(client, mailbox) do
     {:ok, acc} = Agent.start_link(fn -> [] end)
 
-    ImapAdapter.fetch_unseen(client, mailbox, fn email ->
-      Agent.update(acc, fn list -> [email | list] end)
-    end)
+    result =
+      ImapAdapter.fetch_unseen(client, mailbox, fn email ->
+        Agent.update(acc, fn list -> [email | list] end)
+      end)
 
     emails = acc |> Agent.get(& &1) |> Enum.reverse()
     Agent.stop(acc)
-    emails
+
+    case result do
+      {:error, reason} -> raise "IMAP fetch failed: #{inspect(reason)}"
+      _ -> emails
+    end
   end
 end
