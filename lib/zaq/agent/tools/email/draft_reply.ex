@@ -35,45 +35,81 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
   end
 
   @impl true
-  def run(%{emails: emails} = params, _context) do
+  def run(%{emails: emails} = params, context) do
     agent_name = Map.get(params, :agent_name, "MailResponder")
     agent_id = resolve_agent_id!(agent_name)
+    scope = "email:run:#{Map.get(context, :run_id, "anon")}"
 
-    drafts =
-      Enum.map(emails, fn raw_email ->
+    Logger.info("[DraftReply] Starting — #{length(emails)} email(s) via agent '#{agent_name}'")
+
+    {drafts, per_email_logs} =
+      emails
+      |> Enum.map(fn raw_email ->
         from = raw_email["from"] || %{}
         from_address = from["address"] || from[:address]
         from_name = from["name"] || from[:name]
         subject = raw_email["subject"]
         body = raw_email["body_text"] || ""
 
-        incoming = %Incoming{
-          content: build_prompt(from_name || from_address, subject, body),
-          channel_id: from_address,
-          author_id: from_address,
-          author_name: from_name,
-          provider: :"email:imap",
-          metadata: %{"subject" => subject}
-        }
+        Logger.info(
+          "[DraftReply] Drafting reply from=#{from_address} subject=#{inspect(subject)}"
+        )
 
-        outgoing = Executor.run(incoming, agent_id: agent_id)
+        incoming =
+          %Incoming{
+            content: build_prompt(from_name || from_address, subject, body),
+            channel_id: from_address,
+            author_id: from_address,
+            author_name: from_name,
+            provider: :"email:imap",
+            metadata: %{"subject" => subject}
+          }
 
-        %{
+        outgoing = Executor.run(incoming, agent_id: agent_id, scope: scope)
+
+        if outgoing.metadata[:error] do
+          Logger.error(
+            "[DraftReply] Agent '#{agent_name}' failed for #{raw_email["message_id"]}: #{outgoing.metadata[:reason] || "unknown"}"
+          )
+
+          raise "Agent '#{agent_name}' failed for message #{raw_email["message_id"]}: #{outgoing.metadata[:reason] || "unknown error"}"
+        end
+
+        reply_subj = reply_subject(subject)
+
+        Logger.info("[DraftReply] Draft ready to=#{from_address} subject=#{inspect(reply_subj)}")
+
+        draft = %{
           to_address: from_address,
           to_name: from_name,
-          subject: reply_subject(subject),
+          subject: reply_subj,
           draft: outgoing.body,
           message_id: raw_email["message_id"]
         }
-      end)
 
-    logs = [
-      %{
-        level: "info",
-        message: "Drafted #{length(drafts)} reply(s)",
-        metadata: %{count: length(drafts)}
-      }
-    ]
+        log = %{
+          level: "info",
+          message: "Draft ready for #{from_address}",
+          metadata: %{
+            subject: reply_subj,
+            message_id: raw_email["message_id"],
+            to_address: from_address
+          }
+        }
+
+        {draft, log}
+      end)
+      |> Enum.unzip()
+
+    logs =
+      per_email_logs ++
+        [
+          %{
+            level: "info",
+            message: "Drafted #{length(drafts)} reply(s) via agent '#{agent_name}'",
+            metadata: %{count: length(drafts), agent: agent_name}
+          }
+        ]
 
     {:ok, %{drafts: drafts}, logs: logs}
   end

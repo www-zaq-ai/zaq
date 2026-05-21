@@ -6,6 +6,8 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   alias Zaq.Engine.Workflows.WorkflowAgent
   alias Zaq.Event
 
+  @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
+
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @error_module "Zaq.Engine.Workflows.Test.ErrorAction"
   @probe_module "Zaq.Engine.Workflows.Test.ParamProbe"
@@ -445,6 +447,57 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       {:ok, completed_run} = Workflows.resume_run(paused_run)
       assert completed_run.status == "completed"
       assert length(Workflows.list_step_runs(completed_run.id)) == 2
+    end
+  end
+
+  describe "human-in-the-loop suspension" do
+    defp hitl_workflow do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "hitl-wf-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "step0", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "hitl", type: "action", module: @waiting_module, params: %{}, index: 1},
+            %{name: "step2", type: "action", module: @ok_module, params: %{}, index: 2}
+          ],
+          edges: [
+            %{from: "step0", to: "hitl"},
+            %{from: "hitl", to: "step2"}
+          ]
+        })
+
+      wf
+    end
+
+    test "run transitions to 'waiting' when WaitingAction step is reached" do
+      wf = hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      assert waiting_run.status == "waiting"
+    end
+
+    test "step before HumanInTheLoop is 'completed', hitl step is 'waiting'" do
+      wf = hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      {:ok, _waiting_run} = WorkflowAgent.execute(run)
+
+      step_runs = Workflows.list_step_runs(run.id)
+      by_name = Map.new(step_runs, &{&1.step_name, &1})
+
+      assert by_name["step0"].status == "completed"
+      assert by_name["hitl"].status == "waiting"
+      refute Map.has_key?(by_name, "step2")
+    end
+
+    test "WaitingAction suspends the run and WorkflowAgent transitions it to waiting" do
+      wf = hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      result = WorkflowAgent.execute(run)
+      assert {:ok, %{status: "waiting"}} = result
     end
   end
 end

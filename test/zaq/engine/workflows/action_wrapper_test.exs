@@ -4,7 +4,18 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.ActionWrapper
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
-  alias Zaq.Engine.Workflows.Test.{ErrorAction, OkAction, OkWithLogsAction}
+
+  import ExUnit.CaptureLog
+
+  alias Zaq.Engine.Workflows.Test.{
+    ContextCaptureAction,
+    ContextProbe,
+    DraftReplyStub,
+    ErrorAction,
+    OkAction,
+    OkWithLogsAction,
+    WaitingAction
+  }
 
   @valid_workflow_attrs %{
     name: "ActionWrapper Test Workflow",
@@ -296,6 +307,196 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
       assert ar.results["field"] == "status"
       assert ar.results["op"] == "eq"
       assert ar.finished_at != nil
+    end
+  end
+
+  describe "run/2 — waiting_for_human handling" do
+    test "marks StepRun as 'waiting' and returns {:error, :waiting_for_human}" do
+      run = create_run()
+
+      assert {:error, :waiting_for_human} =
+               ActionWrapper.run(wp(run, WaitingAction, "hitl_step", 0), %{})
+
+      [ar] = Workflows.list_step_runs(run.id)
+      assert ar.status == "waiting"
+      assert ar.step_name == "hitl_step"
+    end
+
+    test "does not mark StepRun as failed when step returns waiting_for_human" do
+      run = create_run()
+      ActionWrapper.run(wp(run, WaitingAction, "review", 0), %{})
+
+      [ar] = Workflows.list_step_runs(run.id)
+      refute ar.status == "failed"
+      assert ar.status == "waiting"
+    end
+  end
+
+  describe "run/2 — retry idempotency (skip already-terminal step)" do
+    test "returns error tuple without re-executing when step is already failed" do
+      run = create_run()
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "draft", step_index: 1, status: "running"})
+
+      {:ok, _} = Workflows.fail_step_run(sr, %{reason: "first attempt"})
+
+      assert {:error, _} = ActionWrapper.run(wp(run, OkAction, "draft", 1), %{})
+
+      rows = Workflows.list_step_runs(run.id)
+      assert length(rows) == 1, "must not create a duplicate StepRun on retry"
+    end
+
+    test "does not call the wrapped module when step is already failed" do
+      run = create_run()
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "draft", step_index: 1, status: "running"})
+
+      {:ok, _} = Workflows.fail_step_run(sr, %{reason: "already done"})
+
+      call_count = :counters.new(1, [])
+
+      defmodule NeverCalledAction do
+        @moduledoc false
+        use Jido.Action, name: "never_called_action_aw", schema: []
+
+        def run(_params, _context) do
+          :counters.add(:persistent_term.get(:never_called_aw_counter), 1, 1)
+          {:ok, %{called: true}}
+        end
+      end
+
+      :persistent_term.put(:never_called_aw_counter, call_count)
+
+      ActionWrapper.run(wp(run, NeverCalledAction, "draft", 1), %{})
+      assert :counters.get(call_count, 1) == 0, "wrapped module must not be called on retry"
+    end
+
+    test "returns {:error, :condition_not_met} without re-executing when step is already skipped" do
+      run = create_run()
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "edge", step_index: 0, status: "running"})
+
+      {:ok, _} =
+        Workflows.skip_step_run(sr, %{field: "count", op: "gt", actual: 0, expected: 5})
+
+      assert {:error, :condition_not_met} = ActionWrapper.run(wp(run, OkAction, "edge", 0), %{})
+
+      rows = Workflows.list_step_runs(run.id)
+      assert length(rows) == 1, "must not create a duplicate StepRun"
+    end
+
+    test "returns {:error, :waiting_for_human} without re-executing when step is already waiting" do
+      run = create_run()
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{step_name: "hitl", step_index: 1, status: "running"})
+
+      {:ok, _} = Workflows.wait_step_run(sr)
+
+      assert {:error, :waiting_for_human} = ActionWrapper.run(wp(run, OkAction, "hitl", 1), %{})
+
+      rows = Workflows.list_step_runs(run.id)
+      assert length(rows) == 1, "must not create a duplicate StepRun"
+    end
+  end
+
+  describe "run/2 — per-action timeout" do
+    @hardcoded_email %{
+      "message_id" => "test-001",
+      "from" => %{"name" => "Alice", "address" => "alice@example.com"},
+      "subject" => "Question about your service",
+      "body_text" => "Hello, I have a question about your pricing."
+    }
+
+    defp timed_params(run, delay_ms, timeout_ms) do
+      wp(run, DraftReplyStub, "draft", 0)
+      |> Map.put(:emails, [@hardcoded_email])
+      |> Map.put(:delay_ms, delay_ms)
+      |> Map.put(:timeout_ms, timeout_ms)
+    end
+
+    test "fast path: step completes when action finishes before timeout" do
+      run = create_run()
+      params = timed_params(run, 0, 200)
+
+      assert {:ok, result} = ActionWrapper.run(params, %{})
+      assert is_list(result[:drafts])
+
+      [ar] = Workflows.list_step_runs(run.id)
+      assert ar.status == "completed"
+    end
+
+    test "slow path: returns {:error, :timeout} when action exceeds timeout" do
+      run = create_run()
+      params = timed_params(run, 250, 200)
+
+      assert {:error, :timeout} = ActionWrapper.run(params, %{})
+    end
+
+    test "slow path: StepRun is marked failed with reason 'timeout'" do
+      run = create_run()
+      params = timed_params(run, 250, 200)
+
+      ActionWrapper.run(params, %{})
+
+      [ar] = Workflows.list_step_runs(run.id)
+      assert ar.status == "failed"
+      assert ar.errors["reason"] == "timeout"
+      assert ar.finished_at != nil
+    end
+
+    test "slow path: Logger.error is emitted on timeout" do
+      run = create_run()
+      params = timed_params(run, 250, 200)
+
+      log =
+        capture_log(fn ->
+          ActionWrapper.run(params, %{})
+        end)
+
+      assert log =~ "[workflow] step timed out"
+    end
+
+    test "no timeout_ms in params: action runs directly without Task wrapping" do
+      run = create_run()
+
+      params =
+        wp(run, DraftReplyStub, "draft", 0)
+        |> Map.put(:emails, [@hardcoded_email])
+        |> Map.put(:delay_ms, 0)
+
+      assert {:ok, _} = ActionWrapper.run(params, %{})
+
+      [ar] = Workflows.list_step_runs(run.id)
+      assert ar.status == "completed"
+    end
+  end
+
+  describe "run/2 — context injection" do
+    setup do
+      start_supervised!(ContextProbe)
+      :ok
+    end
+
+    test "injects run_id and step_name into context before calling mod.run/2" do
+      run = create_run()
+      ActionWrapper.run(wp(run, ContextCaptureAction, "ctx_step", 2), %{})
+
+      ctx = ContextProbe.get_context()
+      assert ctx.run_id == run.id
+      assert ctx.step_name == "ctx_step"
+    end
+
+    test "merges with existing context keys" do
+      run = create_run()
+      ActionWrapper.run(wp(run, ContextCaptureAction, "ctx_step", 0), %{extra: "val"})
+
+      ctx = ContextProbe.get_context()
+      assert ctx.run_id == run.id
+      assert ctx.extra == "val"
     end
   end
 end
