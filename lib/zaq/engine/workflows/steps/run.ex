@@ -12,6 +12,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
   Statuses:
   - `running`   — action is executing (or was mid-flight when the node crashed)
   - `paused`    — action was in-flight when run pause was requested
+  - `waiting`   — action suspended pending human approval (human-in-the-loop)
   - `completed` — action returned `{:ok, result}`
   - `failed`    — action returned `{:error, reason}` or exceeded max retries
   - `skipped`   — condition evaluated to false; downstream nodes were not executed
@@ -25,7 +26,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(running paused completed failed skipped)
+  @statuses ~w(running paused waiting completed failed skipped)
 
   @type t :: %__MODULE__{}
 

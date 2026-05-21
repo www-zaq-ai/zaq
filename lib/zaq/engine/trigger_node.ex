@@ -24,7 +24,11 @@ defmodule Zaq.Engine.TriggerNode do
   def fire(event_name, event) when is_binary(event_name) do
     event_name
     |> Workflows.list_workflows_for_trigger()
-    |> Task.async_stream(&run_workflow(&1, event), ordered: false, on_timeout: :kill_task)
+    |> Task.async_stream(&run_workflow(&1, event),
+      ordered: false,
+      on_timeout: :kill_task,
+      timeout: :infinity
+    )
     |> Stream.run()
 
     :ok

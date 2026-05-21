@@ -30,27 +30,45 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailbox do
 
   @impl true
   def run(%{notify_address: notify_address}, _context) do
-    Logger.info("[NotifyEmptyMailbox] Mailbox is empty — notifying #{notify_address}")
+    subject = "Mailbox check — no new emails"
+    body = "The scheduled email check ran but found no unseen messages in the mailbox."
 
-    payload = %{
-      "subject" => "Mailbox check — no new emails",
-      "body" => "The scheduled email check ran but found no unseen messages in the mailbox."
-    }
+    Logger.info(
+      "[NotifyEmptyMailbox] Mailbox empty — sending notification to=#{notify_address} subject=#{inspect(subject)}"
+    )
 
-    metadata = %{"email_body" => payload["body"], "headers" => %{}}
+    payload = %{"subject" => subject, "body" => body}
+    metadata = %{"email_body" => body, "headers" => %{}}
 
-    case EmailNotification.send_notification(notify_address, payload, metadata) do
+    task =
+      Task.async(fn -> EmailNotification.send_notification(notify_address, payload, metadata) end)
+
+    case Task.await(task, 30_000) do
       :ok ->
-        Logger.info("[NotifyEmptyMailbox] Notification sent to #{notify_address}")
+        Logger.info("[NotifyEmptyMailbox] Notification sent to=#{notify_address}")
 
         {:ok, %{status: :skipped, notified: true},
-         logs: [%{level: "info", message: "Notification sent to #{notify_address}"}]}
+         logs: [
+           %{
+             level: "info",
+             message: "Notification sent to #{notify_address}",
+             metadata: %{notify_address: notify_address, subject: subject}
+           }
+         ]}
 
       {:error, reason} ->
-        Logger.error("[NotifyEmptyMailbox] Failed to notify: #{inspect(reason)}")
+        Logger.error(
+          "[NotifyEmptyMailbox] Delivery failed to=#{notify_address} reason=#{inspect(reason)}"
+        )
 
         {:ok, %{status: :skipped, notified: false},
-         logs: [%{level: "warn", message: "Notification failed: #{inspect(reason)}"}]}
+         logs: [
+           %{
+             level: "warn",
+             message: "Notification failed for #{notify_address}: #{inspect(reason)}",
+             metadata: %{notify_address: notify_address, reason: inspect(reason)}
+           }
+         ]}
     end
   end
 end

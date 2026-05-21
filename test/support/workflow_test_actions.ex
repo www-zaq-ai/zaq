@@ -247,6 +247,302 @@ defmodule Zaq.Engine.Workflows.Test.EmitGender do
   end
 end
 
+# ---------------------------------------------------------------------------
+# Human-in-the-loop test support
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.ContextProbe do
+  @moduledoc false
+  use Agent
+
+  def start_link(_), do: Agent.start_link(fn -> nil end, name: __MODULE__)
+  def put_context(ctx), do: Agent.update(__MODULE__, fn _ -> ctx end)
+  def get_context, do: Agent.get(__MODULE__, & &1)
+  def reset, do: Agent.update(__MODULE__, fn _ -> nil end)
+end
+
+defmodule Zaq.Engine.Workflows.Test.ContextCaptureAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_context_capture_action",
+    schema: [input: [type: :any]],
+    output_schema: [captured: [type: :boolean, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  alias Zaq.Engine.Workflows.Test.ContextProbe
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(_params, context) do
+    ContextProbe.put_context(context)
+    {:ok, %{captured: true}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.WaitingAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_waiting_action",
+    schema: [input: [type: :any]],
+    output_schema: [approved: [type: :boolean, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(_params, _context) do
+    {:error, {:waiting_for_human, "test-token-#{System.unique_integer()}"}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.TimedAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_timed_action",
+    schema: [
+      emails: [type: :any, default: []],
+      delay_ms: [type: :integer, default: 0]
+    ]
+
+  @impl true
+  def run(%{delay_ms: delay_ms} = params, _context) do
+    if delay_ms > 0, do: Process.sleep(delay_ms)
+
+    emails = Map.get(params, :emails, [])
+
+    drafts =
+      Enum.map(emails, fn email ->
+        from = email["from"] || %{}
+
+        %{
+          to_address: from["address"] || "unknown@example.com",
+          subject: "Re: #{email["subject"] || "(no subject)"}",
+          draft: "Thank you for your email."
+        }
+      end)
+
+    {:ok, %{drafts: drafts}}
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Email reply workflow test doubles
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.FetchEmailsWithResults do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_fetch_emails_with_results",
+    schema: [mailbox: [type: :string, default: "INBOX"]],
+    output_schema: [
+      emails: [type: {:list, :map}, required: true],
+      count: [type: :integer, required: true]
+    ]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(_params, _context) do
+    email = %{
+      "message_id" => "test-001@example.com",
+      "from" => %{"name" => "Alice", "address" => "alice@example.com"},
+      "subject" => "Question about your service",
+      "body_text" => "Hello, I have a question about your pricing."
+    }
+
+    {:ok, %{emails: [email], count: 1}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.FetchEmailsEmpty do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_fetch_emails_empty",
+    schema: [mailbox: [type: :string, default: "INBOX"]],
+    output_schema: [
+      emails: [type: {:list, :map}, required: true],
+      count: [type: :integer, required: true]
+    ]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(_params, _context), do: {:ok, %{emails: [], count: 0}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.DraftReplyStub do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_draft_reply_stub",
+    schema: [
+      emails: [type: :any, default: []],
+      delay_ms: [type: :integer, default: 0]
+    ],
+    output_schema: [drafts: [type: {:list, :map}, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(%{emails: emails, delay_ms: delay_ms}, _context) do
+    if delay_ms > 0, do: Process.sleep(delay_ms)
+
+    drafts =
+      Enum.map(emails, fn email ->
+        from = email["from"] || %{}
+
+        %{
+          to_address: from["address"] || "unknown@example.com",
+          to_name: from["name"],
+          subject: "Re: #{email["subject"] || "(no subject)"}",
+          draft: "Thank you for your email. We will get back to you shortly.",
+          message_id: email["message_id"]
+        }
+      end)
+
+    {:ok, %{drafts: drafts}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.DraftReplyErrorStub do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_draft_reply_error_stub",
+    schema: [emails: [type: :any, default: []]],
+    output_schema: [drafts: [type: {:list, :map}, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(_params, _context), do: {:error, :internal_server_error}
+end
+
+defmodule Zaq.Engine.Workflows.Test.NotifyEmptyMailboxStub do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_notify_empty_mailbox_stub",
+    schema: [notify_address: [type: :string, required: true]],
+    output_schema: [
+      status: [type: :atom, required: true],
+      notified: [type: :boolean, required: true]
+    ]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(_params, _context), do: {:ok, %{status: :skipped, notified: true}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.EnsurePersonStub do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_ensure_person_stub",
+    schema: [drafts: [type: :any, required: true]],
+    output_schema: [drafts: [type: {:list, :map}, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(%{drafts: drafts}, _context) do
+    enriched =
+      Enum.map(drafts, fn draft ->
+        # Strict atom access — ActionWrapper must normalize keys before this runs
+        _verified = draft.to_address
+        Map.put(draft, :person_id, "test-person-id")
+      end)
+
+    {:ok, %{drafts: enriched}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.SendReplyStub do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_send_reply_stub",
+    schema: [drafts: [type: :any, required: true]],
+    output_schema: [
+      sent: [type: :integer, required: true],
+      failed: [type: :integer, required: true],
+      results: [type: {:list, :map}, required: true]
+    ]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(%{drafts: drafts}, _context) do
+    results =
+      Enum.map(drafts, fn d ->
+        # Strict atom access — ActionWrapper must normalize keys before this runs
+        %{to: d.to_address, status: :sent}
+      end)
+
+    {:ok, %{sent: length(drafts), failed: 0, results: results}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.StrictAtomAccessAction do
+  @moduledoc """
+  Test action that accesses draft fields with strict atom key syntax (`draft.to_address`).
+  Mirrors the access pattern used in EnsurePerson and SendReply.
+  Fails with KeyError when the draft maps are string-keyed (JSONB round-trip).
+  """
+  use Jido.Action,
+    name: "test_strict_atom_access_action",
+    schema: [drafts: [type: :any, required: true]],
+    output_schema: [addresses: [type: {:list, :string}, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _), do: {:ok, result}
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _), do: :ok
+
+  @impl true
+  def run(%{drafts: drafts}, _context) do
+    # Strict atom access — raises KeyError when maps are string-keyed
+    addresses = Enum.map(drafts, fn draft -> draft.to_address end)
+    {:ok, %{addresses: addresses}}
+  end
+end
+
 defmodule Zaq.Engine.Workflows.Test.RequireFirstName do
   @moduledoc false
 
