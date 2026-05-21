@@ -33,7 +33,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.WorkflowRun
 
-  @wrapper_keys [:wrapped_module, :run_id, :step_name, :step_index]
+  @wrapper_keys [:wrapped_module, :run_id, :step_name, :step_index, :timeout_ms]
 
   @impl true
   def run(params, context) do
@@ -47,8 +47,8 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
         :ok
     end
 
-    case Workflows.get_completed_step_run(run_id, step_name) do
-      %StepRun{results: results} ->
+    case Workflows.get_terminal_step_run(run_id, step_name) do
+      %StepRun{status: "completed", results: results} ->
         Logger.debug("[workflow] step skipped — already completed on resume",
           run_id: run_id,
           step_name: step_name
@@ -56,8 +56,45 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
         {:ok, results || %{}}
 
+      %StepRun{status: "failed", errors: errors} ->
+        Logger.debug("[workflow] step skipped — already failed",
+          run_id: run_id,
+          step_name: step_name
+        )
+
+        {:error, errors}
+
+      %StepRun{status: "skipped"} ->
+        Logger.debug("[workflow] step skipped — condition already evaluated",
+          run_id: run_id,
+          step_name: step_name
+        )
+
+        {:error, :condition_not_met}
+
+      %StepRun{status: "waiting"} ->
+        Logger.debug("[workflow] step skipped — already waiting for approval",
+          run_id: run_id,
+          step_name: step_name
+        )
+
+        {:error, :waiting_for_human}
+
       nil ->
         execute_step(mod, run_id, step_name, step_index, params, context)
+    end
+  end
+
+  defp call_action(mod, action_params, context, nil) do
+    mod.run(action_params, context)
+  end
+
+  defp call_action(mod, action_params, context, timeout_ms) do
+    task = Task.async(fn -> mod.run(action_params, context) end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      nil -> {:error, :timeout}
     end
   end
 
@@ -84,14 +121,17 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
         status: "running"
       })
 
+    timeout_ms = Map.get(params, :timeout_ms)
     prev_cascade = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
     action_params = Map.drop(params, @wrapper_keys ++ [:__cascade__, "__cascade__"])
+    enriched_context = Map.merge(context || %{}, %{run_id: run_id, step_name: step_name})
 
     try do
-      case mod.run(action_params, context) do
+      case call_action(mod, action_params, enriched_context, timeout_ms) do
         {:ok, result, logs: logs} ->
           cascaded = inject_cascade(result, prev_cascade, step_name)
           Workflows.complete_step_run(step_run, cascaded, logs)
+          Workflows.tick_log_summary(run_id)
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
@@ -105,6 +145,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
         {:ok, result} ->
           cascaded = inject_cascade(result, prev_cascade, step_name)
           Workflows.complete_step_run(step_run, cascaded)
+          Workflows.tick_log_summary(run_id)
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
@@ -115,8 +156,34 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
           {:ok, cascaded}
 
+        {:error, :timeout} ->
+          Workflows.fail_step_run(step_run, %{reason: "timeout"})
+          Workflows.tick_log_summary(run_id)
+
+          Logger.error("[workflow] step timed out timeout_ms=#{timeout_ms}",
+            run_id: run_id,
+            step_name: step_name,
+            step_index: step_index,
+            duration_ms: System.monotonic_time(:millisecond) - started_ms
+          )
+
+          {:error, :timeout}
+
+        {:error, {:waiting_for_human, approval_token}} ->
+          Workflows.wait_step_run(step_run)
+          Workflows.tick_log_summary(run_id)
+
+          Logger.info(
+            "[workflow] step waiting for human approval approval_token=#{approval_token}",
+            run_id: run_id,
+            step_name: step_name
+          )
+
+          {:error, :waiting_for_human}
+
         {:error, reason} = err ->
           Workflows.fail_step_run(step_run, %{reason: inspect(reason)})
+          Workflows.tick_log_summary(run_id)
 
           Logger.error("[workflow] step failed",
             run_id: run_id,
@@ -137,6 +204,8 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
           expected: e.expected
         })
 
+        Workflows.tick_log_summary(run_id)
+
         Logger.info(
           "[workflow] condition not met — skipping branch field=#{e.field} op=#{e.op} actual=#{inspect(e.actual)}",
           run_id: run_id,
@@ -148,6 +217,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
       e ->
         Workflows.fail_step_run(step_run, %{reason: Exception.message(e)})
+        Workflows.tick_log_summary(run_id)
 
         Logger.error("[workflow] step crashed",
           run_id: run_id,
