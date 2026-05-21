@@ -28,37 +28,21 @@ defmodule Zaq.Agent.Tools.DownloadDocument do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.Error
-  alias Zaq.Event
-  alias Zaq.NodeRouter
+  alias Zaq.Agent.Tools.DataSourceTool
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
-    node_router = Map.get(context, :node_router, NodeRouter)
-
     request =
       %{"file_id" => document_id}
-      |> maybe_put("document_mime_type", Map.get(params, :document_mime_type))
-      |> maybe_put("export_mime_type", Map.get(params, :export_mime_type))
-      |> maybe_put("config_id", Map.get(params, :config_id))
+      |> DataSourceTool.put_if_present("document_mime_type", Map.get(params, :document_mime_type))
+      |> DataSourceTool.put_if_present("export_mime_type", Map.get(params, :export_mime_type))
+      |> DataSourceTool.put_if_present("config_id", Map.get(params, :config_id))
       |> then(&%{provider: provider, params: &1})
 
-    event = Event.new(request, :channels, opts: [action: :data_source_download_document])
-
-    case node_router.dispatch(event).response do
-      {:ok, %{record: _} = payload} ->
-        {:ok, payload}
-
-      {:ok, payload} ->
-        {:ok, payload}
-
-      {:error, reason} ->
-        {:error, "Data source document download failed: #{Error.format(reason)}"}
-
-      other ->
-        {:error, "Unexpected data source response: #{inspect(other)}"}
-    end
+    DataSourceTool.dispatch(
+      :data_source_download_document,
+      request,
+      context,
+      "Data source document download failed"
+    )
   end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

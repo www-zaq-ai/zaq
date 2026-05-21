@@ -17,36 +17,26 @@ defmodule Zaq.Agent.Tools.GetDocument do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.Error
-  alias Zaq.Event
-  alias Zaq.NodeRouter
+  alias Zaq.Agent.Tools.DataSourceTool
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
-    node_router = Map.get(context, :node_router, NodeRouter)
-
     request =
       params
       |> build_params(%{"file_id" => document_id})
       |> then(&%{provider: provider, params: &1})
 
-    dispatch_data_source(node_router, :data_source_get_file, request)
+    DataSourceTool.dispatch(
+      :data_source_get_file,
+      request,
+      context,
+      "Data source document request failed"
+    )
   end
 
   defp build_params(params, base) do
     case Map.get(params, :config_id) do
       nil -> base
       config_id -> Map.put(base, "config_id", config_id)
-    end
-  end
-
-  defp dispatch_data_source(node_router, action, request) do
-    event = Event.new(request, :channels, opts: [action: action])
-
-    case node_router.dispatch(event).response do
-      {:ok, %{record: _} = payload} -> {:ok, payload}
-      {:ok, payload} -> {:ok, payload}
-      {:error, reason} -> {:error, "Data source document request failed: #{Error.format(reason)}"}
-      other -> {:error, "Unexpected data source response: #{inspect(other)}"}
     end
   end
 end

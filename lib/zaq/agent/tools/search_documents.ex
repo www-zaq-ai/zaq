@@ -19,36 +19,27 @@ defmodule Zaq.Agent.Tools.SearchDocuments do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.Error
-  alias Zaq.Event
-  alias Zaq.NodeRouter
+  alias Zaq.Agent.Tools.DataSourceTool
 
   def run(%{provider: provider, query: query} = params, context) do
-    node_router = Map.get(context, :node_router, NodeRouter)
-
     request =
       %{"query" => query}
-      |> maybe_put("path", Map.get(params, :path))
-      |> maybe_put("config_id", Map.get(params, :config_id))
+      |> DataSourceTool.put_if_present("path", Map.get(params, :path))
+      |> DataSourceTool.put_if_present("config_id", Map.get(params, :config_id))
       |> then(&%{provider: provider, params: &1})
 
-    event = Event.new(request, :channels, opts: [action: :data_source_search_files])
-
-    case node_router.dispatch(event).response do
-      {:ok, %{records: records} = payload} when is_list(records) ->
-        {:ok, Map.put_new(payload, :count, length(records))}
-
-      {:ok, payload} ->
-        {:ok, payload}
-
-      {:error, reason} ->
-        {:error, "Data source document search failed: #{Error.format(reason)}"}
-
-      other ->
-        {:error, "Unexpected data source response: #{inspect(other)}"}
-    end
+    DataSourceTool.dispatch(
+      :data_source_search_files,
+      request,
+      context,
+      "Data source document search failed",
+      &on_ok/1
+    )
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp on_ok(%{records: records} = payload) when is_list(records) do
+    {:ok, Map.put_new(payload, :count, length(records))}
+  end
+
+  defp on_ok(payload), do: {:ok, payload}
 end

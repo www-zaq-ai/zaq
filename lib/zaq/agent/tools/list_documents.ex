@@ -17,33 +17,27 @@ defmodule Zaq.Agent.Tools.ListDocuments do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.Error
-  alias Zaq.Event
-  alias Zaq.NodeRouter
+  alias Zaq.Agent.Tools.DataSourceTool
 
   def run(%{provider: provider, path: path} = params, context) do
-    node_router = Map.get(context, :node_router, NodeRouter)
-
     request =
       params
       |> Map.take([:config_id])
       |> Enum.into(%{"path" => path}, fn {k, v} -> {Atom.to_string(k), v} end)
       |> then(&%{provider: provider, params: &1})
 
-    event = Event.new(request, :channels, opts: [action: :data_source_list_files])
-
-    case node_router.dispatch(event).response do
-      {:ok, %{records: records} = payload} when is_list(records) ->
-        {:ok, Map.put_new(payload, :count, length(records))}
-
-      {:ok, payload} ->
-        {:ok, payload}
-
-      {:error, reason} ->
-        {:error, "Data source document listing failed: #{Error.format(reason)}"}
-
-      other ->
-        {:error, "Unexpected data source response: #{inspect(other)}"}
-    end
+    DataSourceTool.dispatch(
+      :data_source_list_files,
+      request,
+      context,
+      "Data source document listing failed",
+      &on_ok/1
+    )
   end
+
+  defp on_ok(%{records: records} = payload) when is_list(records) do
+    {:ok, Map.put_new(payload, :count, length(records))}
+  end
+
+  defp on_ok(payload), do: {:ok, payload}
 end
