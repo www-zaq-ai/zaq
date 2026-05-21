@@ -4,6 +4,12 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.Steps.EdgeStep
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   # Helper to call EdgeStep.run directly.
   defp run(params), do: EdgeStep.run(params, %{})
