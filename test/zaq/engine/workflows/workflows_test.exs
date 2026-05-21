@@ -5,6 +5,12 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.{Trigger, Workflow, WorkflowRun}
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   @valid_node %{
     name: "fetch",
@@ -61,6 +67,35 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
                Workflows.create_workflow(Map.put(@valid_workflow_attrs, :status, "unknown"))
 
       assert changeset.errors[:status]
+    end
+
+    test "dispatches workflow.created event on success" do
+      test_pid = self()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
+
+      assert {:ok, wf} = Workflows.create_workflow(@valid_workflow_attrs)
+
+      assert_received {:dispatched, event}
+      assert event.request[:action] == "workflow.created"
+      assert event.request[:workflow_id] == wf.id
+      assert event.name == :workflow
+    end
+
+    test "does not dispatch on invalid changeset" do
+      test_pid = self()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
+
+      assert {:error, _} = Workflows.create_workflow(%{status: "draft"})
+
+      refute_received {:dispatched, _}
     end
   end
 
