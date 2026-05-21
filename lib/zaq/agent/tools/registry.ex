@@ -51,6 +51,18 @@ defmodule Zaq.Agent.Tools.Registry do
       description: "Download a document and return a normalized record with content",
       module: Zaq.Agent.Tools.DownloadDocument
     },
+    %{
+      key: "data_source.create_document",
+      label: "Create document",
+      description: "Create a document on a specific datasource provider",
+      module: Zaq.Agent.Tools.CreateDocument
+    },
+    %{
+      key: "data_source.update_document",
+      label: "Update document",
+      description: "Update a document by id on a specific datasource provider",
+      module: Zaq.Agent.Tools.UpdateDocument
+    },
     ## Requires permission
     # %{
     #   key: "files.read_file",
