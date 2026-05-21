@@ -17,6 +17,13 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
     WaitingAction
   }
 
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
+
   @valid_workflow_attrs %{
     name: "ActionWrapper Test Workflow",
     status: "draft",

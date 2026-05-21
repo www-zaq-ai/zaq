@@ -34,6 +34,13 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     WaitingAction
   }
 
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
+
   @event_name "engine:mail_responder_test"
   @notify_address "test@example.com"
   @draft_timeout_ms 200

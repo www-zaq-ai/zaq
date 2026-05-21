@@ -2,7 +2,13 @@ defmodule Zaq.Types.WorkflowEventTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Event
+  alias Zaq.Test.Stubs
   alias Zaq.Types.WorkflowEvent
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   @trace_id "550e8400-e29b-41d4-a716-446655440000"
 
