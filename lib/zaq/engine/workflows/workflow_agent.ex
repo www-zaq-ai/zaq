@@ -35,6 +35,19 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   marks the run accordingly. Unexpected crashes in Runic itself propagate naturally
   to the caller — they are not silently swallowed.
 
+  ## Lifecycle Events
+
+  Dispatches the following `:workflow` events via `NodeRouter`:
+
+  | Action | When |
+  |---|---|
+  | `"run.started"` | After run is transitioned to `"running"` |
+  | `"run.completed"` | After `finalize/2` marks the run `"completed"` |
+  | `"run.failed"` | After `finalize/2` marks the run `"failed"`, or after a DAG build failure |
+
+  All events carry `%{action: action, run_id: id, workflow_id: wid}` in `request`.
+  Dispatch is fire-and-forget — failures do not affect run state.
+
   ## Usage
 
       {:ok, run} = Zaq.Engine.Workflows.start_run(run)
@@ -45,6 +58,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   alias Runic.Workflow
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.{DagBuilder, WorkflowRun}
+  alias Zaq.Event
 
   @spec execute(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
   def execute(%WorkflowRun{} = run, _opts \\ []) do
@@ -57,10 +71,26 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
       trigger_type: run.source_event && fetch_trigger_type(run.source_event.assigns)
     )
 
-    with {:ok, run} <- Workflows.update_run(run, %{status: "running", started_at: now}),
-         {:ok, dag} <- DagBuilder.build(run.steps_snapshot, run_id: run.id) do
-      execute_dag_with_pause(dag, run, started_ms)
-    else
+    case Workflows.update_run(run, %{status: "running", started_at: now}) do
+      {:ok, run} ->
+        dispatch_workflow_event("run.started", %{run_id: run.id, workflow_id: run.workflow_id})
+
+        case DagBuilder.build(run.steps_snapshot, run_id: run.id) do
+          {:ok, dag} ->
+            execute_dag_with_pause(dag, run, started_ms)
+
+          {:error, reason} ->
+            Logger.error("[workflow] run failed to start",
+              workflow_id: run.workflow_id,
+              run_id: run.id,
+              error: inspect(reason)
+            )
+
+            Workflows.update_run(run, %{status: "failed", finished_at: DateTime.utc_now(:second)})
+            dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
+            {:error, reason}
+        end
+
       {:error, reason} ->
         Logger.error("[workflow] run failed to start",
           workflow_id: run.workflow_id,
@@ -127,11 +157,15 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
           duration_ms: duration_ms
         )
 
-        Workflows.update_run(run, %{
-          status: "failed",
-          finished_at: DateTime.utc_now(:second),
-          log_summary: log_summary
-        })
+        result =
+          Workflows.update_run(run, %{
+            status: "failed",
+            finished_at: DateTime.utc_now(:second),
+            log_summary: log_summary
+          })
+
+        dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
+        result
 
       true ->
         log_summary = build_log_summary(step_runs, [], duration_ms)
@@ -143,11 +177,15 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
           duration_ms: duration_ms
         )
 
-        Workflows.update_run(run, %{
-          status: "completed",
-          finished_at: DateTime.utc_now(:second),
-          log_summary: log_summary
-        })
+        result =
+          Workflows.update_run(run, %{
+            status: "completed",
+            finished_at: DateTime.utc_now(:second),
+            log_summary: log_summary
+          })
+
+        dispatch_workflow_event("run.completed", %{run_id: run.id, workflow_id: run.workflow_id})
+        result
     end
   end
 
@@ -216,4 +254,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   defp fetch_trigger_type(assigns) do
     Zaq.MapUtils.fetch_either(assigns, :trigger_type, "trigger_type")
   end
+
+  defp dispatch_workflow_event(action, body) do
+    event = Event.new(Map.put(body, :action, action), :engine, name: :workflow)
+    node_router().dispatch(event)
+  end
+
+  defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 end
