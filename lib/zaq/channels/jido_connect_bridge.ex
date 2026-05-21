@@ -4,6 +4,35 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   Credentials and grants are resolved exclusively through `Zaq.Engine.Connect`
   and mapped to runtime contracts by `Zaq.Channels.JidoConnectBridge.RuntimeMapper`.
+
+  ## Adding a provider connector in this bridge
+
+  Use this path when the provider should run on the jido_connect implementation
+  bridge.
+
+  1. Enable or build the connector.
+     - Enable an existing `jido_connect_*` provider connector when available.
+     - If missing, build a new connector/integration in the jido_connect layer.
+     - Ensure the provider exposes action/trigger tool ids that this bridge can
+       resolve through `resolve_action_spec/3` and webhook trigger resolution.
+
+  2. Surface the provider in Data Sources configuration.
+     - Add/update the BO Data Sources provider entry so users can select it.
+     - Ensure provider/channel configuration resolves to this bridge via
+       `Zaq.Channels.Bridge` mapping (in `config.exs`).
+
+  3. Configure provider auth and verify behavior.
+     - Configure credential/grant records through `Zaq.Engine.Connect` (via BO screens).
+     - Validate OAuth profile and required scopes when the provider uses OAuth.
+     - Verify end-to-end actions used by this bridge: list/get/create/update/
+       delete/search/download files, permissions listing, webhook watch/receive,
+       and export options as applicable.
+
+  4. Update field normalization when needed.
+     - Review `Zaq.Channels.JidoConnectBridge.FieldNormalization` for provider-
+       specific query, field, or mime-type normalization needs.
+     - Add normalization only when connector contracts differ from ZAQ-facing
+       params; keep connector-specific logic isolated there.
   """
 
   @behaviour Zaq.Channels.Bridge
