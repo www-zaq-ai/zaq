@@ -420,9 +420,15 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
             id: "stub.file.changed",
             name: :stub_file_changed,
             kind: :webhook,
+            resource: :file,
+            verb: :watch,
+            data_classification: :workspace_metadata,
             label: "Stub file changed",
             auth_profile: :stub_oauth,
-            auth_profiles: [:user],
+            auth_profiles: [:stub_oauth],
+            config_schema: %{},
+            signal_schema: %{},
+            verification: %{kind: :signature},
             handler: StubIntegration
           }
         ]

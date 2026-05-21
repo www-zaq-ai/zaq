@@ -20,4 +20,6 @@ Assess the relevancy and priority of the review provided to gate on what to do n
 - Should this review be included in the current PR (based on tasks tackled in this branch)
 - If provided, are suggestions relevant
 
+Note: when assessing inclusion in PR, assess code changes that haven't been merged to main yet NOT uncommited files
+
 Produce a short report stating if the review should be tackled and if yes add any edits to it if necessary

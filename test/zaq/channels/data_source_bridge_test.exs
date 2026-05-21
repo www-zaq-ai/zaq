@@ -489,6 +489,12 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                "config_id" => config.id,
                "query" => "invoice"
              })
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.download_document(:google_drive, %{
+               "config_id" => config.id,
+               "file_id" => "f1"
+             })
   end
 
   test "list_permissions returns unsupported when callback not implemented" do
