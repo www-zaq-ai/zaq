@@ -626,16 +626,68 @@ defmodule Zaq.Channels.JidoConnectBridge do
          profile when not is_nil(profile) <- Enum.find(auth_profiles, &(&1.kind == :oauth2)) do
       {:ok, profile}
     else
-      nil -> {:error, :unsupported}
-      {:error, _} = error -> error
+      {:error, reason} = error ->
+        maybe_resolve_oauth_profile_from_catalog(provider, reason, error)
+
+      nil ->
+        {:error, :unsupported}
     end
   end
 
+  defp maybe_resolve_oauth_profile_from_catalog(provider, reason, original_error) do
+    if unknown_integration_error?(reason) do
+      with {:ok, integration} <- integration_module_from_catalog(to_string(provider)),
+           {:ok, auth_profiles} <- Jido.Connect.auth_profiles(integration),
+           profile when not is_nil(profile) <- Enum.find(auth_profiles, &(&1.kind == :oauth2)) do
+        {:ok, profile}
+      else
+        nil -> {:error, :unsupported}
+        {:error, _} = error -> error
+      end
+    else
+      original_error
+    end
+  end
+
+  defp unknown_integration_error?(%{reason: :unknown_integration}), do: true
+  defp unknown_integration_error?(_), do: false
+
   defp integration_module_for(provider) do
-    case ProviderCatalog.integration_module(to_string(provider)) do
-      {:ok, integration} -> {:ok, integration}
+    provider = to_string(provider)
+
+    with {:error, _} <- integration_module_from_config(provider) do
+      integration_module_from_catalog(provider)
+    end
+  end
+
+  defp integration_module_from_config(provider) when is_binary(provider) do
+    with {:ok, cfg} <- provider_cfg(provider),
+         integration when is_atom(integration) <- Map.get(cfg, :integration) do
+      {:ok, integration}
+    else
       _ -> {:error, :unsupported}
     end
+  end
+
+  defp integration_module_from_catalog(provider) when is_binary(provider) do
+    provider_key = Bridge.provider_to_bridge_key(provider)
+    module = catalog_discover_module()
+
+    with true <- module_supports?(module, :discover, 0) || {:error, :unsupported},
+         entries when is_list(entries) <- module.discover(),
+         %{module: integration} when is_atom(integration) <-
+           Enum.find(entries, fn entry -> Map.get(entry, :id) == provider_key end) do
+      {:ok, integration}
+    else
+      _ -> {:error, :unsupported}
+    end
+  rescue
+    _ -> {:error, :unsupported}
+  end
+
+  defp catalog_discover_module do
+    module = catalog_module()
+    if module_supports?(module, :discover, 0), do: module, else: Jido.Connect.Catalog
   end
 
   defp normalize_oauth_token(token) when is_map(token) do

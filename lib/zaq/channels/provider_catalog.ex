@@ -3,9 +3,6 @@ defmodule Zaq.Channels.ProviderCatalog do
   Centralized provider metadata for Channels and Data Sources.
   """
 
-  alias Jido.Connect.Catalog
-  alias Zaq.Channels.Bridge
-
   @labels %{
     "zaq_local" => "ZAQ Local",
     "google_drive" => "Google Drive",
@@ -34,16 +31,6 @@ defmodule Zaq.Channels.ProviderCatalog do
 
   @spec credential_request_format(String.t()) :: String.t()
   def credential_request_format(_provider), do: "bearer"
-
-  @spec integration_module(String.t()) :: {:ok, module()} | {:error, term()}
-  def integration_module(provider) when is_binary(provider) do
-    provider_key = Bridge.provider_to_bridge_key(provider)
-
-    case Enum.find(Catalog.discover(), fn entry -> entry.id == provider_key end) do
-      %{module: integration} when is_atom(integration) -> {:ok, integration}
-      _ -> {:error, :unsupported}
-    end
-  end
 
   @spec oauth_module(String.t()) :: {:ok, module()} | {:error, term()}
   def oauth_module("google_drive"), do: {:ok, Jido.Connect.Google.OAuth}
