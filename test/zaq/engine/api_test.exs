@@ -5,6 +5,12 @@ defmodule Zaq.Engine.ApiTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   defmodule StubConversations do
     def persist_from_incoming(incoming, metadata) do
