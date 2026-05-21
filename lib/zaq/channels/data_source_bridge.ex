@@ -6,6 +6,28 @@ defmodule Zaq.Channels.DataSourceBridge do
   resource listing/download, listener setup/teardown). It resolves provider
   bridge modules via `Zaq.Channels.Bridge` and delegates transport-specific
   behavior to the concrete bridge implementation.
+
+  ## Adding a new Data Source provider
+
+  There are two supported paths:
+
+  1. Add a connector to an existing DataSource implementation bridge.
+     - Current implementation bridges:
+       - `Zaq.Channels.JidoConnectBridge`
+     - Wire or enable the provider connector in that bridge's underlying
+       integration stack.
+     - Check the selected bridge moduledoc for provider-specific onboarding
+       details and required follow-up steps.
+
+  2. Add a new DataSource implementation bridge.
+     - Define a bridge module under `lib/zaq/channels/`.
+     - `@behaviour Zaq.Channels.Bridge`
+     - `@behaviour Zaq.Channels.DataSourceBridge`
+     - `use Zaq.Channels.Bridge`
+     - Implement the callbacks declared in this module according to provider
+       capabilities (return `{:error, :unsupported}` for unsupported actions).
+     - Ensure provider resolution and runtime sync paths remain routed through
+       `Zaq.Channels.Bridge`.
   """
 
   alias Zaq.Channels.Bridge
