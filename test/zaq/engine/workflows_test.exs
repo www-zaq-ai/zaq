@@ -3,6 +3,12 @@ defmodule Zaq.Engine.WorkflowsTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Trigger
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   @valid_node %{
     name: "fetch",

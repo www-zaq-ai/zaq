@@ -125,12 +125,26 @@ defmodule Zaq.Engine.Workflows do
   @spec get_workflow!(term()) :: Workflow.t()
   def get_workflow!(id), do: Repo.get!(Workflow, id)
 
-  @doc "Creates a workflow."
+  @doc """
+  Creates a workflow.
+
+  Dispatches a `"workflow.created"` event via NodeRouter on success.
+  """
   @spec create_workflow(map(), keyword()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
   def create_workflow(attrs, _opts \\ []) do
-    %Workflow{}
-    |> Workflow.changeset(attrs)
-    |> Repo.insert()
+    case %Workflow{} |> Workflow.changeset(attrs) |> Repo.insert() do
+      {:ok, workflow} = result ->
+        node_router().dispatch(
+          Zaq.Event.new(%{action: "workflow.created", workflow_id: workflow.id}, :engine,
+            name: :workflow
+          )
+        )
+
+        result
+
+      error ->
+        error
+    end
   end
 
   @doc "Updates a workflow."
@@ -763,4 +777,6 @@ defmodule Zaq.Engine.Workflows do
       {0, _} -> {:error, :not_found}
     end
   end
+
+  defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 end
