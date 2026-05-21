@@ -5,6 +5,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   alias Zaq.Engine.Workflows.Test.{ParamCapture, PauseSignal}
   alias Zaq.Engine.Workflows.WorkflowAgent
   alias Zaq.Event
+  alias Zaq.Test.Stubs
 
   @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
 
@@ -16,6 +17,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   @emit_gender_module "Zaq.Engine.Workflows.Test.EmitGender"
 
   setup do
+    Stubs.stub_node_router()
     start_supervised!(ParamCapture)
     start_supervised!(PauseSignal)
     ParamCapture.reset()
@@ -498,6 +500,110 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
       result = WorkflowAgent.execute(run)
       assert {:ok, %{status: "waiting"}} = result
+    end
+  end
+
+  describe "lifecycle event dispatch" do
+    setup do
+      test_pid = self()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
+
+      :ok
+    end
+
+    # Drain any events already in the mailbox (e.g. workflow.created from create_run helper).
+    defp flush_dispatched do
+      receive do
+        {:dispatched, _} -> flush_dispatched()
+      after
+        0 -> :ok
+      end
+    end
+
+    test "successful run dispatches run.started then run.completed" do
+      run = create_run()
+      flush_dispatched()
+
+      assert {:ok, _} = WorkflowAgent.execute(run)
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+      assert started.request[:run_id] == run.id
+      assert started.request[:workflow_id] == run.workflow_id
+      assert started.name == :workflow
+
+      assert_received {:dispatched, completed}
+      assert completed.request[:action] == "run.completed"
+      assert completed.request[:run_id] == run.id
+    end
+
+    test "step failure dispatches run.started then run.failed" do
+      run = create_run(@error_module)
+      flush_dispatched()
+
+      assert {:ok, _} = WorkflowAgent.execute(run)
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+      assert started.request[:run_id] == run.id
+
+      assert_received {:dispatched, failed}
+      assert failed.request[:action] == "run.failed"
+      assert failed.request[:run_id] == run.id
+    end
+
+    test "DAG build failure dispatches run.started then run.failed" do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Dag Fail #{System.unique_integer()}",
+          status: "draft",
+          nodes: [],
+          edges: []
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      flush_dispatched()
+
+      assert {:error, _} = WorkflowAgent.execute(run)
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+      assert started.request[:run_id] == run.id
+
+      assert_received {:dispatched, failed}
+      assert failed.request[:action] == "run.failed"
+      assert failed.request[:run_id] == run.id
+    end
+
+    test "paused run dispatches only run.started" do
+      # Two-step workflow: PauseAction sets DB status to "paused", checkpoint fires
+      # before the second step and throws :pause_requested. finalize/2 is never reached.
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Pause #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "pause", type: "action", module: @pause_module, params: %{}, index: 0},
+            %{name: "continue", type: "action", module: @ok_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "pause", to: "continue"}]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      PauseSignal.put_run_id(run.id)
+      flush_dispatched()
+
+      assert {:ok, paused} = WorkflowAgent.execute(run)
+      assert paused.status == "paused"
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+
+      refute_received {:dispatched, _}
     end
   end
 end
