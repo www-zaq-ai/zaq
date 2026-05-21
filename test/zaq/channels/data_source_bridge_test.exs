@@ -196,6 +196,13 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:teardown_listener, "google_drive", %{"listener_id" => "l1"}}
   end
 
+  test "auth_handshake/1 uses default params and delegates" do
+    _config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{provider: "google_drive"}} = DataSourceBridge.auth_handshake(:google_drive)
+    assert_received {:auth_handshake, "google_drive", %{}}
+  end
+
   test "returns no_bridge for missing provider bridge" do
     insert_data_source_config(:google_drive)
 
@@ -314,14 +321,28 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:channel_stats, ^config_id, %{config_id: ^config_id}}
   end
 
-  test "scoped config id rejects bad or mismatched provider" do
+  test "scoped config provider match succeeds for string/atom provider parity" do
     config = insert_data_source_config(:google_drive)
+    config_id = config.id
 
     assert {:ok, %{records: []}} =
-             DataSourceBridge.list_files(:google_drive, %{"config_id" => "not-an-integer"})
+             DataSourceBridge.list_files("google_drive", %{"config_id" => config_id})
+
+    assert_received {:list_files, ^config_id, %{"config_id" => ^config_id}}
+  end
+
+  test "scoped config provider mismatch returns channel_not_configured" do
+    config = insert_data_source_config(:google_drive)
 
     assert {:error, {:channel_not_configured, :sharepoint}} =
              DataSourceBridge.list_files(:sharepoint, %{"config_id" => config.id})
+  end
+
+  test "scoped config id ignores invalid config_id and falls back to default config" do
+    _config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => "not-an-integer"})
   end
 
   test "capability snapshot delegates" do
@@ -332,6 +353,41 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.capability_snapshot(:google_drive)
 
     assert_received {:capability_snapshot, ^config_id}
+  end
+
+  test "required_capabilities returns expected canonical list" do
+    caps = DataSourceBridge.required_capabilities()
+
+    assert caps == [
+             :list_items,
+             :count_items,
+             :list_principals,
+             :count_principals,
+             :get_item_metadata,
+             :list_item_versions,
+             :download_items,
+             :create_item,
+             :update_item,
+             :delete_item,
+             :search_items,
+             :watch_changes_webhook,
+             :receive_change_webhook
+           ]
+
+    assert Enum.uniq(caps) == caps
+    assert Enum.all?(caps, &is_atom/1)
+  end
+
+  test "capability_meta exposes labels for each required capability" do
+    meta = DataSourceBridge.capability_meta()
+    caps = DataSourceBridge.required_capabilities()
+
+    assert is_map(meta)
+    assert Map.keys(meta) |> Enum.sort() == Enum.sort(caps)
+    assert meta[:list_items] == "List files and folders"
+    assert meta[:watch_changes_webhook] == "Register webhook watch for change notifications"
+    assert meta[:receive_change_webhook] == "Verify and normalize webhook change payloads"
+    assert Enum.all?(meta, fn {_k, v} -> is_binary(v) and String.trim(v) != "" end)
   end
 
   test "download_resource returns unsupported when callback not implemented" do

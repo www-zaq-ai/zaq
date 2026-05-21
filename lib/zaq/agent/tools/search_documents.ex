@@ -19,6 +19,7 @@ defmodule Zaq.Agent.Tools.SearchDocuments do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
+  alias Zaq.Agent.Tools.Error
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -41,7 +42,7 @@ defmodule Zaq.Agent.Tools.SearchDocuments do
         {:ok, payload}
 
       {:error, reason} ->
-        {:error, "Data source document search failed: #{inspect(reason)}"}
+        {:error, "Data source document search failed: #{Error.format(reason)}"}
 
       other ->
         {:error, "Unexpected data source response: #{inspect(other)}"}

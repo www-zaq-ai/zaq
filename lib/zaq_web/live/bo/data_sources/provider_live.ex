@@ -631,9 +631,10 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     records = page.records || []
     folders = normalize_root_folders_from_records(records, root_selector)
     next_token = get_in(page.pagination, [:cursor])
+    scanned_count = if is_list(records), do: length(records), else: 0
 
     next_state =
-      {acc_folders ++ folders, next_token, pages_loaded + 1, scanned_entries + length(records)}
+      {acc_folders ++ folders, next_token, pages_loaded + 1, scanned_entries + scanned_count}
 
     maybe_continue_root_folder_listing(next_state, next_token)
   end

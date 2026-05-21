@@ -284,6 +284,69 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert ProviderLive.root_selector_from_changeset(empty, "sharepoint") == "/"
   end
 
+  test "selected_export_mime_from_changeset returns native overrides and blanks missing values" do
+    with_export_defaults =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        "settings" => %{
+          "connect" => %{
+            "export_defaults_by_native_mime" => %{
+              "application/vnd.google-apps.document" => "text/markdown",
+              "application/pdf" => %{"nested" => "value"},
+              "application/vnd.google-apps.spreadsheet" => 123
+            }
+          }
+        }
+      })
+
+    assert ProviderLive.selected_export_mime_from_changeset(
+             with_export_defaults,
+             "application/vnd.google-apps.document"
+           ) == "text/markdown"
+
+    assert ProviderLive.selected_export_mime_from_changeset(
+             with_export_defaults,
+             "application/vnd.google-apps.spreadsheet"
+           ) == ""
+
+    assert ProviderLive.selected_export_mime_from_changeset(
+             with_export_defaults,
+             "application/vnd.google-apps.unknown"
+           ) == ""
+
+    missing_requested_mime =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        "settings" => %{
+          "connect" => %{
+            "export_defaults_by_native_mime" => %{
+              "application/pdf" => "application/pdf"
+            }
+          }
+        }
+      })
+
+    assert ProviderLive.selected_export_mime_from_changeset(
+             missing_requested_mime,
+             "application/vnd.google-apps.document"
+           ) == ""
+
+    missing_connect = ChannelConfig.changeset(%ChannelConfig{}, %{"settings" => %{}})
+
+    assert ProviderLive.selected_export_mime_from_changeset(
+             missing_connect,
+             "application/vnd.google-apps.document"
+           ) == ""
+
+    missing_export_defaults =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        "settings" => %{"connect" => %{}}
+      })
+
+    assert ProviderLive.selected_export_mime_from_changeset(
+             missing_export_defaults,
+             "application/vnd.google-apps.document"
+           ) == ""
+  end
+
   test "config modal lifecycle supports new, validate and close" do
     socket =
       socket_with(%{
@@ -1548,6 +1611,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
   describe "normalize_root_folders_from_records with non-list input" do
     test "open_test works when dispatch returns non-standard data" do
+      use_data_source_bridge(:google_drive, BridgeStubs.NonListRecordsPage)
+
       config =
         %ChannelConfig{}
         |> ChannelConfig.changeset(%{
@@ -1574,7 +1639,18 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
                  socket
                )
 
-      assert Map.has_key?(updated.assigns.root_folders_by_config, config.id)
+      assert updated.assigns.root_folders_by_config[config.id] == []
+      assert updated.assigns.stats_errors_by_config[config.id] == nil
+
+      assert updated.assigns.root_folder_meta_by_config[config.id] == %{
+               pages_loaded: 1,
+               scanned_entries: 0,
+               matched_folders: 0,
+               has_more?: false,
+               next_page_token: nil,
+               truncated: false,
+               max_pages_per_batch: 5
+             }
     end
   end
 

@@ -17,6 +17,7 @@ defmodule Zaq.Agent.Tools.GetDocument do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
+  alias Zaq.Agent.Tools.Error
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -44,7 +45,7 @@ defmodule Zaq.Agent.Tools.GetDocument do
     case node_router.dispatch(event).response do
       {:ok, %{record: _} = payload} -> {:ok, payload}
       {:ok, payload} -> {:ok, payload}
-      {:error, reason} -> {:error, "Data source document request failed: #{inspect(reason)}"}
+      {:error, reason} -> {:error, "Data source document request failed: #{Error.format(reason)}"}
       other -> {:error, "Unexpected data source response: #{inspect(other)}"}
     end
   end

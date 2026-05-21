@@ -98,3 +98,13 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NilIdDuplicate do
     {:ok, Stubs.page([record, record], nil)}
   end
 end
+
+defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NonListRecordsPage do
+  @moduledoc false
+
+  alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
+
+  def list_files(_config, _params) do
+    {:ok, Stubs.page(:not_a_list, nil)}
+  end
+end

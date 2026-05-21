@@ -17,6 +17,7 @@ defmodule Zaq.Agent.Tools.ListDocuments do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
+  alias Zaq.Agent.Tools.Error
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -39,7 +40,7 @@ defmodule Zaq.Agent.Tools.ListDocuments do
         {:ok, payload}
 
       {:error, reason} ->
-        {:error, "Data source document listing failed: #{inspect(reason)}"}
+        {:error, "Data source document listing failed: #{Error.format(reason)}"}
 
       other ->
         {:error, "Unexpected data source response: #{inspect(other)}"}

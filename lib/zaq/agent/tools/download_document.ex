@@ -28,6 +28,7 @@ defmodule Zaq.Agent.Tools.DownloadDocument do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
+  alias Zaq.Agent.Tools.Error
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -44,10 +45,17 @@ defmodule Zaq.Agent.Tools.DownloadDocument do
     event = Event.new(request, :channels, opts: [action: :data_source_download_document])
 
     case node_router.dispatch(event).response do
-      {:ok, %{record: _} = payload} -> {:ok, payload}
-      {:ok, payload} -> {:ok, payload}
-      {:error, reason} -> {:error, "Data source document download failed: #{inspect(reason)}"}
-      other -> {:error, "Unexpected data source response: #{inspect(other)}"}
+      {:ok, %{record: _} = payload} ->
+        {:ok, payload}
+
+      {:ok, payload} ->
+        {:ok, payload}
+
+      {:error, reason} ->
+        {:error, "Data source document download failed: #{Error.format(reason)}"}
+
+      other ->
+        {:error, "Unexpected data source response: #{inspect(other)}"}
     end
   end
 

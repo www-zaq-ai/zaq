@@ -170,6 +170,11 @@ defmodule Zaq.Channels.ApiTest do
        }}
     end
 
+    def list_permissions(provider, params) do
+      send(self(), {:ds_list_permissions, provider, params})
+      {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
+    end
+
     def sync_config_runtime(before_config, after_config) do
       send(self(), {:ds_sync_config_runtime, before_config, after_config})
       :ok
@@ -430,6 +435,41 @@ defmodule Zaq.Channels.ApiTest do
 
     assert {:ok, %{native_types: [_ | _], export_formats_by_native_type: %{}}} = result.response
     assert_received {:ds_export_options, :google_drive, %{"config_id" => "12"}}
+  end
+
+  test "handles data_source_list_permissions action" do
+    provider = :google_drive
+    params = %{"file_id" => "f1", "config_id" => "12"}
+
+    event =
+      Event.new(%{provider: provider, params: params}, :channels,
+        opts: [
+          action: :data_source_list_permissions,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_list_permissions, nil)
+
+    assert result.response == {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
+
+    assert_received {:ds_list_permissions, :google_drive,
+                     %{"file_id" => "f1", "config_id" => "12"}}
+  end
+
+  test "data_source_list_permissions accepts empty params map" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{}}, :channels,
+        opts: [
+          action: :data_source_list_permissions,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_list_permissions, nil)
+
+    assert result.response == {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
+    assert_received {:ds_list_permissions, :google_drive, %{}}
   end
 
   test "handles webhook_delivered for data_source" do
