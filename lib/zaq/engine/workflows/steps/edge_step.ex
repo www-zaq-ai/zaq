@@ -120,10 +120,31 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
 
     remapped =
       Map.new(mapping, fn {target, source} ->
-        {to_key(target), lookup(fact, source)}
+        {to_key(target), lookup(fact, source) |> normalize_value()}
       end)
 
     Map.merge(base, remapped)
+  end
+
+  # Normalize keys of values extracted from the JSONB cascade so downstream
+  # actions can use atom-key access regardless of whether the run resumed from DB.
+  # Only data that flows through an edge mapping is normalized — unmodified cascade
+  # facts (e.g. raw email maps) are left untouched.
+  defp normalize_value(list) when is_list(list), do: Enum.map(list, &normalize_value/1)
+
+  defp normalize_value(map) when is_map(map) do
+    Map.new(map, fn
+      {k, v} when is_binary(k) -> {try_to_atom(k), normalize_value(v)}
+      {k, v} -> {k, normalize_value(v)}
+    end)
+  end
+
+  defp normalize_value(other), do: other
+
+  defp try_to_atom(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> key
   end
 
   # Look up a key in the fact. Supports dotted cascade paths ("A.gender")
