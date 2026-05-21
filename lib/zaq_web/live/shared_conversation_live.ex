@@ -8,7 +8,7 @@ defmodule ZaqWeb.Live.SharedConversationLive do
   @impl true
   def mount(%{"token" => token}, _session, socket) do
     conversation =
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :get_conversation_by_token, [token])
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :get_conversation_by_token, [token])
 
     case conversation do
       nil ->
@@ -19,7 +19,7 @@ defmodule ZaqWeb.Live.SharedConversationLive do
 
       conv ->
         messages =
-          NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_messages, [conv])
+          NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_messages, [conv])
 
         {:ok,
          socket

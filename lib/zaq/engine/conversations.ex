@@ -3,7 +3,7 @@ defmodule Zaq.Engine.Conversations do
   Context module for managing conversations, messages, ratings, and shares.
 
   All functions in this module operate on `Zaq.Repo` directly. BO LiveViews
-  must call these functions via `Zaq.NodeRouter.call(:engine, Zaq.Engine.Conversations, ...)`.
+  must call these functions via `Zaq.NodeRouter.dispatch/1` with `%Zaq.Event{}`.
   """
 
   import Ecto.Query

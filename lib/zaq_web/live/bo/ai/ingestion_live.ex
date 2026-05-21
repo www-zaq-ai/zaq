@@ -895,7 +895,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp ingestion_call(fun, args) do
-    NodeRouter.call(:ingestion, Ingestion, fun, args)
+    NodeRouter.invoke(:ingestion, Ingestion, fun, args)
   end
 
   defp assign_breadcrumbs(socket, "."), do: assign(socket, breadcrumbs: [])

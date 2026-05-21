@@ -76,7 +76,7 @@ defmodule ZaqWeb.Live.BO.ConversationsMetricsLive do
   end
 
   defp load_conversations_metrics_data(filters) do
-    case NodeRouter.call(:engine, Telemetry, :load_conversations_metrics, [filters]) do
+    case NodeRouter.invoke(:engine, Telemetry, :load_conversations_metrics, [filters]) do
       %{} = payload -> payload
       _ -> default_payload(filters)
     end

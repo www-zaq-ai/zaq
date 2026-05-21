@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   decided on the Agent node (`Pipeline` by default, or explicit selected
   configured agent when present in event assigns).
   """
+
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:agent, :ingestion]}
 
@@ -44,7 +45,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
 
     conversations =
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_conversations, [
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_conversations, [
         [user_id: user_id, limit: 50]
       ])
 
@@ -162,9 +163,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("load_conversation", %{"id" => id}, socket) do
     with conv when not is_nil(conv) <-
-           NodeRouter.call(:engine, Zaq.Engine.Conversations, :get_conversation!, [id]),
+           NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :get_conversation!, [id]),
          db_messages when is_list(db_messages) <-
-           NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_messages, [conv]) do
+           NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_messages, [conv]) do
       ui_messages = build_ui_messages_from_db(db_messages)
       history = build_history_from_db_messages(db_messages)
 
@@ -210,7 +211,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         {:noreply, assign(socket, :show_delete_confirm, false)}
 
       id ->
-        NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
+        NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
 
         {:noreply,
          socket
@@ -256,7 +257,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if msg && Map.get(msg, :db_id) do
       rater_attrs = MessageHelpers.positive_rater_attrs(current_user)
 
-      NodeRouter.call(
+      NodeRouter.invoke(
         :engine,
         Zaq.Engine.Conversations,
         :rate_message_by_id,
@@ -414,7 +415,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if msg && Map.get(msg, :db_id) do
       rater_attrs = MessageHelpers.negative_rater_attrs(current_user, reasons, comment)
 
-      NodeRouter.call(
+      NodeRouter.invoke(
         :engine,
         Zaq.Engine.Conversations,
         :rate_message_by_id,
@@ -913,7 +914,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     user_id = socket.assigns[:current_user] && socket.assigns.current_user.id
 
     conversations =
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_conversations, [
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_conversations, [
         [user_id: user_id, limit: 50]
       ])
 

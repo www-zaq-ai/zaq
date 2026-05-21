@@ -72,7 +72,7 @@ defmodule Zaq.Ingestion do
   Connector-level entries (one per configured connector) are always included first.
   When `query` is given, only document sources matching the query string are returned.
 
-  Called via `NodeRouter.call(:ingestion, Zaq.Ingestion, :list_document_sources, [query])`.
+  Called via `NodeRouter.dispatch/1` with `%Zaq.Event{}` targeting ingestion role.
   Never call this directly from BO — use the NodeRouter boundary.
   """
   def list_document_sources(query \\ nil) do

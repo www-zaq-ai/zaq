@@ -93,7 +93,9 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   end
 
   defp load_main_dashboard_metrics do
-    case NodeRouter.call(:engine, Telemetry, :load_main_dashboard_metrics, [%{range: @kpi_range}]) do
+    case NodeRouter.invoke(:engine, Telemetry, :load_main_dashboard_metrics, [
+           %{range: @kpi_range}
+         ]) do
       %{metric_cards_chart: %{summary: %{metrics: metrics}}} when is_list(metrics) ->
         metrics
 

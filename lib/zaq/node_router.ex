@@ -72,13 +72,14 @@ defmodule Zaq.NodeRouter do
   Calls mod.fun(args) on the node running the given service role.
   Falls back to a local call if the service runs locally or no peer has it.
 
-  Deprecated: use `dispatch/1` with `%Zaq.Event{}`.
+  Temporary compatibility wrapper for existing implementations while migrating
+  to `dispatch/1`.
   """
-  def call(role, mod, fun, args) do
-    call(role, mod, fun, args, %{})
+  def invoke(role, mod, fun, args) do
+    invoke(role, mod, fun, args, %{})
   end
 
-  def call(role, mod, fun, args, runtime) when is_map(runtime) do
+  def invoke(role, mod, fun, args, runtime) when is_map(runtime) do
     _ = Map.fetch!(@supervisor_map, role)
 
     event =
@@ -90,6 +91,22 @@ defmodule Zaq.NodeRouter do
 
     dispatch(event, runtime)
     |> unwrap_call_response()
+  end
+
+  @doc """
+  Calls mod.fun(args) on the node running the given service role.
+  Falls back to a local call if the service runs locally or no peer has it.
+
+  Deprecated: use `dispatch/1` with `%Zaq.Event{}`.
+  """
+  @deprecated "Use dispatch/1 with %Zaq.Event{}"
+  def call(role, mod, fun, args) do
+    invoke(role, mod, fun, args, %{})
+  end
+
+  @deprecated "Use dispatch/2 with %Zaq.Event{}"
+  def call(role, mod, fun, args, runtime) when is_map(runtime) do
+    invoke(role, mod, fun, args, runtime)
   end
 
   @doc """

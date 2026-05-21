@@ -93,7 +93,14 @@ defmodule Zaq.People.IdentityPlug do
 
         NodeRouter.dispatch(event).response
       else
-        NodeRouter.call(:channels, channels_mod, :fetch_profile, [platform, author_id])
+        event =
+          Zaq.Event.new(
+            %{module: channels_mod, function: :fetch_profile, args: [platform, author_id]},
+            :channels,
+            opts: [action: :invoke]
+          )
+
+        NodeRouter.dispatch(event).response
       end
 
     case result do
@@ -140,7 +147,18 @@ defmodule Zaq.People.IdentityPlug do
 
         NodeRouter.dispatch(event).response
       else
-        NodeRouter.call(:channels, channels_mod, :open_dm_channel, [platform, incoming.author_id])
+        event =
+          Zaq.Event.new(
+            %{
+              module: channels_mod,
+              function: :open_dm_channel,
+              args: [platform, incoming.author_id]
+            },
+            :channels,
+            opts: [action: :invoke]
+          )
+
+        NodeRouter.dispatch(event).response
       end
 
     case result do

@@ -132,12 +132,12 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
   end
 
   def handle_event("archive_conversation", %{"id" => id}, socket) do
-    NodeRouter.call(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [id])
+    NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [id])
     {:noreply, remove_conversations(socket, [id])}
   end
 
   def handle_event("delete_conversation", %{"id" => id}, socket) do
-    NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
+    NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
     {:noreply, remove_conversations(socket, [id])}
   end
 
@@ -146,7 +146,9 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
 
     {successful_ids, failed_count} =
       Enum.reduce(ids, {[], 0}, fn id, {ok_ids, fail_count} ->
-        case NodeRouter.call(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [id]) do
+        case NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :archive_conversation_by_id, [
+               id
+             ]) do
           :ok -> {[id | ok_ids], fail_count}
           _ -> {ok_ids, fail_count + 1}
         end
@@ -169,7 +171,7 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
 
     {successful_ids, failed_count} =
       Enum.reduce(ids, {[], 0}, fn id, {ok_ids, fail_count} ->
-        case NodeRouter.call(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id]) do
+        case NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id]) do
           :ok -> {[id | ok_ids], fail_count}
           _ -> {ok_ids, fail_count + 1}
         end
@@ -203,7 +205,7 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
   end
 
   defp load_conversations(opts) do
-    result = NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_conversations, [opts])
+    result = NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_conversations, [opts])
     if is_list(result), do: result, else: []
   end
 

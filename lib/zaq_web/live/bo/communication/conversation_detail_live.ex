@@ -14,15 +14,15 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     conversation =
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :get_conversation!, [id])
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :get_conversation!, [id])
 
     messages =
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_messages, [conversation])
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_messages, [conversation])
 
     messages = if is_list(messages), do: messages, else: []
 
     shares =
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_shares, [conversation])
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_shares, [conversation])
 
     shares = if is_list(shares), do: shares, else: []
 
@@ -62,7 +62,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     if msg do
       rater_attrs = MessageHelpers.positive_rater_attrs(current_user)
 
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
         msg.id,
         rater_attrs
       ])
@@ -100,7 +100,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     if msg do
       rater_attrs = MessageHelpers.negative_rater_attrs(current_user, reasons, comment)
 
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :rate_message_by_id, [
         msg.id,
         rater_attrs
       ])
@@ -162,13 +162,13 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   def handle_event("share", %{"permission" => permission}, socket) do
     conv = socket.assigns.conversation
 
-    NodeRouter.call(:engine, Zaq.Engine.Conversations, :share_conversation, [
+    NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :share_conversation, [
       conv,
       %{permission: permission}
     ])
 
     shares =
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_shares, [conv])
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_shares, [conv])
 
     shares = if is_list(shares), do: shares, else: []
 
@@ -182,12 +182,12 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     share = Enum.find(socket.assigns.shares, &(&1.id == share_id))
 
     if share do
-      NodeRouter.call(:engine, Zaq.Engine.Conversations, :revoke_share, [share])
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :revoke_share, [share])
 
       conv = socket.assigns.conversation
 
       shares =
-        NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_shares, [conv])
+        NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_shares, [conv])
 
       shares = if is_list(shares), do: shares, else: []
       {:noreply, assign(socket, :shares, shares)}
@@ -199,7 +199,9 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   defp find_message(messages, id), do: Enum.find(messages, &(&1.id == id))
 
   defp refresh_messages(conversation) do
-    messages = NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_messages, [conversation])
+    messages =
+      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_messages, [conversation])
+
     if is_list(messages), do: messages, else: []
   end
 

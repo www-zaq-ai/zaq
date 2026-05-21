@@ -47,7 +47,7 @@ defmodule ZaqWeb.Live.BO.LLMPerformanceLive do
   end
 
   defp load_llm_performance_data(filters) do
-    case NodeRouter.call(:engine, Telemetry, :load_llm_performance, [filters]) do
+    case NodeRouter.invoke(:engine, Telemetry, :load_llm_performance, [filters]) do
       %{} = payload -> payload
       _ -> default_payload(filters)
     end
