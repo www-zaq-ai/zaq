@@ -138,6 +138,11 @@ defmodule Zaq.MixProject do
        branch: "fix/google_drive-csv",
        sparse: "apps/jido_connect_google_drive",
        override: true},
+      {:jido_connect_google_sheets,
+       github: "agentjido/jido_connect",
+       branch: "main",
+       sparse: "apps/jido_connect_google_sheets",
+       override: true},
 
       # Dev/Test
       {:credo, "~> 1.7.13", only: [:dev, :test], runtime: false},
