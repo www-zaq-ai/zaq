@@ -4,6 +4,12 @@ defmodule Zaq.Engine.Workflows.WorkflowApprovalTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowApproval
   alias Zaq.Repo
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   @valid_source_event %{
     "request" => nil,

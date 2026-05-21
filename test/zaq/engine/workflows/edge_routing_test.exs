@@ -12,6 +12,12 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowAgent
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   @noop_module "Zaq.Engine.Workflows.Test.Noop"
   @emit_person_module "Zaq.Engine.Workflows.Test.EmitPerson"
