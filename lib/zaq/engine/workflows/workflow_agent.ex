@@ -96,19 +96,63 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
   defp finalize(%WorkflowRun{} = run, started_ms) do
     step_runs = Workflows.list_step_runs(run.id)
-    finished_at = DateTime.utc_now(:second)
     duration_ms = System.monotonic_time(:millisecond) - started_ms
 
-    # A row stuck at "running" after execution means the action raised and
-    # never updated itself — treat it as a failure (crash cursor).
-    any_incomplete = Enum.any?(step_runs, &(&1.status in ["failed", "running"]))
+    cond do
+      # A "waiting" StepRun means a HumanInTheLoop step suspended execution.
+      # ActionWrapper already marked the StepRun; we transition the run here.
+      Enum.any?(step_runs, &(&1.status == "waiting")) ->
+        Logger.info("[workflow] run waiting for human approval",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          duration_ms: duration_ms
+        )
 
-    failed_steps =
-      step_runs
-      |> Enum.filter(&(&1.status in ["failed", "running"]))
-      |> Enum.map(& &1.step_name)
+        Workflows.update_run(run, %{status: "waiting"})
 
-    log_summary = %{
+      # A row stuck at "running" after execution means the action raised and
+      # never updated itself — treat it as a failure (crash cursor).
+      Enum.any?(step_runs, &(&1.status in ["failed", "running"])) ->
+        failed_steps =
+          step_runs
+          |> Enum.filter(&(&1.status in ["failed", "running"]))
+          |> Enum.map(& &1.step_name)
+
+        log_summary = build_log_summary(step_runs, failed_steps, duration_ms)
+
+        Logger.error("[workflow] run failed",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          failed_steps: failed_steps,
+          duration_ms: duration_ms
+        )
+
+        Workflows.update_run(run, %{
+          status: "failed",
+          finished_at: DateTime.utc_now(:second),
+          log_summary: log_summary
+        })
+
+      true ->
+        log_summary = build_log_summary(step_runs, [], duration_ms)
+
+        Logger.info("[workflow] run completed",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          step_count: length(step_runs),
+          duration_ms: duration_ms
+        )
+
+        Workflows.update_run(run, %{
+          status: "completed",
+          finished_at: DateTime.utc_now(:second),
+          log_summary: log_summary
+        })
+    end
+  end
+
+  defp build_log_summary(step_runs, failed_steps, duration_ms) do
+    %{
       step_count: length(step_runs),
       failed_step_count: length(failed_steps),
       failed_steps: failed_steps,
@@ -120,38 +164,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
             step_index: sr.step_index,
             status: sr.status,
             started_at: sr.started_at,
-            finished_at: sr.finished_at
+            finished_at: sr.finished_at,
+            logs: sr.logs || []
           }
         end)
     }
-
-    if any_incomplete do
-      Logger.error("[workflow] run failed",
-        workflow_id: run.workflow_id,
-        run_id: run.id,
-        failed_steps: failed_steps,
-        duration_ms: duration_ms
-      )
-
-      Workflows.update_run(run, %{
-        status: "failed",
-        finished_at: finished_at,
-        log_summary: log_summary
-      })
-    else
-      Logger.info("[workflow] run completed",
-        workflow_id: run.workflow_id,
-        run_id: run.id,
-        step_count: length(step_runs),
-        duration_ms: duration_ms
-      )
-
-      Workflows.update_run(run, %{
-        status: "completed",
-        finished_at: finished_at,
-        log_summary: log_summary
-      })
-    end
   end
 
   # Safely fetch the input from assigns, handling both atom and string keys
