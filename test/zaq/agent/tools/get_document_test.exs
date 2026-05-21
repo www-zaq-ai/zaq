@@ -15,6 +15,16 @@ defmodule Zaq.Agent.Tools.GetDocumentTest do
     def dispatch(%Event{}), do: %{Event.new(%{}, :channels) | response: {:error, :timeout}}
   end
 
+  defmodule OkPayloadNodeRouter do
+    def dispatch(%Event{}) do
+      %{Event.new(%{}, :channels) | response: {:ok, %{"id" => "f1", "name" => "Doc 1"}}}
+    end
+  end
+
+  defmodule UnexpectedNodeRouter do
+    def dispatch(%Event{}), do: %{Event.new(%{}, :channels) | response: :ok}
+  end
+
   test "dispatches datasource get_file action" do
     assert {:ok, %{record: %{"id" => "f1"}}} =
              GetDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
@@ -41,5 +51,23 @@ defmodule Zaq.Agent.Tools.GetDocumentTest do
              })
 
     assert message == "Data source document request failed: :timeout"
+  end
+
+  test "returns ok payload when datasource response has no record envelope" do
+    assert {:ok, payload} =
+             GetDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+               node_router: OkPayloadNodeRouter
+             })
+
+    assert payload == %{"id" => "f1", "name" => "Doc 1"}
+  end
+
+  test "returns formatted error for unexpected datasource response shape" do
+    assert {:error, message} =
+             GetDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+               node_router: UnexpectedNodeRouter
+             })
+
+    assert message == "Unexpected data source response: :ok"
   end
 end

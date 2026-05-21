@@ -45,10 +45,35 @@ defmodule Zaq.Channels.JidoConnectBridge.FieldNormalizationTest do
              %{"mime_type" => "text/plain"}
   end
 
+  test "preserves explicit mime_type while keeping export_mime_type when both are present" do
+    params = %{export_mime_type: "text/plain", mime_type: "application/pdf"}
+
+    assert FieldNormalization.normalize_all(:google_drive, "google.drive.file.export", params) ==
+             %{mime_type: "application/pdf", export_mime_type: "text/plain"}
+
+    result = FieldNormalization.normalize_all(:google_drive, "google.drive.file.export", params)
+
+    assert result[:mime_type] == "application/pdf"
+    assert result[:export_mime_type] == "text/plain"
+    refute Map.has_key?(result, nil)
+  end
+
   test "preserves explicit mime_type when export_mime_type is also present" do
     params = %{"mime_type" => "application/pdf", "export_mime_type" => "text/plain"}
 
     assert FieldNormalization.normalize_all("google_drive", "google.drive.file.export", params) ==
              %{"mime_type" => "application/pdf", "export_mime_type" => "text/plain"}
+  end
+
+  test "normalizes atom export_mime_type key to atom mime_type for google drive export action" do
+    params = %{export_mime_type: "text/plain"}
+
+    assert FieldNormalization.normalize_all(:google_drive, "google.drive.file.export", params) ==
+             %{mime_type: "text/plain"}
+
+    result = FieldNormalization.normalize_all(:google_drive, "google.drive.file.export", params)
+
+    refute Map.has_key?(result, :export_mime_type)
+    refute Map.has_key?(result, "mime_type")
   end
 end
