@@ -16,9 +16,17 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
      authors always read `params.event.payload` with atom keys regardless of
      whether the run was reloaded from the DB. Arbitrary payload/assigns values are
      preserved verbatim. Feeds this as the initial fact into
-     `Runic.Workflow.react_until_satisfied/2`.
+     `Runic.Workflow.react_until_satisfied/3`.
   4. After execution, checks `StepRun` rows: any `"failed"` row → run becomes
      `"failed"`, otherwise `"completed"`.
+
+  ## Pause / Resume
+
+  A `:checkpoint` function is passed to `react_until_satisfied/3`. After each
+  react cycle it re-reads the `WorkflowRun` row; if the status is `"paused"` it
+  throws `:pause_requested`, which is caught and returned as `{:ok, paused_run}`.
+  To resume, call `Workflows.resume_run/2` — `ActionWrapper` skips completed steps
+  so execution continues from the first incomplete step.
 
   ## Crash safety
 
@@ -26,6 +34,19 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   re-raising. `finalize/2` treats any `"running"` or `"failed"` rows as failures and
   marks the run accordingly. Unexpected crashes in Runic itself propagate naturally
   to the caller — they are not silently swallowed.
+
+  ## Lifecycle Events
+
+  Dispatches the following `:workflow` events via `NodeRouter`:
+
+  | Action | When |
+  |---|---|
+  | `"run.started"` | After run is transitioned to `"running"` |
+  | `"run.completed"` | After `finalize/2` marks the run `"completed"` |
+  | `"run.failed"` | After `finalize/2` marks the run `"failed"`, or after a DAG build failure |
+
+  All events carry `%{action: action, run_id: id, workflow_id: wid}` in `request`.
+  Dispatch is fire-and-forget — failures do not affect run state.
 
   ## Usage
 
@@ -37,6 +58,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   alias Runic.Workflow
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.{DagBuilder, WorkflowRun}
+  alias Zaq.Event
 
   @spec execute(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
   def execute(%WorkflowRun{} = run, _opts \\ []) do
@@ -49,13 +71,26 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
       trigger_type: run.source_event && fetch_trigger_type(run.source_event.assigns)
     )
 
-    with {:ok, run} <- Workflows.update_run(run, %{status: "running", started_at: now}),
-         {:ok, dag} <- DagBuilder.build(run.steps_snapshot, run_id: run.id) do
-      input = fetch_input(run.source_event)
+    case Workflows.update_run(run, %{status: "running", started_at: now}) do
+      {:ok, run} ->
+        dispatch_workflow_event("run.started", %{run_id: run.id, workflow_id: run.workflow_id})
 
-      Workflow.react_until_satisfied(dag, input)
-      finalize(run, started_ms)
-    else
+        case DagBuilder.build(run.steps_snapshot, run_id: run.id) do
+          {:ok, dag} ->
+            execute_dag_with_pause(dag, run, started_ms)
+
+          {:error, reason} ->
+            Logger.error("[workflow] run failed to start",
+              workflow_id: run.workflow_id,
+              run_id: run.id,
+              error: inspect(reason)
+            )
+
+            Workflows.update_run(run, %{status: "failed", finished_at: DateTime.utc_now(:second)})
+            dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
+            {:error, reason}
+        end
+
       {:error, reason} ->
         Logger.error("[workflow] run failed to start",
           workflow_id: run.workflow_id,
@@ -68,21 +103,94 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     end
   end
 
+  defp execute_dag_with_pause(dag, %WorkflowRun{} = run, started_ms) do
+    input = fetch_input(run.source_event)
+    checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
+
+    try do
+      Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
+      finalize(run, started_ms)
+    catch
+      :throw, :pause_requested ->
+        Logger.info("[workflow] run paused", run_id: run.id)
+        {:ok, Workflows.get_run!(run.id)}
+    end
+  end
+
+  defp pause_checkpoint!(run_id) do
+    case Workflows.get_run!(run_id) do
+      %WorkflowRun{status: "paused"} -> throw(:pause_requested)
+      _ -> :ok
+    end
+  end
+
   defp finalize(%WorkflowRun{} = run, started_ms) do
     step_runs = Workflows.list_step_runs(run.id)
-    finished_at = DateTime.utc_now(:second)
     duration_ms = System.monotonic_time(:millisecond) - started_ms
 
-    # A row stuck at "running" after execution means the action raised and
-    # never updated itself — treat it as a failure (crash cursor).
-    any_incomplete = Enum.any?(step_runs, &(&1.status in ["failed", "running"]))
+    cond do
+      # A "waiting" StepRun means a HumanInTheLoop step suspended execution.
+      # ActionWrapper already marked the StepRun; we transition the run here.
+      Enum.any?(step_runs, &(&1.status == "waiting")) ->
+        Logger.info("[workflow] run waiting for human approval",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          duration_ms: duration_ms
+        )
 
-    failed_steps =
-      step_runs
-      |> Enum.filter(&(&1.status in ["failed", "running"]))
-      |> Enum.map(& &1.step_name)
+        Workflows.update_run(run, %{status: "waiting"})
 
-    log_summary = %{
+      # A row stuck at "running" after execution means the action raised and
+      # never updated itself — treat it as a failure (crash cursor).
+      Enum.any?(step_runs, &(&1.status in ["failed", "running"])) ->
+        failed_steps =
+          step_runs
+          |> Enum.filter(&(&1.status in ["failed", "running"]))
+          |> Enum.map(& &1.step_name)
+
+        log_summary = build_log_summary(step_runs, failed_steps, duration_ms)
+
+        Logger.error("[workflow] run failed",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          failed_steps: failed_steps,
+          duration_ms: duration_ms
+        )
+
+        result =
+          Workflows.update_run(run, %{
+            status: "failed",
+            finished_at: DateTime.utc_now(:second),
+            log_summary: log_summary
+          })
+
+        dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
+        result
+
+      true ->
+        log_summary = build_log_summary(step_runs, [], duration_ms)
+
+        Logger.info("[workflow] run completed",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          step_count: length(step_runs),
+          duration_ms: duration_ms
+        )
+
+        result =
+          Workflows.update_run(run, %{
+            status: "completed",
+            finished_at: DateTime.utc_now(:second),
+            log_summary: log_summary
+          })
+
+        dispatch_workflow_event("run.completed", %{run_id: run.id, workflow_id: run.workflow_id})
+        result
+    end
+  end
+
+  defp build_log_summary(step_runs, failed_steps, duration_ms) do
+    %{
       step_count: length(step_runs),
       failed_step_count: length(failed_steps),
       failed_steps: failed_steps,
@@ -94,38 +202,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
             step_index: sr.step_index,
             status: sr.status,
             started_at: sr.started_at,
-            finished_at: sr.finished_at
+            finished_at: sr.finished_at,
+            logs: sr.logs || []
           }
         end)
     }
-
-    if any_incomplete do
-      Logger.error("[workflow] run failed",
-        workflow_id: run.workflow_id,
-        run_id: run.id,
-        failed_steps: failed_steps,
-        duration_ms: duration_ms
-      )
-
-      Workflows.update_run(run, %{
-        status: "failed",
-        finished_at: finished_at,
-        log_summary: log_summary
-      })
-    else
-      Logger.info("[workflow] run completed",
-        workflow_id: run.workflow_id,
-        run_id: run.id,
-        step_count: length(step_runs),
-        duration_ms: duration_ms
-      )
-
-      Workflows.update_run(run, %{
-        status: "completed",
-        finished_at: finished_at,
-        log_summary: log_summary
-      })
-    end
   end
 
   # Safely fetch the input from assigns, handling both atom and string keys
@@ -173,4 +254,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   defp fetch_trigger_type(assigns) do
     Zaq.MapUtils.fetch_either(assigns, :trigger_type, "trigger_type")
   end
+
+  defp dispatch_workflow_event(action, body) do
+    event = Event.new(Map.put(body, :action, action), :engine, name: :workflow)
+    node_router().dispatch(event)
+  end
+
+  defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 end

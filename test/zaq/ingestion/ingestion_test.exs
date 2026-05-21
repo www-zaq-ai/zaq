@@ -1,5 +1,5 @@
 defmodule Zaq.IngestionTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
 
   import Mox
 

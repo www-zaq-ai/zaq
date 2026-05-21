@@ -17,6 +17,7 @@ defmodule Zaq.DataCase do
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
+      import Mox
       import Zaq.DataCase
       import Zaq.AccountsFixtures
     end

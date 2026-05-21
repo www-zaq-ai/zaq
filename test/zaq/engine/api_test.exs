@@ -3,7 +3,14 @@ defmodule Zaq.Engine.ApiTest do
 
   alias Zaq.Engine.Api
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   defmodule StubConversations do
     def persist_from_incoming(incoming, metadata) do
@@ -131,6 +138,113 @@ defmodule Zaq.Engine.ApiTest do
 
     assert Api.handle_event(Event.new(%{}, :engine), :connect_oauth_redirect_uri_for, nil).response ==
              {:error, {:invalid_request, %{}}}
+  end
+
+  describe "handle_event/3 — :workflow events" do
+    alias Zaq.Engine.Workflows.WorkflowAgent
+
+    @source_event %{
+      "request" => nil,
+      "assigns" => %{"trigger_type" => "manual"},
+      "trace_id" => "api-test-trace"
+    }
+    @ok_module "Zaq.Engine.Workflows.Test.OkAction"
+    @hitl_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
+
+    defp api_hitl_workflow do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "api-hitl-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "step_a", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "hitl", type: "action", module: @hitl_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "step_a", to: "hitl"}]
+        })
+
+      wf
+    end
+
+    defp create_waiting_run do
+      wf = api_hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      assert waiting_run.status == "waiting"
+      approval = Workflows.get_pending_approval(waiting_run.id)
+      %{run: waiting_run, approval: approval}
+    end
+
+    test "run.approve with nil person_id succeeds and run completes" do
+      %{run: run} = create_waiting_run()
+
+      request = %{
+        action: "run.approve",
+        run_id: run.id,
+        person_id: nil,
+        decision: %{"notes" => "looks good"}
+      }
+
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert {:ok, completed_run} = result.response
+      assert completed_run.status == "completed"
+    end
+
+    test "run.approve with non-nil person_id returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{
+        action: "run.approve",
+        run_id: run.id,
+        person_id: "some-person-id",
+        decision: %{}
+      }
+
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.reject with nil person_id returns failed run" do
+      %{run: run} = create_waiting_run()
+
+      request = %{
+        action: "run.reject",
+        run_id: run.id,
+        person_id: nil,
+        reason: "not approved"
+      }
+
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert {:ok, failed_run} = result.response
+      assert failed_run.status == "failed"
+    end
+
+    test "run.reject with non-nil person_id returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{
+        action: "run.reject",
+        run_id: run.id,
+        person_id: "some-person-id",
+        reason: "denied"
+      }
+
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "unknown action passes through event unchanged" do
+      request = %{action: "unknown.action", run_id: "whatever"}
+      event = Event.new(request, :engine)
+      result = Api.handle_event(event, :workflow, nil)
+      assert result.response == nil
+    end
+
+    test "missing run_id returns invalid_request" do
+      request = %{action: "run.approve", person_id: nil}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
   end
 
   test "returns invalid request for system config actions requiring maps" do

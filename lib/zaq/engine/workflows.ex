@@ -17,6 +17,7 @@ defmodule Zaq.Engine.Workflows do
     Trigger,
     Workflow,
     WorkflowAgent,
+    WorkflowApproval,
     WorkflowRun
   }
 
@@ -64,6 +65,54 @@ defmodule Zaq.Engine.Workflows do
     WorkflowAgent.execute(run, opts)
   end
 
+  @doc """
+  Pauses a running workflow run.
+
+  Returns `{:error, :not_running}` if the run is not in `"running"` state.
+  The `WorkflowAgent` detects the status change at its next checkpoint and
+  halts cleanly before starting the next step.
+  """
+  @spec pause_run(WorkflowRun.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :not_running | Ecto.Changeset.t()}
+  def pause_run(%WorkflowRun{} = run, _opts \\ []) do
+    case run.status do
+      "running" ->
+        Repo.transaction(fn ->
+          {:ok, paused_run} = update_run(run, %{status: "paused"})
+
+          from(sr in StepRun,
+            where: sr.workflow_run_id == ^run.id and sr.status == "running"
+          )
+          |> Repo.update_all(set: [status: "paused", updated_at: DateTime.utc_now(:second)])
+
+          paused_run
+        end)
+        |> case do
+          {:ok, paused_run} -> {:ok, paused_run}
+          {:error, reason} -> {:error, reason}
+        end
+
+      _ ->
+        {:error, :not_running}
+    end
+  end
+
+  @doc """
+  Resumes a paused workflow run from where it stopped.
+
+  Delegates to `WorkflowAgent.execute/2`. `ActionWrapper` skips any step whose
+  `StepRun` is already `"completed"`, so the run continues from the first
+  incomplete step. Returns `{:error, :not_paused}` if the run is not paused.
+  """
+  @spec resume_run(WorkflowRun.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :not_paused | term()}
+  def resume_run(%WorkflowRun{} = run, opts \\ []) do
+    case run.status do
+      "paused" -> WorkflowAgent.execute(run, opts)
+      _ -> {:error, :not_paused}
+    end
+  end
+
   # --- Workflows ---
 
   @doc "Returns all workflows ordered by name."
@@ -76,12 +125,26 @@ defmodule Zaq.Engine.Workflows do
   @spec get_workflow!(term()) :: Workflow.t()
   def get_workflow!(id), do: Repo.get!(Workflow, id)
 
-  @doc "Creates a workflow."
+  @doc """
+  Creates a workflow.
+
+  Dispatches a `"workflow.created"` event via NodeRouter on success.
+  """
   @spec create_workflow(map(), keyword()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
   def create_workflow(attrs, _opts \\ []) do
-    %Workflow{}
-    |> Workflow.changeset(attrs)
-    |> Repo.insert()
+    case %Workflow{} |> Workflow.changeset(attrs) |> Repo.insert() do
+      {:ok, workflow} = result ->
+        node_router().dispatch(
+          Zaq.Event.new(%{action: "workflow.created", workflow_id: workflow.id}, :engine,
+            name: :workflow
+          )
+        )
+
+        result
+
+      error ->
+        error
+    end
   end
 
   @doc "Updates a workflow."
@@ -140,10 +203,16 @@ defmodule Zaq.Engine.Workflows do
         end),
       "edges" =>
         Enum.map(edges || [], fn e ->
-          %{"from" => e.from, "to" => e.to}
+          edge = %{"from" => e.from, "to" => e.to}
+          edge = if e.condition, do: Map.put(edge, "condition", e.condition), else: edge
+          if map_size(e.mapping || %{}) > 0, do: Map.put(edge, "mapping", e.mapping), else: edge
         end)
     }
   end
+
+  @doc "Gets a workflow run by id, returning nil if not found."
+  @spec get_run(term()) :: WorkflowRun.t() | nil
+  def get_run(id), do: Repo.get(WorkflowRun, id)
 
   @doc "Gets a workflow run by id, raising if not found."
   @spec get_run!(term()) :: WorkflowRun.t()
@@ -156,6 +225,44 @@ defmodule Zaq.Engine.Workflows do
     run
     |> WorkflowRun.changeset(attrs)
     |> Repo.update()
+  end
+
+  @doc """
+  Snapshots the current step state into `log_summary` on the run.
+
+  Called by `ActionWrapper` after every terminal step transition so the summary
+  reflects live progress rather than only the final outcome.
+  """
+  @spec tick_log_summary(binary()) :: :ok
+  def tick_log_summary(run_id) when is_binary(run_id) do
+    step_runs = list_step_runs(run_id)
+
+    failed_steps =
+      step_runs
+      |> Enum.filter(&(&1.status == "failed"))
+      |> Enum.map(& &1.step_name)
+
+    log_summary = %{
+      step_count: length(step_runs),
+      failed_step_count: length(failed_steps),
+      failed_steps: failed_steps,
+      timeline:
+        Enum.map(step_runs, fn sr ->
+          %{
+            step_name: sr.step_name,
+            step_index: sr.step_index,
+            status: sr.status,
+            started_at: sr.started_at,
+            finished_at: sr.finished_at,
+            logs: sr.logs || []
+          }
+        end)
+    }
+
+    from(r in WorkflowRun, where: r.id == ^run_id)
+    |> Repo.update_all(set: [log_summary: log_summary])
+
+    :ok
   end
 
   @doc "Lists all runs for a workflow, ordered by insertion time descending."
@@ -233,6 +340,208 @@ defmodule Zaq.Engine.Workflows do
     |> Repo.update()
   end
 
+  @doc "Marks a step run as waiting, suspending it pending human approval."
+  @spec wait_step_run(StepRun.t(), keyword()) ::
+          {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
+  def wait_step_run(%StepRun{} = step_run, _opts \\ []) do
+    step_run
+    |> StepRun.changeset(%{status: "waiting"})
+    |> Repo.update()
+  end
+
+  # --- Approval lifecycle ---
+
+  @doc "Creates a WorkflowApproval record for a human-in-the-loop step."
+  @spec create_approval(map(), keyword()) ::
+          {:ok, WorkflowApproval.t()} | {:error, Ecto.Changeset.t()}
+  def create_approval(attrs, _opts \\ []) do
+    %WorkflowApproval{}
+    |> WorkflowApproval.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc "Returns a WorkflowApproval by its unique token, or nil."
+  @spec get_approval_by_token(String.t(), keyword()) :: WorkflowApproval.t() | nil
+  def get_approval_by_token(token, _opts \\ []) do
+    Repo.get_by(WorkflowApproval, approval_token: token)
+  end
+
+  @doc "Returns the pending WorkflowApproval for a run, or nil."
+  @spec get_pending_approval(binary(), keyword()) :: WorkflowApproval.t() | nil
+  def get_pending_approval(run_id, _opts \\ []) do
+    Repo.get_by(WorkflowApproval, workflow_run_id: run_id, status: "pending")
+  end
+
+  @doc """
+  Approves a waiting workflow run, completing the approval step and resuming execution.
+
+  Looks up the pending `WorkflowApproval` for the run and the `"waiting"` StepRun,
+  marks both as completed/approved in a transaction, transitions the run to `"paused"`,
+  then calls `resume_run/2`. The approval data flows to downstream steps via
+  ActionWrapper's resume idempotency cache.
+
+  Returns `{:error, :not_waiting}` if the run is not in `"waiting"` state.
+  Returns `{:error, :already_decided}` if the approval has already been acted on.
+  """
+  @spec approve_run(WorkflowRun.t(), WorkflowApproval.t(), map(), String.t() | nil, keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :not_waiting | :already_decided | term()}
+  def approve_run(
+        %WorkflowRun{} = run,
+        %WorkflowApproval{} = approval,
+        decision,
+        approved_by,
+        _opts \\ []
+      ) do
+    with :ok <- validate_run_waiting(run),
+         :ok <- validate_approval_pending(approval) do
+      Repo.transaction(fn ->
+        now = DateTime.utc_now(:second)
+
+        {:ok, _} =
+          approval
+          |> WorkflowApproval.changeset(%{
+            status: "approved",
+            decision: decision,
+            approved_by: approved_by,
+            approved_at: now
+          })
+          |> Repo.update()
+
+        results = %{approved: true, decision: decision, approved_by: approved_by}
+        complete_waiting_step(run.id, approval.step_name, results)
+        {:ok, paused_run} = update_run(run, %{status: "paused"})
+        paused_run
+      end)
+      |> case do
+        {:ok, paused_run} -> resume_run(paused_run)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Rejects a waiting workflow run, failing the approval step and the run.
+
+  Returns `{:error, :not_waiting}` if the run is not in `"waiting"` state.
+  Returns `{:error, :already_decided}` if the approval has already been acted on.
+  """
+  @spec reject_run(WorkflowRun.t(), WorkflowApproval.t(), String.t(), String.t() | nil, keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :not_waiting | :already_decided | term()}
+  def reject_run(
+        %WorkflowRun{} = run,
+        %WorkflowApproval{} = approval,
+        reason,
+        approved_by,
+        _opts \\ []
+      ) do
+    with :ok <- validate_run_waiting(run),
+         :ok <- validate_approval_pending(approval) do
+      Repo.transaction(fn ->
+        now = DateTime.utc_now(:second)
+
+        {:ok, _} =
+          approval
+          |> WorkflowApproval.changeset(%{
+            status: "rejected",
+            approved_by: approved_by,
+            approved_at: now
+          })
+          |> Repo.update()
+
+        fail_waiting_step(run.id, approval.step_name, reason)
+
+        step_runs = list_step_runs(run.id)
+        log_summary = build_rejection_log_summary(step_runs, approval.step_name, reason)
+
+        {:ok, failed_run} =
+          update_run(run, %{
+            status: "failed",
+            finished_at: now,
+            log_summary: log_summary
+          })
+
+        failed_run
+      end)
+      |> case do
+        {:ok, failed_run} -> {:ok, failed_run}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp complete_waiting_step(run_id, step_name, results) do
+    case Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name, status: "waiting") do
+      %StepRun{step_index: waiting_index} = step_run ->
+        prior_cascade = rebuild_cascade_before(run_id, waiting_index)
+        cascaded = Map.put(results, :__cascade__, Map.put(prior_cascade, step_name, results))
+        {:ok, _} = complete_step_run(step_run, cascaded)
+
+      nil ->
+        :ok
+    end
+  end
+
+  # Reads the most recent completed step before `step_index` and returns its
+  # accumulated cascade. Each completed step stores its full cascade, so the
+  # most recent one holds all prior step data.
+  defp rebuild_cascade_before(run_id, step_index) do
+    case Repo.one(
+           from sr in StepRun,
+             where:
+               sr.workflow_run_id == ^run_id and sr.step_index < ^step_index and
+                 sr.status == "completed",
+             order_by: [desc: sr.step_index],
+             limit: 1
+         ) do
+      %StepRun{results: r} when is_map(r) ->
+        Map.get(r, "__cascade__", Map.get(r, :__cascade__, %{}))
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp fail_waiting_step(run_id, step_name, reason) do
+    case Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name, status: "waiting") do
+      %StepRun{} = step_run ->
+        {:ok, _} = fail_step_run(step_run, %{rejected: true, reason: reason})
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp validate_run_waiting(%WorkflowRun{status: "waiting"}), do: :ok
+  defp validate_run_waiting(_), do: {:error, :not_waiting}
+
+  defp validate_approval_pending(%WorkflowApproval{status: "pending"}), do: :ok
+  defp validate_approval_pending(_), do: {:error, :already_decided}
+
+  @doc "Returns the first Step.Run for a run with the given step name, or nil."
+  @spec get_step_run_by_name(binary(), String.t(), keyword()) :: StepRun.t() | nil
+  def get_step_run_by_name(run_id, step_name, _opts \\ []) do
+    Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name)
+  end
+
+  @doc "Returns the completed StepRun for a given run and step name, or nil."
+  @spec get_completed_step_run(binary(), String.t(), keyword()) :: StepRun.t() | nil
+  def get_completed_step_run(run_id, step_name, _opts \\ []) do
+    Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name, status: "completed")
+  end
+
+  @doc "Returns the most recent terminal StepRun (completed/failed/skipped/waiting) for a step, or nil."
+  @spec get_terminal_step_run(binary(), String.t()) :: StepRun.t() | nil
+  def get_terminal_step_run(run_id, step_name) do
+    Repo.one(
+      from sr in StepRun,
+        where:
+          sr.workflow_run_id == ^run_id and sr.step_name == ^step_name and
+            sr.status in ["completed", "failed", "skipped", "waiting"],
+        order_by: [desc: sr.inserted_at],
+        limit: 1
+    )
+  end
+
   @doc """
   Returns all step runs for a workflow run, ordered by step_index ascending.
 
@@ -291,6 +600,26 @@ defmodule Zaq.Engine.Workflows do
       results: sr.results,
       errors: sr.errors,
       logs: sr.logs || []
+    }
+  end
+
+  defp build_rejection_log_summary(step_runs, rejected_step, reason) do
+    %{
+      step_count: length(step_runs),
+      failed_step_count: 1,
+      failed_steps: [rejected_step],
+      rejection_reason: reason,
+      timeline:
+        Enum.map(step_runs, fn sr ->
+          %{
+            step_name: sr.step_name,
+            step_index: sr.step_index,
+            status: sr.status,
+            started_at: sr.started_at,
+            finished_at: sr.finished_at,
+            logs: sr.logs || []
+          }
+        end)
     }
   end
 
@@ -448,4 +777,6 @@ defmodule Zaq.Engine.Workflows do
       {0, _} -> {:error, :not_found}
     end
   end
+
+  defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 end

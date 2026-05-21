@@ -10,6 +10,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Workflows
   alias Zaq.Event
   alias Zaq.InternalBoundaries
   alias Zaq.System
@@ -300,7 +301,55 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :workflow, _context) do
+    case event.request do
+      %{action: "run.approve", run_id: run_id, person_id: person_id} = req ->
+        decision = Map.get(req, :decision, %{})
+        approved_by = to_string(person_id || "admin")
+        %{event | response: handle_workflow_approve(run_id, person_id, decision, approved_by)}
+
+      %{action: "run.reject", run_id: run_id, person_id: person_id} = req ->
+        reason = Map.get(req, :reason, "rejected")
+        approved_by = to_string(person_id || "admin")
+        %{event | response: handle_workflow_reject(run_id, person_id, reason, approved_by)}
+
+      %{action: action} when action in ["run.approve", "run.reject"] ->
+        %{event | response: {:error, {:invalid_request, event.request}}}
+
+      _other ->
+        event
+    end
+  end
+
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
+  end
+
+  # Temporary: only admin (nil person_id) allowed until workflow-permissions plan wires Permissions.can?/4.
+  defp handle_workflow_approve(_run_id, person_id, _decision, _approved_by)
+       when not is_nil(person_id),
+       do: {:error, :unauthorized}
+
+  defp handle_workflow_approve(run_id, _person_id, decision, approved_by) do
+    with run when not is_nil(run) <- Workflows.get_run(run_id),
+         approval when not is_nil(approval) <- Workflows.get_pending_approval(run.id) do
+      Workflows.approve_run(run, approval, decision, approved_by)
+    else
+      nil -> {:error, {:invalid_request, %{run_id: run_id}}}
+    end
+  end
+
+  # Temporary: only admin (nil person_id) allowed until workflow-permissions plan wires Permissions.can?/4.
+  defp handle_workflow_reject(_run_id, person_id, _reason, _approved_by)
+       when not is_nil(person_id),
+       do: {:error, :unauthorized}
+
+  defp handle_workflow_reject(run_id, _person_id, reason, approved_by) do
+    with run when not is_nil(run) <- Workflows.get_run(run_id),
+         approval when not is_nil(approval) <- Workflows.get_pending_approval(run.id) do
+      Workflows.reject_run(run, approval, reason, approved_by)
+    else
+      nil -> {:error, {:invalid_request, %{run_id: run_id}}}
+    end
   end
 end
