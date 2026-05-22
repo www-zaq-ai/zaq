@@ -209,7 +209,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
       |> assign(:edge_renders, edge_renders)
 
     ~H"""
-    <div class="w-full overflow-x-auto">
+    <div class="w-full overflow-x-auto flex justify-center">
       <p
         :if={@nodes == []}
         class="font-mono text-[0.75rem] text-black/40 text-center py-8"
