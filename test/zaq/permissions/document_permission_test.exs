@@ -145,6 +145,8 @@ defmodule Zaq.Permissions.DocumentPermissionCompileGuardTest do
   describe "__after_compile__/2 — guard" do
     test "raises when @valid_rights contains rights not in ResourcePermission" do
       {mod, beam, filename} = :code.get_object_code(ResourcePermission)
+      :code.purge(mod)
+      :code.delete(mod)
 
       Code.compile_string("""
         defmodule Zaq.Permissions.ResourcePermission do

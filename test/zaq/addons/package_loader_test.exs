@@ -532,6 +532,8 @@ defmodule Zaq.Addons.PackageLoaderTest do
     end
     """
 
+    :code.purge(LicenseManager.Paid.License)
+    :code.delete(LicenseManager.Paid.License)
     [{_module, beam_binary}] = Code.compile_string(module_source)
     beam_binary
   end
