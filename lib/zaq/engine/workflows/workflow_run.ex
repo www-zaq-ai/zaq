@@ -27,7 +27,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(pending running waiting paused completed failed)
+  @statuses ~w(pending running waiting paused completed failed cancelled)
 
   @type t :: %__MODULE__{}
 
