@@ -10,7 +10,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   alias Zaq.{Event, NodeRouter}
   alias ZaqWeb.Components.{BOLayout, BOModal}
 
-  @per_page 20
+  @per_page_options [20, 50, 100]
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -20,8 +20,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow:#{workflow.id}")
         end
 
+        per_page = 20
         total = count_runs(workflow.id, socket)
-        runs = fetch_runs(workflow.id, 1, socket)
+        runs = fetch_runs(workflow.id, 1, per_page, socket)
         triggers = fetch_triggers(workflow.id, socket)
 
         {:ok,
@@ -31,7 +32,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
            triggers: triggers,
            runs: runs,
            page: 1,
-           per_page: @per_page,
+           per_page: per_page,
+           per_page_options: @per_page_options,
            runs_total: total,
            delete_modal_open: false
          )}
@@ -49,7 +51,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   @impl true
   def handle_info({:run_finished, _run}, socket) do
     workflow_id = socket.assigns.workflow.id
-    runs = fetch_runs(workflow_id, socket.assigns.page, socket)
+    runs = fetch_runs(workflow_id, socket.assigns.page, socket.assigns.per_page, socket)
     total = count_runs(workflow_id, socket)
     {:noreply, assign(socket, runs: runs, runs_total: total)}
   end
@@ -140,9 +142,54 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
     end
   end
 
+  def handle_event("toggle_status", _params, socket) do
+    workflow = socket.assigns.workflow
+
+    new_status =
+      case workflow.status do
+        "draft" -> "active"
+        "active" -> "archived"
+        "archived" -> "active"
+        _ -> nil
+      end
+
+    if is_nil(new_status) do
+      {:noreply, socket}
+    else
+      event =
+        Event.new(
+          %{
+            module: Zaq.Engine.Workflows,
+            function: :update_workflow,
+            args: [workflow, %{status: new_status}]
+          },
+          :engine
+        )
+
+      case NodeRouter.dispatch(event).response do
+        {:ok, updated_workflow} ->
+          {:noreply, assign(socket, workflow: updated_workflow)}
+
+        _ ->
+          {:noreply, put_flash(socket, :error, "Failed to update workflow status.")}
+      end
+    end
+  end
+
+  def handle_event("set_per_page", %{"limit" => limit_str}, socket) do
+    per_page = String.to_integer(limit_str)
+
+    if per_page in @per_page_options do
+      runs = fetch_runs(socket.assigns.workflow.id, 1, per_page, socket)
+      {:noreply, assign(socket, runs: runs, page: 1, per_page: per_page)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("paginate", %{"page" => page_str}, socket) do
     page = String.to_integer(page_str)
-    runs = fetch_runs(socket.assigns.workflow.id, page, socket)
+    runs = fetch_runs(socket.assigns.workflow.id, page, socket.assigns.per_page, socket)
     {:noreply, assign(socket, runs: runs, page: page)}
   end
 
@@ -160,7 +207,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
       current_path={@current_path}
       features_version={@features_version}
     >
-      <div id="workflow-detail" phx-hook="WorkflowExport" class="max-w-5xl mx-auto">
+      <div id="workflow-detail" phx-hook="WorkflowExport">
         <%!-- Breadcrumb --%>
         <nav class="font-mono text-[0.75rem] text-black mb-5 flex items-center gap-1.5">
           <.link navigate={~p"/bo/workflows"} class="text-black/50 hover:text-black transition-colors">
@@ -172,10 +219,22 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
         <%!-- Page header --%>
         <div class="flex items-start justify-between mb-6">
-          <div>
-            <h2 class="font-mono text-[1rem] font-bold text-black">{@workflow.name}</h2>
+          <div class="min-w-0 mr-6">
+            <div class="flex items-center gap-3 mb-1.5">
+              <h2 class="font-mono text-[1rem] font-bold text-black truncate">
+                {@workflow.name}
+              </h2>
+              <.workflow_status_badge status={@workflow.status} />
+            </div>
+            <p
+              :if={@workflow.description}
+              class="font-mono text-[0.82rem] text-black/50 leading-relaxed"
+            >
+              {@workflow.description}
+            </p>
           </div>
-          <div class="flex items-center gap-2">
+          <%!-- Actions: primary | separator | destructive --%>
+          <div class="flex items-center gap-2 flex-shrink-0">
             <button
               phx-click="run_workflow"
               phx-value-workflow_id={@workflow.id}
@@ -185,9 +244,29 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
             </button>
             <button
               phx-click="export"
-              class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+              class="font-mono text-[0.82rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
             >
-              Export Workflow
+              Export
+            </button>
+            <div class="w-px h-6 bg-black/10 mx-1" />
+            <button
+              phx-click="toggle_status"
+              class={[
+                "font-mono text-[0.82rem] px-4 py-2 rounded-lg border transition-colors",
+                case @workflow.status do
+                  "draft" -> "border-green-200 text-green-700 hover:bg-green-50"
+                  "active" -> "border-amber-200 text-amber-600 hover:bg-amber-50"
+                  "archived" -> "border-green-200 text-green-700 hover:bg-green-50"
+                  _ -> "border-black/10 text-black/40"
+                end
+              ]}
+            >
+              {case @workflow.status do
+                "draft" -> "Activate"
+                "active" -> "Archive"
+                "archived" -> "Restore"
+                _ -> ""
+              end}
             </button>
             <button
               phx-click="open_delete"
@@ -202,61 +281,74 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         <div class="flex gap-5 mb-6 items-start">
           <%!-- Details column --%>
           <div class="w-64 flex-shrink-0">
-            <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-3">
-              Details
-            </p>
-            <div class="bg-white rounded-xl border border-black/[0.08] p-4">
-              <dl class="space-y-3">
-                <div :if={@workflow.description}>
-                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-                    Description
-                  </dt>
-                  <dd class="font-mono text-[0.78rem] text-black">{@workflow.description}</dd>
+            <div class="bg-white rounded-xl border border-black/[0.08] overflow-hidden divide-y divide-black/[0.06]">
+              <%!-- Stats --%>
+              <div class="grid grid-cols-2 divide-x divide-black/[0.06]">
+                <div class="px-4 py-3">
+                  <p class="font-mono text-[0.58rem] font-semibold text-black/35 uppercase tracking-wider mb-1">
+                    Runs
+                  </p>
+                  <p class="font-mono text-[1.1rem] font-bold text-black tabular-nums">
+                    {@runs_total}
+                  </p>
                 </div>
-                <div>
-                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-                    Status
-                  </dt>
-                  <dd><.workflow_status_badge status={@workflow.status} /></dd>
+                <div class="px-4 py-3">
+                  <p class="font-mono text-[0.58rem] font-semibold text-black/35 uppercase tracking-wider mb-1">
+                    Steps
+                  </p>
+                  <p class="font-mono text-[1.1rem] font-bold text-black tabular-nums">
+                    {length(@workflow.nodes || [])}
+                  </p>
                 </div>
-                <div>
-                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
-                    ID
-                  </dt>
-                  <dd class="font-mono text-[0.7rem] text-black/50 break-all">{@workflow.id}</dd>
-                </div>
-                <div>
-                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-2">
-                    Triggers
-                  </dt>
-                  <dd class="space-y-1.5">
-                    <div
-                      :for={trigger <- @triggers}
-                      class="flex items-center gap-2"
-                    >
-                      <.trigger_icon trigger={trigger} workflow_id={@workflow.id} />
-                      <span class={[
-                        "font-mono text-[0.72rem]",
-                        if(trigger.enabled, do: "text-black/70", else: "text-black/30 line-through")
-                      ]}>
-                        {trigger.event_name}
-                      </span>
-                    </div>
-                    <span :if={@triggers == []} class="font-mono text-[0.72rem] text-black/30">
-                      None configured
+              </div>
+              <%!-- Last run --%>
+              <% last_run = List.first(@runs) %>
+              <div class="px-4 py-3">
+                <p class="font-mono text-[0.58rem] font-semibold text-black/35 uppercase tracking-wider mb-1">
+                  Last Run
+                </p>
+                <p class="font-mono text-[0.75rem] text-black/70">
+                  {if last_run, do: format_dt(last_run.started_at), else: "—"}
+                </p>
+              </div>
+              <%!-- ID --%>
+              <div class="px-4 py-3">
+                <p class="font-mono text-[0.58rem] font-semibold text-black/35 uppercase tracking-wider mb-1.5">
+                  ID
+                </p>
+                <p class="font-mono text-[0.68rem] text-black/70 break-all leading-relaxed select-all">
+                  {@workflow.id}
+                </p>
+              </div>
+              <%!-- Triggers --%>
+              <div class="px-4 py-3">
+                <p class="font-mono text-[0.58rem] font-semibold text-black/35 uppercase tracking-wider mb-2">
+                  Triggers
+                </p>
+                <div class="space-y-2">
+                  <div :for={trigger <- @triggers} class="flex items-center gap-2">
+                    <.trigger_icon trigger={trigger} workflow_id={@workflow.id} />
+                    <span class={[
+                      "font-mono text-[0.75rem] truncate",
+                      if(trigger.enabled, do: "text-black/70", else: "text-black/30 line-through")
+                    ]}>
+                      {trigger.event_name}
                     </span>
-                  </dd>
+                  </div>
+                  <p :if={@triggers == []} class="font-mono text-[0.72rem] text-black/30 italic">
+                    None configured
+                  </p>
                 </div>
-              </dl>
+              </div>
             </div>
           </div>
 
           <%!-- DAG column --%>
           <div class="flex-1 min-w-0">
-            <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-3">
-              Flow
-            </p>
-            <div class="bg-white rounded-xl border border-black/[0.08] p-4">
+            <div
+              class="bg-white rounded-xl border border-black/[0.08] p-5 min-h-[480px]"
+              style="background-image: linear-gradient(#21dfff 0.5px, transparent 0.5px), linear-gradient(90deg, #e3e3e3 0.5px, transparent 0.5px); background-size: 20px 20px;"
+            >
               <.workflow_dag nodes={@workflow.nodes} edges={@workflow.edges} />
             </div>
           </div>
@@ -264,9 +356,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
         <%!-- Runs table --%>
         <div>
-          <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
-            Runs ({@runs_total})
-          </p>
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider">
+              Runs ({@runs_total})
+            </p>
+            <div class="flex items-center gap-1">
+              <span class="font-mono text-[0.68rem] text-black/35 mr-1">Show</span>
+              <button
+                :for={n <- @per_page_options}
+                phx-click="set_per_page"
+                phx-value-limit={n}
+                class={[
+                  "font-mono text-[0.72rem] px-2.5 py-1 rounded-md border transition-colors",
+                  if(@per_page == n,
+                    do: "bg-black text-white border-black",
+                    else: "border-black/15 text-black/50 hover:bg-black/5"
+                  )
+                ]}
+              >
+                {n}
+              </button>
+            </div>
+          </div>
 
           <div class="bg-white rounded-xl border border-black/[0.08] overflow-hidden">
             <table class="w-full">
@@ -409,15 +520,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
     _ -> []
   end
 
-  defp fetch_runs(workflow_id, page, _socket) do
-    offset = (page - 1) * @per_page
+  defp fetch_runs(workflow_id, page, per_page, _socket) do
+    offset = (page - 1) * per_page
 
     event =
       Event.new(
         %{
           module: Zaq.Engine.Workflows,
           function: :list_runs,
-          args: [workflow_id, [limit: @per_page, offset: offset]]
+          args: [workflow_id, [limit: per_page, offset: offset]]
         },
         :engine
       )
