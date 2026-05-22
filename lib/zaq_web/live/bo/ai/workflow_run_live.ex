@@ -49,12 +49,23 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   def handle_info(:tick, socket) do
-    {:noreply, assign(socket, now: DateTime.utc_now())}
+    if socket.assigns.run.status in ["pending", "running"] do
+      {:noreply, assign(socket, now: DateTime.utc_now())}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:run_updated, run}, socket) do
     socket = assign(socket, run: run)
-    socket = if run.status != "waiting", do: assign(socket, approval: nil), else: socket
+
+    socket =
+      if run.status == "waiting" do
+        assign(socket, approval: fetch_approval(run.id))
+      else
+        assign(socket, approval: nil)
+      end
+
     {:noreply, socket}
   end
 
@@ -172,7 +183,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run_id}")
     if run.status == "pending", do: send(self(), {:start_run, run})
 
-    if run.status in ["pending", "running", "waiting", "paused"],
+    if run.status in ["pending", "running"],
       do: :timer.send_interval(1_000, self(), :tick)
   end
 
@@ -188,7 +199,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
       current_path={@current_path}
       features_version={@features_version}
     >
-      <div class="max-w-5xl mx-auto">
+      <div>
         <%!-- Breadcrumb --%>
         <nav class="font-mono text-[0.75rem] text-black mb-5 flex items-center gap-1.5">
           <.link navigate={~p"/bo/workflows"} class="text-black/50 hover:text-black transition-colors">
@@ -276,13 +287,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
           <%!-- Prior step outputs for review (collapsible) --%>
           <% review_steps = review_steps(@step_runs, @approval.step_name) %>
-          <details :if={review_steps != []} class="border-t border-amber-200 pt-4 group">
-            <summary class="cursor-pointer list-none flex items-center gap-2 select-none mb-3">
+          <div :if={review_steps != []} class="border-t border-amber-200 pt-4">
+            <button
+              type="button"
+              phx-click={
+                JS.toggle(to: "#hitl-review-content")
+                |> JS.toggle_class("rotate-90", to: "#hitl-review-chevron")
+              }
+              class="cursor-pointer flex items-center gap-2 select-none mb-3"
+            >
               <span class="font-mono text-[0.65rem] font-semibold text-amber-600/70 uppercase tracking-wider">
                 Content to Review
               </span>
               <svg
-                class="w-3 h-3 text-amber-400 transition-transform group-open:rotate-90"
+                id="hitl-review-chevron"
+                class="w-3 h-3 text-amber-400 transition-transform"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
@@ -290,22 +309,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
               >
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
               </svg>
-            </summary>
-            <div class="space-y-4">
+            </button>
+            <div id="hitl-review-content" style="display:none" class="space-y-4">
               <div :for={sr <- review_steps} class="space-y-1">
                 <p class="font-mono text-[0.7rem] text-black/50">{sr.step_name}</p>
                 <div class="bg-white/70 rounded-lg border border-amber-100 p-3">
-                  <div
-                    :for={{k, v} <- clean_results(sr.results)}
-                    class="font-mono text-[0.78rem] text-black mb-2 last:mb-0"
-                  >
-                    <span class="text-black/40 select-none">{k}: </span>
-                    <pre class="mt-0.5 whitespace-pre-wrap break-words">{format_result_value(v)}</pre>
-                  </div>
+                  <ZaqWeb.Components.JsonTree.json_tree
+                    id={"jt-hitl-#{sr.id}"}
+                    data={clean_results(sr.results)}
+                  />
                 </div>
               </div>
             </div>
-          </details>
+          </div>
         </div>
 
         <%!-- Execution path DAG --%>
@@ -313,7 +329,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
           <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
             Execution Path
           </p>
-          <div class="bg-white rounded-xl border border-black/[0.08] p-5">
+          <div
+            class="bg-white rounded-xl border border-black/[0.08] p-5"
+            style="background-image: linear-gradient(#21dfff 0.5px, transparent 0.5px), linear-gradient(90deg, #e3e3e3 0.5px, transparent 0.5px); background-size: 20px 20px;"
+          >
             <.workflow_dag
               nodes={(@run.steps_snapshot || %{})["nodes"] || []}
               edges={(@run.steps_snapshot || %{})["edges"] || []}
@@ -366,16 +385,24 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
             <%!-- Output (collapsible) --%>
             <% step_output = clean_results(step.results) %>
-            <details
+            <div
               :if={step.status in ["completed", "waiting"] and map_size(step_output) > 0}
-              class="border-b border-black/[0.06] group"
+              class="border-b border-black/[0.06]"
             >
-              <summary class="px-5 py-3 cursor-pointer list-none flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors">
+              <button
+                type="button"
+                phx-click={
+                  JS.toggle(to: "#step-output-#{step.id}")
+                  |> JS.toggle_class("rotate-90", to: "#step-chevron-#{step.id}")
+                }
+                class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
+              >
                 <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
                   Output
                 </span>
                 <svg
-                  class="w-3 h-3 text-black/30 transition-transform group-open:rotate-90"
+                  id={"step-chevron-#{step.id}"}
+                  class="w-3 h-3 text-black/30 transition-transform"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="2"
@@ -383,14 +410,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                 >
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
-              </summary>
-              <div class="px-5 pb-3 space-y-2">
-                <div :for={{k, v} <- step_output} class="font-mono text-[0.78rem]">
-                  <span class="text-black/40 select-none">{k}:</span>
-                  <pre class="mt-0.5 text-black whitespace-pre-wrap break-words bg-black/[0.02] rounded p-2">{format_result_value(v)}</pre>
-                </div>
+              </button>
+              <div id={"step-output-#{step.id}"} style="display:none" class="px-5 pb-3">
+                <ZaqWeb.Components.JsonTree.json_tree
+                  id={"jt-step-#{step.id}"}
+                  data={step_output}
+                />
               </div>
-            </details>
+            </div>
 
             <%!-- Errors --%>
             <div :if={step.status == "failed" and step.errors != nil} class="px-5 py-3 bg-red-50">
@@ -407,6 +434,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   # ── Helpers ─────────────────────────────────────────────────────
+
+  defp fetch_approval(run_id) do
+    Event.new(
+      %{module: Zaq.Engine.Workflows, function: :get_pending_approval, args: [run_id]},
+      :engine
+    )
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
 
   defp fetch_trace(run_id, _socket) do
     dispatch = fn mod, fun, args ->
@@ -451,9 +487,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     |> Enum.reject(fn {_k, v} -> is_map(v) and Map.has_key?(v, "__cascade__") end)
     |> Map.new()
   end
-
-  defp format_result_value(v) when is_binary(v), do: v
-  defp format_result_value(v), do: Jason.encode!(v, pretty: true)
 
   defp short_id(nil), do: "?"
   defp short_id(id), do: String.slice(id, 0, 8)
