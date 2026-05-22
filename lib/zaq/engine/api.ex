@@ -373,6 +373,46 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  @doc """
+  Handles all trigger management operations from the BO.
+
+  Sub-routes on `event.request.action`:
+  - `"list_with_runs"` — list all triggers with workflows and recent runs
+  - `"create"` `%{attrs: map}` — create trigger
+  - `"update"` `%{trigger: t, attrs: map}` — update trigger
+  - `"delete"` `%{trigger: t}` — delete trigger
+  - `"assign_workflow"` `%{trigger: t, workflow: w}` — link workflow
+  - `"remove_workflow"` `%{trigger: t, workflow: w}` — unlink workflow
+  - `"list_workflows"` — list all workflows (for assignment picker)
+  """
+  def handle_event(%Event{} = event, :trigger, _context) do
+    case event.request do
+      %{action: "list_with_runs"} ->
+        %{event | response: Workflows.list_triggers_with_workflows_and_recent_runs()}
+
+      %{action: "create", attrs: attrs} when is_map(attrs) ->
+        %{event | response: Workflows.create_trigger(attrs)}
+
+      %{action: "update", trigger: trigger, attrs: attrs} when is_map(attrs) ->
+        %{event | response: Workflows.update_trigger(trigger, attrs)}
+
+      %{action: "delete", trigger: trigger} ->
+        %{event | response: Workflows.delete_trigger(trigger)}
+
+      %{action: "assign_workflow", trigger: trigger, workflow: workflow} ->
+        %{event | response: Workflows.assign_workflow_to_trigger(trigger, workflow)}
+
+      %{action: "remove_workflow", trigger: trigger, workflow: workflow} ->
+        %{event | response: Workflows.remove_workflow_from_trigger(trigger, workflow)}
+
+      %{action: "list_workflows"} ->
+        %{event | response: Workflows.list_workflows()}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
