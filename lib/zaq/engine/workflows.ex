@@ -760,6 +760,51 @@ defmodule Zaq.Engine.Workflows do
 
   # --- Triggers ---
 
+  @doc """
+  Returns all triggers, each paired with its linked workflows and the last
+  `limit` runs per workflow (default 5), ordered by trigger `inserted_at` desc.
+
+  Returns `[{trigger, [%{workflow: w, recent_runs: [run]}]}]`.
+  Uses two bulk queries — no N+1.
+  """
+  @spec list_triggers_with_workflows_and_recent_runs(keyword()) ::
+          [{Trigger.t(), [%{workflow: Workflow.t(), recent_runs: [WorkflowRun.t()]}]}]
+  def list_triggers_with_workflows_and_recent_runs(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 5)
+
+    triggers =
+      Repo.all(from t in Trigger, order_by: [desc: t.inserted_at])
+      |> Repo.preload(:workflows)
+
+    workflow_ids =
+      triggers
+      |> Enum.flat_map(& &1.workflows)
+      |> Enum.map(& &1.id)
+      |> Enum.uniq()
+
+    runs_by_workflow =
+      if workflow_ids == [] do
+        %{}
+      else
+        Repo.all(
+          from r in WorkflowRun,
+            where: r.workflow_id in ^workflow_ids,
+            order_by: [desc: r.inserted_at]
+        )
+        |> Enum.group_by(& &1.workflow_id)
+        |> Map.new(fn {wf_id, runs} -> {wf_id, Enum.take(runs, limit)} end)
+      end
+
+    Enum.map(triggers, fn trigger ->
+      enriched =
+        Enum.map(trigger.workflows, fn workflow ->
+          %{workflow: workflow, recent_runs: Map.get(runs_by_workflow, workflow.id, [])}
+        end)
+
+      {trigger, enriched}
+    end)
+  end
+
   @doc "Lists all triggers."
   @spec list_triggers(keyword()) :: [Trigger.t()]
   def list_triggers(_opts \\ []) do
