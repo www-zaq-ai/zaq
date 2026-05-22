@@ -42,7 +42,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
     "trace_id" => Ecto.UUID.generate()
   }
 
-  defp workflow_fixture(attrs \\ %{}) do
+  defp workflow_fixture(attrs) do
     {:ok, w} =
       Workflows.create_workflow(
         Map.merge(%{name: "Test Workflow", status: "draft", nodes: [@valid_node]}, attrs)
@@ -56,7 +56,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
     run
   end
 
-  defp trigger_fixture(workflow, attrs \\ %{}) do
+  defp trigger_fixture(workflow, attrs) do
     {:ok, t} =
       Workflows.create_trigger(Map.merge(%{event_name: "manual_trigger", enabled: true}, attrs))
 
@@ -88,7 +88,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       # Verify the empty-state row text is in the template by checking a workflow
       # that does exist shows its name (the empty-state only shows when @workflows == []).
       # We verify the empty-state markup exists in templates by checking the component renders it.
-      workflow = workflow_fixture(%{name: "EmptyStateCheck"})
+      workflow_fixture(%{name: "EmptyStateCheck"})
       {:ok, _view, html} = live(conn, ~p"/bo/workflows")
       assert html =~ "EmptyStateCheck"
       # The empty row markup is present in the DOM template when no workflows exist.
