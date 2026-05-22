@@ -86,6 +86,7 @@ defmodule ZaqWeb.Router do
       live "/workflows", Live.BO.AI.WorkflowsLive, :index
       live "/workflows/:id", Live.BO.AI.WorkflowDetailLive, :show
       live "/workflows/:id/runs/:run_id", Live.BO.AI.WorkflowRunLive, :show
+      live "/triggers", Live.BO.AI.TriggersLive, :index
       live "/ingestion", Live.BO.AI.IngestionLive
       live "/ontology", Live.BO.AI.OntologyLive
       live "/knowledge-gap", Live.BO.AI.KnowledgeGapLive
