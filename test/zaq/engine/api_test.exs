@@ -259,7 +259,9 @@ defmodule Zaq.Engine.ApiTest do
   end
 
   describe "handle_event/3 — :workflow events" do
+    alias Zaq.Accounts.People
     alias Zaq.Engine.Workflows.WorkflowAgent
+    alias Zaq.Permissions
 
     @source_event %{
       "request" => nil,
@@ -290,10 +292,10 @@ defmodule Zaq.Engine.ApiTest do
       {:ok, waiting_run} = WorkflowAgent.execute(run)
       assert waiting_run.status == "waiting"
       approval = Workflows.get_pending_approval(waiting_run.id)
-      %{run: waiting_run, approval: approval}
+      %{run: waiting_run, wf: wf, approval: approval}
     end
 
-    test "run.approve with nil person_id succeeds and run completes" do
+    test "run.approve with nil person_id and skip_permissions succeeds" do
       %{run: run} = create_waiting_run()
 
       request = %{
@@ -303,26 +305,58 @@ defmodule Zaq.Engine.ApiTest do
         decision: %{"notes" => "looks good"}
       }
 
+      result =
+        Api.handle_event(
+          Event.new(request, :engine, opts: [skip_permissions: true]),
+          :workflow,
+          nil
+        )
+
+      assert {:ok, completed_run} = result.response
+      assert completed_run.status == "completed"
+    end
+
+    test "run.approve with nil person_id and no skip_permissions returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{action: "run.approve", run_id: run.id, person_id: nil, decision: %{}}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.approve with unknown person_id returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{action: "run.approve", run_id: run.id, person_id: -1, decision: %{}}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.approve with authorized person_id succeeds" do
+      %{run: run, wf: wf} = create_waiting_run()
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Approver #{unique}",
+          email: "approver#{unique}@test.com"
+        })
+
+      {:ok, _} = Permissions.grant(wf, %{person_id: person.id, access_rights: ["run"]})
+
+      request = %{
+        action: "run.approve",
+        run_id: run.id,
+        person_id: person.id,
+        decision: %{"notes" => "approved by person"}
+      }
+
       result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
       assert {:ok, completed_run} = result.response
       assert completed_run.status == "completed"
     end
 
-    test "run.approve with non-nil person_id returns unauthorized" do
-      %{run: run} = create_waiting_run()
-
-      request = %{
-        action: "run.approve",
-        run_id: run.id,
-        person_id: "some-person-id",
-        decision: %{}
-      }
-
-      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
-      assert result.response == {:error, :unauthorized}
-    end
-
-    test "run.reject with nil person_id returns failed run" do
+    test "run.reject with nil person_id and skip_permissions returns failed run" do
       %{run: run} = create_waiting_run()
 
       request = %{
@@ -332,23 +366,55 @@ defmodule Zaq.Engine.ApiTest do
         reason: "not approved"
       }
 
-      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      result =
+        Api.handle_event(
+          Event.new(request, :engine, opts: [skip_permissions: true]),
+          :workflow,
+          nil
+        )
+
       assert {:ok, failed_run} = result.response
       assert failed_run.status == "failed"
     end
 
-    test "run.reject with non-nil person_id returns unauthorized" do
+    test "run.reject with nil person_id and no skip_permissions returns unauthorized" do
       %{run: run} = create_waiting_run()
+
+      request = %{action: "run.reject", run_id: run.id, person_id: nil, reason: "denied"}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.reject with unknown person_id returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{action: "run.reject", run_id: run.id, person_id: -1, reason: "denied"}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.reject with authorized person_id returns failed run" do
+      %{run: run, wf: wf} = create_waiting_run()
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Rejecter #{unique}",
+          email: "rejecter#{unique}@test.com"
+        })
+
+      {:ok, _} = Permissions.grant(wf, %{person_id: person.id, access_rights: ["run"]})
 
       request = %{
         action: "run.reject",
         run_id: run.id,
-        person_id: "some-person-id",
-        reason: "denied"
+        person_id: person.id,
+        reason: "rejected by person"
       }
 
       result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
-      assert result.response == {:error, :unauthorized}
+      assert {:ok, failed_run} = result.response
+      assert failed_run.status == "failed"
     end
 
     test "unknown action passes through event unchanged" do
