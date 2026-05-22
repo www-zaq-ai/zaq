@@ -56,7 +56,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
     run
   end
 
-  defp trigger_fixture(workflow, attrs \\ %{}) do
+  defp trigger_fixture(workflow, attrs) do
     {:ok, t} =
       Workflows.create_trigger(Map.merge(%{event_name: "manual_trigger", enabled: true}, attrs))
 

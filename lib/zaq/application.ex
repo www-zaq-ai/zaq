@@ -21,7 +21,6 @@ defmodule Zaq.Application do
         {DNSCluster, query: Application.get_env(:zaq, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Zaq.PubSub},
         {Task.Supervisor, name: Zaq.TaskSupervisor},
-        {Registry, keys: :unique, name: Zaq.Engine.Workflows.RunRegistry},
         {Oban, Application.fetch_env!(:zaq, Oban)},
         Zaq.Addons.FeatureStore,
         Zaq.Addons.PostLoader,
