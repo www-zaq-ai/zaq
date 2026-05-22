@@ -62,6 +62,8 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
   @spec execute(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
   def execute(%WorkflowRun{} = run, _opts \\ []) do
+    Registry.register(Zaq.Engine.Workflows.RunRegistry, run.id, self())
+
     now = DateTime.utc_now(:second)
     started_ms = System.monotonic_time(:millisecond)
 
@@ -71,7 +73,10 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
       trigger_type: run.source_event && fetch_trigger_type(run.source_event.assigns)
     )
 
-    case Workflows.update_run(run, %{status: "running", started_at: now}) do
+    start_attrs =
+      if run.started_at, do: %{status: "running"}, else: %{status: "running", started_at: now}
+
+    case Workflows.update_run(run, start_attrs) do
       {:ok, run} ->
         dispatch_workflow_event("run.started", %{run_id: run.id, workflow_id: run.workflow_id})
 
@@ -138,7 +143,9 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
           duration_ms: duration_ms
         )
 
-        Workflows.update_run(run, %{status: "waiting"})
+        result = Workflows.update_run(run, %{status: "waiting"})
+        dispatch_workflow_event("run.waiting", %{run_id: run.id, workflow_id: run.workflow_id})
+        result
 
       # A row stuck at "running" after execution means the action raised and
       # never updated itself — treat it as a failure (crash cursor).
