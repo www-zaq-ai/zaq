@@ -888,6 +888,246 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert render(view) =~ new_name
   end
 
+  # ── toggle_person_selection deselect branch ──────────────────────────────
+
+  test "toggling an already-selected person deselects it", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#bulk-delete-button")
+
+    view
+    |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    refute has_element?(view, "#bulk-delete-button")
+  end
+
+  # ── cancel_bulk_delete ────────────────────────────────────────────────────
+
+  test "cancel_bulk_delete closes the confirmation popup", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("#bulk-delete-button") |> render_click()
+    assert has_element?(view, "[phx-click='confirm_bulk_delete']")
+
+    view |> element("[phx-click='cancel_bulk_delete']") |> render_click()
+    refute has_element?(view, "[phx-click='confirm_bulk_delete']")
+  end
+
+  # ── bulk delete with partial failures ────────────────────────────────────
+
+  test "confirm_bulk_delete shows partial failure message when some IDs are already gone",
+       %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    # Delete externally so bulk_delete reports it in failed_ids
+    {:ok, _} = People.delete_person(People.get_person(person.id))
+
+    view |> element("#bulk-delete-button") |> render_click()
+    view |> element("[phx-click='confirm_bulk_delete']") |> render_click()
+
+    assert render(view) =~ "Failed:"
+  end
+
+  # ── validate channel in edit mode ─────────────────────────────────────────
+
+  test "validate channel in edit mode uses update_changeset", %{conn: conn} do
+    person = person_fixture()
+    channel = channel_fixture(person, %{"channel_identifier" => "@validate-edit"})
+    person = People.get_person_with_channels!(person.id)
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='channel'][phx-value-id='#{channel.id}']"
+    )
+    |> render_click()
+
+    view
+    |> form("#channel-modal-form", %{"channel" => %{"channel_identifier" => ""}})
+    |> render_change()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  # ── validate team in edit mode ────────────────────────────────────────────
+
+  test "validate team in edit mode uses update_changeset", %{conn: conn} do
+    team = team_fixture(%{name: "ValidateEditTeam#{System.unique_integer([:positive])}"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='team'][phx-value-id='#{team.id}']"
+    )
+    |> render_click()
+
+    view
+    |> form("#team-modal-form", %{"team" => %{"name" => ""}})
+    |> render_change()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  # ── save team with invalid data ───────────────────────────────────────────
+
+  test "save team with blank name keeps modal open with validation error", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+    view |> element("#new-team-button") |> render_click()
+
+    view
+    |> form("#team-modal-form", %{"team" => %{"name" => ""}})
+    |> render_submit()
+
+    assert has_element?(view, "#people-modal-overlay")
+  end
+
+  # ── create_and_assign_team error branch ──────────────────────────────────
+
+  test "create_and_assign_team shows error flash when team name is already taken", %{conn: conn} do
+    ts = System.unique_integer([:positive])
+    _existing = team_fixture(%{name: "DupTeam#{ts}"})
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    render_hook(view, "create_and_assign_team", %{"name" => "DupTeam#{ts}"})
+
+    assert render(view) =~ "Failed to create team"
+  end
+
+  # ── template: team description ────────────────────────────────────────────
+
+  test "teams tab renders team description when present", %{conn: conn} do
+    ts = System.unique_integer([:positive])
+    _team = team_fixture(%{name: "DescTeam#{ts}", description: "Description text #{ts}"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("[phx-value-tab='teams']") |> render_click()
+
+    assert render(view) =~ "Description text #{ts}"
+  end
+
+  # ── template: channel dm_channel_id ──────────────────────────────────────
+
+  test "person detail shows dm_channel_id for mattermost channel", %{conn: conn} do
+    ts = System.unique_integer([:positive])
+    person = person_fixture()
+
+    channel_fixture(person, %{
+      "platform" => "mattermost",
+      "channel_identifier" => "@mm-#{ts}",
+      "dm_channel_id" => "dm-#{ts}"
+    })
+
+    person = People.get_person_with_channels!(person.id)
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert render(view) =~ "dm-#{ts}"
+  end
+
+  # ── template: person email validation error ───────────────────────────────
+
+  test "person form shows email uniqueness error on duplicate email", %{conn: conn} do
+    ts = System.unique_integer([:positive])
+    email = "dup#{ts}@example.com"
+    _existing = person_fixture(%{"email" => email})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view |> element("#new-person-button") |> render_click()
+
+    view
+    |> form("#person-modal-form", %{
+      "person" => %{"full_name" => "Dup Email Person", "email" => email}
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#people-modal-overlay")
+    assert render(view) =~ "has already been taken"
+  end
+
+  # ── template: mattermost DM channel field ────────────────────────────────
+
+  test "add channel form shows DM channel ID field when platform is mattermost", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("#add-channel-button") |> render_click()
+
+    view
+    |> form("#channel-modal-form", %{
+      "channel" => %{"platform" => "mattermost", "channel_identifier" => "@mm"}
+    })
+    |> render_change()
+
+    assert render(view) =~ "DM Channel ID"
+  end
+
+  # ── template: merge candidates list ──────────────────────────────────────
+
+  test "merge_search renders candidate list with name and email", %{conn: conn} do
+    ts = System.unique_integer([:positive])
+    survivor = person_fixture(%{"full_name" => "MergeSurvivor#{ts}"})
+
+    candidate =
+      person_fixture(%{
+        "full_name" => "MergeCandidate#{ts}",
+        "email" => "mc#{ts}@example.com"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{survivor.id}']")
+    |> render_click()
+
+    view
+    |> element("[phx-click='open_merge_modal'][phx-value-id='#{survivor.id}']")
+    |> render_click()
+
+    view
+    |> form("[phx-change='merge_search']", %{"merge_search" => "MergeCandidate#{ts}"})
+    |> render_change()
+
+    html = render(view)
+    assert html =~ candidate.full_name
+    assert html =~ "mc#{ts}@example.com"
+  end
+
   # ── switch_tab resets selected person ────────────────────────────────────
 
   test "switching to People tab after Teams clears selected state", %{conn: conn} do
