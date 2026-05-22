@@ -15,7 +15,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   @impl true
   def mount(%{"id" => workflow_id, "run_id" => run_id}, _session, socket) do
     case fetch_trace(run_id, socket) do
-      {:ok, workflow, run, step_runs} ->
+      {:ok, workflow, run, step_runs, approval} ->
         if connected?(socket), do: subscribe_and_start(run_id, run)
 
         {:ok,
@@ -24,6 +24,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
            workflow: workflow,
            run: run,
            step_runs: step_runs,
+           approval: approval,
            now: DateTime.utc_now()
          )}
 
@@ -53,6 +54,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
   def handle_info({:run_updated, run}, socket) do
     socket = assign(socket, run: run)
+    socket = if run.status != "waiting", do: assign(socket, approval: nil), else: socket
     {:noreply, socket}
   end
 
@@ -97,12 +99,81 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     end
   end
 
+  def handle_event("pause_run", _params, socket) do
+    run = socket.assigns.run
+
+    event =
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :pause_run, args: [run]},
+        :engine
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, updated_run} ->
+        {:noreply, assign(socket, run: updated_run)}
+
+      {:error, :not_running} ->
+        {:noreply, put_flash(socket, :error, "Run is not currently running.")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to pause run.")}
+    end
+  end
+
+  def handle_event("resume_run", _params, socket) do
+    run = socket.assigns.run
+
+    Task.start(fn ->
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :resume_run, args: [run]},
+        :engine
+      )
+      |> NodeRouter.dispatch()
+    end)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("approve_run", _params, socket) do
+    run = socket.assigns.run
+
+    request = %{action: "run.approve", run_id: run.id, person_id: nil, decision: %{}}
+
+    case NodeRouter.dispatch(
+           Event.new(request, :engine, opts: [action: :workflow, skip_permissions: true])
+         ).response do
+      {:ok, updated_run} ->
+        {:noreply, assign(socket, run: updated_run, approval: nil)}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to approve run.")}
+    end
+  end
+
+  def handle_event("reject_run", _params, socket) do
+    run = socket.assigns.run
+
+    request = %{action: "run.reject", run_id: run.id, person_id: nil, reason: "Rejected via BO"}
+
+    case NodeRouter.dispatch(
+           Event.new(request, :engine, opts: [action: :workflow, skip_permissions: true])
+         ).response do
+      {:ok, updated_run} ->
+        {:noreply, assign(socket, run: updated_run, approval: nil)}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to reject run.")}
+    end
+  end
+
   # ── Private helpers ─────────────────────────────────────────────
 
   defp subscribe_and_start(run_id, run) do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run_id}")
     if run.status == "pending", do: send(self(), {:start_run, run})
-    if run.status in ["pending", "running"], do: :timer.send_interval(1_000, self(), :tick)
+
+    if run.status in ["pending", "running", "waiting", "paused"],
+      do: :timer.send_interval(1_000, self(), :tick)
   end
 
   # ── Render ──────────────────────────────────────────────────────
@@ -147,13 +218,94 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
               </span>
             </div>
           </div>
-          <button
-            :if={@run.status in ["pending", "running"]}
-            phx-click="cancel_run"
-            class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors"
-          >
-            Cancel Run
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              :if={@run.status == "running"}
+              phx-click="pause_run"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-black/10 text-black/50 hover:bg-black/[0.03] transition-colors"
+            >
+              Pause
+            </button>
+            <button
+              :if={@run.status == "paused"}
+              phx-click="resume_run"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-[#03b6d4]/30 text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+            >
+              Resume
+            </button>
+            <button
+              :if={@run.status in ["pending", "running", "paused", "waiting"]}
+              phx-click="cancel_run"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              :if={@run.status == "waiting"}
+              phx-click="approve_run"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-green-200 text-green-700 hover:bg-green-50 transition-colors"
+            >
+              Approve
+            </button>
+            <button
+              :if={@run.status == "waiting"}
+              phx-click="reject_run"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+
+        <%!-- Approval review card --%>
+        <div
+          :if={@run.status == "waiting" and @approval != nil}
+          class="mb-6 bg-amber-50 rounded-xl border border-amber-200 p-5"
+        >
+          <p class="font-mono text-[0.7rem] font-semibold text-amber-600 uppercase tracking-wider mb-3">
+            Waiting for Review
+          </p>
+          <div class="space-y-1 mb-4">
+            <p class="font-mono text-[0.82rem] text-black/70">
+              Step: <span class="font-semibold text-black">{@approval.step_name}</span>
+            </p>
+            <p :if={@approval.message} class="font-mono text-[0.82rem] text-black/70">
+              {@approval.message}
+            </p>
+          </div>
+
+          <%!-- Prior step outputs for review (collapsible) --%>
+          <% review_steps = review_steps(@step_runs, @approval.step_name) %>
+          <details :if={review_steps != []} class="border-t border-amber-200 pt-4 group">
+            <summary class="cursor-pointer list-none flex items-center gap-2 select-none mb-3">
+              <span class="font-mono text-[0.65rem] font-semibold text-amber-600/70 uppercase tracking-wider">
+                Content to Review
+              </span>
+              <svg
+                class="w-3 h-3 text-amber-400 transition-transform group-open:rotate-90"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </summary>
+            <div class="space-y-4">
+              <div :for={sr <- review_steps} class="space-y-1">
+                <p class="font-mono text-[0.7rem] text-black/50">{sr.step_name}</p>
+                <div class="bg-white/70 rounded-lg border border-amber-100 p-3">
+                  <div
+                    :for={{k, v} <- clean_results(sr.results)}
+                    class="font-mono text-[0.78rem] text-black mb-2 last:mb-0"
+                  >
+                    <span class="text-black/40 select-none">{k}: </span>
+                    <pre class="mt-0.5 whitespace-pre-wrap break-words">{format_result_value(v)}</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
         </div>
 
         <%!-- Execution path DAG --%>
@@ -171,20 +323,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
         </div>
 
         <%!-- Steps timeline --%>
+        <% visible = visible_steps(@step_runs) %>
         <div class="space-y-3">
           <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider">
             Steps
           </p>
 
           <p
-            :if={@step_runs == []}
+            :if={visible == []}
             class="bg-white rounded-xl border border-black/[0.08] font-mono text-[0.85rem] text-black/50 text-center py-10"
           >
             No steps recorded yet.
           </p>
 
           <div
-            :for={step <- @step_runs}
+            :for={step <- visible}
             class="bg-white rounded-xl border border-black/[0.08] overflow-hidden"
           >
             <%!-- Step header --%>
@@ -210,6 +363,34 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
               </p>
               <.step_log_entry :for={log <- step.logs} log={log} />
             </div>
+
+            <%!-- Output (collapsible) --%>
+            <% step_output = clean_results(step.results) %>
+            <details
+              :if={step.status in ["completed", "waiting"] and map_size(step_output) > 0}
+              class="border-b border-black/[0.06] group"
+            >
+              <summary class="px-5 py-3 cursor-pointer list-none flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors">
+                <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
+                  Output
+                </span>
+                <svg
+                  class="w-3 h-3 text-black/30 transition-transform group-open:rotate-90"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </summary>
+              <div class="px-5 pb-3 space-y-2">
+                <div :for={{k, v} <- step_output} class="font-mono text-[0.78rem]">
+                  <span class="text-black/40 select-none">{k}:</span>
+                  <pre class="mt-0.5 text-black whitespace-pre-wrap break-words bg-black/[0.02] rounded p-2">{format_result_value(v)}</pre>
+                </div>
+              </div>
+            </details>
 
             <%!-- Errors --%>
             <div :if={step.status == "failed" and step.errors != nil} class="px-5 py-3 bg-red-50">
@@ -238,10 +419,41 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     workflow = dispatch.(Zaq.Engine.Workflows, :get_workflow!, [run.workflow_id])
     step_runs = dispatch.(Zaq.Engine.Workflows, :list_step_runs, [run_id])
 
-    {:ok, workflow, run, step_runs || []}
+    approval =
+      if run.status == "waiting",
+        do: dispatch.(Zaq.Engine.Workflows, :get_pending_approval, [run.id]),
+        else: nil
+
+    {:ok, workflow, run, step_runs || [], approval}
   rescue
     _ -> :error
   end
+
+  defp visible_steps(step_runs) do
+    Enum.reject(step_runs, fn sr ->
+      String.contains?(sr.step_name, "__to__") and String.ends_with?(sr.step_name, "__edge")
+    end)
+  end
+
+  defp review_steps(step_runs, waiting_step_name) do
+    step_runs
+    |> Enum.filter(fn sr ->
+      sr.status == "completed" and sr.step_name != waiting_step_name and
+        map_size(clean_results(sr.results)) > 0
+    end)
+  end
+
+  defp clean_results(nil), do: %{}
+
+  defp clean_results(results) when is_map(results) do
+    results
+    |> Map.drop(["__cascade__", :__cascade__])
+    |> Enum.reject(fn {_k, v} -> is_map(v) and Map.has_key?(v, "__cascade__") end)
+    |> Map.new()
+  end
+
+  defp format_result_value(v) when is_binary(v), do: v
+  defp format_result_value(v), do: Jason.encode!(v, pretty: true)
 
   defp short_id(nil), do: "?"
   defp short_id(id), do: String.slice(id, 0, 8)

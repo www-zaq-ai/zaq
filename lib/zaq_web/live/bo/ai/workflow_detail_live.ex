@@ -174,11 +174,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         <div class="flex items-start justify-between mb-6">
           <div>
             <h2 class="font-mono text-[1rem] font-bold text-black">{@workflow.name}</h2>
-            <div class="mt-1">
-              <.workflow_status_badge status={@workflow.status} />
-            </div>
           </div>
           <div class="flex items-center gap-2">
+            <button
+              phx-click="run_workflow"
+              phx-value-workflow_id={@workflow.id}
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-[#03b6d4] text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+            >
+              Run Now
+            </button>
             <button
               phx-click="export"
               class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
@@ -194,42 +198,67 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           </div>
         </div>
 
-        <%!-- Metadata card --%>
-        <div class="bg-white rounded-xl border border-black/[0.08] p-5 space-y-3 mb-8">
-          <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider">
-            Details
-          </p>
-          <BOLayout.config_row
-            :if={@workflow.description}
-            label="Description"
-            value={@workflow.description}
-          />
-          <BOLayout.config_row label="Status" value={@workflow.status} />
-          <BOLayout.config_row label="ID" value={@workflow.id} truncate={true} />
-
-          <%!-- Triggers row --%>
-          <div class="flex items-start gap-4 py-1">
-            <span class="font-mono text-[0.75rem] text-black/40 w-32 flex-shrink-0">Triggers</span>
-            <div class="flex items-center gap-2">
-              <.trigger_icon
-                :for={trigger <- @triggers}
-                trigger={trigger}
-                workflow_id={@workflow.id}
-              />
-              <span :if={@triggers == []} class="font-mono text-[0.75rem] text-black/30">
-                No triggers configured
-              </span>
+        <%!-- Metadata + DAG side by side --%>
+        <div class="flex gap-5 mb-6 items-start">
+          <%!-- Details column --%>
+          <div class="w-64 flex-shrink-0">
+            <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-3">
+              Details
+            </p>
+            <div class="bg-white rounded-xl border border-black/[0.08] p-4">
+              <dl class="space-y-3">
+                <div :if={@workflow.description}>
+                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+                    Description
+                  </dt>
+                  <dd class="font-mono text-[0.78rem] text-black">{@workflow.description}</dd>
+                </div>
+                <div>
+                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+                    Status
+                  </dt>
+                  <dd><.workflow_status_badge status={@workflow.status} /></dd>
+                </div>
+                <div>
+                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
+                    ID
+                  </dt>
+                  <dd class="font-mono text-[0.7rem] text-black/50 break-all">{@workflow.id}</dd>
+                </div>
+                <div>
+                  <dt class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-2">
+                    Triggers
+                  </dt>
+                  <dd class="space-y-1.5">
+                    <div
+                      :for={trigger <- @triggers}
+                      class="flex items-center gap-2"
+                    >
+                      <.trigger_icon trigger={trigger} workflow_id={@workflow.id} />
+                      <span class={[
+                        "font-mono text-[0.72rem]",
+                        if(trigger.enabled, do: "text-black/70", else: "text-black/30 line-through")
+                      ]}>
+                        {trigger.event_name}
+                      </span>
+                    </div>
+                    <span :if={@triggers == []} class="font-mono text-[0.72rem] text-black/30">
+                      None configured
+                    </span>
+                  </dd>
+                </div>
+              </dl>
             </div>
           </div>
-        </div>
 
-        <%!-- DAG --%>
-        <div class="mb-8">
-          <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
-            Flow
-          </p>
-          <div class="bg-white rounded-xl border border-black/[0.08] p-5">
-            <.workflow_dag nodes={@workflow.nodes} edges={@workflow.edges} />
+          <%!-- DAG column --%>
+          <div class="flex-1 min-w-0">
+            <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-3">
+              Flow
+            </p>
+            <div class="bg-white rounded-xl border border-black/[0.08] p-4">
+              <.workflow_dag nodes={@workflow.nodes} edges={@workflow.edges} />
+            </div>
           </div>
         </div>
 
@@ -319,10 +348,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
       <BOModal.confirm_dialog
         :if={@delete_modal_open}
         id="delete-workflow-modal"
-        title={
-          # {@workflow.name}"?"
-          "Delete "
-        }
+        title={"Delete #{@workflow.name}?"}
         message="This will permanently delete the workflow and all its run history. This action cannot be undone."
         confirm_label="Delete Workflow"
         cancel_event="cancel_delete"
@@ -367,7 +393,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   defp fetch_triggers(workflow_id, _socket) do
     event =
       Event.new(
-        %{module: Zaq.Engine.Workflows, function: :list_triggers, args: [workflow_id]},
+        %{
+          module: Zaq.Engine.Workflows,
+          function: :list_triggers_for_workflow,
+          args: [workflow_id]
+        },
         :engine
       )
 
