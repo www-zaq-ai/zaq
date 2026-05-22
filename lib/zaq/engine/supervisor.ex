@@ -31,6 +31,7 @@ defmodule Zaq.Engine.Supervisor do
   @impl true
   def init(_opts) do
     children = [
+      {Registry, keys: :unique, name: Zaq.Engine.Workflows.RunRegistry},
       Zaq.Engine.Telemetry.Supervisor,
       Zaq.Engine.IngestionSupervisor,
       Zaq.Engine.RetrievalSupervisor,
