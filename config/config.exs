@@ -115,7 +115,7 @@ config :esbuild,
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
-config :license_manager, :repo, Zaq.Repo
+# config :license_manager, :repo, Zaq.Repo
 
 # Configure tailwind (the version is required)
 config :tailwind,
