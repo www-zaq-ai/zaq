@@ -155,8 +155,10 @@ defmodule Zaq.Accounts.People do
   @spec update_channel(PersonChannel.t(), map()) ::
           {:ok, PersonChannel.t()} | {:error, Ecto.Changeset.t()}
   def update_channel(%PersonChannel{} = channel, attrs) do
+    normalized = attrs |> stringify_keys() |> Map.put("last_interaction_at", DateTime.utc_now())
+
     channel
-    |> PersonChannel.update_changeset(Map.put(attrs, :last_interaction_at, DateTime.utc_now()))
+    |> PersonChannel.update_changeset(normalized)
     |> Repo.update()
   end
 
@@ -281,31 +283,48 @@ defmodule Zaq.Accounts.People do
   def delete_person(%Person{} = person), do: Repo.delete(person)
 
   @doc """
-  Deletes multiple people by ID and returns a summary.
+  Deletes multiple people by ID in a single transaction and returns a summary.
+
+  All deletions are atomic: if any person fails to delete the entire operation
+  is rolled back. Associated channels are removed via DB cascade.
   """
   @spec bulk_delete_people([integer()]) ::
           {:ok, %{deleted_count: non_neg_integer(), failed_ids: [integer()]}}
   def bulk_delete_people(person_ids) when is_list(person_ids) do
-    person_ids =
+    ids =
       person_ids
       |> Enum.filter(&is_integer/1)
       |> Enum.uniq()
 
-    {deleted_count, failed_ids} =
-      Enum.reduce(person_ids, {0, []}, fn id, {deleted_acc, failed_acc} ->
-        case Repo.get(Person, id) do
-          nil -> {deleted_acc, [id | failed_acc]}
-          person -> do_delete_person(person, id, deleted_acc, failed_acc)
-        end
-      end)
+    if ids == [] do
+      {:ok, %{deleted_count: 0, failed_ids: []}}
+    else
+      sage = Enum.reduce(ids, Sage.new(), &add_delete_step/2)
 
-    {:ok, %{deleted_count: deleted_count, failed_ids: Enum.reverse(failed_ids)}}
+      case Sage.transaction(sage, Repo) do
+        {:ok, _, _} -> {:ok, %{deleted_count: length(ids), failed_ids: []}}
+        {:error, {:not_found, id}} -> {:ok, %{deleted_count: 0, failed_ids: [id]}}
+        {:error, {:delete_failed, id}} -> {:ok, %{deleted_count: 0, failed_ids: [id]}}
+        {:error, _} -> {:ok, %{deleted_count: 0, failed_ids: []}}
+      end
+    end
   end
 
-  defp do_delete_person(person, id, deleted_acc, failed_acc) do
+  defp add_delete_step(id, sage) do
+    Sage.run(sage, {:delete, id}, fn _effects, _opts -> delete_person_step(id) end)
+  end
+
+  defp delete_person_step(id) do
+    case Repo.get(Person, id) do
+      nil -> {:error, {:not_found, id}}
+      person -> delete_or_error(person, id)
+    end
+  end
+
+  defp delete_or_error(person, id) do
     case Repo.delete(person) do
-      {:ok, _} -> {deleted_acc + 1, failed_acc}
-      {:error, _} -> {deleted_acc, [id | failed_acc]}
+      {:ok, _} -> {:ok, :deleted}
+      {:error, _} -> {:error, {:delete_failed, id}}
     end
   end
 

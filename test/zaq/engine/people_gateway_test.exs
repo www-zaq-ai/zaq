@@ -2,6 +2,7 @@ defmodule Zaq.Engine.PeopleGatewayTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.PersonChannel
   alias Zaq.Engine.PeopleGateway
 
   test "dispatch(:create) creates a person" do
@@ -17,6 +18,26 @@ defmodule Zaq.Engine.PeopleGatewayTest do
 
     assert {:ok, %{deleted_count: 2, failed_ids: []}} =
              PeopleGateway.dispatch(:bulk_delete, %{person_ids: [p1.id, p2.id]})
+  end
+
+  test "dispatch(:bulk_delete) removes associated channels via cascade" do
+    {:ok, person} =
+      People.create_person(%{"full_name" => "Chan Person", "email" => "chanp@example.com"})
+
+    {:ok, _channel} =
+      People.add_channel(%{
+        "person_id" => person.id,
+        "platform" => "slack",
+        "channel_identifier" => "@chanp"
+      })
+
+    assert {:ok, %{deleted_count: 1, failed_ids: []}} =
+             PeopleGateway.dispatch(:bulk_delete, %{person_ids: [person.id]})
+
+    assert is_nil(Zaq.Repo.get(Zaq.Accounts.Person, person.id))
+
+    assert Zaq.Repo.all(Ecto.Query.from(c in PersonChannel, where: c.person_id == ^person.id)) ==
+             []
   end
 
   test "dispatch/2 returns unsupported error for unknown operation" do
@@ -68,9 +89,6 @@ defmodule Zaq.Engine.PeopleGatewayTest do
         "channel_identifier" => "@before-#{ts}"
       })
 
-    # attrs must use atom keys: People.update_channel merges an atom-keyed
-    # :last_interaction_at, so a string-keyed map would produce mixed keys
-    # that Ecto.Changeset.cast/3 rejects.
     assert {:ok, updated} =
              PeopleGateway.dispatch(:update_channel, %{
                id: channel.id,
