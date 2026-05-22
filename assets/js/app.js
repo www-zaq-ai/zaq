@@ -248,9 +248,21 @@ const liveSocket = new LiveSocket("/live", Socket, {
           }
         }
 
+        const positionPanel = () => {
+          const rect = trigger().getBoundingClientRect()
+          const p = panel()
+          p.style.position = 'fixed'
+          p.style.zIndex = '9999'
+          p.style.width = rect.width + 'px'
+          p.style.left = rect.left + 'px'
+          p.style.top = (rect.bottom + 4) + 'px'
+        }
+
         const openPanel = () => {
           this._open = true
-          panel().classList.remove('hidden')
+          const p = panel()
+          p.classList.remove('hidden')
+          positionPanel()
           search().value = ''
           filter('')
           search().focus()
@@ -258,8 +270,17 @@ const liveSocket = new LiveSocket("/live", Socket, {
 
         const closePanel = () => {
           this._open = false
-          panel().classList.add('hidden')
+          const p = panel()
+          p.classList.add('hidden')
+          p.style.position = ''
+          p.style.width = ''
+          p.style.left = ''
+          p.style.top = ''
         }
+
+        this._reposition = () => { if (this._open) positionPanel() }
+        window.addEventListener('scroll', this._reposition, true)
+        window.addEventListener('resize', this._reposition)
 
         const selectOption = (value, label) => {
           hidden().value = value
@@ -343,6 +364,10 @@ const liveSocket = new LiveSocket("/live", Socket, {
       },
       destroyed() {
         if (this._outsideClick) document.removeEventListener('click', this._outsideClick, true)
+        if (this._reposition) {
+          window.removeEventListener('scroll', this._reposition, true)
+          window.removeEventListener('resize', this._reposition)
+        }
         clearTimeout(this._searchTimer)
       }
     },

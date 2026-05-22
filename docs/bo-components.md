@@ -127,6 +127,52 @@ Auto-imported via `use ZaqWeb, :html` — **`core_components.ex`**. Prefer **`De
 
 ---
 
+## Common Pitfalls
+
+### Raw `<input>` text color must be explicit
+
+Raw `<input>` tags have no explicit text color in this codebase, so they inherit `color` from the parent chain. If any ancestor sets `color` to the accent (common in BO cards and badges), the input value text will render in that accent blue — readable against a dark background, illegible on white.
+
+Always add `text-[var(--zaq-color-ink)]` to raw text inputs:
+
+```heex
+<%!-- Wrong: inherits color from parent, may render in accent blue --%>
+<input type="text" class="w-full font-mono text-[0.82rem] border ..." />
+
+<%!-- Correct --%>
+<input type="text" class="w-full font-mono text-[0.82rem] text-[var(--zaq-color-ink)] border ..." />
+```
+
+Prefer `<.input>` over raw `<input>` — it applies the correct text color automatically.
+
+---
+
+### `SearchableSelect` inside modals — panel uses `position: fixed`
+
+`BOModal.form_dialog` has `overflow-hidden` on the card and `overflow-y-auto` on the body. Both create overflow contexts that clip `position: absolute` children. The `SearchableSelect` JS hook works around this by switching the dropdown panel to `position: fixed` anchored to the trigger's viewport rect — so the panel always renders on top of everything, including modals.
+
+This is handled automatically by the hook. You do not need to do anything special — just use `<.searchable_select>` inside a modal as normal.
+
+**If you add a new JS-based dropdown or popover component** that uses `position: absolute`, be aware that it will be clipped by modal overflow. Apply the same `position: fixed` + `getBoundingClientRect()` pattern used in the `SearchableSelect` hook (`assets/js/app.js`).
+
+---
+
+### Checkbox color: `accent-*` not `text-*`
+
+Native `<input type="checkbox">` ignores the CSS `color` property. The checkmark and fill color are controlled by the CSS `accent-color` property, which Tailwind exposes as `accent-*` utilities.
+
+```heex
+<%!-- Wrong: text-* has no effect on checkboxes --%>
+<input type="checkbox" class="text-[var(--zaq-color-accent)]" />
+
+<%!-- Correct --%>
+<input type="checkbox" class="accent-[var(--zaq-color-accent)]" />
+```
+
+Prefer `<.input type="checkbox" ...>` over raw `<input>` tags — the core component applies the correct styling automatically.
+
+---
+
 ## Checklist before opening a PR for any BO UI change
 
 - [ ] Template opens with `<ZaqWeb.Components.BOLayout.bo_layout ...>` and `current_path` is assigned
@@ -138,5 +184,7 @@ Auto-imported via `use ZaqWeb, :html` — **`core_components.ex`**. Prefer **`De
 - [ ] At most one `.zaq-btn-primary` per LiveView content area (modals/drawers excluded)
 - [ ] New cards use `zaq-card-default`
 - [ ] Icons use `<.icon>` or `IconRegistry.icon` with `.zaq-icon-sm` / `.zaq-icon-md`
+- [ ] Checkboxes use `accent-[var(--zaq-color-accent)]`, not `text-[var(--zaq-color-accent)]` — or use `<.input type="checkbox">`
+- [ ] Raw `<input type="text">` tags have `text-[var(--zaq-color-ink)]` — or use `<.input>`
 - [ ] No `<.flash_group>` in the template
 - [ ] `mix q` passes
