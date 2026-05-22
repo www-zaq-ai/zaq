@@ -1,4 +1,5 @@
 defmodule Zaq.IngestionTest do
+  # async: false — tests override Application env via put_env; concurrent runs cause flaky reads.
   use Zaq.DataCase, async: false
 
   import Mox

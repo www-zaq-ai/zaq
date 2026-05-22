@@ -28,7 +28,6 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:modal_errors, [])
       |> assign(:confirm_delete, nil)
       |> assign(:selected_people, MapSet.new())
-      |> assign(:confirm_bulk_delete, false)
       |> assign(:merge_survivor, nil)
       |> assign(:merge_loser, nil)
       |> assign(:merge_search, "")
@@ -74,7 +73,6 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:person_channels, [])
      |> assign(:confirm_delete, nil)
      |> assign(:selected_people, MapSet.new())
-     |> assign(:confirm_bulk_delete, false)
      |> assign(:merge_survivor, nil)
      |> assign(:merge_loser, nil)
      |> assign(:merge_search, "")
@@ -202,15 +200,27 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   def handle_event("open_bulk_delete_modal", _params, socket) do
-    {:noreply, assign(socket, :confirm_bulk_delete, true)}
+    n = MapSet.size(socket.assigns.selected_people)
+
+    if n == 0 do
+      {:noreply, socket}
+    else
+      confirm = %{
+        message: "Delete #{n} selected people? This cannot be undone.",
+        event: "confirm_bulk_delete",
+        cancel_event: "cancel_bulk_delete"
+      }
+
+      {:noreply, assign(socket, :confirm_delete, confirm)}
+    end
   end
 
   def handle_event("cancel_bulk_delete", _params, socket) do
-    {:noreply, assign(socket, :confirm_bulk_delete, false)}
+    {:noreply, assign(socket, :confirm_delete, nil)}
   end
 
   def handle_event("confirm_bulk_delete", _params, socket) do
-    person_ids = socket.assigns.selected_people |> MapSet.to_list() |> Enum.sort()
+    person_ids = MapSet.to_list(socket.assigns.selected_people)
 
     case people_command(:bulk_delete, %{person_ids: person_ids}) do
       {:ok, %{deleted_count: deleted_count, failed_ids: failed_ids}} ->
@@ -238,14 +248,14 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
            if(selected_person, do: socket.assigns.person_channels, else: [])
          )
          |> assign(:selected_people, MapSet.new())
-         |> assign(:confirm_bulk_delete, false)
+         |> assign(:confirm_delete, nil)
          |> refresh_people()
          |> put_flash(:info, message)}
 
       {:error, reason} ->
         {:noreply,
          socket
-         |> assign(:confirm_bulk_delete, false)
+         |> assign(:confirm_delete, nil)
          |> put_flash(:error, "Bulk delete failed: #{inspect(reason)}")}
     end
   end
@@ -770,52 +780,22 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     ~H"""
     <div class="mb-4 rounded-xl bg-red-50 border border-red-200 px-5 py-3 flex items-center justify-between gap-4">
       <p class="font-mono text-sm text-red-700">
-        Are you sure you want to delete this {@confirm_delete.entity}? This cannot be undone.
+        {Map.get(@confirm_delete, :message) ||
+          "Are you sure you want to delete this #{@confirm_delete.entity}? This cannot be undone."}
       </p>
       <div class="flex items-center gap-2 flex-shrink-0">
         <button
-          phx-click="delete"
+          phx-click={Map.get(@confirm_delete, :event, "delete")}
           class="font-mono text-[0.75rem] font-bold px-4 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
         >
           Confirm
         </button>
         <button
-          phx-click="cancel_delete"
+          phx-click={Map.get(@confirm_delete, :cancel_event, "cancel_delete")}
           class="font-mono text-[0.75rem] px-4 py-1.5 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
         >
           Cancel
         </button>
-      </div>
-    </div>
-    """
-  end
-
-  defp bulk_delete_modal(assigns) do
-    ~H"""
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div class="bg-white rounded-2xl shadow-2xl border border-black/10 w-full max-w-md mx-4">
-        <div class="px-6 py-4 border-b border-black/8">
-          <h3 class="font-mono text-sm font-bold zaq-text-ink">Delete People</h3>
-        </div>
-        <div class="px-6 py-5">
-          <p class="font-mono text-[0.78rem] text-black/70">
-            Delete {MapSet.size(@selected_people)} selected people? This cannot be undone.
-          </p>
-        </div>
-        <div class="px-6 py-4 border-t border-black/8 flex justify-end gap-2">
-          <button
-            phx-click="cancel_bulk_delete"
-            class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            phx-click="confirm_bulk_delete"
-            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
-          >
-            Confirm Delete
-          </button>
-        </div>
       </div>
     </div>
     """

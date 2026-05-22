@@ -4,6 +4,7 @@ defmodule Zaq.Engine.PeopleGateway do
   """
 
   alias Zaq.Accounts.People
+  alias Zaq.MapUtils
 
   def dispatch(:filter, %{filters: filters, opts: opts}) when is_map(filters) and is_list(opts),
     do: People.filter_people(filters, opts)
@@ -67,7 +68,7 @@ defmodule Zaq.Engine.PeopleGateway do
   def dispatch(:update_channel, %{id: id, attrs: attrs}) when is_map(attrs) do
     case find_channel(normalize_id(id)) do
       nil -> {:error, :not_found}
-      channel -> People.update_channel(channel, attrs)
+      channel -> People.update_channel(channel, MapUtils.stringify_keys(attrs))
     end
   end
 
