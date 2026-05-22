@@ -221,12 +221,22 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                   <span class="font-mono text-[0.85rem] text-black">{count}</span>
                 </td>
                 <td class="px-5 py-4 text-right">
-                  <.link
-                    navigate={~p"/bo/workflows/#{workflow.id}"}
-                    class="font-mono text-[0.75rem] text-black/40 hover:text-black transition-colors"
-                  >
-                    View →
-                  </.link>
+                  <div class="flex items-center justify-end gap-3">
+                    <button
+                      phx-click="run_workflow"
+                      phx-value-workflow_id={workflow.id}
+                      title="Run workflow manually"
+                      class="font-mono text-[0.75rem] text-black/40 hover:text-[var(--zaq-color-accent)] transition-colors"
+                    >
+                      ▶ Run
+                    </button>
+                    <.link
+                      navigate={~p"/bo/workflows/#{workflow.id}"}
+                      class="font-mono text-[0.75rem] text-black/40 hover:text-black transition-colors"
+                    >
+                      View →
+                    </.link>
+                  </div>
                 </td>
               </tr>
               <tr :if={@workflows == []}>

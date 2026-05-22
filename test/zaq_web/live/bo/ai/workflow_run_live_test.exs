@@ -6,8 +6,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Engine.Api
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.StepRun
+  alias Zaq.Engine.Workflows.Step.Run, as: StepRun
+  alias Zaq.Engine.Workflows.WorkflowAgent
   alias Zaq.Repo
 
   setup :verify_on_exit!
@@ -16,6 +18,20 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     user = user_fixture(%{username: "wf-run-test-#{System.unique_integer([:positive])}"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
+
+    stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+      case event.request do
+        %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+          %{event | response: apply(mod, fun, args)}
+
+        %{action: action} when is_binary(action) ->
+          Api.handle_event(event, :workflow, nil)
+
+        _ ->
+          event
+      end
+    end)
+
     conn = init_test_session(conn, %{user_id: user.id})
     %{conn: conn}
   end
@@ -42,8 +58,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     w
   end
 
-  defp run_fixture(workflow) do
+  defp run_fixture(workflow, attrs \\ %{}) do
     {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+    # Start as "running" so the LiveView does not fire start_run in a background
+    # Task that would fail to acquire the test sandbox connection.
+    {:ok, run} = Workflows.update_run(run, Map.merge(%{status: "running"}, attrs))
     run
   end
 
@@ -173,6 +192,97 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
   end
 
+  @ok_module "Zaq.Engine.Workflows.Test.OkAction"
+  @hitl_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
+
+  defp hitl_workflow_fixture do
+    {:ok, wf} =
+      Workflows.create_workflow(%{
+        name: "hitl-live-#{System.unique_integer()}",
+        status: "active",
+        nodes: [
+          %{name: "step_a", type: "action", module: @ok_module, params: %{}, index: 0},
+          %{name: "hitl", type: "action", module: @hitl_module, params: %{}, index: 1}
+        ],
+        edges: [%{from: "step_a", to: "hitl"}]
+      })
+
+    wf
+  end
+
+  defp hitl_workflow_with_message_fixture do
+    {:ok, wf} =
+      Workflows.create_workflow(%{
+        name: "hitl-msg-#{System.unique_integer()}",
+        status: "active",
+        nodes: [
+          %{name: "step_a", type: "action", module: @ok_module, params: %{}, index: 0},
+          %{
+            name: "hitl",
+            type: "action",
+            module: @hitl_module,
+            params: %{"message" => "Please review before proceeding."},
+            index: 1
+          }
+        ],
+        edges: [%{from: "step_a", to: "hitl"}]
+      })
+
+    wf
+  end
+
+  defp waiting_run_fixture(workflow) do
+    {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+    {:ok, waiting_run} = WorkflowAgent.execute(run)
+    assert waiting_run.status == "waiting"
+    waiting_run
+  end
+
+  describe "HITL approve/reject" do
+    test "approve button renders when run is waiting", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "waiting"})
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "phx-click=\"approve_run\""
+      assert html =~ "phx-click=\"reject_run\""
+    end
+
+    test "approve button does not render when run is running", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      refute html =~ "phx-click=\"approve_run\""
+    end
+
+    test "clicking approve_run dispatches approval and updates run status", %{conn: conn} do
+      workflow = hitl_workflow_fixture()
+      waiting_run = waiting_run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{waiting_run.id}")
+
+      view |> element("button[phx-click='approve_run']") |> render_click()
+
+      html = render(view)
+      assert html =~ "completed"
+    end
+
+    test "clicking reject_run dispatches rejection and updates run status", %{conn: conn} do
+      workflow = hitl_workflow_fixture()
+      waiting_run = waiting_run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{waiting_run.id}")
+
+      view |> element("button[phx-click='reject_run']") |> render_click()
+
+      html = render(view)
+      assert html =~ "failed"
+    end
+  end
+
   describe "live PubSub updates" do
     test "broadcasting {:run_updated, run} updates run status on page", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
@@ -220,6 +330,167 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
       html = render(view)
       assert html =~ "completed"
+    end
+
+    test "broadcasting {:run_updated} with non-waiting status clears approval", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "waiting"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      completed_run = %{run | status: "completed"}
+
+      Phoenix.PubSub.broadcast(
+        Zaq.PubSub,
+        "workflow_run:#{run.id}",
+        {:run_updated, completed_run}
+      )
+
+      html = render(view)
+      assert html =~ "completed"
+    end
+
+    test "tick message updates the now assign without crashing", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      send(view.pid, :tick)
+      assert render(view) =~ run.status
+    end
+
+    test "unknown info messages are ignored", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      send(view.pid, :unexpected_message)
+      assert render(view) =~ run.status
+    end
+
+    test "handle_info {:start_run, run} fires without crashing", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      send(view.pid, {:start_run, run})
+      assert render(view) =~ run.status
+    end
+  end
+
+  describe "cancel_run event" do
+    test "cancel_run succeeds for a running run and updates status", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      html = view |> element("button[phx-click='cancel_run']") |> render_click()
+      assert html =~ "cancelled"
+    end
+
+    test "cancel_run shows error flash when run is already finished", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      # A completed run — cancel_run returns {:error, :already_finished} for terminal statuses
+      run = run_fixture(workflow, %{status: "completed"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      # Fire event directly — Cancel button is not rendered for completed runs
+      html = render_click(view, "cancel_run", %{})
+      assert html =~ "Run has already finished."
+    end
+  end
+
+  describe "pause_run event" do
+    test "pause_run succeeds for a running run and updates status", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :pause_run} -> %{event | response: {:ok, %{run | status: "paused"}}}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      html = view |> element("button[phx-click='pause_run']") |> render_click()
+      assert html =~ "paused"
+    end
+
+    test "pause_run shows error flash when run is not running", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      # A paused run — pause_run returns {:error, :not_running} for non-"running" statuses
+      run = run_fixture(workflow, %{status: "paused"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      # Fire event directly — Pause button is only rendered when status == "running"
+      html = render_click(view, "pause_run", %{})
+      assert html =~ "Run is not currently running."
+    end
+  end
+
+  describe "resume_run event" do
+    test "resume_run fires a background task without crashing the view", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "paused"})
+
+      {:ok, view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      assert html =~ "Resume"
+
+      view |> element("button[phx-click='resume_run']") |> render_click()
+      assert render(view) =~ "paused"
+    end
+  end
+
+  describe "approve/reject failure cases" do
+    test "approve_run shows error flash when dispatch fails", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "waiting"})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{action: "run.approve"} -> %{event | response: {:error, :failed}}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          %{action: action} when is_binary(action) -> Api.handle_event(event, :workflow, nil)
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      html = view |> element("button[phx-click='approve_run']") |> render_click()
+      assert html =~ "Failed to approve run."
+    end
+
+    test "reject_run shows error flash when dispatch fails", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "waiting"})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{action: "run.reject"} -> %{event | response: {:error, :failed}}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          %{action: action} when is_binary(action) -> Api.handle_event(event, :workflow, nil)
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      html = view |> element("button[phx-click='reject_run']") |> render_click()
+      assert html =~ "Failed to reject run."
+    end
+  end
+
+  describe "approval card with message" do
+    test "renders approval message when run is waiting and approval has a message", %{conn: conn} do
+      workflow = hitl_workflow_with_message_fixture()
+      waiting_run = waiting_run_fixture(workflow)
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{waiting_run.id}")
+      assert html =~ "Please review before proceeding."
     end
   end
 end
