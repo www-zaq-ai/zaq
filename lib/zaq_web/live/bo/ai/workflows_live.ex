@@ -7,7 +7,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   import ZaqWeb.Live.BO.AI.WorkflowComponents
 
   alias Zaq.{Event, NodeRouter}
-  alias ZaqWeb.Components.{BOLayout, BOModal}
+  alias ZaqWeb.Components.{BOFileUpload, BOLayout, BOModal}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -43,6 +43,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   def handle_event("validate_import", _params, socket) do
     {:noreply, socket}
+  end
+
+  def handle_event("cancel_workflow_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :workflow_file, ref)}
   end
 
   def handle_event("run_workflow", %{"workflow_id" => workflow_id}, socket) do
@@ -261,12 +265,36 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
             Upload a <code class="text-black/70">.json</code> workflow export file.
           </p>
 
-          <div class="border-2 border-dashed border-black/20 rounded-lg p-6 text-center">
-            <.live_file_input
-              upload={@uploads.workflow_file}
-              class="font-mono text-[0.82rem] text-black"
-            />
+          <BOFileUpload.drop_zone
+            upload={@uploads.workflow_file}
+            id="workflow-import-drop-zone"
+            accept_label=".json"
+          />
+
+          <div
+            :for={entry <- @uploads.workflow_file.entries}
+            class="flex items-center justify-between px-3 py-2 rounded-lg bg-black/[0.02] border border-black/10"
+          >
+            <span class="font-mono text-[0.8rem] text-[var(--zaq-color-ink)] truncate">
+              {entry.client_name}
+            </span>
+            <button
+              type="button"
+              phx-click="cancel_workflow_upload"
+              phx-value-ref={entry.ref}
+              class="ml-3 flex-shrink-0 font-mono text-[0.9rem] text-black/30 hover:text-red-400 transition-colors"
+              aria-label="Remove"
+            >
+              &times;
+            </button>
           </div>
+
+          <%= for entry <- @uploads.workflow_file.entries,
+                  err <- upload_errors(@uploads.workflow_file, entry) do %>
+            <p class="font-mono text-[0.72rem] text-red-500">
+              {entry.client_name}: {upload_error_label(err)}
+            </p>
+          <% end %>
 
           <p
             :if={@import_error}
@@ -279,7 +307,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
             <button
               type="button"
               phx-click="close_import"
-              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-black/15 hover:bg-black/5 transition-colors"
+              class="font-mono text-[0.82rem] text-[var(--zaq-color-ink)] px-4 py-2 rounded-lg border border-black/15 hover:bg-black/5 transition-colors"
             >
               Cancel
             </button>
@@ -316,6 +344,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   rescue
     _ -> []
   end
+
+  defp upload_error_label(:too_large), do: "file exceeds size limit"
+  defp upload_error_label(:not_accepted), do: "file type not accepted"
+  defp upload_error_label(:too_many_files), do: "too many files"
+  defp upload_error_label(_), do: "upload failed"
 
   defp error_message(%Ecto.Changeset{} = cs) do
     cs
