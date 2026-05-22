@@ -66,6 +66,44 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc """
+  Cancels a workflow run that is still in progress.
+
+  Accepts runs in `"pending"`, `"running"`, or `"waiting"` status. Marks the
+  run as `"cancelled"` and marks any in-progress step runs accordingly.
+  Returns `{:error, :already_finished}` if the run has already reached a
+  terminal state.
+  """
+  @spec cancel_run(WorkflowRun.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :already_finished | Ecto.Changeset.t()}
+  def cancel_run(%WorkflowRun{} = run, _opts \\ []) do
+    if run.status in ["pending", "running", "waiting", "paused"] do
+      # Hard-kill any executing WorkflowAgent process for this run
+      Registry.lookup(Zaq.Engine.Workflows.RunRegistry, run.id)
+      |> Enum.each(fn {pid, _} -> Process.exit(pid, :kill) end)
+
+      Repo.transaction(fn ->
+        {:ok, cancelled_run} =
+          update_run(run, %{status: "cancelled", finished_at: DateTime.utc_now(:second)})
+
+        from(sr in StepRun,
+          where:
+            sr.workflow_run_id == ^run.id and
+              sr.status in ["pending", "running", "waiting", "paused"]
+        )
+        |> Repo.update_all(set: [status: "cancelled", updated_at: DateTime.utc_now(:second)])
+
+        cancelled_run
+      end)
+      |> case do
+        {:ok, cancelled_run} -> {:ok, cancelled_run}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :already_finished}
+    end
+  end
+
+  @doc """
   Pauses a running workflow run.
 
   Returns `{:error, :not_running}` if the run is not in `"running"` state.
@@ -121,6 +159,23 @@ defmodule Zaq.Engine.Workflows do
     Repo.all(from w in Workflow, order_by: [asc: w.name])
   end
 
+  @doc """
+  Returns all workflows with their run counts and assigned triggers.
+
+  Returns a list of `{workflow, run_count, triggers}` tuples ordered by
+  workflow name ascending. Used by the BO list page.
+  """
+  @spec list_workflows_with_run_counts_and_triggers() :: [
+          {Workflow.t(), non_neg_integer(), [Trigger.t()]}
+        ]
+  def list_workflows_with_run_counts_and_triggers do
+    workflows = Repo.all(from w in Workflow, order_by: [asc: w.name])
+
+    Enum.map(workflows, fn w ->
+      {w, count_runs(w.id), list_triggers_for_workflow(w.id)}
+    end)
+  end
+
   @doc "Gets a workflow by id, raising if not found."
   @spec get_workflow!(term()) :: Workflow.t()
   def get_workflow!(id), do: Repo.get!(Workflow, id)
@@ -163,6 +218,59 @@ defmodule Zaq.Engine.Workflows do
     workflow
     |> Workflow.changeset(%{status: "archived"})
     |> Repo.update()
+  end
+
+  @doc """
+  Permanently deletes a workflow and all associated run history.
+
+  Deletes all `WorkflowRun` rows for the workflow (which cascades to step runs
+  and approvals via DB FK), then deletes the workflow itself (which cascades to
+  trigger_workflow join rows).
+  """
+  @spec delete_workflow(Workflow.t(), keyword()) :: {:ok, Workflow.t()} | {:error, term()}
+  def delete_workflow(%Workflow{} = workflow, _opts \\ []) do
+    Repo.transaction(fn ->
+      from(r in WorkflowRun, where: r.workflow_id == ^workflow.id)
+      |> Repo.delete_all()
+
+      case Repo.delete(workflow) do
+        {:ok, deleted} -> deleted
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  @doc """
+  Exports a workflow as a plain map suitable for JSON serialisation.
+
+  The output can be passed back to `import_workflow/1` to recreate the workflow.
+  """
+  @spec export_workflow(Workflow.t()) :: map()
+  def export_workflow(%Workflow{} = workflow) do
+    steps = serialize_steps(workflow)
+
+    %{
+      "name" => workflow.name,
+      "description" => workflow.description,
+      "status" => workflow.status,
+      "settings" => workflow.settings || %{},
+      "nodes" => steps["nodes"],
+      "edges" => steps["edges"]
+    }
+  end
+
+  @doc """
+  Creates a workflow from an exported map.
+
+  Always sets `status` to `"draft"` regardless of the exported value — the
+  operator must explicitly activate the workflow after reviewing it.
+  Returns `{:error, changeset}` if the map is missing required fields.
+  """
+  @spec import_workflow(map()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
+  def import_workflow(attrs) when is_map(attrs) do
+    attrs
+    |> Map.put("status", "draft")
+    |> create_workflow()
   end
 
   # --- Runs ---
@@ -265,14 +373,30 @@ defmodule Zaq.Engine.Workflows do
     :ok
   end
 
-  @doc "Lists all runs for a workflow, ordered by insertion time descending."
+  @doc """
+  Lists runs for a workflow, ordered by insertion time descending.
+
+  Accepts `limit:` and `offset:` opts for pagination. When omitted, all runs
+  are returned.
+  """
   @spec list_runs(term(), keyword()) :: [WorkflowRun.t()]
-  def list_runs(workflow_id, _opts \\ []) do
-    Repo.all(
+  def list_runs(workflow_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit)
+    offset = Keyword.get(opts, :offset, 0)
+
+    query =
       from r in WorkflowRun,
         where: r.workflow_id == ^workflow_id,
         order_by: [desc: r.inserted_at, desc: r.id]
-    )
+
+    query = if limit, do: from(r in query, limit: ^limit, offset: ^offset), else: query
+    Repo.all(query)
+  end
+
+  @doc "Returns the total number of runs for a workflow."
+  @spec count_runs(term()) :: non_neg_integer()
+  def count_runs(workflow_id) do
+    Repo.one(from r in WorkflowRun, where: r.workflow_id == ^workflow_id, select: count(r.id))
   end
 
   # --- Step runs ---
@@ -293,6 +417,7 @@ defmodule Zaq.Engine.Workflows do
     %StepRun{}
     |> StepRun.changeset(attrs)
     |> Repo.insert()
+    |> broadcast_step()
   end
 
   @doc """
@@ -312,6 +437,7 @@ defmodule Zaq.Engine.Workflows do
       finished_at: DateTime.utc_now(:second)
     })
     |> Repo.update()
+    |> broadcast_step()
   end
 
   @doc "Marks a step run as failed, recording the error map and finished_at."
@@ -325,6 +451,7 @@ defmodule Zaq.Engine.Workflows do
       finished_at: DateTime.utc_now(:second)
     })
     |> Repo.update()
+    |> broadcast_step()
   end
 
   @doc "Marks a step run as skipped when a condition evaluated to false."
@@ -338,6 +465,7 @@ defmodule Zaq.Engine.Workflows do
       finished_at: DateTime.utc_now(:second)
     })
     |> Repo.update()
+    |> broadcast_step()
   end
 
   @doc "Marks a step run as waiting, suspending it pending human approval."
@@ -347,6 +475,7 @@ defmodule Zaq.Engine.Workflows do
     step_run
     |> StepRun.changeset(%{status: "waiting"})
     |> Repo.update()
+    |> broadcast_step()
   end
 
   # --- Approval lifecycle ---
@@ -779,4 +908,16 @@ defmodule Zaq.Engine.Workflows do
   end
 
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
+
+  defp broadcast_step({:ok, step_run} = result) do
+    Phoenix.PubSub.broadcast(
+      Zaq.PubSub,
+      "workflow_run:#{step_run.workflow_run_id}",
+      {:step_updated, step_run}
+    )
+
+    result
+  end
+
+  defp broadcast_step(result), do: result
 end
