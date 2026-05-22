@@ -14,6 +14,17 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
     user = user_fixture(%{username: "workflows-list-test-#{System.unique_integer([:positive])}"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
+
+    stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+      case event.request do
+        %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+          %{event | response: apply(mod, fun, args)}
+
+        _ ->
+          event
+      end
+    end)
+
     conn = init_test_session(conn, %{user_id: user.id})
     %{conn: conn}
   end
@@ -47,10 +58,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
 
   defp trigger_fixture(workflow, attrs \\ %{}) do
     {:ok, t} =
-      Workflows.create_trigger(
-        Map.merge(%{workflow_id: workflow.id, type: "manual", enabled: true}, attrs)
-      )
+      Workflows.create_trigger(Map.merge(%{event_name: "manual_trigger", enabled: true}, attrs))
 
+    Workflows.assign_workflow_to_trigger(t, workflow)
     t
   end
 
@@ -116,10 +126,143 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
 
       assert {:error, {:live_redirect, %{to: path}}} =
                view
-               |> element("button[phx-click='run_workflow']")
+               |> element(
+                 "button[phx-click='run_workflow'][title='Run workflow manually']",
+                 "▶ Run"
+               )
                |> render_click()
 
       assert path =~ "/bo/workflows/#{workflow.id}/runs/"
+    end
+  end
+
+  describe "import workflow event" do
+    test "validate_import is a no-op", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+      html = view |> form("form[phx-submit='import_workflow']") |> render_change()
+      assert html =~ "Import Workflow"
+    end
+
+    test "shows no file selected error", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "No file selected."
+    end
+
+    test "shows bad json error", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "bad.json", content: "{nope", type: "application/json"}
+        ])
+
+      assert render_upload(upload, "bad.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "File is not valid JSON."
+    end
+
+    test "shows upload error for unsupported file type", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "bad.csv", content: "a,b", type: "text/csv"}
+        ])
+
+      assert {:error, _} = render_upload(upload, "bad.csv")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "Upload error:"
+    end
+
+    test "shows read error when parsed entry is not a map", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "array.json", content: "[1,2,3]", type: "application/json"}
+        ])
+
+      assert render_upload(upload, "array.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "Could not read file."
+    end
+
+    test "imports successfully and closes modal", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :import_workflow} -> %{event | response: {:ok, %{id: 1}}}
+          %{function: :list_workflows_with_run_counts_and_triggers} -> %{event | response: []}
+          _ -> event
+        end
+      end)
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "good.json", content: "{\"name\":\"W\"}", type: "application/json"}
+        ])
+
+      assert render_upload(upload, "good.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "Workflow imported successfully."
+      refute html =~ "import-modal"
+    end
+
+    test "shows changeset error message when import returns a changeset", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "no-name.json", content: "{}", type: "application/json"}
+        ])
+
+      assert render_upload(upload, "no-name.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "can&#39;t be blank"
+    end
+  end
+
+  describe "load_workflows fallback and rendering branches" do
+    test "shows description when workflow has one", %{conn: conn} do
+      workflow_fixture(%{name: "WithDesc", description: "Workflow description text"})
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows")
+      assert html =~ "Workflow description text"
+    end
+
+    test "falls back to empty workflows when dispatch returns non-list", %{conn: conn} do
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :list_workflows_with_run_counts_and_triggers} -> %{event | response: :bad}
+          _ -> event
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows")
+      assert html =~ "No workflows yet. Import one to get started."
+    end
+
+    test "falls back to empty workflows when dispatch raises", %{conn: conn} do
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :list_workflows_with_run_counts_and_triggers} ->
+            raise "boom"
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows")
+      assert html =~ "No workflows yet. Import one to get started."
     end
   end
 end

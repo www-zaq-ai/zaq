@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
-  alias Zaq.Engine.Workflows.{Trigger, Workflow, WorkflowRun}
+  alias Zaq.Engine.Workflows.{Trigger, Workflow, WorkflowApproval, WorkflowRun}
   alias Zaq.Test.Stubs
 
   setup do
@@ -418,6 +418,20 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       trace = Workflows.get_run_trace(run.id)
       assert trace.duration_ms == nil
     end
+
+    test "duration_ms is nil when run has started but not yet finished (line 756)" do
+      # started_at is set, finished_at is nil → duration_ms(started_at, nil) → nil (line 756)
+      workflow = create_workflow()
+      run = create_run(workflow)
+
+      {:ok, running} =
+        Workflows.update_run(run, %{status: "running", started_at: DateTime.utc_now(:second)})
+
+      trace = Workflows.get_run_trace(running.id)
+      assert is_nil(trace.duration_ms)
+      assert not is_nil(trace.started_at)
+      assert is_nil(trace.finished_at)
+    end
   end
 
   # --- Triggers ---
@@ -779,6 +793,29 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     end
   end
 
+  describe "get_approval_by_token/2" do
+    test "returns the approval matching the token" do
+      run = create_run(create_workflow())
+      {:ok, run} = Workflows.update_run(run, %{status: "waiting"})
+      token = Ecto.UUID.generate()
+
+      {:ok, approval} =
+        Workflows.create_approval(%{
+          workflow_run_id: run.id,
+          step_name: "hitl",
+          approval_token: token,
+          status: "pending"
+        })
+
+      assert %WorkflowApproval{} = found = Workflows.get_approval_by_token(token)
+      assert found.id == approval.id
+    end
+
+    test "returns nil when token does not exist" do
+      assert nil == Workflows.get_approval_by_token(Ecto.UUID.generate())
+    end
+  end
+
   describe "approve_run/5" do
     test "returns {:error, :not_waiting} when run is not in waiting state" do
       wf = hitl_workflow()
@@ -836,6 +873,82 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       assert by_name["hitl"].results["approved"] == true
       assert by_name["hitl"].results["approved_by"] == "approver-1"
       assert by_name["after"].status == "completed"
+    end
+
+    test "complete_waiting_step no-ops when step_name has no waiting StepRun (line 608)" do
+      # Approval step_name has no matching "waiting" StepRun → complete_waiting_step returns :ok.
+      # Uses OkAction so resume_run completes cleanly without external dependencies.
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "ok-wf-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "step0",
+              type: "action",
+              module: "Zaq.Engine.Workflows.Test.OkAction",
+              params: %{},
+              index: 0
+            }
+          ],
+          edges: []
+        })
+
+      run = create_run(wf)
+      {:ok, waiting_run} = Workflows.update_run(run, %{status: "waiting"})
+
+      {:ok, approval} =
+        Workflows.create_approval(%{
+          workflow_run_id: run.id,
+          step_name: "step_with_no_step_run",
+          approval_token: Ecto.UUID.generate(),
+          status: "pending"
+        })
+
+      assert {:ok, completed_run} = Workflows.approve_run(waiting_run, approval, %{}, nil)
+      assert completed_run.status == "completed"
+    end
+
+    test "rebuild_cascade_before returns empty map when no prior completed steps (line 629)" do
+      # Approval step at index 0: rebuild_cascade_before queries step_index < 0 → nothing → %{}
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "ok-wf-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "step0",
+              type: "action",
+              module: "Zaq.Engine.Workflows.Test.OkAction",
+              params: %{},
+              index: 0
+            }
+          ],
+          edges: []
+        })
+
+      run = create_run(wf)
+      {:ok, waiting_run} = Workflows.update_run(run, %{status: "waiting"})
+
+      {:ok, _} =
+        Workflows.create_step_run(run, %{
+          step_name: "step0",
+          step_index: 0,
+          status: "waiting"
+        })
+
+      {:ok, approval} =
+        Workflows.create_approval(%{
+          workflow_run_id: run.id,
+          step_name: "step0",
+          approval_token: Ecto.UUID.generate(),
+          status: "pending"
+        })
+
+      # complete_waiting_step finds step_run at index 0 → rebuild_cascade_before(run.id, 0)
+      # queries index < 0 → nil → `_ -> %{}` (line 629)
+      assert {:ok, completed_run} = Workflows.approve_run(waiting_run, approval, %{}, nil)
+      assert completed_run.status == "completed"
     end
   end
 
@@ -930,6 +1043,40 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       reloaded = Workflows.get_run!(run.id)
       step_runs = Workflows.list_step_runs(run.id)
       assert reloaded.log_summary["step_count"] == length(step_runs)
+    end
+
+    test "fail_waiting_step no-ops when step_name has no waiting StepRun (line 638)" do
+      # Approval step_name has no matching "waiting" StepRun → fail_waiting_step returns :ok.
+      # The rejection still marks the run as failed.
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "ok-wf-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "step0",
+              type: "action",
+              module: "Zaq.Engine.Workflows.Test.OkAction",
+              params: %{},
+              index: 0
+            }
+          ],
+          edges: []
+        })
+
+      run = create_run(wf)
+      {:ok, waiting_run} = Workflows.update_run(run, %{status: "waiting"})
+
+      {:ok, approval} =
+        Workflows.create_approval(%{
+          workflow_run_id: run.id,
+          step_name: "step_with_no_step_run",
+          approval_token: Ecto.UUID.generate(),
+          status: "pending"
+        })
+
+      assert {:ok, failed_run} = Workflows.reject_run(waiting_run, approval, "denied", nil)
+      assert failed_run.status == "failed"
     end
   end
 end

@@ -288,6 +288,18 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
       assert result[:__cascade__] == cascade
     end
 
+    test "dotted path where cascade entry is a scalar (non-map) → nil → condition false (line 182)" do
+      # cascade["A"] exists but is a string, not a map — hits `_ -> nil` in lookup_cascade (line 182)
+      params = %{
+        __edge_condition__: %{"field" => "A.gender", "op" => "eq", "value" => "female"},
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: %{"A" => "not_a_map"}
+      }
+
+      assert_raise ConditionNotMet, fn -> run(params) end
+    end
+
     test "plain field lookup is unaffected by cascade presence" do
       cascade = %{"A" => %{gender: "female"}}
 
@@ -300,6 +312,40 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
       }
 
       assert {:ok, _} = run(params)
+    end
+  end
+
+  describe "normalize_value — nested map values" do
+    test "atom-keyed nested map passes through with atom keys intact (line 138)" do
+      # The mapped value is a nested map with atom keys → hits the {k, v} clause
+      # for atom keys in normalize_value/1 (line 138 in edge_step.ex)
+      fact = %{profile: %{city: "Paris", age: 30}}
+
+      params =
+        Map.merge(
+          %{__edge_condition__: nil, __edge_mapping__: %{location: :profile}, __edge_name__: "e"},
+          fact
+        )
+
+      {:ok, result} = run(params)
+      assert result[:location] == %{city: "Paris", age: 30}
+      refute Map.has_key?(result, :profile)
+    end
+
+    test "string key not yet an atom is kept as string in normalize_value (line 147)" do
+      # "zaq_novel_nonexistent_key_9x7" has never been used as an atom in this runtime,
+      # so String.to_existing_atom/1 raises ArgumentError → key stays as string (line 147)
+      novel_key = "zaq_novel_nonexistent_key_9x7"
+      fact = %{data: %{novel_key => "val"}}
+
+      params =
+        Map.merge(
+          %{__edge_condition__: nil, __edge_mapping__: %{result: :data}, __edge_name__: "e"},
+          fact
+        )
+
+      {:ok, output} = run(params)
+      assert output[:result][novel_key] == "val"
     end
   end
 

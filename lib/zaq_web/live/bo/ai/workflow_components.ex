@@ -46,13 +46,20 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     """
   end
 
-  @doc "Trigger type icon. Shows a clickable run button for manual triggers."
+  @doc """
+  Trigger type icon. Shows a clickable run button for manual triggers.
+
+  The `Trigger` schema has no `type` field — display type is derived from
+  `event_name` via `trigger_display_type/1`.
+  """
   attr :trigger, :map, required: true
   attr :workflow_id, :string, required: true
 
   def trigger_icon(assigns) do
+    assigns = assign(assigns, :display_type, trigger_display_type(assigns.trigger.event_name))
+
     ~H"""
-    <%= if @trigger.enabled and @trigger.type == "manual" do %>
+    <%= if @trigger.enabled and @display_type == "manual" do %>
       <button
         phx-click="run_workflow"
         phx-value-workflow_id={@workflow_id}
@@ -65,10 +72,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
       </button>
     <% else %>
       <span
-        title={trigger_label(@trigger.type)}
+        title={trigger_label(@display_type)}
         class="inline-flex items-center justify-center w-7 h-7 text-black/30"
       >
-        <.trigger_type_icon type={@trigger.type} />
+        <.trigger_type_icon type={@display_type} />
       </span>
     <% end %>
     """
@@ -170,11 +177,22 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     run_idx = Map.new(assigns.step_runs, fn sr -> {nf(sr, "step_name"), sr} end)
 
     node_renders =
-      Enum.map(layout.nodes, fn %{name: name, x: x, y: y, w: w, h: h} ->
+      Enum.map(layout.nodes, fn %{name: name, x: x, y: y, w: w, h: h, is_hitl: is_hitl} ->
         sr = Map.get(run_idx, name)
-        {fill, stroke, tc} = dag_node_colors(sr)
+        {fill, stroke, tc} = dag_node_colors(sr, is_hitl)
         label = if String.length(name) > 17, do: String.slice(name, 0, 14) <> "…", else: name
-        %{x: x, y: y, w: w, h: h, fill: fill, stroke: stroke, tc: tc, label: label}
+
+        %{
+          x: x,
+          y: y,
+          w: w,
+          h: h,
+          fill: fill,
+          stroke: stroke,
+          tc: tc,
+          label: label,
+          is_hitl: is_hitl
+        }
       end)
 
     has_runs = assigns.step_runs != []
@@ -247,6 +265,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             fill={n.fill}
             stroke={n.stroke}
             stroke-width="1.5"
+            stroke-dasharray={if n.is_hitl, do: "4 2", else: "none"}
           />
           <text
             x={n.x + div(n.w, 2)}
@@ -283,6 +302,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   # ── Helpers ─────────────────────────────────────────────────────
 
+  # Maps a trigger's event_name to a display type for icon selection.
+  # "manual_trigger" is the canonical event_name for manually-fired triggers.
+  defp trigger_display_type("manual_trigger"), do: "manual"
+
+  defp trigger_display_type(name) when is_binary(name) do
+    cond do
+      String.contains?(name, "webhook") -> "webhook"
+      String.contains?(name, "schedule") or String.contains?(name, "cron") -> "scheduler"
+      String.contains?(name, "signal") -> "signal"
+      true -> "event"
+    end
+  end
+
+  defp trigger_display_type(_), do: "event"
+
   defp trigger_label("manual"), do: "Manual trigger"
   defp trigger_label("webhook"), do: "Webhook trigger"
   defp trigger_label("scheduler"), do: "Scheduled trigger"
@@ -296,7 +330,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp run_status_class("completed"), do: "bg-emerald-100 text-emerald-700"
   defp run_status_class("failed"), do: "bg-red-100 text-red-600"
   defp run_status_class("running"), do: "bg-blue-100 text-blue-600"
+  defp run_status_class("waiting"), do: "bg-amber-100 text-amber-700"
   defp run_status_class("cancelled"), do: "bg-orange-100 text-orange-600"
+  defp run_status_class("paused"), do: "bg-black/5 text-black/50"
   defp run_status_class(_), do: "bg-black/5 text-black/40"
 
   defp log_row_class("error"), do: "text-red-700"
@@ -356,7 +392,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp dag_layout(raw_nodes, raw_edges) do
     nodes =
       Enum.map(raw_nodes, fn n ->
-        %{name: nf(n, "name"), type: nf(n, "type"), index: nf(n, "index") || 0}
+        %{
+          name: nf(n, "name"),
+          type: nf(n, "type"),
+          index: nf(n, "index") || 0,
+          is_hitl: hitl_module?(nf(n, "module"))
+        }
       end)
 
     edges =
@@ -395,7 +436,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               idx * (@dag_node_w + @dag_h_gap)
 
           y = @dag_pad_y + level * (@dag_node_h + @dag_v_gap)
-          %{name: node.name, x: x, y: y, w: @dag_node_w, h: @dag_node_h}
+          %{name: node.name, x: x, y: y, w: @dag_node_w, h: @dag_node_h, is_hitl: node.is_hitl}
         end
 
       pos_map = Map.new(positioned, &{&1.name, &1})
@@ -427,6 +468,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     _ -> Map.get(m, key)
   end
 
+  defp dag_node_colors(sr, is_hitl)
+  defp dag_node_colors(nil, true), do: {"#fffbeb", "#f59e0b", "#92400e"}
+  defp dag_node_colors(nil, _), do: {"#f4f4f5", "#d1d5db", "#374151"}
+  defp dag_node_colors(%{status: "waiting"}, _), do: {"#fffbeb", "#f59e0b", "#92400e"}
+  defp dag_node_colors(%{"status" => "waiting"}, _), do: {"#fffbeb", "#f59e0b", "#92400e"}
+  defp dag_node_colors(sr, _), do: dag_node_colors(sr)
+
   defp dag_node_colors(nil), do: {"#f4f4f5", "#d1d5db", "#374151"}
   defp dag_node_colors(%{status: "completed"}), do: {"#f0fdf4", "#22c55e", "#15803d"}
   defp dag_node_colors(%{status: "failed"}), do: {"#fef2f2", "#ef4444", "#dc2626"}
@@ -434,4 +482,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp dag_node_colors(%{status: "pending"}), do: {"#f9fafb", "#9ca3af", "#6b7280"}
   defp dag_node_colors(%{"status" => s}), do: dag_node_colors(%{status: s})
   defp dag_node_colors(_), do: {"#f4f4f5", "#d1d5db", "#374151"}
+
+  defp hitl_module?(nil), do: false
+  defp hitl_module?(mod) when is_binary(mod), do: String.contains?(mod, "HumanInTheLoop")
+  defp hitl_module?(_), do: false
 end

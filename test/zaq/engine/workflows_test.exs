@@ -32,6 +32,18 @@ defmodule Zaq.Engine.WorkflowsTest do
     t
   end
 
+  defp create_run(workflow) do
+    source_event = %Zaq.Event{
+      request: nil,
+      next_hop: nil,
+      trace_id: Ecto.UUID.generate(),
+      assigns: %{trigger_type: :manual, input: %{}}
+    }
+
+    {:ok, run} = Workflows.create_run(workflow, source_event)
+    run
+  end
+
   # --- list_triggers/1 ---
 
   describe "list_triggers/1" do
@@ -102,6 +114,27 @@ defmodule Zaq.Engine.WorkflowsTest do
     test "returns empty list when no enabled triggers" do
       create_trigger(%{event_name: "some_event", enabled: false})
       assert [] = Workflows.list_trigger_event_names()
+    end
+  end
+
+  # --- get_trigger!/1 ---
+
+  describe "get_trigger!/1" do
+    test "returns trigger with :workflows preloaded (line 819)" do
+      t = create_trigger()
+      w = create_workflow()
+      Workflows.assign_workflow_to_trigger(t, w)
+
+      fetched = Workflows.get_trigger!(t.id)
+      assert fetched.id == t.id
+      assert is_list(fetched.workflows)
+      assert Enum.any?(fetched.workflows, &(&1.id == w.id))
+    end
+
+    test "raises when trigger id does not exist" do
+      assert_raise Ecto.NoResultsError, fn ->
+        Workflows.get_trigger!(Ecto.UUID.generate())
+      end
     end
   end
 

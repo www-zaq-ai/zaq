@@ -41,6 +41,12 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
     agent
   end
 
+  describe "on_failure/2" do
+    test "returns :ok" do
+      assert :ok == DraftReply.on_failure(%RuntimeError{message: "boom"}, %{})
+    end
+  end
+
   describe "run/2 — empty emails list" do
     test "returns empty drafts list when agent exists but emails is empty" do
       insert_configured_agent("MailResponder")
