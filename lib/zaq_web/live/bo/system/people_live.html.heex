@@ -18,6 +18,7 @@
         <.people_tab
           :if={@active_tab == :people}
           people={@people}
+          selected_people={@selected_people}
           selected_person={@selected_person}
           teams={@teams}
           filter_name={@filter_name}
@@ -53,4 +54,6 @@
     merge_search={@merge_search}
     merge_candidates={@merge_candidates}
   />
+
+  <.bulk_delete_modal :if={@confirm_bulk_delete} selected_people={@selected_people} />
 </ZaqWeb.Components.BOLayout.bo_layout>

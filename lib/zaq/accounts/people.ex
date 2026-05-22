@@ -281,6 +281,35 @@ defmodule Zaq.Accounts.People do
   def delete_person(%Person{} = person), do: Repo.delete(person)
 
   @doc """
+  Deletes multiple people by ID and returns a summary.
+  """
+  @spec bulk_delete_people([integer()]) ::
+          {:ok, %{deleted_count: non_neg_integer(), failed_ids: [integer()]}}
+  def bulk_delete_people(person_ids) when is_list(person_ids) do
+    person_ids =
+      person_ids
+      |> Enum.filter(&is_integer/1)
+      |> Enum.uniq()
+
+    {deleted_count, failed_ids} =
+      Enum.reduce(person_ids, {0, []}, fn id, {deleted_acc, failed_acc} ->
+        case Repo.get(Person, id) do
+          nil -> {deleted_acc, [id | failed_acc]}
+          person -> do_delete_person(person, id, deleted_acc, failed_acc)
+        end
+      end)
+
+    {:ok, %{deleted_count: deleted_count, failed_ids: Enum.reverse(failed_ids)}}
+  end
+
+  defp do_delete_person(person, id, deleted_acc, failed_acc) do
+    case Repo.delete(person) do
+      {:ok, _} -> {deleted_acc + 1, failed_acc}
+      {:error, _} -> {deleted_acc, [id | failed_acc]}
+    end
+  end
+
+  @doc """
   Searches people by full_name or email using database-side filtering.
   Excludes the given IDs. Returns at most `limit` results.
   """
@@ -305,6 +334,7 @@ defmodule Zaq.Accounts.People do
     Repo.all(from t in Team, order_by: t.name)
   end
 
+  def get_team(id), do: Repo.get(Team, id)
   def get_team!(id), do: Repo.get!(Team, id)
 
   def create_team(attrs) do
@@ -346,6 +376,8 @@ defmodule Zaq.Accounts.People do
   def list_person_channels(person_id) do
     Repo.all(from c in PersonChannel, where: c.person_id == ^person_id, order_by: c.weight)
   end
+
+  def get_channel(id), do: Repo.get(PersonChannel, id)
 
   def get_preferred_channel(person_id) do
     person_id |> list_person_channels() |> List.first()

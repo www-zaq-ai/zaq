@@ -45,6 +45,22 @@ defmodule Zaq.Engine.ApiTest do
     assert result.response == {:error, {:invalid_request, %{incoming: :bad, metadata: %{}}}}
   end
 
+  test "handles people_command action" do
+    event =
+      Event.new(%{op: :list_teams, params: %{}}, :engine, opts: [action: :people_command])
+
+    result = Api.handle_event(event, :people_command, nil)
+
+    assert match?({:ok, _}, result.response)
+  end
+
+  test "returns invalid request for malformed people_command payload" do
+    event = Event.new(%{op: "bad", params: %{}}, :engine, opts: [action: :people_command])
+    result = Api.handle_event(event, :people_command, nil)
+
+    assert result.response == {:error, {:invalid_request, %{op: "bad", params: %{}}}}
+  end
+
   test "delegates invoke to shared helper" do
     event = Event.new(%{module: String, function: :upcase, args: ["hi"]}, :engine)
     result = Api.handle_event(event, :invoke, nil)

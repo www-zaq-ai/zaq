@@ -3,17 +3,18 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   import ZaqWeb.Components.SearchableSelect
 
-  alias Zaq.Accounts.People
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Accounts.Team
+  alias Zaq.Event
   alias Zaq.Ingestion
+  alias Zaq.NodeRouter
 
   def mount(_params, _session, socket) do
     socket =
       socket
       |> assign(:current_path, "/bo/people")
-      |> assign(:teams, People.list_teams())
+      |> assign(:teams, [])
       |> assign(:active_tab, :people)
       |> assign(:loading, false)
       |> assign(:error, nil)
@@ -26,6 +27,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:modal_changeset, nil)
       |> assign(:modal_errors, [])
       |> assign(:confirm_delete, nil)
+      |> assign(:selected_people, MapSet.new())
+      |> assign(:confirm_bulk_delete, false)
       |> assign(:merge_survivor, nil)
       |> assign(:merge_loser, nil)
       |> assign(:merge_search, "")
@@ -39,11 +42,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:per_page, 20)
       |> assign(:total_count, 0)
 
-    {:ok, refresh_people(socket)}
+    {:ok, socket |> refresh_teams() |> refresh_people()}
   end
 
   def handle_params(%{"person_id" => id}, _uri, socket) do
-    case People.get_person_with_channels(id) do
+    case fetch_person_with_channels(id) do
       nil ->
         {:noreply, socket}
 
@@ -70,6 +73,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:selected_person, nil)
      |> assign(:person_channels, [])
      |> assign(:confirm_delete, nil)
+     |> assign(:selected_people, MapSet.new())
+     |> assign(:confirm_bulk_delete, false)
      |> assign(:merge_survivor, nil)
      |> assign(:merge_loser, nil)
      |> assign(:merge_search, "")
@@ -80,7 +85,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   # From incomplete tab — this person is the loser; user picks the survivor to keep
   def handle_event("open_merge_modal", %{"id" => id, "role" => "loser"}, socket) do
-    loser = People.get_person_with_channels!(id)
+    loser = fetch_person_with_channels!(id)
 
     {:noreply,
      socket
@@ -94,7 +99,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   # From detail panel — this person is the survivor; user picks the loser to absorb
   def handle_event("open_merge_modal", %{"id" => id}, socket) do
-    survivor = People.get_person_with_channels!(id)
+    survivor = fetch_person_with_channels!(id)
 
     {:noreply,
      socket
@@ -116,7 +121,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           ]
           |> Enum.reject(&is_nil/1)
 
-        People.search_people(query, exclude_ids)
+        search_people(query, exclude_ids)
       else
         []
       end
@@ -128,7 +133,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   def handle_event("select_merge_survivor", %{"id" => id}, socket) do
-    survivor = People.get_person_with_channels!(id)
+    survivor = fetch_person_with_channels!(id)
 
     {:noreply,
      socket
@@ -138,7 +143,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   def handle_event("select_merge_loser", %{"id" => id}, socket) do
-    loser = People.get_person_with_channels!(id)
+    loser = fetch_person_with_channels!(id)
 
     {:noreply,
      socket
@@ -151,7 +156,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     survivor = socket.assigns.merge_survivor
     loser = socket.assigns.merge_loser
 
-    case People.merge_persons(survivor, loser) do
+    case people_command(:merge, %{survivor_id: survivor.id, loser_id: loser.id}) do
       {:ok, updated_survivor} ->
         {:noreply,
          socket
@@ -172,7 +177,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   # ── People selection ─────────────────────────────────────────────────────
 
   def handle_event("select_person", %{"id" => id}, socket) do
-    person = People.get_person_with_channels!(id)
+    person = fetch_person_with_channels!(id)
     person_documents = Ingestion.list_person_permissions(person.id)
 
     {:noreply,
@@ -181,6 +186,68 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:person_channels, person.channels)
      |> assign(:person_documents, person_documents)
      |> assign(:confirm_delete, nil)}
+  end
+
+  def handle_event("toggle_person_selection", %{"id" => id}, socket) do
+    person_id = String.to_integer(id)
+
+    selected_people =
+      if MapSet.member?(socket.assigns.selected_people, person_id) do
+        MapSet.delete(socket.assigns.selected_people, person_id)
+      else
+        MapSet.put(socket.assigns.selected_people, person_id)
+      end
+
+    {:noreply, assign(socket, :selected_people, selected_people)}
+  end
+
+  def handle_event("open_bulk_delete_modal", _params, socket) do
+    {:noreply, assign(socket, :confirm_bulk_delete, true)}
+  end
+
+  def handle_event("cancel_bulk_delete", _params, socket) do
+    {:noreply, assign(socket, :confirm_bulk_delete, false)}
+  end
+
+  def handle_event("confirm_bulk_delete", _params, socket) do
+    person_ids = socket.assigns.selected_people |> MapSet.to_list() |> Enum.sort()
+
+    case people_command(:bulk_delete, %{person_ids: person_ids}) do
+      {:ok, %{deleted_count: deleted_count, failed_ids: failed_ids}} ->
+        selected_person = socket.assigns.selected_person
+
+        selected_person =
+          if selected_person && selected_person.id in person_ids do
+            nil
+          else
+            selected_person
+          end
+
+        message =
+          if failed_ids == [] do
+            "Deleted #{deleted_count} people."
+          else
+            "Deleted #{deleted_count} people. Failed: #{Enum.join(failed_ids, ", ")}."
+          end
+
+        {:noreply,
+         socket
+         |> assign(:selected_person, selected_person)
+         |> assign(
+           :person_channels,
+           if(selected_person, do: socket.assigns.person_channels, else: [])
+         )
+         |> assign(:selected_people, MapSet.new())
+         |> assign(:confirm_bulk_delete, false)
+         |> refresh_people()
+         |> put_flash(:info, message)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_bulk_delete, false)
+         |> put_flash(:error, "Bulk delete failed: #{inspect(reason)}")}
+    end
   end
 
   def handle_event("deselect_person", _params, socket) do
@@ -202,7 +269,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     changeset =
       case action do
         "edit" ->
-          person = People.get_person!(params["id"])
+          person = fetch_person!(params["id"])
           Person.update_changeset(person, %{})
 
         _ ->
@@ -252,7 +319,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     changeset =
       case action do
         "edit" ->
-          team = People.get_team!(params["id"])
+          team = fetch_team!(params["id"])
           Team.update_changeset(team, %{})
 
         _ ->
@@ -322,15 +389,18 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   def handle_event("save", %{"person" => attrs}, socket) do
     result =
       case socket.assigns.modal do
-        :edit -> People.update_person(socket.assigns.modal_changeset.data, attrs)
-        _ -> People.create_person(attrs)
+        :edit ->
+          people_command(:update, %{id: socket.assigns.modal_changeset.data.id, attrs: attrs})
+
+        _ ->
+          people_command(:create, %{attrs: attrs})
       end
 
     case result do
       {:ok, _person} ->
         selected =
           if socket.assigns.selected_person do
-            People.get_person_with_channels!(socket.assigns.selected_person.id)
+            fetch_person_with_channels!(socket.assigns.selected_person.id)
           end
 
         {:noreply,
@@ -354,17 +424,20 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     result =
       case socket.assigns.modal do
         :edit ->
-          People.update_channel(socket.assigns.modal_changeset.data, attrs)
+          people_command(:update_channel, %{
+            id: socket.assigns.modal_changeset.data.id,
+            attrs: attrs
+          })
 
         _ ->
           attrs
           |> Map.put("person_id", person_id)
-          |> People.add_channel()
+          |> then(&people_command(:add_channel, %{attrs: &1}))
       end
 
     case result do
       {:ok, _channel} ->
-        person = People.get_person_with_channels!(person_id)
+        person = fetch_person_with_channels!(person_id)
 
         {:noreply,
          socket
@@ -384,15 +457,18 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   def handle_event("save", %{"team" => attrs}, socket) do
     result =
       case socket.assigns.modal do
-        :edit -> People.update_team(socket.assigns.modal_changeset.data, attrs)
-        _ -> People.create_team(attrs)
+        :edit ->
+          people_command(:update_team, %{id: socket.assigns.modal_changeset.data.id, attrs: attrs})
+
+        _ ->
+          people_command(:create_team, %{attrs: attrs})
       end
 
     case result do
       {:ok, _team} ->
         {:noreply,
          socket
-         |> assign(:teams, People.list_teams())
+         |> refresh_teams()
          |> assign(:modal, nil)
          |> assign(:modal_entity, nil)
          |> assign(:modal_changeset, nil)
@@ -419,9 +495,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
         _params,
         %{assigns: %{confirm_delete: %{entity: "person", id: id}}} = socket
       ) do
-    person = People.get_person!(id)
-
-    case People.delete_person(person) do
+    case people_command(:delete, %{id: id}) do
       {:ok, _} ->
         deselect =
           socket.assigns.selected_person && to_string(socket.assigns.selected_person.id) == id
@@ -445,9 +519,9 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       ) do
     channel = Enum.find(socket.assigns.person_channels, &(to_string(&1.id) == id))
 
-    case People.delete_channel(channel) do
+    case people_command(:delete_channel, %{id: channel.id}) do
       {:ok, _} ->
-        person = People.get_person_with_channels!(socket.assigns.selected_person.id)
+        person = fetch_person_with_channels!(socket.assigns.selected_person.id)
 
         {:noreply,
          socket
@@ -466,13 +540,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
         _params,
         %{assigns: %{confirm_delete: %{entity: "team", id: id}}} = socket
       ) do
-    team = People.get_team!(id)
-
-    case People.delete_team(team) do
+    case people_command(:delete_team, %{id: id}) do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(:teams, People.list_teams())
+         |> refresh_teams()
          |> assign(:confirm_delete, nil)
          |> refresh_people()}
 
@@ -490,8 +562,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     if idx && idx > 0 do
       current = Enum.at(channels, idx)
       previous = Enum.at(channels, idx - 1)
-      People.swap_channel_weights(current, previous)
-      person = People.get_person_with_channels!(socket.assigns.selected_person.id)
+      people_command(:swap_channel_weights, %{a_id: current.id, b_id: previous.id})
+      person = fetch_person_with_channels!(socket.assigns.selected_person.id)
 
       {:noreply,
        socket
@@ -509,8 +581,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     if idx && idx < length(channels) - 1 do
       current = Enum.at(channels, idx)
       next = Enum.at(channels, idx + 1)
-      People.swap_channel_weights(current, next)
-      person = People.get_person_with_channels!(socket.assigns.selected_person.id)
+      people_command(:swap_channel_weights, %{a_id: current.id, b_id: next.id})
+      person = fetch_person_with_channels!(socket.assigns.selected_person.id)
 
       {:noreply,
        socket
@@ -529,9 +601,9 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     team_id = String.to_integer(team_id_str)
     person = socket.assigns.selected_person
 
-    case People.assign_team(person, team_id) do
+    case people_command(:assign_team, %{person_id: person.id, team_id: team_id}) do
       {:ok, updated_person} ->
-        person_with_channels = People.get_person_with_channels!(updated_person.id)
+        person_with_channels = fetch_person_with_channels!(updated_person.id)
 
         {:noreply,
          socket
@@ -550,14 +622,14 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
     result =
       if team_id in person.team_ids do
-        People.unassign_team(person, team_id)
+        people_command(:unassign_team, %{person_id: person.id, team_id: team_id})
       else
-        People.assign_team(person, team_id)
+        people_command(:assign_team, %{person_id: person.id, team_id: team_id})
       end
 
     case result do
       {:ok, updated_person} ->
-        person_with_channels = People.get_person_with_channels!(updated_person.id)
+        person_with_channels = fetch_person_with_channels!(updated_person.id)
 
         {:noreply,
          socket
@@ -575,13 +647,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   def handle_event("create_and_assign_team", %{"name" => name}, socket) do
     person = socket.assigns.selected_person
 
-    with {:ok, team} <- People.create_team(%{name: name}),
-         {:ok, _} <- People.assign_team(person, team.id) do
-      person_with_channels = People.get_person_with_channels!(person.id)
+    with {:ok, team} <- people_command(:create_team, %{attrs: %{name: name}}),
+         {:ok, _} <- people_command(:assign_team, %{person_id: person.id, team_id: team.id}) do
+      person_with_channels = fetch_person_with_channels!(person.id)
 
       {:noreply,
        socket
-       |> assign(:teams, People.list_teams())
+       |> refresh_teams()
        |> assign(:selected_person, person_with_channels)
        |> assign(:person_channels, person_with_channels.channels)
        |> refresh_people()
@@ -625,11 +697,71 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     }
 
     opts = [page: socket.assigns.page, per_page: socket.assigns.per_page]
-    {people, total} = People.filter_people(filters, opts)
+
+    {people, total} =
+      case people_command(:filter, %{filters: filters, opts: opts}) do
+        {rows, count} when is_list(rows) and is_integer(count) -> {rows, count}
+        _ -> {[], 0}
+      end
+
+    visible_ids = MapSet.new(Enum.map(people, & &1.id))
+    selected_people = MapSet.intersection(socket.assigns.selected_people, visible_ids)
 
     socket
     |> assign(:people, people)
+    |> assign(:selected_people, selected_people)
     |> assign(:total_count, total)
+  end
+
+  defp refresh_teams(socket) do
+    teams =
+      case people_command(:list_teams, %{}) do
+        {:ok, teams} when is_list(teams) -> teams
+        _ -> []
+      end
+
+    assign(socket, :teams, teams)
+  end
+
+  defp people_command(op, params) when is_atom(op) and is_map(params) do
+    Event.new(%{op: op, params: params}, :engine, opts: [action: :people_command])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp fetch_person_with_channels(id) do
+    case people_command(:get_with_channels, %{id: id}) do
+      {:ok, person} -> person
+      _ -> nil
+    end
+  end
+
+  defp fetch_person_with_channels!(id) do
+    case fetch_person_with_channels(id) do
+      nil -> raise Ecto.NoResultsError, queryable: Person
+      person -> person
+    end
+  end
+
+  defp fetch_person!(id) do
+    case people_command(:get, %{id: id}) do
+      {:ok, person} -> person
+      _ -> raise Ecto.NoResultsError, queryable: Person
+    end
+  end
+
+  defp fetch_team!(id) do
+    case people_command(:get_team, %{id: id}) do
+      {:ok, team} -> team
+      _ -> raise Ecto.NoResultsError, queryable: Team
+    end
+  end
+
+  defp search_people(query, exclude_ids) do
+    case people_command(:search, %{query: query, exclude_ids: exclude_ids, limit: 10}) do
+      {:ok, people} when is_list(people) -> people
+      _ -> []
+    end
   end
 
   # ── Components ──────────────────────────────────────────────────────────────
@@ -653,6 +785,37 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
         >
           Cancel
         </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp bulk_delete_modal(assigns) do
+    ~H"""
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl shadow-2xl border border-black/10 w-full max-w-md mx-4">
+        <div class="px-6 py-4 border-b border-black/8">
+          <h3 class="font-mono text-sm font-bold zaq-text-ink">Delete People</h3>
+        </div>
+        <div class="px-6 py-5">
+          <p class="font-mono text-[0.78rem] text-black/70">
+            Delete {MapSet.size(@selected_people)} selected people? This cannot be undone.
+          </p>
+        </div>
+        <div class="px-6 py-4 border-t border-black/8 flex justify-end gap-2">
+          <button
+            phx-click="cancel_bulk_delete"
+            class="font-mono text-[0.72rem] px-3 py-1.5 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            phx-click="confirm_bulk_delete"
+            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            Confirm Delete
+          </button>
+        </div>
       </div>
     </div>
     """
@@ -696,15 +859,25 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     <div>
       <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
         <h2 class="font-mono text-sm font-bold zaq-text-ink">People</h2>
-        <button
-          id="new-person-button"
-          phx-click="open_modal"
-          phx-value-action="new"
-          phx-value-entity="person"
-          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
-        >
-          + New Person
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            :if={MapSet.size(@selected_people) > 0}
+            id="bulk-delete-button"
+            phx-click="open_bulk_delete_modal"
+            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+          >
+            Delete ({MapSet.size(@selected_people)})
+          </button>
+          <button
+            id="new-person-button"
+            phx-click="open_modal"
+            phx-value-action="new"
+            phx-value-entity="person"
+            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
+          >
+            + New Person
+          </button>
+        </div>
       </div>
       <form
         phx-change="filter_people"
@@ -771,6 +944,18 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           phx-click="select_person"
           phx-value-id={person.id}
         >
+          <button
+            type="button"
+            phx-click="toggle_person_selection"
+            phx-value-id={person.id}
+            phx-stop-propagation
+            class="w-4 h-4 rounded border border-black/20 bg-white grid place-items-center flex-shrink-0"
+          >
+            <span
+              :if={MapSet.member?(@selected_people, person.id)}
+              class="w-2.5 h-2.5 rounded-sm bg-[var(--zaq-color-accent)]"
+            />
+          </button>
           <div class="w-9 h-9 rounded-lg zaq-bg-ink-soft grid place-items-center flex-shrink-0 font-mono text-sm font-bold zaq-text-ink-soft">
             {String.first(person.full_name) |> String.upcase()}
           </div>

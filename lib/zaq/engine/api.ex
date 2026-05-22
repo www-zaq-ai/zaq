@@ -10,6 +10,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.PeopleGateway
   alias Zaq.Event
   alias Zaq.InternalBoundaries
   alias Zaq.System
@@ -36,6 +37,16 @@ defmodule Zaq.Engine.Api do
       %{person_id: person_id} ->
         people_module = Keyword.get(event.opts, :people_module, People)
         %{event | response: people_module.get_person(person_id)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :people_command, _context) do
+    case event.request do
+      %{op: op, params: params} when is_atom(op) and is_map(params) ->
+        %{event | response: PeopleGateway.dispatch(op, params)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}

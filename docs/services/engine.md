@@ -122,6 +122,14 @@ Adapter inbound path:
 - `share_conversation/2`, `list_shares/1`, `revoke_share/1` — share link management.
 - `get_conversation_by_token/1` — resolves a conversation from a share token.
 
+### People Command Gateway (`Zaq.Engine.PeopleGateway`)
+- BO People operations are routed through `Zaq.NodeRouter.dispatch/1` to Engine using
+  `action: :people_command`.
+- `Zaq.Engine.Api` validates `%{op: atom(), params: map()}` and delegates to
+  `Zaq.Engine.PeopleGateway.dispatch/2`.
+- Gateway maps operations (`:filter`, `:create`, `:update`, `:delete`, `:bulk_delete`,
+  team/channel operations, etc.) to `Zaq.Accounts.People` domain calls.
+
 ### Conversation Title Generator (`Zaq.Engine.Conversations.TitleGenerator`)
 - Generates a 6-word-max title from the first user message via LLM.
 - Uses `Zaq.Agent.LLM.chat_config/1` and `Zaq.Agent.LLMRunner`.

@@ -205,6 +205,37 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     refute has_element?(view, "[phx-click='delete']")
   end
 
+  test "bulk delete button shows selected count and opens popup", %{conn: conn} do
+    person = person_fixture()
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    refute has_element?(view, "#bulk-delete-button")
+
+    view
+    |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#bulk-delete-button", "Delete (1)")
+
+    view |> element("#bulk-delete-button") |> render_click()
+
+    assert has_element?(view, "[phx-click='confirm_bulk_delete']")
+  end
+
+  test "confirm bulk delete removes selected people", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Bulk Delete Person"})
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view |> element("#bulk-delete-button") |> render_click()
+    view |> element("[phx-click='confirm_bulk_delete']") |> render_click()
+
+    refute has_element?(view, "[phx-click='select_person'][phx-value-id='#{person.id}']")
+  end
+
   # ── Filtering ─────────────────────────────────────────────────────────────
 
   test "filter by name shows only matching people", %{conn: conn} do
