@@ -897,6 +897,12 @@ defmodule ZaqWeb.Components.BOLayout do
             icon: "workflows",
             label: "Workflows",
             active: String.starts_with?(current_path, "/bo/workflows")
+          },
+          %{
+            href: ~p"/bo/triggers",
+            icon: "triggers",
+            label: "Triggers",
+            active: String.starts_with?(current_path, "/bo/triggers")
           }
         ]
       },
@@ -970,7 +976,8 @@ defmodule ZaqWeb.Components.BOLayout do
 
   defp ai_section_active?(current_path) do
     current_path == "/bo/agents" or
-      String.starts_with?(current_path, "/bo/workflows")
+      String.starts_with?(current_path, "/bo/workflows") or
+      String.starts_with?(current_path, "/bo/triggers")
   end
 
   defp communication_section_active?(current_path) do

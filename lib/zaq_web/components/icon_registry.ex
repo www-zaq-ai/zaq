@@ -183,6 +183,18 @@ defmodule ZaqWeb.Components.IconRegistry do
           <circle cx="12" cy="12" r="10" />
           <path d="M12 8v4m0 4h.01" />
         </svg>
+      <% {"nav", "triggers"} -> %>
+        <svg
+          class={@class}
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+        </svg>
       <% _ -> %>
         <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="10" />
