@@ -155,7 +155,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       current_path={@current_path}
       features_version={@features_version}
     >
-      <div class="max-w-5xl mx-auto">
+      <div>
         <%!-- Page header --%>
         <div class="flex items-center justify-between mb-6">
           <div>
