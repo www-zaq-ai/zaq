@@ -49,7 +49,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     "trace_id" => Ecto.UUID.generate()
   }
 
-  defp workflow_fixture(attrs \\ %{}) do
+  defp workflow_fixture(attrs) do
     {:ok, w} =
       Workflows.create_workflow(
         Map.merge(%{name: "Run Workflow", status: "draft", nodes: [@valid_node]}, attrs)
@@ -66,7 +66,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     run
   end
 
-  defp step_run_fixture(run, attrs \\ %{}) do
+  defp step_run_fixture(run, attrs) do
     StepRun
     |> struct()
     |> StepRun.changeset(

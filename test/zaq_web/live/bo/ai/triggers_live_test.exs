@@ -43,7 +43,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
     %{conn: conn}
   end
 
-  defp create_workflow(name \\ "Test Workflow") do
+  defp create_workflow(name) do
     {:ok, w} =
       Workflows.create_workflow(%{
         name: name,
@@ -55,7 +55,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
     w
   end
 
-  defp create_trigger(event_name \\ "test.event") do
+  defp create_trigger(event_name) do
     {:ok, t} = Workflows.create_trigger(%{event_name: event_name})
     t
   end
