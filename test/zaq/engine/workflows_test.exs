@@ -1,8 +1,11 @@
 defmodule Zaq.Engine.WorkflowsTest do
   use Zaq.DataCase, async: true
 
+  import Ecto.Query
+
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Trigger
+  alias Zaq.Repo
   alias Zaq.Test.Stubs
 
   setup do
@@ -441,7 +444,8 @@ defmodule Zaq.Engine.WorkflowsTest do
     test "returns trigger with empty workflows list when none assigned" do
       t = create_trigger(%{event_name: "evt.none"})
       result = Workflows.list_triggers_with_workflows_and_recent_runs()
-      assert [{^t, []}] = result
+      assert [{trigger, []}] = result
+      assert trigger.id == t.id
     end
 
     test "returns workflows assigned to trigger" do
@@ -487,6 +491,10 @@ defmodule Zaq.Engine.WorkflowsTest do
     test "multiple triggers are returned sorted by inserted_at desc" do
       t1 = create_trigger(%{event_name: "evt.first"})
       t2 = create_trigger(%{event_name: "evt.second"})
+
+      # Force t2 to have a strictly later timestamp so ordering is deterministic
+      later = DateTime.add(t1.inserted_at, 1, :second)
+      Repo.update_all(from(t in Trigger, where: t.id == ^t2.id), set: [inserted_at: later])
 
       [{first, _}, {second, _}] = Workflows.list_triggers_with_workflows_and_recent_runs()
       assert first.id == t2.id
