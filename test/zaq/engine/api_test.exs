@@ -392,4 +392,113 @@ defmodule Zaq.Engine.ApiTest do
       assert result.response == {:error, {:invalid_request, request}}
     end)
   end
+
+  # --- :trigger handler ---
+
+  @valid_node %{
+    name: "step",
+    type: "action",
+    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    params: %{},
+    index: 0
+  }
+
+  defp make_workflow(name \\ "W", status \\ "draft") do
+    {:ok, w} =
+      Workflows.create_workflow(%{name: name, status: status, nodes: [@valid_node], edges: []})
+
+    w
+  end
+
+  defp make_trigger(event_name \\ "test.event") do
+    {:ok, t} = Workflows.create_trigger(%{event_name: event_name})
+    t
+  end
+
+  describe "handle_event/3 :trigger" do
+    test "list_with_runs returns all triggers" do
+      make_trigger("evt.a")
+      make_trigger("evt.b")
+      event = Event.new(%{action: "list_with_runs"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert is_list(result.response)
+      assert length(result.response) == 2
+    end
+
+    test "create with valid attrs returns {:ok, trigger}" do
+      event = Event.new(%{action: "create", attrs: %{event_name: "new.event"}}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, trigger} = result.response
+      assert trigger.event_name == "new.event"
+    end
+
+    test "create with invalid attrs returns changeset error" do
+      event = Event.new(%{action: "create", attrs: %{event_name: ""}}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, %Ecto.Changeset{}} = result.response
+    end
+
+    test "create missing attrs key returns invalid_request" do
+      event = Event.new(%{action: "create"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+
+    test "update with valid attrs returns {:ok, updated}" do
+      t = make_trigger("evt.upd")
+      event = Event.new(%{action: "update", trigger: t, attrs: %{enabled: false}}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, updated} = result.response
+      assert updated.enabled == false
+    end
+
+    test "update missing attrs key returns invalid_request" do
+      t = make_trigger()
+      event = Event.new(%{action: "update", trigger: t}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+
+    test "delete removes trigger" do
+      t = make_trigger("evt.del")
+      event = Event.new(%{action: "delete", trigger: t}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, _} = result.response
+      assert Workflows.list_triggers() |> Enum.all?(&(&1.id != t.id))
+    end
+
+    test "assign_workflow links workflow to trigger" do
+      t = make_trigger()
+      w = make_workflow("W", "active")
+      event = Event.new(%{action: "assign_workflow", trigger: t, workflow: w}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, _} = result.response
+      linked = Workflows.list_workflows_for_trigger(t.event_name)
+      assert Enum.any?(linked, &(&1.id == w.id))
+    end
+
+    test "remove_workflow unlinks workflow from trigger" do
+      t = make_trigger()
+      w = make_workflow()
+      Workflows.assign_workflow_to_trigger(t, w)
+      event = Event.new(%{action: "remove_workflow", trigger: t, workflow: w}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, _} = result.response
+    end
+
+    test "list_workflows returns all workflows" do
+      make_workflow("WA")
+      make_workflow("WB")
+      event = Event.new(%{action: "list_workflows"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert is_list(result.response)
+      assert length(result.response) >= 2
+    end
+
+    test "unknown action string returns invalid_request" do
+      event = Event.new(%{action: "unknown_action"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+  end
 end
