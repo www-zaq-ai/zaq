@@ -10,6 +10,7 @@ defmodule Zaq.Engine.SupervisorTest do
     assert spec.strategy == :one_for_one
 
     assert Enum.map(children, & &1.id) == [
+             Zaq.Engine.Workflows.RunRegistry,
              Zaq.Engine.Telemetry.Supervisor,
              Zaq.Engine.IngestionSupervisor,
              Zaq.Engine.RetrievalSupervisor,
