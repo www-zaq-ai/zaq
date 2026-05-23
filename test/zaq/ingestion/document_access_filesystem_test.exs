@@ -9,7 +9,7 @@ defmodule Zaq.Ingestion.DocumentAccessFilesystemTest do
     seed_embedding_config(%{model: "test-model", dimension: "1536"})
 
     tmp =
-      Path.join(System.tmp_dir!(), "doc_access_fs_#{System.unique_integer([:positive])}")
+      Path.join(Path.expand("test/tmp"), "doc_access_fs_#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(tmp)
 

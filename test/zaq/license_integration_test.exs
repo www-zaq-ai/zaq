@@ -45,7 +45,7 @@ defmodule Zaq.License.IntegrationTest do
     File.write!(@private_key_path, String.trim(private_pem))
     File.write!(@public_key_path, String.trim(public_pem))
 
-    tmp_dir = Path.join(System.tmp_dir!(), "zaq_license_test_#{:rand.uniform(100_000)}")
+    tmp_dir = Path.join(Path.expand("test/tmp"), "zaq_license_test_#{:rand.uniform(100_000)}")
     File.mkdir_p!(tmp_dir)
 
     on_exit(fn ->

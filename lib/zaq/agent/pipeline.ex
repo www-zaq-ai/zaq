@@ -46,6 +46,7 @@ defmodule Zaq.Agent.Pipeline do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
+  alias Zaq.NodeRouter
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -193,10 +194,13 @@ defmodule Zaq.Agent.Pipeline do
   # ---------------------------------------------------------------------------
 
   defp do_retrieval(clean_msg, history, opts, _incoming) do
-    case node_router(opts).call(:agent, retrieval_mod(opts), :ask, [
-           clean_msg,
-           [history: history]
-         ]) do
+    case NodeRouter.invoke_via(
+           node_router(opts),
+           :agent,
+           retrieval_mod(opts),
+           :ask,
+           [clean_msg, [history: history]]
+         ) do
       {:ok,
        %{
          "query" => query,

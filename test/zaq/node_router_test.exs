@@ -72,19 +72,19 @@ defmodule Zaq.NodeRouterTest do
     end
   end
 
-  describe "call/4" do
+  describe "invoke/4" do
     test "calls function locally when service runs on local node" do
-      result = NodeRouter.call(:bo, String, :upcase, ["hello"])
+      result = NodeRouter.invoke(:bo, String, :upcase, ["hello"])
       assert result == "HELLO"
     end
 
     test "dispatches to local node for bo role since endpoint is running" do
-      result = NodeRouter.call(:bo, Kernel, :node, [])
+      result = NodeRouter.invoke(:bo, Kernel, :node, [])
       assert result == node()
     end
 
     test "falls back to local apply when role supervisor is not found" do
-      result = NodeRouter.call(:agent, String, :replace, ["abc", "a", "z"])
+      result = NodeRouter.invoke(:agent, String, :replace, ["abc", "a", "z"])
       assert result == "zbc"
     end
 
@@ -102,7 +102,7 @@ defmodule Zaq.NodeRouterTest do
         end
       }
 
-      assert NodeRouter.call(:agent, String, :upcase, ["hello"], runtime) == "HELLO FROM REMOTE"
+      assert NodeRouter.invoke(:agent, String, :upcase, ["hello"], runtime) == "HELLO FROM REMOTE"
     end
 
     test "wraps badrpc failures from remote calls" do
@@ -119,13 +119,13 @@ defmodule Zaq.NodeRouterTest do
         end
       }
 
-      assert NodeRouter.call(:agent, String, :upcase, ["hello"], runtime) ==
+      assert NodeRouter.invoke(:agent, String, :upcase, ["hello"], runtime) ==
                {:error, {:rpc_failed, :remote@host, :timeout}}
     end
 
     test "raises for unknown role" do
       assert_raise KeyError, fn ->
-        NodeRouter.call(:unknown, String, :upcase, ["hello"])
+        NodeRouter.invoke(:unknown, String, :upcase, ["hello"])
       end
     end
   end

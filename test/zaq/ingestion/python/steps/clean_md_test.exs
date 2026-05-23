@@ -5,7 +5,10 @@ defmodule Zaq.Ingestion.Python.Steps.CleanMdTest do
 
   setup do
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_clean_md_test_#{System.unique_integer([:positive])}")
+      Path.join(
+        Path.expand("test/tmp"),
+        "zaq_clean_md_test_#{System.unique_integer([:positive])}"
+      )
 
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)

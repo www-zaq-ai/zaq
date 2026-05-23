@@ -82,6 +82,20 @@ defmodule Zaq.NodeRouter do
     invoke(role, mod, fun, args, %{})
   end
 
+  @doc """
+  Builds an invoke event and dispatches it through the provided router module.
+
+  Useful when callers inject a router module in tests and still want a single
+  event-first invoke helper instead of duplicating event construction.
+  """
+  def invoke_via(router_module, role, mod, fun, args) when is_atom(router_module) do
+    _ = Map.fetch!(@supervisor_map, role)
+
+    Event.new(%{module: mod, function: fun, args: args}, role, opts: [action: :invoke])
+    |> router_module.dispatch()
+    |> unwrap_call_response()
+  end
+
   def invoke(role, mod, fun, args, runtime) when is_map(runtime) do
     _ = Map.fetch!(@supervisor_map, role)
 

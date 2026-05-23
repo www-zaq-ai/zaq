@@ -401,7 +401,9 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
         Zaq.Event.new(%{provider: provider}, :channels, opts: [action: :sync_provider_runtime])
       ).response
     else
-      node_router_mod.call(:channels, channels_mod, :sync_provider_runtime, [provider])
+      NodeRouter.invoke_via(node_router_mod, :channels, channels_mod, :sync_provider_runtime, [
+        provider
+      ])
     end
   end
 
@@ -416,7 +418,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
         )
       ).response
     else
-      node_router_mod.call(:channels, channels_mod, :list_mailboxes, [@imap_provider, config])
+      NodeRouter.invoke_via(node_router_mod, :channels, channels_mod, :list_mailboxes, [
+        @imap_provider,
+        config
+      ])
     end
   end
 

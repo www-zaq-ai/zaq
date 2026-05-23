@@ -99,20 +99,25 @@ defmodule Zaq.HooksTest do
   end
 
   defmodule FakeNodeRouter do
-    def call(role, handler, fun, args) do
-      # Extract test_pid from the payload argument (3rd element of args: [event, payload, ctx])
+    def dispatch(
+          %Zaq.Event{
+            next_hop: %{destination: role},
+            request: %{module: handler, function: fun, args: args}
+          } = event
+        ) do
+      # payload is the 2nd element of args: [hook_event, payload, ctx]
       payload = Enum.at(args, 1, %{})
 
       if dest = Map.get(payload, :notify) do
         send(dest, {:router_called, role, handler, fun, args})
       end
 
-      :ok
+      %{event | response: :ok}
     end
   end
 
   defmodule FailingNodeRouter do
-    def call(_role, _handler, _fun, _args), do: raise("rpc failed")
+    def dispatch(%Zaq.Event{} = _event), do: raise("rpc failed")
   end
 
   defmodule SyncCapture do

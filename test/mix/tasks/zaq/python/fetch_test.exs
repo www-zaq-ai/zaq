@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
     Zaq.FetchPythonHTTPClientStub.clear_responder()
 
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_fetch_python_#{System.unique_integer([:positive])}")
+      Path.join(Path.expand("test/tmp"), "zaq_fetch_python_#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(tmp_dir)
 

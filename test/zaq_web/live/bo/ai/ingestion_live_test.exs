@@ -27,7 +27,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     conn = init_test_session(conn, %{user_id: user.id})
 
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_ingestion_live_#{System.unique_integer([:positive])}")
+      Path.join(
+        Path.expand("test/tmp"),
+        "zaq_ingestion_live_#{System.unique_integer([:positive])}"
+      )
 
     File.mkdir_p!(tmp_dir)
     File.mkdir_p!(Path.join(tmp_dir, "docs/sub"))

@@ -8,13 +8,17 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLiveTest do
   alias Zaq.Engine.Telemetry
 
   defmodule NodeRouterFake do
-    def call(role, mod, fun, args) do
+    def dispatch(%Zaq.Event{} = event) do
       handler = :persistent_term.get({__MODULE__, :handler}, nil)
+      role = event.next_hop.destination
+      mod = event.request.module
+      fun = event.request.function
+      args = event.request.args
 
       if is_function(handler, 4) do
-        handler.(role, mod, fun, args)
+        %{event | response: handler.(role, mod, fun, args)}
       else
-        Zaq.NodeRouter.call(role, mod, fun, args)
+        Zaq.NodeRouter.dispatch(event)
       end
     end
 

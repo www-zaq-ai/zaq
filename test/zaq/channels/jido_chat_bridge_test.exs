@@ -125,8 +125,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
           %{event | response: {:error, :unsupported}}
       end
     end
-
-    def call(role, mod, fun, args), do: Zaq.NodeRouter.call(role, mod, fun, args)
   end
 
   defmodule RealAllActionsNodeRouter do
@@ -136,8 +134,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         node_list_fn: fn -> [] end
       })
     end
-
-    def call(role, mod, fun, args), do: Zaq.NodeRouter.call(role, mod, fun, args)
   end
 
   defmodule CapturingNodeRouter do
