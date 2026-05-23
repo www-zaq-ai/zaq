@@ -107,6 +107,46 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
        }}
     end
 
+    def sheet_inspect(config, params) do
+      send(self(), {:sheet_inspect, config.id, params})
+      {:ok, %{spreadsheet: "sheet-1", tabs: []}}
+    end
+
+    def sheet_get(config, params) do
+      send(self(), {:sheet_get, config.id, params})
+      {:ok, %{range: "Sheet1!A1:B2", values: [["x", "y"]]}}
+    end
+
+    def sheet_create(config, params) do
+      send(self(), {:sheet_create, config.id, params})
+      {:ok, %{spreadsheet_id: "sheet-created"}}
+    end
+
+    def sheet_add_tab(config, params) do
+      send(self(), {:sheet_add_tab, config.id, params})
+      {:ok, %{tab_id: 42, title: "Q2"}}
+    end
+
+    def sheet_update_values(config, params) do
+      send(self(), {:sheet_update_values, config.id, params})
+      {:ok, %{updated_cells: 1}}
+    end
+
+    def sheet_append_values(config, params) do
+      send(self(), {:sheet_append_values, config.id, params})
+      {:ok, %{appended_rows: 1}}
+    end
+
+    def sheet_clear_values(config, params) do
+      send(self(), {:sheet_clear_values, config.id, params})
+      {:ok, %{cleared: true}}
+    end
+
+    def sheet_delete_tab(config, params) do
+      send(self(), {:sheet_delete_tab, config.id, params})
+      {:ok, %{deleted: true}}
+    end
+
     def capability_snapshot(config) do
       send(self(), {:capability_snapshot, config.id})
       {:ok, %{required: [], resolved: %{}, unsupported: [], labels: %{}}}
@@ -194,6 +234,17 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert :ok = DataSourceBridge.teardown_listener(:google_drive, %{"listener_id" => "l1"})
     assert_received {:teardown_listener, "google_drive", %{"listener_id" => "l1"}}
+  end
+
+  describe "download_resource/2 default params" do
+    test "download_resource/2 delegates with default empty params map" do
+      insert_data_source_config(:google_drive)
+
+      assert {:ok, %{ref: "blob-1"}} =
+               DataSourceBridge.download_resource(:google_drive, %{"id" => "r1"})
+
+      assert_received {:download_resource, "google_drive", %{"id" => "r1"}, %{}}
+    end
   end
 
   test "auth_handshake/1 uses default params and delegates" do
@@ -370,6 +421,14 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              :update_item,
              :delete_item,
              :search_items,
+             :sheet_inspect,
+             :sheet_get,
+             :sheet_create,
+             :sheet_add_tab,
+             :sheet_update_values,
+             :sheet_append_values,
+             :sheet_clear_values,
+             :sheet_delete_tab,
              :watch_changes_webhook,
              :receive_change_webhook
            ]
@@ -388,6 +447,240 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert meta[:watch_changes_webhook] == "Register webhook watch for change notifications"
     assert meta[:receive_change_webhook] == "Verify and normalize webhook change payloads"
     assert Enum.all?(meta, fn {_k, v} -> is_binary(v) and String.trim(v) != "" end)
+  end
+
+  describe "spreadsheet wrappers" do
+    test "sheet_inspect delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{spreadsheet: "sheet-1", tabs: []}} =
+               DataSourceBridge.sheet_inspect(:google_drive, %{
+                 "config_id" => config.id,
+                 "spreadsheet_id" => "s1"
+               })
+
+      assert_received {:sheet_inspect, ^config_id,
+                       %{"config_id" => ^config_id, "spreadsheet_id" => "s1"}}
+    end
+
+    test "sheet_get delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{range: "Sheet1!A1:B2", values: [["x", "y"]]}} =
+               DataSourceBridge.sheet_get(:google_drive, %{
+                 "config_id" => config.id,
+                 "spreadsheet_id" => "s1",
+                 "range" => "Sheet1!A1:B2"
+               })
+
+      assert_received {:sheet_get, ^config_id,
+                       %{
+                         "config_id" => ^config_id,
+                         "spreadsheet_id" => "s1",
+                         "range" => "Sheet1!A1:B2"
+                       }}
+    end
+
+    test "sheet_create delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{spreadsheet_id: "sheet-created"}} =
+               DataSourceBridge.sheet_create(:google_drive, %{
+                 "config_id" => config.id,
+                 "title" => "Budget"
+               })
+
+      assert_received {:sheet_create, ^config_id,
+                       %{"config_id" => ^config_id, "title" => "Budget"}}
+    end
+
+    test "sheet_add_tab delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{tab_id: 42, title: "Q2"}} =
+               DataSourceBridge.sheet_add_tab(:google_drive, %{
+                 "config_id" => config.id,
+                 "spreadsheet_id" => "s1",
+                 "title" => "Q2"
+               })
+
+      assert_received {:sheet_add_tab, ^config_id,
+                       %{"config_id" => ^config_id, "spreadsheet_id" => "s1", "title" => "Q2"}}
+    end
+
+    test "sheet_update_values delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{updated_cells: 1}} =
+               DataSourceBridge.sheet_update_values(:google_drive, %{
+                 "config_id" => config.id,
+                 "spreadsheet_id" => "s1",
+                 "range" => "Sheet1!A1",
+                 "values" => [["x"]]
+               })
+
+      assert_received {:sheet_update_values, ^config_id,
+                       %{
+                         "config_id" => ^config_id,
+                         "spreadsheet_id" => "s1",
+                         "range" => "Sheet1!A1",
+                         "values" => [["x"]]
+                       }}
+    end
+
+    test "sheet_append_values delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{appended_rows: 1}} =
+               DataSourceBridge.sheet_append_values(:google_drive, %{
+                 "config_id" => config.id,
+                 "spreadsheet_id" => "s1",
+                 "range" => "Sheet1!A:A",
+                 "values" => [["row"]]
+               })
+
+      assert_received {:sheet_append_values, ^config_id,
+                       %{
+                         "config_id" => ^config_id,
+                         "spreadsheet_id" => "s1",
+                         "range" => "Sheet1!A:A",
+                         "values" => [["row"]]
+                       }}
+    end
+
+    test "sheet_clear_values delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{cleared: true}} =
+               DataSourceBridge.sheet_clear_values(:google_drive, %{
+                 "config_id" => config.id,
+                 "spreadsheet_id" => "s1",
+                 "range" => "Sheet1!A1:B9"
+               })
+
+      assert_received {:sheet_clear_values, ^config_id,
+                       %{
+                         "config_id" => ^config_id,
+                         "spreadsheet_id" => "s1",
+                         "range" => "Sheet1!A1:B9"
+                       }}
+    end
+
+    test "sheet_delete_tab delegates through scoped config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{deleted: true}} =
+               DataSourceBridge.sheet_delete_tab(:google_drive, %{
+                 "config_id" => config.id,
+                 "spreadsheet_id" => "s1",
+                 "sheet_id" => 42
+               })
+
+      assert_received {:sheet_delete_tab, ^config_id,
+                       %{"config_id" => ^config_id, "spreadsheet_id" => "s1", "sheet_id" => 42}}
+    end
+
+    test "spreadsheet wrappers return unsupported when callbacks are not implemented" do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+      })
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, original_channels)
+      end)
+
+      config = insert_data_source_config(:google_drive)
+      base_params = %{"config_id" => config.id, "spreadsheet_id" => "s1"}
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_inspect(:google_drive, Map.put(base_params, "sheet_id", 1))
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_get(
+                 :google_drive,
+                 Map.put(base_params, "range", "Sheet1!A1:B2")
+               )
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_create(
+                 :google_drive,
+                 Map.put(base_params, "title", "Budget")
+               )
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_add_tab(:google_drive, Map.put(base_params, "title", "Q2"))
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_update_values(
+                 :google_drive,
+                 Map.put(base_params, "range", "Sheet1!A1")
+               )
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_append_values(
+                 :google_drive,
+                 Map.put(base_params, "range", "Sheet1!A:A")
+               )
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_clear_values(
+                 :google_drive,
+                 Map.put(base_params, "range", "Sheet1!A1:B9")
+               )
+
+      assert {:error, :unsupported} =
+               DataSourceBridge.sheet_delete_tab(
+                 :google_drive,
+                 Map.put(base_params, "sheet_id", 42)
+               )
+    end
+  end
+
+  describe "normalize_export_formats_map/1" do
+    test "normalize_export_formats_map keeps only non-empty binary mime values and de-duplicates" do
+      input = %{
+        "application/vnd.google-apps.document" => [
+          "text/plain",
+          "",
+          " text/csv ",
+          "text/plain",
+          "   ",
+          nil,
+          123
+        ],
+        "application/vnd.google-apps.sheet" => ["application/pdf", "application/pdf"]
+      }
+
+      assert %{
+               "application/vnd.google-apps.document" => ["text/plain", " text/csv "],
+               "application/vnd.google-apps.sheet" => ["application/pdf"]
+             } = DataSourceBridge.normalize_export_formats_map(input)
+    end
+
+    test "normalize_export_formats_map drops entries with invalid tuple shapes or empty post-filter values" do
+      input = %{
+        123 => ["text/plain"],
+        "bad" => "text/plain",
+        "empty" => ["", "   ", nil]
+      }
+
+      assert DataSourceBridge.normalize_export_formats_map(input) == %{}
+    end
+
+    test "normalize_export_formats_map returns empty map for non-map input" do
+      assert DataSourceBridge.normalize_export_formats_map(nil) == %{}
+      assert DataSourceBridge.normalize_export_formats_map("x") == %{}
+    end
   end
 
   test "download_resource returns unsupported when callback not implemented" do

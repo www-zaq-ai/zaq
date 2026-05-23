@@ -187,6 +187,14 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - Runtime validation of selected tools
 - Capability check via `LLMDB` (`capabilities[:tools]`)
 
+### DataSource Success Payload Contract
+- Any successful DataSource bridge callback must return one of these shapes only:
+  - `{:ok, %Zaq.Contracts.RecordPage{...}}`
+  - `{:ok, %Zaq.Contracts.Record{...}}`
+  - `{:ok, map}` where the map wraps at least one `%Zaq.Contracts.Record{}` or `%Zaq.Contracts.RecordPage{}` value (for example `%{record: %Record{...}}`, `%{result: %RecordPage{...}}`, `%{status: "updated", record: %Record{...}}`).
+- Returning raw provider payload maps as success responses is not allowed.
+- This contract applies to new operations added in any module implementing `@behaviour Zaq.Channels.DataSourceBridge`.
+
 ### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities

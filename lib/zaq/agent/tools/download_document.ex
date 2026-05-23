@@ -33,10 +33,12 @@ defmodule Zaq.Agent.Tools.DownloadDocument do
   def run(%{provider: provider, document_id: document_id} = params, context) do
     request =
       %{"file_id" => document_id}
-      |> DataSourceTool.put_if_present("document_mime_type", Map.get(params, :document_mime_type))
-      |> DataSourceTool.put_if_present("export_mime_type", Map.get(params, :export_mime_type))
-      |> DataSourceTool.put_if_present("config_id", Map.get(params, :config_id))
-      |> then(&%{provider: provider, params: &1})
+      |> DataSourceTool.merge_optional(params, [
+        :document_mime_type,
+        :export_mime_type,
+        :config_id
+      ])
+      |> DataSourceTool.wrap_request(provider)
 
     DataSourceTool.dispatch(
       :data_source_download_document,

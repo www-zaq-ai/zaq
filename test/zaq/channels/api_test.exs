@@ -170,6 +170,64 @@ defmodule Zaq.Channels.ApiTest do
        }}
     end
 
+    def sheet_inspect(provider, params) do
+      send(self(), {:ds_sheet_inspect, provider, params})
+
+      {:ok,
+       %{
+         record: %{
+           id: "s1",
+           kind: :spreadsheet,
+           name: "Budget",
+           attributes: %{"tabs" => [%{"sheet_id" => "0", "title" => "Sheet1"}]}
+         }
+       }}
+    end
+
+    def sheet_add_tab(provider, params) do
+      send(self(), {:ds_sheet_add_tab, provider, params})
+
+      {:ok,
+       %{
+         status: "created",
+         record: %{
+           id: "s1",
+           kind: :spreadsheet,
+           attributes: %{"tab" => %{"sheet_id" => "99", "title" => Map.get(params, "title")}}
+         }
+       }}
+    end
+
+    def sheet_get(provider, params) do
+      send(self(), {:ds_sheet_get, provider, params})
+      {:ok, %{record: %{id: Map.get(params, "spreadsheet_id"), tab: Map.get(params, "tab")}}}
+    end
+
+    def sheet_create(provider, params) do
+      send(self(), {:ds_sheet_create, provider, params})
+      {:ok, %{status: "created", record: %{id: "s-new", kind: :spreadsheet}}}
+    end
+
+    def sheet_update_values(provider, params) do
+      send(self(), {:ds_sheet_update_values, provider, params})
+      {:ok, %{status: "updated", updated_cells: 2}}
+    end
+
+    def sheet_append_values(provider, params) do
+      send(self(), {:ds_sheet_append_values, provider, params})
+      {:ok, %{status: "appended", updated_rows: 1}}
+    end
+
+    def sheet_clear_values(provider, params) do
+      send(self(), {:ds_sheet_clear_values, provider, params})
+      {:ok, %{status: "cleared"}}
+    end
+
+    def sheet_delete_tab(provider, params) do
+      send(self(), {:ds_sheet_delete_tab, provider, params})
+      {:ok, %{status: "deleted"}}
+    end
+
     def list_permissions(provider, params) do
       send(self(), {:ds_list_permissions, provider, params})
       {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
@@ -188,6 +246,13 @@ defmodule Zaq.Channels.ApiTest do
     def handle_webhook(provider, payload) do
       send(self(), {:ds_handle_webhook, provider, payload})
       {:ok, %{provider: provider, handled: true}}
+    end
+  end
+
+  defmodule StubDataSourceBridgeUpdateValuesError do
+    def sheet_update_values(provider, params) do
+      send(self(), {:ds_sheet_update_values_error, provider, params})
+      {:error, :invalid_range}
     end
   end
 
@@ -435,6 +500,180 @@ defmodule Zaq.Channels.ApiTest do
 
     assert {:ok, %{native_types: [_ | _], export_formats_by_native_type: %{}}} = result.response
     assert_received {:ds_export_options, :google_drive, %{"config_id" => "12"}}
+  end
+
+  describe "data source sheet CRUD/value actions" do
+    test "handles data_source_sheet_inspect action" do
+      event =
+        Event.new(%{provider: :google_drive, params: %{"spreadsheet_id" => "s1"}}, :channels,
+          opts: [
+            action: :data_source_sheet_inspect,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_inspect, nil)
+
+      assert {:ok, %{record: %{id: "s1", kind: :spreadsheet}}} =
+               result.response
+
+      assert_received {:ds_sheet_inspect, :google_drive, %{"spreadsheet_id" => "s1"}}
+    end
+
+    test "handles data_source_sheet_get action" do
+      params = %{"spreadsheet_id" => "s1", "tab" => "Sheet1"}
+
+      event =
+        Event.new(%{provider: :google_drive, params: params}, :channels,
+          opts: [
+            action: :data_source_sheet_get,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_get, nil)
+
+      assert result.response == {:ok, %{record: %{id: "s1", tab: "Sheet1"}}}
+      assert_received {:ds_sheet_get, :google_drive, ^params}
+    end
+
+    test "handles data_source_sheet_create action" do
+      params = %{"spreadsheet_id" => "s-new", "title" => "Q1"}
+
+      event =
+        Event.new(%{provider: :google_drive, params: params}, :channels,
+          opts: [
+            action: :data_source_sheet_create,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_create, nil)
+
+      assert result.response ==
+               {:ok, %{status: "created", record: %{id: "s-new", kind: :spreadsheet}}}
+
+      assert_received {:ds_sheet_create, :google_drive, ^params}
+    end
+
+    test "handles data_source_sheet_update_values action" do
+      params = %{"spreadsheet_id" => "s1", "range" => "A1:B1", "values" => [["1", "2"]]}
+
+      event =
+        Event.new(%{provider: :google_drive, params: params}, :channels,
+          opts: [
+            action: :data_source_sheet_update_values,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_update_values, nil)
+
+      assert result.response == {:ok, %{status: "updated", updated_cells: 2}}
+      assert_received {:ds_sheet_update_values, :google_drive, ^params}
+    end
+
+    test "handles data_source_sheet_append_values action" do
+      params = %{"spreadsheet_id" => "s1", "range" => "A1:B1", "values" => [["1", "2"]]}
+
+      event =
+        Event.new(%{provider: :google_drive, params: params}, :channels,
+          opts: [
+            action: :data_source_sheet_append_values,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_append_values, nil)
+
+      assert result.response == {:ok, %{status: "appended", updated_rows: 1}}
+      assert_received {:ds_sheet_append_values, :google_drive, ^params}
+    end
+
+    test "handles data_source_sheet_clear_values action" do
+      params = %{"spreadsheet_id" => "s1", "range" => "A1:B1"}
+
+      event =
+        Event.new(%{provider: :google_drive, params: params}, :channels,
+          opts: [
+            action: :data_source_sheet_clear_values,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_clear_values, nil)
+
+      assert result.response == {:ok, %{status: "cleared"}}
+      assert_received {:ds_sheet_clear_values, :google_drive, ^params}
+    end
+
+    test "data_source_sheet_clear_values accepts empty params map" do
+      event =
+        Event.new(%{provider: :google_drive, params: %{}}, :channels,
+          opts: [
+            action: :data_source_sheet_clear_values,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_clear_values, nil)
+
+      assert result.response == {:ok, %{status: "cleared"}}
+      assert_received {:ds_sheet_clear_values, :google_drive, %{}}
+    end
+
+    test "handles data_source_sheet_delete_tab action" do
+      params = %{"spreadsheet_id" => "s1", "tab_id" => "0"}
+
+      event =
+        Event.new(%{provider: :google_drive, params: params}, :channels,
+          opts: [
+            action: :data_source_sheet_delete_tab,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_delete_tab, nil)
+
+      assert result.response == {:ok, %{status: "deleted"}}
+      assert_received {:ds_sheet_delete_tab, :google_drive, ^params}
+    end
+
+    test "data_source_sheet_update_values passes through bridge error tuple" do
+      params = %{"spreadsheet_id" => "s1", "range" => "A1:B1"}
+
+      event =
+        Event.new(%{provider: :google_drive, params: params}, :channels,
+          opts: [
+            action: :data_source_sheet_update_values,
+            data_source_bridge_module: StubDataSourceBridgeUpdateValuesError
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_update_values, nil)
+
+      assert result.response == {:error, :invalid_range}
+      assert_received {:ds_sheet_update_values_error, :google_drive, ^params}
+    end
+
+    test "handles data_source_sheet_add_tab action" do
+      event =
+        Event.new(
+          %{provider: :google_drive, params: %{"spreadsheet_id" => "s1", "title" => "New Tab"}},
+          :channels,
+          opts: [
+            action: :data_source_sheet_add_tab,
+            data_source_bridge_module: StubDataSourceBridge
+          ]
+        )
+
+      result = Api.handle_event(event, :data_source_sheet_add_tab, nil)
+
+      assert {:ok, %{status: "created", record: %{kind: :spreadsheet}}} = result.response
+
+      assert_received {:ds_sheet_add_tab, :google_drive,
+                       %{"spreadsheet_id" => "s1", "title" => "New Tab"}}
+    end
   end
 
   test "handles data_source_list_permissions action" do

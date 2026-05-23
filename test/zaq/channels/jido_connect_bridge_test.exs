@@ -1055,7 +1055,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # Capability snapshot branches
   # ---------------------------------------------------------------------------
 
-  test "capability_snapshot returns error when actions fail" do
+  test "capability_snapshot degrades to unsupported when actions discovery fails" do
     config = insert_data_source_config(:google_drive)
 
     Application.put_env(
@@ -1064,7 +1064,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       StubJidoConnectActionsFails
     )
 
-    assert {:error, :boom} = JidoConnectBridge.capability_snapshot(config)
+    assert {:ok, snapshot} = JidoConnectBridge.capability_snapshot(config)
+    assert snapshot.resolved == %{}
+    assert :list_items in snapshot.unsupported
+    assert :watch_changes_webhook in snapshot.unsupported
   end
 
   test "capability_snapshot resolves provider capabilities when implementation is present" do
@@ -2757,8 +2760,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubCatalogWithDescribeTool do
-    def tools(provider: provider) do
-      [
+    def tools(opts) when is_list(opts) do
+      provider = Keyword.fetch!(opts, :provider)
+
+      tools = [
         %{
           provider: provider,
           type: :action,
@@ -2768,6 +2773,12 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
           auth_profiles: [:user]
         }
       ]
+
+      case Keyword.get(opts, :type) do
+        nil -> tools
+        :action -> tools
+        _ -> []
+      end
     end
 
     def describe_tool({_provider, "google.drive.files.list"}, _opts) do
@@ -4915,6 +4926,32 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     def triggers(_integration), do: {:ok, []}
   end
 
+  defmodule StubJidoConnectDriveAndSheetsScopes do
+    def tools(provider: :google_drive, type: :action) do
+      [
+        %{
+          provider: :google_drive,
+          id: "google.drive.files.list",
+          type: :action,
+          scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+        }
+      ]
+    end
+
+    def tools(provider: :google_sheets, type: :action) do
+      [
+        %{
+          provider: :google_sheets,
+          id: "google.sheets.values.update",
+          type: :action,
+          scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        }
+      ]
+    end
+
+    def tools(_opts), do: []
+  end
+
   test "provider_required_scopes keeps accumulator when scope resolution fails for one capability" do
     previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
 
@@ -4942,6 +4979,36 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     # The test simply ensures the path doesn't crash
     result = JidoConnectBridge.oauth_default_scopes(%{provider: "google_drive"})
     assert match?({:ok, _}, result)
+  end
+
+  test "oauth_default_scopes merges scopes from resolved drive and sheets capabilities" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_catalog = Application.get_env(:zaq, :jido_connect_bridge_catalog_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: StubIntegration}
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_catalog_module,
+      StubJidoConnectDriveAndSheetsScopes
+    )
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_catalog,
+        do: Application.put_env(:zaq, :jido_connect_bridge_catalog_module, previous_catalog),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_catalog_module)
+    end)
+
+    assert {:ok, scopes} = JidoConnectBridge.oauth_default_scopes(%{provider: "google_drive"})
+
+    assert "https://www.googleapis.com/auth/drive.readonly" in scopes
+    assert "https://www.googleapis.com/auth/spreadsheets" in scopes
   end
 
   # ---------------------------------------------------------------------------

@@ -56,6 +56,14 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback list_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback export_options(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_inspect(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_get(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_create(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_add_tab(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_update_values(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_append_values(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_clear_values(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback sheet_delete_tab(map(), map()) :: {:ok, map()} | {:error, term()}
 
   @required_capabilities [
     :list_items,
@@ -69,6 +77,14 @@ defmodule Zaq.Channels.DataSourceBridge do
     :update_item,
     :delete_item,
     :search_items,
+    :sheet_inspect,
+    :sheet_get,
+    :sheet_create,
+    :sheet_add_tab,
+    :sheet_update_values,
+    :sheet_append_values,
+    :sheet_clear_values,
+    :sheet_delete_tab,
     :watch_changes_webhook,
     :receive_change_webhook
   ]
@@ -85,6 +101,14 @@ defmodule Zaq.Channels.DataSourceBridge do
     update_item: "Edit file",
     delete_item: "Delete a file/folder",
     search_items: "Search for a file",
+    sheet_inspect: "Inspect spreadsheet metadata",
+    sheet_get: "Read sheet values or spreadsheet metadata",
+    sheet_create: "Create a spreadsheet",
+    sheet_add_tab: "Add a tab in a spreadsheet",
+    sheet_update_values: "Update a sheet range",
+    sheet_append_values: "Append rows to a sheet",
+    sheet_clear_values: "Clear a sheet range",
+    sheet_delete_tab: "Delete a tab in a spreadsheet",
     watch_changes_webhook: "Register webhook watch for change notifications",
     receive_change_webhook: "Verify and normalize webhook change payloads"
   }
@@ -310,6 +334,86 @@ defmodule Zaq.Channels.DataSourceBridge do
     else
       {:error, :unsupported} -> {:ok, %{native_types: [], export_formats_by_native_type: %{}}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Reads spreadsheet data through the configured DataSource bridge."
+  @spec sheet_inspect(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_inspect(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_inspect, 2) || {:error, :unsupported} do
+      bridge.sheet_inspect(config, params)
+    end
+  end
+
+  @doc "Reads spreadsheet data through the configured DataSource bridge."
+  @spec sheet_get(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_get(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_get, 2) || {:error, :unsupported} do
+      bridge.sheet_get(config, params)
+    end
+  end
+
+  @doc "Creates a spreadsheet through the configured DataSource bridge."
+  @spec sheet_create(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_create(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_create, 2) || {:error, :unsupported} do
+      bridge.sheet_create(config, params)
+    end
+  end
+
+  @doc "Adds a tab to a spreadsheet through the configured DataSource bridge."
+  @spec sheet_add_tab(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_add_tab(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_add_tab, 2) || {:error, :unsupported} do
+      bridge.sheet_add_tab(config, params)
+    end
+  end
+
+  @doc "Updates values in a spreadsheet through the configured DataSource bridge."
+  @spec sheet_update_values(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_update_values(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_update_values, 2) || {:error, :unsupported} do
+      bridge.sheet_update_values(config, params)
+    end
+  end
+
+  @doc "Appends values in a spreadsheet through the configured DataSource bridge."
+  @spec sheet_append_values(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_append_values(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_append_values, 2) || {:error, :unsupported} do
+      bridge.sheet_append_values(config, params)
+    end
+  end
+
+  @doc "Clears values in a spreadsheet through the configured DataSource bridge."
+  @spec sheet_clear_values(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_clear_values(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_clear_values, 2) || {:error, :unsupported} do
+      bridge.sheet_clear_values(config, params)
+    end
+  end
+
+  @doc "Deletes a spreadsheet tab through the configured DataSource bridge."
+  @spec sheet_delete_tab(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sheet_delete_tab(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :sheet_delete_tab, 2) || {:error, :unsupported} do
+      bridge.sheet_delete_tab(config, params)
     end
   end
 

@@ -25,6 +25,8 @@ defmodule Zaq.Agent.Tools.Error do
     _ -> reason
   end
 
+  defp to_message(%{display_message: message}) when is_binary(message), do: message
+  defp to_message(%{"display_message" => message}) when is_binary(message), do: message
   defp to_message(%{message: message}) when is_binary(message), do: message
   defp to_message(%{"message" => message}) when is_binary(message), do: message
 

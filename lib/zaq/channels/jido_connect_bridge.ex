@@ -48,6 +48,15 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
   alias Zaq.Channels.JidoConnectBridge.WebhookWorker
   alias Zaq.Channels.ProviderCatalog
+
+  alias Zaq.Contracts.Sheets.{
+    CellMatrix,
+    CellRange,
+    SheetMutationResult,
+    SheetTabRef,
+    SpreadsheetRef
+  }
+
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -111,6 +120,137 @@ defmodule Zaq.Channels.JidoConnectBridge do
   def search_files(config, params) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :search_items, params) do
       map_file_page(payload, params)
+    end
+  end
+
+  @impl true
+  def sheet_inspect(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :sheet_inspect, params) do
+      record =
+        build_spreadsheet_record(payload, params,
+          content: nil,
+          extra_attributes: %{"subtype" => "spreadsheet", "tabs" => map_sheet_tabs(payload)}
+        )
+
+      {:ok, %{record: record}}
+    end
+  end
+
+  @impl true
+  def sheet_get(config, params) when is_map(config) and is_map(params) do
+    params = ensure_sheet_get_default_range(params)
+
+    with {:ok, payload} <- invoke_intent(config, :sheet_get, params) do
+      range = map_cell_range(payload, params)
+      matrix = map_cell_matrix(payload)
+
+      record =
+        build_spreadsheet_record(payload, params,
+          content: matrix.values,
+          extra_attributes: %{
+            "subtype" => "spreadsheet",
+            "range" => range.a1,
+            "major_dimension" => range.major_dimension
+          }
+        )
+
+      {:ok, %{record: record}}
+    end
+  end
+
+  @impl true
+  def sheet_create(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :sheet_create, params) do
+      record =
+        build_spreadsheet_record(payload, params,
+          content: nil,
+          extra_attributes: %{"subtype" => "spreadsheet"}
+        )
+
+      {:ok, %{status: "created", record: record}}
+    end
+  end
+
+  @impl true
+  def sheet_add_tab(config, params) when is_map(config) and is_map(params) do
+    case invoke_intent(config, :sheet_add_tab, params) do
+      {:ok, payload} ->
+        sheet_add_tab_success(payload, params)
+
+      {:error, reason} = error ->
+        maybe_retry_sheet_add_with_suffix(config, params, reason, error)
+    end
+  end
+
+  @impl true
+  def sheet_update_values(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :sheet_update_values, params) do
+      mutation = map_sheet_mutation_result(payload)
+
+      record =
+        build_spreadsheet_record(payload, params,
+          content: nil,
+          extra_attributes: %{
+            "subtype" => "spreadsheet",
+            "mutation" => mutation_to_map(mutation)
+          }
+        )
+
+      {:ok, %{status: "updated", record: record}}
+    end
+  end
+
+  @impl true
+  def sheet_append_values(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :sheet_append_values, params) do
+      mutation = map_sheet_mutation_result(payload)
+
+      record =
+        build_spreadsheet_record(payload, params,
+          content: nil,
+          extra_attributes: %{
+            "subtype" => "spreadsheet",
+            "mutation" => mutation_to_map(mutation)
+          }
+        )
+
+      {:ok, %{status: "appended", record: record}}
+    end
+  end
+
+  @impl true
+  def sheet_clear_values(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :sheet_clear_values, params) do
+      mutation = map_sheet_mutation_result(payload)
+
+      record =
+        build_spreadsheet_record(payload, params,
+          content: nil,
+          extra_attributes: %{
+            "subtype" => "spreadsheet",
+            "mutation" => mutation_to_map(mutation)
+          }
+        )
+
+      {:ok, %{status: "cleared", record: record}}
+    end
+  end
+
+  @impl true
+  def sheet_delete_tab(config, params) when is_map(config) and is_map(params) do
+    with {:ok, payload} <- invoke_intent(config, :sheet_delete_tab, params) do
+      tab = map_sheet_tab_ref(payload)
+
+      record =
+        build_spreadsheet_record(payload, params,
+          content: nil,
+          extra_attributes: %{
+            "subtype" => "spreadsheet",
+            "tab" => tab_to_map(tab)
+          }
+        )
+
+      {:ok, %{status: "deleted", record: record}}
     end
   end
 
@@ -213,6 +353,255 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp map_downloaded_document_record(_, _), do: {:error, :unsupported}
 
+  defp map_spreadsheet_ref(payload) when is_map(payload) do
+    source = read_any(payload, [:spreadsheet, "spreadsheet"]) || payload
+
+    %SpreadsheetRef{
+      id:
+        read_stringish(source, [
+          :spreadsheet_id,
+          "spreadsheet_id",
+          :spreadsheetId,
+          "spreadsheetId",
+          :file_id,
+          "file_id",
+          :id,
+          "id"
+        ]) || "unknown",
+      provider: read_stringish(payload, [:provider, "provider"]),
+      title: read_stringish(source, [:title, "title", :name, "name"]),
+      revision: read_stringish(source, [:revision, "revision", :etag, "etag"])
+    }
+  end
+
+  defp map_spreadsheet_ref(_), do: %SpreadsheetRef{id: "unknown"}
+
+  defp map_spreadsheet_ref(payload, params) when is_map(params) do
+    base = map_spreadsheet_ref(payload)
+
+    if base.id == "unknown" do
+      %{
+        base
+        | id: read_stringish(params, [:spreadsheet_id, "spreadsheet_id"]) || "unknown"
+      }
+    else
+      base
+    end
+  end
+
+  defp map_spreadsheet_ref(payload, _), do: map_spreadsheet_ref(payload)
+
+  defp map_sheet_tab_ref(payload) when is_map(payload) do
+    source = read_any(payload, [:sheet, "sheet", :tab, "tab"]) || payload
+
+    source =
+      case read_any(source, [:properties, "properties"]) do
+        props when is_map(props) -> props
+        _ -> source
+      end
+
+    %SheetTabRef{
+      sheet_id:
+        read_stringish(source, [:sheet_id, "sheet_id", :sheetId, "sheetId", :id, "id"]) ||
+          "unknown",
+      title: read_stringish(source, [:title, "title", :name, "name"]),
+      index: read_integer(source, [:index, "index"])
+    }
+  end
+
+  defp map_sheet_tab_ref(_), do: %SheetTabRef{sheet_id: "unknown"}
+
+  defp map_sheet_tabs(payload) when is_map(payload) do
+    case read_any(payload, [:spreadsheet, "spreadsheet"]) do
+      spreadsheet when is_map(spreadsheet) ->
+        case read_any(spreadsheet, [:sheets, "sheets"]) do
+          list when is_list(list) -> Enum.map(list, &map_sheet_tab_ref/1)
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp map_sheet_tabs(_), do: []
+
+  defp maybe_retry_sheet_add_with_suffix(config, params, reason, original_error) do
+    if truthy?(
+         Map.get(params, :auto_suffix_on_conflict) || Map.get(params, "auto_suffix_on_conflict")
+       ) and
+         duplicate_tab_name_error?(reason) do
+      title = read_stringish(params, [:title, "title"]) || "Sheet"
+      retry_title = title <> " (2)"
+
+      retry_params =
+        params
+        |> Map.put(:title, retry_title)
+        |> Map.put("title", retry_title)
+
+      case invoke_intent(config, :sheet_add_tab, retry_params) do
+        {:ok, payload} ->
+          sheet_add_tab_success(payload, retry_params)
+
+        {:error, _} ->
+          original_error
+      end
+    else
+      original_error
+    end
+  end
+
+  defp duplicate_tab_name_error?(%{display_message: message}) when is_binary(message),
+    do: String.contains?(String.downcase(message), "already exists")
+
+  defp duplicate_tab_name_error?(%{"display_message" => message}) when is_binary(message),
+    do: String.contains?(String.downcase(message), "already exists")
+
+  defp duplicate_tab_name_error?(%{message: message}) when is_binary(message),
+    do: String.contains?(String.downcase(message), "already exists")
+
+  defp duplicate_tab_name_error?(%{"message" => message}) when is_binary(message),
+    do: String.contains?(String.downcase(message), "already exists")
+
+  defp duplicate_tab_name_error?(_), do: false
+
+  defp sheet_add_tab_success(payload, params) when is_map(payload) and is_map(params) do
+    tab = map_sheet_tab_ref(payload)
+
+    record =
+      build_spreadsheet_record(payload, params,
+        content: nil,
+        extra_attributes: %{
+          "subtype" => "spreadsheet",
+          "tab" => tab_to_map(tab)
+        }
+      )
+
+    {:ok, %{status: "created", record: record}}
+  end
+
+  defp map_cell_range(payload, params) when is_map(payload) and is_map(params) do
+    source = read_any(payload, [:range, "range"]) || payload
+    requested_range = read_stringish(params, [:range, "range"])
+
+    %CellRange{
+      a1:
+        requested_range ||
+          read_stringish(source, [:a1, "a1", :updated_range, "updated_range", :range, "range"]) ||
+          "Sheet1!A1",
+      major_dimension:
+        read_stringish(source, [
+          :major_dimension,
+          "major_dimension",
+          :majorDimension,
+          "majorDimension"
+        ]) ||
+          "ROWS"
+    }
+  end
+
+  defp map_cell_range(_, _), do: %CellRange{a1: "Sheet1!A1"}
+
+  defp map_cell_matrix(payload) when is_map(payload) do
+    values =
+      read_list(payload, [:values, "values"], [])
+
+    %CellMatrix{values: values}
+  end
+
+  defp map_cell_matrix(_), do: %CellMatrix{values: []}
+
+  defp ensure_sheet_get_default_range(params) when is_map(params) do
+    range = read_stringish(params, [:range, "range"])
+
+    if is_binary(range) and String.trim(range) != "" do
+      params
+    else
+      params
+      |> Map.put(:range, "Sheet1!A1")
+      |> Map.put("range", "Sheet1!A1")
+    end
+  end
+
+  defp build_spreadsheet_record(payload, params, opts)
+       when is_map(payload) and is_map(params) and is_list(opts) do
+    spreadsheet = map_spreadsheet_ref(payload, params)
+
+    content = Keyword.get(opts, :content)
+    extra_attributes = Keyword.get(opts, :extra_attributes, %{})
+
+    %Record{
+      id: spreadsheet.id,
+      kind: :spreadsheet,
+      content: content,
+      name: spreadsheet.title,
+      url:
+        read_stringish(payload, [
+          :spreadsheet_url,
+          "spreadsheet_url",
+          :spreadsheetUrl,
+          "spreadsheetUrl"
+        ]),
+      lifecycle_state: :active,
+      attributes:
+        %{}
+        |> maybe_put_attr("provider", spreadsheet.provider)
+        |> maybe_put_attr("revision", spreadsheet.revision)
+        |> Map.merge(extra_attributes),
+      raw: payload
+    }
+  end
+
+  defp tab_to_map(%SheetTabRef{} = tab) do
+    %{"sheet_id" => tab.sheet_id, "title" => tab.title, "index" => tab.index}
+  end
+
+  defp mutation_to_map(%SheetMutationResult{} = result) do
+    %{
+      "spreadsheet_id" => result.spreadsheet_id,
+      "updated_range" => result.updated_range,
+      "updated_rows" => result.updated_rows,
+      "updated_columns" => result.updated_columns,
+      "updated_cells" => result.updated_cells,
+      "revision" => result.revision,
+      "metadata" => result.metadata
+    }
+  end
+
+  defp map_sheet_mutation_result(payload) when is_map(payload) do
+    source = read_any(payload, [:result, "result", :updates, "updates"]) || payload
+
+    matrix =
+      %CellMatrix{values: read_list(source, [:values, "values"], [])}
+
+    %SheetMutationResult{
+      spreadsheet_id:
+        read_stringish(source, [
+          :spreadsheet_id,
+          "spreadsheet_id",
+          :spreadsheetId,
+          "spreadsheetId"
+        ]),
+      updated_range:
+        read_stringish(source, [:updated_range, "updated_range", :updatedRange, "updatedRange"]),
+      updated_rows:
+        read_integer(source, [:updated_rows, "updated_rows", :updatedRows, "updatedRows"]),
+      updated_columns:
+        read_integer(source, [
+          :updated_columns,
+          "updated_columns",
+          :updatedColumns,
+          "updatedColumns"
+        ]),
+      updated_cells:
+        read_integer(source, [:updated_cells, "updated_cells", :updatedCells, "updatedCells"]),
+      revision: read_stringish(source, [:revision, "revision", :etag, "etag"]),
+      metadata: %{"matrix" => matrix.values}
+    }
+  end
+
+  defp map_sheet_mutation_result(_), do: %SheetMutationResult{}
+
   defp maybe_put_attr(attrs, _key, nil), do: attrs
   defp maybe_put_attr(attrs, key, value), do: Map.put(attrs, key, value)
 
@@ -292,23 +681,21 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def capability_snapshot(config) when is_map(config) do
-    with {:ok, tools} <- provider_tools(config.provider) do
-      {resolved, unsupported} = resolve_capabilities(config.provider, tools)
+    {resolved, unsupported} = resolve_capabilities(config.provider)
 
-      {:ok,
-       %{
-         required: DataSourceBridge.required_capabilities(),
-         resolved: resolved,
-         unsupported: unsupported,
-         labels: DataSourceBridge.capability_meta()
-       }}
-    end
+    {:ok,
+     %{
+       required: DataSourceBridge.required_capabilities(),
+       resolved: resolved,
+       unsupported: unsupported,
+       labels: DataSourceBridge.capability_meta()
+     }}
   end
 
-  defp resolve_capabilities(provider, tools) do
+  defp resolve_capabilities(provider) do
     DataSourceBridge.required_capabilities()
     |> Enum.reduce({%{}, []}, fn capability, {acc_resolved, acc_unsupported} ->
-      case resolve_capability_ref(provider, tools, capability) do
+      case resolve_capability_ref(provider, capability) do
         {:ok, ref} -> {Map.put(acc_resolved, capability, ref), acc_unsupported}
         _ -> {acc_resolved, [capability | acc_unsupported]}
       end
@@ -316,24 +703,30 @@ defmodule Zaq.Channels.JidoConnectBridge do
     |> then(fn {resolved, unsupported} -> {resolved, Enum.reverse(unsupported)} end)
   end
 
-  defp resolve_capability_ref(_provider, tools, :watch_changes_webhook) do
-    case find_webhook_watch_trigger(tools) do
-      nil -> {:error, :unsupported}
-      trigger -> {:ok, trigger.id}
+  defp resolve_capability_ref(provider, :watch_changes_webhook) do
+    with {:ok, tools} <- provider_tools(provider, :watch_changes_webhook) do
+      case find_webhook_watch_trigger(tools) do
+        nil -> {:error, :unsupported}
+        trigger -> {:ok, trigger.id}
+      end
     end
   end
 
-  defp resolve_capability_ref(_provider, tools, :receive_change_webhook) do
-    case find_webhook_watch_trigger(tools) do
-      nil -> {:error, :unsupported}
-      trigger -> {:ok, trigger.id}
+  defp resolve_capability_ref(provider, :receive_change_webhook) do
+    with {:ok, tools} <- provider_tools(provider, :receive_change_webhook) do
+      case find_webhook_watch_trigger(tools) do
+        nil -> {:error, :unsupported}
+        trigger -> {:ok, trigger.id}
+      end
     end
   end
 
-  defp resolve_capability_ref(provider, tools, capability) do
-    case resolve_action_spec(tools, capability, provider) do
-      {:ok, action} -> {:ok, action.id}
-      _ -> {:error, :unsupported}
+  defp resolve_capability_ref(provider, capability) do
+    with {:ok, tools} <- provider_tools(provider, capability) do
+      case resolve_action_spec(tools, capability, provider) do
+        {:ok, action} -> {:ok, action.id}
+        _ -> {:error, :unsupported}
+      end
     end
   end
 
@@ -745,13 +1138,23 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp provider_tools(provider) do
-    provider_key = Bridge.provider_to_bridge_key(to_string(provider))
+  defp provider_tools(provider, capability) do
+    connector_provider =
+      case capability do
+        nil -> Bridge.provider_to_bridge_key(to_string(provider))
+        cap -> ProviderCatalog.connector_provider_for_capability(to_string(provider), cap)
+      end
+
     module = catalog_module()
 
+    tool_type =
+      if capability in [:watch_changes_webhook, :receive_change_webhook], do: nil, else: :action
+
+    tool_opts = [provider: connector_provider] ++ if(tool_type, do: [type: tool_type], else: [])
+
     with true <- module_supports?(module, :tools, 1) || {:error, :unsupported},
-         tools <- module.tools(provider: provider_key) do
-      finalize_provider_tools(tools, provider_key)
+         tools <- module.tools(tool_opts) do
+      finalize_provider_tools(tools, connector_provider)
     end
   rescue
     _ -> {:error, :unsupported}
@@ -797,7 +1200,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp resolve_action(provider, capability, params)
        when capability == :download_items and is_map(params) do
-    with {:ok, tools} <- provider_tools(provider) do
+    with {:ok, tools} <- provider_tools(provider, capability) do
       resolve_action_spec(tools, capability, provider, params)
     end
   end
@@ -1239,7 +1642,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp resolve_watch_trigger(_provider, _mechanism), do: {:error, :unsupported}
 
   defp resolve_webhook_trigger(provider) do
-    with {:ok, tools} <- provider_tools(provider),
+    with {:ok, tools} <- provider_tools(provider, :watch_changes_webhook),
          trigger when not is_nil(trigger) <- find_webhook_watch_trigger(tools) do
       {:ok, trigger}
     else
@@ -1424,7 +1827,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp parse_iso_datetime(_), do: nil
 
   defp resolve_action(provider, capability) do
-    with {:ok, tools} <- provider_tools(provider) do
+    with {:ok, tools} <- provider_tools(provider, capability) do
       resolve_action_spec(tools, capability, provider)
     end
   end
@@ -1469,6 +1872,30 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp resolve_action_spec(tools, :search_items, provider),
     do: resolve_action_by_candidates(tools, provider, :search_items)
 
+  defp resolve_action_spec(tools, :sheet_inspect, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_inspect)
+
+  defp resolve_action_spec(tools, :sheet_get, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_get)
+
+  defp resolve_action_spec(tools, :sheet_create, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_create)
+
+  defp resolve_action_spec(tools, :sheet_add_tab, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_add_tab)
+
+  defp resolve_action_spec(tools, :sheet_update_values, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_update_values)
+
+  defp resolve_action_spec(tools, :sheet_append_values, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_append_values)
+
+  defp resolve_action_spec(tools, :sheet_clear_values, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_clear_values)
+
+  defp resolve_action_spec(tools, :sheet_delete_tab, provider),
+    do: resolve_action_by_candidates(tools, provider, :sheet_delete_tab)
+
   defp resolve_action_spec(_tools, _capability, _provider), do: {:error, :unsupported}
 
   defp resolve_action_spec(tools, :download_items, provider, params)
@@ -1486,42 +1913,52 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp resolve_action_by_candidates(tools, provider, capability)
        when is_list(tools) and not is_nil(provider) do
-    prefix = provider_tool_prefix(provider)
+    suffixes = capability_tool_candidates(capability)
 
-    capability
-    |> capability_tool_candidates(prefix)
-    |> Enum.find_value(fn id -> find_action_by_id(tools, id) end)
-    |> case do
-      nil -> {:error, :unsupported}
-      action -> {:ok, action}
-    end
+    Enum.reduce_while(suffixes, {:error, :unsupported}, fn suffix, _acc ->
+      matches = find_actions_by_suffix(tools, suffix)
+
+      case matches do
+        [action] ->
+          {:halt, {:ok, action}}
+
+        [] ->
+          {:cont, {:error, :unsupported}}
+
+        many ->
+          {:halt,
+           {:error,
+            {:ambiguous_action_resolution,
+             %{
+               provider: provider,
+               capability: capability,
+               suffix: suffix,
+               action_ids: Enum.map(many, & &1.id)
+             }}}}
+      end
+    end)
   end
 
   defp resolve_action_by_candidates(_tools, _provider, _capability), do: {:error, :unsupported}
 
-  defp capability_tool_candidates(:list_items, prefix),
-    do: ["#{prefix}.files.list", "#{prefix}.file.list"]
+  defp capability_tool_candidates(capability),
+    do: ProviderCatalog.capability_action_suffixes(capability)
 
-  defp capability_tool_candidates(:list_principals, prefix),
-    do: ["#{prefix}.permissions.list", "#{prefix}.permission.list"]
+  defp find_actions_by_suffix(tools, suffix) when is_binary(suffix) do
+    Enum.filter(tools, fn
+      %ToolEntry{id: tool_id, type: :action} ->
+        String.ends_with?(tool_id, suffix)
 
-  defp capability_tool_candidates(:get_item_metadata, prefix), do: ["#{prefix}.file.get"]
+      %{id: tool_id} = tool ->
+        is_binary(tool_id) and String.ends_with?(tool_id, suffix) and
+          map_get_atom(tool, [:type, "type"]) == :action
 
-  defp capability_tool_candidates(:list_item_versions, prefix),
-    do: ["#{prefix}.revisions.list", "#{prefix}.revision.list"]
+      _ ->
+        false
+    end)
+  end
 
-  defp capability_tool_candidates(:download_items, prefix), do: ["#{prefix}.file.download"]
-  defp capability_tool_candidates(:export_items, prefix), do: ["#{prefix}.file.export"]
-  defp capability_tool_candidates(:get_export_options, prefix), do: ["#{prefix}.about.get"]
-  defp capability_tool_candidates(:create_item, prefix), do: ["#{prefix}.file.create"]
-  defp capability_tool_candidates(:update_item, prefix), do: ["#{prefix}.file.update"]
-
-  defp capability_tool_candidates(:delete_item, prefix), do: ["#{prefix}.file.delete"]
-
-  defp capability_tool_candidates(:search_items, prefix),
-    do: ["#{prefix}.files.search", "#{prefix}.file.search", "#{prefix}.files.list"]
-
-  defp capability_tool_candidates(_capability, _prefix), do: []
+  defp find_actions_by_suffix(_tools, _suffix), do: []
 
   defp export_requested?(params) when is_map(params) do
     case read_stringish(params, [:export_mime_type, "export_mime_type"]) do
@@ -1554,23 +1991,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
       _ -> params
     end
   end
-
-  defp provider_tool_prefix(provider) do
-    provider
-    |> to_string()
-    |> String.trim()
-    |> String.replace("_", ".")
-  end
-
-  defp find_action_by_id(tools, id) when is_list(tools) and is_binary(id) do
-    Enum.find(tools, fn
-      %ToolEntry{id: tool_id, type: :action} -> tool_id == id
-      %{id: tool_id} = tool -> tool_id == id and map_get_atom(tool, [:type, "type"]) == :action
-      _ -> false
-    end)
-  end
-
-  defp find_action_by_id(_tools, _id), do: nil
 
   defp find_webhook_watch_trigger(tools) do
     Enum.find(tools, &match_webhook_watch_trigger?/1)
@@ -1606,27 +2026,24 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp owner_type_profile_candidates(_), do: [:user]
 
   defp provider_required_scopes(provider) do
-    with {:ok, tools} <- provider_tools(provider),
-         {:ok, snapshot} <- capability_snapshot(%{provider: provider}),
-         scopes <- collect_required_scopes(tools, snapshot, provider) do
+    with {:ok, snapshot} <- capability_snapshot(%{provider: provider}),
+         scopes <- collect_required_scopes(snapshot, provider) do
       scopes
     else
       _ -> nil
     end
   end
 
-  defp collect_required_scopes(tools, %{resolved: resolved}, provider)
-       when is_list(tools) and is_map(resolved) do
-    provider_ref = provider || map_get_atom(List.first(tools), [:provider, "provider"])
+  defp collect_required_scopes(%{resolved: resolved}, provider) when is_map(resolved) do
+    {scopes, _cache} =
+      resolved
+      |> Map.keys()
+      |> Enum.reduce({[], %{}}, fn capability, {acc_scopes, cache} ->
+        {capability_scopes, cache} = collect_capability_scopes(provider, capability, cache)
+        {acc_scopes ++ capability_scopes, cache}
+      end)
 
-    resolved
-    |> Map.keys()
-    |> Enum.reduce([], fn capability, acc ->
-      case resolve_action_spec(tools, capability, provider_ref) do
-        {:ok, action} -> acc ++ List.wrap(Map.get(action, :scopes, []))
-        _ -> acc
-      end
-    end)
+    scopes
     |> Enum.map(fn
       scope when is_binary(scope) -> String.trim(scope)
       scope when is_atom(scope) -> scope |> to_string() |> String.trim()
@@ -1634,6 +2051,47 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
+  end
+
+  defp collect_required_scopes(_, _), do: []
+
+  defp collect_capability_scopes(_provider, capability, cache)
+       when capability in [:watch_changes_webhook, :receive_change_webhook],
+       do: {[], cache}
+
+  defp collect_capability_scopes(provider, capability, cache) do
+    if ProviderCatalog.capability_action_suffixes(capability) == [] do
+      {[], cache}
+    else
+      {tools, cache} = tools_for_capability(provider, capability, cache)
+
+      scopes =
+        case resolve_action_spec(tools, capability, provider) do
+          {:ok, action} -> List.wrap(Map.get(action, :scopes, []))
+          _ -> []
+        end
+
+      {scopes, cache}
+    end
+  end
+
+  defp tools_for_capability(provider, capability, cache) when is_map(cache) do
+    connector_provider =
+      ProviderCatalog.connector_provider_for_capability(to_string(provider), capability)
+
+    case Map.fetch(cache, connector_provider) do
+      {:ok, tools} ->
+        {tools, cache}
+
+      :error ->
+        tools =
+          case provider_tools(provider, capability) do
+            {:ok, list} when is_list(list) -> list
+            _ -> []
+          end
+
+        {tools, Map.put(cache, connector_provider, tools)}
+    end
   end
 
   defp build_stats_from_resources(resources) when is_list(resources) do

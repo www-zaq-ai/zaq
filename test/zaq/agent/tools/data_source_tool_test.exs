@@ -72,4 +72,14 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
              |> DataSourceTool.put_if_present("config_id", "7")
              |> DataSourceTool.put_if_present("path", nil)
   end
+
+  test "put_many_if_present/2 adds only present values" do
+    assert %{"file_id" => "f1", "config_id" => "7", "range" => "Sheet1!A1"} =
+             %{"file_id" => "f1"}
+             |> DataSourceTool.put_many_if_present([
+               {"config_id", "7"},
+               {"range", "Sheet1!A1"},
+               {"path", nil}
+             ])
+  end
 end

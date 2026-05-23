@@ -21,10 +21,9 @@ defmodule Zaq.Agent.Tools.ListDocuments do
 
   def run(%{provider: provider, path: path} = params, context) do
     request =
-      params
-      |> Map.take([:config_id])
-      |> Enum.into(%{"path" => path}, fn {k, v} -> {Atom.to_string(k), v} end)
-      |> then(&%{provider: provider, params: &1})
+      %{"path" => path}
+      |> DataSourceTool.merge_optional(params, [:config_id])
+      |> DataSourceTool.wrap_request(provider)
 
     DataSourceTool.dispatch(
       :data_source_list_files,

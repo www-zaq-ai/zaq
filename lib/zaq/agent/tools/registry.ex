@@ -63,6 +63,54 @@ defmodule Zaq.Agent.Tools.Registry do
       description: "Update a document by id on a specific datasource provider",
       module: Zaq.Agent.Tools.UpdateDocument
     },
+    %{
+      key: "data_source.get_sheet",
+      label: "Get sheet",
+      description: "Read spreadsheet data from a specific datasource provider",
+      module: Zaq.Agent.Tools.GetSheet
+    },
+    %{
+      key: "data_source.inspect_sheet",
+      label: "Inspect sheet",
+      description: "Inspect spreadsheet metadata from a specific datasource provider",
+      module: Zaq.Agent.Tools.InspectSheet
+    },
+    %{
+      key: "data_source.create_sheet",
+      label: "Create sheet",
+      description: "Create a spreadsheet on a specific datasource provider",
+      module: Zaq.Agent.Tools.CreateSheet
+    },
+    %{
+      key: "data_source.add_sheet_tab",
+      label: "Add sheet tab",
+      description: "Add a tab to a spreadsheet on a specific datasource provider",
+      module: Zaq.Agent.Tools.AddSheetTab
+    },
+    %{
+      key: "data_source.update_sheet_values",
+      label: "Update sheet values",
+      description: "Update values in a spreadsheet range on a specific datasource provider",
+      module: Zaq.Agent.Tools.UpdateSheetValues
+    },
+    %{
+      key: "data_source.append_sheet_values",
+      label: "Append sheet values",
+      description: "Append rows to a spreadsheet range on a specific datasource provider",
+      module: Zaq.Agent.Tools.AppendSheetValues
+    },
+    %{
+      key: "data_source.clear_sheet_values",
+      label: "Clear sheet values",
+      description: "Clear values in a spreadsheet range on a specific datasource provider",
+      module: Zaq.Agent.Tools.ClearSheetValues
+    },
+    %{
+      key: "data_source.delete_sheet_tab",
+      label: "Delete sheet tab",
+      description: "Delete a tab in a spreadsheet on a specific datasource provider",
+      module: Zaq.Agent.Tools.DeleteSheetTab
+    },
     ## Requires permission
     # %{
     #   key: "files.read_file",

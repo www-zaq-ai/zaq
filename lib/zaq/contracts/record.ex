@@ -54,7 +54,7 @@ defmodule Zaq.Contracts.Record do
 
   @type t :: %__MODULE__{
           id: String.t(),
-          kind: atom(),
+          kind: :file | :folder | :permission | :spreadsheet | atom(),
           content: String.t() | [term()] | map() | nil,
           name: String.t() | nil,
           parent_id: String.t() | nil,

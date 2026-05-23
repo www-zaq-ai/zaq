@@ -38,5 +38,24 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   def put_if_present(map, _key, nil), do: map
   def put_if_present(map, key, value), do: Map.put(map, key, value)
 
+  @spec put_many_if_present(map(), [{String.t(), any()}]) :: map()
+  def put_many_if_present(map, entries) when is_map(map) and is_list(entries) do
+    Enum.reduce(entries, map, fn {key, value}, acc ->
+      put_if_present(acc, key, value)
+    end)
+  end
+
+  @spec merge_optional(map(), map(), [atom()]) :: map()
+  def merge_optional(base, params, keys)
+      when is_map(base) and is_map(params) and is_list(keys) do
+    Enum.reduce(keys, base, fn key, acc ->
+      put_if_present(acc, Atom.to_string(key), Map.get(params, key))
+    end)
+  end
+
+  @spec wrap_request(map(), String.t()) :: map()
+  def wrap_request(params, provider) when is_map(params) and is_binary(provider),
+    do: %{provider: provider, params: params}
+
   defp default_on_ok(payload), do: {:ok, payload}
 end

@@ -300,6 +300,86 @@ defmodule Zaq.Channels.Api do
 
   def handle_event(
         %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_inspect,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_inspect(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_get,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_get(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_create,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_create(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_add_tab,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_add_tab(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_update_values,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_update_values(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_append_values,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_append_values(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_clear_values,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_clear_values(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_sheet_delete_tab,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.sheet_delete_tab(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
         :data_source_oauth_authorize_url,
         _context
       )

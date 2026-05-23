@@ -11,8 +11,18 @@ defmodule Zaq.Agent.Tools.ErrorTest do
     assert Error.format(%{message: "request failed"}) == "request failed"
   end
 
+  test "prefers :display_message over :message for atom-key map" do
+    reason = %{message: "internal", display_message: "friendly"}
+    assert Error.format(reason) == "friendly"
+  end
+
   test "uses message from string-key map" do
     assert Error.format(%{"message" => "request failed"}) == "request failed"
+  end
+
+  test "prefers display_message over message for string-key map" do
+    reason = %{"message" => "internal", "display_message" => "friendly"}
+    assert Error.format(reason) == "friendly"
   end
 
   test "formats exception structs using Exception.message/1" do

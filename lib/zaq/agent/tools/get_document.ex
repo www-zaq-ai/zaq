@@ -21,9 +21,9 @@ defmodule Zaq.Agent.Tools.GetDocument do
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
     request =
-      params
-      |> build_params(%{"file_id" => document_id})
-      |> then(&%{provider: provider, params: &1})
+      %{"file_id" => document_id}
+      |> DataSourceTool.merge_optional(params, [:config_id])
+      |> DataSourceTool.wrap_request(provider)
 
     DataSourceTool.dispatch(
       :data_source_get_file,
@@ -31,12 +31,5 @@ defmodule Zaq.Agent.Tools.GetDocument do
       context,
       "Data source document request failed"
     )
-  end
-
-  defp build_params(params, base) do
-    case Map.get(params, :config_id) do
-      nil -> base
-      config_id -> Map.put(base, "config_id", config_id)
-    end
   end
 end

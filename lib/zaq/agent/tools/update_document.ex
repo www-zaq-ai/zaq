@@ -31,13 +31,15 @@ defmodule Zaq.Agent.Tools.UpdateDocument do
   def run(%{provider: provider, document_id: document_id} = params, context) do
     request =
       %{"file_id" => document_id}
-      |> DataSourceTool.put_if_present("name", Map.get(params, :name))
-      |> DataSourceTool.put_if_present("content", Map.get(params, :content))
-      |> DataSourceTool.put_if_present("path", Map.get(params, :path))
-      |> DataSourceTool.put_if_present("parent_id", Map.get(params, :parent_id))
-      |> DataSourceTool.put_if_present("mime_type", Map.get(params, :mime_type))
-      |> DataSourceTool.put_if_present("config_id", Map.get(params, :config_id))
-      |> then(&%{provider: provider, params: &1})
+      |> DataSourceTool.merge_optional(params, [
+        :name,
+        :content,
+        :path,
+        :parent_id,
+        :mime_type,
+        :config_id
+      ])
+      |> DataSourceTool.wrap_request(provider)
 
     DataSourceTool.dispatch(
       :data_source_update_file,

@@ -211,7 +211,11 @@ defmodule Zaq.MixProject do
           end
 
         command = """
-        git --no-pager diff --name-only --diff-filter=AM main...HEAD |
+        {
+        git --no-pager diff --name-only --diff-filter=AM main...HEAD
+        git --no-pager diff --name-only --diff-filter=AM
+        git --no-pager diff --cached --name-only --diff-filter=AM
+        } |
         grep '^lib/.*\\.ex$' |
         sort -u |
         while read -r file; do

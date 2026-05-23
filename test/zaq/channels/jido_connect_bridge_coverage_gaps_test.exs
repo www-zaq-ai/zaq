@@ -505,6 +505,7 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     end)
 
     config = insert_data_source_config(:google_drive)
+
     credential = create_credential!()
     _grant = create_active_grant!(credential, config.id)
 

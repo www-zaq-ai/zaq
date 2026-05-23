@@ -41,7 +41,9 @@
       # If you create your own checks, you must specify the source files for
       # them here, so they can be loaded by Credo before running the analysis.
       #
-      requires: [],
+      requires: [
+        ".credo/checks/**/*.ex"
+      ],
       #
       # If you want to enforce a style guide and need a more traditional linting
       # experience, you can change `strict` to `true` below:
@@ -165,6 +167,10 @@
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []},
           {Credo.Check.Warning.WrongTestFilename, []},
+
+          # Zaq Specific checks - Warnings
+
+          {Zaq.Credo.Check.Warning.DataSourceSuccessContract, []},
 
           # ExSlop - Warnings
           {ExSlop.Check.Warning.BlanketRescue, []},

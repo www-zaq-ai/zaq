@@ -24,8 +24,10 @@ defmodule Zaq.Agent.Tools.SearchDocuments do
   def run(%{provider: provider, query: query} = params, context) do
     request =
       %{"query" => query}
-      |> DataSourceTool.put_if_present("path", Map.get(params, :path))
-      |> DataSourceTool.put_if_present("config_id", Map.get(params, :config_id))
+      |> DataSourceTool.put_many_if_present([
+        {"path", Map.get(params, :path)},
+        {"config_id", Map.get(params, :config_id)}
+      ])
       |> then(&%{provider: provider, params: &1})
 
     DataSourceTool.dispatch(
