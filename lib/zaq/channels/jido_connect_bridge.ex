@@ -488,7 +488,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
       a1:
         requested_range ||
           read_stringish(source, [:a1, "a1", :updated_range, "updated_range", :range, "range"]) ||
-          "Sheet1!A1",
+          "Sheet1",
       major_dimension:
         read_stringish(source, [
           :major_dimension,
@@ -503,13 +503,41 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp map_cell_range(_, _), do: %CellRange{a1: "Sheet1!A1"}
 
   defp map_cell_matrix(payload) when is_map(payload) do
+    values = read_list(payload, [:values, "values"], [])
+
     values =
-      read_list(payload, [:values, "values"], [])
+      if values == [] do
+        payload
+        |> read_any([:value_range, "value_range", :valueRange, "valueRange"])
+        |> nested_values()
+      else
+        values
+      end
+
+    values =
+      if values == [] do
+        payload
+        |> read_any([:result, "result", :data, "data"])
+        |> nested_value_range_values()
+      else
+        values
+      end
 
     %CellMatrix{values: values}
   end
 
   defp map_cell_matrix(_), do: %CellMatrix{values: []}
+
+  defp nested_value_range_values(map) when is_map(map) do
+    map
+    |> read_any([:value_range, "value_range", :valueRange, "valueRange"])
+    |> nested_values()
+  end
+
+  defp nested_value_range_values(_), do: []
+
+  defp nested_values(map) when is_map(map), do: read_list(map, [:values, "values"], [])
+  defp nested_values(_), do: []
 
   defp ensure_sheet_get_default_range(params) when is_map(params) do
     range = read_stringish(params, [:range, "range"])
@@ -518,8 +546,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
       params
     else
       params
-      |> Map.put(:range, "Sheet1!A1")
-      |> Map.put("range", "Sheet1!A1")
+      |> Map.put(:range, "Sheet1")
+      |> Map.put("range", "Sheet1")
     end
   end
 
@@ -694,41 +722,63 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp resolve_capabilities(provider) do
     DataSourceBridge.required_capabilities()
-    |> Enum.reduce({%{}, []}, fn capability, {acc_resolved, acc_unsupported} ->
-      case resolve_capability_ref(provider, capability) do
-        {:ok, ref} -> {Map.put(acc_resolved, capability, ref), acc_unsupported}
-        _ -> {acc_resolved, [capability | acc_unsupported]}
+    |> Enum.reduce({%{}, [], %{}}, fn capability, {acc_resolved, acc_unsupported, cache} ->
+      case resolve_capability_ref(provider, capability, cache) do
+        {{:ok, ref}, cache} -> {Map.put(acc_resolved, capability, ref), acc_unsupported, cache}
+        {_, cache} -> {acc_resolved, [capability | acc_unsupported], cache}
       end
     end)
-    |> then(fn {resolved, unsupported} -> {resolved, Enum.reverse(unsupported)} end)
+    |> then(fn {resolved, unsupported, _cache} -> {resolved, Enum.reverse(unsupported)} end)
   end
 
-  defp resolve_capability_ref(provider, :watch_changes_webhook) do
-    with {:ok, tools} <- provider_tools(provider, :watch_changes_webhook) do
+  defp resolve_capability_ref(provider, :watch_changes_webhook, cache) do
+    with {{:ok, tools}, cache} <- provider_tools_cached(provider, :watch_changes_webhook, cache) do
       case find_webhook_watch_trigger(tools) do
-        nil -> {:error, :unsupported}
-        trigger -> {:ok, trigger.id}
+        nil -> {{:error, :unsupported}, cache}
+        trigger -> {{:ok, trigger.id}, cache}
       end
     end
   end
 
-  defp resolve_capability_ref(provider, :receive_change_webhook) do
-    with {:ok, tools} <- provider_tools(provider, :receive_change_webhook) do
+  defp resolve_capability_ref(provider, :receive_change_webhook, cache) do
+    with {{:ok, tools}, cache} <- provider_tools_cached(provider, :receive_change_webhook, cache) do
       case find_webhook_watch_trigger(tools) do
-        nil -> {:error, :unsupported}
-        trigger -> {:ok, trigger.id}
+        nil -> {{:error, :unsupported}, cache}
+        trigger -> {{:ok, trigger.id}, cache}
       end
     end
   end
 
-  defp resolve_capability_ref(provider, capability) do
-    with {:ok, tools} <- provider_tools(provider, capability) do
+  defp resolve_capability_ref(provider, capability, cache) do
+    with {{:ok, tools}, cache} <- provider_tools_cached(provider, capability, cache) do
       case resolve_action_spec(tools, capability, provider) do
-        {:ok, action} -> {:ok, action.id}
-        _ -> {:error, :unsupported}
+        {:ok, action} -> {{:ok, action.id}, cache}
+        _ -> {{:error, :unsupported}, cache}
       end
     end
   end
+
+  defp provider_tools_cached(provider, capability, cache) when is_map(cache) do
+    connector_provider =
+      ProviderCatalog.connector_provider_for_capability(to_string(provider), capability)
+
+    cache_key = {connector_provider, provider_tools_kind(capability)}
+
+    case Map.fetch(cache, cache_key) do
+      {:ok, result} ->
+        {result, cache}
+
+      :error ->
+        result = provider_tools(provider, capability)
+        {result, Map.put(cache, cache_key, result)}
+    end
+  end
+
+  defp provider_tools_kind(capability)
+       when capability in [:watch_changes_webhook, :receive_change_webhook],
+       do: :trigger
+
+  defp provider_tools_kind(_capability), do: :action
 
   @impl true
   def download_resource(config, resource, params)

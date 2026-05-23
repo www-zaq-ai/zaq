@@ -245,6 +245,60 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
+  defmodule StubJidoConnectSheetGetNestedValueRange do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "google.sheets.values.get",
+           provider: :google_sheets,
+           type: :action,
+           auth_profile: :user,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "google.sheets.values.get", _params, _opts) do
+      {:ok,
+       %{
+         spreadsheet_id: "sheet-1",
+         value_range: %{
+           range: "Sheet1!A1:B2",
+           major_dimension: "ROWS",
+           values: [["A", "B"], ["1", "2"]]
+         }
+       }}
+    end
+  end
+
+  defmodule StubJidoConnectSheetGetMalformedValueRange do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "google.sheets.values.get",
+           provider: :google_sheets,
+           type: :action,
+           auth_profile: :user,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "google.sheets.values.get", _params, _opts) do
+      {:ok,
+       %{
+         spreadsheet_id: "sheet-2",
+         value_range: %{
+           range: "Sheet1!A1:B2",
+           major_dimension: "ROWS",
+           values: "not-a-list"
+         }
+       }}
+    end
+  end
+
   defmodule StubJidoConnectUnsupportedPermissions do
     def actions(_integration) do
       {:ok,
@@ -3232,6 +3286,48 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert params["mime_type"] == "text/plain" or params[:mime_type] == "text/plain"
   end
 
+  test "sheet_get maps nested value_range.values into record content" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectSheetGetNestedValueRange
+    )
+
+    assert {:ok, %{record: record}} =
+             JidoConnectBridge.sheet_get(config, %{
+               "spreadsheet_id" => "sheet-1",
+               "range" => "Sheet1!A1:B2"
+             })
+
+    assert record.content == [["A", "B"], ["1", "2"]]
+    assert record.attributes["range"] == "Sheet1!A1:B2"
+    assert record.attributes["major_dimension"] == "ROWS"
+  end
+
+  test "sheet_get falls back to empty list when nested value_range.values is malformed" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectSheetGetMalformedValueRange
+    )
+
+    assert {:ok, %{record: record}} =
+             JidoConnectBridge.sheet_get(config, %{
+               "spreadsheet_id" => "sheet-2",
+               "range" => "Sheet1!A1:B2"
+             })
+
+    assert record.content == []
+  end
+
   # ---------------------------------------------------------------------------
   # owner_type_profile_candidates variants (lines 867-869)
   # ---------------------------------------------------------------------------
@@ -4952,6 +5048,42 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     def tools(_opts), do: []
   end
 
+  defmodule StubJidoConnectCapabilitySnapshotCatalog do
+    def tools(provider: :google_drive, type: :action) do
+      send(self(), {:catalog_tools, :google_drive, :action})
+
+      [
+        %{provider: :google_drive, id: "google.drive.files.list", type: :action},
+        %{provider: :google_drive, id: "google.drive.permissions.list", type: :action}
+      ]
+    end
+
+    def tools(provider: :google_sheets, type: :action) do
+      send(self(), {:catalog_tools, :google_sheets, :action})
+
+      [
+        %{provider: :google_sheets, id: "google.sheets.spreadsheet.get", type: :action},
+        %{provider: :google_sheets, id: "google.sheets.values.get", type: :action}
+      ]
+    end
+
+    def tools(provider: :google_drive) do
+      send(self(), {:catalog_tools, :google_drive, :trigger})
+
+      [
+        %{
+          provider: :google_drive,
+          id: "google.drive.files.watch",
+          type: :trigger,
+          trigger_kind: :webhook,
+          verb: :watch
+        }
+      ]
+    end
+
+    def tools(_opts), do: []
+  end
+
   test "provider_required_scopes keeps accumulator when scope resolution fails for one capability" do
     previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
 
@@ -5009,6 +5141,41 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     assert "https://www.googleapis.com/auth/drive.readonly" in scopes
     assert "https://www.googleapis.com/auth/spreadsheets" in scopes
+  end
+
+  test "capability_snapshot caches catalog tools by provider and tool kind" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_catalog = Application.get_env(:zaq, :jido_connect_bridge_catalog_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: StubIntegration}
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_catalog_module,
+      StubJidoConnectCapabilitySnapshotCatalog
+    )
+
+    on_exit(fn ->
+      if previous_channels,
+        do: Application.put_env(:zaq, :channels, previous_channels),
+        else: Application.delete_env(:zaq, :channels)
+
+      if previous_catalog,
+        do: Application.put_env(:zaq, :jido_connect_bridge_catalog_module, previous_catalog),
+        else: Application.delete_env(:zaq, :jido_connect_bridge_catalog_module)
+    end)
+
+    assert {:ok, _snapshot} = JidoConnectBridge.capability_snapshot(%{provider: "google_drive"})
+
+    assert_received {:catalog_tools, :google_drive, :action}
+    assert_received {:catalog_tools, :google_sheets, :action}
+    assert_received {:catalog_tools, :google_drive, :trigger}
+
+    refute_received {:catalog_tools, :google_drive, :action}
+    refute_received {:catalog_tools, :google_sheets, :action}
+    refute_received {:catalog_tools, :google_drive, :trigger}
   end
 
   # ---------------------------------------------------------------------------

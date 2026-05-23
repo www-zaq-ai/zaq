@@ -337,7 +337,7 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  @doc "Reads spreadsheet data through the configured DataSource bridge."
+  @doc "Inspects spreadsheet metadata and tabs through the configured DataSource bridge."
   @spec sheet_inspect(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
   def sheet_inspect(provider, params \\ %{}) when is_map(params) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
@@ -347,7 +347,7 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  @doc "Reads spreadsheet data through the configured DataSource bridge."
+  @doc "Reads cell values from a spreadsheet range through the configured DataSource bridge."
   @spec sheet_get(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
   def sheet_get(provider, params \\ %{}) when is_map(params) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),

@@ -24,4 +24,12 @@ defmodule Zaq.Channels.ProviderCatalogTest do
     assert ProviderCatalog.capability_action_suffixes(:sheet_inspect) == ["spreadsheet.get"]
     assert ProviderCatalog.capability_action_suffixes(:sheet_add_tab) == ["sheet.add"]
   end
+
+  test "returns :unkown_provider for unknown provider strings" do
+    assert ProviderCatalog.connector_provider_for_capability(
+             "definitely_unknown_provider",
+             :list_items
+           ) ==
+             :unkown_provider
+  end
 end

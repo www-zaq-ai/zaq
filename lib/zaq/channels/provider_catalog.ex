@@ -74,7 +74,13 @@ defmodule Zaq.Channels.ProviderCatalog do
       do: :google_drive
 
   def connector_provider_for_capability(provider, _capability) when is_binary(provider),
-    do: provider |> String.trim() |> String.to_atom()
+    do: provider |> String.trim() |> to_existing_provider_atom()
+
+  defp to_existing_provider_atom(provider) when is_binary(provider) do
+    String.to_existing_atom(provider)
+  rescue
+    ArgumentError -> :unkown_provider
+  end
 
   @spec capability_action_suffixes(atom()) :: [String.t()]
   def capability_action_suffixes(:list_items), do: ["files.list", "file.list"]

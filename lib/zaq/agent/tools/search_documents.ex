@@ -28,7 +28,7 @@ defmodule Zaq.Agent.Tools.SearchDocuments do
         {"path", Map.get(params, :path)},
         {"config_id", Map.get(params, :config_id)}
       ])
-      |> then(&%{provider: provider, params: &1})
+      |> DataSourceTool.wrap_request(provider)
 
     DataSourceTool.dispatch(
       :data_source_search_files,
