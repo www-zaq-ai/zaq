@@ -7,8 +7,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
-  alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
+  alias ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents
+  alias ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialEvents
+  alias ZaqWeb.Live.BO.System.SystemConfig.ConnectEvents
+  alias ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpers
+  alias ZaqWeb.Live.BO.System.SystemConfig.MCPEvents
+  alias ZaqWeb.Live.BO.System.SystemConfig.MCPFeedback
+  alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -100,8 +106,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         {:noreply,
          socket
          |> assign(:connect_credential_action, :edit)
-         |> assign(:connect_credential_changeset, changeset)
-         |> assign(:connect_credential_form, to_form(changeset, as: :credential))
+         |> ConnectCredentialEvents.apply_changeset(changeset)
          |> assign(:connect_credential_errors, [])
          |> assign(:connect_default_scopes_text, Enum.join(default_scopes, ", "))
          |> assign(:connect_credential_modal, true)}
@@ -112,28 +117,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("close_connect_credential_modal", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:connect_credential_modal, false)
-     |> assign(:connect_credential_changeset, nil)
-     |> assign(:connect_credential_form, nil)
-     |> assign(:connect_credential_errors, [])
-     |> assign(:connect_default_scopes_text, "")}
+    {:noreply, ConnectCredentialEvents.close_modal(socket)}
   end
 
   def handle_event("restore_connect_credential_scopes_defaults", _params, socket) do
     credential = socket.assigns.connect_credential_changeset.data
-    default_scopes = parse_scope_list(socket.assigns.connect_default_scopes_text)
+    default_scopes = ConnectHelpers.parse_scope_list(socket.assigns.connect_default_scopes_text)
 
     changeset =
       engine_connect_change_credential(credential, %{"scopes" => default_scopes})
       |> Map.put(:action, :validate)
 
     {:noreply,
-     socket
-     |> assign(:connect_credential_changeset, changeset)
-     |> assign(:connect_credential_form, to_form(changeset, as: :credential))
-     |> assign(:connect_credential_errors, format_errors(changeset))}
+     ConnectCredentialEvents.apply_changeset_with_errors(socket, changeset, &format_errors/1)}
   end
 
   def handle_event("validate_connect_credential", %{"credential" => params}, socket) do
@@ -141,36 +137,30 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     changeset =
       credential
-      |> engine_connect_change_credential(sanitize_connect_credential_params(params))
+      |> engine_connect_change_credential(ConnectHelpers.sanitize_credential_params(params))
       |> Map.put(:action, :validate)
 
     {:noreply,
-     socket
-     |> assign(:connect_credential_changeset, changeset)
-     |> assign(:connect_credential_form, to_form(changeset, as: :credential))
-     |> assign(:connect_credential_errors, format_errors(changeset))}
+     ConnectCredentialEvents.apply_changeset_with_errors(socket, changeset, &format_errors/1)}
   end
 
   def handle_event("save_connect_credential", %{"credential" => params}, socket) do
     credential = socket.assigns.connect_credential_changeset.data
 
-    case engine_connect_update_credential(credential, sanitize_connect_credential_params(params)) do
+    case engine_connect_update_credential(
+           credential,
+           ConnectHelpers.sanitize_credential_params(params)
+         ) do
       {:ok, _updated} ->
         {:noreply,
          socket
-         |> assign(:connect_credential_modal, false)
-         |> assign(:connect_credential_changeset, nil)
-         |> assign(:connect_credential_form, nil)
-         |> assign(:connect_credential_errors, [])
+         |> ConnectCredentialEvents.close_modal()
          |> load_connect_credentials()
          |> put_flash(:info, "Credential updated.")}
 
       {:error, changeset} ->
         {:noreply,
-         socket
-         |> assign(:connect_credential_changeset, changeset)
-         |> assign(:connect_credential_form, to_form(changeset, as: :credential))
-         |> assign(:connect_credential_errors, format_errors(changeset))}
+         ConnectCredentialEvents.apply_changeset_with_errors(socket, changeset, &format_errors/1)}
     end
   end
 
@@ -186,42 +176,50 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   def handle_event("delete_connect_grant", %{"id" => id}, socket) do
     credential = socket.assigns.selected_connect_credential
 
-    case Enum.find(socket.assigns.selected_connect_grants, &(to_string(&1.id) == to_string(id))) do
-      nil ->
+    case ConnectEvents.run_grant_action(
+           socket.assigns.selected_connect_grants,
+           id,
+           &engine_connect_delete_grant/1
+         ) do
+      :not_found ->
         {:noreply, put_flash(socket, :error, "Grant not found.")}
 
-      grant ->
-        case engine_connect_delete_grant(grant) do
-          {:ok, _} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Grant erased.")
-             |> reload_selected_connect_grants(credential)}
+      {:ok, _grant, _result} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Grant erased.")
+         |> reload_selected_connect_grants(credential)}
 
-          {:error, _changeset} ->
-            {:noreply, put_flash(socket, :error, "Unable to erase grant.")}
-        end
+      {:error, _grant, _error} ->
+        {:noreply, put_flash(socket, :error, "Unable to erase grant.")}
+
+      {:other, _grant, _other} ->
+        {:noreply, put_flash(socket, :error, "Unable to erase grant.")}
     end
   end
 
   def handle_event("trigger_connect_grant_refresh", %{"id" => id}, socket) do
     credential = socket.assigns.selected_connect_credential
 
-    case Enum.find(socket.assigns.selected_connect_grants, &(to_string(&1.id) == to_string(id))) do
-      nil ->
+    case ConnectEvents.run_grant_action(
+           socket.assigns.selected_connect_grants,
+           id,
+           &engine_connect_schedule_refresh/1
+         ) do
+      :not_found ->
         {:noreply, put_flash(socket, :error, "Grant not found.")}
 
-      grant ->
-        case engine_connect_schedule_refresh(grant) do
-          {:ok, _job} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Grant refresh queued.")
-             |> reload_selected_connect_grants(credential)}
+      {:ok, _grant, _result} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Grant refresh queued.")
+         |> reload_selected_connect_grants(credential)}
 
-          {:error, _changeset} ->
-            {:noreply, put_flash(socket, :error, "Unable to queue grant refresh.")}
-        end
+      {:error, _grant, _error} ->
+        {:noreply, put_flash(socket, :error, "Unable to queue grant refresh.")}
+
+      {:other, _grant, _other} ->
+        {:noreply, put_flash(socket, :error, "Unable to queue grant refresh.")}
     end
   end
 
@@ -510,9 +508,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("confirm_delete_ai_credential", _params, socket) do
     result =
-      socket.assigns.ai_credential_id
-      |> engine_get_ai_provider_credential!()
-      |> engine_delete_ai_provider_credential()
+      AICredentialEvents.delete(
+        socket.assigns.ai_credential_id,
+        &engine_get_ai_provider_credential!/1,
+        &engine_delete_ai_provider_credential/1
+      )
 
     case result do
       {:ok, _credential} ->
@@ -541,11 +541,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     previous_provider = socket.assigns.ai_credential_form[:provider].value
 
     params =
-      if params["provider"] != previous_provider do
-        Map.put(params, "endpoint", provider_endpoint(params["provider"]))
-      else
-        params
-      end
+      AICredentialEvents.with_provider_endpoint(params, previous_provider, &provider_endpoint/1)
 
     changeset =
       socket.assigns.ai_credential_action
@@ -558,15 +554,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("save_ai_credential", %{"ai_credential" => params}, socket) do
     result =
-      case socket.assigns.ai_credential_action do
-        :edit ->
-          socket.assigns.ai_credential_id
-          |> engine_get_ai_provider_credential!()
-          |> engine_update_ai_provider_credential(params)
-
-        _ ->
-          engine_create_ai_provider_credential(params)
-      end
+      AICredentialEvents.save(
+        socket.assigns.ai_credential_action,
+        socket.assigns.ai_credential_id,
+        params,
+        &engine_get_ai_provider_credential!/1,
+        &engine_update_ai_provider_credential/2,
+        &engine_create_ai_provider_credential/1
+      )
 
     case result do
       {:ok, _credential} ->
@@ -592,103 +587,47 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── MCP Administration ──────────────────────────────────────────────────
 
   def handle_event("filter_mcp_endpoints", params, socket) do
-    {:noreply,
-     socket
-     |> assign(:mcp_filter_name, Map.get(params, "mcp_filter_name", ""))
-     |> assign(:mcp_filter_type, Map.get(params, "mcp_filter_type", "all"))
-     |> assign(:mcp_filter_status, Map.get(params, "mcp_filter_status", "all"))
-     |> assign(:mcp_page, 1)
-     |> load_mcp_endpoints()}
+    {:noreply, socket |> MCPEvents.apply_filters(params) |> load_mcp_endpoints()}
   end
 
   def handle_event("change_mcp_page", %{"page" => page}, socket) do
-    {:noreply,
-     socket
-     |> assign(:mcp_page, ParseUtils.parse_int(page, socket.assigns.mcp_page))
-     |> load_mcp_endpoints()}
+    {:noreply, socket |> MCPEvents.change_page(page) |> load_mcp_endpoints()}
   end
 
   def handle_event("new_mcp_endpoint", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:mcp_endpoint_action, :new)
-     |> assign(:mcp_endpoint_id, nil)
-     |> assign(:mcp_endpoint_delete_confirm_modal, false)
-     |> assign(:mcp_endpoint_modal, true)
-     |> load_mcp_endpoint_form()}
+    {:noreply, MCPEvents.new_endpoint(socket, &load_mcp_endpoint_form/1)}
   end
 
   def handle_event("edit_mcp_endpoint", %{"id" => id}, socket) do
-    endpoint = agent_get_mcp_endpoint!(id)
-
     {:noreply,
-     socket
-     |> assign(:mcp_endpoint_action, :edit)
-     |> assign(:mcp_endpoint_id, endpoint.id)
-     |> assign(:mcp_endpoint_delete_confirm_modal, false)
-     |> assign(:mcp_endpoint_modal, true)
-     |> assign(
-       :mcp_endpoint_form,
-       to_form(agent_change_mcp_endpoint(endpoint), as: :mcp_endpoint)
-     )
-     |> assign(:mcp_endpoint_rows, mcp_rows(endpoint))}
+     MCPEvents.edit_endpoint(socket, id, &agent_get_mcp_endpoint!/1, &agent_change_mcp_endpoint/1)}
   end
 
   def handle_event("close_mcp_endpoint_modal", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:mcp_endpoint_modal, false)
-     |> assign(:mcp_endpoint_delete_confirm_modal, false)}
+    {:noreply, MCPEvents.close_endpoint_modal(socket)}
   end
 
   def handle_event("open_delete_mcp_endpoint_confirm", _params, socket) do
-    {:noreply, assign(socket, :mcp_endpoint_delete_confirm_modal, true)}
+    {:noreply, MCPEvents.open_delete_confirm(socket)}
   end
 
   def handle_event("cancel_delete_mcp_endpoint", _params, socket) do
-    {:noreply, assign(socket, :mcp_endpoint_delete_confirm_modal, false)}
+    {:noreply, MCPEvents.cancel_delete_confirm(socket)}
   end
 
   def handle_event("confirm_delete_mcp_endpoint", _params, socket) do
-    router = socket.assigns.node_router_module
+    case MCPEvents.delete_endpoint(socket) do
+      {:ok, socket, endpoint_name} ->
+        {:noreply,
+         socket
+         |> load_mcp_endpoints()
+         |> put_flash(:info, "MCP endpoint deleted (#{endpoint_name}).")}
 
-    event =
-      Event.new(%{action: :delete, id: socket.assigns.mcp_endpoint_id}, :agent,
-        opts: [action: :mcp_endpoint_updated]
-      )
-
-    case router.dispatch(event).response do
-      {:ok, %{endpoint: endpoint} = payload} ->
-        socket =
-          socket
-          |> assign(:mcp_endpoint_delete_confirm_modal, false)
-          |> assign(:mcp_endpoint_modal, false)
-          |> load_mcp_endpoints()
-          |> put_flash(:info, "MCP endpoint deleted (#{endpoint.name}).")
-          |> maybe_put_mcp_runtime_warnings(payload)
-
+      {:changeset, socket} ->
         {:noreply, socket}
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply,
-         socket
-         |> assign(:mcp_endpoint_delete_confirm_modal, false)
-         |> assign(
-           :mcp_endpoint_form,
-           to_form(Map.put(changeset, :action, :validate), as: :mcp_endpoint)
-         )}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:mcp_endpoint_delete_confirm_modal, false)
-         |> put_flash(:error, "Failed to delete MCP endpoint: #{inspect(reason)}")}
-
-      other ->
-        {:noreply,
-         socket
-         |> assign(:mcp_endpoint_delete_confirm_modal, false)
-         |> put_flash(:error, "Failed to delete MCP endpoint: #{inspect(other)}")}
+      {:error, socket, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to delete MCP endpoint: #{reason}")}
     end
   end
 
@@ -706,7 +645,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
           socket
           |> load_mcp_endpoints()
           |> put_flash(:info, "Predefined MCP enabled.")
-          |> maybe_put_mcp_runtime_warnings(payload)
+          |> MCPFeedback.maybe_put_runtime_warnings(payload)
 
         predefined =
           endpoint.predefined_id && agent_mcp_predefined_catalog()[endpoint.predefined_id]
@@ -722,7 +661,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
               :mcp_endpoint_form,
               to_form(agent_change_mcp_endpoint(endpoint), as: :mcp_endpoint)
             )
-            |> assign(:mcp_endpoint_rows, mcp_rows(endpoint))
+            |> assign(:mcp_endpoint_rows, MCPRows.rows(endpoint))
           else
             socket
           end
@@ -738,7 +677,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("validate_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
-    {rows, parsed} = build_mcp_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
+    {rows, parsed} = MCPRows.build_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
 
     changeset =
       socket.assigns.mcp_endpoint_action
@@ -753,61 +692,28 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
-    {rows, parsed} = build_mcp_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
+    case MCPEvents.save_endpoint(socket, params) do
+      {:ok, socket, endpoint_name} ->
+        {:noreply,
+         socket
+         |> load_mcp_endpoints()
+         |> put_flash(:info, "MCP endpoint saved (#{endpoint_name}).")}
 
-    request =
-      case socket.assigns.mcp_endpoint_action do
-        :edit ->
-          %{action: :update, id: socket.assigns.mcp_endpoint_id, attrs: parsed}
-
-        _ ->
-          %{action: :create, attrs: parsed}
-      end
-
-    router = socket.assigns.node_router_module
-
-    event =
-      Event.new(request, :agent, opts: [action: :mcp_endpoint_updated])
-
-    result = router.dispatch(event).response
-
-    case result do
-      {:ok, %{endpoint: endpoint} = payload} ->
-        socket =
-          socket
-          |> assign(:mcp_endpoint_modal, false)
-          |> load_mcp_endpoints()
-          |> put_flash(:info, "MCP endpoint saved (#{endpoint.name}).")
-          |> maybe_put_mcp_runtime_warnings(payload)
-
+      {:changeset, socket} ->
         {:noreply, socket}
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply,
-         socket
-         |> assign(
-           :mcp_endpoint_form,
-           to_form(Map.put(changeset, :action, :validate), as: :mcp_endpoint)
-         )
-         |> assign(:mcp_endpoint_rows, rows)}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:mcp_endpoint_rows, rows)
-         |> put_flash(:error, "Failed to save MCP endpoint: #{inspect(reason)}")}
-
-      other ->
-        {:noreply,
-         socket
-         |> assign(:mcp_endpoint_rows, rows)
-         |> put_flash(:error, "Failed to save MCP endpoint: #{inspect(other)}")}
+      {:error, socket, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save MCP endpoint: #{reason}")}
     end
   end
 
   def handle_event("add_mcp_row", %{"collection" => collection}, socket) do
     {:noreply,
-     assign(socket, :mcp_endpoint_rows, add_mcp_row(socket.assigns.mcp_endpoint_rows, collection))}
+     assign(
+       socket,
+       :mcp_endpoint_rows,
+       MCPRows.add_row(socket.assigns.mcp_endpoint_rows, collection)
+     )}
   end
 
   def handle_event("remove_mcp_row", %{"collection" => collection, "index" => index}, socket) do
@@ -815,7 +721,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      assign(
        socket,
        :mcp_endpoint_rows,
-       remove_mcp_row(
+       MCPRows.remove_row(
          socket.assigns.mcp_endpoint_rows,
          collection,
          ParseUtils.parse_int(index, 0)
@@ -824,29 +730,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("test_mcp_endpoint", %{"id" => id}, socket) do
-    endpoint_id = ParseUtils.parse_optional_int(id)
-    router = socket.assigns.node_router_module
-
-    event =
-      Event.new(%{endpoint_id: endpoint_id}, :agent,
-        opts: [
-          action: :mcp_test_list_tools,
-          mcp_module: mcp_module(),
-          mcp_test_opts: [timeout: 5000]
-        ]
-      )
-
-    result = router.dispatch(event)
-
-    case result.response do
-      {:ok, _payload} ->
+    case MCPEvents.test_endpoint(socket, id, &mcp_module/0) do
+      :ok ->
         {:noreply, put_flash(socket, :info, "MCP tools test succeeded.")}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, mcp_test_failure_message(reason))}
-
-      other ->
-        {:noreply, put_flash(socket, :error, "MCP tools test returned: #{inspect(other)}")}
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -919,313 +808,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     socket
     |> assign(:mcp_endpoint_form, to_form(changeset, as: :mcp_endpoint))
-    |> assign(:mcp_endpoint_rows, mcp_rows(%MCP.Endpoint{}))
+    |> assign(:mcp_endpoint_rows, MCPRows.rows(%MCP.Endpoint{}))
   end
 
   defp mcp_endpoint_for_action(:edit, id), do: agent_get_mcp_endpoint!(id)
   defp mcp_endpoint_for_action(_, _), do: %MCP.Endpoint{}
 
-  defp build_mcp_endpoint_payload(params, rows_state) do
-    rows = mcp_rows_from_params(params, rows_state)
-    parsed = parse_mcp_endpoint_params(params, rows)
-    {rows, parsed}
-  end
-
-  defp mcp_rows(endpoint) do
-    %{
-      args: list_to_rows(endpoint.args || []),
-      headers: map_to_rows(endpoint.headers || %{}),
-      secret_headers: secret_map_to_rows(endpoint.secret_headers || %{}),
-      environments: map_to_rows(endpoint.environments || %{}),
-      secret_environments: secret_map_to_rows(endpoint.secret_environments || %{}),
-      settings: Jason.encode!(endpoint.settings || %{})
-    }
-  end
-
-  defp mcp_rows_from_params(params, fallback_rows) do
-    %{
-      args:
-        rows_from_params(
-          Map.get(params, "args_rows"),
-          Map.get(fallback_rows, :args, [blank_arg_row()])
-        ),
-      headers:
-        rows_from_params(
-          Map.get(params, "headers_rows"),
-          Map.get(fallback_rows, :headers, [blank_kv_row()])
-        ),
-      secret_headers:
-        rows_from_params(
-          Map.get(params, "secret_headers_rows"),
-          Map.get(fallback_rows, :secret_headers, [blank_kv_row()])
-        ),
-      environments:
-        rows_from_params(
-          Map.get(params, "environments_rows"),
-          Map.get(fallback_rows, :environments, [blank_kv_row()])
-        ),
-      secret_environments:
-        rows_from_params(
-          Map.get(params, "secret_environments_rows"),
-          Map.get(fallback_rows, :secret_environments, [blank_kv_row()])
-        ),
-      settings: Map.get(params, "settings_text", Map.get(fallback_rows, :settings, "{}"))
-    }
-  end
-
-  defp parse_mcp_endpoint_params(params, rows) do
-    type = Map.get(params, "type", "local")
-
-    base = %{
-      "name" => Map.get(params, "name", ""),
-      "type" => type,
-      "status" => Map.get(params, "status", "disabled"),
-      "timeout_ms" => Map.get(params, "timeout_ms", "5000"),
-      "command" => blank_to_nil(Map.get(params, "command", "")),
-      "url" => blank_to_nil(Map.get(params, "url", "")),
-      "predefined_id" => blank_to_nil(Map.get(params, "predefined_id", "")),
-      "args" => parse_arg_rows(Map.get(rows, :args, [])),
-      "headers" => parse_kv_rows(Map.get(rows, :headers, [])),
-      "secret_headers" => parse_kv_rows(Map.get(rows, :secret_headers, [])),
-      "environments" => parse_kv_rows(Map.get(rows, :environments, [])),
-      "secret_environments" => parse_kv_rows(Map.get(rows, :secret_environments, [])),
-      "settings" => parse_json_map(Map.get(rows, :settings, "{}"))
-    }
-
-    apply_mcp_type_scope(base, type)
-  end
-
-  defp parse_json_map(raw) when is_binary(raw) do
-    case String.trim(raw) do
-      "" ->
-        %{}
-
-      text ->
-        case Jason.decode(text) do
-          {:ok, %{} = map} -> map
-          _ -> %{}
-        end
-    end
-  end
-
-  defp parse_json_map(_), do: %{}
-
-  defp parse_arg_rows(rows) do
-    rows
-    |> Enum.map(fn row -> row["value"] || row[:value] || "" end)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp parse_kv_rows(rows) do
-    Enum.reduce(rows, %{}, fn row, acc ->
-      key = row["key"] || row[:key] || ""
-      value = row["value"] || row[:value] || ""
-      key = String.trim(key)
-      value = String.trim(value)
-
-      if key == "" do
-        acc
-      else
-        Map.put(acc, key, value)
-      end
-    end)
-  end
-
-  defp rows_from_params(nil, fallback), do: normalize_rows(fallback)
-
-  defp rows_from_params(rows_map, fallback) when is_map(rows_map) do
-    rows =
-      rows_map
-      |> Enum.sort_by(fn {idx, _} -> ParseUtils.parse_int(idx, 0) end)
-      |> Enum.map(fn {_idx, row} ->
-        %{
-          "key" => Map.get(row, "key", ""),
-          "value" => Map.get(row, "value", "")
-        }
-      end)
-
-    normalize_rows(if rows == [], do: fallback, else: rows)
-  end
-
-  defp rows_from_params(_other, fallback), do: normalize_rows(fallback)
-
-  defp normalize_rows(rows) when is_list(rows) do
-    rows
-    |> Enum.map(fn row ->
-      %{
-        "key" => row["key"] || row[:key] || "",
-        "value" => row["value"] || row[:value] || ""
-      }
-    end)
-    |> case do
-      [] -> [%{"key" => "", "value" => ""}]
-      list -> list
-    end
-  end
-
-  defp normalize_rows(_), do: [%{"key" => "", "value" => ""}]
-
-  defp list_to_rows(list) when is_list(list) do
-    rows = Enum.map(list, &%{"key" => "", "value" => &1})
-    if rows == [], do: [blank_arg_row()], else: rows
-  end
-
-  defp list_to_rows(_), do: [blank_arg_row()]
-
-  defp map_to_rows(map) when is_map(map) do
-    rows = Enum.map(map, fn {k, v} -> %{"key" => k, "value" => v} end)
-    if rows == [], do: [blank_kv_row()], else: rows
-  end
-
-  defp map_to_rows(_), do: [blank_kv_row()]
-
-  defp secret_map_to_rows(map) when is_map(map) do
-    rows =
-      Enum.map(map, fn {k, v} ->
-        %{"key" => k, "value" => decrypt_secret_for_form(v)}
-      end)
-
-    if rows == [], do: [blank_kv_row()], else: rows
-  end
-
-  defp secret_map_to_rows(_), do: [blank_kv_row()]
-
-  defp decrypt_secret_for_form(value) when is_binary(value) do
-    case EncryptedString.decrypt(value) do
-      {:ok, decrypted} -> decrypted
-      _ -> ""
-    end
-  end
-
-  defp decrypt_secret_for_form(_), do: ""
-
-  defp blank_kv_row, do: %{"key" => "", "value" => ""}
-  defp blank_arg_row, do: %{"key" => "", "value" => ""}
-
-  defp add_mcp_row(rows_map, collection) when is_map(rows_map) do
-    key = collection_to_key(collection)
-    existing = Map.get(rows_map, key, [blank_kv_row()])
-    blank = if key == :args, do: blank_arg_row(), else: blank_kv_row()
-    Map.put(rows_map, key, existing ++ [blank])
-  end
-
-  defp remove_mcp_row(rows_map, collection, index) when is_map(rows_map) do
-    key = collection_to_key(collection)
-    existing = Map.get(rows_map, key, [blank_kv_row()])
-
-    next =
-      existing
-      |> Enum.with_index()
-      |> Enum.reject(fn {_row, idx} -> idx == index end)
-      |> Enum.map(&elem(&1, 0))
-
-    fallback = if key == :args, do: [blank_arg_row()], else: [blank_kv_row()]
-    Map.put(rows_map, key, if(next == [], do: fallback, else: next))
-  end
-
-  defp collection_to_key("args"), do: :args
-  defp collection_to_key("headers"), do: :headers
-  defp collection_to_key("secret_headers"), do: :secret_headers
-  defp collection_to_key("environments"), do: :environments
-  defp collection_to_key("secret_environments"), do: :secret_environments
-  defp collection_to_key(_), do: :headers
-
-  defp apply_mcp_type_scope(attrs, "local") do
-    attrs
-    |> Map.put("url", nil)
-    |> Map.put("headers", %{})
-    |> Map.put("secret_headers", %{})
-  end
-
-  defp apply_mcp_type_scope(attrs, "remote") do
-    attrs
-    |> Map.put("command", nil)
-    |> Map.put("args", [])
-    |> Map.put("environments", %{})
-    |> Map.put("secret_environments", %{})
-  end
-
-  defp apply_mcp_type_scope(attrs, _), do: attrs
-
-  defp blank_to_nil(value) when is_binary(value) do
-    if String.trim(value) == "", do: nil, else: value
-  end
-
-  defp blank_to_nil(value), do: value
-
   defp mcp_module do
     Application.get_env(:zaq, :mcp_test_module, MCP)
   end
-
-  defp mcp_test_failure_message(reason) do
-    cond do
-      mcp_capabilities_not_ready?(reason) ->
-        "MCP tools test failed: server handshake not ready yet (capabilities not set). Please retry in a moment."
-
-      mcp_endpoint_already_registered?(reason) ->
-        "MCP tools test failed: stale test endpoint state detected and was reset. Please retry."
-
-      mcp_unauthorized_error?(reason) ->
-        "MCP tools test failed: unauthorized (401). Please check MCP authentication headers/credentials."
-
-      mcp_runtime_call_exit?(reason) ->
-        "MCP tools test failed: MCP client disconnected during request. Please retry."
-
-      true ->
-        "MCP tools test failed: #{inspect(reason)}"
-    end
-  end
-
-  defp mcp_capabilities_not_ready?(reason) do
-    reason
-    |> inspect()
-    |> String.contains?("Server capabilities not set")
-  end
-
-  defp mcp_endpoint_already_registered?(reason) do
-    reason
-    |> inspect()
-    |> String.contains?("endpoint_already_registered")
-  end
-
-  defp mcp_unauthorized_error?(reason) do
-    rendered = inspect(reason)
-
-    String.contains?(rendered, "http_error, 401") or
-      String.contains?(rendered, "unauthorized") or
-      String.contains?(rendered, "AuthenticateToken authentication failed")
-  end
-
-  defp mcp_runtime_call_exit?(reason) do
-    reason
-    |> inspect()
-    |> String.contains?("mcp_runtime_call_exit")
-  end
-
-  defp maybe_put_mcp_runtime_warnings(socket, payload) when is_map(payload) do
-    warnings = mcp_runtime_warnings(payload)
-
-    if warnings == [] do
-      socket
-    else
-      put_flash(socket, :warning, "MCP runtime warnings: #{inspect(warnings)}")
-    end
-  end
-
-  defp maybe_put_mcp_runtime_warnings(socket, _), do: socket
-
-  defp mcp_runtime_warnings(payload) when is_map(payload) do
-    payload
-    |> mcp_map_get(:runtime, %{})
-    |> mcp_map_get(:warnings, [])
-  end
-
-  defp mcp_map_get(map, key, default) when is_map(map) do
-    Map.get(map, key, Map.get(map, to_string(key), default))
-  end
-
-  defp mcp_map_get(_map, _key, default), do: default
 
   defp load_llm_form(socket) do
     cfg = engine_get_llm_config()
@@ -1638,12 +1229,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> Enum.map(fn agent -> {agent.name, agent.id} end)
   end
 
-  defp sanitize_connect_credential_params(params) when is_map(params) do
-    params
-    |> Map.drop(["provider", "request_format"])
-    |> Map.update("scopes", [], &parse_scope_list/1)
-  end
-
   defp maybe_prefill_scopes(%Ecto.Changeset{} = changeset, default_scopes)
        when is_list(default_scopes) do
     if Ecto.Changeset.get_field(changeset, :scopes, []) in [nil, []] and default_scopes != [] do
@@ -1654,27 +1239,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp maybe_prefill_scopes(changeset, _), do: changeset
-
-  defp parse_scope_list(nil), do: []
-
-  defp parse_scope_list(scopes) when is_list(scopes) do
-    scopes
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp parse_scope_list(scopes) when is_binary(scopes) do
-    scopes
-    |> String.replace("\n", ",")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp parse_scope_list(_), do: []
 
   defp format_errors(%Ecto.Changeset{} = changeset) do
     ZaqWeb.ChangesetErrors.format(changeset,
