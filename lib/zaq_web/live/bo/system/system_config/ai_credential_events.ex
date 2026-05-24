@@ -39,4 +39,38 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
     |> get_credential_fun.()
     |> delete_credential_fun.()
   end
+
+  def open_new_modal(socket, load_form_fun) when is_function(load_form_fun, 1) do
+    socket
+    |> Phoenix.Component.assign(:ai_credential_action, :new)
+    |> Phoenix.Component.assign(:ai_credential_id, nil)
+    |> Phoenix.Component.assign(:ai_credential_modal, true)
+    |> load_form_fun.()
+  end
+
+  def open_edit_modal(socket, credential, change_credential_fun)
+      when is_function(change_credential_fun, 2) do
+    socket
+    |> Phoenix.Component.assign(:ai_credential_action, :edit)
+    |> Phoenix.Component.assign(:ai_credential_id, credential.id)
+    |> Phoenix.Component.assign(:ai_credential_modal, true)
+    |> Phoenix.Component.assign(
+      :ai_credential_form,
+      credential
+      |> change_credential_fun.(%{})
+      |> Phoenix.Component.to_form(as: :ai_credential)
+    )
+  end
+
+  def close_modal(socket) do
+    socket
+    |> Phoenix.Component.assign(:ai_credential_modal, false)
+    |> Phoenix.Component.assign(:ai_credential_delete_confirm_modal, false)
+  end
+
+  def open_delete_confirm(socket),
+    do: Phoenix.Component.assign(socket, :ai_credential_delete_confirm_modal, true)
+
+  def cancel_delete_confirm(socket),
+    do: Phoenix.Component.assign(socket, :ai_credential_delete_confirm_modal, false)
 end

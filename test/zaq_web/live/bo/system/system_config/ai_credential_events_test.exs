@@ -14,6 +14,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     assert result["endpoint"] == "https://openai.example"
   end
 
+  test "with_provider_endpoint/3 returns params unchanged when params is not a map" do
+    params = :invalid_params
+
+    result =
+      AICredentialEvents.with_provider_endpoint(params, "openai", :not_a_function)
+
+    assert result === params
+  end
+
+  test "with_provider_endpoint/3 returns params unchanged when callback arity is invalid" do
+    params = %{"provider" => "openai"}
+
+    result =
+      AICredentialEvents.with_provider_endpoint(
+        params,
+        "anthropic",
+        fn _, _ -> flunk("should not run") end
+      )
+
+    assert result === params
+    refute Map.has_key?(result, "endpoint")
+  end
+
   test "save/6 uses update flow for edit action" do
     result =
       AICredentialEvents.save(

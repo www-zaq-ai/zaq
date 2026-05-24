@@ -12,9 +12,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpers
+  alias ZaqWeb.Live.BO.System.SystemConfig.EmbeddingEvents
+  alias ZaqWeb.Live.BO.System.SystemConfig.GlobalEvents
+  alias ZaqWeb.Live.BO.System.SystemConfig.ImageToTextEvents
+  alias ZaqWeb.Live.BO.System.SystemConfig.LLMEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPEvents
-  alias ZaqWeb.Live.BO.System.SystemConfig.MCPFeedback
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
+  alias ZaqWeb.Live.BO.System.SystemConfig.TelemetryEvents
 
   def mount(_params, _session, socket) do
     {:ok,
@@ -226,12 +230,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── Telemetry ──────────────────────────────────────────────────────────
 
   def handle_event("validate_telemetry", %{"telemetry_config" => params}, socket) do
-    changeset =
-      engine_get_telemetry_config()
-      |> TelemetryConfig.changeset(params)
-      |> Map.put(:action, :validate)
-
-    {:noreply, assign(socket, :telemetry_form, to_form(changeset, as: :telemetry_config))}
+    {:noreply, TelemetryEvents.validate_form(socket, engine_get_telemetry_config(), params)}
   end
 
   def handle_event("save_telemetry", %{"telemetry_config" => params}, socket) do
@@ -245,12 +244,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          |> put_flash(:info, "Telemetry settings saved.")}
 
       {:error, %Ecto.Changeset{} = cs} ->
-        {:noreply,
-         assign(
-           socket,
-           :telemetry_form,
-           to_form(Map.put(cs, :action, :validate), as: :telemetry_config)
-         )}
+        {:noreply, TelemetryEvents.apply_save_error(socket, cs)}
     end
   end
 
@@ -259,7 +253,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       :ok ->
         {:noreply,
          socket
-         |> assign(:global_default_agent_id, engine_get_global_default_agent_id())
+         |> GlobalEvents.apply_default_agent_saved(engine_get_global_default_agent_id())
          |> put_flash(:info, "Global default agent saved.")}
 
       {:error, reason} ->
@@ -273,7 +267,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       :ok ->
         {:noreply,
          socket
-         |> assign(:global_base_url, engine_get_global_base_url() || "")
+         |> GlobalEvents.apply_base_url_saved(engine_get_global_base_url())
          |> put_flash(:info, "Global base URL saved.")}
 
       {:error, reason} ->
@@ -292,34 +286,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     previous_model = socket.assigns.llm_form[:model].value
 
     params =
-      if provider_id != previous_provider do
-        Map.put(params, "path", llm_provider_path(provider_id, model_id))
-      else
-        params
-      end
+      LLMEvents.maybe_update_path(
+        params,
+        provider_id,
+        previous_provider,
+        model_id,
+        &llm_provider_path/2
+      )
 
     prev_bm25 = to_string(socket.assigns.llm_form[:fusion_bm25_weight].value)
     prev_vector = to_string(socket.assigns.llm_form[:fusion_vector_weight].value)
 
-    params =
-      cond do
-        params["fusion_bm25_weight"] != prev_bm25 ->
-          w = clamp_weight(params["fusion_bm25_weight"])
-
-          params
-          |> Map.put("fusion_bm25_weight", w)
-          |> Map.put("fusion_vector_weight", Float.round(1.0 - w, 2))
-
-        params["fusion_vector_weight"] != prev_vector ->
-          w = clamp_weight(params["fusion_vector_weight"])
-
-          params
-          |> Map.put("fusion_vector_weight", w)
-          |> Map.put("fusion_bm25_weight", Float.round(1.0 - w, 2))
-
-        true ->
-          params
-      end
+    params = LLMEvents.adjust_fusion_weights(params, prev_bm25, prev_vector, &clamp_weight/1)
 
     changeset =
       engine_get_llm_config()
@@ -327,11 +305,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       |> Map.put(:action, :validate)
 
     capabilities =
-      if provider_id != previous_provider or model_id != previous_model do
-        llm_model_capabilities(provider_id, model_id)
-      else
-        socket.assigns.llm_capabilities
-      end
+      LLMEvents.resolve_capabilities(
+        provider_id,
+        model_id,
+        previous_provider,
+        previous_model,
+        socket.assigns.llm_capabilities,
+        &llm_model_capabilities/2
+      )
 
     {:noreply,
      socket
@@ -368,11 +349,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("confirm_unlock_embedding", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:embedding_locked, false)
-     |> assign(:embedding_unlock_modal, false)
-     |> assign(:embedding_credential_options, credential_options())}
+    {:noreply, EmbeddingEvents.unlock(socket, &credential_options/0)}
   end
 
   def handle_event("validate_embedding", %{"embedding_config" => params}, socket) do
@@ -401,13 +378,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_embedding", %{"embedding_config" => params}, socket) do
-    if socket.assigns.model_changed do
-      {:noreply,
-       socket
-       |> assign(:embedding_save_confirm_modal, true)
-       |> assign(:pending_embedding_params, params)}
-    else
-      do_save_embedding(socket, params)
+    case EmbeddingEvents.maybe_open_save_confirm(socket, params) do
+      {:confirm, socket} ->
+        {:noreply, socket}
+
+      :save ->
+        do_save_embedding(socket, params)
     end
   end
 
@@ -433,15 +409,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   def handle_event("validate_image_to_text", %{"image_to_text_config" => params}, socket) do
     provider_id = provider_from_credential_id(params["credential_id"])
 
-    changeset =
-      engine_get_image_to_text_config()
-      |> ImageToTextConfig.changeset(params)
-      |> Map.put(:action, :validate)
-
     {:noreply,
-     socket
-     |> assign(:image_to_text_model_options, image_to_text_model_options(provider_id))
-     |> assign(:image_to_text_form, to_form(changeset, as: :image_to_text_config))}
+     ImageToTextEvents.validate_form(
+       socket,
+       engine_get_image_to_text_config(),
+       params,
+       provider_id,
+       &image_to_text_model_options/1
+     )}
   end
 
   def handle_event("save_image_to_text", %{"image_to_text_config" => params}, socket) do
@@ -455,55 +430,37 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          |> put_flash(:info, "Image-to-Text settings saved.")}
 
       {:error, %Ecto.Changeset{} = cs} ->
-        {:noreply,
-         socket
-         |> assign(
-           :image_to_text_form,
-           to_form(Map.put(cs, :action, :validate), as: :image_to_text_config)
-         )}
+        {:noreply, ImageToTextEvents.apply_save_error(socket, cs)}
     end
   end
 
   # ── AI Credentials ─────────────────────────────────────────────────────
 
   def handle_event("new_ai_credential", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:ai_credential_action, :new)
-     |> assign(:ai_credential_id, nil)
-     |> assign(:ai_credential_modal, true)
-     |> load_ai_credential_form()}
+    {:noreply, AICredentialEvents.open_new_modal(socket, &load_ai_credential_form/1)}
   end
 
   def handle_event("edit_ai_credential", %{"id" => id}, socket) do
     credential = engine_get_ai_provider_credential!(id)
 
     {:noreply,
-     socket
-     |> assign(:ai_credential_action, :edit)
-     |> assign(:ai_credential_id, credential.id)
-     |> assign(:ai_credential_modal, true)
-     |> assign(
-       :ai_credential_form,
-       credential
-       |> engine_change_ai_provider_credential(%{})
-       |> to_form(as: :ai_credential)
+     AICredentialEvents.open_edit_modal(
+       socket,
+       credential,
+       &engine_change_ai_provider_credential/2
      )}
   end
 
   def handle_event("close_ai_credential_modal", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:ai_credential_modal, false)
-     |> assign(:ai_credential_delete_confirm_modal, false)}
+    {:noreply, AICredentialEvents.close_modal(socket)}
   end
 
   def handle_event("open_delete_ai_credential_confirm", _params, socket) do
-    {:noreply, assign(socket, :ai_credential_delete_confirm_modal, true)}
+    {:noreply, AICredentialEvents.open_delete_confirm(socket)}
   end
 
   def handle_event("cancel_delete_ai_credential", _params, socket) do
-    {:noreply, assign(socket, :ai_credential_delete_confirm_modal, false)}
+    {:noreply, AICredentialEvents.cancel_delete_confirm(socket)}
   end
 
   def handle_event("confirm_delete_ai_credential", _params, socket) do
@@ -518,8 +475,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:ok, _credential} ->
         {:noreply,
          socket
-         |> assign(:ai_credential_delete_confirm_modal, false)
-         |> assign(:ai_credential_modal, false)
+         |> AICredentialEvents.close_modal()
          |> load_ai_credentials()
          |> load_llm_form()
          |> load_embedding_form()
@@ -529,7 +485,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
          socket
-         |> assign(:ai_credential_delete_confirm_modal, false)
+         |> AICredentialEvents.cancel_delete_confirm()
          |> assign(
            :ai_credential_form,
            to_form(Map.put(changeset, :action, :validate), as: :ai_credential)
@@ -567,7 +523,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:ok, _credential} ->
         {:noreply,
          socket
-         |> assign(:ai_credential_modal, false)
+         |> AICredentialEvents.close_modal()
          |> load_ai_credentials()
          |> load_llm_form()
          |> load_embedding_form()
@@ -632,63 +588,28 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("enable_predefined_mcp", %{"predefined_id" => predefined_id}, socket) do
-    router = socket.assigns.node_router_module
-
-    event =
-      Event.new(%{action: :enable_predefined, predefined_id: predefined_id}, :agent,
-        opts: [action: :mcp_endpoint_updated]
-      )
-
-    case router.dispatch(event).response do
-      {:ok, %{endpoint: endpoint} = payload} ->
-        socket =
-          socket
-          |> load_mcp_endpoints()
-          |> put_flash(:info, "Predefined MCP enabled.")
-          |> MCPFeedback.maybe_put_runtime_warnings(payload)
-
-        predefined =
-          endpoint.predefined_id && agent_mcp_predefined_catalog()[endpoint.predefined_id]
-
-        socket =
-          if is_map(predefined) and predefined[:editable] do
-            socket
-            |> assign(:mcp_endpoint_action, :edit)
-            |> assign(:mcp_endpoint_id, endpoint.id)
-            |> assign(:mcp_endpoint_modal, true)
-            |> assign(:mcp_endpoint_delete_confirm_modal, false)
-            |> assign(
-              :mcp_endpoint_form,
-              to_form(agent_change_mcp_endpoint(endpoint), as: :mcp_endpoint)
-            )
-            |> assign(:mcp_endpoint_rows, MCPRows.rows(endpoint))
-          else
-            socket
-          end
-
-        {:noreply, socket}
+    case MCPEvents.enable_predefined(
+           socket,
+           predefined_id,
+           &agent_mcp_predefined_catalog/0,
+           &agent_change_mcp_endpoint/1
+         ) do
+      {:ok, socket} ->
+        {:noreply, socket |> load_mcp_endpoints() |> put_flash(:info, "Predefined MCP enabled.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to enable MCP: #{inspect(reason)}")}
-
-      other ->
-        {:noreply, put_flash(socket, :error, "Failed to enable MCP: #{inspect(other)}")}
+        {:noreply, put_flash(socket, :error, "Failed to enable MCP: #{reason}")}
     end
   end
 
   def handle_event("validate_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
-    {rows, parsed} = MCPRows.build_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
-
-    changeset =
-      socket.assigns.mcp_endpoint_action
-      |> mcp_endpoint_for_action(socket.assigns.mcp_endpoint_id)
-      |> agent_change_mcp_endpoint(parsed)
-      |> Map.put(:action, :validate)
-
     {:noreply,
-     socket
-     |> assign(:mcp_endpoint_form, to_form(changeset, as: :mcp_endpoint))
-     |> assign(:mcp_endpoint_rows, rows)}
+     MCPEvents.validate_endpoint(
+       socket,
+       params,
+       &mcp_endpoint_for_action/2,
+       &agent_change_mcp_endpoint/2
+     )}
   end
 
   def handle_event("save_mcp_endpoint", %{"mcp_endpoint" => params}, socket) do
@@ -708,25 +629,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("add_mcp_row", %{"collection" => collection}, socket) do
-    {:noreply,
-     assign(
-       socket,
-       :mcp_endpoint_rows,
-       MCPRows.add_row(socket.assigns.mcp_endpoint_rows, collection)
-     )}
+    {:noreply, MCPEvents.add_row(socket, collection)}
   end
 
   def handle_event("remove_mcp_row", %{"collection" => collection, "index" => index}, socket) do
-    {:noreply,
-     assign(
-       socket,
-       :mcp_endpoint_rows,
-       MCPRows.remove_row(
-         socket.assigns.mcp_endpoint_rows,
-         collection,
-         ParseUtils.parse_int(index, 0)
-       )
-     )}
+    {:noreply, MCPEvents.remove_row(socket, collection, index)}
   end
 
   def handle_event("test_mcp_endpoint", %{"id" => id}, socket) do

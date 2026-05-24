@@ -32,4 +32,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpersTest do
     assert sanitized["name"] == "My Credential"
     assert sanitized["scopes"] == ["openid", "email"]
   end
+
+  test "sanitize_credential_params/1 returns default scopes for non-map input" do
+    assert ConnectHelpers.sanitize_credential_params(nil) == %{"scopes" => []}
+    assert ConnectHelpers.sanitize_credential_params("scopes=openid") == %{"scopes" => []}
+    assert ConnectHelpers.sanitize_credential_params([:openid]) == %{"scopes" => []}
+  end
 end

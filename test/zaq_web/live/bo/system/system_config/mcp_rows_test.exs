@@ -15,6 +15,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.MCPRowsTest do
     assert rows.secret_headers == [%{"key" => "Authorization", "value" => "Bearer x"}]
   end
 
+  test "rows/1 falls back to blank rows for invalid input and row types" do
+    expected = %{
+      args: [%{"key" => "", "value" => ""}],
+      headers: [%{"key" => "", "value" => ""}],
+      secret_headers: [%{"key" => "", "value" => ""}],
+      environments: [%{"key" => "", "value" => ""}],
+      secret_environments: [%{"key" => "", "value" => ""}],
+      settings: "{}"
+    }
+
+    assert MCPRows.rows("not_a_map") == expected
+
+    invalid_endpoint = %MCP.Endpoint{
+      args: "bad",
+      headers: "bad",
+      secret_headers: "bad",
+      environments: "bad",
+      secret_environments: "bad"
+    }
+
+    assert MCPRows.rows(invalid_endpoint) == expected
+  end
+
   test "build_endpoint_payload/2 normalizes rows and keeps sorted indices" do
     fallback_rows = MCPRows.rows(%MCP.Endpoint{})
 
@@ -37,6 +60,30 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.MCPRowsTest do
 
     assert parsed["headers"] == %{"X-A" => "a", "X-Z" => "z"}
     assert parsed["type"] == "remote"
+  end
+
+  test "rows_from_params/2 normalizes fallback rows for non-map params" do
+    fallback_rows = %{
+      args: [],
+      headers: [],
+      secret_headers: [],
+      environments: [],
+      secret_environments: [],
+      settings: "{}"
+    }
+
+    rows = MCPRows.rows_from_params("bad_params", fallback_rows)
+
+    assert rows.args == [%{"key" => "", "value" => ""}]
+    assert rows.headers == [%{"key" => "", "value" => ""}]
+    assert rows.secret_headers == [%{"key" => "", "value" => ""}]
+    assert rows.environments == [%{"key" => "", "value" => ""}]
+    assert rows.secret_environments == [%{"key" => "", "value" => ""}]
+    assert rows.settings == "{}"
+  end
+
+  test "rows_from_params/2 falls back to default endpoint rows for invalid fallback data" do
+    assert MCPRows.rows_from_params(nil, "invalid_fallback") == MCPRows.rows(%MCP.Endpoint{})
   end
 
   test "parse_endpoint_params/2 applies local scope clearing" do
@@ -92,12 +139,46 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.MCPRowsTest do
     assert parsed["secret_environments"] == %{}
   end
 
+  test "parse_endpoint_params/2 keeps non-binary command values and normalizes settings" do
+    params = %{"type" => "custom", "command" => 123}
+
+    rows = %{
+      args: [],
+      headers: [],
+      secret_headers: [],
+      environments: [],
+      secret_environments: [],
+      settings: 42
+    }
+
+    parsed = MCPRows.parse_endpoint_params(params, rows)
+
+    assert parsed["settings"] == %{}
+    assert parsed["command"] == 123
+  end
+
   test "remove_row/3 always keeps at least one row" do
     rows = %{headers: [%{"key" => "X-A", "value" => "a"}]}
 
     next_rows = MCPRows.remove_row(rows, "headers", 0)
 
     assert next_rows.headers == [%{"key" => "", "value" => ""}]
+  end
+
+  test "rows_from_params/2 normalizes non-list fallback row values" do
+    params = %{"headers_rows" => "bad"}
+
+    rows = MCPRows.rows_from_params(params, %{headers: "oops"})
+
+    assert rows.headers == [%{"key" => "", "value" => ""}]
+  end
+
+  test "rows/1 decrypts invalid secret row values as blank strings" do
+    endpoint = %MCP.Endpoint{secret_headers: %{"Authorization" => "enc:not-encrypted"}}
+
+    rows = MCPRows.rows(endpoint)
+
+    assert rows.secret_headers == [%{"key" => "Authorization", "value" => ""}]
   end
 
   test "parse_endpoint_params/2 returns empty map for invalid inputs" do

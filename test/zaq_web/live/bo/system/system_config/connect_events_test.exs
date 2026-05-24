@@ -3,8 +3,26 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectEventsTest do
 
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectEvents
 
+  test "find_grant/2 returns nil for non-list grants" do
+    grants_values = [nil, %{id: 1}, "not-a-list", 123]
+
+    Enum.each(grants_values, fn grants ->
+      assert ConnectEvents.find_grant(grants, 1) == nil
+    end)
+  end
+
   test "run_grant_action/3 returns :not_found when grant missing" do
     assert ConnectEvents.run_grant_action([], "1", fn _ -> {:ok, :noop} end) == :not_found
+  end
+
+  test "run_grant_action/3 returns :not_found and does not invoke action for non-list grants" do
+    action_fun = fn _grant ->
+      send(self(), :action_invoked)
+      {:ok, :done}
+    end
+
+    assert ConnectEvents.run_grant_action(nil, 42, action_fun) == :not_found
+    refute_receive :action_invoked
   end
 
   test "run_grant_action/3 executes action and returns tagged ok" do

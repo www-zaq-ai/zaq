@@ -60,6 +60,84 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.MCPEvents do
   def cancel_delete_confirm(socket),
     do: Phoenix.Component.assign(socket, :mcp_endpoint_delete_confirm_modal, false)
 
+  def enable_predefined(socket, predefined_id, predefined_catalog_fun, change_endpoint_fun)
+      when is_function(predefined_catalog_fun, 0) and is_function(change_endpoint_fun, 1) do
+    router = socket.assigns.node_router_module
+
+    event =
+      Event.new(%{action: :enable_predefined, predefined_id: predefined_id}, :agent,
+        opts: [action: :mcp_endpoint_updated]
+      )
+
+    case router.dispatch(event).response do
+      {:ok, %{endpoint: endpoint} = payload} ->
+        socket = MCPFeedback.maybe_put_runtime_warnings(socket, payload)
+        predefined = endpoint.predefined_id && predefined_catalog_fun.()[endpoint.predefined_id]
+
+        socket =
+          if is_map(predefined) and predefined[:editable] do
+            socket
+            |> Phoenix.Component.assign(:mcp_endpoint_action, :edit)
+            |> Phoenix.Component.assign(:mcp_endpoint_id, endpoint.id)
+            |> Phoenix.Component.assign(:mcp_endpoint_modal, true)
+            |> Phoenix.Component.assign(:mcp_endpoint_delete_confirm_modal, false)
+            |> Phoenix.Component.assign(
+              :mcp_endpoint_form,
+              Phoenix.Component.to_form(change_endpoint_fun.(endpoint), as: :mcp_endpoint)
+            )
+            |> Phoenix.Component.assign(:mcp_endpoint_rows, MCPRows.rows(endpoint))
+          else
+            socket
+          end
+
+        {:ok, socket}
+
+      {:error, reason} ->
+        {:error, inspect(reason)}
+
+      other ->
+        {:error, inspect(other)}
+    end
+  end
+
+  def validate_endpoint(socket, params, endpoint_for_action_fun, change_endpoint_fun)
+      when is_function(endpoint_for_action_fun, 2) and is_function(change_endpoint_fun, 2) do
+    {rows, parsed} = MCPRows.build_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
+
+    changeset =
+      socket.assigns.mcp_endpoint_action
+      |> endpoint_for_action_fun.(socket.assigns.mcp_endpoint_id)
+      |> change_endpoint_fun.(parsed)
+      |> Map.put(:action, :validate)
+
+    socket
+    |> Phoenix.Component.assign(
+      :mcp_endpoint_form,
+      Phoenix.Component.to_form(changeset, as: :mcp_endpoint)
+    )
+    |> Phoenix.Component.assign(:mcp_endpoint_rows, rows)
+  end
+
+  def add_row(socket, collection) do
+    Phoenix.Component.assign(
+      socket,
+      :mcp_endpoint_rows,
+      MCPRows.add_row(socket.assigns.mcp_endpoint_rows, collection)
+    )
+  end
+
+  def remove_row(socket, collection, index) do
+    Phoenix.Component.assign(
+      socket,
+      :mcp_endpoint_rows,
+      MCPRows.remove_row(
+        socket.assigns.mcp_endpoint_rows,
+        collection,
+        ParseUtils.parse_int(index, 0)
+      )
+    )
+  end
+
   def save_endpoint(socket, params) do
     {rows, parsed} = MCPRows.build_endpoint_payload(params, socket.assigns.mcp_endpoint_rows)
 
