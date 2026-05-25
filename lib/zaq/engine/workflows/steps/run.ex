@@ -35,6 +35,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
     field :step_name, :string
     field :step_index, :integer
     field :status, :string, default: "running"
+    field :input, :map
     field :results, :map
     field :errors, :map
     field :logs, {:array, :map}, default: []
@@ -53,6 +54,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
       :step_name,
       :step_index,
       :status,
+      :input,
       :results,
       :errors,
       :logs,

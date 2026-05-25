@@ -58,6 +58,9 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
       assert ar.status == "completed"
       assert ar.results["value"] == "done"
       assert ar.finished_at != nil
+
+      assert [%{"event" => "step_completed", "duration_ms" => dur}] = ar.logs
+      assert dur >= 0
     end
 
     test "result includes action output and updated cascade" do
@@ -87,6 +90,11 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
       assert ar.status == "completed"
       assert ar.results["value"] == "with_logs"
       assert ar.finished_at != nil
+
+      # step_completed entry prepended before action-emitted logs
+      assert [%{"event" => "step_completed"} | action_logs] = ar.logs
+      assert length(action_logs) == 1
+      assert hd(action_logs)["message"] == "step log"
     end
   end
 
@@ -100,6 +108,10 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
       assert ar.status == "failed"
       assert ar.errors["reason"] =~ "test_failure"
       assert ar.finished_at != nil
+
+      assert [%{"event" => "step_failed", "reason" => reason, "duration_ms" => dur}] = ar.logs
+      assert dur >= 0
+      assert reason =~ "test_failure"
     end
 
     test "error from wrapped module passes through unchanged" do
@@ -453,6 +465,8 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
       assert ar.status == "failed"
       assert ar.errors["reason"] == "timeout"
       assert ar.finished_at != nil
+
+      assert [%{"event" => "step_failed", "reason" => "timeout"}] = ar.logs
     end
 
     test "slow path: Logger.error is emitted on timeout" do

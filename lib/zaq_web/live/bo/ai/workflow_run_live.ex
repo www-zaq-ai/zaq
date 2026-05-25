@@ -4,6 +4,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
   Subscribes to `"workflow_run:<run_id>"` on mount and receives live updates
   from WorkflowAgent as steps execute.
+
+  In addition to the standard `:step_updated` / `:run_updated` messages,
+  handles real-time progress from Batch and Iterate nodes:
+
+  - `{:batch_progress, step_name, progress}` — chunk progress from Batch
+  - `{:iterate_progress, step_name, progress}` — item progress from Iterate
   """
   use ZaqWeb, :live_view
 
@@ -11,6 +17,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
   alias Zaq.{Event, NodeRouter}
   alias ZaqWeb.Components.BOLayout
+  alias ZaqWeb.Live.BO.AI.WorkflowResultHelpers
 
   @impl true
   def mount(%{"id" => workflow_id, "run_id" => run_id}, _session, socket) do
@@ -25,7 +32,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
            run: run,
            step_runs: step_runs,
            approval: approval,
-           now: DateTime.utc_now()
+           now: DateTime.utc_now(),
+           node_info: build_node_info(run),
+           batch_progress: %{},
+           iterate_progress: %{},
+           selected_step: active_step(step_runs)
          )}
 
       :error ->
@@ -75,13 +86,33 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
         if sr.id == step_run.id, do: step_run, else: sr
       end)
 
-    # If new step not yet in list, append it
     step_runs =
       if Enum.any?(step_runs, &(&1.id == step_run.id)),
         do: step_runs,
         else: step_runs ++ [step_run]
 
-    {:noreply, assign(socket, step_runs: Enum.sort_by(step_runs, & &1.step_index))}
+    step_runs = Enum.sort_by(step_runs, & &1.step_index)
+
+    # Auto-focus the currently running step; manual selection is preserved otherwise.
+    socket =
+      if step_run.status == "running" do
+        assign(socket, selected_step: step_run.step_name)
+      else
+        socket
+      end
+
+    {:noreply, assign(socket, step_runs: step_runs)}
+  end
+
+  # Live chunk progress from Batch — update batch_progress for this step.
+  def handle_info({:batch_progress, step_name, progress}, socket) do
+    {:noreply, update(socket, :batch_progress, &Map.put(&1, step_name, progress))}
+  end
+
+  # Live item progress from Iterate — update iterate_progress for this step.
+  # When Iterate runs inside Batch, the step_name is the Batch's step_name.
+  def handle_info({:iterate_progress, step_name, progress}, socket) do
+    {:noreply, update(socket, :iterate_progress, &Map.put(&1, step_name, progress))}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
@@ -89,6 +120,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   # ── Events ──────────────────────────────────────────────────────
 
   @impl true
+  def handle_event("select_step", %{"step_name" => step_name}, socket) do
+    selected =
+      if socket.assigns.selected_step == step_name, do: nil, else: step_name
+
+    {:noreply, assign(socket, selected_step: selected)}
+  end
+
   def handle_event("cancel_run", _params, socket) do
     run = socket.assigns.run
 
@@ -179,12 +217,37 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
   # ── Private helpers ─────────────────────────────────────────────
 
+  # Returns the step_name of the currently running step, or nil.
+  # Used on mount to pre-select the active step when loading a live run.
+  defp active_step(step_runs) do
+    Enum.find_value(step_runs, fn sr ->
+      if sr.status == "running", do: sr.step_name
+    end)
+  end
+
   defp subscribe_and_start(run_id, run) do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run_id}")
     if run.status == "pending", do: send(self(), {:start_run, run})
 
     if run.status in ["pending", "running"],
       do: :timer.send_interval(1_000, self(), :tick)
+  end
+
+  # Builds a map of step_name → %{is_batch, is_iterate, params} from the run's
+  # steps_snapshot.  Used to route each step to the correct card component.
+  defp build_node_info(run) do
+    (run.steps_snapshot || %{})
+    |> Map.get("nodes", [])
+    |> Map.new(fn n ->
+      mod = n["module"]
+
+      {n["name"],
+       %{
+         is_batch: batch_module?(mod),
+         is_iterate: iterate_module?(mod),
+         params: n["params"] || %{}
+       }}
+    end)
   end
 
   # ── Render ──────────────────────────────────────────────────────
@@ -324,108 +387,188 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
           </div>
         </div>
 
-        <%!-- Execution path DAG --%>
-        <div class="mb-6">
-          <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
-            Execution Path
-          </p>
-          <div
-            class="bg-white rounded-xl border border-black/[0.08] p-5"
-            style="background-image: linear-gradient(#21dfff 0.5px, transparent 0.5px), linear-gradient(90deg, #e3e3e3 0.5px, transparent 0.5px); background-size: 20px 20px;"
-          >
-            <.workflow_dag
-              nodes={(@run.steps_snapshot || %{})["nodes"] || []}
-              edges={(@run.steps_snapshot || %{})["edges"] || []}
-              step_runs={@step_runs}
-            />
-          </div>
-        </div>
-
-        <%!-- Steps timeline --%>
-        <% visible = visible_steps(@step_runs) %>
-        <div class="space-y-3">
-          <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider">
-            Steps
-          </p>
-
-          <p
-            :if={visible == []}
-            class="bg-white rounded-xl border border-black/[0.08] font-mono text-[0.85rem] text-black/50 text-center py-10"
-          >
-            No steps recorded yet.
-          </p>
-
-          <div
-            :for={step <- visible}
-            class="bg-white rounded-xl border border-black/[0.08] overflow-hidden"
-          >
-            <%!-- Step header --%>
-            <div class="flex items-center justify-between px-5 py-3 border-b border-black/[0.06] bg-black/[0.01]">
-              <div class="flex items-center gap-3">
-                <span class="font-mono text-[0.72rem] text-black/40 w-5 text-right tabular-nums">
-                  {step.step_index + 1}
-                </span>
-                <span class="font-mono text-[0.85rem] font-semibold text-black">
-                  {step.step_name}
-                </span>
-              </div>
-              <div class="flex items-center gap-3">
-                <.run_duration run={step} now={@now} />
-                <.run_status_badge status={step.status} />
-              </div>
-            </div>
-
-            <%!-- Logs --%>
-            <div :if={step.logs != []} class="px-5 py-3 border-b border-black/[0.06] space-y-1">
-              <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-2">
-                Logs
-              </p>
-              <.step_log_entry :for={log <- step.logs} log={log} />
-            </div>
-
-            <%!-- Output (collapsible) --%>
-            <% step_output = clean_results(step.results) %>
+        <%!-- DAG + optional step detail panel --%>
+        <% all_visible = visible_steps(@step_runs) %>
+        <% visible =
+          if @selected_step,
+            do: Enum.filter(all_visible, &(&1.step_name == @selected_step)),
+            else: [] %>
+        <div class={[
+          "flex gap-6 items-start transition-all duration-300",
+          if(@selected_step, do: "", else: "")
+        ]}>
+          <%!-- DAG: full-width when nothing selected, half-width when a node is active --%>
+          <div class={[
+            "sticky top-6 transition-all duration-300",
+            if(@selected_step, do: "w-1/2", else: "w-full")
+          ]}>
+            <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
+              Execution Path
+            </p>
             <div
-              :if={step.status in ["completed", "waiting"] and map_size(step_output) > 0}
-              class="border-b border-black/[0.06]"
+              class="bg-white rounded-xl border border-black/[0.08] p-5"
+              style="background-image: linear-gradient(#21dfff 0.5px, transparent 0.5px), linear-gradient(90deg, #e3e3e3 0.5px, transparent 0.5px); background-size: 20px 20px;"
             >
-              <button
-                type="button"
-                phx-click={
-                  JS.toggle(to: "#step-output-#{step.id}")
-                  |> JS.toggle_class("rotate-90", to: "#step-chevron-#{step.id}")
-                }
-                class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
-              >
-                <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
-                  Output
-                </span>
-                <svg
-                  id={"step-chevron-#{step.id}"}
-                  class="w-3 h-3 text-black/30 transition-transform"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-              <div id={"step-output-#{step.id}"} style="display:none" class="px-5 pb-3">
-                <ZaqWeb.Components.JsonTree.json_tree
-                  id={"jt-step-#{step.id}"}
-                  data={step_output}
-                />
-              </div>
+              <.workflow_dag
+                nodes={(@run.steps_snapshot || %{})["nodes"] || []}
+                edges={(@run.steps_snapshot || %{})["edges"] || []}
+                step_runs={@step_runs}
+                on_node_click={true}
+                selected_step={@selected_step}
+              />
             </div>
+          </div>
 
-            <%!-- Errors --%>
-            <div :if={step.status == "failed" and step.errors != nil} class="px-5 py-3 bg-red-50">
-              <p class="font-mono text-[0.65rem] font-semibold text-red-500 uppercase tracking-wider mb-2">
-                Error
-              </p>
-              <pre class="font-mono text-[0.75rem] text-red-700 whitespace-pre-wrap break-all">{inspect(step.errors, pretty: true)}</pre>
-            </div>
+          <%!-- Right: Steps panel — only rendered when a node is selected --%>
+          <div :if={@selected_step} class="w-1/2 space-y-3">
+            <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider">
+              {@selected_step}
+            </p>
+
+            <p
+              :if={visible == []}
+              class="bg-white rounded-xl border border-black/[0.08] font-mono text-[0.85rem] text-black/50 text-center py-10"
+            >
+              No steps recorded yet.
+            </p>
+
+            <%= for step <- visible do %>
+              <% info = Map.get(@node_info, step.step_name, %{}) %>
+              <%= cond do %>
+                <% Map.get(info, :is_batch) -> %>
+                  <.batch_step_card
+                    step={step}
+                    batch_progress={Map.get(@batch_progress, step.step_name)}
+                    iterate_progress={Map.get(@iterate_progress, step.step_name)}
+                    node_params={Map.get(info, :params, %{})}
+                    now={@now}
+                  />
+                <% Map.get(info, :is_iterate) -> %>
+                  <.iterate_step_card
+                    step={step}
+                    iterate_progress={Map.get(@iterate_progress, step.step_name)}
+                    node_params={Map.get(info, :params, %{})}
+                    now={@now}
+                  />
+                <% true -> %>
+                  <%!-- Generic step card --%>
+                  <div class="bg-white rounded-xl border border-black/[0.08] overflow-hidden">
+                    <%!-- Step header --%>
+                    <div class="flex items-center justify-between px-5 py-3 border-b border-black/[0.06] bg-black/[0.01]">
+                      <div class="flex items-center gap-3">
+                        <span class="font-mono text-[0.72rem] text-black/40 w-5 text-right tabular-nums">
+                          {step.step_index + 1}
+                        </span>
+                        <span class="font-mono text-[0.85rem] font-semibold text-black">
+                          {step.step_name}
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <.run_duration run={step} now={@now} />
+                        <.run_status_badge status={step.status} />
+                      </div>
+                    </div>
+
+                    <%!-- Logs --%>
+                    <div
+                      :if={step.logs != []}
+                      class="px-5 py-3 border-b border-black/[0.06] space-y-1"
+                    >
+                      <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-2">
+                        Logs
+                      </p>
+                      <.step_log_entry :for={log <- step.logs} log={log} />
+                    </div>
+
+                    <%!-- Input (collapsible) --%>
+                    <div
+                      :if={not is_nil(step.input) and map_size(step.input) > 0}
+                      class="border-b border-black/[0.06]"
+                    >
+                      <button
+                        type="button"
+                        phx-click={
+                          JS.toggle(to: "#step-input-#{step.id}")
+                          |> JS.toggle_class("rotate-90", to: "#step-input-chevron-#{step.id}")
+                        }
+                        class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
+                      >
+                        <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
+                          Input
+                        </span>
+                        <svg
+                          id={"step-input-chevron-#{step.id}"}
+                          class="w-3 h-3 text-black/30 transition-transform"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                      <div
+                        id={"step-input-#{step.id}"}
+                        phx-update="ignore"
+                        style="display:none"
+                        class="px-5 pb-3"
+                      >
+                        <ZaqWeb.Components.JsonTree.json_tree
+                          id={"jt-step-input-#{step.id}"}
+                          data={step.input}
+                        />
+                      </div>
+                    </div>
+
+                    <%!-- Output (collapsible) --%>
+                    <% step_output = clean_results(step.results) %>
+                    <div
+                      :if={step.status in ["completed", "waiting"] and map_size(step_output) > 0}
+                      class="border-b border-black/[0.06]"
+                    >
+                      <button
+                        type="button"
+                        phx-click={
+                          JS.toggle(to: "#step-output-#{step.id}")
+                          |> JS.toggle_class("rotate-90", to: "#step-chevron-#{step.id}")
+                        }
+                        class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
+                      >
+                        <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
+                          Output
+                        </span>
+                        <svg
+                          id={"step-chevron-#{step.id}"}
+                          class="w-3 h-3 text-black/30 transition-transform"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                      <div id={"step-output-#{step.id}"} style="display:none" class="px-5 pb-3">
+                        <ZaqWeb.Components.JsonTree.json_tree
+                          id={"jt-step-#{step.id}"}
+                          data={step_output}
+                        />
+                      </div>
+                    </div>
+
+                    <%!-- Errors --%>
+                    <div
+                      :if={step.status == "failed" and step.errors != nil}
+                      class="px-5 py-3 bg-red-50"
+                    >
+                      <p class="font-mono text-[0.65rem] font-semibold text-red-500 uppercase tracking-wider mb-2">
+                        Error
+                      </p>
+                      <pre class="font-mono text-[0.75rem] text-red-700 whitespace-pre-wrap break-all">{inspect(step.errors, pretty: true)}</pre>
+                    </div>
+                  </div>
+              <% end %>
+            <% end %>
           </div>
         </div>
       </div>
@@ -479,14 +622,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     end)
   end
 
-  defp clean_results(nil), do: %{}
-
-  defp clean_results(results) when is_map(results) do
-    results
-    |> Map.drop(["__cascade__", :__cascade__])
-    |> Enum.reject(fn {_k, v} -> is_map(v) and Map.has_key?(v, "__cascade__") end)
-    |> Map.new()
-  end
+  defp clean_results(results), do: WorkflowResultHelpers.clean_results(results)
 
   defp short_id(nil), do: "?"
   defp short_id(id), do: String.slice(id, 0, 8)

@@ -35,7 +35,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
            per_page: per_page,
            per_page_options: @per_page_options,
            runs_total: total,
-           delete_modal_open: false
+           delete_modal_open: false,
+           edit_modal_open: false,
+           edit_name: workflow.name,
+           edit_description: workflow.description || ""
          )}
 
       :error ->
@@ -193,6 +196,50 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
     {:noreply, assign(socket, runs: runs, page: page)}
   end
 
+  def handle_event("open_edit", _params, socket) do
+    workflow = socket.assigns.workflow
+
+    {:noreply,
+     assign(socket,
+       edit_modal_open: true,
+       edit_name: workflow.name,
+       edit_description: workflow.description || ""
+     )}
+  end
+
+  def handle_event("cancel_edit", _params, socket) do
+    {:noreply, assign(socket, edit_modal_open: false)}
+  end
+
+  def handle_event("save_edit", %{"name" => name, "description" => description}, socket) do
+    name = String.trim(name)
+
+    if name == "" do
+      {:noreply, put_flash(socket, :error, "Name cannot be blank.")}
+    else
+      event =
+        Event.new(
+          %{
+            module: Zaq.Engine.Workflows,
+            function: :update_workflow,
+            args: [socket.assigns.workflow, %{name: name, description: description}]
+          },
+          :engine
+        )
+
+      case NodeRouter.dispatch(event).response do
+        {:ok, updated_workflow} ->
+          {:noreply,
+           socket
+           |> assign(workflow: updated_workflow, edit_modal_open: false)
+           |> put_flash(:info, "Workflow updated.")}
+
+        _ ->
+          {:noreply, put_flash(socket, :error, "Failed to update workflow.")}
+      end
+    end
+  end
+
   # ── Render ──────────────────────────────────────────────────────
 
   @impl true
@@ -235,6 +282,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           </div>
           <%!-- Actions: primary | separator | destructive --%>
           <div class="flex items-center gap-2 flex-shrink-0">
+            <button
+              phx-click="open_edit"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+            >
+              Edit
+            </button>
             <button
               phx-click="run_workflow"
               phx-value-workflow_id={@workflow.id}
@@ -458,6 +511,54 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           </div>
         </div>
       </div>
+
+      <BOModal.form_dialog
+        :if={@edit_modal_open}
+        id="edit-workflow-modal"
+        title="Edit Workflow"
+        cancel_event="cancel_edit"
+        max_width_class="max-w-lg"
+      >
+        <form phx-submit="save_edit" class="space-y-4">
+          <div>
+            <label class="font-mono text-[0.72rem] font-semibold text-black/50 uppercase tracking-wider block mb-1.5">
+              Name
+            </label>
+            <input
+              type="text"
+              name="name"
+              value={@edit_name}
+              required
+              class="w-full font-mono text-[0.85rem] text-[var(--zaq-color-ink)] px-3 py-2 rounded-lg border border-black/15 bg-white focus:outline-none focus:border-[#03b6d4] transition-colors"
+            />
+          </div>
+          <div>
+            <label class="font-mono text-[0.72rem] font-semibold text-black/50 uppercase tracking-wider block mb-1.5">
+              Description
+            </label>
+            <textarea
+              name="description"
+              rows="3"
+              class="w-full font-mono text-[0.85rem] text-[var(--zaq-color-ink)] px-3 py-2 rounded-lg border border-black/15 bg-white focus:outline-none focus:border-[#03b6d4] transition-colors resize-none"
+            >{@edit_description}</textarea>
+          </div>
+          <div class="flex justify-end gap-3 pt-1">
+            <button
+              type="button"
+              phx-click="cancel_edit"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-black/15 text-black/60 hover:bg-black/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="font-mono text-[0.82rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </BOModal.form_dialog>
 
       <BOModal.confirm_dialog
         :if={@delete_modal_open}

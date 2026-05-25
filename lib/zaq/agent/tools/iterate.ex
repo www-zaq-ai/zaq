@@ -75,7 +75,9 @@ defmodule Zaq.Agent.Tools.Iterate do
 
   use Zaq.Engine.Workflows.Action
 
+  alias Zaq.Agent.Tools.ItemOutcome
   alias Zaq.Agent.Tools.PipelineRunner
+  alias Zaq.Engine.Workflows
 
   require Logger
 
@@ -123,13 +125,37 @@ defmodule Zaq.Agent.Tools.Iterate do
   end
 
   defp execute_items(items, pipeline, field, mode, strategy, context) do
+    total = length(items)
+    run_id = Map.get(context, :run_id)
+    step_name = Map.get(context, :step_name)
+
     result =
       items
       |> Enum.with_index()
       |> Enum.reduce_while({[], [], []}, fn {item, idx}, {results, errors, logs} ->
+        t0 = log_start()
         delivery = build_delivery(item, field, mode)
-        outcome = PipelineRunner.invoke(delivery, pipeline, strategy, context)
-        handle_item_outcome(outcome, strategy, idx, results, errors, logs)
+
+        on_step = fn step_idx ->
+          Workflows.broadcast_iterate_progress(run_id, step_name, %{
+            current_item: idx + 1,
+            total_items: total,
+            current_step: step_idx
+          })
+        end
+
+        outcome = PipelineRunner.invoke(delivery, pipeline, strategy, context, on_step)
+
+        # Broadcast item completion (no current_step — item is done).
+        Workflows.broadcast_iterate_progress(run_id, step_name, %{
+          current_item: idx + 1,
+          total_items: total
+        })
+
+        ItemOutcome.handle(outcome, strategy, idx, t0, results, errors, logs, %{
+          log_entry: &log_entry/3,
+          format_reason: &format_reason/1
+        })
       end)
 
     PipelineRunner.finalize_result(result)
@@ -138,19 +164,6 @@ defmodule Zaq.Agent.Tools.Iterate do
   defp build_delivery(item, nil, _mode), do: item
   defp build_delivery(item, field, :item), do: %{field => item}
   defp build_delivery(item, field, :list), do: %{field => [item]}
-
-  defp handle_item_outcome({:error, reason}, :fail_workflow, _idx, _results, _errors, _logs) do
-    {:halt, {:error, reason}}
-  end
-
-  defp handle_item_outcome({:ok, value}, _strategy, idx, results, errors, logs) do
-    {:cont, {[value | results], errors, [%{event: "item_ok", index: idx} | logs]}}
-  end
-
-  defp handle_item_outcome({:error, reason}, _strategy, idx, results, errors, logs) do
-    log = %{event: "item_error", index: idx, reason: format_reason(reason)}
-    {:cont, {results, [%{index: idx, reason: reason} | errors], [log | logs]}}
-  end
 
   defp format_reason(reason) when is_atom(reason), do: to_string(reason)
   defp format_reason(reason) when is_binary(reason), do: reason

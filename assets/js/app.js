@@ -328,9 +328,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
             } else {
               const btn = createBtn()
               if (btn && !btn.classList.contains('hidden') && this._search.length > 0) {
+                selectOption(this._search, this._search)
                 const eventName = btn.dataset.createEvent || 'create_and_assign_team'
                 this.pushEvent(eventName, { name: this._search })
-                closePanel()
               }
             }
           }
@@ -341,9 +341,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
           btn.addEventListener('click', (e) => {
             e.preventDefault()
             e.stopPropagation()
+            selectOption(this._search, this._search)
             const eventName = btn.dataset.createEvent || 'create_and_assign_team'
             this.pushEvent(eventName, { name: this._search })
-            closePanel()
           })
         }
 
