@@ -605,29 +605,32 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           "index" => 0
         },
         %{
-          "name" => "categorize",
-          "type" => "action",
-          "module" => @categorize_module,
-          "params" => %{},
-          "index" => 1
-        },
-        %{
-          "name" => "sleep",
-          "type" => "action",
-          "module" => @sleep_ms_module,
-          "params" => %{},
-          "index" => 2
-        },
-        %{
           "name" => "batch",
           "type" => "action",
           "module" => @batch_module,
           "params" =>
             Map.merge(
-              %{"process" => ["categorize"], "post_process" => ["sleep"]},
+              %{
+                "process" => [
+                  %{
+                    "name" => "categorize",
+                    "type" => "action",
+                    "module" => @categorize_module,
+                    "params" => %{}
+                  }
+                ],
+                "post_process" => [
+                  %{
+                    "name" => "sleep",
+                    "type" => "action",
+                    "module" => @sleep_ms_module,
+                    "params" => %{}
+                  }
+                ]
+              },
               extra_params
             ),
-          "index" => 3
+          "index" => 1
         }
       ],
       "edges" => [%{"from" => "get_data", "to" => "batch"}]
@@ -645,18 +648,24 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           "index" => 0
         },
         %{
-          "name" => "process_contact",
-          "type" => "action",
-          "module" => @process_contact_module,
-          "params" => %{},
-          "index" => 1
-        },
-        %{
           "name" => "iterate",
           "type" => "action",
           "module" => @iterate_module,
-          "params" => Map.merge(%{"pipeline" => ["process_contact"]}, extra_params),
-          "index" => 2
+          "params" =>
+            Map.merge(
+              %{
+                "pipeline" => [
+                  %{
+                    "name" => "process_contact",
+                    "type" => "action",
+                    "module" => @process_contact_module,
+                    "params" => %{}
+                  }
+                ]
+              },
+              extra_params
+            ),
+          "index" => 1
         }
       ],
       "edges" => [%{"from" => "get_data", "to" => "iterate"}]
@@ -672,18 +681,20 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       steps = %{
         "nodes" => [
           %{
-            "name" => "categorize",
-            "type" => "action",
-            "module" => @categorize_module,
-            "params" => %{},
-            "index" => 0
-          },
-          %{
             "name" => "batch",
             "type" => "action",
             "module" => @batch_module,
-            "params" => %{"process" => ["categorize"]},
-            "index" => 1
+            "params" => %{
+              "process" => [
+                %{
+                  "name" => "categorize",
+                  "type" => "action",
+                  "module" => @categorize_module,
+                  "params" => %{}
+                }
+              ]
+            },
+            "index" => 0
           }
         ],
         "edges" => []
@@ -742,63 +753,24 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       assert {:error, {:missing_process_pipeline, "batch"}} = DagBuilder.build(steps)
     end
 
-    test "unknown process node name → {:error, {:unknown_process_node, name}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{"process" => ["ghost"]},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:unknown_process_node, "ghost"}} = DagBuilder.build(steps)
-    end
-
-    test "unknown post_process node name → {:error, {:unknown_post_process_node, name}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "categorize",
-            "type" => "action",
-            "module" => @categorize_module,
-            "params" => %{},
-            "index" => 0
-          },
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{"process" => ["categorize"], "post_process" => ["ghost"]},
-            "index" => 1
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:unknown_post_process_node, "ghost"}} = DagBuilder.build(steps)
-    end
-
     test "non-conforming process module → {:error, {:contract_violation, module, missing}}" do
       steps = %{
         "nodes" => [
           %{
-            "name" => "bad",
-            "type" => "action",
-            "module" => @non_conforming_module,
-            "params" => %{},
-            "index" => 0
-          },
-          %{
             "name" => "batch",
             "type" => "action",
             "module" => @batch_module,
-            "params" => %{"process" => ["bad"]},
-            "index" => 1
+            "params" => %{
+              "process" => [
+                %{
+                  "name" => "bad",
+                  "type" => "action",
+                  "module" => @non_conforming_module,
+                  "params" => %{}
+                }
+              ]
+            },
+            "index" => 0
           }
         ],
         "edges" => []
@@ -871,45 +843,147 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       assert {:error, {:missing_iterate_pipeline, "iterate"}} = DagBuilder.build(steps)
     end
 
-    test "unknown pipeline node → {:error, {:unknown_iterate_node, name}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "iterate",
-            "type" => "action",
-            "module" => @iterate_module,
-            "params" => %{"pipeline" => ["ghost"]},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:unknown_iterate_node, "ghost"}} = DagBuilder.build(steps)
-    end
-
     test "non-conforming pipeline module → {:error, {:contract_violation, module, missing}}" do
       steps = %{
         "nodes" => [
           %{
-            "name" => "bad",
-            "type" => "action",
-            "module" => @non_conforming_module,
-            "params" => %{},
-            "index" => 0
-          },
-          %{
             "name" => "iterate",
             "type" => "action",
             "module" => @iterate_module,
-            "params" => %{"pipeline" => ["bad"]},
-            "index" => 1
+            "params" => %{
+              "pipeline" => [
+                %{
+                  "name" => "bad",
+                  "type" => "action",
+                  "module" => @non_conforming_module,
+                  "params" => %{}
+                }
+              ]
+            },
+            "index" => 0
           }
         ],
         "edges" => []
       }
 
       assert {:error, {:contract_violation, _, _}} = DagBuilder.build(steps)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # String refs rejected (clean break)
+  # ---------------------------------------------------------------------------
+
+  describe "build/1 — string refs rejected in process/post_process/pipeline" do
+    test "string in process → {:error, :inline_node_required}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => ["some_string"]},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, :inline_node_required} = DagBuilder.build(steps)
+    end
+
+    test "string in post_process → {:error, :inline_node_required}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{
+              "process" => [
+                %{
+                  "name" => "categorize",
+                  "type" => "action",
+                  "module" => @categorize_module,
+                  "params" => %{}
+                }
+              ],
+              "post_process" => ["some_string"]
+            },
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, :inline_node_required} = DagBuilder.build(steps)
+    end
+
+    test "string in pipeline → {:error, :inline_node_required}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "iterate",
+            "type" => "action",
+            "module" => @iterate_module,
+            "params" => %{"pipeline" => ["some_string"]},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, :inline_node_required} = DagBuilder.build(steps)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Nested Batch → Iterate inline
+  # ---------------------------------------------------------------------------
+
+  describe "build/1 — nested Batch → Iterate inline" do
+    defp batch_iterate_inline_steps do
+      %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{
+              "process" => [
+                %{
+                  "name" => "iterate",
+                  "type" => "action",
+                  "module" => @iterate_module,
+                  "params" => %{
+                    "pipeline" => [
+                      %{
+                        "name" => "process_contact",
+                        "type" => "action",
+                        "module" => @process_contact_module,
+                        "params" => %{}
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+    end
+
+    test "Iterate inside Batch.process → builds successfully" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(batch_iterate_inline_steps())
+    end
+
+    test "neither iterate nor process_contact appear in the main DAG" do
+      {:ok, wf} = DagBuilder.build(batch_iterate_inline_steps())
+      node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
+      refute "iterate" in node_names
+      refute "process_contact" in node_names
     end
   end
 end
