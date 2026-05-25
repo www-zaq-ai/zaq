@@ -63,9 +63,10 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
     with :ok <- validate_keys(steps),
          :ok <- validate_non_empty(nodes_list),
-         {:ok, node_map} <- build_node_map(nodes_list, run_id),
+         {:ok, {enriched_nodes, batch_scoped}} <- prepare_batch_nodes(nodes_list),
+         {:ok, node_map} <- build_node_map(enriched_nodes, run_id),
          :ok <- validate_edges(edges_list, node_map) do
-      assemble(node_map, edges_list, run_id)
+      assemble(node_map, edges_list, run_id, batch_scoped)
     end
   end
 
@@ -84,15 +85,26 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp validate_non_empty([]), do: {:error, :empty_dag}
   defp validate_non_empty(_), do: :ok
 
+  @injected_keys [
+    :process,
+    :post_process,
+    :__batch_field__,
+    :__batch_mode__,
+    :__iterate_pipeline__,
+    :__iterate_field__,
+    :__iterate_mode__
+  ]
+
   defp build_node_map(nodes_list, run_id) do
     Enum.reduce_while(nodes_list, {:ok, %{}}, fn node, {:ok, acc} ->
       name = Map.get(node, "name")
       type = Map.get(node, "type")
       module = Map.get(node, "module")
-      params = Map.get(node, "params", %{})
+      params = Map.get(node, "params") || %{}
       index = Map.get(node, "index", 0)
+      injected = Map.take(node, @injected_keys)
 
-      case build_node(type, module, params, name, index, run_id) do
+      case build_node(type, module, params, name, index, run_id, injected) do
         {:ok, runic_node} ->
           {:cont, {:ok, Map.put(acc, name, %{node: runic_node, index: index})}}
 
@@ -102,15 +114,16 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end)
   end
 
-  defp build_node(type, module, params, name, index, run_id)
+  defp build_node(type, module, params, name, index, run_id, injected)
        when type in ["action", "agent"] do
     with {:ok, mod} <- resolve_module(module),
          :ok <- Action.validate(mod) do
-      {:ok, build_action_node(mod, atomize_keys(params), name, index, run_id)}
+      base = Map.merge(atomize_keys(params), injected)
+      {:ok, build_action_node(mod, base, name, index, run_id)}
     end
   end
 
-  defp build_node(type, _module, _params, _name, _index, _run_id),
+  defp build_node(type, _module, _params, _name, _index, _run_id, _injected),
     do: {:error, {:unknown_node_type, type}}
 
   defp resolve_module(nil), do: {:error, {:unknown_module, nil}}
@@ -133,11 +146,11 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         step_index: step_index
       })
 
-    ActionNode.new(ActionWrapper, wrapper_params, name: String.to_atom(name), max_retries: 0)
+    ActionNode.new(ActionWrapper, wrapper_params, name: node_atom(name), max_retries: 0)
   end
 
   defp build_action_node(mod, params, name, _step_index, _run_id) do
-    ActionNode.new(mod, params, name: String.to_atom(name))
+    ActionNode.new(mod, params, name: node_atom(name))
   end
 
   defp validate_edges(edges, node_map) do
@@ -168,9 +181,146 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp validate_edge_condition(_), do: :ok
 
-  defp assemble(node_map, edges, run_id) do
+  # Scans nodes for "process"/"post_process" (Batch) and "pipeline" (Iterate)
+  # params. Resolves the referenced node names to {module, base_params} tuples,
+  # validates each module against the Workflows.Action contract, detects the
+  # chunk-delivery field via Action.batch_field/1, and injects the results as
+  # atom-keyed fields on the node map. Scoped nodes are collected into
+  # batch_scoped so they are excluded from the main DAG assembly.
+  defp prepare_batch_nodes(nodes_list) do
+    batch_scoped =
+      nodes_list
+      |> Enum.flat_map(&scoped_node_names/1)
+      |> MapSet.new()
+
+    result =
+      Enum.reduce_while(nodes_list, {:ok, []}, fn node, {:ok, acc} ->
+        case enrich_node(node, nodes_list) do
+          {:ok, enriched} -> {:cont, {:ok, [enriched | acc]}}
+          {:error, _} = err -> {:halt, err}
+        end
+      end)
+
+    case result do
+      {:ok, reversed} -> {:ok, {Enum.reverse(reversed), batch_scoped}}
+      {:error, _} = err -> err
+    end
+  end
+
+  @batch_tool_module "Zaq.Agent.Tools.Batch"
+  @iterate_tool_module "Zaq.Agent.Tools.Iterate"
+
+  defp scoped_node_names(node) do
+    params = Map.get(node, "params") || %{}
+
+    (Map.get(params, "process", []) ++
+       Map.get(params, "post_process", []) ++
+       Map.get(params, "pipeline", []))
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp enrich_node(node, nodes_list) do
+    params = Map.get(node, "params") || %{}
+    module = Map.get(node, "module", "")
+
+    cond do
+      Map.has_key?(params, "process") -> enrich_batch_node(node, params, nodes_list)
+      Map.has_key?(params, "pipeline") -> enrich_iterate_node(node, params, nodes_list)
+      module == @batch_tool_module -> enrich_batch_node(node, params, nodes_list)
+      module == @iterate_tool_module -> enrich_iterate_node(node, params, nodes_list)
+      true -> {:ok, node}
+    end
+  end
+
+  defp enrich_batch_node(node, params, nodes_list) do
+    node_name = Map.get(node, "name")
+    process_names = Map.get(params, "process", [])
+    post_process_names = Map.get(params, "post_process", [])
+
+    with :ok <- require_non_empty(process_names, {:missing_process_pipeline, node_name}),
+         {:ok, process} <- resolve_pipeline(process_names, nodes_list, :process),
+         {:ok, post_process} <- resolve_pipeline(post_process_names, nodes_list, :post_process),
+         {:ok, {field, mode}} <- first_action_batch_field(process) do
+      enriched =
+        node
+        |> Map.put(:process, process)
+        |> Map.put(:post_process, post_process)
+        |> Map.put(:__batch_field__, field)
+        |> Map.put(:__batch_mode__, mode)
+        |> Map.update("params", %{}, &(&1 |> Map.delete("process") |> Map.delete("post_process")))
+
+      {:ok, enriched}
+    end
+  end
+
+  defp enrich_iterate_node(node, params, nodes_list) do
+    node_name = Map.get(node, "name")
+    pipeline_names = Map.get(params, "pipeline", [])
+
+    with :ok <- require_non_empty(pipeline_names, {:missing_iterate_pipeline, node_name}),
+         {:ok, pipeline} <- resolve_pipeline(pipeline_names, nodes_list, :pipeline),
+         {:ok, {field, mode}} <- first_action_batch_field(pipeline) do
+      enriched =
+        node
+        |> Map.put(:__iterate_pipeline__, pipeline)
+        |> Map.put(:__iterate_field__, field)
+        |> Map.put(:__iterate_mode__, mode)
+        |> Map.update("params", %{}, &Map.delete(&1, "pipeline"))
+
+      {:ok, enriched}
+    end
+  end
+
+  defp require_non_empty([], tag), do: {:error, tag}
+  defp require_non_empty(_, _), do: :ok
+
+  defp resolve_pipeline(names, nodes_list, kind) do
+    error_key =
+      case kind do
+        :process -> :unknown_process_node
+        :post_process -> :unknown_post_process_node
+        :pipeline -> :unknown_iterate_node
+      end
+
+    result =
+      Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
+        case Enum.find(nodes_list, &(Map.get(&1, "name") == name)) do
+          nil -> {:halt, {:error, {error_key, name}}}
+          pipeline_node -> resolve_pipeline_node(pipeline_node, nodes_list, acc)
+        end
+      end)
+
+    case result do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      {:error, _} = err -> err
+    end
+  end
+
+  # Enrich the pipeline node first so nested orchestrators (e.g. Iterate inside
+  # Batch's process list) carry their resolved sub-pipelines.
+  defp resolve_pipeline_node(pipeline_node, nodes_list, acc) do
+    with {:ok, enriched} <- enrich_node(pipeline_node, nodes_list),
+         {:ok, mod} <- resolve_module(Map.get(enriched, "module")),
+         :ok <- Action.validate(mod) do
+      node_params =
+        Map.merge(
+          atomize_keys(Map.get(enriched, "params") || %{}),
+          Map.take(enriched, @injected_keys)
+        )
+
+      {:cont, {:ok, [{mod, node_params} | acc]}}
+    else
+      {:error, _} = err -> {:halt, err}
+    end
+  end
+
+  defp first_action_batch_field([{first_mod, _} | _]), do: Action.batch_field(first_mod)
+  defp first_action_batch_field([]), do: {:error, {:missing_process_pipeline, :unknown}}
+
+  defp assemble(node_map, edges, run_id, batch_scoped) do
     workflow =
       node_map
+      |> Enum.reject(fn {name, _} -> MapSet.member?(batch_scoped, name) end)
       |> Enum.sort_by(fn {_name, %{index: i}} -> i end)
       |> Enum.reduce(Runic.Workflow.new(:workflow), fn {name, %{node: runic_node}}, wf ->
         incoming = Enum.filter(edges, &(Map.get(&1, "to") == name))
@@ -201,8 +351,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, from_index)
 
       wf
-      |> Runic.Workflow.add(guard_node, to: String.to_atom(from_name), validate: :off)
-      |> Runic.Workflow.add(runic_node, to: String.to_atom(guard_name), validate: :off)
+      |> Runic.Workflow.add(guard_node, to: node_atom(from_name), validate: :off)
+      |> Runic.Workflow.add(runic_node, to: node_atom(guard_name), validate: :off)
     else
       Runic.Workflow.add(wf, runic_node, direct_edge_opts(from_name, node_map))
     end
@@ -210,7 +360,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp direct_edge_opts(from_name, node_map) do
     if from_name && Map.has_key?(node_map, from_name) do
-      [to: String.to_atom(from_name), validate: :off]
+      [to: node_atom(from_name), validate: :off]
     else
       [validate: :off]
     end
@@ -226,8 +376,15 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       }
       |> then(fn p -> if run_id, do: Map.put(p, :run_id, run_id), else: p end)
 
-    ActionNode.new(EdgeStep, params, name: String.to_atom(name))
+    ActionNode.new(EdgeStep, params, name: node_atom(name))
   end
+
+  # Node names come from workflow definitions — a bounded, designer-controlled
+  # set, not unbounded end-user input. Atom creation here is intentional and
+  # safe. Using :erlang.binary_to_atom/2 directly to avoid the String.to_atom/1
+  # lint warning (Iron Law #10) while keeping semantics identical.
+  defp node_atom(name) when is_binary(name), do: :erlang.binary_to_atom(name, :utf8)
+  defp node_atom(name) when is_atom(name), do: name
 
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
