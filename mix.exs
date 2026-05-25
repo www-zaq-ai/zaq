@@ -89,7 +89,6 @@ defmodule Zaq.MixProject do
       {:bcrypt_elixir, "~> 3.0"},
       {:pgvector, "~> 0.3.1"},
       {:oban, "~> 2.20.3"},
-      {:fresh, "~> 0.4.4"},
       {:httpoison, "~> 2.3"},
       {:earmark, "~> 1.4.48"},
       {:nimble_csv, "~> 1.2"},
@@ -100,13 +99,13 @@ defmodule Zaq.MixProject do
 
       # Jido Ecosystem
       {:llm_db, "~> 2026.4", runtime: false},
-      {:jido_chat, github: "agentjido/jido_chat", branch: "main"},
-      {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
-      {:jido_chat_discord, github: "www-zaq-ai/jido_chat_discord", branch: "main"},
-      # {:nostrum, "~> 0.10", only: [:dev, :prod]}
-      {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"},
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
+      {:jido_chat, "~> 1.0"},
+      {:jido_chat_discord, "~> 1.0"},
+      {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
+      # {:nostrum, "~> 0.10", only: [:dev, :prod]}
+      {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"},
       {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       {:jido_mcp, github: "agentjido/jido_mcp", branch: "main"},
