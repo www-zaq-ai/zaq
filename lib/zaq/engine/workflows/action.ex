@@ -47,6 +47,27 @@ defmodule Zaq.Engine.Workflows.Action do
 
   Edge guard nodes (`Steps.EdgeStep`) are infrastructure and are intentionally
   **not** subject to this contract.
+
+  ## Log helpers
+
+  Two helpers are available for building structured, timestamped log entries
+  inside action `run/2` implementations:
+
+      def run(params, _ctx) do
+        t0 = log_start()
+        # ... do work ...
+        log = log_entry(:chunk_completed, t0, %{index: 0, results: 3})
+        {:ok, result, logs: [log]}
+      end
+
+  - `log_start/0` — captures a monotonic millisecond timestamp.
+  - `log_entry(event, t0, attrs \\\\ %{})` — builds a `%{event, at, duration_ms}`
+    map merged with `attrs`. Base keys (`event`, `at`, `duration_ms`) are never
+    overridden by caller-supplied `attrs`.
+
+  Both helpers are imported automatically by `use Zaq.Engine.Workflows.Action`
+  and are also available as `Action.log_start/0` / `Action.log_entry/3` for
+  modules that only `alias` this module (e.g. `ActionWrapper`).
   """
 
   @doc """
@@ -67,6 +88,8 @@ defmodule Zaq.Engine.Workflows.Action do
     quote do
       @behaviour Zaq.Engine.Workflows.Action
 
+      import Zaq.Engine.Workflows.Action, only: [log_start: 0, log_entry: 2, log_entry: 3]
+
       @impl Zaq.Engine.Workflows.Action
       def on_success(result, _context), do: {:ok, result}
 
@@ -75,6 +98,37 @@ defmodule Zaq.Engine.Workflows.Action do
 
       defoverridable on_success: 2, on_failure: 2
     end
+  end
+
+  @doc """
+  Returns a monotonic millisecond timestamp for use as the `t0` argument to
+  `log_entry/3`. Call this immediately before the work you want to time.
+  """
+  @spec log_start() :: integer()
+  def log_start, do: System.monotonic_time(:millisecond)
+
+  @doc """
+  Builds a standardised timestamped log entry map.
+
+  - `event` — atom or string label; atoms are converted to strings.
+  - `t0` — value returned by `log_start/0`.
+  - `attrs` — optional extra fields merged into the entry (e.g. `%{index: 0}`).
+
+  The base keys `event`, `at`, and `duration_ms` are always set from the
+  arguments and **cannot be overridden** by `attrs`.
+
+  Returns a map of the form:
+
+      %{event: "chunk_completed", at: ~U[...], duration_ms: 42, index: 0}
+  """
+  @spec log_entry(atom() | String.t(), integer(), map()) :: map()
+  def log_entry(event, t0, attrs \\ %{}) do
+    Map.new(attrs)
+    |> Map.merge(%{
+      event: to_string(event),
+      at: DateTime.utc_now(),
+      duration_ms: System.monotonic_time(:millisecond) - t0
+    })
   end
 
   @typedoc "A piece of the contract a module failed to satisfy."

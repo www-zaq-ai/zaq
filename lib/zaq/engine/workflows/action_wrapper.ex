@@ -12,6 +12,16 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   re-raised — the StepRun is never left at `"running"`, and the caller receives the
   real exception rather than a hidden error tuple.
 
+  ## Log trail
+
+  `step_run.logs` always contains at minimum one timing entry as its first element:
+
+  - `%{event: "step_completed", at: DateTime, duration_ms: non_neg_integer}` on success.
+  - `%{event: "step_failed", at: DateTime, duration_ms: non_neg_integer, reason: string}` on failure.
+
+  When the wrapped action returns a `{:ok, result, logs: action_logs}` 3-tuple,
+  the step-level timing entry is prepended and the action logs follow.
+
   Wrapper keys (`wrapped_module`, `run_id`, `step_name`, `step_index`) are stripped
   from params before the wrapped module is called, so the wrapped module only sees
   its own domain params.
@@ -29,6 +39,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   use Jido.Action, name: "workflow_action_wrapper", schema: []
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.WorkflowRun
@@ -105,7 +116,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   defp inject_cascade(result, _prev_cascade, _step_name), do: result
 
   defp execute_step(mod, run_id, step_name, step_index, params, context) do
-    started_ms = System.monotonic_time(:millisecond)
+    t0 = Action.log_start()
 
     Logger.debug("[workflow] step started",
       run_id: run_id,
@@ -114,57 +125,62 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
       module: inspect(mod)
     )
 
+    timeout_ms = Map.get(params, :timeout_ms)
+    prev_cascade = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
+    action_params = Map.drop(params, @wrapper_keys ++ [:__cascade__, "__cascade__"])
+
     {:ok, step_run} =
       Workflows.create_step_run(%WorkflowRun{id: run_id}, %{
         step_name: step_name,
         step_index: step_index,
-        status: "running"
+        status: "running",
+        input: json_safe(action_params)
       })
 
-    timeout_ms = Map.get(params, :timeout_ms)
-    prev_cascade = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
-    action_params = Map.drop(params, @wrapper_keys ++ [:__cascade__, "__cascade__"])
     enriched_context = Map.merge(context || %{}, %{run_id: run_id, step_name: step_name})
 
     try do
       case call_action(mod, action_params, enriched_context, timeout_ms) do
-        {:ok, result, logs: logs} ->
+        {:ok, result, logs: action_logs} ->
           cascaded = inject_cascade(result, prev_cascade, step_name)
-          Workflows.complete_step_run(step_run, cascaded, logs)
+          step_log = Action.log_entry(:step_completed, t0)
+          Workflows.complete_step_run(step_run, cascaded, [step_log | action_logs])
           Workflows.tick_log_summary(run_id)
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
             step_name: step_name,
             step_index: step_index,
-            duration_ms: System.monotonic_time(:millisecond) - started_ms
+            duration_ms: System.monotonic_time(:millisecond) - t0
           )
 
           {:ok, cascaded}
 
         {:ok, result} ->
           cascaded = inject_cascade(result, prev_cascade, step_name)
-          Workflows.complete_step_run(step_run, cascaded)
+          step_log = Action.log_entry(:step_completed, t0)
+          Workflows.complete_step_run(step_run, cascaded, [step_log])
           Workflows.tick_log_summary(run_id)
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
             step_name: step_name,
             step_index: step_index,
-            duration_ms: System.monotonic_time(:millisecond) - started_ms
+            duration_ms: System.monotonic_time(:millisecond) - t0
           )
 
           {:ok, cascaded}
 
         {:error, :timeout} ->
-          Workflows.fail_step_run(step_run, %{reason: "timeout"})
+          step_log = Action.log_entry(:step_failed, t0, %{reason: "timeout"})
+          Workflows.fail_step_run(step_run, %{reason: "timeout"}, [step_log])
           Workflows.tick_log_summary(run_id)
 
           Logger.error("[workflow] step timed out timeout_ms=#{timeout_ms}",
             run_id: run_id,
             step_name: step_name,
             step_index: step_index,
-            duration_ms: System.monotonic_time(:millisecond) - started_ms
+            duration_ms: System.monotonic_time(:millisecond) - t0
           )
 
           {:error, :timeout}
@@ -182,7 +198,8 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
           {:error, :waiting_for_human}
 
         {:error, reason} = err ->
-          Workflows.fail_step_run(step_run, %{reason: inspect(reason)})
+          step_log = Action.log_entry(:step_failed, t0, %{reason: inspect(reason)})
+          Workflows.fail_step_run(step_run, %{reason: inspect(reason)}, [step_log])
           Workflows.tick_log_summary(run_id)
 
           Logger.error("[workflow] step failed",
@@ -190,7 +207,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
             step_name: step_name,
             step_index: step_index,
             error: inspect(reason),
-            duration_ms: System.monotonic_time(:millisecond) - started_ms
+            duration_ms: System.monotonic_time(:millisecond) - t0
           )
 
           err
@@ -216,7 +233,8 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
         reraise e, __STACKTRACE__
 
       e ->
-        Workflows.fail_step_run(step_run, %{reason: Exception.message(e)})
+        step_log = Action.log_entry(:step_failed, t0, %{reason: Exception.message(e)})
+        Workflows.fail_step_run(step_run, %{reason: Exception.message(e)}, [step_log])
         Workflows.tick_log_summary(run_id)
 
         Logger.error("[workflow] step crashed",
@@ -224,10 +242,24 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
           step_name: step_name,
           step_index: step_index,
           error: Exception.message(e),
-          duration_ms: System.monotonic_time(:millisecond) - started_ms
+          duration_ms: System.monotonic_time(:millisecond) - t0
         )
 
         reraise e, __STACKTRACE__
     end
   end
+
+  # Recursively converts action_params to a JSON-safe structure for Postgres JSONB.
+  # Tuples (e.g. {Module, params} pipeline steps) become lists; atoms become strings.
+  defp json_safe(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {json_safe_key(k), json_safe(v)} end)
+  end
+
+  defp json_safe(list) when is_list(list), do: Enum.map(list, &json_safe/1)
+  defp json_safe(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> json_safe()
+  defp json_safe(atom) when is_atom(atom), do: Atom.to_string(atom)
+  defp json_safe(other), do: other
+
+  defp json_safe_key(k) when is_atom(k), do: Atom.to_string(k)
+  defp json_safe_key(k), do: k
 end
