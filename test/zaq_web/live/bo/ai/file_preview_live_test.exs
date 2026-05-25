@@ -15,7 +15,10 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
     conn = init_test_session(conn, %{user_id: user.id})
 
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_file_preview_live_#{System.unique_integer([:positive])}")
+      Path.join(
+        Path.expand("test/tmp"),
+        "zaq_file_preview_live_#{System.unique_integer([:positive])}"
+      )
 
     File.mkdir_p!(tmp_dir)
 
@@ -108,7 +111,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       assert has_element?(view, "a[download='#{unique}.docx']")
 
       leftovers =
-        Path.wildcard(Path.join(System.tmp_dir!(), "#{unique}-*.md"))
+        Path.wildcard(Path.join(Path.expand("test/tmp"), "#{unique}-*.md"))
 
       assert leftovers == []
     end
@@ -127,7 +130,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       assert has_element?(view, "a[download='#{unique}.xlsx']")
 
       leftovers =
-        Path.wildcard(Path.join(System.tmp_dir!(), "#{unique}-*.md"))
+        Path.wildcard(Path.join(Path.expand("test/tmp"), "#{unique}-*.md"))
 
       assert leftovers == []
     end

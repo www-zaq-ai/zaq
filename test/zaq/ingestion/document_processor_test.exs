@@ -196,7 +196,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end
 
     test "returns path relative to configured base_path" do
-      base_dir = Path.join(System.tmp_dir!(), "zaq_base_#{System.unique_integer([:positive])}")
+      base_dir =
+        Path.join(Path.expand("test/tmp"), "zaq_base_#{System.unique_integer([:positive])}")
+
       Application.put_env(:zaq, Zaq.Ingestion, base_path: base_dir)
 
       file_path = Path.join([base_dir, "guides", "api", "reference.md"])
@@ -206,17 +208,21 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end
 
     test "falls back to basename when path is outside configured base_path" do
-      base_dir = Path.join(System.tmp_dir!(), "zaq_base_#{System.unique_integer([:positive])}")
+      base_dir =
+        Path.join(Path.expand("test/tmp"), "zaq_base_#{System.unique_integer([:positive])}")
+
       Application.put_env(:zaq, Zaq.Ingestion, base_path: base_dir)
 
-      outside_path = Path.join(System.tmp_dir!(), "not-in-base.md")
+      outside_path = Path.join(Path.expand("test/tmp"), "not-in-base.md")
 
       assert {:ok, "not-in-base.md"} =
                DocumentProcessor.extract_source("ignored", outside_path)
     end
 
     test "prefixes volume name when file lives in a configured volume" do
-      vol_dir = Path.join(System.tmp_dir!(), "zaq_vol_#{System.unique_integer([:positive])}")
+      vol_dir =
+        Path.join(Path.expand("test/tmp"), "zaq_vol_#{System.unique_integer([:positive])}")
+
       Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol_dir})
 
       file_path = Path.join([vol_dir, "sub", "guide.md"])
@@ -753,7 +759,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_chunk_title_success()
 
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_test_#{System.unique_integer([:positive])}")
+        Path.join(Path.expand("test/tmp"), "zaq_test_#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)
@@ -892,7 +898,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "process_folder/1" do
     setup do
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_folder_#{System.unique_integer([:positive])}")
+        Path.join(Path.expand("test/tmp"), "zaq_folder_#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)
@@ -1106,7 +1112,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "prepare_file_chunks/3" do
     setup do
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_prepare_#{System.unique_integer([:positive])}")
+        Path.join(Path.expand("test/tmp"), "zaq_prepare_#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)
@@ -1160,7 +1166,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_chunk_title_success()
 
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_more_paths_#{System.unique_integer([:positive])}")
+        Path.join(Path.expand("test/tmp"), "zaq_more_paths_#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)
@@ -2108,7 +2114,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_chunk_title_success()
 
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_csv_#{System.unique_integer([:positive])}")
+        Path.join(Path.expand("test/tmp"), "zaq_csv_#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)
@@ -2157,7 +2163,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_chunk_title_success()
 
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_imgmd_#{System.unique_integer([:positive])}")
+        Path.join(Path.expand("test/tmp"), "zaq_imgmd_#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)

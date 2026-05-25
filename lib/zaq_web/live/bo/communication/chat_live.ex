@@ -279,7 +279,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   def handle_event("filter_autocomplete", %{"query" => query}, socket)
       when is_binary(query) and byte_size(query) > 0 do
     suggestions =
-      case node_router().call(:ingestion, Zaq.Ingestion, :list_document_sources, [query]) do
+      case router_invoke(:ingestion, Zaq.Ingestion, :list_document_sources, [query]) do
         list when is_list(list) ->
           list
 
@@ -696,6 +696,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     RuntimeDeps.chat_live_node_router()
   end
 
+  defp router_invoke(role, mod, fun, args) do
+    NodeRouter.invoke_via(node_router(), role, mod, fun, args)
+  end
+
   defp list_chat_agents do
     Zaq.Agent.list_active_agents()
     |> Enum.map(fn agent -> %{id: to_string(agent.id), name: agent.name} end)
@@ -715,7 +719,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       if is_nil(current_conversation_id) do
         resolve_conversation(current_user, nil)
       else
-        case node_router().call(
+        case router_invoke(
                :engine,
                Zaq.Engine.Conversations,
                :get_conversation,
@@ -753,7 +757,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp resolve_conversation(current_user, nil), do: create_fresh_conversation(current_user)
 
   defp resolve_conversation(current_user, conversation_id) do
-    case node_router().call(
+    case router_invoke(
            :engine,
            Zaq.Engine.Conversations,
            :get_conversation,
@@ -773,7 +777,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          normalized_sources
        ) do
     if user_id && is_nil(conv.user_id) do
-      node_router().call(
+      router_invoke(
         :engine,
         Zaq.Engine.Conversations,
         :update_conversation,
@@ -781,7 +785,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       )
     end
 
-    node_router().call(:engine, Zaq.Engine.Conversations, :add_message, [
+    router_invoke(:engine, Zaq.Engine.Conversations, :add_message, [
       conv,
       %{role: "user", content: user_msg}
     ])
@@ -789,7 +793,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     tool_calls = Map.get(result.metadata, :tool_calls, []) || []
 
     bot_msg_result =
-      node_router().call(:engine, Zaq.Engine.Conversations, :add_message, [
+      router_invoke(:engine, Zaq.Engine.Conversations, :add_message, [
         conv,
         %{
           role: "assistant",
@@ -853,7 +857,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       %{channel_user_id: channel_user_id, channel_type: "bo"}
       |> then(fn a -> if user_id, do: Map.put(a, :user_id, user_id), else: a end)
 
-    case node_router().call(:engine, Zaq.Engine.Conversations, :create_conversation, [attrs]) do
+    case router_invoke(:engine, Zaq.Engine.Conversations, :create_conversation, [attrs]) do
       {:ok, conv} = ok ->
         persist_welcome_message(conv)
         ok
@@ -864,7 +868,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   defp persist_welcome_message(conv) do
-    node_router().call(:engine, Zaq.Engine.Conversations, :add_message, [
+    router_invoke(:engine, Zaq.Engine.Conversations, :add_message, [
       conv,
       %{role: "assistant", content: @welcome_body, metadata: %{"welcome" => true}}
     ])

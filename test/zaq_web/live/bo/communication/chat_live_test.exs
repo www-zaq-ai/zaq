@@ -19,40 +19,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias ZaqWeb.Helpers.DateFormat
 
   defmodule NodeRouterFake do
-    def dispatch(event) do
+    def dispatch(%Zaq.Event{} = event) do
       state = :persistent_term.get(__MODULE__, %{})
       handler = Map.get(state, :dispatch)
 
       log = :persistent_term.get({__MODULE__, :dispatches}, [])
       :persistent_term.put({__MODULE__, :dispatches}, [event | log])
 
-      cond do
-        is_function(handler, 1) ->
-          handler.(event)
-
-        is_function(handler, 0) ->
-          handler.()
-
-        true ->
-          Zaq.NodeRouter.dispatch(event, %{
-            current_node_fn: fn -> node() end,
-            node_list_fn: fn -> [] end
-          })
-      end
-    end
-
-    def call(role, mod, fun, args) do
-      state = :persistent_term.get(__MODULE__, %{})
-      handler = Map.get(state, {role, mod, fun})
-
-      log = :persistent_term.get({__MODULE__, :calls}, [])
-      :persistent_term.put({__MODULE__, :calls}, [{role, mod, fun, args} | log])
-
-      cond do
-        is_function(handler, 1) -> handler.(args)
-        is_function(handler, 0) -> handler.()
-        true -> {:error, {:missing_stub, role, mod, fun}}
-      end
+      dispatch_with_handler(handler, state, event)
     end
 
     def put(role, mod, fun, response_or_fun) do
@@ -85,6 +59,53 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :persistent_term.put({__MODULE__, :calls}, [])
       :persistent_term.put({__MODULE__, :dispatches}, [])
     end
+
+    defp dispatch_with_handler(handler, state, event) when is_function(handler, 1),
+      do: handler.(event)
+
+    defp dispatch_with_handler(handler, _state, _event) when is_function(handler, 0),
+      do: handler.()
+
+    defp dispatch_with_handler(_handler, state, event) do
+      case parse_invoke_request(event) do
+        {:ok, role, mod, fun, args} -> handle_stubbed_invoke(state, event, role, mod, fun, args)
+        :error -> fallback_dispatch(event)
+      end
+    end
+
+    defp parse_invoke_request(%{opts: opts, next_hop: %{destination: role}, request: request})
+         when is_list(opts) and is_map(request) and role != nil do
+      mod = Map.get(request, :module)
+      fun = Map.get(request, :function)
+      args = Map.get(request, :args)
+
+      if opts[:action] == :invoke and is_atom(mod) and is_atom(fun) and is_list(args) do
+        {:ok, role, mod, fun, args}
+      else
+        :error
+      end
+    end
+
+    defp parse_invoke_request(_event), do: :error
+
+    defp handle_stubbed_invoke(state, event, role, mod, fun, args) do
+      calls_log = :persistent_term.get({__MODULE__, :calls}, [])
+      :persistent_term.put({__MODULE__, :calls}, [{role, mod, fun, args} | calls_log])
+      stub = Map.get(state, {role, mod, fun})
+
+      cond do
+        is_function(stub, 1) -> %{event | response: stub.(args)}
+        is_function(stub, 0) -> %{event | response: stub.()}
+        true -> %{event | response: {:error, {:missing_stub, role, mod, fun}}}
+      end
+    end
+
+    defp fallback_dispatch(event) do
+      Zaq.NodeRouter.dispatch(event, %{
+        current_node_fn: fn -> node() end,
+        node_list_fn: fn -> [] end
+      })
+    end
   end
 
   # FakeExecutor bridges the old NodeRouterFake(:agent, Answering, :ask) stub convention
@@ -97,7 +118,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     def run(%Incoming{} = incoming, opts) do
       nr = Keyword.get(opts, :node_router, NodeRouterFake)
 
-      case nr.call(:agent, Answering, :ask, []) do
+      case Zaq.NodeRouter.invoke_via(nr, :agent, Answering, :ask, []) do
         {:ok, %{answer: answer, confidence: %{score: score}}} ->
           %Outgoing{
             body: answer,
@@ -238,16 +259,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     NodeRouterFake.put_dispatch(fn %Event{} = event ->
       send(caller, {:chat_dispatch_event, event})
 
-      incoming = event.request
+      case event.opts[:action] do
+        :run_pipeline ->
+          incoming = event.request
 
-      %{
-        event
-        | response: %Outgoing{
-            body: "ok",
-            channel_id: incoming.channel_id,
-            provider: incoming.provider
+          %{
+            event
+            | response: %Outgoing{
+                body: "ok",
+                channel_id: incoming.channel_id,
+                provider: incoming.provider
+              }
           }
-      }
+
+        _ ->
+          Zaq.NodeRouter.dispatch(event)
+      end
     end)
 
     {:ok, view, html} = live(conn, ~p"/bo/chat")
@@ -261,7 +288,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     view |> element("#chat-form") |> render_submit(%{"message" => "Hello"})
 
-    assert_receive {:chat_dispatch_event, %Event{} = dispatched_event}, 1_000
+    assert_receive {:chat_dispatch_event, %Event{}}, 1_000
+
+    dispatched_event =
+      NodeRouterFake.dispatches()
+      |> Enum.find(fn %Event{} = event -> event.opts[:action] == :run_pipeline end)
 
     assert dispatched_event.assigns["agent_selection"] == %{
              "agent_id" => to_string(configured_agent.id),

@@ -34,7 +34,7 @@ defmodule Zaq.License.LicenseIntegrationTest do
 
     tmp_dir =
       Path.join(
-        System.tmp_dir!(),
+        Path.expand("test/tmp"),
         "zaq_integration_test_#{System.unique_integer([:positive])}"
       )
 

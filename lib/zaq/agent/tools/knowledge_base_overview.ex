@@ -78,7 +78,13 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
     router_result =
-      node_router_mod.call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts])
+      NodeRouter.invoke_via(
+        node_router_mod,
+        :ingestion,
+        DocumentAccess,
+        :list_files_with_ingestion_status,
+        [opts]
+      )
 
     case router_result do
       {:error, reason} ->

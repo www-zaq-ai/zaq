@@ -10,7 +10,7 @@ defmodule Zaq.Ingestion.Python.PipelineStripImageRefsTest do
 
   setup do
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_strip_test_#{System.unique_integer([:positive])}")
+      Path.join(Path.expand("test/tmp"), "zaq_strip_test_#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)

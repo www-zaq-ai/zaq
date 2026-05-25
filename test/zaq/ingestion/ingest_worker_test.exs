@@ -214,7 +214,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
     test "resolves path against volume_name when job has one" do
       vol_dir =
-        Path.join(System.tmp_dir!(), "zaq_worker_vol_#{System.unique_integer([:positive])}")
+        Path.join(Path.expand("test/tmp"), "zaq_worker_vol_#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(vol_dir)
 

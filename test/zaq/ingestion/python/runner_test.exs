@@ -60,7 +60,10 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
   describe "run/2" do
     setup do
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_runner_test_#{System.unique_integer([:positive])}")
+        Path.join(
+          Path.expand("test/tmp"),
+          "zaq_runner_test_#{System.unique_integer([:positive])}"
+        )
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)
@@ -158,7 +161,10 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
   describe "collect_output :noeol reassembly" do
     setup do
       tmp_dir =
-        Path.join(System.tmp_dir!(), "zaq_runner_noeol_#{System.unique_integer([:positive])}")
+        Path.join(
+          Path.expand("test/tmp"),
+          "zaq_runner_noeol_#{System.unique_integer([:positive])}"
+        )
 
       File.mkdir_p!(tmp_dir)
       on_exit(fn -> File.rm_rf!(tmp_dir) end)

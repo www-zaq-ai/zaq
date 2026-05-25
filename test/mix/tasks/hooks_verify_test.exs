@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
   # ---------------------------------------------------------------------------
 
   defp tmp_dir do
-    dir = Path.join(System.tmp_dir!(), "hooks_verify_#{System.unique_integer([:positive])}")
+    dir = Path.join(Path.expand("test/tmp"), "hooks_verify_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     dir
   end

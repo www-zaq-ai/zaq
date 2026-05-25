@@ -46,7 +46,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
   describe "absolute_to_source/1 in multi-volume mode" do
     test "falls back to basename when path is outside all configured volumes" do
       # line 95: find_volume_for_path returns nil
-      tmp = System.tmp_dir!()
+      tmp = Path.expand("test/tmp")
       vol_path = Path.join(tmp, "zaq_source_path_vol_#{System.unique_integer([:positive])}")
       File.mkdir_p!(vol_path)
 
@@ -64,7 +64,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
   describe "absolute_to_source/1 in single-volume mode" do
     test "falls back to basename when path is outside the configured base" do
       # line 104: relative_to_root returns nil
-      tmp = System.tmp_dir!()
+      tmp = Path.expand("test/tmp")
       base = Path.join(tmp, "zaq_source_path_base_#{System.unique_integer([:positive])}")
       File.mkdir_p!(base)
       Application.put_env(:zaq, Zaq.Ingestion, base_path: base)
@@ -89,7 +89,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
     end
 
     test "returns the matching volume root when path is inside a volume" do
-      tmp = System.tmp_dir!()
+      tmp = Path.expand("test/tmp")
       vol = Path.join(tmp, "vol_root_test_#{System.unique_integer([:positive])}")
       File.mkdir_p!(vol)
       Application.put_env(:zaq, Zaq.Ingestion, base_path: vol)

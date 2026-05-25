@@ -12,7 +12,10 @@ defmodule ZaqWeb.FileControllerTest do
     conn = init_test_session(conn, %{user_id: user.id})
 
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_file_controller_#{System.unique_integer([:positive])}")
+      Path.join(
+        Path.expand("test/tmp"),
+        "zaq_file_controller_#{System.unique_integer([:positive])}"
+      )
 
     File.mkdir_p!(tmp_dir)
 

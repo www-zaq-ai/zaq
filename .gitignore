@@ -16,11 +16,15 @@
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
 
+# Erlang/OTP runtime directories (Mix build locks, PubSub coordination)
+mix_*_user*/
+
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
 # Temporary files, for example, from tests.
 /tmp/
+/test/tmp/
 
 # Ignore package tarball (built via "mix hex.build").
 zaq-*.tar

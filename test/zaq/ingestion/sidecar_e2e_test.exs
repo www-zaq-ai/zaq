@@ -25,13 +25,12 @@ defmodule Zaq.Ingestion.SidecarE2ETest do
   alias Zaq.SystemConfigFixtures
 
   defmodule PassthroughRouter do
-    alias Zaq.Ingestion.DocumentAccess
-
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts]) do
-      DocumentAccess.list_files_with_ingestion_status(opts)
+    def dispatch(%Zaq.Event{request: %{module: mod, function: fun, args: args}} = event)
+        when is_atom(mod) and is_atom(fun) and is_list(args) do
+      %{event | response: apply(mod, fun, args)}
     end
 
-    def call(_role, _mod, :broadcast_status, _args), do: :ok
+    def dispatch(%Zaq.Event{} = event), do: %{event | response: :ok}
   end
 
   setup :verify_on_exit!
@@ -40,7 +39,7 @@ defmodule Zaq.Ingestion.SidecarE2ETest do
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
 
     tmp =
-      Path.join(System.tmp_dir!(), "sidecar_e2e_#{System.unique_integer([:positive])}")
+      Path.join(Path.expand("test/tmp"), "sidecar_e2e_#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(tmp)
 

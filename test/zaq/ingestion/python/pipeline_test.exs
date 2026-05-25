@@ -7,7 +7,10 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
 
   setup do
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_pipeline_test_#{System.unique_integer([:positive])}")
+      Path.join(
+        Path.expand("test/tmp"),
+        "zaq_pipeline_test_#{System.unique_integer([:positive])}"
+      )
 
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)

@@ -9,54 +9,60 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewUnitTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubRouter do
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [_opts]) do
-      {:ok,
-       [
-         %{source: "folder/doc.md", ingested: true, title: "A Document"},
-         %{source: "folder/raw.txt", ingested: false}
-       ]}
+    def dispatch(%Zaq.Event{request: %{args: [_opts]}} = event) do
+      %{
+        event
+        | response:
+            {:ok,
+             [
+               %{source: "folder/doc.md", ingested: true, title: "A Document"},
+               %{source: "folder/raw.txt", ingested: false}
+             ]}
+      }
     end
   end
 
   defmodule EmptyRouter do
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [_opts]) do
-      {:ok, []}
+    def dispatch(%Zaq.Event{} = event) do
+      %{event | response: {:ok, []}}
     end
   end
 
   # Returns a plain list (no {:ok, _} wrapper) to exercise the passthrough clause
   # of unwrap_router_result/1.
   defmodule PlainListRouter do
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [_opts]) do
-      [%{source: "plain.md", ingested: true, title: "Plain"}]
+    def dispatch(%Zaq.Event{} = event) do
+      %{event | response: [%{source: "plain.md", ingested: true, title: "Plain"}]}
     end
   end
 
   # Returns an error tuple — triggers the rescue path.
   defmodule ErrorRouter do
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [_opts]) do
-      {:error, :simulated_failure}
+    def dispatch(%Zaq.Event{} = event) do
+      %{event | response: {:error, :simulated_failure}}
     end
   end
 
   # Asserts exact permission opts and returns an error for anything unexpected.
   defmodule PermissionRouter do
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [
-          [person_id: 42, team_ids: [1, 2], skip_permissions: false]
-        ]) do
-      {:ok, []}
+    def dispatch(
+          %Zaq.Event{
+            request: %{args: [[person_id: 42, team_ids: [1, 2], skip_permissions: false]]}
+          } = event
+        ) do
+      %{event | response: {:ok, []}}
     end
 
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts]) do
-      {:ok, [{:unexpected_opts, opts}]}
+    def dispatch(%Zaq.Event{request: %{args: [opts]}} = event) do
+      %{event | response: {:ok, [{:unexpected_opts, opts}]}}
     end
   end
 
   # Captures the opts passed to the router for inspection.
   defmodule CaptureRouter do
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts]) do
+    def dispatch(%Zaq.Event{request: %{args: [opts]}} = event) do
       send(self(), {:captured_opts, opts})
-      {:ok, []}
+      %{event | response: {:ok, []}}
     end
   end
 

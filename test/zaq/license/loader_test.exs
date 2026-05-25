@@ -26,7 +26,7 @@ defmodule Zaq.License.LoaderTest do
     write_public_key(pub)
 
     tmp_dir =
-      Path.join(System.tmp_dir!(), "zaq_loader_test_#{System.unique_integer([:positive])}")
+      Path.join(Path.expand("test/tmp"), "zaq_loader_test_#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(tmp_dir)
 

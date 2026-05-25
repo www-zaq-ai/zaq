@@ -51,7 +51,13 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
     try do
-      case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do
+      case NodeRouter.invoke_via(
+             node_router_mod,
+             :ingestion,
+             doc_proc_mod,
+             :query_extraction,
+             [query, opts]
+           ) do
         {:ok, chunks} -> {:ok, %{chunks: chunks, count: length(chunks)}}
         {:error, reason} -> {:error, "Knowledge base search failed: #{inspect(reason)}"}
       end
