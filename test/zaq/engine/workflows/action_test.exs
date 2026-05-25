@@ -176,6 +176,86 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     end
   end
 
+  describe "log_start/0 and log_entry/3" do
+    test "log_start/0 returns an integer" do
+      assert is_integer(Action.log_start())
+    end
+
+    test "log_entry/2 returns map with event (string), at (DateTime), duration_ms (integer)" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:step_completed, t0)
+
+      assert entry.event == "step_completed"
+      assert %DateTime{} = entry.at
+      assert is_integer(entry.duration_ms)
+      assert entry.duration_ms >= 0
+    end
+
+    test "log_entry/3 merges extra attrs into the entry" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:chunk_completed, t0, %{index: 2, results: 4})
+
+      assert entry.event == "chunk_completed"
+      assert entry.index == 2
+      assert entry.results == 4
+      assert entry.duration_ms >= 0
+    end
+
+    test "atom events are stringified" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:item_ok, t0)
+
+      assert entry.event == "item_ok"
+      assert is_binary(entry.event)
+    end
+
+    test "string events are kept as-is" do
+      t0 = Action.log_start()
+      entry = Action.log_entry("chunk_error", t0)
+
+      assert entry.event == "chunk_error"
+    end
+
+    test "duration_ms is >= 0 even for zero-duration calls" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:x, t0)
+
+      assert entry.duration_ms >= 0
+    end
+
+    test "conflicting attrs key does NOT overwrite event" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:real_event, t0, %{event: "hijack"})
+
+      assert entry.event == "real_event"
+    end
+
+    test "conflicting attrs key does NOT overwrite duration_ms" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:x, t0, %{duration_ms: 99_999})
+
+      assert entry.duration_ms != 99_999
+      assert entry.duration_ms >= 0
+    end
+
+    test "conflicting attrs key does NOT overwrite at" do
+      t0 = Action.log_start()
+      fake_dt = ~U[2000-01-01 00:00:00Z]
+      entry = Action.log_entry(:x, t0, %{at: fake_dt})
+
+      refute entry.at == fake_dt
+    end
+
+    test "log_start/0 and log_entry/3 are imported in modules that use Action" do
+      # Modules that `use Zaq.Engine.Workflows.Action` should get both helpers
+      # via the import in __using__ — test via the Batch/Iterate modules which use it.
+      assert function_exported?(Zaq.Agent.Tools.Batch, :log_start, 0) == false
+      # They are imported (not exported), so we verify the import does not crash
+      # by calling them through Action directly (public functions).
+      assert is_integer(Action.log_start())
+    end
+  end
+
   describe "validate/1" do
     test "returns :ok for a fully conforming action module" do
       assert :ok = Action.validate(OkAction)

@@ -114,6 +114,18 @@ defmodule Zaq.Agent.Tools.IterateTest do
       assert {:ok, %{results: [%{item: %{id: 1}}, %{item: %{id: 2}}], errors: []}, _} =
                Iterate.run(params, %{})
     end
+
+    test "without iterate field, delivery is passed as raw item" do
+      items = [%{id: 1}, %{id: 2}]
+
+      params = %{
+        items: items,
+        __iterate_pipeline__: [],
+        __iterate_mode__: :item
+      }
+
+      assert {:ok, %{results: [%{id: 1}, %{id: 2}], errors: []}, _} = Iterate.run(params, %{})
+    end
   end
 
   # ── strategy: :skip_and_continue ─────────────────────────────────────────────
@@ -207,6 +219,84 @@ defmodule Zaq.Agent.Tools.IterateTest do
 
       Iterate.run(params, %{counter: counter})
       assert :counters.get(counter, 1) == 0
+    end
+
+    test "returns binary error reason unchanged" do
+      defmodule FailWithString do
+        def run(_params, _ctx), do: {:error, "boom text"}
+      end
+
+      params =
+        base_params([%{id: 1}], %{
+          strategy: :fail_workflow,
+          __iterate_pipeline__: [{FailWithString, %{}}]
+        })
+
+      assert {:error, "boom text"} = Iterate.run(params, %{})
+    end
+
+    test "formats non-atom/non-binary reason via inspect in logs for skip strategy" do
+      defmodule FailWithTuple do
+        def run(_params, _ctx), do: {:error, {:bad, 42}}
+      end
+
+      params =
+        base_params([%{id: 1}], %{
+          strategy: :skip_and_continue,
+          __iterate_pipeline__: [{FailWithTuple, %{}}]
+        })
+
+      assert {:ok, %{errors: [%{reason: {:bad, 42}}]}, [logs: [log]]} = Iterate.run(params, %{})
+      assert log.reason == "{:bad, 42}"
+    end
+  end
+
+  # ── log trail ────────────────────────────────────────────────────────────────
+
+  describe "log trail" do
+    test "each successful item produces an item_ok log with at and duration_ms" do
+      items = [%{id: 1}, %{id: 2}, %{id: 3}]
+
+      assert {:ok, _, [logs: logs]} = Iterate.run(base_params(items), %{})
+      assert length(logs) == 3
+
+      assert Enum.all?(logs, fn log ->
+               log.event == "item_ok" and log.duration_ms >= 0 and match?(%DateTime{}, log.at)
+             end)
+    end
+
+    test "each failed item produces an item_error log with at and duration_ms" do
+      items = [%{fail: true}, %{fail: true}]
+      params = base_params(items, %{__iterate_pipeline__: pipeline([ConditionalItemStep])})
+
+      assert {:ok, %{errors: [_, _]}, [logs: logs]} = Iterate.run(params, %{})
+      assert length(logs) == 2
+
+      assert Enum.all?(logs, fn log ->
+               log.event == "item_error" and log.duration_ms >= 0 and match?(%DateTime{}, log.at)
+             end)
+    end
+
+    test "mixed success and failure both produce timestamped logs" do
+      items = [%{id: 1}, %{fail: true}, %{id: 3}]
+      params = base_params(items, %{__iterate_pipeline__: pipeline([ConditionalItemStep])})
+
+      assert {:ok, _, [logs: logs]} = Iterate.run(params, %{})
+      assert length(logs) == 3
+      assert Enum.any?(logs, &(&1.event == "item_ok"))
+      assert Enum.any?(logs, &(&1.event == "item_error"))
+    end
+
+    test "logs are in original item order (index 0, 1, 2...)" do
+      items = [%{id: 1}, %{id: 2}, %{id: 3}]
+
+      assert {:ok, _, [logs: logs]} = Iterate.run(base_params(items), %{})
+      assert Enum.map(logs, & &1.index) == [0, 1, 2]
+    end
+
+    test "empty items list returns empty logs" do
+      assert {:ok, _, [logs: logs]} = Iterate.run(base_params([]), %{})
+      assert logs == []
     end
   end
 
