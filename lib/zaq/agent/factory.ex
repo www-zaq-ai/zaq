@@ -186,7 +186,7 @@ defmodule Zaq.Agent.Factory do
     refs = Map.get(params, :extra_refs, %{})
 
     case Map.get(refs, :zaq_status_context) do
-      %{session_id: _session_id, request_id: request_id} = ctx
+      %{request_id: request_id, incoming: %Zaq.Engine.Messages.Incoming{}} = ctx
       when is_binary(request_id) and request_id != "" ->
         Process.put(:zaq_status_context, ctx)
 

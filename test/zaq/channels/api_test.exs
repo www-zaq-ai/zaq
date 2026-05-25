@@ -35,27 +35,6 @@ defmodule Zaq.Channels.ApiTest do
     end
   end
 
-  defmodule StubMessageCorrelation do
-    def put(provider, request_id, message_id) do
-      send(self(), {:message_correlation_put, provider, request_id, message_id})
-      :ok
-    end
-
-    def get(provider, request_id) do
-      send(self(), {:message_correlation_get, provider, request_id})
-
-      case Process.get(:message_correlation_get_result) do
-        nil -> :error
-        result -> result
-      end
-    end
-
-    def delete(provider, request_id) do
-      send(self(), {:message_correlation_delete, provider, request_id})
-      :ok
-    end
-  end
-
   defmodule StubCommunicationBridgeConfigError do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
@@ -322,36 +301,26 @@ defmodule Zaq.Channels.ApiTest do
                      %{url: "https://example.test", token: "token"}}
   end
 
-  test "deliver_outgoing injects correlated message_id and clears correlation on success" do
-    Process.put(:message_correlation_get_result, {:ok, "m-correlated"})
-
+  test "deliver_outgoing injects status_message_id into message_id" do
     outgoing = %Outgoing{
       body: "ok",
       channel_id: "c1",
       provider: :web,
-      metadata: %{request_id: "r1"}
+      metadata: %{request_id: "r1", status_message_id: "m-status"}
     }
 
     event =
       Event.new(outgoing, :channels,
         opts: [
           action: :deliver_outgoing,
-          bridge_module: StubCommunicationBridge,
-          message_correlation_module: StubMessageCorrelation
+          bridge_module: StubCommunicationBridge
         ]
       )
 
     result = Api.handle_event(event, :deliver_outgoing, nil)
 
     assert result.response == :ok
-    assert_received {:message_correlation_get, :web, "r1"}
-
-    assert_received {:bridge_send_reply, %Outgoing{metadata: %{message_id: "m-correlated"}},
-                     _details}
-
-    assert_received {:message_correlation_delete, :web, "r1"}
-  after
-    Process.delete(:message_correlation_get_result)
+    assert_received {:bridge_send_reply, %Outgoing{metadata: %{message_id: "m-status"}}, _details}
   end
 
   test "handles deliver_outgoing action when outgoing is in event response" do
@@ -377,8 +346,7 @@ defmodule Zaq.Channels.ApiTest do
       Event.new(request, :channels,
         opts: [
           action: :upsert_message,
-          bridge_module: StubCommunicationBridge,
-          message_correlation_module: StubMessageCorrelation
+          bridge_module: StubCommunicationBridge
         ]
       )
 
@@ -388,8 +356,61 @@ defmodule Zaq.Channels.ApiTest do
 
     assert_received {:bridge_upsert_message, %{id: 1, provider: "mattermost"}, ^request,
                      %{url: "https://example.test", token: "token"}}
+  end
 
-    assert_received {:message_correlation_put, :web, "r1", "m-1"}
+  test "upsert_message maps status_message_id into message_id" do
+    request = %{
+      provider: :web,
+      channel_id: "c1",
+      request_id: "r1",
+      body: "partial",
+      status_message_id: "m-status"
+    }
+
+    event =
+      Event.new(request, :channels,
+        opts: [
+          action: :upsert_message,
+          bridge_module: StubCommunicationBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :upsert_message, nil)
+
+    assert result.response == {:ok, %{action: :created, message_id: "m-1", update_intent: nil}}
+
+    assert_received {:bridge_upsert_message, %{id: 1, provider: "mattermost"}, bridged_request,
+                     %{url: "https://example.test", token: "token"}}
+
+    assert bridged_request.message_id == "m-status"
+  end
+
+  test "upsert_message preserves tool_call intent while mapping status_message_id" do
+    request = %{
+      provider: :web,
+      channel_id: "c1",
+      request_id: "r1",
+      body: "Calling mcp__read_file...",
+      status_message_id: "m-status",
+      update_intent: :tool_call
+    }
+
+    event =
+      Event.new(request, :channels,
+        opts: [
+          action: :upsert_message,
+          bridge_module: StubCommunicationBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :upsert_message, nil)
+
+    assert result.response ==
+             {:ok, %{action: :created, message_id: "m-1", update_intent: :tool_call}}
+
+    assert_received {:bridge_upsert_message, _cfg, bridged_request, _details}
+    assert bridged_request.message_id == "m-status"
+    assert bridged_request.update_intent == :tool_call
   end
 
   test "upsert_message returns error for unsupported intents" do

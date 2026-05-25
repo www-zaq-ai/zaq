@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
   use Zaq.DataCase, async: false
+  import ExUnit.CaptureLog
 
   @moduletag capture_log: true
 
@@ -37,6 +38,24 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       do: {:error, :delivery_failed}
 
     def send_reply(%Outgoing{} = outgoing, _connection_details) do
+      send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
+      :ok
+    end
+  end
+
+  defmodule StaleStatusCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
+      if log_id = Process.get(:dispatch_worker_log_id) do
+        _ =
+          NotificationLog.transition_status(
+            %NotificationLog{id: log_id, status: "pending"},
+            "failed"
+          )
+      end
+
       send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
       :ok
     end
@@ -138,6 +157,20 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       assert email.from == {"ZAQ", "noreply@zaq.local"}
     end
 
+    test "\"email:imap\" channel maps to :email and succeeds" do
+      log = create_log()
+      args = %{"log_id" => log.id, "channels" => [channel("email:imap")]}
+
+      assert :ok = perform(args)
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.status == "sent"
+      assert length(reloaded.channels_tried) == 1
+      assert hd(reloaded.channels_tried)["platform"] == "email:imap"
+
+      assert_receive {:delivered, :email, "test@example.com"}
+    end
+
     test "reads payload from notification_logs, not job args" do
       log = create_log(%{payload: %{"subject" => "Hello", "body" => "World"}})
 
@@ -236,6 +269,24 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       assert "mattermost" in platforms
     end
 
+    test "non-binary platform is skipped via fallback clause and dispatch continues" do
+      log = create_log()
+
+      args = %{
+        "log_id" => log.id,
+        "channels" => [%{"platform" => 123, "identifier" => "ignored"}, channel("mattermost")]
+      }
+
+      assert :ok = perform(args)
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.status == "sent"
+      assert length(reloaded.channels_tried) == 1
+      assert hd(reloaded.channels_tried)["platform"] == "mattermost"
+
+      assert_receive {:delivered, :mattermost, "test@example.com"}
+    end
+
     test "unknown platform is skipped" do
       log = create_log()
 
@@ -262,6 +313,37 @@ defmodule Zaq.Engine.Notifications.DispatchWorkerTest do
       perform(args)
 
       assert_received {:delivered, :email, "test@example.com"}
+    end
+
+    test "delivery ok but status transition stale logs warning and still returns :ok" do
+      Application.put_env(
+        :zaq,
+        :dispatch_worker_channels_event_opts,
+        channels_api_module: Zaq.Channels.Api,
+        bridge_module: StaleStatusCommunicationBridge
+      )
+
+      log = create_log()
+      args = %{"log_id" => log.id, "channels" => [channel("email:smtp")]}
+
+      log_output =
+        capture_log(fn ->
+          Process.put(:dispatch_worker_log_id, log.id)
+
+          try do
+            assert :ok = perform(args)
+          after
+            Process.delete(:dispatch_worker_log_id)
+          end
+        end)
+
+      assert log_output =~
+               "[DispatchWorker] log #{log.id} sent but status update failed: :stale_record"
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.status == "failed"
+      assert length(reloaded.channels_tried) == 1
+      assert hd(reloaded.channels_tried)["status"] == "ok"
     end
   end
 end

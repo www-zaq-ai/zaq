@@ -21,6 +21,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     end
   end
 
+  defmodule RaisingNodeRouter do
+    def call(:ingestion, _mod, :query_extraction, [_query, _opts]) do
+      raise "router crashed"
+    end
+  end
+
   # Matches only when opts carry exactly person_id: 42, team_ids: [1, 2],
   # skip_permissions: false — any deviation causes the fallback to return an
   # error, which fails the test that asserts {:ok, _}.
@@ -74,6 +80,13 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
       assert {:error, message} = SearchKnowledgeBase.run(%{query: "timeout query"}, context)
       assert message == "Knowledge base search failed: :timeout"
+    end
+
+    test "returns wrapped error when node router raises exception" do
+      context = %{person_id: 42, node_router: RaisingNodeRouter}
+
+      assert {:error, message} = SearchKnowledgeBase.run(%{query: "any query"}, context)
+      assert message == "Knowledge base search error: router crashed"
     end
 
     test "returns empty chunks when no results found" do

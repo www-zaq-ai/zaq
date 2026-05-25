@@ -16,7 +16,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
   - `:team_ids` — list of team IDs the person belongs to (default `[]`).
   - `:skip_permissions` — when `true`, bypasses permission filtering (admin use).
   - `:source_filter` — list of source path prefixes to restrict results; `nil` means all.
-  - `:status_context` — passed to `Status.broadcast/4` for streaming progress events.
+  - `:incoming` — `%Incoming{}` passed to `Status.broadcast/4` for streaming progress events.
   - `:node_router` — override the NodeRouter module (default `Zaq.NodeRouter`).
   """
 
@@ -56,7 +56,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
 
   def run(_params, context) do
     Status.broadcast(
-      Map.get(context, :status_context),
+      Map.get(context, :incoming),
       :retrieving,
       "ZAQ is listing your knowledge base files…",
       Map.get(context, :node_router, NodeRouter)

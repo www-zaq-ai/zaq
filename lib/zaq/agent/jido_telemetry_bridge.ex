@@ -12,7 +12,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   require Logger
 
   alias Jido.AI.Observe
-  alias Zaq.Agent.{Factory, Status}
+  alias Zaq.Agent.Status
   alias Zaq.Engine.Telemetry
 
   @handler_id "zaq-agent-jido-telemetry-bridge"
@@ -335,20 +335,28 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   defp truncate_term(value, _max_chars), do: value
 
   defp maybe_broadcast_status([:jido, :ai, :llm, :start], _measurements, metadata, _cfg) do
-    case resolve_ctx(metadata) do
-      nil -> :ok
-      ctx -> Status.broadcast(ctx, :answering, "Thinking…", ctx.node_router)
-    end
+    case resolve_incoming_ctx(metadata) do
+      nil ->
+        :ok
 
-    :ok
+      %{incoming: incoming, node_router: node_router} ->
+        _ = Status.broadcast(incoming, :answering, "Thinking…", node_router)
+        :ok
+    end
   end
 
   defp maybe_broadcast_status([:jido, :ai, :llm, :delta], measurements, metadata, cfg) do
     if cfg.include_llm_deltas do
-      case {resolve_ctx(metadata), reasoning_delta_text(measurements, metadata)} do
-        {nil, _} -> :ok
-        {_, nil} -> :ok
-        {ctx, text} -> Status.broadcast(ctx, :retrieving, text, ctx.node_router)
+      case {resolve_incoming_ctx(metadata), reasoning_delta_text(measurements, metadata)} do
+        {nil, _} ->
+          :ok
+
+        {_, nil} ->
+          :ok
+
+        {%{incoming: incoming, node_router: node_router}, text} ->
+          _ = Status.broadcast(incoming, :retrieving, text, node_router)
+          :ok
       end
     end
 
@@ -357,14 +365,23 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp maybe_broadcast_status(event, _measurements, metadata, _cfg)
        when event in [[:jido, :ai, :tool, :start], [:jido, :ai, :tool, :execute, :start]] do
-    case resolve_ctx(metadata) do
+    case resolve_incoming_ctx(metadata) do
       nil ->
         :ok
 
-      ctx ->
+      %{incoming: incoming, node_router: node_router, request_id: request_id} ->
         tool_name = Map.get(metadata, :tool_name) || "unknown"
-        # stage = tool_stage(tool_name)
-        Status.broadcast(ctx, :retrieving, "Calling #{tool_name}…", ctx.node_router)
+
+        updated_incoming =
+          Status.broadcast(
+            incoming,
+            :retrieving,
+            "Calling #{tool_name}…",
+            node_router,
+            update_intent: :tool_call
+          )
+
+        remember_updated_incoming(request_id, updated_incoming, node_router)
     end
 
     :ok
@@ -693,23 +710,43 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
       |> proc_ctx_value(:telemetry_dimensions)
       |> normalize_telemetry_dimensions()
 
-    context =
-      case Process.get(:zaq_tool_trace_context) do
-        %{collector_pid: collector_pid} = tool_trace_ctx when is_pid(collector_pid) ->
+    proc_ctx = Process.get(:zaq_status_context)
+
+    base_context =
+      proc_ctx
+      |> case do
+        map when is_map(map) ->
           %{
-            collector_pid: collector_pid,
-            telemetry_dimensions: Map.get(tool_trace_ctx, :telemetry_dimensions, status_dims)
+            request_id: Map.get(map, :request_id),
+            incoming: Map.get(map, :incoming),
+            node_router: Map.get(map, :node_router)
           }
 
         _ ->
+          %{}
+      end
+
+    context =
+      case Process.get(:zaq_tool_trace_context) do
+        %{collector_pid: collector_pid} = tool_trace_ctx when is_pid(collector_pid) ->
+          base_context
+          |> Map.put(:collector_pid, collector_pid)
+          |> Map.put(
+            :telemetry_dimensions,
+            Map.get(tool_trace_ctx, :telemetry_dimensions, status_dims)
+          )
+
+        _ ->
           if map_size(status_dims) > 0 do
-            %{telemetry_dimensions: status_dims}
+            Map.put(base_context, :telemetry_dimensions, status_dims)
           else
-            nil
+            base_context
           end
       end
 
-    if context do
+    context = Enum.reject(context, fn {_k, v} -> is_nil(v) end) |> Map.new()
+
+    if map_size(context) > 0 do
       :ets.insert(table, {{:request_context, request_id}, context})
     end
 
@@ -759,35 +796,67 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
     :ok
   end
 
-  defp resolve_ctx(metadata) do
+  defp resolve_incoming_ctx(metadata) do
     proc_ctx = Process.get(:zaq_status_context)
+    req_id = request_id(metadata)
 
-    session_id = proc_ctx_value(proc_ctx, :session_id) || session_id_from_metadata(metadata)
-    request_id = proc_ctx_value(proc_ctx, :request_id)
-    node_router = proc_ctx_value(proc_ctx, :node_router) || Zaq.NodeRouter
+    remembered_ctx = remembered_context(req_id)
 
-    with id when is_binary(id) and id != "" <- session_id,
-         req when is_binary(req) and req != "" <- request_id do
-      %{session_id: id, request_id: req, node_router: node_router}
+    incoming = preferred_ctx_value(proc_ctx, remembered_ctx, :incoming)
+
+    request_id =
+      preferred_ctx_value(proc_ctx, remembered_ctx, :request_id) ||
+        request_id_from_incoming(incoming) || req_id
+
+    node_router = preferred_ctx_value(proc_ctx, remembered_ctx, :node_router) || Zaq.NodeRouter
+
+    if match?(%Zaq.Engine.Messages.Incoming{}, incoming) and is_binary(request_id) and
+         request_id != "" do
+      %{incoming: incoming, node_router: node_router, request_id: request_id}
     else
-      _ -> nil
+      nil
     end
   end
 
-  defp proc_ctx_value(nil, _key), do: nil
-  defp proc_ctx_value(proc_ctx, key), do: Map.get(proc_ctx, key)
+  defp remember_updated_incoming(
+         request_id,
+         %Zaq.Engine.Messages.Incoming{} = incoming,
+         node_router
+       )
+       when is_binary(request_id) and request_id != "" do
+    table = ensure_trace_table()
 
-  defp session_id_from_metadata(metadata) do
-    metadata
-    |> Map.get(:agent_id)
-    |> Factory.spawn_opts_from_server_id()
-    |> conversation_id_from_spawn_opts()
+    current = get_request_context(request_id) || %{}
+
+    updated =
+      current
+      |> Map.put(:incoming, incoming)
+      |> Map.put(:node_router, node_router)
+      |> Map.put(:request_id, request_id)
+
+    :ets.insert(table, {{:request_context, request_id}, updated})
+    :ok
   end
 
-  defp conversation_id_from_spawn_opts(%{conversation_id: id}) when is_binary(id) and id != "",
-    do: id
+  defp remember_updated_incoming(_request_id, _incoming, _node_router), do: :ok
 
-  defp conversation_id_from_spawn_opts(_), do: nil
+  defp remembered_context(request_id) when is_binary(request_id) and request_id != "",
+    do: get_request_context(request_id)
+
+  defp remembered_context(_request_id), do: nil
+
+  defp preferred_ctx_value(proc_ctx, remembered_ctx, key) do
+    proc_ctx_value(proc_ctx, key) || proc_ctx_value(remembered_ctx, key)
+  end
+
+  defp request_id_from_incoming(%Zaq.Engine.Messages.Incoming{} = incoming) do
+    incoming.metadata[:request_id] || incoming.message_id
+  end
+
+  defp request_id_from_incoming(_incoming), do: nil
+
+  defp proc_ctx_value(nil, _key), do: nil
+  defp proc_ctx_value(proc_ctx, key), do: Map.get(proc_ctx, key)
 
   # defp tool_stage(tool_name) when is_binary(tool_name) do
   #   mcp_prefixes = Application.get_env(:zaq, :mcp_tool_prefixes, @default_mcp_prefixes)

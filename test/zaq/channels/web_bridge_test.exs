@@ -40,4 +40,38 @@ defmodule Zaq.Channels.WebBridgeTest do
       assert_receive {:pipeline_result, "req-42", ^outgoing, "my question"}
     end
   end
+
+  describe "upsert_message/3" do
+    test "broadcasts :answering when intent_meta stage is not an atom" do
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:session-abc")
+
+      request = %{
+        request_id: "req-42",
+        session_id: "session-abc",
+        body: "Checking sources",
+        intent_meta: %{stage: "retrieving"}
+      }
+
+      assert {:ok, %{action: :created, message_id: "req-42"}} =
+               WebBridge.upsert_message(%{}, request, %{})
+
+      assert_receive {:status_update, "req-42", :answering, "Checking sources"}
+    end
+
+    test "broadcasts :answering when intent_meta is nil" do
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:session-abc")
+
+      request = %{
+        request_id: "req-43",
+        session_id: "session-abc",
+        body: "Generating response",
+        intent_meta: nil
+      }
+
+      assert {:ok, %{action: :created, message_id: "req-43"}} =
+               WebBridge.upsert_message(%{}, request, %{})
+
+      assert_receive {:status_update, "req-43", :answering, "Generating response"}
+    end
+  end
 end

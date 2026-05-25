@@ -37,9 +37,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   def from_listener(config, payload, sink_opts) when is_map(payload) do
     bridge_id = sink_opts[:bridge_id] || runtime_bridge_id(config)
 
-    with :ok <- ensure_runtime_started(config, bridge_id, []),
+    with {:ok, normalized_config} <- ensure_provider_atom(config),
+         :ok <- ensure_runtime_started(normalized_config, bridge_id, []),
          {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
-      state_module().process_listener_payload(state_pid, config, payload, sink_opts)
+      state_module().process_listener_payload(state_pid, normalized_config, payload, sink_opts)
     end
   end
 
@@ -52,11 +53,12 @@ defmodule Zaq.Channels.JidoChatBridge do
       when is_binary(channel_id) and is_binary(thread_id) do
     bridge_id = thread_bridge_id(channel_id, thread_id)
 
-    with :ok <- ensure_runtime_started(config, bridge_id, channel_ids: [channel_id]),
+    with {:ok, provider} <- provider_atom_from_config(config),
+         :ok <- ensure_runtime_started(config, bridge_id, channel_ids: [channel_id]),
          {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
       state_module().subscribe_thread(
         state_pid,
-        String.to_existing_atom(config.provider),
+        provider,
         channel_id,
         thread_id
       )
@@ -72,11 +74,12 @@ defmodule Zaq.Channels.JidoChatBridge do
       when is_binary(channel_id) and is_binary(thread_id) do
     bridge_id = thread_bridge_id(channel_id, thread_id)
 
-    with {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id),
+    with {:ok, provider} <- provider_atom_from_config(config),
+         {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id),
          :ok <-
            state_module().unsubscribe_thread(
              state_pid,
-             String.to_existing_atom(config.provider),
+             provider,
              channel_id,
              thread_id
            ) do
@@ -88,8 +91,9 @@ defmodule Zaq.Channels.JidoChatBridge do
   def build_runtime_specs(config) do
     bridge_id = runtime_bridge_id(config)
 
-    with {:ok, listeners} <- listener_specs(config, bridge_id, []) do
-      {:ok, {state_child_spec(config, bridge_id), listeners}}
+    with {:ok, state_spec} <- state_child_spec(config, bridge_id),
+         {:ok, listeners} <- listener_specs(config, bridge_id, []) do
+      {:ok, {state_spec, listeners}}
     end
   end
 
@@ -141,7 +145,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       resolved =
         Bridge.required_capabilities(:communication)
         |> Enum.reduce(%{}, fn capability, acc ->
-          accumulate_capability(acc, capability, raw_capabilities, ingress_mode)
+          accumulate_capability(acc, capability, raw_capabilities, ingress_mode, adapter)
         end)
 
       {:ok, %{resolved: resolved}}
@@ -236,23 +240,30 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @impl true
-  def upsert_message(%{provider: provider}, request, %{url: url, token: token})
+  def upsert_message(%{provider: provider, provider_atom: provider_atom}, request, %{
+        url: url,
+        token: token
+      })
       when is_map(request) do
     message_id = Map.get(request, :message_id)
 
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+         true <- is_atom(provider_atom) || {:error, {:unsupported_provider, provider}},
          true <- supports_message_updates?(adapter) || {:ok, %{action: :noop, message_id: nil}} do
       thread_id = Map.get(request, :thread_id)
       channel_id = Map.get(request, :channel_id)
       body = Map.get(request, :body)
 
       if is_binary(message_id) and message_id != "" do
-        update_message(adapter, channel_id, message_id, body, url, token, request)
+        edit_message(adapter, channel_id, message_id, body, url, token, request)
       else
-        create_message(provider, adapter, channel_id, thread_id, body, url, token)
+        create_message(provider_atom, adapter, channel_id, thread_id, body, url, token)
       end
     end
   end
+
+  def upsert_message(%{provider: _provider}, _request, _connection_details),
+    do: {:error, :missing_provider_atom}
 
   def upsert_message(_config, _request, _connection_details),
     do: {:error, :missing_connection_details}
@@ -513,13 +524,19 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   @doc "Builds the `{state_spec, listener_specs}` tuple for starting a bridge runtime."
   def runtime_specs(config, bridge_id, runtime_opts \\ []) do
+    state_spec =
+      case state_child_spec(config, bridge_id) do
+        {:ok, spec} -> spec
+        {:error, _reason} -> nil
+      end
+
     listeners =
       case listener_specs(config, bridge_id, runtime_opts) do
         {:ok, specs} -> specs
         {:error, _} -> []
       end
 
-    {state_child_spec(config, bridge_id), listeners}
+    {state_spec, listeners}
   end
 
   defp thread_bridge_id(channel_id, thread_id), do: "#{channel_id}_#{thread_id}"
@@ -527,21 +544,37 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp ensure_runtime_started(config, bridge_id, runtime_opts) do
     case supervisor_module().lookup_state_pid(bridge_id) do
       {:ok, state_pid} ->
-        state_module().refresh_config(state_pid, config)
+        case state_module().refresh_config(state_pid, config) do
+          :ok -> :ok
+          {:error, _reason} -> restart_runtime_for_bridge_id(config, bridge_id, runtime_opts)
+        end
 
       {:error, :not_running} ->
-        with {:ok, listeners} <- listener_specs(config, bridge_id, runtime_opts),
-             {:ok, _runtime} <-
-               supervisor_module().start_runtime(
-                 bridge_id,
-                 state_child_spec(config, bridge_id),
-                 listeners
-               ) do
-          :ok
-        else
-          {:error, :already_running} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
+        start_runtime_for_bridge_id(config, bridge_id, runtime_opts)
+    end
+  end
+
+  defp start_runtime_for_bridge_id(config, bridge_id, runtime_opts) do
+    with {:ok, state_spec} <- state_child_spec(config, bridge_id),
+         {:ok, listeners} <- listener_specs(config, bridge_id, runtime_opts),
+         {:ok, _runtime} <-
+           supervisor_module().start_runtime(
+             bridge_id,
+             state_spec,
+             listeners
+           ) do
+      :ok
+    else
+      {:error, :already_running} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp restart_runtime_for_bridge_id(config, bridge_id, runtime_opts) do
+    case supervisor_module().stop_bridge_runtime(config, bridge_id) do
+      :ok -> start_runtime_for_bridge_id(config, bridge_id, runtime_opts)
+      {:error, :not_running} -> start_runtime_for_bridge_id(config, bridge_id, runtime_opts)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -562,21 +595,24 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp state_child_spec(config, bridge_id) do
-    %{
-      id: {State, bridge_id},
-      start:
-        {State, :start_link,
-         [
-           [
-             bridge_id: bridge_id,
-             config: config,
-             provider: provider_to_atom(config.provider),
-             handler_opts: handler_opts(config)
-           ]
-         ]},
-      restart: :permanent,
-      type: :worker
-    }
+    with {:ok, provider} <- provider_atom_from_config(config) do
+      {:ok,
+       %{
+         id: {State, bridge_id},
+         start:
+           {State, :start_link,
+            [
+              [
+                bridge_id: bridge_id,
+                config: config,
+                provider: provider,
+                handler_opts: handler_opts(config)
+              ]
+            ]},
+         restart: :permanent,
+         type: :worker
+       }}
+    end
   end
 
   defp listener_specs(config, bridge_id, runtime_opts) do
@@ -630,12 +666,23 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp ingress_starts_listener?(mode), do: mode in [:websocket, :gateway, :polling]
 
-  defp accumulate_capability(acc, capability, raw_capabilities, ingress_mode) do
-    case capability_value(capability, raw_capabilities, ingress_mode) do
+  defp accumulate_capability(acc, capability, raw_capabilities, ingress_mode, adapter) do
+    case capability_value(capability, raw_capabilities, ingress_mode, adapter) do
       nil -> acc
       value -> Map.put(acc, capability, value)
     end
   end
+
+  defp capability_value(:edit_messages, raw_capabilities, _ingress_mode, adapter) do
+    if function_exported?(adapter, :edit_message, 4) do
+      true
+    else
+      capability_value(:edit_messages, raw_capabilities, nil)
+    end
+  end
+
+  defp capability_value(capability, raw_capabilities, ingress_mode, _adapter),
+    do: capability_value(capability, raw_capabilities, ingress_mode)
 
   defp capability_value(:mode, _raw_capabilities, ingress_mode),
     do: ingress_mode |> Atom.to_string()
@@ -713,6 +760,42 @@ defmodule Zaq.Channels.JidoChatBridge do
   rescue
     ArgumentError -> nil
   end
+
+  def provider_atom_from_config(config) when is_map(config) do
+    case Map.get(config, :provider_atom) do
+      provider when is_atom(provider) and not is_nil(provider) ->
+        {:ok, provider}
+
+      _ ->
+        provider = Map.get(config, :provider) || Map.get(config, "provider")
+
+        case resolve_provider_atom(provider) do
+          {:ok, provider_atom} -> {:ok, provider_atom}
+          :error -> {:error, :missing_provider_atom}
+        end
+    end
+  end
+
+  defp ensure_provider_atom(config) when is_map(config) do
+    case provider_atom_from_config(config) do
+      {:ok, provider_atom} -> {:ok, Map.put(config, :provider_atom, provider_atom)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp resolve_provider_atom(provider) when is_atom(provider), do: {:ok, provider}
+
+  defp resolve_provider_atom(provider) when is_binary(provider) do
+    channels = Application.get_env(:zaq, :channels, %{})
+
+    Enum.find(Map.keys(channels), fn key -> Atom.to_string(key) == provider end)
+    |> case do
+      nil -> :error
+      key -> {:ok, key}
+    end
+  end
+
+  defp resolve_provider_atom(_provider), do: :error
 
   defp run_pipeline(msg, opts) do
     module = pipeline_module()
@@ -843,7 +926,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, url, token) do
     with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
          {:ok, _result} <-
-           update_message(
+           edit_message(
              adapter_module,
              outgoing.channel_id,
              message_id,
@@ -972,10 +1055,10 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp update_message(adapter_module, channel_id, message_id, body, url, token, request) do
+  defp edit_message(adapter_module, channel_id, message_id, body, url, token, request) do
     opts = [url: url, token: token, update_intent: Map.get(request, :update_intent)]
 
-    result = adapter_module.update_message(channel_id, message_id, body, opts)
+    result = adapter_module.edit_message(channel_id, message_id, body, opts)
 
     case normalize_outbound_result(result) do
       :ok -> {:ok, %{action: :updated, message_id: message_id}}
@@ -984,7 +1067,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp supports_message_updates?(adapter_module) do
-    function_exported?(adapter_module, :update_message, 4)
+    function_exported?(adapter_module, :edit_message, 4)
   end
 
   defp metadata_message_id(metadata) when is_map(metadata) do

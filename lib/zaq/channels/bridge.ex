@@ -63,6 +63,7 @@ defmodule Zaq.Channels.Bridge do
     :reactions,
     :threads,
     :typing,
+    :edit_messages,
     :mode
   ]
 
@@ -76,6 +77,7 @@ defmodule Zaq.Channels.Bridge do
     reactions: "Reactions",
     threads: "Threads",
     typing: "Typing",
+    edit_messages: "Edit messages",
     mode: "Mode"
   }
 
@@ -314,7 +316,7 @@ defmodule Zaq.Channels.Bridge do
   def fetch_channel_config(provider) do
     case ChannelConfig.get_by_provider(to_string(provider)) do
       nil -> {:error, {:channel_not_configured, provider}}
-      config -> {:ok, config}
+      config -> {:ok, normalize_channel_config(config)}
     end
   end
 
@@ -323,8 +325,14 @@ defmodule Zaq.Channels.Bridge do
   def fetch_any_channel_config(provider) do
     case ChannelConfig.get_any_by_provider(to_string(provider)) do
       nil -> {:error, {:channel_not_configured, provider}}
-      config -> {:ok, config}
+      config -> {:ok, normalize_channel_config(config)}
     end
+  end
+
+  defp normalize_channel_config(config) when is_map(config) do
+    provider = Map.get(config, :provider) || Map.get(config, "provider")
+    provider_atom = provider && provider_to_bridge_key(to_string(provider))
+    Map.put(config, :provider_atom, provider_atom)
   end
 
   @doc "Delegates provider runtime sync to bridge callback or fallback runtime hooks."

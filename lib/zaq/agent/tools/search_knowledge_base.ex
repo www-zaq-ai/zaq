@@ -23,7 +23,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
 
   def run(%{query: query}, context) do
     Status.broadcast(
-      Map.get(context, :status_context),
+      Map.get(context, :incoming),
       :retrieving,
       "ZAQ is searching your knowledge base…",
       Map.get(context, :node_router, NodeRouter)

@@ -26,16 +26,13 @@ defmodule Zaq.Channels.Api do
   @impl true
   def handle_event(%Event{} = event, :deliver_outgoing, _context) do
     bridge_module = bridge_module(event)
-    correlation_module = message_correlation_module(event)
 
     with {:ok, outgoing} <- outgoing_from_event(event),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider) do
-      outgoing = maybe_attach_correlated_message_id(outgoing, correlation_module)
+      outgoing = maybe_attach_status_message_id(outgoing)
       connection_details = bridge_module.fetch_connection_details(outgoing.provider)
 
       response = bridge.send_reply(outgoing, connection_details)
-
-      maybe_clear_correlation(correlation_module, outgoing, response)
 
       %{event | response: response}
     else
@@ -70,7 +67,6 @@ defmodule Zaq.Channels.Api do
         _context
       ) do
     bridge_module = bridge_module(event)
-    correlation_module = message_correlation_module(event)
 
     with :ok <- validate_upsert_request(request),
          :ok <- validate_update_intent(Map.get(request, :update_intent)),
@@ -79,10 +75,9 @@ defmodule Zaq.Channels.Api do
       config = bridge_module.fetch_channel_config(provider)
       details = bridge_module.fetch_connection_details(provider)
 
-      case config do
+      case normalize_upsert_config(provider, config) do
         {:ok, cfg} ->
-          response = bridge.upsert_message(cfg, request, details)
-          maybe_store_correlation(correlation_module, request, response)
+          response = bridge.upsert_message(cfg, normalize_upsert_request(request), details)
           %{event | response: response}
 
         {:error, reason} ->
@@ -535,12 +530,6 @@ defmodule Zaq.Channels.Api do
 
   defp bridge_module(_event), do: Bridge
 
-  defp message_correlation_module(%Event{opts: opts}) when is_list(opts) do
-    Keyword.get(opts, :message_correlation_module, Zaq.Channels.MessageCorrelation)
-  end
-
-  defp message_correlation_module(_event), do: Zaq.Channels.MessageCorrelation
-
   defp validate_update_intent(nil), do: :ok
 
   defp validate_update_intent(intent) when is_atom(intent) do
@@ -572,37 +561,34 @@ defmodule Zaq.Channels.Api do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(value), do: not is_nil(value)
 
-  defp maybe_store_correlation(correlation_module, request, {:ok, %{message_id: message_id}})
-       when is_binary(message_id) and message_id != "" do
-    provider = Map.get(request, :provider)
-    request_id = Map.get(request, :request_id)
-    correlation_module.put(provider, request_id, message_id)
-  end
-
-  defp maybe_store_correlation(_correlation_module, _request, _response), do: :ok
-
-  defp maybe_attach_correlated_message_id(%Outgoing{} = outgoing, correlation_module) do
+  defp maybe_attach_status_message_id(%Outgoing{} = outgoing) do
     metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
 
     if present?(Map.get(metadata, :message_id) || Map.get(metadata, "message_id")) do
       outgoing
     else
-      request_id = Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
+      case Map.get(metadata, :status_message_id) || Map.get(metadata, "status_message_id") do
+        message_id when is_binary(message_id) and message_id != "" ->
+          %{outgoing | metadata: Map.put(metadata, :message_id, message_id)}
 
-      case correlation_module.get(outgoing.provider, request_id) do
-        {:ok, message_id} -> %{outgoing | metadata: Map.put(metadata, :message_id, message_id)}
-        :error -> %{outgoing | metadata: metadata}
+        _ ->
+          %{outgoing | metadata: metadata}
       end
     end
   end
 
-  defp maybe_clear_correlation(correlation_module, %Outgoing{} = outgoing, response) do
-    if response == :ok or match?({:ok, _}, response) do
-      metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
-      request_id = Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
-      correlation_module.delete(outgoing.provider, request_id)
-    end
+  defp normalize_upsert_request(request) when is_map(request) do
+    case Map.get(request, :status_message_id) do
+      message_id when is_binary(message_id) and message_id != "" ->
+        Map.put(request, :message_id, message_id)
 
-    :ok
+      _ ->
+        request
+    end
   end
+
+  defp normalize_upsert_config(provider, {:error, _reason}) when provider in [:web, "web"],
+    do: {:ok, %{provider: "web"}}
+
+  defp normalize_upsert_config(_provider, config), do: config
 end

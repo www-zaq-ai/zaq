@@ -8,9 +8,23 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   defmodule FakeNodeRouter do
     alias Zaq.Event
 
-    def dispatch(%Event{request: %{module: mod, function: fun, args: args}} = event) do
-      apply(mod, fun, args)
-      event
+    def dispatch(%Event{opts: opts, request: request} = event) do
+      if opts[:action] == :upsert_message do
+        session_id = request[:session_id]
+        request_id = request[:request_id]
+        message = request[:body]
+        stage = get_in(request, [:intent_meta, :stage]) || :answering
+
+        Phoenix.PubSub.broadcast(
+          Zaq.PubSub,
+          "chat:#{session_id}",
+          {:status_update, request_id, stage, message}
+        )
+
+        %{event | response: {:ok, %{action: :created, message_id: request_id}}}
+      else
+        event
+      end
     end
   end
 
@@ -287,11 +301,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
 
     Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
 
-    Process.put(:zaq_status_context, %{
-      session_id: session_id,
-      request_id: request_id,
-      node_router: FakeNodeRouter
-    })
+    put_status_context(session_id, request_id)
 
     on_exit(fn ->
       Process.delete(:zaq_status_context)
@@ -312,11 +322,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
 
     Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
 
-    Process.put(:zaq_status_context, %{
-      session_id: session_id,
-      request_id: request_id,
-      node_router: FakeNodeRouter
-    })
+    put_status_context(session_id, request_id)
 
     on_exit(fn ->
       Process.delete(:zaq_status_context)
@@ -339,11 +345,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
 
     Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
 
-    Process.put(:zaq_status_context, %{
-      session_id: session_id,
-      request_id: request_id,
-      node_router: FakeNodeRouter
-    })
+    put_status_context(session_id, request_id)
 
     on_exit(fn ->
       Process.delete(:zaq_status_context)
@@ -369,11 +371,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
 
     Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
 
-    Process.put(:zaq_status_context, %{
-      session_id: session_id,
-      request_id: request_id,
-      node_router: FakeNodeRouter
-    })
+    put_status_context(session_id, request_id)
 
     on_exit(fn ->
       Process.delete(:zaq_status_context)
@@ -399,7 +397,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   test "request completion publishes aggregated tool traces to collector process" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
-    Process.put(:zaq_status_context, %{request_id: request_id})
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
     Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
 
     on_exit(fn ->
@@ -452,7 +450,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   test "later empty payload events do not override existing params/response" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
-    Process.put(:zaq_status_context, %{request_id: request_id})
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
     Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
 
     on_exit(fn ->
@@ -504,7 +502,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   test "keeps params/response scoped per tool_call_id for multiple calls" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
-    Process.put(:zaq_status_context, %{request_id: request_id})
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
     Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
 
     on_exit(fn ->
@@ -590,7 +588,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   test "tool.start after tool.execute.start does not wipe params" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
-    Process.put(:zaq_status_context, %{request_id: request_id})
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
     Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
 
     on_exit(fn ->
@@ -698,7 +696,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   test "request terminal events with blank request_id metadata no-op" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
-    Process.put(:zaq_status_context, %{request_id: request_id})
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
     Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
 
     on_exit(fn ->
@@ -773,11 +771,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
 
     Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
 
-    Process.put(:zaq_status_context, %{
-      session_id: session_id,
-      request_id: request_id,
-      node_router: FakeNodeRouter
-    })
+    put_status_context(session_id, request_id)
 
     on_exit(fn ->
       Process.delete(:zaq_status_context)
@@ -804,10 +798,202 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert_receive {:status_update, ^request_id, :retrieving, "part two"}
   end
 
+  test "llm.delta uses message_id fallback and tolerates non-map measurements" do
+    session_id = "bridge-session-#{System.unique_integer([:positive])}"
+    request_id = "bridge-req-#{System.unique_integer([:positive])}"
+
+    incoming = %Zaq.Engine.Messages.Incoming{
+      content: "hi",
+      channel_id: "bo",
+      provider: :web,
+      message_id: request_id,
+      metadata: %{session_id: session_id}
+    }
+
+    Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
+
+    Process.put(:zaq_status_context, %{incoming: incoming, node_router: FakeNodeRouter})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+    end)
+
+    assert_raise BadMapError, fn ->
+      JidoTelemetryBridge.handle_event(
+        [:jido, :ai, :llm, :delta],
+        [],
+        %{},
+        %{include_llm_deltas: true}
+      )
+    end
+
+    refute_receive {:status_update, ^request_id, :retrieving, _}
+  end
+
+  test "request contexts store telemetry dimensions from status context" do
+    session_id = "bridge-session-#{System.unique_integer([:positive])}"
+    request_id = "req-#{System.unique_integer([:positive])}"
+
+    put_status_context(session_id, request_id)
+
+    Process.put(
+      :zaq_status_context,
+      Map.put(Process.get(:zaq_status_context), :telemetry_dimensions, %{tenant: "acme", env: nil})
+    )
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+
+      if :ets.whereis(:zaq_tool_trace_events) != :undefined do
+        :ets.delete(:zaq_tool_trace_events, {:request_context, request_id})
+      end
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :request, :start],
+               %{},
+               %{request_id: request_id},
+               %{}
+             )
+
+    assert [{_, ctx}] = :ets.lookup(:zaq_tool_trace_events, {:request_context, request_id})
+    assert ctx.telemetry_dimensions == %{tenant: "acme"}
+  end
+
+  test "tool traces preserve structured params, PID responses, and atom ids" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+    call_id = :trace_atom_call
+
+    previous_level = Logger.level()
+    Logger.configure(level: :error)
+
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Logger.configure(level: previous_level)
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    params_struct = %Zaq.Engine.Messages.Incoming{
+      content: "hello",
+      channel_id: "bo",
+      provider: :web,
+      metadata: %{nested: %{keep: true}}
+    }
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{duration_ms: 1},
+               %{
+                 request_id: request_id,
+                 tool_call_id: call_id,
+                 tool_name: :read_file,
+                 params: params_struct
+               },
+               %{}
+             )
+
+    assert_raise BadMapError, fn ->
+      JidoTelemetryBridge.handle_event(
+        [:jido, :ai, :tool, :execute, :stop],
+        [],
+        %{
+          request_id: request_id,
+          tool_call_id: call_id,
+          tool_name: :read_file,
+          result: self()
+        },
+        %{}
+      )
+    end
+
+    assert [{_, trace}] =
+             :ets.lookup(:zaq_tool_trace_events, {:tool, request_id, "trace_atom_call"})
+
+    assert trace.tool_call_id == "trace_atom_call"
+    assert trace.tool_name == "read_file"
+    assert Map.get(trace.params, "content") == "hello"
+
+    metadata = Map.get(trace.params, "metadata")
+    assert Map.get(Map.get(metadata, "nested"), "keep") == true
+    assert trace.response == inspect(self())
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{},
+               %{
+                 request_id: request_id,
+                 tool_call_id: "trace-invalid-name",
+                 tool_name: 123
+               },
+               %{}
+             )
+
+    assert [] = :ets.lookup(:zaq_tool_trace_events, {:tool, request_id, "trace-invalid-name"})
+  end
+
+  test "tool start with non-map metadata hits nil fallbacks before raising" do
+    assert_raise BadMapError, fn ->
+      JidoTelemetryBridge.handle_event([:jido, :ai, :tool, :start], %{}, [], %{})
+    end
+  end
+
+  @tag timeout: 5_000
+  test "trace lock acquisition retries until fallback path" do
+    request_id = "req-#{System.unique_integer([:positive])}"
+    tool_call_id = "tool-lock-#{System.unique_integer([:positive])}"
+
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
+    Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
+
+    on_exit(fn ->
+      Process.delete(:zaq_status_context)
+      Process.delete(:zaq_tool_trace_context)
+    end)
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :start],
+               %{duration_ms: 1},
+               %{
+                 request_id: request_id,
+                 tool_call_id: tool_call_id,
+                 tool_name: "read_file",
+                 params: %{path: "a.txt"}
+               },
+               %{}
+             )
+
+    lock_key = {:tool, request_id, tool_call_id}
+    :ets.insert(:zaq_tool_trace_locks, {lock_key, true})
+
+    assert :ok =
+             JidoTelemetryBridge.handle_event(
+               [:jido, :ai, :tool, :execute, :stop],
+               %{duration_ms: 7},
+               %{
+                 request_id: request_id,
+                 tool_call_id: tool_call_id,
+                 tool_name: "read_file",
+                 result: %{ok: true}
+               },
+               %{}
+             )
+
+    assert [{_, trace}] = :ets.lookup(:zaq_tool_trace_events, lock_key)
+    assert trace.status == "ok"
+    assert trace.response_time_ms == 7
+  end
+
   test "tool trace keeps prior values when new values are empty and handles non-map measurements" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
-    Process.put(:zaq_status_context, %{request_id: request_id})
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
     Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
 
     on_exit(fn ->
@@ -866,7 +1052,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   test "invalid tool ids and names are ignored and publish empty traces" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
-    Process.put(:zaq_status_context, %{request_id: request_id})
+    put_status_context("bridge-session-#{System.unique_integer([:positive])}", request_id)
     Process.put(:zaq_tool_trace_context, %{request_id: request_id, collector_pid: self()})
 
     on_exit(fn ->
@@ -892,5 +1078,21 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
 
     assert_receive {:zaq_tool_traces, ^request_id, traces}
     assert traces == []
+  end
+
+  defp put_status_context(session_id, request_id) do
+    incoming = %Zaq.Engine.Messages.Incoming{
+      content: "hi",
+      channel_id: "bo",
+      provider: :web,
+      metadata: %{session_id: session_id, request_id: request_id}
+    }
+
+    Process.put(:zaq_status_context, %{
+      session_id: session_id,
+      request_id: request_id,
+      node_router: FakeNodeRouter,
+      incoming: incoming
+    })
   end
 end

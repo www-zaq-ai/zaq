@@ -9,9 +9,27 @@ defmodule Zaq.Agent.StatusTest do
   defmodule FakeNodeRouter do
     alias Zaq.Event
 
-    def dispatch(%Event{request: %{module: mod, function: fun, args: args}} = event) do
-      apply(mod, fun, args)
-      event
+    def dispatch(%Event{opts: opts, request: request} = event) do
+      if opts[:action] == :upsert_message do
+        session_id = request[:session_id]
+        request_id = request[:request_id]
+        message = request[:body]
+        stage = get_in(request, [:intent_meta, :stage]) || :answering
+
+        if is_binary(session_id) and session_id != "" do
+          Phoenix.PubSub.broadcast(
+            Zaq.PubSub,
+            "chat:#{session_id}",
+            {:status_update, request_id, stage, message}
+          )
+        else
+          send(self(), {:status_update, request_id, stage, message})
+        end
+
+        %{event | response: {:ok, %{action: :created, message_id: request_id}}}
+      else
+        event
+      end
     end
   end
 
@@ -29,7 +47,9 @@ defmodule Zaq.Agent.StatusTest do
         metadata: %{session_id: session_id, request_id: request_id}
       }
 
-      assert :ok = Status.broadcast(incoming, :validating, "Checking…", FakeNodeRouter)
+      assert %Incoming{metadata: %{status_message_id: ^request_id}} =
+               Status.broadcast(incoming, :validating, "Checking…", FakeNodeRouter)
+
       assert_receive {:status_update, ^request_id, :validating, "Checking…"}
     end
 
@@ -41,7 +61,7 @@ defmodule Zaq.Agent.StatusTest do
         metadata: %{}
       }
 
-      assert :ok = Status.broadcast(incoming, :validating, "x", FakeNodeRouter)
+      assert %Incoming{} = Status.broadcast(incoming, :validating, "x", FakeNodeRouter)
     end
 
     test "no-ops silently when request_id is absent from metadata" do
@@ -56,27 +76,22 @@ defmodule Zaq.Agent.StatusTest do
         metadata: %{session_id: session_id}
       }
 
-      assert :ok = Status.broadcast(incoming, :validating, "x", FakeNodeRouter)
+      assert %Incoming{} = Status.broadcast(incoming, :validating, "x", FakeNodeRouter)
       refute_receive {:status_update, _, _, _}
     end
   end
 
-  describe "broadcast/4 with context map" do
-    test "broadcasts when session_id and request_id are present" do
-      session_id = "ctx-session-#{System.unique_integer([:positive])}"
-      request_id = "ctx-req-#{System.unique_integer([:positive])}"
-
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
-
-      ctx = %{session_id: session_id, request_id: request_id}
-      assert :ok = Status.broadcast(ctx, :retrieving, "Searching…", FakeNodeRouter)
-      assert_receive {:status_update, ^request_id, :retrieving, "Searching…"}
+  describe "broadcast/4 strictness" do
+    test "raises when called with map context" do
+      assert_raise ArgumentError, fn ->
+        Status.broadcast(%{request_id: "r1"}, :retrieving, "Searching…", FakeNodeRouter)
+      end
     end
   end
 
   describe "broadcast/4 with nil" do
-    test "returns :ok and does not crash" do
-      assert :ok = Status.broadcast(nil, :validating, "x", FakeNodeRouter)
+    test "returns nil and does not crash" do
+      assert nil == Status.broadcast(nil, :validating, "x", FakeNodeRouter)
     end
   end
 
@@ -94,7 +109,14 @@ defmodule Zaq.Agent.StatusTest do
           opts: [node_router: FakeNodeRouter]
         )
 
-      assert %{session_id: "s1", request_id: "r1", node_router: FakeNodeRouter} =
+      assert %{
+               session_id: "s1",
+               request_id: "r1",
+               provider: :web,
+               channel_id: "bo",
+               thread_id: nil,
+               node_router: FakeNodeRouter
+             } =
                Status.context_from_event(event)
     end
 
@@ -123,7 +145,15 @@ defmodule Zaq.Agent.StatusTest do
           :agent
         )
 
-      assert Status.context_from_event(missing_session) == nil
+      assert %{
+               session_id: nil,
+               request_id: "r1",
+               provider: :web,
+               channel_id: "bo",
+               thread_id: nil,
+               node_router: Zaq.NodeRouter
+             } = Status.context_from_event(missing_session)
+
       assert Status.context_from_event(missing_request) == nil
     end
   end

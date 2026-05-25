@@ -1,33 +1,41 @@
 defmodule Zaq.Agent.Status do
   @moduledoc """
-  Fire-and-forget PubSub broadcast for agent pipeline stage transitions.
+  Fire-and-forget intermediary status updates routed through Channels.
 
   Any module holding an `%Incoming{}` struct or a status context map can call
-  `broadcast/3` to emit `{:status_update, request_id, stage, message}` on the
-  session PubSub topic that `ChatLive` subscribes to.
+  `broadcast/3` to emit an `:upsert_message` channels event.
 
   A nil or incomplete context is silently ignored — missing context must never
   crash the pipeline.
   """
 
+  alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.{Engine.Messages.Incoming, Event}
 
   @doc """
   Extracts session context from a `%Zaq.Event{}` for ETS registration in `StatusRegistry`.
 
-  Returns `%{session_id, request_id, node_router}` when the event carries a valid
-  `%Incoming{}` request with both fields present, or `nil` for a nil event or missing fields.
+  Returns `%{session_id, request_id, provider, channel_id, thread_id, node_router}` when the event carries a valid
+  `%Incoming{}` request with a non-empty request id (metadata `:request_id` or
+  incoming `:message_id`), or `nil` when missing.
   Never raises.
   """
   @spec context_from_event(Event.t() | nil) :: map() | nil
   def context_from_event(%Event{request: %Incoming{metadata: meta}} = event) do
     session_id = meta[:session_id]
-    request_id = meta[:request_id]
+    request_id = meta[:request_id] || event.request.message_id
 
-    if is_binary(session_id) and session_id != "" and
-         is_binary(request_id) and request_id != "" do
+    if is_binary(request_id) and request_id != "" do
       node_router = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
-      %{session_id: session_id, request_id: request_id, node_router: node_router}
+
+      %{
+        session_id: session_id,
+        request_id: request_id,
+        provider: event.request.provider,
+        channel_id: event.request.channel_id,
+        thread_id: event.request.thread_id,
+        node_router: node_router
+      }
     else
       nil
     end
@@ -38,41 +46,92 @@ defmodule Zaq.Agent.Status do
   @doc """
   Broadcasts a pipeline stage event to the originating chat session.
 
-  Accepts an `%Incoming{}` struct, a plain map with `:session_id` and
-  `:request_id` keys, or `nil`. Returns `:ok` immediately regardless of
-  whether the broadcast succeeds — callers must not depend on delivery.
-
-  The optional `node_router` argument defaults to `Zaq.NodeRouter`. Pass a
-  test double to avoid real RPC in unit tests.
+  For `%Incoming{}` inputs, returns the same incoming struct updated with
+  `metadata[:status_message_id]` when the upsert call returns one.
+  For `nil`, returns `nil`. Any non-Incoming context raises to prevent drift.
   """
-  @spec broadcast(Incoming.t() | map() | nil, atom(), String.t(), module()) :: :ok
-  def broadcast(context, stage, message, node_router \\ Zaq.NodeRouter)
+  @spec broadcast(Incoming.t() | nil, atom(), String.t(), module()) :: Incoming.t() | nil
+  @spec broadcast(Incoming.t() | nil, atom(), String.t(), module(), keyword()) ::
+          Incoming.t() | nil
 
-  def broadcast(%Incoming{metadata: meta}, stage, message, node_router) do
-    broadcast_to_session(meta[:session_id], meta[:request_id], stage, message, node_router)
+  def broadcast(context, stage, message, node_router) do
+    broadcast(context, stage, message, node_router, [])
   end
 
-  def broadcast(%{session_id: session_id, request_id: request_id}, stage, message, node_router) do
-    broadcast_to_session(session_id, request_id, stage, message, node_router)
+  def broadcast(%Incoming{} = incoming, stage, message, node_router, opts) do
+    params =
+      build_upsert_params(
+        %{
+          session_id: incoming.metadata[:session_id],
+          request_id: incoming.metadata[:request_id] || incoming.message_id,
+          provider: incoming.provider,
+          channel_id: incoming.channel_id,
+          thread_id: incoming.thread_id,
+          status_message_id: incoming.metadata[:status_message_id],
+          update_intent: Keyword.get(opts, :update_intent)
+        },
+        stage,
+        message
+      )
+
+    case dispatch_upsert(params, node_router) do
+      %Event{} = event -> merge_status_message_id(incoming, event)
+      _ -> incoming
+    end
   end
 
-  def broadcast(nil, _stage, _message, _node_router), do: :ok
+  def broadcast(%{} = _context, _stage, _message, _node_router, _opts) do
+    raise ArgumentError,
+          "Status.broadcast/5 requires %Incoming{} to avoid status context drift"
+  end
 
-  defp broadcast_to_session(nil, _request_id, _stage, _message, _node_router), do: :ok
-  defp broadcast_to_session(_session_id, nil, _stage, _message, _node_router), do: :ok
+  def broadcast(nil, _stage, _message, _node_router, _opts), do: nil
 
-  defp broadcast_to_session(session_id, request_id, stage, message, node_router) do
-    Event.new(
-      %{
-        module: Phoenix.PubSub,
-        function: :broadcast,
-        args: [Zaq.PubSub, "chat:#{session_id}", {:status_update, request_id, stage, message}]
-      },
-      :bo,
-      type: :async
+  defp dispatch_upsert(nil, _node_router), do: :ok
+
+  defp dispatch_upsert(params, node_router) do
+    ChannelEvents.build_and_dispatch_upsert_message_event(params,
+      node_router: node_router
     )
-    |> node_router.dispatch()
+  end
 
-    :ok
+  defp merge_status_message_id(%Incoming{} = incoming, %Event{response: response}) do
+    case response do
+      {:ok, %{message_id: message_id}} when is_binary(message_id) and message_id != "" ->
+        metadata =
+          incoming.metadata
+          |> case do
+            map when is_map(map) -> map
+            _ -> %{}
+          end
+          |> Map.put(:status_message_id, message_id)
+
+        %{incoming | metadata: metadata}
+
+      _ ->
+        incoming
+    end
+  end
+
+  defp build_upsert_params(%{} = context, stage, message) do
+    request_id = Map.get(context, :request_id) || Map.get(context, :message_id)
+    provider = Map.get(context, :provider) || :web
+    channel_id = Map.get(context, :channel_id) || "bo"
+
+    if is_binary(request_id) and request_id != "" do
+      %{
+        provider: provider,
+        channel_id: channel_id,
+        thread_id: Map.get(context, :thread_id),
+        request_id: request_id,
+        status_message_id: Map.get(context, :status_message_id),
+        body: message,
+        update_intent: Map.get(context, :update_intent) || :status,
+        session_id: Map.get(context, :session_id),
+        intent_meta: %{stage: stage}
+      }
+    else
+      nil
+    end
   end
 end

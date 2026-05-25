@@ -99,13 +99,6 @@ defmodule Zaq.Agent.Pipeline do
     ctx = %{trace_id: generate_trace_id(), node: node()}
     hooks = hooks_mod(opts)
 
-    status_context = %{
-      session_id: incoming.metadata[:session_id],
-      request_id: incoming.metadata[:request_id]
-    }
-
-    opts = Keyword.put(opts, :status_context, status_context)
-
     with :ok <- record_message_telemetry(opts),
          {:ok, retrieval_payload} <-
            hooks.dispatch_sync(:retrieval, %{content: content}, ctx),
@@ -114,7 +107,7 @@ defmodule Zaq.Agent.Pipeline do
          :ok <- hooks.dispatch_async(:retrieval_complete, retrieval_result, ctx),
          {:ok, answering_payload} <-
            hooks.dispatch_sync(:answering, retrieval_result, ctx),
-         {:ok, extraction_result} <- do_extraction(answering_payload, opts),
+         {:ok, extraction_result} <- do_extraction(answering_payload, opts, incoming),
          {:ok, answer_result} <-
            do_answering(incoming, content, extraction_result, answering_payload, history, opts) do
       :ok = hooks.dispatch_async(:answer_generated, %{answer: answer_result}, ctx)
@@ -227,7 +220,7 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_extraction(%{query: query} = retrieval_result, opts) do
+  defp do_extraction(%{query: query} = retrieval_result, opts, incoming) do
     negative_answer = Map.get(retrieval_result, :negative_answer)
 
     context = %{
@@ -237,7 +230,7 @@ defmodule Zaq.Agent.Pipeline do
       skip_permissions: Keyword.get(opts, :skip_permissions, false),
       node_router: node_router(opts),
       document_processor: document_processor_mod(opts),
-      status_context: Keyword.get(opts, :status_context)
+      incoming: incoming
     }
 
     case SearchKnowledgeBase.run(%{query: query}, context) do

@@ -37,6 +37,23 @@ defmodule Zaq.Channels.EventsTest do
     assert event.opts[:action] == :upsert_message
   end
 
+  test "build_upsert_message_event honors explicit type override even when message_id would imply async" do
+    event =
+      Events.build_upsert_message_event(
+        %{
+          provider: :web,
+          channel_id: "c1",
+          request_id: "r1",
+          message_id: "m1",
+          body: "hello"
+        },
+        type: :sync
+      )
+
+    assert event.next_hop.type == :sync
+    assert event.opts[:action] == :upsert_message
+  end
+
   test "build_and_dispatch_upsert_message_event dispatches built event" do
     event =
       Events.build_and_dispatch_upsert_message_event(

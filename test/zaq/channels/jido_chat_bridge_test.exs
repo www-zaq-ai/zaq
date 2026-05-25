@@ -266,10 +266,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       {:ok, %{external_message_id: "post-123"}}
     end
 
-    def update_message(channel_id, message_id, text, opts) do
-      send(self(), {:adapter_update_message, channel_id, message_id, text, opts})
+    def edit_message(channel_id, message_id, text, opts) do
+      send(self(), {:adapter_edit_message, channel_id, message_id, text, opts})
       :ok
     end
+  end
+
+  defmodule StubAdapterThreadPostWithUpdateError do
+    def send_message(_channel_id, _text, _opts) do
+      {:ok, %{external_message_id: "post-123"}}
+    end
+
+    def edit_message(_channel_id, _message_id, _text, _opts), do: {:error, :edit_failed}
   end
 
   defmodule FailingThreadPostAdapter do
@@ -309,6 +317,91 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         typing: :native,
         file: :unsupported
       }
+    end
+  end
+
+  defmodule StubAdapterCapabilitiesBooleans do
+    def capabilities do
+      %{"edit_messages" => true, "file" => false, "mode" => "native"}
+    end
+  end
+
+  defmodule StubWebhookStateError do
+    def process_webhook_request(_pid, _config, _payload), do: {:error, :webhook_failed}
+  end
+
+  defmodule StubWebhookStateRefresh do
+    def refresh_config(state_pid, config) do
+      send(self(), {:refresh_config_called, state_pid, config})
+      {:error, :stale}
+    end
+
+    def process_webhook_request(pid, config, payload) do
+      send(self(), {:process_webhook_request_called, pid, config, payload})
+      {:ok, %{response: %{status: 202}}}
+    end
+  end
+
+  defmodule StubSupervisorStartError do
+    def lookup_state_pid(bridge_id) do
+      send(self(), {:lookup_state_pid_called, bridge_id})
+      {:error, :not_running}
+    end
+
+    def start_runtime(bridge_id, _state_spec, _listeners) do
+      send(self(), {:start_runtime_called, bridge_id})
+      {:error, :start_failed}
+    end
+  end
+
+  defmodule StubSupervisorRefreshRestartOk do
+    def lookup_state_pid(bridge_id) do
+      send(self(), {:lookup_state_pid_called, bridge_id})
+      {:ok, self()}
+    end
+
+    def start_runtime(bridge_id, _state_spec, _listeners) do
+      send(self(), {:start_runtime_called, bridge_id})
+      {:ok, self()}
+    end
+
+    def stop_bridge_runtime(config, bridge_id) do
+      send(self(), {:stop_bridge_runtime_called, config, bridge_id})
+      :ok
+    end
+  end
+
+  defmodule StubSupervisorRefreshRestartNotRunning do
+    def lookup_state_pid(bridge_id) do
+      send(self(), {:lookup_state_pid_called, bridge_id})
+      {:ok, self()}
+    end
+
+    def start_runtime(bridge_id, _state_spec, _listeners) do
+      send(self(), {:start_runtime_called, bridge_id})
+      {:ok, self()}
+    end
+
+    def stop_bridge_runtime(config, bridge_id) do
+      send(self(), {:stop_bridge_runtime_called, config, bridge_id})
+      {:error, :not_running}
+    end
+  end
+
+  defmodule StubSupervisorRefreshRestartError do
+    def lookup_state_pid(bridge_id) do
+      send(self(), {:lookup_state_pid_called, bridge_id})
+      {:ok, self()}
+    end
+
+    def start_runtime(bridge_id, _state_spec, _listeners) do
+      send(self(), {:start_runtime_called, bridge_id})
+      {:ok, self()}
+    end
+
+    def stop_bridge_runtime(config, bridge_id) do
+      send(self(), {:stop_bridge_runtime_called, config, bridge_id})
+      {:error, :stop_failed}
     end
   end
 
@@ -1594,6 +1687,25 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:listener_child_specs_opts, listener_opts}
       assert listener_opts[:sink_opts][:transport] == :websocket
     end
+
+    test "runtime_specs/3 returns nil state spec for unsupported providers" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "no-such-provider",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      {state_spec, listener_specs} = JidoChatBridge.runtime_specs(config, "bridge-unsupported")
+
+      assert state_spec == nil
+      assert listener_specs == []
+    end
   end
 
   describe "subscribe_thread_reply/3 and unsubscribe_thread_reply/3" do
@@ -1873,9 +1985,60 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  token: "tok"
                })
 
-      assert_received {:adapter_update_message, "chan-1", "msg-1", "final", opts}
+      assert_received {:adapter_edit_message, "chan-1", "msg-1", "final", opts}
       assert opts[:url] == "https://mm.example.com"
       assert opts[:token] == "tok"
+    end
+
+    test "do_send_reply/2 returns adapter edit errors" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdateError
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      outgoing = %Outgoing{
+        body: "final",
+        channel_id: "chan-1",
+        thread_id: "thread-9",
+        provider: :mattermost,
+        metadata: %{message_id: "msg-1", request_id: "req-1"}
+      }
+
+      assert {:error, :edit_failed} =
+               JidoChatBridge.do_send_reply(outgoing, %{
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+    end
+
+    test "do_send_reply/2 treats nil metadata as a create flow" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterThreadPost}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      outgoing = %Outgoing{
+        body: "final",
+        channel_id: "chan-1",
+        thread_id: nil,
+        provider: :mattermost,
+        metadata: nil
+      }
+
+      assert :ok =
+               JidoChatBridge.do_send_reply(outgoing, %{
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
     end
   end
 
@@ -1913,6 +2076,48 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       # :streaming is absent (not in defaults or stub)
       refute Map.has_key?(resolved, :streaming)
+
+      # :edit_messages is absent when adapter does not support edit_message/4
+      refute Map.has_key?(resolved, :edit_messages)
+    end
+
+    test "marks edit_messages as supported when adapter exports edit_message/4" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdate,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{resolved: resolved}} =
+               JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
+
+      assert resolved[:edit_messages] == true
+    end
+
+    test "retains unsupported capability values" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterCapabilitiesBooleans,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{resolved: resolved}} =
+               JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
+
+      assert resolved[:edit_messages] == :unsupported
+      assert resolved[:file] == :unsupported
     end
   end
 
@@ -1928,7 +2133,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert {:ok, %{action: :noop, message_id: nil}} =
                JidoChatBridge.upsert_message(
-                 %{provider: "mattermost"},
+                 %{provider: "mattermost", provider_atom: :mattermost},
                  %{channel_id: "chan-1", body: "partial", request_id: "req-1"},
                  %{url: "https://mm.example.com", token: "tok"}
                )
@@ -1948,7 +2153,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert {:ok, %{action: :updated, message_id: "msg-42"}} =
                JidoChatBridge.upsert_message(
-                 %{provider: "mattermost"},
+                 %{provider: "mattermost", provider_atom: :mattermost},
                  %{
                    channel_id: "chan-1",
                    body: "partial",
@@ -1958,7 +2163,25 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  %{url: "https://mm.example.com", token: "tok"}
                )
 
-      assert_received {:adapter_update_message, "chan-1", "msg-42", "partial", _opts}
+      assert_received {:adapter_edit_message, "chan-1", "msg-42", "partial", _opts}
+    end
+
+    test "returns missing_provider_atom when provider_atom is absent" do
+      assert {:error, :missing_provider_atom} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost"},
+                 %{channel_id: "chan-1", body: "partial"},
+                 %{url: "https://mm.example.com", token: "tok"}
+               )
+    end
+
+    test "returns missing_connection_details when connection details are incomplete" do
+      assert {:error, :missing_connection_details} =
+               JidoChatBridge.upsert_message(
+                 %{},
+                 %{channel_id: "chan-1", body: "partial"},
+                 %{}
+               )
     end
   end
 
@@ -2801,6 +3024,25 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  describe "provider atom resolution" do
+    test "from_listener/3 returns missing_provider_atom for unsupported providers" do
+      incoming = %{"type" => "message", "text" => "hello"}
+
+      assert {:error, :missing_provider_atom} =
+               JidoChatBridge.from_listener(%{provider: "no-such-provider"}, incoming, [])
+    end
+
+    test "provider_atom_from_config/1 returns missing_provider_atom for unknown binary providers" do
+      assert {:error, :missing_provider_atom} =
+               JidoChatBridge.provider_atom_from_config(%{provider: "no-such-provider"})
+    end
+
+    test "provider_atom_from_config/1 returns missing_provider_atom for non-binary providers" do
+      assert {:error, :missing_provider_atom} =
+               JidoChatBridge.provider_atom_from_config(%{provider: 123})
+    end
+  end
+
   describe "handle_webhook/2" do
     test "routes conversation webhook through chat request pipeline" do
       Process.register(self(), :bridge_test_observer)
@@ -2885,6 +3127,166 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert {:error, {:unexpected_webhook_result, :unexpected}} =
                JidoChatBridge.handle_webhook(config, payload)
     end
+
+    test "propagates runtime startup errors" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_bridge_cfg = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge, [])
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterListenerOpts}
+      })
+
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, state_module: StubWebhookStateError)
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorStartError)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+        Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge_cfg)
+        restore_supervisor(previous_supervisor)
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      payload = %{"payload" => %{"event" => "message"}}
+
+      assert {:error, :start_failed} = JidoChatBridge.handle_webhook(config, payload)
+      assert_received {:lookup_state_pid_called, _}
+      assert_received {:start_runtime_called, _}
+    end
+
+    test "restarts runtime when refresh_config fails and start succeeds" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_bridge_cfg = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge, [])
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterListenerOpts}
+      })
+
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge,
+        state_module: StubWebhookStateRefresh
+      )
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRefreshRestartOk)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+        Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge_cfg)
+        restore_supervisor(previous_supervisor)
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      payload = %{"payload" => %{"event" => "message"}}
+
+      assert {:ok, %{handled: true, provider: "mattermost", webhook_response: webhook_response}} =
+               JidoChatBridge.handle_webhook(config, payload)
+
+      assert is_map(webhook_response)
+      assert webhook_response.status in [200, 202]
+      assert_received {:lookup_state_pid_called, _}
+      assert_received {:refresh_config_called, _, _}
+      assert_received {:start_runtime_called, _}
+      assert_received {:process_webhook_request_called, _, _, _}
+    end
+
+    test "restarts runtime when stop_bridge_runtime reports not_running" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_bridge_cfg = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge, [])
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterListenerOpts}
+      })
+
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge,
+        state_module: StubWebhookStateRefresh
+      )
+
+      Application.put_env(
+        :zaq,
+        :chat_bridge_supervisor_module,
+        StubSupervisorRefreshRestartNotRunning
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+        Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge_cfg)
+        restore_supervisor(previous_supervisor)
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      payload = %{"payload" => %{"event" => "message"}}
+
+      assert {:ok, %{handled: true, provider: "mattermost", webhook_response: webhook_response}} =
+               JidoChatBridge.handle_webhook(config, payload)
+
+      assert is_map(webhook_response)
+      assert webhook_response.status in [200, 202]
+      assert_received {:lookup_state_pid_called, _}
+      assert_received {:refresh_config_called, _, _}
+      assert_received {:stop_bridge_runtime_called, _, _}
+      assert_received {:start_runtime_called, _}
+      assert_received {:process_webhook_request_called, _, _, _}
+    end
+
+    test "propagates unexpected restart errors" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_bridge_cfg = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge, [])
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterListenerOpts}
+      })
+
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge,
+        state_module: StubWebhookStateRefresh
+      )
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRefreshRestartError)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+        Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge_cfg)
+        restore_supervisor(previous_supervisor)
+      end)
+
+      config = %{
+        id: System.unique_integer([:positive]),
+        provider: "mattermost",
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      }
+
+      payload = %{"payload" => %{"event" => "message"}}
+
+      assert {:error, :stop_failed} = JidoChatBridge.handle_webhook(config, payload)
+      assert_received {:lookup_state_pid_called, _}
+      assert_received {:refresh_config_called, _, _}
+      assert_received {:stop_bridge_runtime_called, _, _}
+    end
   end
 
   describe "webhook payload normalization helpers" do
@@ -2962,6 +3364,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
     agent
   end
+
+  defp restore_supervisor(nil), do: Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+
+  defp restore_supervisor(value),
+    do: Application.put_env(:zaq, :chat_bridge_supervisor_module, value)
 
   defp streamed_reply("/v1/chat/completions", text, model) do
     chunk =

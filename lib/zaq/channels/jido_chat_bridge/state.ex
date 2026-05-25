@@ -191,21 +191,26 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   def handle_call({:refresh_config, config}, _from, state) do
-    provider = String.to_existing_atom(config.provider)
-    chat = build_chat(config, provider, %{})
+    case bridge_module().provider_atom_from_config(config) do
+      {:ok, provider} ->
+        chat = build_chat(config, provider, %{})
 
-    # Preserve runtime state while replacing handlers/adapters from latest config.
-    chat = %{
-      chat
-      | state: state.chat.state,
-        subscriptions: state.chat.subscriptions,
-        dedupe: state.chat.dedupe,
-        dedupe_order: state.chat.dedupe_order,
-        thread_state: state.chat.thread_state,
-        channel_state: state.chat.channel_state
-    }
+        # Preserve runtime state while replacing handlers/adapters from latest config.
+        chat = %{
+          chat
+          | state: state.chat.state,
+            subscriptions: state.chat.subscriptions,
+            dedupe: state.chat.dedupe,
+            dedupe_order: state.chat.dedupe_order,
+            thread_state: state.chat.thread_state,
+            channel_state: state.chat.channel_state
+        }
 
-    {:reply, :ok, %{state | config: config, chat: chat}}
+        {:reply, :ok, %{state | config: config, chat: chat}}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   defp with_transport(incoming, transport) do

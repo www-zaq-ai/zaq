@@ -56,7 +56,7 @@ defmodule Zaq.Agent.Api do
         status_mod = Keyword.get(event.opts, :status_module, Status)
         node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
-        _ =
+        incoming =
           status_mod.broadcast(
             incoming,
             :validating,

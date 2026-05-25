@@ -61,12 +61,12 @@ defmodule Zaq.Agent.ApiTest do
   defmodule SpyStatus do
     def broadcast(incoming, stage, message, _node_router) do
       send(self(), {:status_broadcast, incoming, stage, message})
-      :ok
+      incoming
     end
   end
 
   defmodule NoopStatus do
-    def broadcast(_ctx, _stage, _message, _node_router), do: :ok
+    def broadcast(ctx, _stage, _message, _node_router), do: ctx
   end
 
   defmodule SpyNodeRouter do

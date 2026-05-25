@@ -126,6 +126,8 @@ defmodule Zaq.Agent.Executor do
       |> Keyword.get(:question, incoming.content)
       |> timestamp_question()
 
+    initial_request_id = incoming.metadata[:request_id] || incoming.message_id
+
     result =
       with {:ok, configured_agent} <- selected_agent_result,
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
@@ -137,30 +139,28 @@ defmodule Zaq.Agent.Executor do
                type: :async
              )
              |> node_router(opts).dispatch(),
-           :ok <-
+           status_result <-
              status_mod(opts).broadcast(
                incoming,
                :answering,
                "Formulating your answer…",
                node_router(opts)
              ),
+           %Incoming{} = incoming <- normalize_status_result(status_result, incoming),
            {:ok, request} <-
              factory_module.ask_with_config(server_id, question, configured_agent,
                tool_context: %{
+                 incoming: incoming,
                  person_id: Keyword.get(opts, :person_id),
                  team_ids: Keyword.get(opts, :team_ids, []),
                  source_filter: Keyword.get(opts, :source_filter),
                  skip_permissions: Keyword.get(opts, :skip_permissions, false),
-                 node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter),
-                 status_context: %{
-                   session_id: incoming.metadata[:session_id],
-                   request_id: incoming.metadata[:request_id]
-                 }
+                 node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
                },
                extra_refs: %{
                  zaq_status_context: %{
-                   session_id: incoming.metadata[:session_id],
-                   request_id: incoming.message_id,
+                   request_id: initial_request_id,
+                   incoming: incoming,
                    node_router: node_router(opts),
                    telemetry_dimensions: dims
                  },
@@ -324,6 +324,11 @@ defmodule Zaq.Agent.Executor do
       :ok
     end
   end
+
+  defp normalize_status_result(%Incoming{} = updated_incoming, _fallback_incoming),
+    do: updated_incoming
+
+  defp normalize_status_result(_other, %Incoming{} = fallback_incoming), do: fallback_incoming
 
   defp telemetry_dimensions(incoming, selected_agent_result) do
     base = incoming_telemetry_dimensions(incoming)

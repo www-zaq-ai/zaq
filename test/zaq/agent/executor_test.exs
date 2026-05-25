@@ -64,6 +64,45 @@ defmodule Zaq.Agent.ExecutorTest do
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
+  defmodule CoverageStubAgent do
+    def get_active_agent(_agent_id),
+      do: {:ok, %{id: 77, name: "Stub Agent", job: "Configured job"}}
+  end
+
+  defmodule CoverageStubServerManager do
+    def ensure_server(configured_agent, server_id) do
+      send(self(), {:coverage_ensure_server, configured_agent, server_id})
+      {:ok, :coverage_stub_server}
+    end
+  end
+
+  defmodule CoverageStubFactory do
+    def ask_with_config(_server, content, configured_agent, opts \\ []) do
+      send(self(), {
+        :coverage_ask,
+        content,
+        configured_agent,
+        Keyword.get(opts, :tool_context),
+        Keyword.get(opts, :extra_refs)
+      })
+
+      {:ok, :coverage_request}
+    end
+
+    def await(:coverage_request, _opts),
+      do: Process.get(:coverage_await_result, {:ok, %{result: "stubbed answer"}})
+
+    def answering_configured_agent,
+      do: %{id: :answering, name: "answering", job: "Configured job"}
+  end
+
+  defmodule CoverageStubStatus do
+    def broadcast(incoming, status, message, node_router) do
+      send(self(), {:coverage_status, incoming, status, message, node_router})
+      Process.get(:coverage_status_result, :ok)
+    end
+  end
+
   defmodule StubNodeRouter do
     def dispatch(%Zaq.Event{} = event), do: %{event | response: :ok}
 
@@ -366,6 +405,172 @@ defmodule Zaq.Agent.ExecutorTest do
 
       refute_received {:trace_ctx, _}
       assert outgoing.metadata[:tool_calls] == []
+    end
+  end
+
+  describe "coverage gaps" do
+    test "derive_scope supports binary provider normalization" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "c1",
+        provider: "email:imap",
+        person_id: 5
+      }
+
+      assert Executor.derive_scope(incoming) == "email_imap:person:5"
+    end
+
+    test "system_prompt override replaces configured_agent.job when non-empty binary" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 9}
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        system_prompt: "temporary job override"
+      )
+
+      assert_received {:coverage_ask, _content, configured_agent, _tool_context, _extra_refs}
+      assert configured_agent.job == "temporary job override"
+      assert configured_agent.name == "Stub Agent"
+    end
+
+    test "extract_metrics reads string-key usage and nested string result" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 11}
+
+      Process.put(
+        :coverage_await_result,
+        {:ok,
+         %{
+           "result" => %{
+             "usage" => %{
+               "prompt_tokens" => 11,
+               "completion_tokens" => 22,
+               "total_tokens" => 33
+             }
+           }
+         }}
+      )
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CoverageStubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          scope: "coverage"
+        )
+
+      assert outgoing.metadata[:prompt_tokens] == 11
+      assert outgoing.metadata[:completion_tokens] == 22
+      assert outgoing.metadata[:total_tokens] == 33
+    end
+
+    test "confidence telemetry emits bucket metrics for high mid and low scores" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 12}
+
+      for {score, _bucket} <- [
+            {0.95, "qa.answer.confidence.bucket.gt_90"},
+            {0.8, "qa.answer.confidence.bucket.gt_70"},
+            {0.5, "qa.answer.confidence.bucket.lt_70"}
+          ] do
+        Process.put(
+          :coverage_await_result,
+          {:ok,
+           %{
+             result: %{logprobs: [%{logprob: :math.log(score)}]}
+           }}
+        )
+
+        outgoing =
+          Executor.run(incoming,
+            agent_id: "stub",
+            agent_module: CoverageStubAgent,
+            server_manager_module: CoverageStubServerManager,
+            factory_module: CoverageStubFactory,
+            status_module: CoverageStubStatus,
+            node_router: StubNodeRouter,
+            scope: "coverage"
+          )
+
+        assert_in_delta outgoing.metadata[:confidence_score], score, 0.000001
+      end
+    end
+
+    test "status fallback keeps original incoming when status module returns non-Incoming" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "c1",
+        provider: :web,
+        person_id: 13,
+        metadata: %{request_id: "req-13"}
+      }
+
+      Process.put(:coverage_status_result, :ok)
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CoverageStubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          scope: "coverage"
+        )
+
+      assert outgoing.metadata[:error] == false
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context, extra_refs}
+      assert tool_context.incoming == incoming
+      assert extra_refs.zaq_status_context.incoming == incoming
+    end
+
+    test "error telemetry classifies tuple and struct reasons" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 14}
+
+      for {reason, expected_error_type} <- [
+            {{:timeout, 5000}, "timeout"},
+            {%RuntimeError{message: "boom"}, "RuntimeError"}
+          ] do
+        Process.put(:coverage_await_result, {:error, reason})
+
+        outgoing =
+          Executor.run(incoming,
+            agent_id: "stub",
+            agent_module: CoverageStubAgent,
+            server_manager_module: CoverageStubServerManager,
+            factory_module: CoverageStubFactory,
+            status_module: CoverageStubStatus,
+            node_router: StubNodeRouter,
+            scope: "coverage"
+          )
+
+        assert outgoing.metadata[:error] == true
+        assert String.contains?(outgoing.metadata[:reason], expected_error_type)
+      end
+    end
+
+    test "non-binary question bypasses timestamp prefixing" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 15}
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage",
+        question: {:raw_question, "keep as-is"}
+      )
+
+      assert_received {:coverage_ask, {:raw_question, "keep as-is"}, _configured_agent,
+                       _tool_context, _extra_refs}
     end
   end
 end
