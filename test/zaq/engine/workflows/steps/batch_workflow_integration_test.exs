@@ -142,11 +142,11 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
     end
   end
 
-  # ── Full workflow definition (4 nodes) ────────────────────────────────────
+  # ── Full workflow definition (3 DAG nodes) ───────────────────────────────
   #
   # list_clients
   #   → batch  (batch_size: 2, strategy: skip_and_continue)
-  #       batch_scope: [categorize, sleep_200ms]  ← 5 × (categorize → sleep) runs
+  #       process (inline): [categorize, sleep_200ms]  ← 5 × (categorize → sleep) runs
   #     → flatten_clients  (runs once after all 5 chunks, receives aggregated results)
 
   describe "workflow: list_clients → batch[categorize, sleep] → flatten" do
@@ -170,30 +170,29 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
               params: %{
                 "batch_size" => 2,
                 "strategy" => "skip_and_continue",
-                "process" => ["categorize", "sleep_200ms"]
+                "process" => [
+                  %{
+                    "name" => "categorize",
+                    "type" => "action",
+                    "module" => @categorize_module,
+                    "params" => %{}
+                  },
+                  %{
+                    "name" => "sleep_200ms",
+                    "type" => "action",
+                    "module" => @sleep_module,
+                    "params" => %{"duration_ms" => 200}
+                  }
+                ]
               },
               index: 1
-            },
-            %{
-              name: "categorize",
-              type: "action",
-              module: @categorize_module,
-              params: %{},
-              index: 2
-            },
-            %{
-              name: "sleep_200ms",
-              type: "action",
-              module: @sleep_module,
-              params: %{"duration_ms" => 200},
-              index: 3
             },
             %{
               name: "flatten_clients",
               type: "action",
               module: @flatten_module,
               params: %{},
-              index: 4
+              index: 2
             }
           ],
           edges: [

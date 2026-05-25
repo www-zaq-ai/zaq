@@ -119,11 +119,14 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
   # ── Workflow factory ──────────────────────────────────────────────────────────
 
   # DAG: list_contacts --(contacts not empty)--> batch_contacts
-  #        process:      [iterate_contacts]
-  #        post_process: [sleep_between]
-  #          iterate_contacts pipeline: [check_status, check_seq, dispatch]
+  #        batch_contacts.params.process:      [iterate_contacts (inline)]
+  #        batch_contacts.params.post_process: [sleep_between   (inline)]
+  #          iterate_contacts.params.pipeline: [check_status, check_seq, dispatch (inline)]
   # batch_size: 4 over 12 contacts -> 3 chunks.
   # strategy: :skip_and_continue (inactive + in_sequence collected as errors).
+  #
+  # The workflow has exactly 2 top-level DAG nodes. All orchestrator internals
+  # live as inline maps inside params — no scoped nodes in the top-level list.
   defp contact_batch_workflow do
     {:ok, wf} =
       Workflows.create_workflow(%{
@@ -144,51 +147,46 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
             params: %{
               "batch_size" => 4,
               "strategy" => "skip_and_continue",
-              "process" => ["iterate_contacts"],
-              "post_process" => ["sleep_between"]
+              "process" => [
+                %{
+                  "name" => "iterate_contacts",
+                  "type" => "action",
+                  "module" => @iterate_module,
+                  "params" => %{
+                    "strategy" => "skip_and_continue",
+                    "pipeline" => [
+                      %{
+                        "name" => "check_status",
+                        "type" => "action",
+                        "module" => @check_status_module,
+                        "params" => %{}
+                      },
+                      %{
+                        "name" => "check_seq",
+                        "type" => "action",
+                        "module" => @check_seq_module,
+                        "params" => %{}
+                      },
+                      %{
+                        "name" => "dispatch",
+                        "type" => "action",
+                        "module" => @dispatch_module,
+                        "params" => %{}
+                      }
+                    ]
+                  }
+                }
+              ],
+              "post_process" => [
+                %{
+                  "name" => "sleep_between",
+                  "type" => "action",
+                  "module" => @sleep_module,
+                  "params" => %{"duration_ms" => 0}
+                }
+              ]
             },
             index: 1
-          },
-          # ── Scoped: iterate_contacts (process inside batch) ──────────────
-          %{
-            name: "iterate_contacts",
-            type: "action",
-            module: @iterate_module,
-            params: %{
-              "strategy" => "skip_and_continue",
-              "pipeline" => ["check_status", "check_seq", "dispatch"]
-            },
-            index: 2
-          },
-          # ── Scoped: per-contact pipeline ─────────────────────────────────
-          %{
-            name: "check_status",
-            type: "action",
-            module: @check_status_module,
-            params: %{},
-            index: 3
-          },
-          %{
-            name: "check_seq",
-            type: "action",
-            module: @check_seq_module,
-            params: %{},
-            index: 4
-          },
-          %{
-            name: "dispatch",
-            type: "action",
-            module: @dispatch_module,
-            params: %{},
-            index: 5
-          },
-          # ── Scoped: post_process (sleep between batches) ──────────────────
-          %{
-            name: "sleep_between",
-            type: "action",
-            module: @sleep_module,
-            params: %{"duration_ms" => 0},
-            index: 6
           }
         ],
         edges: [
@@ -358,23 +356,25 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
               params: %{
                 "batch_size" => 4,
                 "strategy" => "skip_and_continue",
-                "process" => ["iterate_contacts"]
+                "process" => [
+                  %{
+                    "name" => "iterate_contacts",
+                    "type" => "action",
+                    "module" => @iterate_module,
+                    "params" => %{
+                      "pipeline" => [
+                        %{
+                          "name" => "dispatch",
+                          "type" => "action",
+                          "module" => @dispatch_module,
+                          "params" => %{}
+                        }
+                      ]
+                    }
+                  }
+                ]
               },
               index: 1
-            },
-            %{
-              name: "iterate_contacts",
-              type: "action",
-              module: @iterate_module,
-              params: %{"pipeline" => ["dispatch"]},
-              index: 2
-            },
-            %{
-              name: "dispatch",
-              type: "action",
-              module: @dispatch_module,
-              params: %{},
-              index: 3
             }
           ],
           edges: [
