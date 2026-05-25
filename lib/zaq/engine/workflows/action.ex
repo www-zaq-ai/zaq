@@ -99,6 +99,59 @@ defmodule Zaq.Engine.Workflows.Action do
   @required_pieces [:on_success, :on_failure, :schema, :output_schema]
 
   @doc """
+  Inspects the input schema of `module` and returns the field name and delivery
+  mode Batch / Iterate should use when sending chunk data to this action.
+
+  Rules (applied to required fields only):
+
+  - Exactly one required `:list` or `{:list, _}` field → `{:ok, {field, :list}}`
+  - Zero list fields, exactly one required non-list field → `{:ok, {field, :item}}`
+  - One list field + any number of non-list required fields → list wins; `{:ok, {field, :list}}`
+  - Zero required fields → `{:error, {:no_batch_field, module}}`
+  - Multiple list fields → `{:error, {:ambiguous_batch_field, module, fields}}`
+  - Zero list fields, multiple non-list required fields → `{:error, {:ambiguous_batch_field, module, fields}}`
+  """
+  @spec batch_field(module()) ::
+          {:ok, {field :: atom(), mode :: :list | :item}}
+          | {:error, {:no_batch_field, module()}}
+          | {:error, {:ambiguous_batch_field, module(), [atom()]}}
+  def batch_field(module) when is_atom(module) do
+    case Code.ensure_loaded(module) do
+      {:module, ^module} -> detect_batch_field(module)
+      {:error, _} -> {:error, {:no_batch_field, module}}
+    end
+  end
+
+  defp detect_batch_field(module) do
+    if function_exported?(module, :schema, 0) do
+      module.schema()
+      |> Enum.filter(fn {_field, opts} -> opts[:required] == true end)
+      |> classify_batch_fields(module)
+    else
+      {:error, {:no_batch_field, module}}
+    end
+  end
+
+  defp classify_batch_fields(required_fields, module) do
+    {list_fields, item_fields} =
+      Enum.split_with(required_fields, fn {_field, opts} -> list_type?(opts[:type]) end)
+
+    names = fn fields -> Enum.map(fields, fn {f, _} -> f end) end
+
+    case {list_fields, item_fields} do
+      {[], []} -> {:error, {:no_batch_field, module}}
+      {[{field, _}], _} -> {:ok, {field, :list}}
+      {[], [{field, _}]} -> {:ok, {field, :item}}
+      {[], multiple} -> {:error, {:ambiguous_batch_field, module, names.(multiple)}}
+      {multiple, _} -> {:error, {:ambiguous_batch_field, module, names.(multiple)}}
+    end
+  end
+
+  defp list_type?(:list), do: true
+  defp list_type?({:list, _}), do: true
+  defp list_type?(_), do: false
+
+  @doc """
   Validates that `module` satisfies the workflow action contract.
 
   Returns `:ok` for a conforming module, or
