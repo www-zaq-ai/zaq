@@ -324,6 +324,72 @@ defmodule Zaq.Agent.Tools.BatchTest do
     end
   end
 
+  # ── log trail ────────────────────────────────────────────────────────────────
+
+  describe "log trail" do
+    test ":list mode — chunk log has event, at, duration_ms, index, iteration_logs" do
+      assert {:ok, _, [logs: logs]} = Batch.run(base_params([%{id: 1}], %{batch_size: 1}), %{})
+      assert [chunk_log] = logs
+      assert chunk_log.event == "chunk_completed"
+      assert %DateTime{} = chunk_log.at
+      assert chunk_log.duration_ms >= 0
+      assert chunk_log.index == 0
+      assert is_list(chunk_log.iteration_logs)
+    end
+
+    test ":list mode — one log per chunk" do
+      items = Enum.map(1..6, &%{id: &1})
+
+      assert {:ok, _, [logs: logs]} = Batch.run(base_params(items, %{batch_size: 3}), %{})
+      assert length(logs) == 2
+      assert Enum.map(logs, & &1.index) == [0, 1]
+    end
+
+    test ":item mode — chunk log contains per-item iteration_logs with at and duration_ms" do
+      items = [%{id: 1}, %{id: 2}]
+
+      defmodule ItemProcessForLog do
+        def run(%{contact: contact}, _ctx), do: {:ok, %{done: contact}}
+      end
+
+      params = %{
+        items: items,
+        batch_size: 2,
+        process: pipeline([ItemProcessForLog]),
+        __batch_field__: :contact,
+        __batch_mode__: :item
+      }
+
+      assert {:ok, _, [logs: logs]} = Batch.run(params, %{})
+      assert [chunk_log] = logs
+      assert chunk_log.event == "chunk_completed"
+      assert length(chunk_log.iteration_logs) == 2
+
+      Enum.each(chunk_log.iteration_logs, fn log ->
+        assert log.event in ["item_ok", "item_error"]
+        assert log.duration_ms >= 0
+        assert %DateTime{} = log.at
+      end)
+    end
+
+    test ":skip_and_continue error → chunk_error log has at and duration_ms" do
+      params =
+        base_params([%{id: 1}], %{strategy: :skip_and_continue, process: pipeline([FailProcess])})
+
+      assert {:ok, %{errors: [_]}, [logs: logs]} = Batch.run(params, %{})
+      assert [chunk_log] = logs
+      assert chunk_log.event == "chunk_error"
+      assert chunk_log.duration_ms >= 0
+      assert %DateTime{} = chunk_log.at
+      assert chunk_log.index == 0
+    end
+
+    test "empty items returns empty logs" do
+      assert {:ok, %{results: [], errors: []}, [logs: logs]} = Batch.run(base_params([]), %{})
+      assert logs == []
+    end
+  end
+
   # ── on_between callback ───────────────────────────────────────────────────────
 
   describe "on_between callback" do
