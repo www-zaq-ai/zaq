@@ -14,6 +14,7 @@ defmodule Zaq.Channels.WebBridge do
   @behaviour Zaq.Channels.CommunicationBridge
 
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Events.Helper
 
   @doc """
   Builds `%Incoming{provider: :web}` from ChatLive form params.
@@ -60,7 +61,7 @@ defmodule Zaq.Channels.WebBridge do
     session_id = Map.get(request, :session_id)
     message = Map.get(request, :body)
 
-    if present?(request_id) and present?(session_id) and present?(message) do
+    if Helper.present?(request_id) and Helper.present?(session_id) and Helper.present?(message) do
       stage = status_stage(Map.get(request, :intent_meta))
 
       Phoenix.PubSub.broadcast(
@@ -70,7 +71,7 @@ defmodule Zaq.Channels.WebBridge do
       )
 
       message_id = Map.get(request, :message_id) || request_id
-      action = if present?(Map.get(request, :message_id)), do: :updated, else: :created
+      action = if Helper.present?(Map.get(request, :message_id)), do: :updated, else: :created
 
       {:ok,
        %{action: action, message_id: message_id, update_intent: Map.get(request, :update_intent)}}
@@ -87,7 +88,4 @@ defmodule Zaq.Channels.WebBridge do
   end
 
   defp status_stage(_), do: :answering
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(value), do: not is_nil(value)
 end

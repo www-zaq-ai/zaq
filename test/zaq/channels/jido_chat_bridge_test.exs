@@ -2175,6 +2175,15 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                )
     end
 
+    test "returns missing_connection_details when provider_atom present but connection details absent" do
+      assert {:error, :missing_connection_details} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost", provider_atom: :mattermost},
+                 %{channel_id: "chan-1", body: "partial"},
+                 %{}
+               )
+    end
+
     test "returns missing_connection_details when connection details are incomplete" do
       assert {:error, :missing_connection_details} =
                JidoChatBridge.upsert_message(
