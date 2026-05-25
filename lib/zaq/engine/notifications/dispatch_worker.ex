@@ -23,9 +23,9 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
 
   require Logger
 
+  alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.NotificationLog
-  alias Zaq.Event
   alias Zaq.Repo
 
   @impl Oban.Worker
@@ -112,10 +112,12 @@ defmodule Zaq.Engine.Notifications.DispatchWorker do
   defp platform_to_atom(_), do: nil
 
   defp deliver_via_channels(%Outgoing{} = outgoing) do
-    event =
-      Event.new(outgoing, :channels, opts: [action: :deliver_outgoing] ++ channels_event_opts())
-
-    node_router_module().dispatch(event).response
+    outgoing
+    |> ChannelEvents.build_and_dispatch_deliver_outgoing_event(
+      node_router: node_router_module(),
+      event_opts: channels_event_opts()
+    )
+    |> Map.get(:response)
   end
 
   defp node_router_module,

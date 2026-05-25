@@ -17,8 +17,9 @@ The Engine runs under the `:engine` role. The top-level `Zaq.Engine.Supervisor` 
 
 Telemetry is a separate concern — see `docs/services/telemetry.md`.
 
-**Important**: BO LiveViews must never call `Zaq.Engine.Conversations` directly. All calls
-from BO go through `Zaq.NodeRouter.dispatch/1` with `%Zaq.Event{}`.
+**Important**: BO LiveViews must never call `Zaq.Engine.Conversations` directly. For
+invoke-style cross-service calls, use `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
+instead of constructing `%Zaq.Event{}` inline.
 
 ---
 
@@ -99,7 +100,7 @@ Adapter inbound path:
 
 ### Conversations Context (`Zaq.Engine.Conversations`)
 - Public API for the full conversation/message/rating/share lifecycle.
-- Access via `NodeRouter.dispatch/1` from BO.
+- Access from BO via `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`.
 - Dispatches `Zaq.Hooks` `:feedback_provided` event after a rating is saved.
 
 **Key functions:**
@@ -123,8 +124,8 @@ Adapter inbound path:
 - `get_conversation_by_token/1` — resolves a conversation from a share token.
 
 ### People Command Gateway (`Zaq.Engine.PeopleGateway`)
-- BO People operations are routed through `Zaq.NodeRouter.dispatch/1` to Engine using
-  `action: :people_command`.
+- BO People operations are routed through `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
+  to Engine using `action: :people_command`.
 - `Zaq.Engine.Api` validates `%{op: atom(), params: map()}` and delegates to
   `Zaq.Engine.PeopleGateway.dispatch/2`.
 - Gateway maps operations (`:filter`, `:create`, `:update`, `:delete`, `:bulk_delete`,

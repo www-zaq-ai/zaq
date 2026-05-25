@@ -7,7 +7,7 @@ The Channels service provides transport and runtime infrastructure for communica
 - **Data Sources** (ingestion channels in routes/API) ingest external documents (Google Drive, SharePoint, etc.).
 - **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
 
-All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For cross-node routing, payloads are wrapped in `%Zaq.Event{}`.
+All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For channel event creation/dispatch, use `Zaq.Channels.Events` helpers; these helpers emit `%Zaq.Event{}` envelopes for cross-node routing.
 
 ---
 
@@ -79,7 +79,7 @@ defstruct [
 
 ### `Zaq.Engine.Messages.Outgoing`
 
-Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered through `NodeRouter.dispatch/1` to `Zaq.Channels.Api` (`:deliver_outgoing`).
+Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered through `Zaq.Channels.Events.build_and_dispatch_deliver_outgoing_event/2` to `Zaq.Channels.Api` (`:deliver_outgoing`).
 
 When routed across nodes, this payload is typically returned in `%Zaq.Event.response`.
 
@@ -104,7 +104,7 @@ defstruct [
 
 ## Channels API and Communication Routing
 
-`Zaq.Channels.Api` is the role boundary entrypoint for channel delivery/runtime events routed through `Zaq.NodeRouter.dispatch/1`.
+`Zaq.Channels.Api` is the role boundary entrypoint for channel delivery/runtime events. Callers should route through `Zaq.Channels.Events` helpers (`build_*` / `build_and_dispatch_*`) rather than constructing and dispatching `%Zaq.Event{}` inline.
 
 `Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
 

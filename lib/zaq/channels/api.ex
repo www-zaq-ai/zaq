@@ -21,14 +21,23 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Event
   alias Zaq.InternalBoundaries
 
+  @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
+
   @impl true
   def handle_event(%Event{} = event, :deliver_outgoing, _context) do
     bridge_module = bridge_module(event)
+    correlation_module = message_correlation_module(event)
 
     with {:ok, outgoing} <- outgoing_from_event(event),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider) do
+      outgoing = maybe_attach_correlated_message_id(outgoing, correlation_module)
       connection_details = bridge_module.fetch_connection_details(outgoing.provider)
-      %{event | response: bridge.send_reply(outgoing, connection_details)}
+
+      response = bridge.send_reply(outgoing, connection_details)
+
+      maybe_clear_correlation(correlation_module, outgoing, response)
+
+      %{event | response: response}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
     end
@@ -49,6 +58,35 @@ defmodule Zaq.Channels.Api do
       case config do
         {:ok, cfg} -> %{event | response: bridge.send_typing(cfg, channel_id, details)}
         {:error, reason} -> %{event | response: {:error, reason}}
+      end
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+    end
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider} = request} = event,
+        :upsert_message,
+        _context
+      ) do
+    bridge_module = bridge_module(event)
+    correlation_module = message_correlation_module(event)
+
+    with :ok <- validate_upsert_request(request),
+         :ok <- validate_update_intent(Map.get(request, :update_intent)),
+         {:ok, bridge} <- resolve_bridge(bridge_module, provider),
+         true <- supports_callback?(bridge, :upsert_message, 3) || {:error, :unsupported} do
+      config = bridge_module.fetch_channel_config(provider)
+      details = bridge_module.fetch_connection_details(provider)
+
+      case config do
+        {:ok, cfg} ->
+          response = bridge.upsert_message(cfg, request, details)
+          maybe_store_correlation(correlation_module, request, response)
+          %{event | response: response}
+
+        {:error, reason} ->
+          %{event | response: {:error, reason}}
       end
     else
       {:error, reason} -> %{event | response: {:error, reason}}
@@ -496,4 +534,75 @@ defmodule Zaq.Channels.Api do
   end
 
   defp bridge_module(_event), do: Bridge
+
+  defp message_correlation_module(%Event{opts: opts}) when is_list(opts) do
+    Keyword.get(opts, :message_correlation_module, Zaq.Channels.MessageCorrelation)
+  end
+
+  defp message_correlation_module(_event), do: Zaq.Channels.MessageCorrelation
+
+  defp validate_update_intent(nil), do: :ok
+
+  defp validate_update_intent(intent) when is_atom(intent) do
+    if intent in @supported_update_intents,
+      do: :ok,
+      else: {:error, :unsupported_update_intent}
+  end
+
+  defp validate_update_intent(intent) when is_binary(intent) do
+    intent
+    |> String.to_existing_atom()
+    |> validate_update_intent()
+  rescue
+    ArgumentError -> {:error, :unsupported_update_intent}
+  end
+
+  defp validate_update_intent(_), do: {:error, :unsupported_update_intent}
+
+  defp validate_upsert_request(request) when is_map(request) do
+    required = [:provider, :channel_id, :request_id, :body]
+
+    if Enum.all?(required, &present?(Map.get(request, &1))) do
+      :ok
+    else
+      {:error, {:invalid_request, :missing_upsert_fields}}
+    end
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
+
+  defp maybe_store_correlation(correlation_module, request, {:ok, %{message_id: message_id}})
+       when is_binary(message_id) and message_id != "" do
+    provider = Map.get(request, :provider)
+    request_id = Map.get(request, :request_id)
+    correlation_module.put(provider, request_id, message_id)
+  end
+
+  defp maybe_store_correlation(_correlation_module, _request, _response), do: :ok
+
+  defp maybe_attach_correlated_message_id(%Outgoing{} = outgoing, correlation_module) do
+    metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
+
+    if present?(Map.get(metadata, :message_id) || Map.get(metadata, "message_id")) do
+      outgoing
+    else
+      request_id = Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
+
+      case correlation_module.get(outgoing.provider, request_id) do
+        {:ok, message_id} -> %{outgoing | metadata: Map.put(metadata, :message_id, message_id)}
+        :error -> %{outgoing | metadata: metadata}
+      end
+    end
+  end
+
+  defp maybe_clear_correlation(correlation_module, %Outgoing{} = outgoing, response) do
+    if response == :ok or match?({:ok, _}, response) do
+      metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
+      request_id = Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
+      correlation_module.delete(outgoing.provider, request_id)
+    end
+
+    :ok
+  end
 end

@@ -36,7 +36,12 @@
 - BO modules in `lib/zaq_web/` must not access persistence or integrations directly.
 - Cross-context calls use public context functions, not internal helpers.
 - Cross-service BO calls always go through `NodeRouter`.
-- Prefer `NodeRouter.dispatch/1` with `%Zaq.Event{}` for new work.
+- For role-boundary invoke calls, use role-specific Events helpers instead of hand-rolling `%Zaq.Event{}`:
+  - `Zaq.Agent.Events.build_and_dispatch_invoke_event/3`
+  - `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
+  - `Zaq.BO.Events.build_and_dispatch_invoke_event/3`
+- If an event must be built now and dispatched later, use the corresponding `build_invoke_event/3` helper.
+- Direct `Event.new(...) |> NodeRouter.dispatch()` is reserved for helper internals or legacy paths pending migration.
 - Role-level event boundary handlers live under `Zaq.<Role>.Api` (including `Zaq.Bo.Api` for `:bo`).
 - BO channel configuration flows must call channels role APIs via `NodeRouter.dispatch/1`, with provider operations delegated to `Zaq.Channels.CommunicationBridge`; they must not call bridge or adapter modules directly.
 
@@ -115,7 +120,7 @@
 
 - When data crosses a service boundary, define a canonical struct with `@enforce_keys`.
 - Adapter-specific envelopes must never leak inward — always map to the canonical struct first.
-- Cross-node routing should use `%Zaq.Event{}` as the envelope.
+- Cross-node routing uses `%Zaq.Event{}` as the envelope, but callers should create/dispatch invoke events through role-specific Events helpers (`Zaq.Agent.Events`, `Zaq.Engine.Events`, `Zaq.BO.Events`) rather than constructing envelopes inline.
 - Example: `Zaq.Engine.Messages.Incoming` / `Outgoing` are canonical message payloads and are carried as `event.request` / `event.response`.
 
 ### State transitions belong in their own module

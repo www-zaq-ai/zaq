@@ -261,6 +261,17 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule StubAdapterThreadPostWithUpdate do
+    def send_message(_channel_id, _text, _opts) do
+      {:ok, %{external_message_id: "post-123"}}
+    end
+
+    def update_message(channel_id, message_id, text, opts) do
+      send(self(), {:adapter_update_message, channel_id, message_id, text, opts})
+      :ok
+    end
+  end
+
   defmodule FailingThreadPostAdapter do
     def send_message(_channel_id, _text, _opts), do: {:error, :send_failed}
   end
@@ -1835,6 +1846,37 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  token: "tok"
                })
     end
+
+    test "do_send_reply/2 updates existing message when metadata message_id is present" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdate
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      outgoing = %Outgoing{
+        body: "final",
+        channel_id: "chan-1",
+        thread_id: "thread-9",
+        provider: :mattermost,
+        metadata: %{message_id: "msg-1", request_id: "req-1"}
+      }
+
+      assert :ok =
+               JidoChatBridge.do_send_reply(outgoing, %{
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+
+      assert_received {:adapter_update_message, "chan-1", "msg-1", "final", opts}
+      assert opts[:url] == "https://mm.example.com"
+      assert opts[:token] == "tok"
+    end
   end
 
   describe "capability_snapshot/1" do
@@ -1871,6 +1913,52 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       # :streaming is absent (not in defaults or stub)
       refute Map.has_key?(resolved, :streaming)
+    end
+  end
+
+  describe "upsert_message/3" do
+    test "returns noop when adapter does not support updates" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterThreadPost}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{action: :noop, message_id: nil}} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost"},
+                 %{channel_id: "chan-1", body: "partial", request_id: "req-1"},
+                 %{url: "https://mm.example.com", token: "tok"}
+               )
+    end
+
+    test "updates when message_id is present and adapter supports updates" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdate
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{action: :updated, message_id: "msg-42"}} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost"},
+                 %{
+                   channel_id: "chan-1",
+                   body: "partial",
+                   request_id: "req-1",
+                   message_id: "msg-42"
+                 },
+                 %{url: "https://mm.example.com", token: "tok"}
+               )
+
+      assert_received {:adapter_update_message, "chan-1", "msg-42", "partial", _opts}
     end
   end
 

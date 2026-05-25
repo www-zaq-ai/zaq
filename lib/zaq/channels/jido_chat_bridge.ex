@@ -235,6 +235,28 @@ defmodule Zaq.Channels.JidoChatBridge do
     {:error, :missing_connection_details}
   end
 
+  @impl true
+  def upsert_message(%{provider: provider}, request, %{url: url, token: token})
+      when is_map(request) do
+    message_id = Map.get(request, :message_id)
+
+    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+         true <- supports_message_updates?(adapter) || {:ok, %{action: :noop, message_id: nil}} do
+      thread_id = Map.get(request, :thread_id)
+      channel_id = Map.get(request, :channel_id)
+      body = Map.get(request, :body)
+
+      if is_binary(message_id) and message_id != "" do
+        update_message(adapter, channel_id, message_id, body, url, token, request)
+      else
+        create_message(provider, adapter, channel_id, thread_id, body, url, token)
+      end
+    end
+  end
+
+  def upsert_message(_config, _request, _connection_details),
+    do: {:error, :missing_connection_details}
+
   @doc "Fetches a user's canonical profile from the platform API."
   @spec fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
@@ -811,30 +833,55 @@ defmodule Zaq.Channels.JidoChatBridge do
   def do_send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->
-        thread_id = outgoing.thread_id || outgoing.channel_id
-
-        thread =
-          Thread.new(%{
-            id: "#{outgoing.channel_id}:#{thread_id}",
-            adapter_name: outgoing.provider,
-            adapter: adapter_module,
-            external_room_id: outgoing.channel_id,
-            external_thread_id: outgoing.thread_id,
-            metadata: %{url: url, token: token}
-          })
-
-        case Chat.Thread.post(thread, outgoing.body, url: url, token: token) do
-          {:ok, post} ->
-            post_id = post.response.external_message_id || post.id
-            dispatch_on_reply(outgoing.metadata, post_id)
-            :ok
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        handle_send_with_adapter(outgoing, adapter_module, url, token)
 
       {:error, _reason} ->
         {:error, {:unsupported_provider, outgoing.provider}}
+    end
+  end
+
+  defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, url, token) do
+    with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
+         {:ok, _result} <-
+           update_message(
+             adapter_module,
+             outgoing.channel_id,
+             message_id,
+             outgoing.body,
+             url,
+             token,
+             %{request_id: outgoing.metadata[:request_id]}
+           ) do
+      :ok
+    else
+      :create -> create_and_dispatch_reply(outgoing, adapter_module, url, token)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp send_mode(%Outgoing{} = outgoing, adapter_module) do
+    case metadata_message_id(outgoing.metadata) do
+      message_id when is_binary(message_id) and message_id != "" ->
+        if supports_message_updates?(adapter_module), do: {:use_update, message_id}, else: :create
+
+      _ ->
+        :create
+    end
+  end
+
+  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, url, token) do
+    with {:ok, %{message_id: post_id}} <-
+           create_message(
+             outgoing.provider,
+             adapter_module,
+             outgoing.channel_id,
+             outgoing.thread_id,
+             outgoing.body,
+             url,
+             token
+           ) do
+      dispatch_on_reply(outgoing.metadata, post_id)
+      :ok
     end
   end
 
@@ -902,4 +949,47 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp dispatch_on_reply(_metadata, _post_id), do: :ok
+
+  defp create_message(provider, adapter_module, channel_id, thread_id, body, url, token) do
+    effective_thread_id = thread_id || channel_id
+
+    thread =
+      Thread.new(%{
+        id: "#{channel_id}:#{effective_thread_id}",
+        adapter_name: provider,
+        adapter: adapter_module,
+        external_room_id: channel_id,
+        external_thread_id: thread_id,
+        metadata: %{url: url, token: token}
+      })
+
+    case Chat.Thread.post(thread, body, url: url, token: token) do
+      {:ok, post} ->
+        {:ok, %{action: :created, message_id: post.response.external_message_id || post.id}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_message(adapter_module, channel_id, message_id, body, url, token, request) do
+    opts = [url: url, token: token, update_intent: Map.get(request, :update_intent)]
+
+    result = adapter_module.update_message(channel_id, message_id, body, opts)
+
+    case normalize_outbound_result(result) do
+      :ok -> {:ok, %{action: :updated, message_id: message_id}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp supports_message_updates?(adapter_module) do
+    function_exported?(adapter_module, :update_message, 4)
+  end
+
+  defp metadata_message_id(metadata) when is_map(metadata) do
+    Map.get(metadata, :message_id) || Map.get(metadata, "message_id")
+  end
+
+  defp metadata_message_id(_), do: nil
 end

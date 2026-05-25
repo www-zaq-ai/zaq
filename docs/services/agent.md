@@ -20,8 +20,10 @@ or construct provider details directly.
 
 **Important**: Agent modules must never be called directly from BO LiveViews.
 All calls from BO go through `Zaq.NodeRouter` so they work correctly in both
-single-node and multi-node deployments. New routing should use
-`NodeRouter.dispatch/1` with `%Zaq.Event{next_hop: %Zaq.EventHop{destination: :agent}}`.
+single-node and multi-node deployments. For invoke-style calls, use
+`Zaq.Agent.Events.build_and_dispatch_invoke_event/3` (or
+`Zaq.Agent.Events.build_invoke_event/3` when dispatch is deferred) rather than
+constructing `%Zaq.Event{}` inline.
 
 ---
 
@@ -389,14 +391,14 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 - **`Api` is the security boundary** — `PromptGuard.validate/1` runs once in `Api` before routing; neither `Pipeline` nor `Executor` call it for input validation; Pipeline still calls `output_safe?/1` on the LLM response
 - **Status ownership follows work ownership** — each module broadcasts its own stage signal (`Api` → `:validating`, `Retrieval` → `:retrieving`, `Executor` → `:answering`); orchestrators (`Pipeline`) broadcast nothing
 - **Status broadcasts route via NodeRouter** — `Status.broadcast/4` routes through `NodeRouter.dispatch/1` so the PubSub broadcast runs on the BO node where `ChatLive` is subscribed; the 4th `node_router` arg is injectable (default `Zaq.NodeRouter`) so unit tests pass a `FakeNodeRouter` that calls `apply/3` locally
-- **`Api` is the only supported entrypoint** — route with `NodeRouter.dispatch/1` to `Zaq.Agent.Api` (`:run_pipeline`); direct `Pipeline.run/2` calls are deprecated outside agent internals
+- **`Api` is the only supported entrypoint** — route to `Zaq.Agent.Api` (`:run_pipeline`) via `Zaq.Agent.Events.build_and_dispatch_invoke_event/3`; direct `Pipeline.run/2` calls are deprecated outside agent internals
 - **All sub-modules injectable** — Pipeline accepts module overrides for every dependency, enabling isolated unit tests without mocking globals
 - **Hook system** — sync and async hooks dispatched at pipeline stage boundaries; external features attach via hooks without modifying core pipeline logic
 - **Provider policy has one home** — provider normalization and URL behavior live in `ProviderSpec`; callers use `Factory` entrypoints only
 - **Prompt templates in DB** — editable at runtime without deploys; agents raise if missing
 - **ChunkTitle is injectable** — `Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)` allows test mocking
 - **Confidence is optional** — gracefully skipped when `supports_logprobs?` is false
-- **NodeRouter for cross-node calls** — BO never calls agent modules directly; use `NodeRouter.dispatch/1` with `%Zaq.Event{}`
+- **NodeRouter for cross-node calls** — BO never calls agent modules directly; use `Zaq.Agent.Events` helpers to build/dispatch invoke events instead of hand-rolling `%Zaq.Event{}`
 - **Answering.Result struct** — canonical shape shared across channels; `normalize_result/1` converts legacy maps
 
 ### Harness-Critical Checks for Coding Agents

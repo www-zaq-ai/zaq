@@ -35,6 +35,27 @@ defmodule Zaq.Channels.ApiTest do
     end
   end
 
+  defmodule StubMessageCorrelation do
+    def put(provider, request_id, message_id) do
+      send(self(), {:message_correlation_put, provider, request_id, message_id})
+      :ok
+    end
+
+    def get(provider, request_id) do
+      send(self(), {:message_correlation_get, provider, request_id})
+
+      case Process.get(:message_correlation_get_result) do
+        nil -> :error
+        result -> result
+      end
+    end
+
+    def delete(provider, request_id) do
+      send(self(), {:message_correlation_delete, provider, request_id})
+      :ok
+    end
+  end
+
   defmodule StubCommunicationBridgeConfigError do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
@@ -75,6 +96,13 @@ defmodule Zaq.Channels.ApiTest do
     def handle_webhook(config, payload) do
       send(self(), {:bridge_handle_webhook, config, payload})
       {:ok, %{accepted: true}}
+    end
+
+    def upsert_message(config, request, details) do
+      send(self(), {:bridge_upsert_message, config, request, details})
+
+      {:ok,
+       %{action: :created, message_id: "m-1", update_intent: Map.get(request, :update_intent)}}
     end
   end
 
@@ -294,6 +322,38 @@ defmodule Zaq.Channels.ApiTest do
                      %{url: "https://example.test", token: "token"}}
   end
 
+  test "deliver_outgoing injects correlated message_id and clears correlation on success" do
+    Process.put(:message_correlation_get_result, {:ok, "m-correlated"})
+
+    outgoing = %Outgoing{
+      body: "ok",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{request_id: "r1"}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [
+          action: :deliver_outgoing,
+          bridge_module: StubCommunicationBridge,
+          message_correlation_module: StubMessageCorrelation
+        ]
+      )
+
+    result = Api.handle_event(event, :deliver_outgoing, nil)
+
+    assert result.response == :ok
+    assert_received {:message_correlation_get, :web, "r1"}
+
+    assert_received {:bridge_send_reply, %Outgoing{metadata: %{message_id: "m-correlated"}},
+                     _details}
+
+    assert_received {:message_correlation_delete, :web, "r1"}
+  after
+    Process.delete(:message_correlation_get_result)
+  end
+
   test "handles deliver_outgoing action when outgoing is in event response" do
     outgoing = %Outgoing{body: "ok", channel_id: "c1", provider: :web}
 
@@ -308,6 +368,47 @@ defmodule Zaq.Channels.ApiTest do
 
     assert_received {:bridge_send_reply, ^outgoing,
                      %{url: "https://example.test", token: "token"}}
+  end
+
+  test "handles upsert_message action" do
+    request = %{provider: :web, channel_id: "c1", request_id: "r1", body: "partial"}
+
+    event =
+      Event.new(request, :channels,
+        opts: [
+          action: :upsert_message,
+          bridge_module: StubCommunicationBridge,
+          message_correlation_module: StubMessageCorrelation
+        ]
+      )
+
+    result = Api.handle_event(event, :upsert_message, nil)
+
+    assert result.response == {:ok, %{action: :created, message_id: "m-1", update_intent: nil}}
+
+    assert_received {:bridge_upsert_message, %{id: 1, provider: "mattermost"}, ^request,
+                     %{url: "https://example.test", token: "token"}}
+
+    assert_received {:message_correlation_put, :web, "r1", "m-1"}
+  end
+
+  test "upsert_message returns error for unsupported intents" do
+    request = %{
+      provider: :web,
+      channel_id: "c1",
+      request_id: "r1",
+      body: "partial",
+      update_intent: :not_supported
+    }
+
+    event =
+      Event.new(request, :channels,
+        opts: [action: :upsert_message, bridge_module: StubCommunicationBridge]
+      )
+
+    result = Api.handle_event(event, :upsert_message, nil)
+    assert result.response == {:error, :unsupported_update_intent}
+    refute_received {:bridge_upsert_message, _, _, _}
   end
 
   test "handles sync_channel_runtime action" do

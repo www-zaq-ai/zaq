@@ -51,7 +51,12 @@ Work through the planned Beadwork issues one at a time:
 
 ### Rules during implementation
 - One PR per step when possible — keep PRs small and focused.
-- Never call Agent, Ingestion, Engine, or Channel modules directly from BO — always use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
+- Never call Agent, Ingestion, Engine, or Channel modules directly from BO.
+- For cross-service invoke calls, always use role/channel Events helpers instead of building `%Zaq.Event{}` inline and dispatching manually:
+  - `Zaq.Agent.Events.build_and_dispatch_invoke_event/3`
+  - `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
+  - `Zaq.BO.Events.build_and_dispatch_invoke_event/3`
+  - `Zaq.Channels.Events.build_and_dispatch_*`
 - Never persist sensitive values without encrypting first — see `docs/services/system-config.md`.
 - Never bypass Ecto changesets for data mutations.
 - If you discover something unexpected, add it to the decisions log before continuing.

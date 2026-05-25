@@ -23,6 +23,8 @@ defmodule Zaq.Channels.CommunicationBridge do
   alias Zaq.Utils.ParseUtils
 
   @callback send_reply(term(), map()) :: :ok | {:error, term()}
+  @callback upsert_message(map() | atom() | String.t(), map(), map()) ::
+              {:ok, map()} | {:error, term()}
   @callback send_typing(map() | atom() | String.t(), String.t(), map()) :: :ok | {:error, term()}
 
   @callback add_reaction(
@@ -50,6 +52,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback handle_webhook(map(), map()) :: {:ok, term()} | {:error, term()}
 
   @optional_callbacks send_typing: 3,
+                      upsert_message: 3,
                       add_reaction: 5,
                       remove_reaction: 5,
                       subscribe_thread_reply: 3,
