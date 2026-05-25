@@ -7,10 +7,10 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
       %{
         "nodes" => [
-          %{"name" => "fetch",  "type" => "action",
+          %{"name" => "fetch", "type" => "action",
             "module" => "Zaq.Agent.Tools.Email.FetchEmails",
             "params" => %{}, "index" => 0},
-          %{"name" => "draft",  "type" => "action",
+          %{"name" => "draft", "type" => "action",
             "module" => "Zaq.Agent.Tools.Email.DraftReply",
             "params" => %{}, "index" => 1}
         ],
@@ -29,7 +29,57 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     a non-conforming module fails the build with
     `{:error, {:contract_violation, module, missing}}`.
 
-  Edge attributes (both optional):
+  ## Batch and Iterate nodes
+
+  `Zaq.Agent.Tools.Batch` and `Zaq.Agent.Tools.Iterate` are orchestrator nodes.
+  Their sub-pipelines are declared as **inline node maps** directly inside `params` —
+  not as string name references to top-level nodes.
+
+      # Batch with nested Iterate
+      %{
+        "name" => "batch_contacts",
+        "type" => "action",
+        "module" => "Zaq.Agent.Tools.Batch",
+        "params" => %{
+          "batch_size" => 4,
+          "strategy"   => "skip_and_continue",
+          "process" => [
+            %{
+              "name"   => "iterate_contacts",
+              "type"   => "action",
+              "module" => "Zaq.Agent.Tools.Iterate",
+              "params" => %{
+                "strategy" => "skip_and_continue",
+                "pipeline" => [
+                  %{"name" => "check_status", "type" => "action",
+                    "module" => "MyApp.CheckStatus", "params" => %{}},
+                  %{"name" => "dispatch",     "type" => "action",
+                    "module" => "MyApp.Dispatch",    "params" => %{}}
+                ]
+              }
+            }
+          ],
+          "post_process" => [
+            %{"name" => "sleep", "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.SleepMs",
+              "params" => %{"duration_ms" => 0}}
+          ]
+        },
+        "index" => 1
+      }
+
+  Inline nodes are validated against the `Workflows.Action` contract at build time.
+  String name references in `process`, `post_process`, or `pipeline` are rejected
+  with `{:error, :inline_node_required}`.
+
+  Nested orchestrators are supported: an `Iterate` node may appear inside a `Batch`
+  node's `process` list, carrying its own inline `pipeline`.
+
+  Only top-level `nodes` appear in the built `Runic.Workflow` DAG — inline nodes
+  are injected as params into their parent orchestrator and excluded from the graph.
+
+  ## Edge attributes (both optional)
+
   - `"condition"` — map with `"field"`, `"op"`, and optionally `"value"`. Supported
     ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. When
     present, an `EdgeStep` is injected between the two nodes; a false condition
@@ -181,12 +231,13 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp validate_edge_condition(_), do: :ok
 
-  # Scans nodes for "process"/"post_process" (Batch) and "pipeline" (Iterate)
-  # params. Resolves the referenced node names to {module, base_params} tuples,
-  # validates each module against the Workflows.Action contract, detects the
-  # chunk-delivery field via Action.batch_field/1, and injects the results as
-  # atom-keyed fields on the node map. Scoped nodes are collected into
-  # batch_scoped so they are excluded from the main DAG assembly.
+  # Scans top-level nodes for Batch / Iterate orchestrators.
+  # For each, resolves the inline pipeline maps, validates modules against the
+  # Workflows.Action contract, detects the chunk-delivery field via
+  # Action.batch_field/1, and injects resolved pipelines as atom-keyed fields.
+  # `batch_scoped` is built from any remaining string names (legacy path, now
+  # always empty since inline maps replaced string refs); it is kept to exclude
+  # any stray top-level names from the DAG assembly without breaking the pipeline.
   defp prepare_batch_nodes(nodes_list) do
     batch_scoped =
       nodes_list
@@ -274,20 +325,17 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp require_non_empty([], tag), do: {:error, tag}
   defp require_non_empty(_, _), do: :ok
 
-  defp resolve_pipeline(names, nodes_list, kind) do
-    error_key =
-      case kind do
-        :process -> :unknown_process_node
-        :post_process -> :unknown_post_process_node
-        :pipeline -> :unknown_iterate_node
-      end
-
+  # Each element must be an inline node map — string name references are rejected.
+  # Nested orchestrators (e.g. Iterate inside Batch.process) are resolved
+  # recursively via resolve_pipeline_node → enrich_node.
+  defp resolve_pipeline(items, nodes_list, _kind) do
     result =
-      Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
-        case Enum.find(nodes_list, &(Map.get(&1, "name") == name)) do
-          nil -> {:halt, {:error, {error_key, name}}}
-          pipeline_node -> resolve_pipeline_node(pipeline_node, nodes_list, acc)
-        end
+      Enum.reduce_while(items, {:ok, []}, fn
+        node, {:ok, acc} when is_map(node) ->
+          resolve_pipeline_node(node, nodes_list, acc)
+
+        _string, {:ok, _acc} ->
+          {:halt, {:error, :inline_node_required}}
       end)
 
     case result do
