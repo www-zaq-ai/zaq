@@ -141,7 +141,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       run = run_fixture(workflow)
       step_run_fixture(run, %{step_name: "fetch", step_index: 0, status: "completed"})
 
-      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      # Cards are hidden until a node is selected.
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      html = render(view)
 
       assert html =~ "fetch"
       assert html =~ "completed"
@@ -155,13 +159,16 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
         step_name: "fetch",
         step_index: 0,
         status: "completed",
-        logs: [%{"level" => "info", "message" => "Processing item", "timestamp" => "10:00:00"}]
+        logs: [%{"event" => "step_ok", "duration_ms" => 42, "reason" => "Processing item"}]
       })
 
-      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
 
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      html = render(view)
+
+      assert html =~ "step_ok"
       assert html =~ "Processing item"
-      assert html =~ "info"
     end
 
     test "shows error panel for a failed step", %{conn: conn} do
@@ -175,7 +182,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
         errors: %{"reason" => "timeout"}
       })
 
-      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      html = render(view)
 
       assert html =~ "Error"
       assert html =~ "timeout"
@@ -284,6 +294,67 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   end
 
   describe "live PubSub updates" do
+    test "broadcasting {:batch_progress, step_name, progress} updates view without crashing", %{
+      conn: conn
+    } do
+      workflow =
+        workflow_fixture(%{
+          nodes: [
+            %{
+              name: "batch_step",
+              type: "action",
+              module: "Zaq.Agent.Tools.Batch",
+              params: %{},
+              index: 0
+            }
+          ]
+        })
+
+      run = run_fixture(workflow)
+      step_run_fixture(run, %{step_name: "batch_step", step_index: 0, status: "running"})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      Phoenix.PubSub.broadcast(
+        Zaq.PubSub,
+        "workflow_run:#{run.id}",
+        {:batch_progress, "batch_step",
+         %{current_chunk: 2, total_chunks: 4, successful_chunks: 1, failed_chunks: 1}}
+      )
+
+      html = render(view)
+      assert html =~ run.status
+    end
+
+    test "broadcasting {:iterate_progress, step_name, progress} updates view without crashing", %{
+      conn: conn
+    } do
+      workflow =
+        workflow_fixture(%{
+          nodes: [
+            %{
+              name: "iterate_step",
+              type: "action",
+              module: "Zaq.Agent.Tools.Iterate",
+              params: %{},
+              index: 0
+            }
+          ]
+        })
+
+      run = run_fixture(workflow)
+      step_run_fixture(run, %{step_name: "iterate_step", step_index: 0, status: "running"})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      Phoenix.PubSub.broadcast(
+        Zaq.PubSub,
+        "workflow_run:#{run.id}",
+        {:iterate_progress, "iterate_step", %{current_item: 3, total_items: 7, current_step: 0}}
+      )
+
+      html = render(view)
+      assert html =~ run.status
+    end
+
     test "broadcasting {:run_updated, run} updates run status on page", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow)
@@ -350,6 +421,22 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "completed"
     end
 
+    test "broadcasting {:run_updated} with waiting status refreshes approval details", %{
+      conn: conn
+    } do
+      workflow = hitl_workflow_with_message_fixture()
+      waiting_run = waiting_run_fixture(workflow)
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{waiting_run.id}")
+
+      Phoenix.PubSub.broadcast(
+        Zaq.PubSub,
+        "workflow_run:#{waiting_run.id}",
+        {:run_updated, %{waiting_run | status: "waiting"}}
+      )
+
+      assert render(view) =~ "Please review before proceeding."
+    end
+
     test "tick message updates the now assign without crashing", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow)
@@ -402,6 +489,24 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       html = render_click(view, "cancel_run", %{})
       assert html =~ "Run has already finished."
     end
+
+    test "cancel_run remains responsive when dispatch returns unexpected value", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :cancel_run} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          %{action: action} when is_binary(action) -> Api.handle_event(event, :workflow, nil)
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      html = render_click(view, "cancel_run", %{})
+      assert html =~ "Run"
+    end
   end
 
   describe "pause_run event" do
@@ -431,6 +536,24 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       # Fire event directly — Pause button is only rendered when status == "running"
       html = render_click(view, "pause_run", %{})
       assert html =~ "Run is not currently running."
+    end
+
+    test "pause_run remains responsive when dispatch returns unexpected value", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :pause_run} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          %{action: action} when is_binary(action) -> Api.handle_event(event, :workflow, nil)
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      html = render_click(view, "pause_run", %{})
+      assert html =~ "Run"
     end
   end
 
@@ -491,6 +614,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       waiting_run = waiting_run_fixture(workflow)
       {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{waiting_run.id}")
       assert html =~ "Please review before proceeding."
+    end
+
+    test "selected step renders input and output json panels", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      step_run_fixture(run, %{
+        step_name: "fetch",
+        step_index: 0,
+        status: "completed",
+        input: %{"query" => "abc"},
+        results: %{"count" => 1}
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      html = render(view)
+
+      assert html =~ "step-input-chevron-"
+      assert html =~ "jt-step-input-"
+      assert html =~ "step-chevron-"
+      assert html =~ "jt-step-"
     end
   end
 end

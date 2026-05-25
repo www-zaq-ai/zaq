@@ -468,14 +468,31 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
   # ── Log trail ─────────────────────────────────────────────────────────────────
 
   describe "log trail: batch and iterate" do
+    # Helpers — filter by event name (logs are read back from DB with string keys)
+    defp chunk_logs(run),
+      do: Enum.filter(batch_step_run(run).logs, &(Map.get(&1, "event") == "chunk_completed"))
+
+    defp item_logs(run),
+      do: run |> chunk_logs() |> Enum.flat_map(&Map.get(&1, "iteration_logs", []))
+
+    test "first entry in step_run.logs is step_completed with timing" do
+      wf = contact_batch_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, _} = WorkflowAgent.execute(run)
+
+      [first | _rest] = batch_step_run(run).logs
+      assert Map.get(first, "event") == "step_completed"
+      assert is_integer(Map.get(first, "duration_ms"))
+      assert Map.get(first, "duration_ms") >= 0
+      assert Map.get(first, "at") != nil
+    end
+
     test "batch_contacts step_run logs has 3 chunk_completed events" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
-      logs = batch_step_run(run).logs
-      assert length(logs) == 3
-      assert Enum.all?(logs, &(Map.get(&1, "event") == "chunk_completed"))
+      assert length(chunk_logs(run)) == 3
     end
 
     test "chunk log events are indexed 0, 1, 2" do
@@ -483,12 +500,20 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
-      indices =
-        batch_step_run(run).logs
-        |> Enum.map(&Map.get(&1, "index"))
-        |> Enum.sort()
-
+      indices = run |> chunk_logs() |> Enum.map(&Map.get(&1, "index")) |> Enum.sort()
       assert indices == [0, 1, 2]
+    end
+
+    test "chunk logs have at and duration_ms timestamps" do
+      wf = contact_batch_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, _} = WorkflowAgent.execute(run)
+
+      for log <- chunk_logs(run) do
+        assert Map.get(log, "at") != nil
+        assert is_integer(Map.get(log, "duration_ms"))
+        assert Map.get(log, "duration_ms") >= 0
+      end
     end
 
     test "each chunk log records 2 results and 2 errors" do
@@ -496,7 +521,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
-      for log <- batch_step_run(run).logs do
+      for log <- chunk_logs(run) do
         assert Map.get(log, "results") == 2
         assert Map.get(log, "errors") == 2
       end
@@ -507,7 +532,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
-      for log <- batch_step_run(run).logs do
+      for log <- chunk_logs(run) do
         iteration_logs = Map.get(log, "iteration_logs", [])
         assert length(iteration_logs) == 4
 
@@ -517,14 +542,28 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       end
     end
 
+    test "item logs have at and duration_ms timestamps" do
+      wf = contact_batch_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, _} = WorkflowAgent.execute(run)
+
+      assert length(item_logs(run)) == 12
+
+      for log <- item_logs(run) do
+        assert Map.get(log, "at") != nil
+        assert is_integer(Map.get(log, "duration_ms"))
+        assert Map.get(log, "duration_ms") >= 0
+      end
+    end
+
     test "item error reasons are readable strings — 3 inactive and 3 in_sequence" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
       error_reasons =
-        batch_step_run(run).logs
-        |> Enum.flat_map(&Map.get(&1, "iteration_logs", []))
+        run
+        |> item_logs()
         |> Enum.filter(&(Map.get(&1, "event") == "item_error"))
         |> Enum.map(&Map.get(&1, "reason"))
         |> Enum.sort()
@@ -543,7 +582,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
         |> Enum.find(&(&1.step_name == "batch_contacts"))
 
       assert batch_entry != nil
-      assert length(batch_entry.logs) == 3
+      # 1 step_completed + 3 chunk_completed
+      assert length(batch_entry.logs) == 4
     end
   end
 

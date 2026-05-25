@@ -127,6 +127,18 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
         DraftReply.run(%{emails: emails, agent_name: "MailResponder"}, %{})
       end
     end
+
+    test "supports atom-key sender map fallback during draft creation path" do
+      email =
+        raw_email(%{
+          "from" => %{address: "atom@example.com", name: "Atom Sender"},
+          "message_id" => "<atom123@mail>"
+        })
+
+      assert_raise RuntimeError, ~r/<atom123@mail>/, fn ->
+        DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, %{})
+      end
+    end
   end
 
   describe "resolve_agent_id! — DB lookup" do

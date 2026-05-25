@@ -333,6 +333,7 @@ defmodule Zaq.Engine.Workflows do
     run
     |> WorkflowRun.changeset(attrs)
     |> Repo.update()
+    |> broadcast_run()
   end
 
   @doc """
@@ -440,14 +441,15 @@ defmodule Zaq.Engine.Workflows do
     |> broadcast_step()
   end
 
-  @doc "Marks a step run as failed, recording the error map and finished_at."
-  @spec fail_step_run(StepRun.t(), map(), keyword()) ::
+  @doc "Marks a step run as failed, recording the error map, optional logs, and finished_at."
+  @spec fail_step_run(StepRun.t(), map(), [map()], keyword()) ::
           {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
-  def fail_step_run(%StepRun{} = step_run, errors, _opts \\ []) do
+  def fail_step_run(%StepRun{} = step_run, errors, logs \\ [], _opts \\ []) do
     step_run
     |> StepRun.changeset(%{
       status: "failed",
       errors: errors,
+      logs: logs,
       finished_at: DateTime.utc_now(:second)
     })
     |> Repo.update()
@@ -455,13 +457,14 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc "Marks a step run as skipped when a condition evaluated to false."
-  @spec skip_step_run(StepRun.t(), map(), keyword()) ::
+  @spec skip_step_run(StepRun.t(), map(), [map()], keyword()) ::
           {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
-  def skip_step_run(%StepRun{} = step_run, metadata \\ %{}, _opts \\ []) do
+  def skip_step_run(%StepRun{} = step_run, metadata \\ %{}, logs \\ [], _opts \\ []) do
     step_run
     |> StepRun.changeset(%{
       status: "skipped",
       results: metadata,
+      logs: logs,
       finished_at: DateTime.utc_now(:second)
     })
     |> Repo.update()
@@ -469,11 +472,11 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc "Marks a step run as waiting, suspending it pending human approval."
-  @spec wait_step_run(StepRun.t(), keyword()) ::
+  @spec wait_step_run(StepRun.t(), [map()], keyword()) ::
           {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
-  def wait_step_run(%StepRun{} = step_run, _opts \\ []) do
+  def wait_step_run(%StepRun{} = step_run, logs \\ [], _opts \\ []) do
     step_run
-    |> StepRun.changeset(%{status: "waiting"})
+    |> StepRun.changeset(%{status: "waiting", logs: logs})
     |> Repo.update()
     |> broadcast_step()
   end
@@ -952,17 +955,88 @@ defmodule Zaq.Engine.Workflows do
     end
   end
 
+  @doc """
+  Broadcasts batch chunk progress to subscribers of the workflow_run PubSub channel.
+
+  Called by `Zaq.Agent.Tools.Batch` after each chunk completes so the run UI can
+  update in real-time.  Silently no-ops when `run_id` is `nil` (e.g. test pipelines
+  without a persisted run).
+
+  Subscribers receive `{:batch_progress, step_name, progress}` where `progress` is:
+
+      %{
+        current_chunk:      non_neg_integer(),
+        total_chunks:       pos_integer(),
+        successful_chunks:  non_neg_integer(),
+        failed_chunks:      non_neg_integer()
+      }
+  """
+  def broadcast_batch_progress(nil, _step_name, _progress), do: :ok
+
+  def broadcast_batch_progress(run_id, step_name, progress) do
+    Phoenix.PubSub.broadcast(
+      Zaq.PubSub,
+      "workflow_run:#{run_id}",
+      {:batch_progress, step_name, progress}
+    )
+  end
+
+  @doc """
+  Broadcasts iterate item progress to subscribers of the workflow_run PubSub channel.
+
+  Called by `Zaq.Agent.Tools.Iterate` after each item completes.  Silently no-ops
+  when `run_id` is `nil`.
+
+  Subscribers receive `{:iterate_progress, step_name, progress}` where `progress` is:
+
+      %{current_item: non_neg_integer(), total_items: pos_integer()}
+  """
+  def broadcast_iterate_progress(nil, _step_name, _progress), do: :ok
+
+  def broadcast_iterate_progress(run_id, step_name, progress) do
+    Phoenix.PubSub.broadcast(
+      Zaq.PubSub,
+      "workflow_run:#{run_id}",
+      {:iterate_progress, step_name, progress}
+    )
+  end
+
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 
+  defp broadcast_run({:ok, run} = result) do
+    Phoenix.PubSub.broadcast(
+      Zaq.PubSub,
+      "workflow_run:#{run.id}",
+      {:run_updated, run}
+    )
+
+    result
+  end
+
+  defp broadcast_run(result), do: result
+
   defp broadcast_step({:ok, step_run} = result) do
+    normalized = %{step_run | logs: stringify_log_keys(step_run.logs)}
+
     Phoenix.PubSub.broadcast(
       Zaq.PubSub,
       "workflow_run:#{step_run.workflow_run_id}",
-      {:step_updated, step_run}
+      {:step_updated, normalized}
     )
 
     result
   end
 
   defp broadcast_step(result), do: result
+
+  # Repo.update/1 returns the struct with atom-keyed log maps (as passed to the
+  # changeset), whereas Repo.all/1 deserializes JSONB with string keys.  Normalize
+  # before broadcasting so real-time subscribers see the same shape as page-load data.
+  defp stringify_log_keys(nil), do: []
+
+  defp stringify_log_keys(logs) do
+    Enum.map(logs, fn log ->
+      Map.new(log, fn {k, v} -> {to_string(k), v} end)
+    end)
+  end
 end
