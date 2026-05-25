@@ -246,7 +246,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
               phx-click="export"
               class="font-mono text-[0.82rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
             >
-              Export
+              Export Workflow
             </button>
             <div class="w-px h-6 bg-black/10 mx-1" />
             <button
@@ -345,6 +345,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
           <%!-- DAG column --%>
           <div class="flex-1 min-w-0">
+            <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider mb-3">
+              Flow
+            </p>
             <div
               class="bg-white rounded-xl border border-black/[0.08] p-5 min-h-[480px]"
               style="background-image: linear-gradient(#21dfff 0.5px, transparent 0.5px), linear-gradient(90deg, #e3e3e3 0.5px, transparent 0.5px); background-size: 20px 20px;"
