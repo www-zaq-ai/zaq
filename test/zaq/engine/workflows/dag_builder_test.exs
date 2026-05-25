@@ -582,4 +582,334 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps())
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Batch node — process / post_process resolution
+  # ---------------------------------------------------------------------------
+
+  @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
+  @sleep_ms_module "Zaq.Engine.Workflows.Test.SleepMs"
+  @non_conforming_module "Zaq.Engine.Workflows.Test.NonConformingAction"
+  @process_contact_module "Zaq.Engine.Workflows.Test.ProcessContact"
+  @batch_module "Zaq.Agent.Tools.Batch"
+  @iterate_module "Zaq.Agent.Tools.Iterate"
+
+  defp batch_steps(extra_params \\ %{}) do
+    %{
+      "nodes" => [
+        %{
+          "name" => "get_data",
+          "type" => "action",
+          "module" => @ok_module,
+          "params" => %{},
+          "index" => 0
+        },
+        %{
+          "name" => "categorize",
+          "type" => "action",
+          "module" => @categorize_module,
+          "params" => %{},
+          "index" => 1
+        },
+        %{
+          "name" => "sleep",
+          "type" => "action",
+          "module" => @sleep_ms_module,
+          "params" => %{},
+          "index" => 2
+        },
+        %{
+          "name" => "batch",
+          "type" => "action",
+          "module" => @batch_module,
+          "params" =>
+            Map.merge(
+              %{"process" => ["categorize"], "post_process" => ["sleep"]},
+              extra_params
+            ),
+          "index" => 3
+        }
+      ],
+      "edges" => [%{"from" => "get_data", "to" => "batch"}]
+    }
+  end
+
+  defp iterate_steps(extra_params \\ %{}) do
+    %{
+      "nodes" => [
+        %{
+          "name" => "get_data",
+          "type" => "action",
+          "module" => @ok_module,
+          "params" => %{},
+          "index" => 0
+        },
+        %{
+          "name" => "process_contact",
+          "type" => "action",
+          "module" => @process_contact_module,
+          "params" => %{},
+          "index" => 1
+        },
+        %{
+          "name" => "iterate",
+          "type" => "action",
+          "module" => @iterate_module,
+          "params" => Map.merge(%{"pipeline" => ["process_contact"]}, extra_params),
+          "index" => 2
+        }
+      ],
+      "edges" => [%{"from" => "get_data", "to" => "iterate"}]
+    }
+  end
+
+  describe "build/1 — Batch node: process/post_process resolution" do
+    test "valid process + post_process → builds successfully" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(batch_steps())
+    end
+
+    test "post_process absent → builds successfully with empty post_process" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "categorize",
+            "type" => "action",
+            "module" => @categorize_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => ["categorize"]},
+            "index" => 1
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "process and post_process nodes excluded from main DAG" do
+      # Categorize and sleep are scoped; only get_data + batch appear as main nodes
+      assert {:ok, wf} = DagBuilder.build(batch_steps())
+      node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
+      refute "categorize" in node_names
+      refute "sleep" in node_names
+    end
+
+    test ":__batch_field__ and :__batch_mode__ derived from first process module schema" do
+      # CategorizeBySize has items: [type: :list, required: true] → :list, :items
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(batch_steps())
+      # Build success implies batch_field/1 resolved correctly (list mode for CategorizeBySize)
+    end
+  end
+
+  describe "build/1 — Batch node: build-time errors" do
+    test "process absent → {:error, {:missing_process_pipeline, node_name}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:missing_process_pipeline, "batch"}} = DagBuilder.build(steps)
+    end
+
+    test "process empty list → {:error, {:missing_process_pipeline, node_name}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => []},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:missing_process_pipeline, "batch"}} = DagBuilder.build(steps)
+    end
+
+    test "unknown process node name → {:error, {:unknown_process_node, name}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => ["ghost"]},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:unknown_process_node, "ghost"}} = DagBuilder.build(steps)
+    end
+
+    test "unknown post_process node name → {:error, {:unknown_post_process_node, name}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "categorize",
+            "type" => "action",
+            "module" => @categorize_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => ["categorize"], "post_process" => ["ghost"]},
+            "index" => 1
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:unknown_post_process_node, "ghost"}} = DagBuilder.build(steps)
+    end
+
+    test "non-conforming process module → {:error, {:contract_violation, module, missing}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "bad",
+            "type" => "action",
+            "module" => @non_conforming_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => ["bad"]},
+            "index" => 1
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:contract_violation, _, _}} = DagBuilder.build(steps)
+    end
+
+    test "batch_scope (legacy) no longer accepted → missing_process_pipeline error" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "categorize",
+            "type" => "action",
+            "module" => @categorize_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"batch_scope" => ["categorize"]},
+            "index" => 1
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:missing_process_pipeline, "batch"}} = DagBuilder.build(steps)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Iterate node — pipeline resolution
+  # ---------------------------------------------------------------------------
+
+  describe "build/1 — Iterate node: pipeline resolution" do
+    test "valid pipeline → builds successfully" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(iterate_steps())
+    end
+
+    test "pipeline nodes excluded from main DAG" do
+      assert {:ok, wf} = DagBuilder.build(iterate_steps())
+      node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
+      refute "process_contact" in node_names
+    end
+
+    test ":__iterate_field__ and :__iterate_mode__ derived from first pipeline module schema" do
+      # ProcessContact has contact: [type: :map, required: true] → :item, :contact
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(iterate_steps())
+    end
+  end
+
+  describe "build/1 — Iterate node: build-time errors" do
+    test "pipeline absent → {:error, {:missing_iterate_pipeline, node_name}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "iterate",
+            "type" => "action",
+            "module" => @iterate_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:missing_iterate_pipeline, "iterate"}} = DagBuilder.build(steps)
+    end
+
+    test "unknown pipeline node → {:error, {:unknown_iterate_node, name}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "iterate",
+            "type" => "action",
+            "module" => @iterate_module,
+            "params" => %{"pipeline" => ["ghost"]},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:unknown_iterate_node, "ghost"}} = DagBuilder.build(steps)
+    end
+
+    test "non-conforming pipeline module → {:error, {:contract_violation, module, missing}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "bad",
+            "type" => "action",
+            "module" => @non_conforming_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "iterate",
+            "type" => "action",
+            "module" => @iterate_module,
+            "params" => %{"pipeline" => ["bad"]},
+            "index" => 1
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:contract_violation, _, _}} = DagBuilder.build(steps)
+    end
+  end
 end

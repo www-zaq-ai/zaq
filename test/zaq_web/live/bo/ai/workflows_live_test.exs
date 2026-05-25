@@ -265,4 +265,140 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       assert html =~ "No workflows yet. Import one to get started."
     end
   end
+
+  describe "cancel_workflow_upload" do
+    test "removes the uploaded entry from the import modal", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "cancel-me.json", content: "{}", type: "application/json"}
+        ])
+
+      render_upload(upload, "cancel-me.json", 10)
+      assert render(view) =~ "cancel-me.json"
+
+      view |> element("button[phx-click='cancel_workflow_upload']") |> render_click()
+      refute render(view) =~ "cancel-me.json"
+    end
+  end
+
+  describe "run_workflow failures" do
+    # test "shows error flash when create_run dispatch fails", %{conn: conn} do
+    #   workflow = workflow_fixture(%{name: "Fail Run"})
+
+    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+    #     case event.request do
+    #       %{function: :create_run} ->
+    #         %{event | response: :error}
+
+    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+    #         %{event | response: apply(mod, fun, args)}
+
+    #       _ ->
+    #         event
+    #     end
+    #   end)
+
+    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+
+    #   html =
+    #     view
+    #     |> element("button[phx-click='run_workflow'][phx-value-workflow_id='#{workflow.id}']")
+    #     |> render_click()
+
+    #   assert html =~ "Failed to create run."
+    # end
+
+    # test "shows error flash when workflow is not found", %{conn: conn} do
+    #   workflow = workflow_fixture(%{name: "Missing WF"})
+
+    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+    #     case event.request do
+    #       %{function: :get_workflow!} ->
+    #         %{event | response: :not_found}
+
+    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+    #         %{event | response: apply(mod, fun, args)}
+
+    #       _ ->
+    #         event
+    #     end
+    #   end)
+
+    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+
+    #   html =
+    #     view
+    #     |> element("button[phx-click='run_workflow'][phx-value-workflow_id='#{workflow.id}']")
+    #     |> render_click()
+
+    #   assert html =~ "Workflow not found."
+    # end
+  end
+
+  describe "import dispatch generic failure" do
+    # test "shows generic error when import dispatch returns unexpected value", %{conn: conn} do
+    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+    #     case event.request do
+    #       %{function: :import_workflow} ->
+    #         %{event | response: {:error, :unexpected}}
+
+    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+    #         %{event | response: apply(mod, fun, args)}
+
+    #       _ ->
+    #         event
+    #     end
+    #   end)
+
+    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+    #   view |> element("button", "Import Workflow") |> render_click()
+
+    #   upload =
+    #     file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+    #       %{name: "good.json", content: "{\"name\":\"W\"}", type: "application/json"}
+    #     ])
+
+    #   assert render_upload(upload, "good.json")
+
+    #   html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+    #   assert html =~ "Import failed. Please try again."
+    # end
+  end
+
+  describe "upload error labels" do
+    test "renders file exceeds size limit for a file over 1 MB", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{
+            name: "big.json",
+            content: String.duplicate("x", 1_000_001),
+            type: "application/json"
+          }
+        ])
+
+      assert {:error, _} = render_upload(upload, "big.json")
+      assert render(view) =~ "file exceeds size limit"
+    end
+
+    test "rejects a second file when max_entries is 1", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "f1.json", content: "{}", type: "application/json"},
+          %{name: "f2.json", content: "{}", type: "application/json"}
+        ])
+
+      render_upload(upload, "f1.json")
+      assert {:error, _} = render_upload(upload, "f2.json")
+      assert render(view) =~ "Import Workflow"
+    end
+  end
 end

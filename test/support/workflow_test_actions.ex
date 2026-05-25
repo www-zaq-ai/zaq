@@ -572,3 +572,148 @@ defmodule Zaq.Engine.Workflows.Test.RequireFirstName do
     {:ok, %{f_ran: true, first_name: first_name}}
   end
 end
+
+defmodule Zaq.Engine.Workflows.Test.ListClients do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_list_clients",
+    schema: [source: [type: :string, required: false]],
+    output_schema: [clients: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @clients [
+    %{name: "Alice Smith", email: "alice@acme.com", company: "Acme Corp", size: 1200},
+    %{name: "Bob Jones", email: "bob@startup.io", company: "Startup IO", size: 12},
+    %{name: "Carol White", email: "carol@midco.com", company: "MidCo", size: 250},
+    %{name: "Dan Brown", email: "dan@bigcorp.com", company: "BigCorp", size: 5000},
+    %{name: "Eve Davis", email: "eve@smallbiz.net", company: "SmallBiz", size: 35},
+    %{name: "Frank Miller", email: "frank@medtech.com", company: "MedTech", size: 180},
+    %{name: "Grace Wilson", email: "grace@mega.com", company: "Mega Inc", size: 8500},
+    %{name: "Hank Taylor", email: "hank@boutique.co", company: "Boutique Co", size: 8},
+    %{name: "Iris Moore", email: "iris@regional.com", company: "Regional Ltd", size: 420},
+    %{name: "Jake Lee", email: "jake@global.com", company: "Global Corp", size: 3200}
+  ]
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{clients: @clients}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.CategorizeBySize do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_categorize_by_size",
+    schema: [items: [type: :list, required: true]],
+    output_schema: [results: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{items: clients}, _context) do
+    {:ok, %{results: Enum.map(clients, &categorize/1)}}
+  end
+
+  # Handles both atom and string keys (the latter can appear after JSONB round-trip on resume).
+  defp categorize(client) do
+    size = Map.get(client, :size) || Map.get(client, "size") || 0
+
+    category =
+      cond do
+        size < 50 -> "small_business"
+        size <= 500 -> "medium"
+        true -> "enterprise"
+      end
+
+    Map.put(client, :category, category)
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.Sleep do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_sleep",
+    schema: [
+      results: [type: :list, required: true],
+      duration_ms: [type: :integer, required: false, default: 200]
+    ],
+    output_schema: [results: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context) do
+    duration = Map.get(params, :duration_ms, 200)
+    Process.sleep(duration)
+    {:ok, %{results: params.results}}
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Iterate / Batch test doubles
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.ProcessContact do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_process_contact",
+    schema: [contact: [type: :map, required: true]],
+    output_schema: [processed: [type: :map, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{contact: contact}, _context) do
+    {:ok, %{processed: Map.put(contact, :done, true)}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.FilterContact do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_filter_contact",
+    schema: [contact: [type: :map, required: true]],
+    output_schema: [contact: [type: :map, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{contact: %{active: false}}, _context), do: {:error, :inactive}
+  def run(%{contact: contact}, _context), do: {:ok, %{contact: contact}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.SleepMs do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_sleep_ms",
+    schema: [duration_ms: [type: :integer, required: false, default: 0]],
+    output_schema: [slept_ms: [type: :integer, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context) do
+    ms = Map.get(params, :duration_ms, 0)
+    if ms > 0, do: Process.sleep(ms)
+    {:ok, %{slept_ms: ms}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.FlattenClients do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_flatten_clients",
+    schema: [results: [type: :list, required: true]],
+    output_schema: [clients: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{results: chunk_results}, _context) do
+    clients =
+      Enum.flat_map(chunk_results, fn chunk ->
+        Map.get(chunk, :results) || Map.get(chunk, "results") || []
+      end)
+
+    {:ok, %{clients: clients}}
+  end
+end
