@@ -360,6 +360,48 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
       refute html =~ "#fffbeb"
     end
+
+    test "batch node with post_process and nested iterate renders inner section and post label" do
+      node = %{
+        name: "batch",
+        type: "action",
+        module: "Zaq.Agent.Tools.Batch",
+        index: 0,
+        params: %{
+          "process" => [
+            %{"name" => "plain_step", "module" => "SomeMod"},
+            %{
+              "name" => "iter_step",
+              "module" => "Zaq.Agent.Tools.Iterate",
+              "params" => %{"pipeline" => [%{"name" => "inner_1"}, %{"name" => "inner_2"}]}
+            }
+          ],
+          "post_process" => [%{"name" => "post_1", "module" => "SomePost"}]
+        }
+      }
+
+      html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+      assert html =~ "POST PROCESS"
+      assert html =~ "inner_1"
+      assert html =~ "inner_2"
+      assert html =~ "marker-end=\"url(#dag-arr)\""
+    end
+
+    test "standalone iterate node renders stacked mini nodes with arrows" do
+      node = %{
+        name: "iter",
+        type: "action",
+        module: "Zaq.Agent.Tools.Iterate",
+        index: 0,
+        params: %{"pipeline" => [%{"name" => "a"}, %{"name" => "b"}, %{"name" => "c"}]}
+      }
+
+      html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+      assert html =~ "a"
+      assert html =~ "b"
+      assert html =~ "c"
+      assert html =~ "marker-end=\"url(#dag-arr)\""
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -435,32 +477,222 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
   # ---------------------------------------------------------------------------
 
   describe "step_log_entry/1" do
-    test "renders error level with red CSS class" do
-      log = %{"level" => "error", "message" => "Something failed", "timestamp" => "10:00:00"}
+    test "renders step_failed event with red CSS class" do
+      log = %{"event" => "step_failed", "reason" => "Something failed", "duration_ms" => 42}
       html = render_component(&WorkflowComponents.step_log_entry/1, log: log)
+      assert html =~ "step_failed"
       assert html =~ "Something failed"
       assert html =~ "red"
     end
 
-    test "renders warn level with amber CSS class" do
-      log = %{"level" => "warn", "message" => "Warning occurred", "timestamp" => "10:00:00"}
+    test "renders chunk_error event with red CSS class" do
+      log = %{"event" => "chunk_error", "errors" => "Warning occurred", "duration_ms" => 42}
       html = render_component(&WorkflowComponents.step_log_entry/1, log: log)
       assert html =~ "Warning occurred"
-      assert html =~ "amber"
+      assert html =~ "red"
     end
 
-    test "renders info level with default (black) CSS class" do
-      log = %{"level" => "info", "message" => "All good", "timestamp" => "10:00:00"}
+    test "renders step_completed event with default (black) CSS class" do
+      log = %{"event" => "step_completed", "results" => "All good", "duration_ms" => 42}
       html = render_component(&WorkflowComponents.step_log_entry/1, log: log)
       assert html =~ "All good"
       refute html =~ "red"
-      refute html =~ "amber"
     end
 
-    test "renders without timestamp when absent" do
-      log = %{"level" => "info", "message" => "No ts"}
+    test "renders without duration when duration_ms is absent" do
+      log = %{"event" => "step_completed", "reason" => "No ts"}
       html = render_component(&WorkflowComponents.step_log_entry/1, log: log)
       assert html =~ "No ts"
+      refute html =~ ~r/\d+ms/
+    end
+  end
+
+  describe "batch_step_card/1 and iterate_step_card/1" do
+    test "batch_step_card renders running live chunk progress counters" do
+      step = %{
+        id: "sr-b1",
+        step_name: "batch_step",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: %{
+            current_chunk: 2,
+            total_chunks: 5,
+            successful_chunks: 1,
+            failed_chunks: 1
+          },
+          iterate_progress: nil,
+          node_params: %{"process" => [%{"name" => "p1"}]}
+        )
+
+      assert html =~ "2 / 5"
+      assert html =~ "Chunks"
+    end
+
+    test "batch_step_card renders completed chunk results summary" do
+      step = %{
+        id: "sr-b2",
+        step_name: "batch_done",
+        step_index: 0,
+        status: "completed",
+        logs: [],
+        input: %{},
+        errors: nil,
+        started_at: ~U[2024-01-01 00:00:00Z],
+        finished_at: ~U[2024-01-01 00:00:02Z],
+        results: %{
+          "results" => [
+            %{"results" => [%{"id" => 1}], "errors" => [%{"index" => 2, "reason" => "boom"}]}
+          ]
+        }
+      }
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: nil,
+          iterate_progress: nil,
+          node_params: %{}
+        )
+
+      assert html =~ "Chunk Results (1)"
+      assert html =~ "✓ 1"
+      assert html =~ "✗ 1"
+    end
+
+    test "batch_step_card renders process/post lanes with active and pending chip states" do
+      step = %{
+        id: "sr-b3",
+        step_name: "batch_live",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{"x" => 1},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: %{
+            current_chunk: 1,
+            total_chunks: 2,
+            successful_chunks: 0,
+            failed_chunks: 0,
+            phase: :process,
+            current_step: 0
+          },
+          iterate_progress: %{current_item: 1, total_items: 2, current_step: 0},
+          node_params: %{
+            "process" => [
+              %{"name" => "p1", "module" => "Some.Step"},
+              %{
+                "name" => "p2_iter",
+                "module" => "Zaq.Agent.Tools.Iterate",
+                "params" => %{"pipeline" => [%{"name" => "ip1"}, %{"name" => "ip2"}]}
+              }
+            ],
+            "post_process" => [%{"name" => "post1", "module" => "Some.Post"}]
+          }
+        )
+
+      assert html =~ "Process"
+      assert html =~ "Post"
+      assert html =~ "ip1"
+      assert html =~ "ip2"
+      assert html =~ "Input"
+    end
+
+    test "iterate_step_card renders running iterate progress counters" do
+      step = %{
+        id: "sr-i1",
+        step_name: "iterate_step",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      html =
+        render_component(&WorkflowComponents.iterate_step_card/1,
+          step: step,
+          iterate_progress: %{current_item: 3, total_items: 7, current_step: 0},
+          node_params: %{"pipeline" => [%{"name" => "a1"}, %{"name" => "a2"}]}
+        )
+
+      assert html =~ "3 / 7"
+      assert html =~ "Items"
+    end
+
+    test "iterate_step_card renders pipeline chips and collapsible input/output sections" do
+      step = %{
+        id: "sr-i3",
+        step_name: "iterate_done",
+        step_index: 0,
+        status: "completed",
+        logs: [%{"event" => "step_ok", "reason" => "ok"}],
+        results: %{"results" => [%{"id" => 1}], "errors" => []},
+        input: %{"payload" => "abc"},
+        errors: nil,
+        started_at: ~U[2024-01-01 00:00:00Z],
+        finished_at: ~U[2024-01-01 00:00:01Z]
+      }
+
+      html =
+        render_component(&WorkflowComponents.iterate_step_card/1,
+          step: step,
+          iterate_progress: nil,
+          node_params: %{"pipeline" => [%{"name" => "first"}, %{"name" => "second"}]}
+        )
+
+      assert html =~ "Pipeline (per item)"
+      assert html =~ "first"
+      assert html =~ "second"
+      assert html =~ "Input"
+      assert html =~ "Output"
+      assert html =~ "step_ok"
+    end
+
+    test "iterate_step_card renders failed error panel when errors exist" do
+      step = %{
+        id: "sr-i2",
+        step_name: "iterate_failed",
+        step_index: 0,
+        status: "failed",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: %{"reason" => "broken"},
+        started_at: ~U[2024-01-01 00:00:00Z],
+        finished_at: ~U[2024-01-01 00:00:01Z]
+      }
+
+      html =
+        render_component(&WorkflowComponents.iterate_step_card/1,
+          step: step,
+          iterate_progress: nil,
+          node_params: %{}
+        )
+
+      assert html =~ "Error"
+      assert html =~ "broken"
     end
   end
 end

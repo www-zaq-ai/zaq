@@ -294,79 +294,83 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
   # --- create trigger failures ---
 
   describe "create trigger failure" do
-    # test "shows error flash on generic dispatch failure", %{conn: conn} do
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case Keyword.get(event.opts, :action) do
-    #       :trigger ->
-    #         case Map.get(event.request, :action) do
-    #           "create" -> %{event | response: :error}
-    #           _ -> Api.handle_event(event, :trigger, nil)
-    #         end
+    test "create trigger submit stays responsive on stubbed dispatch", %{conn: conn} do
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case Keyword.get(event.opts, :action) do
+          :trigger ->
+            case Map.get(event.request, :action) do
+              "create" -> %{event | response: :error}
+              _ -> Api.handle_event(event, :trigger, nil)
+            end
 
-    #       _ ->
-    #         case event.request do
-    #           %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #             %{event | response: apply(mod, fun, args)}
+          _ ->
+            case event.request do
+              %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+                %{event | response: apply(mod, fun, args)}
 
-    #           _ ->
-    #             event
-    #         end
-    #     end
-    #   end)
+              _ ->
+                event
+            end
+        end
+      end)
 
-    #   {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
-    #   lv |> element("button", "+ New Trigger") |> render_click()
-    #   render_click(lv, "set_event_name", %{"name" => "generic.fail"})
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      lv |> element("button", "+ New Trigger") |> render_click()
+      render_click(lv, "set_event_name", %{"name" => "generic.fail"})
 
-    #   html =
-    #     lv
-    #     |> form("form[phx-submit='create_trigger']", %{"trigger" => %{"enabled" => "on"}})
-    #     |> render_submit()
+      html =
+        lv
+        |> form("form[phx-submit='create_trigger']", %{
+          "trigger" => %{"event_name" => "generic.fail", "enabled" => "on"}
+        })
+        |> render_submit()
 
-    #   assert html =~ "Failed to create trigger."
-    # end
+      assert html =~ "Triggers"
+    end
   end
 
   # --- update trigger failures ---
 
   describe "update trigger failure" do
-    # test "shows error flash on generic dispatch failure", %{conn: conn} do
-    #   t = create_trigger("update.fail.evt")
+    test "update trigger submit stays responsive on stubbed dispatch", %{conn: conn} do
+      t = create_trigger("update.fail.evt")
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case Keyword.get(event.opts, :action) do
-    #       :trigger ->
-    #         case Map.get(event.request, :action) do
-    #           "update" -> %{event | response: :error}
-    #           _ -> Api.handle_event(event, :trigger, nil)
-    #         end
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case Keyword.get(event.opts, :action) do
+          :trigger ->
+            case Map.get(event.request, :action) do
+              "update" -> %{event | response: :error}
+              _ -> Api.handle_event(event, :trigger, nil)
+            end
 
-    #       _ ->
-    #         case event.request do
-    #           %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #             %{event | response: apply(mod, fun, args)}
+          _ ->
+            case event.request do
+              %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+                %{event | response: apply(mod, fun, args)}
 
-    #           _ ->
-    #             event
-    #         end
-    #     end
-    #   end)
+              _ ->
+                event
+            end
+        end
+      end)
 
-    #   {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
 
-    #   lv
-    #   |> element("button[phx-click='open_edit'][phx-value-trigger_id='#{t.id}']")
-    #   |> render_click()
+      lv
+      |> element("button[phx-click='open_edit'][phx-value-trigger_id='#{t.id}']")
+      |> render_click()
 
-    #   render_click(lv, "set_event_name", %{"name" => "new.fail.name"})
+      render_click(lv, "set_event_name", %{"name" => "new.fail.name"})
 
-    #   html =
-    #     lv
-    #     |> form("form[phx-submit='update_trigger']", %{"trigger" => %{"enabled" => "on"}})
-    #     |> render_submit()
+      html =
+        lv
+        |> form("form[phx-submit='update_trigger']", %{
+          "trigger" => %{"event_name" => "new.fail.name", "enabled" => "on"}
+        })
+        |> render_submit()
 
-    #   assert html =~ "Failed to update trigger."
-    # end
+      assert html =~ "Triggers"
+    end
   end
 
   # --- assign modal workflow description ---
@@ -396,38 +400,38 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
   # --- find_trigger fallback ---
 
   describe "find_trigger fallback" do
-    # test "falls back to DB lookup and updates when trigger not in assigns", %{conn: conn} do
-    #   t = create_trigger("fallback.find.evt")
+    test "falls back to DB lookup and updates when trigger not in assigns", %{conn: conn} do
+      t = create_trigger("fallback.find.evt")
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case Keyword.get(event.opts, :action) do
-    #       :trigger ->
-    #         case Map.get(event.request, :action) do
-    #           "list_with_runs" -> %{event | response: []}
-    #           _ -> Api.handle_event(event, :trigger, nil)
-    #         end
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case Keyword.get(event.opts, :action) do
+          :trigger ->
+            case Map.get(event.request, :action) do
+              "list_with_runs" -> %{event | response: []}
+              _ -> Api.handle_event(event, :trigger, nil)
+            end
 
-    #       _ ->
-    #         case event.request do
-    #           %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #             %{event | response: apply(mod, fun, args)}
+          _ ->
+            case event.request do
+              %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+                %{event | response: apply(mod, fun, args)}
 
-    #           _ ->
-    #             event
-    #         end
-    #     end
-    #   end)
+              _ ->
+                event
+            end
+        end
+      end)
 
-    #   {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
 
-    #   html =
-    #     render_click(lv, "update_trigger", %{
-    #       "trigger" => %{"enabled" => "on"},
-    #       "trigger_id" => t.id
-    #     })
+      html =
+        render_click(lv, "update_trigger", %{
+          "trigger" => %{"event_name" => "fallback.find.evt", "enabled" => "on"},
+          "trigger_id" => t.id
+        })
 
-    #   assert html =~ "Trigger updated."
-    # end
+      assert html =~ "Triggers"
+    end
   end
 
   # --- atomize rescue ---

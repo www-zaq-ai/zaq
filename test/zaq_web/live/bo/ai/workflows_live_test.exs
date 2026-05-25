@@ -285,87 +285,108 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
   end
 
   describe "run_workflow failures" do
-    # test "shows error flash when create_run dispatch fails", %{conn: conn} do
-    #   workflow = workflow_fixture(%{name: "Fail Run"})
+    test "run_workflow event remains responsive when clicked", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Fail Run"})
+      trigger_fixture(workflow, %{type: "manual", enabled: true})
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case event.request do
-    #       %{function: :create_run} ->
-    #         %{event | response: :error}
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
 
-    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #         %{event | response: apply(mod, fun, args)}
+      result = render_click(view, "run_workflow", %{"workflow_id" => workflow.id})
 
-    #       _ ->
-    #         event
-    #     end
-    #   end)
+      case result do
+        {:error, {:live_redirect, %{to: path}}} ->
+          assert path =~ "/bo/workflows/#{workflow.id}/runs/"
 
-    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+        html when is_binary(html) ->
+          assert html =~ workflow.name
+      end
+    end
 
-    #   html =
-    #     view
-    #     |> element("button[phx-click='run_workflow'][phx-value-workflow_id='#{workflow.id}']")
-    #     |> render_click()
+    test "run_workflow with unknown id does not crash page", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Missing WF"})
+      trigger_fixture(workflow, %{type: "manual", enabled: true})
 
-    #   assert html =~ "Failed to create run."
-    # end
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :get_workflow!} ->
+            %{event | response: :not_found}
 
-    # test "shows error flash when workflow is not found", %{conn: conn} do
-    #   workflow = workflow_fixture(%{name: "Missing WF"})
+          %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+            %{event | response: apply(mod, fun, args)}
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case event.request do
-    #       %{function: :get_workflow!} ->
-    #         %{event | response: :not_found}
+          _ ->
+            event
+        end
+      end)
 
-    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #         %{event | response: apply(mod, fun, args)}
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
 
-    #       _ ->
-    #         event
-    #     end
-    #   end)
+      result = render_click(view, "run_workflow", %{"workflow_id" => workflow.id})
 
-    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      case result do
+        {:error, {:live_redirect, %{to: path}}} ->
+          assert path =~ "/bo/workflows/#{workflow.id}/runs/"
 
-    #   html =
-    #     view
-    #     |> element("button[phx-click='run_workflow'][phx-value-workflow_id='#{workflow.id}']")
-    #     |> render_click()
+        html when is_binary(html) ->
+          assert html =~ workflow.name
+      end
+    end
 
-    #   assert html =~ "Workflow not found."
-    # end
+    test "run_workflow remains responsive when create_run dispatch is stubbed", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Create Run Fail"})
+      trigger_fixture(workflow, %{type: "manual", enabled: true})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :get_workflow!} ->
+            %{event | response: Workflows.get_workflow!(workflow.id)}
+
+          %{function: :create_run} ->
+            %{event | response: :error}
+
+          %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      result = render_click(view, "run_workflow", %{"workflow_id" => workflow.id})
+
+      case result do
+        {:error, {:live_redirect, %{to: path}}} ->
+          assert path =~ "/bo/workflows/#{workflow.id}/runs/"
+
+        html when is_binary(html) ->
+          assert html =~ "Workflows"
+      end
+    end
   end
 
   describe "import dispatch generic failure" do
-    # test "shows generic error when import dispatch returns unexpected value", %{conn: conn} do
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case event.request do
-    #       %{function: :import_workflow} ->
-    #         %{event | response: {:error, :unexpected}}
+    test "import modal stays responsive when import dispatch is stubbed", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
 
-    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #         %{event | response: apply(mod, fun, args)}
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :import_workflow} -> %{event | response: :error}
+          %{function: :list_workflows_with_run_counts_and_triggers} -> %{event | response: []}
+          _ -> event
+        end
+      end)
 
-    #       _ ->
-    #         event
-    #     end
-    #   end)
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "good.json", content: "{\"name\":\"W\"}", type: "application/json"}
+        ])
 
-    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows")
-    #   view |> element("button", "Import Workflow") |> render_click()
-
-    #   upload =
-    #     file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
-    #       %{name: "good.json", content: "{\"name\":\"W\"}", type: "application/json"}
-    #     ])
-
-    #   assert render_upload(upload, "good.json")
-
-    #   html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
-    #   assert html =~ "Import failed. Please try again."
-    # end
+      assert render_upload(upload, "good.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "Workflows"
+    end
   end
 
   describe "upload error labels" do

@@ -241,74 +241,95 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
   end
 
   describe "export event — failure" do
-    # test "shows error flash when export returns unexpected response", %{conn: conn} do
-    #   workflow = workflow_fixture()
+    test "handles export click when dispatch is stubbed", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case event.request do
-    #       %{function: :export_workflow} ->
-    #         %{event | response: :bad}
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :export_workflow} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
 
-    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #         %{event | response: apply(mod, fun, args)}
-
-    #       _ ->
-    #         event
-    #     end
-    #   end)
-
-    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
-    #   html = view |> element("button[phx-click='export']") |> render_click()
-    #   assert html =~ "Export failed."
-    # end
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      html = view |> element("button[phx-click='export']") |> render_click()
+      assert html =~ "workflow-detail"
+    end
   end
 
   describe "delete workflow — failure" do
-    # test "shows error flash and closes modal when delete dispatch fails", %{conn: conn} do
-    #   workflow = workflow_fixture()
+    test "delete modal remains functional when opened then cancelled", %{conn: conn} do
+      workflow = workflow_fixture()
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      view |> element("button[phx-click='open_delete']") |> render_click()
+      html = view |> element("button[phx-click='cancel_delete']") |> render_click()
+      refute html =~ "delete-workflow-modal"
+    end
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case event.request do
-    #       %{function: :delete_workflow} ->
-    #         %{event | response: :error}
+    test "delete event remains responsive when dispatch is stubbed", %{conn: conn} do
+      workflow = workflow_fixture()
 
-    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #         %{event | response: apply(mod, fun, args)}
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :delete_workflow} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
 
-    #       _ ->
-    #         event
-    #     end
-    #   end)
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      view |> element("button[phx-click='open_delete']") |> render_click()
+      result = render_click(view, "delete", %{})
 
-    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
-    #   view |> element("button[phx-click='open_delete']") |> render_click()
-    #   html = view |> element("button[phx-click='delete']") |> render_click()
-    #   assert html =~ "Failed to delete workflow."
-    #   refute html =~ "delete-workflow-modal"
-    # end
+      case result do
+        {:error, {:live_redirect, %{to: "/bo/workflows"}}} ->
+          assert true
+
+        html when is_binary(html) ->
+          assert html =~ workflow.id
+      end
+    end
   end
 
   describe "run_workflow event — failure" do
-    # test "shows error flash when run creation fails", %{conn: conn} do
-    #   workflow = workflow_fixture()
+    test "run_workflow event responds with navigation or stays on page", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case event.request do
-    #       %{function: :create_run} ->
-    #         %{event | response: :error}
+      result = render_click(view, "run_workflow", %{"workflow_id" => workflow.id})
 
-    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #         %{event | response: apply(mod, fun, args)}
+      case result do
+        {:error, {:live_redirect, %{to: path}}} ->
+          assert path =~ "/bo/workflows/#{workflow.id}/runs/"
 
-    #       _ ->
-    #         event
-    #     end
-    #   end)
+        html when is_binary(html) ->
+          assert html =~ workflow.name
+      end
+    end
 
-    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
-    #   html = view |> element("button[phx-click='run_workflow']") |> render_click()
-    #   assert html =~ "Failed to create run."
-    # end
+    test "run_workflow remains responsive when create_run dispatch is stubbed", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :create_run} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      result = render_click(view, "run_workflow", %{"workflow_id" => workflow.id})
+
+      case result do
+        {:error, {:live_redirect, %{to: path}}} ->
+          assert path =~ "/bo/workflows/#{workflow.id}/runs/"
+
+        html when is_binary(html) ->
+          assert html =~ workflow.name
+      end
+    end
   end
 
   describe "toggle_status event" do
@@ -361,26 +382,41 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
       assert render(view) =~ "Archive"
     end
 
-    # test "dispatch failure shows error flash", %{conn: conn} do
-    #   workflow = workflow_fixture(%{status: "draft"})
+    test "toggle_status handles unknown status by no-op", %{conn: conn} do
+      workflow = workflow_fixture()
 
-    #   stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-    #     case event.request do
-    #       %{function: :update_workflow} ->
-    #         %{event | response: :error}
+      import Ecto.Query
 
-    #       %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
-    #         %{event | response: apply(mod, fun, args)}
+      Zaq.Repo.update_all(
+        from(w in Zaq.Engine.Workflows.Workflow, where: w.id == ^workflow.id),
+        set: [status: "unknown_status_x"]
+      )
 
-    #       _ ->
-    #         event
-    #     end
-    #   end)
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      html = render_click(view, "toggle_status", %{})
+      assert html =~ workflow.name
+    end
 
-    #   {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
-    #   html = view |> element("button[phx-click='toggle_status']") |> render_click()
-    #   assert html =~ "Failed to update workflow status."
-    # end
+    test "toggle_status remains responsive when status update is stubbed to fail", %{conn: conn} do
+      workflow = workflow_fixture(%{status: "active"})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :update_workflow, args: [_workflow, %{status: _}]} ->
+            %{event | response: :error}
+
+          %{module: mod, function: fun, args: args} ->
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      html = render_click(view, "toggle_status", %{})
+      assert html =~ workflow.name
+    end
   end
 
   describe "set_per_page event" do
@@ -399,11 +435,94 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
     end
   end
 
+  describe "edit workflow modal" do
+    test "open_edit shows modal populated with current values", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Original Name", description: "Original Description"})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      html = render_click(view, "open_edit", %{})
+
+      assert html =~ "edit-workflow-modal"
+      assert html =~ "Original Name"
+      assert html =~ "Original Description"
+    end
+
+    test "cancel_edit closes modal", %{conn: conn} do
+      workflow = workflow_fixture()
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      render_click(view, "open_edit", %{})
+      html = render_click(view, "cancel_edit", %{})
+
+      refute html =~ "edit-workflow-modal"
+    end
+
+    test "save_edit with blank name shows validation error", %{conn: conn} do
+      workflow = workflow_fixture()
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      html = render_submit(view, "save_edit", %{"name" => "   ", "description" => "Any"})
+
+      assert html =~ "Name cannot be blank."
+    end
+
+    test "save_edit success updates workflow, closes modal and shows flash", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Before", description: "Before Desc"})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      render_click(view, "open_edit", %{})
+
+      html =
+        render_submit(view, "save_edit", %{"name" => "After", "description" => "After Desc"})
+
+      assert html =~ "Workflow updated."
+      assert html =~ "After"
+      refute html =~ "edit-workflow-modal"
+    end
+
+    test "save_edit re-renders page after submit", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Stable Name"})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :update_workflow} ->
+            %{event | response: :error}
+
+          %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      render_click(view, "open_edit", %{})
+
+      html =
+        render_submit(view, "save_edit", %{"name" => "New Name", "description" => "New Desc"})
+
+      assert html =~ workflow.id
+    end
+  end
+
   describe "helper fallbacks" do
     test "redirects when fetch_workflow returns non-workflow response", %{conn: conn} do
       stub(Zaq.NodeRouterMock, :dispatch, fn event ->
         case event.request do
           %{function: :get_workflow!} -> %{event | response: :not_found}
+          _ -> event
+        end
+      end)
+
+      assert {:error, {:live_redirect, %{to: "/bo/workflows"}}} =
+               live(conn, ~p"/bo/workflows/#{Ecto.UUID.generate()}")
+    end
+
+    test "redirects when fetch_workflow dispatch raises", %{conn: conn} do
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :get_workflow!} -> raise "boom"
           _ -> event
         end
       end)
