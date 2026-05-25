@@ -23,7 +23,35 @@ defmodule Zaq.Channels.EventsTest do
     assert event.opts[:action] == :upsert_message
   end
 
-  test "build_upsert_message_event defaults to async when message_id present" do
+  test "build_upsert_message_event defaults to async when status_message_id atom key is present" do
+    event =
+      Events.build_upsert_message_event(%{
+        provider: :web,
+        channel_id: "c1",
+        request_id: "r1",
+        status_message_id: "m1",
+        body: "hello"
+      })
+
+    assert event.next_hop.type == :async
+    assert event.opts[:action] == :upsert_message
+  end
+
+  test "build_upsert_message_event defaults to async when status_message_id string key is present" do
+    event =
+      Events.build_upsert_message_event(%{
+        "provider" => :web,
+        "channel_id" => "c1",
+        "request_id" => "r1",
+        "status_message_id" => "m1",
+        "body" => "hello"
+      })
+
+    assert event.next_hop.type == :async
+    assert event.opts[:action] == :upsert_message
+  end
+
+  test "build_upsert_message_event defaults to sync when message_id is present without status_message_id" do
     event =
       Events.build_upsert_message_event(%{
         provider: :web,
@@ -33,18 +61,18 @@ defmodule Zaq.Channels.EventsTest do
         body: "hello"
       })
 
-    assert event.next_hop.type == :async
+    assert event.next_hop.type == :sync
     assert event.opts[:action] == :upsert_message
   end
 
-  test "build_upsert_message_event honors explicit type override even when message_id would imply async" do
+  test "build_upsert_message_event honors explicit type override even when status_message_id would imply async" do
     event =
       Events.build_upsert_message_event(
         %{
           provider: :web,
           channel_id: "c1",
           request_id: "r1",
-          message_id: "m1",
+          status_message_id: "m1",
           body: "hello"
         },
         type: :sync

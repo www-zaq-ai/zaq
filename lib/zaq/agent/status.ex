@@ -2,11 +2,10 @@ defmodule Zaq.Agent.Status do
   @moduledoc """
   Fire-and-forget intermediary status updates routed through Channels.
 
-  Any module holding an `%Incoming{}` struct or a status context map can call
-  `broadcast/3` to emit an `:upsert_message` channels event.
-
-  A nil or incomplete context is silently ignored — missing context must never
-  crash the pipeline.
+  Accepts `%Incoming{}` or `nil` as context input for `broadcast/4` and
+  `broadcast/5`. A non-Incoming map raises `ArgumentError` by design,
+  preventing status context drift. A `nil` or missing request id is silently
+  ignored — missing context must never crash the pipeline.
   """
 
   alias Zaq.Channels.Events, as: ChannelEvents

@@ -19,6 +19,7 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
+  alias Zaq.Events.Helper
   alias Zaq.InternalBoundaries
 
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
@@ -551,20 +552,17 @@ defmodule Zaq.Channels.Api do
   defp validate_upsert_request(request) when is_map(request) do
     required = [:provider, :channel_id, :request_id, :body]
 
-    if Enum.all?(required, &present?(Map.get(request, &1))) do
+    if Enum.all?(required, &Helper.present?(Map.get(request, &1))) do
       :ok
     else
       {:error, {:invalid_request, :missing_upsert_fields}}
     end
   end
 
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(value), do: not is_nil(value)
-
   defp maybe_attach_status_message_id(%Outgoing{} = outgoing) do
     metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
 
-    if present?(Map.get(metadata, :message_id) || Map.get(metadata, "message_id")) do
+    if Helper.present?(Map.get(metadata, :message_id) || Map.get(metadata, "message_id")) do
       outgoing
     else
       case Map.get(metadata, :status_message_id) || Map.get(metadata, "status_message_id") do

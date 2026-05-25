@@ -262,6 +262,13 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
+  def upsert_message(
+        %{provider: _provider, provider_atom: _provider_atom},
+        _request,
+        _connection_details
+      ),
+      do: {:error, :missing_connection_details}
+
   def upsert_message(%{provider: _provider}, _request, _connection_details),
     do: {:error, :missing_provider_atom}
 

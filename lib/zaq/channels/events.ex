@@ -5,6 +5,7 @@ defmodule Zaq.Channels.Events do
 
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.{Event, NodeRouter}
+  alias Zaq.Events.Helper
 
   @spec build_deliver_outgoing_event(Outgoing.t(), keyword()) :: Event.t()
   def build_deliver_outgoing_event(%Outgoing{} = outgoing, opts \\ []) do
@@ -38,7 +39,9 @@ defmodule Zaq.Channels.Events do
   end
 
   defp resolve_upsert_event_type(params, nil) do
-    if present?(Map.get(params, :message_id) || Map.get(params, "message_id")) do
+    if Helper.present?(
+         Map.get(params, :status_message_id) || Map.get(params, "status_message_id")
+       ) do
       :async
     else
       :sync
@@ -46,9 +49,6 @@ defmodule Zaq.Channels.Events do
   end
 
   defp resolve_upsert_event_type(_params, type), do: type
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(value), do: not is_nil(value)
 
   defp node_router(opts) do
     Keyword.get(opts, :node_router, NodeRouter)
