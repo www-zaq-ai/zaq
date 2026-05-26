@@ -495,7 +495,7 @@ defmodule Zaq.Engine.ApiTest do
       event = Event.new(%{action: "create", attrs: %{event_name: "new.event"}}, :engine)
       result = Api.handle_event(event, :trigger, nil)
       assert {:ok, trigger} = result.response
-      assert trigger.event_name == "new.event"
+      assert trigger.event_name == "engine:new.event"
     end
 
     test "create with invalid attrs returns changeset error" do

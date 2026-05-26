@@ -7,7 +7,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
   import ZaqWeb.Live.BO.AI.WorkflowComponents
 
+  alias Oban.Cron.Expression, as: CronExpression
   alias Zaq.{Event, NodeRouter}
+
   alias ZaqWeb.Components.{BOLayout, BOModal}
 
   @per_page_options [20, 50, 100]
@@ -52,7 +54,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   # ── PubSub ──────────────────────────────────────────────────────
 
   @impl true
+  def handle_info({:run_started, _run}, socket) do
+    workflow_id = socket.assigns.workflow.id
+    runs = fetch_runs(workflow_id, socket.assigns.page, socket.assigns.per_page, socket)
+    total = count_runs(workflow_id, socket)
+    {:noreply, assign(socket, runs: runs, runs_total: total)}
+  end
+
   def handle_info({:run_finished, _run}, socket) do
+    workflow_id = socket.assigns.workflow.id
+    runs = fetch_runs(workflow_id, socket.assigns.page, socket.assigns.per_page, socket)
+    total = count_runs(workflow_id, socket)
+    {:noreply, assign(socket, runs: runs, runs_total: total)}
+  end
+
+  def handle_info(:refresh_runs, socket) do
     workflow_id = socket.assigns.workflow.id
     runs = fetch_runs(workflow_id, socket.assigns.page, socket.assigns.per_page, socket)
     total = count_runs(workflow_id, socket)
@@ -84,6 +100,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
       _ ->
         {:noreply, put_flash(socket, :error, "Export failed.")}
     end
+  end
+
+  # JS CronCountdown hook pushes this when the countdown reaches zero.
+  # We delay 1.5 s to give Oban time to enqueue and the run to land in the DB.
+  def handle_event("cron_fired", _params, socket) do
+    Process.send_after(self(), :refresh_runs, 1_500)
+    {:noreply, socket}
   end
 
   def handle_event("open_delete", _params, socket) do
@@ -379,14 +402,27 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
                   Triggers
                 </p>
                 <div class="space-y-2">
-                  <div :for={trigger <- @triggers} class="flex items-center gap-2">
+                  <div :for={trigger <- @triggers} class="flex items-start gap-2">
                     <.trigger_icon trigger={trigger} workflow_id={@workflow.id} />
-                    <span class={[
-                      "font-mono text-[0.75rem] truncate",
-                      if(trigger.enabled, do: "text-black/70", else: "text-black/30 line-through")
-                    ]}>
-                      {trigger.event_name}
-                    </span>
+                    <div class="min-w-0">
+                      <span class={[
+                        "font-mono text-[0.75rem] truncate block",
+                        if(trigger.enabled, do: "text-black/70", else: "text-black/30 line-through")
+                      ]}>
+                        {String.replace_prefix(trigger.event_name, "engine:", "")}
+                      </span>
+                      <span
+                        :if={
+                          trigger.trigger_type == "cron" and trigger.enabled and
+                            not is_nil(trigger.cron_schedule)
+                        }
+                        id={"cron-cd-#{trigger.id}"}
+                        phx-hook="CronCountdown"
+                        data-next-at={next_cron_run_unix(trigger.cron_schedule)}
+                        class="font-mono text-[0.65rem] text-black/40"
+                      >
+                      </span>
+                    </div>
                   </div>
                   <p :if={@triggers == []} class="font-mono text-[0.72rem] text-black/30 italic">
                     None configured
@@ -649,5 +685,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
   defp format_dt(%DateTime{} = dt) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+  end
+
+  # Returns the Unix timestamp (seconds) when the cron schedule next fires.
+  # Used as `data-next-at` for the JS CronCountdown hook. Falls back to nil.
+  defp next_cron_run_unix(cron_schedule) do
+    case CronExpression.parse(cron_schedule) do
+      {:ok, expr} ->
+        expr
+        |> CronExpression.next_at(DateTime.utc_now())
+        |> DateTime.to_unix()
+
+      _ ->
+        nil
+    end
   end
 end

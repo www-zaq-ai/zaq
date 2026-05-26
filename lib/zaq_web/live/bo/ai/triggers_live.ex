@@ -58,7 +58,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
   def handle_event("validate", %{"trigger" => params}, socket) do
     form =
       %Trigger{}
-      |> Trigger.changeset(atomize(params))
+      |> Trigger.changeset(atomize(normalize_trigger_params(params)))
       |> Map.put(:action, :validate)
       |> to_form()
 
@@ -66,7 +66,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
   end
 
   def handle_event("create_trigger", %{"trigger" => params}, socket) do
-    attrs = atomize(params)
+    attrs = params |> normalize_trigger_params() |> atomize()
 
     result =
       Event.new(%{action: "create", attrs: attrs}, :engine, opts: [action: :trigger])
@@ -104,7 +104,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
 
   def handle_event("update_trigger", %{"trigger" => params, "trigger_id" => id}, socket) do
     trigger = find_trigger(socket, id)
-    attrs = atomize(params)
+    attrs = params |> normalize_trigger_params() |> atomize()
 
     result =
       Event.new(%{action: "update", trigger: trigger, attrs: attrs}, :engine,
@@ -394,6 +394,27 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
     Map.new(params, fn {k, v} -> {String.to_existing_atom(k), v} end)
   rescue
     _ -> params
+  end
+
+  # Resolves the cron_schedule from the cron_preset UI param and removes
+  # cron_preset (not a schema field) before the params reach the changeset.
+  defp normalize_trigger_params(params) do
+    cron_preset = Map.get(params, "cron_preset")
+    trigger_type = Map.get(params, "trigger_type", "event")
+
+    params =
+      cond do
+        trigger_type != "cron" ->
+          Map.put(params, "cron_schedule", nil)
+
+        cron_preset not in [nil, "custom"] ->
+          Map.put(params, "cron_schedule", cron_preset)
+
+        true ->
+          params
+      end
+
+    Map.delete(params, "cron_preset")
   end
 
   defp assignable_workflows(triggers, trigger_id, all_workflows) do
