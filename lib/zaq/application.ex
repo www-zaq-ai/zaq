@@ -4,6 +4,7 @@ defmodule Zaq.Application do
   use Application
   alias LLMDB.Generated.ValidModalities
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.Engine.Workflows
   alias Zaq.Ingestion.FTSBackend
   alias Zaq.Ingestion.ObanTelemetry
   alias Zaq.System.UpdateBadgeWorker
@@ -57,6 +58,7 @@ defmodule Zaq.Application do
         # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.
         _ = ValidModalities.list()
         LLMDB.load(ZAQRouter.llmdb_opts())
+        Workflows.load_cron_triggers()
         ok
 
       other ->

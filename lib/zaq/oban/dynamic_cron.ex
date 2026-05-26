@@ -17,6 +17,13 @@ defmodule Zaq.Oban.DynamicCron do
       Zaq.Oban.DynamicCron.add_schedules(:my_feature, [{"0 * * * *", MyFeature.Worker}])
 
   The call is idempotent — subsequent calls with the same key are no-ops.
+
+  ## Removing / replacing schedules
+
+      Zaq.Oban.DynamicCron.remove_schedule(:my_feature)
+      Zaq.Oban.DynamicCron.replace_schedule(:my_feature, [{"0 9 * * *", MyFeature.Worker}])
+
+  After `remove_schedule/1` the key is cleared so it can be re-registered.
   """
 
   @behaviour Oban.Plugin
@@ -30,12 +37,16 @@ defmodule Zaq.Oban.DynamicCron do
 
   @oban_name Oban
 
+  # `registered_keys` — MapSet of keys that have been added (for idempotency).
+  # `schedules`       — map of feature_key => MapSet of Oban entry-name strings,
+  #                     used by remove/replace to know which crontab rows to drop.
   defstruct [
     :conf,
     :timer,
     crontab: [],
     timezone: "Etc/UTC",
-    registered_keys: MapSet.new()
+    registered_keys: MapSet.new(),
+    schedules: %{}
   ]
 
   # ---------------------------------------------------------------------------
@@ -55,6 +66,34 @@ defmodule Zaq.Oban.DynamicCron do
   def add_schedules(feature_key, entries) do
     name = Oban.Registry.via(@oban_name, {:plugin, __MODULE__})
     GenServer.call(name, {:add_schedules, feature_key, entries})
+  end
+
+  @doc """
+  Removes all crontab entries registered under `feature_key`.
+
+  No-op if the key was never registered. After removal the key is cleared from
+  `registered_keys`, so it can be re-registered via `add_schedules/2`.
+  """
+  @spec remove_schedule(atom()) :: :ok
+  def remove_schedule(feature_key) do
+    name = Oban.Registry.via(@oban_name, {:plugin, __MODULE__})
+    GenServer.call(name, {:remove_schedule, feature_key})
+  end
+
+  @doc """
+  Atomically replaces the crontab entries for `feature_key`.
+
+  Equivalent to `remove_schedule/1` followed by `add_schedules/2` but performed
+  in a single GenServer call, avoiding any race window between the two operations.
+  """
+  @spec replace_schedule(
+          atom(),
+          [{String.t(), module()} | {String.t(), module(), keyword()}],
+          keyword()
+        ) :: :ok
+  def replace_schedule(feature_key, entries, _opts \\ []) do
+    name = Oban.Registry.via(@oban_name, {:plugin, __MODULE__})
+    GenServer.call(name, {:replace_schedule, feature_key, entries})
   end
 
   # ---------------------------------------------------------------------------
@@ -145,10 +184,13 @@ defmodule Zaq.Oban.DynamicCron do
           end
         )
 
+      entry_names = entry_name_set(new_entries)
+
       new_state = %{
         state
         | crontab: merged,
-          registered_keys: MapSet.put(state.registered_keys, feature_key)
+          registered_keys: MapSet.put(state.registered_keys, feature_key),
+          schedules: Map.put(state.schedules, feature_key, entry_names)
       }
 
       Logger.info(
@@ -157,6 +199,59 @@ defmodule Zaq.Oban.DynamicCron do
 
       {:reply, :ok, new_state}
     end
+  end
+
+  def handle_call({:remove_schedule, feature_key}, _from, state) do
+    owned = Map.get(state.schedules, feature_key, MapSet.new())
+
+    new_crontab =
+      Enum.reject(state.crontab, fn {expr, _parsed, worker, opts} ->
+        MapSet.member?(owned, Oban.Plugins.Cron.entry_name({expr, worker, opts}))
+      end)
+
+    new_state = %{
+      state
+      | crontab: new_crontab,
+        registered_keys: MapSet.delete(state.registered_keys, feature_key),
+        schedules: Map.delete(state.schedules, feature_key)
+    }
+
+    Logger.info("[DynamicCron] Removed schedule(s) for feature :#{feature_key}")
+
+    {:reply, :ok, new_state}
+  end
+
+  def handle_call({:replace_schedule, feature_key, entries}, _from, state) do
+    owned = Map.get(state.schedules, feature_key, MapSet.new())
+
+    # Drop existing entries that belong to this key
+    filtered =
+      Enum.reject(state.crontab, fn {expr, _parsed, worker, opts} ->
+        MapSet.member?(owned, Oban.Plugins.Cron.entry_name({expr, worker, opts}))
+      end)
+
+    new_entries = parse_entries(entries)
+
+    merged =
+      Enum.uniq_by(
+        filtered ++ new_entries,
+        fn {expr, _parsed, worker, opts} ->
+          Oban.Plugins.Cron.entry_name({expr, worker, opts})
+        end
+      )
+
+    entry_names = entry_name_set(new_entries)
+
+    new_state = %{
+      state
+      | crontab: merged,
+        registered_keys: MapSet.put(state.registered_keys, feature_key),
+        schedules: Map.put(state.schedules, feature_key, entry_names)
+    }
+
+    Logger.info("[DynamicCron] Replaced schedule(s) for feature :#{feature_key}")
+
+    {:reply, :ok, new_state}
   end
 
   # ---------------------------------------------------------------------------
@@ -222,5 +317,13 @@ defmodule Zaq.Oban.DynamicCron do
       {expr, worker} -> {expr, Expression.parse!(expr), worker, []}
       {expr, worker, opts} -> {expr, Expression.parse!(expr), worker, opts}
     end)
+  end
+
+  defp entry_name_set(parsed_entries) do
+    parsed_entries
+    |> Enum.map(fn {expr, _parsed, worker, opts} ->
+      Oban.Plugins.Cron.entry_name({expr, worker, opts})
+    end)
+    |> MapSet.new()
   end
 end

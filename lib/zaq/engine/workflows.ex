@@ -14,6 +14,7 @@ defmodule Zaq.Engine.Workflows do
   alias Zaq.Engine.EventRegistry
 
   alias Zaq.Engine.Workflows.{
+    CronTriggerWorker,
     Trigger,
     Workflow,
     WorkflowAgent,
@@ -22,6 +23,7 @@ defmodule Zaq.Engine.Workflows do
   }
 
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
+  alias Zaq.Oban.DynamicCron
   alias Zaq.Repo
 
   @type run_trace :: %{
@@ -353,15 +355,26 @@ defmodule Zaq.Engine.Workflows do
   @spec create_run(Workflow.t(), map(), map(), keyword()) ::
           {:ok, WorkflowRun.t()} | {:error, Ecto.Changeset.t()}
   def create_run(%Workflow{} = workflow, source_event, _context \\ %{}, _opts \\ []) do
-    %WorkflowRun{}
-    |> WorkflowRun.changeset(%{
-      workflow_id: workflow.id,
-      steps_snapshot: serialize_steps(workflow),
-      settings_snapshot: workflow.settings,
-      source_event: source_event,
-      status: "pending"
-    })
-    |> Repo.insert()
+    result =
+      %WorkflowRun{}
+      |> WorkflowRun.changeset(%{
+        workflow_id: workflow.id,
+        steps_snapshot: serialize_steps(workflow),
+        settings_snapshot: workflow.settings,
+        source_event: source_event,
+        status: "pending"
+      })
+      |> Repo.insert()
+
+    case result do
+      {:ok, run} ->
+        Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{run.workflow_id}", {:run_started, run})
+
+      _ ->
+        :noop
+    end
+
+    result
   end
 
   defp serialize_steps(%Workflow{nodes: nodes, edges: edges}) do
@@ -1003,6 +1016,12 @@ defmodule Zaq.Engine.Workflows do
     )
   end
 
+  @doc "Gets a trigger by id. Returns nil if not found."
+  @spec get_trigger(term()) :: Trigger.t() | nil
+  def get_trigger(id) do
+    Repo.get(Trigger, id)
+  end
+
   @doc "Gets a trigger by id, raising if not found."
   @spec get_trigger!(term()) :: Trigger.t()
   def get_trigger!(id) do
@@ -1015,6 +1034,7 @@ defmodule Zaq.Engine.Workflows do
   def create_trigger(attrs, _opts \\ []) do
     with {:ok, trigger} <- %Trigger{} |> Trigger.changeset(attrs) |> Repo.insert() do
       sync_registry(trigger)
+      sync_cron_schedule(trigger)
       {:ok, trigger}
     end
   end
@@ -1025,8 +1045,36 @@ defmodule Zaq.Engine.Workflows do
   def update_trigger(%Trigger{} = trigger, attrs, _opts \\ []) do
     with {:ok, updated} <- trigger |> Trigger.changeset(attrs) |> Repo.update() do
       sync_registry(updated)
+      sync_cron_schedule(updated)
       {:ok, updated}
     end
+  end
+
+  @doc "Deletes a trigger. Cascades to trigger_workflows via FK."
+  @spec delete_trigger(Trigger.t(), keyword()) :: {:ok, Trigger.t()} | {:error, term()}
+  def delete_trigger(%Trigger{} = trigger, _opts \\ []) do
+    with {:ok, deleted} <- Repo.delete(trigger) do
+      sync_cron_schedule_delete(deleted)
+      {:ok, deleted}
+    end
+  end
+
+  @doc """
+  Registers all enabled cron triggers with `Zaq.Oban.DynamicCron`.
+
+  Called once at application startup (after Oban is ready) to restore in-memory
+  schedules that were lost on restart. Safe to call multiple times — `DynamicCron`
+  is idempotent per trigger id key.
+  """
+  @spec load_cron_triggers(keyword()) :: :ok
+  def load_cron_triggers(_opts \\ []) do
+    Repo.all(
+      from t in Trigger,
+        where: t.trigger_type == "cron" and t.enabled == true
+    )
+    |> Enum.each(&sync_cron_schedule/1)
+
+    :ok
   end
 
   defp sync_registry(%Trigger{event_name: name, enabled: true}) do
@@ -1039,11 +1087,30 @@ defmodule Zaq.Engine.Workflows do
     :ok
   end
 
-  @doc "Deletes a trigger. Cascades to trigger_workflows via FK."
-  @spec delete_trigger(Trigger.t(), keyword()) :: {:ok, Trigger.t()} | {:error, term()}
-  def delete_trigger(%Trigger{} = trigger, _opts \\ []) do
-    Repo.delete(trigger)
+  # Registers or replaces a cron trigger's DynamicCron schedule.
+  # For non-cron or disabled triggers, removes any existing schedule.
+  defp sync_cron_schedule(%Trigger{trigger_type: "cron", enabled: true} = trigger) do
+    DynamicCron.replace_schedule(
+      "cron_trigger:#{trigger.id}",
+      [{trigger.cron_schedule, CronTriggerWorker, [args: %{"trigger_id" => trigger.id}]}]
+    )
+  catch
+    :exit, _ -> :ok
   end
+
+  defp sync_cron_schedule(%Trigger{id: id}) do
+    DynamicCron.remove_schedule("cron_trigger:#{id}")
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp sync_cron_schedule_delete(%Trigger{trigger_type: "cron", id: id}) do
+    DynamicCron.remove_schedule("cron_trigger:#{id}")
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp sync_cron_schedule_delete(%Trigger{}), do: :ok
 
   @doc """
   Assigns a workflow to a trigger. Idempotent — a second call with the same pair
@@ -1152,6 +1219,14 @@ defmodule Zaq.Engine.Workflows do
       "workflow_run:#{run.id}",
       {:run_updated, run}
     )
+
+    if run.status in ["completed", "failed", "cancelled"] do
+      Phoenix.PubSub.broadcast(
+        Zaq.PubSub,
+        "workflow:#{run.workflow_id}",
+        {:run_finished, run}
+      )
+    end
 
     result
   end
