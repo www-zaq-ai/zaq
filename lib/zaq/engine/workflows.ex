@@ -984,7 +984,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Broadcasts batch chunk progress to subscribers of the workflow_run PubSub channel.
 
-  Called by `Zaq.Agent.Tools.Batch` after each chunk completes so the run UI can
+  Called by `Zaq.Agent.Tools.Workflow.Batch` after each chunk completes so the run UI can
   update in real-time.  Silently no-ops when `run_id` is `nil` (e.g. test pipelines
   without a persisted run).
 
@@ -1010,7 +1010,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Broadcasts iterate item progress to subscribers of the workflow_run PubSub channel.
 
-  Called by `Zaq.Agent.Tools.Iterate` after each item completes.  Silently no-ops
+  Called by `Zaq.Agent.Tools.Workflow.Iterate` after each item completes.  Silently no-ops
   when `run_id` is `nil`.
 
   Subscribers receive `{:iterate_progress, step_name, progress}` where `progress` is:

@@ -1173,12 +1173,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   @doc "Returns true if the module string is the Batch action."
   def batch_module?(nil), do: false
-  def batch_module?(mod) when is_binary(mod), do: String.contains?(mod, "Tools.Batch")
+  def batch_module?(mod) when is_binary(mod), do: String.contains?(mod, "Tools.Workflow.Batch")
   def batch_module?(_), do: false
 
   @doc "Returns true if the module string is the Iterate action."
   def iterate_module?(nil), do: false
-  def iterate_module?(mod) when is_binary(mod), do: String.contains?(mod, "Tools.Iterate")
+
+  def iterate_module?(mod) when is_binary(mod),
+    do: String.contains?(mod, "Tools.Workflow.Iterate")
+
   def iterate_module?(_), do: false
 
   # ── Helpers ─────────────────────────────────────────────────────

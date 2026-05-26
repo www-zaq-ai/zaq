@@ -1,14 +1,14 @@
 defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Agent.Tools.Batch
+  alias Zaq.Agent.Tools.Workflow.Batch
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.{CategorizeBySize, ListClients, Sleep}
   alias Zaq.Engine.Workflows.WorkflowAgent
   alias Zaq.Test.Stubs
 
   @list_clients_module "Zaq.Engine.Workflows.Test.ListClients"
-  @batch_module "Zaq.Agent.Tools.Batch"
+  @batch_module "Zaq.Agent.Tools.Workflow.Batch"
   @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
   @sleep_module "Zaq.Engine.Workflows.Test.Sleep"
   @flatten_module "Zaq.Engine.Workflows.Test.FlattenClients"
