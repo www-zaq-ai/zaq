@@ -1,6 +1,7 @@
 defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   @moduledoc """
-  BO page — list of all workflows with run counts and an import action.
+  BO page — list of all workflows with filters, latest run, multi-select delete,
+  run counts, and an import action.
   """
   use ZaqWeb, :live_view
 
@@ -11,11 +12,20 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    all = load_workflows(socket)
+
     {:ok,
      socket
      |> assign(
        current_path: "/bo/workflows",
-       workflows: load_workflows(socket),
+       all_workflows: all,
+       workflows: all,
+       total_filtered: length(all),
+       page: 1,
+       per_page: 20,
+       filters: %{"name" => "", "status" => "all"},
+       selected_ids: MapSet.new(),
+       delete_confirm: false,
        import_modal_open: false,
        import_error: nil,
        running: false
@@ -33,6 +43,88 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   # ── Events ──────────────────────────────────────────────────────
 
   @impl true
+  def handle_event("filter", %{"filters" => filters}, socket) do
+    socket =
+      socket
+      |> assign(filters: normalize_filters(filters), page: 1, selected_ids: MapSet.new())
+      |> apply_filters()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("goto_page", %{"page" => p}, socket) do
+    total_pages = ceil(socket.assigns.total_filtered / socket.assigns.per_page)
+    page = p |> String.to_integer() |> max(1) |> min(max(total_pages, 1))
+
+    {:noreply, socket |> assign(page: page) |> apply_filters()}
+  end
+
+  def handle_event("toggle_select", %{"id" => id}, socket) do
+    selected =
+      if MapSet.member?(socket.assigns.selected_ids, id),
+        do: MapSet.delete(socket.assigns.selected_ids, id),
+        else: MapSet.put(socket.assigns.selected_ids, id)
+
+    {:noreply, assign(socket, selected_ids: selected)}
+  end
+
+  def handle_event("select_all", _params, socket) do
+    ids =
+      socket.assigns.workflows
+      |> Enum.map(fn {w, _, _, _} -> w.id end)
+      |> MapSet.new()
+
+    {:noreply, assign(socket, selected_ids: ids)}
+  end
+
+  def handle_event("deselect_all", _params, socket) do
+    {:noreply, assign(socket, selected_ids: MapSet.new())}
+  end
+
+  def handle_event("confirm_delete_selected", _params, socket) do
+    {:noreply, assign(socket, delete_confirm: true)}
+  end
+
+  def handle_event("cancel_delete", _params, socket) do
+    {:noreply, assign(socket, delete_confirm: false)}
+  end
+
+  def handle_event("delete_selected", _params, socket) do
+    ids = socket.assigns.selected_ids
+
+    Enum.each(ids, fn id ->
+      get_event =
+        Event.new(%{module: Zaq.Engine.Workflows, function: :get_workflow!, args: [id]}, :engine)
+
+      case NodeRouter.dispatch(get_event).response do
+        %Zaq.Engine.Workflows.Workflow{} = wf ->
+          del_event =
+            Event.new(
+              %{module: Zaq.Engine.Workflows, function: :delete_workflow, args: [wf]},
+              :engine
+            )
+
+          NodeRouter.dispatch(del_event)
+
+        _ ->
+          :skip
+      end
+    end)
+
+    all = load_workflows(socket)
+    count = MapSet.size(ids)
+
+    {:noreply,
+     socket
+     |> assign(
+       all_workflows: all,
+       selected_ids: MapSet.new(),
+       delete_confirm: false
+     )
+     |> apply_filters()
+     |> put_flash(:info, "#{count} workflow#{if count == 1, do: "", else: "s"} deleted.")}
+  end
+
   def handle_event("open_import", _params, socket) do
     {:noreply, assign(socket, import_modal_open: true, import_error: nil)}
   end
@@ -110,6 +202,38 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   # ── Private helpers ─────────────────────────────────────────────
 
+  defp apply_filters(socket) do
+    %{all_workflows: all, filters: filters, page: page, per_page: per_page} = socket.assigns
+
+    filtered =
+      all
+      |> filter_by_status(filters["status"])
+      |> filter_by_search(filters["name"])
+
+    page_items = filtered |> Enum.drop((page - 1) * per_page) |> Enum.take(per_page)
+
+    assign(socket, workflows: page_items, total_filtered: length(filtered))
+  end
+
+  defp normalize_filters(filters) do
+    %{
+      "name" => Map.get(filters, "name", ""),
+      "status" => Map.get(filters, "status", "all")
+    }
+  end
+
+  defp filter_by_status(list, "all"), do: list
+
+  defp filter_by_status(list, status),
+    do: Enum.filter(list, fn {w, _, _, _} -> w.status == status end)
+
+  defp filter_by_search(list, ""), do: list
+
+  defp filter_by_search(list, term) do
+    lower = String.downcase(term)
+    Enum.filter(list, fn {w, _, _, _} -> String.contains?(String.downcase(w.name), lower) end)
+  end
+
   defp parse_upload_entry(path) do
     with {:ok, raw} <- File.read(path),
          {:ok, attrs} <- Jason.decode(raw) do
@@ -129,10 +253,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
     case NodeRouter.dispatch(event).response do
       {:ok, _workflow} ->
+        all = load_workflows(socket)
+
         {:noreply,
          socket
-         |> assign(import_modal_open: false, import_error: nil)
-         |> assign(workflows: load_workflows(socket))
+         |> assign(import_modal_open: false, import_error: nil, all_workflows: all)
+         |> apply_filters()
          |> put_flash(:info, "Workflow imported successfully.")}
 
       {:error, %Ecto.Changeset{} = cs} ->
@@ -155,21 +281,101 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       current_path={@current_path}
       features_version={@features_version}
     >
-      <div>
-        <%!-- Page header --%>
-        <div class="flex items-center justify-between mb-6">
-          <div>
-            <h2 class="font-mono text-[1rem] font-bold text-black">Workflows</h2>
-            <p class="font-mono text-[0.75rem] text-black/50 mt-0.5">
-              Automated multi-step processes triggered by events or schedules.
-            </p>
+      <div class="space-y-4">
+        <%!-- Page header + filters card --%>
+        <section class="rounded-xl border border-[#e6e2db] bg-white px-5 py-4">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <h1 class="font-mono text-[0.9rem] uppercase tracking-widest text-[#3e3b36]">
+                Workflows
+              </h1>
+              <p class="mt-1 font-mono text-[0.7rem] text-[#8e8a82]">
+                Automated multi-step processes triggered by events or schedules.
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <.link
+                navigate={~p"/bo/triggers"}
+                class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] hover:border-[#03b6d4] transition-colors"
+              >
+                Triggers
+              </.link>
+              <button
+                phx-click="open_import"
+                class="rounded-lg bg-[#03b6d4] px-3 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-white hover:bg-[#0198b1] transition-colors"
+              >
+                Import Workflow
+              </button>
+            </div>
           </div>
-          <button
-            phx-click="open_import"
-            class="font-mono text-[0.82rem] font-bold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] transition-all"
-          >
-            Import Workflow
-          </button>
+
+          <form id="workflow-filters-form" phx-change="filter" class="mt-4 grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              name="filters[name]"
+              value={@filters["name"]}
+              placeholder="Filter by name"
+              class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+            />
+            <select
+              name="filters[status]"
+              class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+            >
+              <option value="all" selected={@filters["status"] == "all"}>All statuses</option>
+              <option value="active" selected={@filters["status"] == "active"}>Active</option>
+              <option value="draft" selected={@filters["status"] == "draft"}>Draft</option>
+              <option value="archived" selected={@filters["status"] == "archived"}>Archived</option>
+            </select>
+          </form>
+        </section>
+
+        <%!-- Bulk action bar (visible when rows selected) --%>
+        <div
+          :if={MapSet.size(@selected_ids) > 0}
+          class="flex items-center justify-between px-4 py-2.5 mb-3 rounded-xl bg-black/[0.04] border border-black/[0.08]"
+        >
+          <span class="font-mono text-[0.78rem] text-black/60">
+            {MapSet.size(@selected_ids)} selected
+          </span>
+          <div class="flex items-center gap-3">
+            <button
+              phx-click="deselect_all"
+              class="font-mono text-[0.75rem] text-black/40 hover:text-black transition-colors"
+            >
+              Deselect all
+            </button>
+            <button
+              phx-click="confirm_delete_selected"
+              class="font-mono text-[0.75rem] font-semibold text-red-500 hover:text-red-600 transition-colors"
+            >
+              Delete selected
+            </button>
+          </div>
+        </div>
+
+        <%!-- Delete confirmation --%>
+        <div
+          :if={@delete_confirm}
+          class="flex items-center justify-between px-4 py-3 mb-3 rounded-xl bg-red-50 border border-red-200"
+        >
+          <p class="font-mono text-[0.8rem] text-red-700">
+            Permanently delete {MapSet.size(@selected_ids)} workflow{if MapSet.size(@selected_ids) ==
+                                                                          1, do: "", else: "s"} and all their run history? This cannot be undone.
+          </p>
+          <div class="flex items-center gap-3 ml-4 flex-shrink-0">
+            <button
+              phx-click="cancel_delete"
+              class="font-mono text-[0.75rem] text-black/50 hover:text-black transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              phx-click="delete_selected"
+              class="font-mono text-[0.75rem] font-bold px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
+            >
+              Confirm delete
+            </button>
+          </div>
         </div>
 
         <%!-- Workflows table --%>
@@ -177,27 +383,60 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
           <table class="w-full">
             <thead>
               <tr class="border-b border-black/[0.06] bg-black/[0.02]">
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-5 py-3">
+                <th class="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={
+                      MapSet.size(@selected_ids) > 0 and
+                        MapSet.size(@selected_ids) == length(@workflows)
+                    }
+                    phx-click={
+                      if MapSet.size(@selected_ids) == length(@workflows),
+                        do: "deselect_all",
+                        else: "select_all"
+                    }
+                    class="rounded border-black/20 cursor-pointer"
+                  />
+                </th>
+                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
                   Name
                 </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-5 py-3">
+                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
                   Status
                 </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-5 py-3">
+                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
+                  Latest Run
+                </th>
+                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
                   Triggers
                 </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-5 py-3">
+                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
                   Runs
                 </th>
-                <th class="px-5 py-3"></th>
+                <th class="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
               <tr
-                :for={{workflow, count, triggers} <- @workflows}
-                class="border-b border-black/[0.04] hover:bg-black/[0.01] transition-colors"
+                :for={{workflow, count, triggers, latest_run} <- @workflows}
+                class={[
+                  "border-b border-black/[0.04] transition-colors",
+                  if(MapSet.member?(@selected_ids, workflow.id),
+                    do: "bg-[var(--zaq-color-accent-soft)]",
+                    else: "hover:bg-black/[0.01]"
+                  )
+                ]}
               >
-                <td class="px-5 py-4">
+                <td class="px-4 py-4">
+                  <input
+                    type="checkbox"
+                    checked={MapSet.member?(@selected_ids, workflow.id)}
+                    phx-click="toggle_select"
+                    phx-value-id={workflow.id}
+                    class="rounded border-black/20 cursor-pointer"
+                  />
+                </td>
+                <td class="px-4 py-4">
                   <.link
                     navigate={~p"/bo/workflows/#{workflow.id}"}
                     class="font-mono text-[0.85rem] font-semibold text-[var(--zaq-color-accent)] hover:underline"
@@ -208,10 +447,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                     {workflow.description}
                   </p>
                 </td>
-                <td class="px-5 py-4">
+                <td class="px-4 py-4">
                   <.workflow_status_badge status={workflow.status} />
                 </td>
-                <td class="px-5 py-4">
+                <td class="px-4 py-4">
+                  <div :if={latest_run} class="flex flex-col gap-0.5">
+                    <.run_status_badge status={latest_run.status} />
+                    <span class="font-mono text-[0.68rem] text-black/30">
+                      {format_run_time(latest_run.inserted_at)}
+                    </span>
+                  </div>
+                  <span :if={!latest_run} class="font-mono text-[0.72rem] text-black/30">—</span>
+                </td>
+                <td class="px-4 py-4">
                   <div class="flex items-center gap-1.5">
                     <.trigger_icon
                       :for={trigger <- triggers}
@@ -221,10 +469,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                     <span :if={triggers == []} class="font-mono text-[0.72rem] text-black/30">—</span>
                   </div>
                 </td>
-                <td class="px-5 py-4">
+                <td class="px-4 py-4">
                   <span class="font-mono text-[0.85rem] text-black">{count}</span>
                 </td>
-                <td class="px-5 py-4 text-right">
+                <td class="px-4 py-4 text-right">
                   <div class="flex items-center justify-end gap-3">
                     <button
                       phx-click="run_workflow"
@@ -244,14 +492,64 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                 </td>
               </tr>
               <tr :if={@workflows == []}>
-                <td colspan="5" class="px-5 py-12 text-center font-mono text-[0.85rem] text-black/40">
-                  No workflows yet. Import one to get started.
+                <td colspan="7" class="px-5 py-12 text-center font-mono text-[0.85rem] text-black/40">
+                  {if @search != "" or @filter_status != "all",
+                    do: "No workflows match your filters.",
+                    else: "No workflows yet. Import one to get started."}
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
+
+        <%!-- Pagination --%>
+        <div
+          :if={@total_filtered > @per_page}
+          class="flex items-center justify-between mt-4 px-1"
+        >
+          <span class="font-mono text-[0.72rem] text-black/40">
+            {(@page - 1) * @per_page + 1}–{min(@page * @per_page, @total_filtered)} of {@total_filtered}
+          </span>
+          <div class="flex items-center gap-1">
+            <button
+              phx-click="goto_page"
+              phx-value-page={@page - 1}
+              disabled={@page == 1}
+              class="font-mono text-[0.75rem] px-3 py-1.5 rounded-lg border border-black/[0.10] text-black/50 hover:text-black hover:border-black/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              ← Prev
+            </button>
+            <%= for p <- page_window(@page, ceil(@total_filtered / @per_page)) do %>
+              <%= if p == :gap do %>
+                <span class="font-mono text-[0.75rem] px-2 text-black/30">…</span>
+              <% else %>
+                <button
+                  phx-click="goto_page"
+                  phx-value-page={p}
+                  class={[
+                    "font-mono text-[0.75rem] px-3 py-1.5 rounded-lg border transition-colors",
+                    if(@page == p,
+                      do: "bg-black text-white border-black",
+                      else: "border-black/[0.10] text-black/50 hover:text-black hover:border-black/20"
+                    )
+                  ]}
+                >
+                  {p}
+                </button>
+              <% end %>
+            <% end %>
+            <button
+              phx-click="goto_page"
+              phx-value-page={@page + 1}
+              disabled={@page >= ceil(@total_filtered / @per_page)}
+              class="font-mono text-[0.75rem] px-3 py-1.5 rounded-lg border border-black/[0.10] text-black/50 hover:text-black hover:border-black/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </div>
+      <%!-- space-y-4 wrapper --%>
 
       <%!-- Import modal --%>
       <BOModal.form_dialog
@@ -331,7 +629,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       Event.new(
         %{
           module: Zaq.Engine.Workflows,
-          function: :list_workflows_with_run_counts_and_triggers,
+          function: :list_workflows_with_details,
           args: []
         },
         :engine
@@ -345,10 +643,33 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
     _ -> []
   end
 
+  defp format_run_time(nil), do: ""
+
+  defp format_run_time(%DateTime{} = dt) do
+    diff = DateTime.diff(DateTime.utc_now(), dt, :second)
+
+    cond do
+      diff < 60 -> "just now"
+      diff < 3600 -> "#{div(diff, 60)}m ago"
+      diff < 86_400 -> "#{div(diff, 3600)}h ago"
+      true -> "#{div(diff, 86_400)}d ago"
+    end
+  end
+
   defp upload_error_label(:too_large), do: "file exceeds size limit"
   defp upload_error_label(:not_accepted), do: "file type not accepted"
   defp upload_error_label(:too_many_files), do: "too many files"
   defp upload_error_label(_), do: "upload failed"
+
+  defp page_window(_current, total) when total <= 7, do: Enum.to_list(1..total)
+
+  defp page_window(current, total) do
+    cond do
+      current <= 4 -> Enum.to_list(1..5) ++ [:gap, total]
+      current >= total - 3 -> [1, :gap] ++ Enum.to_list((total - 4)..total)
+      true -> [1, :gap] ++ Enum.to_list((current - 1)..(current + 1)) ++ [:gap, total]
+    end
+  end
 
   defp error_message(%Ecto.Changeset{} = cs) do
     cs

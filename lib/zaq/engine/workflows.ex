@@ -176,6 +176,32 @@ defmodule Zaq.Engine.Workflows do
     end)
   end
 
+  @doc """
+  Like `list_workflows_with_run_counts_and_triggers/0` but also includes the
+  latest `WorkflowRun` for each workflow (or `nil` when there are no runs).
+
+  Returns `{workflow, run_count, triggers, latest_run}` tuples.
+  """
+  @spec list_workflows_with_details() :: [
+          {Workflow.t(), non_neg_integer(), [Trigger.t()], WorkflowRun.t() | nil}
+        ]
+  def list_workflows_with_details do
+    workflows = Repo.all(from w in Workflow, order_by: [asc: w.name])
+
+    latest_runs =
+      from(r in WorkflowRun,
+        distinct: r.workflow_id,
+        order_by: [asc: r.workflow_id, desc: r.inserted_at],
+        select: r
+      )
+      |> Repo.all()
+      |> Map.new(&{&1.workflow_id, &1})
+
+    Enum.map(workflows, fn w ->
+      {w, count_runs(w.id), list_triggers_for_workflow(w.id), Map.get(latest_runs, w.id)}
+    end)
+  end
+
   @doc "Gets a workflow by id, raising if not found."
   @spec get_workflow!(term()) :: Workflow.t()
   def get_workflow!(id), do: Repo.get!(Workflow, id)
