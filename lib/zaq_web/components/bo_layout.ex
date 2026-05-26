@@ -938,12 +938,6 @@ defmodule ZaqWeb.Components.BOLayout do
             icon: "workflows",
             label: "Workflows",
             active: String.starts_with?(current_path, "/bo/workflows")
-          },
-          %{
-            href: ~p"/bo/triggers",
-            icon: "triggers",
-            label: "Triggers",
-            active: String.starts_with?(current_path, "/bo/triggers")
           }
         ]
       },
