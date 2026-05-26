@@ -97,7 +97,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
       render_click(lv, "set_event_name", %{"name" => "email.new"})
 
       lv
-      |> form("form[phx-submit='create_trigger']", %{"trigger" => %{"enabled" => "on"}})
+      |> form("form[phx-submit='create_trigger']", %{"trigger" => %{"enabled" => "true"}})
       |> render_submit()
 
       html = render(lv)
@@ -110,6 +110,61 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
 
       lv
       |> form("form[phx-submit='create_trigger']", %{"trigger" => %{}})
+      |> render_submit()
+
+      assert Workflows.list_triggers() == []
+    end
+
+    test "creates cron trigger and shows it in list", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      lv |> element("button", "+ New Trigger") |> render_click()
+
+      # Switch form to cron mode — cron section renders with "Every 5 min" default preset
+      lv
+      |> form("form[phx-submit='create_trigger']")
+      |> render_change(%{
+        "trigger" => %{"trigger_type" => "cron", "event_name" => "cron.daily_sync"}
+      })
+
+      # Submit using the default preset (hidden input carries "*/5 * * * *" from DOM)
+      lv
+      |> form("form[phx-submit='create_trigger']", %{
+        "trigger" => %{
+          "trigger_type" => "cron",
+          "event_name" => "cron.daily_sync",
+          "cron_preset" => "*/5 * * * *",
+          "enabled" => "true"
+        }
+      })
+      |> render_submit()
+
+      html = render(lv)
+      assert html =~ "cron.daily_sync"
+
+      [trigger] = Workflows.list_triggers()
+      assert trigger.trigger_type == "cron"
+      assert trigger.cron_schedule == "*/5 * * * *"
+    end
+
+    test "cron trigger requires event name", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      lv |> element("button", "+ New Trigger") |> render_click()
+
+      # Switch to cron mode with blank event_name
+      lv
+      |> form("form[phx-submit='create_trigger']")
+      |> render_change(%{"trigger" => %{"trigger_type" => "cron", "event_name" => ""}})
+
+      # Submit without event_name — changeset should reject
+      lv
+      |> form("form[phx-submit='create_trigger']", %{
+        "trigger" => %{
+          "trigger_type" => "cron",
+          "event_name" => "",
+          "cron_preset" => "*/5 * * * *",
+          "enabled" => "true"
+        }
+      })
       |> render_submit()
 
       assert Workflows.list_triggers() == []
@@ -152,7 +207,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
       render_click(lv, "set_event_name", %{"name" => "new.name"})
 
       lv
-      |> form("form[phx-submit='update_trigger']", %{"trigger" => %{"enabled" => "on"}})
+      |> form("form[phx-submit='update_trigger']", %{"trigger" => %{"enabled" => "true"}})
       |> render_submit()
 
       html = render(lv)
@@ -280,7 +335,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
       html =
         lv
         |> form("form[phx-submit='create_trigger']")
-        |> render_change(%{"trigger" => %{"enabled" => "on"}})
+        |> render_change(%{"trigger" => %{"enabled" => "true"}})
 
       assert html =~ "New Trigger"
     end
@@ -316,7 +371,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
       html =
         lv
         |> form("form[phx-submit='create_trigger']", %{
-          "trigger" => %{"event_name" => "generic.fail", "enabled" => "on"}
+          "trigger" => %{"event_name" => "generic.fail", "enabled" => "true"}
         })
         |> render_submit()
 
@@ -360,7 +415,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
       html =
         lv
         |> form("form[phx-submit='update_trigger']", %{
-          "trigger" => %{"event_name" => "new.fail.name", "enabled" => "on"}
+          "trigger" => %{"event_name" => "new.fail.name", "enabled" => "true"}
         })
         |> render_submit()
 
@@ -421,7 +476,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
 
       html =
         render_click(lv, "update_trigger", %{
-          "trigger" => %{"event_name" => "fallback.find.evt", "enabled" => "on"},
+          "trigger" => %{"event_name" => "fallback.find.evt", "enabled" => "true"},
           "trigger_id" => t.id
         })
 
