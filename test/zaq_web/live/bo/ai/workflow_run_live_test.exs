@@ -303,7 +303,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
             %{
               name: "batch_step",
               type: "action",
-              module: "Zaq.Agent.Tools.Batch",
+              module: "Zaq.Agent.Tools.Workflow.Batch",
               params: %{},
               index: 0
             }
@@ -334,7 +334,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
             %{
               name: "iterate_step",
               type: "action",
-              module: "Zaq.Agent.Tools.Iterate",
+              module: "Zaq.Agent.Tools.Workflow.Iterate",
               params: %{},
               index: 0
             }
