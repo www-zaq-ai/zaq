@@ -591,8 +591,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
   @sleep_ms_module "Zaq.Engine.Workflows.Test.SleepMs"
   @non_conforming_module "Zaq.Engine.Workflows.Test.NonConformingAction"
   @process_contact_module "Zaq.Engine.Workflows.Test.ProcessContact"
-  @batch_module "Zaq.Agent.Tools.Batch"
-  @iterate_module "Zaq.Agent.Tools.Iterate"
+  @batch_module "Zaq.Agent.Tools.Workflow.Batch"
+  @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
 
   defp batch_steps(extra_params \\ %{}) do
     %{

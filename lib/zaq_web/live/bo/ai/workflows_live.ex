@@ -493,7 +493,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
               </tr>
               <tr :if={@workflows == []}>
                 <td colspan="7" class="px-5 py-12 text-center font-mono text-[0.85rem] text-black/40">
-                  {if @search != "" or @filter_status != "all",
+                  {if @filters["name"] != "" or @filters["status"] != "all",
                     do: "No workflows match your filters.",
                     else: "No workflows yet. Import one to get started."}
                 </td>
