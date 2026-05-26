@@ -50,6 +50,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
   @callback resolve_agent_selection(map(), Incoming.t(), keyword()) :: map() | nil
   @callback handle_webhook(map(), map()) :: {:ok, term()} | {:error, term()}
+  @callback channel_ingress_status(map()) :: {:ok, map()} | {:error, term()}
 
   @optional_callbacks send_typing: 3,
                       upsert_message: 3,
@@ -58,6 +59,7 @@ defmodule Zaq.Channels.CommunicationBridge do
                       subscribe_thread_reply: 3,
                       unsubscribe_thread_reply: 3,
                       handle_webhook: 2,
+                      channel_ingress_status: 1,
                       open_dm_channel: 2,
                       fetch_profile: 2,
                       list_mailboxes: 2,

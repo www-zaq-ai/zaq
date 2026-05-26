@@ -237,7 +237,25 @@
             </span>
           </div>
           <div>
-            <h3 class="font-mono text-sm font-bold text-black mb-1">{card.label}</h3>
+            <div class="flex items-center gap-2 mb-1">
+              <h3 class="font-mono text-sm font-bold text-black">{card.label}</h3>
+              <button
+                :if={@kind == :retrieval and Map.has_key?(@ingress_statuses || %{}, card.id)}
+                id={"ingress-status-dot-#{card.id}"}
+                type="button"
+                phx-click="open_ingress_status"
+                phx-value-provider={card.id}
+                class="inline-flex items-center justify-center"
+                title="Ingress status"
+              >
+                <span class={[
+                  "status",
+                  ZaqWeb.Live.BO.Communication.ChannelsIndexLive.ingress_status_color(
+                    Map.get(@ingress_statuses || %{}, card.id)
+                  )
+                ]} />
+              </button>
+            </div>
             <p class="font-mono text-[0.7rem] text-black/40 leading-relaxed">{card.desc}</p>
           </div>
           <div
@@ -257,6 +275,36 @@
           </div>
         </.link>
       </div>
+
+      <ZaqWeb.Components.BOModal.form_dialog
+        :if={@ingress_status_modal}
+        id="ingress-status-modal"
+        cancel_event="close_ingress_status"
+        title="Ingress Status"
+        max_width_class="max-w-lg"
+      >
+        <div class="space-y-3 font-mono text-[0.75rem] text-black/70">
+          <p class="font-bold text-black">{String.capitalize(@ingress_status_modal.provider)}</p>
+          <p>
+            {(@ingress_status_modal.status || %{})[:summary] || "No status details available"}
+          </p>
+          <p :if={reason = (@ingress_status_modal.status || %{})[:reason]}>
+            Reason: {inspect(reason)}
+          </p>
+          <p :if={details = (@ingress_status_modal.status || %{})[:details]}>
+            Details: {inspect(details)}
+          </p>
+          <div class="flex justify-end">
+            <button
+              type="button"
+              phx-click="close_ingress_status"
+              class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/10 text-black/50 hover:text-black"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </ZaqWeb.Components.BOModal.form_dialog>
     <% end %>
   </ZaqWeb.Components.BOLayout.bo_layout>
 <% end %>

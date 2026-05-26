@@ -210,6 +210,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute Repo.get(ChannelConfig, config.id)
   end
 
+  test "opens ingress status modal from config card", %{conn: conn} do
+    config = insert_channel_config(%{})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    assert has_element?(view, "#ingress-status-dot-#{config.id}")
+
+    view |> element("#ingress-status-dot-#{config.id}") |> render_click()
+    assert has_element?(view, "#ingress-status-modal")
+  end
+
   test "toggles and removes retrieval channels", %{conn: conn} do
     config = insert_channel_config(%{})
     retrieval = insert_retrieval_channel(config)

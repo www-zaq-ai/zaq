@@ -32,11 +32,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
   end
 
   test "renders provider cards on retrieval sub-page", %{conn: conn} do
+    insert_channel_config(%{provider: "mattermost", name: "MM Config"})
+
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval")
 
     assert has_element?(view, "#channel-card-slack")
     assert has_element?(view, "#channel-card-mattermost")
     assert has_element?(view, "#channel-card-webhook")
+    assert has_element?(view, "#ingress-status-dot-mattermost")
+    refute has_element?(view, "#ingress-status-dot-slack")
+  end
+
+  test "opens ingress status modal from retrieval provider card", %{conn: conn} do
+    insert_channel_config(%{provider: "mattermost", name: "MM Config"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval")
+
+    view |> element("#ingress-status-dot-mattermost") |> render_click()
+
+    assert has_element?(view, "#ingress-status-modal")
+    assert render(view) =~ "Ingress Status"
   end
 
   test "renders provider cards on data_source sub-page", %{conn: conn} do

@@ -72,8 +72,8 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 - **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new complex plan** and represent planning in Beadwork issues (not plan files).
 - **For planned work, create at least one Beadwork issue per step** (split into additional issues when needed) and prefix each planned issue title with `[{issueId}]`.
 - **Always run `mix format`** after any code file change to keep code well formatted
+- **Always run `mix q`** after a task is done. Never replace it with ad-hoc checks.
 - **Never push directly to `main`** — all changes go through a PR.
-- **Run `mix q`** before every commit. Never replace it with ad-hoc checks.
 - **Target at least 95% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
 - **Apply `docs/testing-approach.md` on every code change** — add property tests when invariants or broad input spaces are touched.
 - **All cross-service BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`** — never direct module calls.
