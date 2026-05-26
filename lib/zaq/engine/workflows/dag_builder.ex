@@ -31,7 +31,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   ## Batch and Iterate nodes
 
-  `Zaq.Agent.Tools.Batch` and `Zaq.Agent.Tools.Iterate` are orchestrator nodes.
+  `Zaq.Agent.Tools.Workflow.Batch` and `Zaq.Agent.Tools.Workflow.Iterate` are orchestrator nodes.
   Their sub-pipelines are declared as **inline node maps** directly inside `params` —
   not as string name references to top-level nodes.
 
@@ -39,7 +39,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       %{
         "name" => "batch_contacts",
         "type" => "action",
-        "module" => "Zaq.Agent.Tools.Batch",
+        "module" => "Zaq.Agent.Tools.Workflow.Batch",
         "params" => %{
           "batch_size" => 4,
           "strategy"   => "skip_and_continue",
@@ -47,7 +47,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
             %{
               "name"   => "iterate_contacts",
               "type"   => "action",
-              "module" => "Zaq.Agent.Tools.Iterate",
+              "module" => "Zaq.Agent.Tools.Workflow.Iterate",
               "params" => %{
                 "strategy" => "skip_and_continue",
                 "pipeline" => [
@@ -258,8 +258,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  @batch_tool_module "Zaq.Agent.Tools.Batch"
-  @iterate_tool_module "Zaq.Agent.Tools.Iterate"
+  @batch_tool_module "Zaq.Agent.Tools.Workflow.Batch"
+  @iterate_tool_module "Zaq.Agent.Tools.Workflow.Iterate"
 
   defp scoped_node_names(node) do
     params = Map.get(node, "params") || %{}
