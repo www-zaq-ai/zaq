@@ -500,6 +500,26 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :channel_ensure_ingress_subscription,
+        _context
+      )
+      when is_map(params) do
+    runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
+    %{event | response: runtime_module.ensure_ingress_subscription(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :channel_delete_ingress_subscription,
+        _context
+      )
+      when is_map(params) do
+    runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
+    %{event | response: runtime_module.delete_ingress_subscription(provider, params)}
+  end
+
+  def handle_event(
         %Event{request: %{config: %ChannelConfig{} = config, channel_id: channel_id}} = event,
         :test_connection,
         _context

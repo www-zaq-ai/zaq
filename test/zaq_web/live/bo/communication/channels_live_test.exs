@@ -47,6 +47,18 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       fetch_state(:capability_snapshot, {:ok, %{resolved: %{}}})
     end
 
+    def channel_ingress_status(config) do
+      default =
+        {:ok,
+         %{
+           status: if(config.enabled, do: :ok, else: :error),
+           mode: "webhook",
+           summary: "stub"
+         }}
+
+      fetch_state(:channel_ingress_status, default)
+    end
+
     def put(key, value), do: put_state(key, value)
     def calls(key), do: fetch_state(key, []) |> Enum.reverse()
 
@@ -273,6 +285,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert html =~ "Name can&#39;t be blank"
     assert Repo.aggregate(ChannelConfig, :count) == initial_count
     assert has_element?(view, "#config-form")
+  end
+
+  test "refreshes ingress status indicator after saving config", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#new-config-button") |> render_click()
+
+    view
+    |> element("#config-form")
+    |> render_submit(%{
+      "form" => %{
+        "name" => "Webhook Config",
+        "provider" => "mattermost",
+        "kind" => "retrieval",
+        "url" => "https://mattermost.example.com",
+        "token" => "test-token",
+        "enabled" => "true"
+      }
+    })
+
+    config = Repo.get_by!(ChannelConfig, name: "Webhook Config")
+    assert has_element?(view, "#ingress-status-dot-#{config.id} .status-success")
   end
 
   test "supports open/close combinations for destructive modals", %{conn: conn} do

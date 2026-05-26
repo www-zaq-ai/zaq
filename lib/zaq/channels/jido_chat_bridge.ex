@@ -28,6 +28,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.{NodeRouter, System}
+  alias Zaq.Types.EncryptedString
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -128,6 +129,46 @@ defmodule Zaq.Channels.JidoChatBridge do
   def sync_provider_runtime(%{enabled: true} = config),
     do: Bridge.restart_runtime(__MODULE__, config)
 
+  @impl true
+  def sync_runtime(before_config, after_config)
+
+  def sync_runtime(nil, %{enabled: true} = after_config) do
+    with :ok <- start_runtime(after_config) do
+      ensure_ingress_on_enabled(after_config)
+    end
+  end
+
+  def sync_runtime(%{enabled: false}, %{enabled: true} = after_config) do
+    with :ok <- start_runtime(after_config) do
+      ensure_ingress_on_enabled(after_config)
+    end
+  end
+
+  def sync_runtime(%{enabled: true} = before_config, %{enabled: false} = after_config) do
+    stop_result = stop_runtime(after_config)
+
+    case teardown_ingress_on_disabled(before_config, after_config) do
+      :ok -> stop_result
+      {:error, reason} when stop_result == :ok -> {:error, {:ingress_teardown_failed, reason}}
+      _ -> stop_result
+    end
+  end
+
+  def sync_runtime(%{enabled: true} = before_config, %{enabled: true} = after_config) do
+    cond do
+      runtime_restart_required?(before_config, after_config) ->
+        restart_runtime(after_config)
+
+      runtime_refresh_required?(before_config, after_config) ->
+        refresh_runtime(after_config)
+
+      true ->
+        :ok
+    end
+  end
+
+  def sync_runtime(_before, _after), do: :ok
+
   @doc "Tests adapter connectivity by sending a test message."
   @impl true
   def test_connection(config, channel_id) do
@@ -151,6 +192,43 @@ defmodule Zaq.Channels.JidoChatBridge do
       other ->
         {:ok,
          %{status: :unsupported, mode: to_string(other), summary: "Ingress mode is not supported"}}
+    end
+  end
+
+  @impl true
+  def ensure_ingress_subscription(config, params) when is_map(config) and is_map(params) do
+    with :ok <- ensure_webhook_mode(config),
+         {:ok, adapter} <- adapter_for(config.provider),
+         true <-
+           function_exported?(adapter, :ensure_ingress_subscription, 2) || {:error, :unsupported} do
+      bridge_id = runtime_bridge_id(config)
+      opts = ingress_subscription_opts(config, params)
+      adapter.ensure_ingress_subscription(bridge_id, opts)
+    end
+  end
+
+  @impl true
+  def list_ingress_subscriptions(config, params) when is_map(config) and is_map(params) do
+    with :ok <- ensure_webhook_mode(config),
+         {:ok, adapter} <- adapter_for(config.provider),
+         true <-
+           function_exported?(adapter, :list_ingress_subscriptions, 2) || {:error, :unsupported} do
+      bridge_id = runtime_bridge_id(config)
+      opts = ingress_subscription_opts(config, params)
+      adapter.list_ingress_subscriptions(bridge_id, opts)
+    end
+  end
+
+  @impl true
+  def delete_ingress_subscription(config, params) when is_map(config) and is_map(params) do
+    with :ok <- ensure_webhook_mode(config),
+         {:ok, adapter} <- adapter_for(config.provider),
+         true <-
+           function_exported?(adapter, :delete_ingress_subscription, 3) || {:error, :unsupported},
+         {:ok, subscription_id} <- resolve_subscription_id(config, params),
+         bridge_id <- runtime_bridge_id(config) do
+      opts = ingress_subscription_opts(config, params)
+      adapter.delete_ingress_subscription(bridge_id, subscription_id, opts)
     end
   end
 
@@ -740,83 +818,123 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp webhook_ingress_status(config) do
-    with {:ok, adapter} <- adapter_for(config.provider),
-         true <- function_exported?(adapter, :ingress_status, 2) || {:error, :unsupported} do
-      config
-      |> webhook_ingress_opts()
-      |> then(&adapter.ingress_status(config, &1))
-      |> webhook_ingress_status_result()
-    else
+    case list_ingress_subscriptions(config, %{}) do
+      {:ok, subscriptions} when is_list(subscriptions) and subscriptions != [] ->
+        {:ok,
+         %{
+           status: :ok,
+           mode: "webhook",
+           summary: "Webhook ingress subscription is configured",
+           details: %{subscriptions: subscriptions, count: length(subscriptions)}
+         }}
+
+      {:ok, []} ->
+        {:ok,
+         %{
+           status: :warning,
+           mode: "webhook",
+           summary: "Webhook ingress subscription is not configured",
+           reason: :not_configured,
+           details: %{subscriptions: [], count: 0}
+         }}
+
       {:error, :unsupported} ->
         {:ok,
          %{
            status: :unsupported,
            mode: "webhook",
-           summary: "Adapter does not support webhook ingress status checks"
+           summary: "Adapter does not support webhook ingress subscription listing"
          }}
 
       {:error, reason} ->
-        {:error, reason}
+        {:ok,
+         %{
+           status: :error,
+           mode: "webhook",
+           summary: "Webhook ingress status check failed",
+           reason: reason
+         }}
+
+      other ->
+        {:ok,
+         %{
+           status: :error,
+           mode: "webhook",
+           summary: "Webhook ingress status returned unexpected payload",
+           reason: {:unexpected_result, other}
+         }}
     end
   end
 
-  defp webhook_ingress_status_result({:ok, details}) when is_map(details) do
-    if webhook_status_ok?(details) do
-      {:ok,
-       %{
-         status: :ok,
-         mode: "webhook",
-         summary: "Webhook ingress subscription is configured",
-         details: details
-       }}
-    else
-      {:ok,
-       %{
-         status: :error,
-         mode: "webhook",
-         summary: "Webhook ingress subscription is missing or invalid",
-         reason: Map.get(details, :reason) || Map.get(details, "reason") || :not_configured,
-         details: details
-       }}
-    end
-  end
+  defp ingress_subscription_opts(config, params) do
+    bridge_id = runtime_bridge_id(config)
+    ingress = normalized_ingress(config)
+    token = normalized_subscription_token(config)
 
-  defp webhook_ingress_status_result({:error, reason}) do
-    {:ok,
-     %{
-       status: :error,
-       mode: "webhook",
-       summary: "Webhook ingress status check failed",
-       reason: reason
-     }}
-  end
-
-  defp webhook_ingress_status_result(other) do
-    {:ok,
-     %{
-       status: :error,
-       mode: "webhook",
-       summary: "Webhook ingress status returned unexpected payload",
-       reason: {:unexpected_result, other}
-     }}
-  end
-
-  defp webhook_ingress_opts(config) do
     [
       url: config.url,
-      token: config.token,
-      provider: config.provider,
-      bot_user_id: ChannelConfig.jido_chat_bot_user_id(config),
-      bot_name: ChannelConfig.jido_chat_bot_name(config)
+      token: token,
+      bridge_id: bridge_id,
+      bridge_config: %{credentials: %{token: token}},
+      settings: %{"ingress" => ingress},
+      ingress: ingress,
+      target_url:
+        Map.get(params, :target_url) || Map.get(params, "target_url") ||
+          webhook_target_url(config)
     ]
   end
 
-  defp webhook_status_ok?(details) when is_map(details) do
-    case Map.get(details, :status) || Map.get(details, "status") do
-      :ok -> true
-      "ok" -> true
-      true -> true
-      _ -> false
+  defp normalized_subscription_token(config) do
+    token = Map.get(config, :token) || Map.get(config, "token")
+    EncryptedString.decrypt!(token) || token
+  end
+
+  defp webhook_target_url(config) do
+    with base when is_binary(base) and base != "" <- System.get_global_base_url() do
+      "#{String.trim_trailing(base, "/")}/channels/webhook/conversation/#{config.provider}"
+    end
+  end
+
+  defp resolve_subscription_id(config, params) do
+    explicit = Map.get(params, :subscription_id) || Map.get(params, "subscription_id")
+
+    if is_binary(explicit) and explicit != "" do
+      {:ok, explicit}
+    else
+      with {:ok, subscriptions} <- list_ingress_subscriptions(config, params),
+           %{} = subscription <- List.first(subscriptions),
+           id when is_binary(id) and id != "" <-
+             Map.get(subscription, :subscription_id) || Map.get(subscription, "subscription_id") do
+        {:ok, id}
+      else
+        _ -> {:error, :missing_subscription_id}
+      end
+    end
+  end
+
+  defp ensure_webhook_mode(config) do
+    if ingress_mode_for(config.provider) == :webhook, do: :ok, else: {:error, :unsupported}
+  end
+
+  defp ensure_ingress_on_enabled(config) do
+    if ingress_mode_for(config.provider) == :webhook do
+      case ensure_ingress_subscription(config, %{}) do
+        {:ok, _result} -> :ok
+        {:error, reason} -> {:error, {:ingress_ensure_failed, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp teardown_ingress_on_disabled(before_config, after_config) do
+    if ingress_mode_for(before_config.provider) == :webhook do
+      case delete_ingress_subscription(after_config, %{}) do
+        {:ok, _result} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :ok
     end
   end
 

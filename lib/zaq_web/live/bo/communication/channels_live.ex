@@ -340,6 +340,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:form, nil)
          |> assign(:modal_errors, [])
          |> assign(:configs, configs)
+         |> assign(:ingress_statuses, ingress_statuses(configs))
          |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
          |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
@@ -398,19 +399,31 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> put_flash(:error, "Config not found.")}
 
       config ->
-        Repo.delete!(config)
-        configs = list_configs(socket.assigns.provider)
-        first_config = List.first(configs)
+        case teardown_ingress_before_delete(config) do
+          :ok ->
+            Repo.delete!(config)
+            configs = list_configs(socket.assigns.provider)
+            first_config = List.first(configs)
 
-        {:noreply,
-         socket
-         |> assign(:confirm_delete, nil)
-         |> assign(:configs, configs)
-         |> assign(:ingress_statuses, ingress_statuses(configs))
-         |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
-         |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
-         |> assign(:retrieval_channels, load_retrieval_channels(first_config))
-         |> put_flash(:info, "Channel config deleted.")}
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> assign(:configs, configs)
+             |> assign(:ingress_statuses, ingress_statuses(configs))
+             |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
+             |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+             |> assign(:retrieval_channels, load_retrieval_channels(first_config))
+             |> put_flash(:info, "Channel config deleted.")}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               "Cannot delete config: failed to teardown webhook ingress subscription (#{inspect(reason)})."
+             )}
+        end
     end
   end
 
@@ -1049,6 +1062,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       )
 
     NodeRouter.dispatch(event).response
+  end
+
+  defp teardown_ingress_before_delete(%ChannelConfig{} = config) do
+    if provider_requires_global_base_url?(:retrieval, config.provider) do
+      event =
+        Event.new(
+          %{provider: config.provider, params: %{strict: true, config_id: config.id}},
+          :channels,
+          opts: [action: :channel_delete_ingress_subscription]
+        )
+
+      case NodeRouter.dispatch(event).response do
+        {:ok, _result} -> :ok
+        {:error, :unsupported} -> :ok
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:unexpected_response, other}}
+      end
+    else
+      :ok
+    end
   end
 
   defp test_connection(%ChannelConfig{} = config, channel_id) when is_binary(channel_id) do

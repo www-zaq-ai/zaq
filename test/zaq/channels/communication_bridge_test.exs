@@ -453,8 +453,8 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                CommunicationBridge.handle_webhook("missing-provider", %{text: "hi"})
     end
 
-    test "returns channel_not_configured when provider config is missing" do
-      assert {:error, {:channel_not_configured, :email}} =
+    test "returns dropped when provider config is missing" do
+      assert {:ok, %{dropped: true, drop_reason: :channel_disabled, provider: "email"}} =
                CommunicationBridge.handle_webhook(:email, %{text: "hi"})
     end
 

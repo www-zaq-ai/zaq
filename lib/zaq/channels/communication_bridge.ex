@@ -51,6 +51,9 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback resolve_agent_selection(map(), Incoming.t(), keyword()) :: map() | nil
   @callback handle_webhook(map(), map()) :: {:ok, term()} | {:error, term()}
   @callback channel_ingress_status(map()) :: {:ok, map()} | {:error, term()}
+  @callback ensure_ingress_subscription(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback list_ingress_subscriptions(map(), map()) :: {:ok, [map()]} | {:error, term()}
+  @callback delete_ingress_subscription(map(), map()) :: {:ok, map()} | {:error, term()}
 
   @optional_callbacks send_typing: 3,
                       upsert_message: 3,
@@ -60,6 +63,9 @@ defmodule Zaq.Channels.CommunicationBridge do
                       unsubscribe_thread_reply: 3,
                       handle_webhook: 2,
                       channel_ingress_status: 1,
+                      ensure_ingress_subscription: 2,
+                      list_ingress_subscriptions: 2,
+                      delete_ingress_subscription: 2,
                       open_dm_channel: 2,
                       fetch_profile: 2,
                       list_mailboxes: 2,
@@ -189,9 +195,57 @@ defmodule Zaq.Channels.CommunicationBridge do
   @spec handle_webhook(atom() | String.t(), map()) :: {:ok, term()} | {:error, term()}
   def handle_webhook(provider, payload) when is_map(payload) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
-         {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- bridge_supports?(bridge, :handle_webhook, 2) || {:error, :unsupported} do
-      bridge.handle_webhook(config, payload)
+      case Bridge.fetch_channel_config(provider) do
+        {:ok, config} ->
+          bridge.handle_webhook(config, payload)
+
+        {:error, {:channel_not_configured, _}} ->
+          {:ok,
+           %{
+             provider: to_string(provider),
+             handled: false,
+             dropped: true,
+             drop_reason: :channel_disabled
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc "Ensures provider ingress subscription through the configured communication bridge."
+  @spec ensure_ingress_subscription(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def ensure_ingress_subscription(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <-
+           bridge_supports?(bridge, :ensure_ingress_subscription, 2) || {:error, :unsupported} do
+      bridge.ensure_ingress_subscription(config, params)
+    end
+  end
+
+  @doc "Lists provider ingress subscriptions through the configured communication bridge."
+  @spec list_ingress_subscriptions(atom() | String.t(), map()) ::
+          {:ok, [map()]} | {:error, term()}
+  def list_ingress_subscriptions(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_any_channel_config(provider),
+         true <-
+           bridge_supports?(bridge, :list_ingress_subscriptions, 2) || {:error, :unsupported} do
+      bridge.list_ingress_subscriptions(config, params)
+    end
+  end
+
+  @doc "Deletes provider ingress subscription through the configured communication bridge."
+  @spec delete_ingress_subscription(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def delete_ingress_subscription(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_any_channel_config(provider),
+         true <-
+           bridge_supports?(bridge, :delete_ingress_subscription, 2) || {:error, :unsupported} do
+      bridge.delete_ingress_subscription(config, params)
     end
   end
 
