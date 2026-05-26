@@ -15,6 +15,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
   alias Zaq.TestSupport.OpenAIStub
+  alias Zaq.Types.EncryptedString
 
   # ── Stub modules ──────────────────────────────────────────────────────
 
@@ -204,6 +205,15 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def listener_child_specs(_bridge_id, opts) do
       send(self(), {:listener_child_specs_opts, opts})
       {:ok, []}
+    end
+  end
+
+  defmodule StubAdapterIngressEnsure do
+    def listener_child_specs(_bridge_id, _opts), do: {:ok, []}
+
+    def ensure_ingress_subscription(bridge_id, opts) do
+      send(self(), {:ensure_ingress_subscription, bridge_id, opts})
+      {:ok, %{subscription_id: "telegram:webhook:#{bridge_id}"}}
     end
   end
 
@@ -2843,6 +2853,37 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:listener_child_specs_opts, opts}
       assert opts[:url] == config.url
       assert {:ok, _state_pid} = Supervisor.lookup_state_pid("#{config.provider}_#{config.id}")
+    end
+
+    test "sync_runtime/2 ensures webhook ingress with decrypted token on create path" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterIngressEnsure,
+          ingress_mode: :webhook
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      {:ok, encrypted} = EncryptedString.encrypt("plain-token")
+
+      config =
+        insert_channel_config(%{
+          token: encrypted,
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.sync_runtime(nil, config)
+      assert_received {:ensure_ingress_subscription, _, opts}
+      assert opts[:token] == "plain-token"
+      assert get_in(opts, [:bridge_config, :credentials, :token]) == "plain-token"
     end
 
     test "sync_runtime/2 returns :ok for nil-to-disabled changes" do
