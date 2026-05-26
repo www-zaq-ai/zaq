@@ -1217,6 +1217,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp run_status_class("waiting"), do: "bg-amber-100 text-amber-700"
   defp run_status_class("cancelled"), do: "bg-orange-100 text-orange-600"
   defp run_status_class("paused"), do: "bg-black/5 text-black/50"
+  defp run_status_class("interrupted"), do: "bg-yellow-100 text-yellow-700"
   defp run_status_class(_), do: "bg-black/5 text-black/40"
 
   defp log_event_class(event) when event in ["step_failed", "chunk_error", "item_error"],
@@ -1237,14 +1238,29 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   defp format_duration(%{started_at: nil}, _now), do: "—"
 
-  defp format_duration(%{started_at: started_at, finished_at: nil}, now) do
-    elapsed(started_at, now || DateTime.utc_now())
+  defp format_duration(%{started_at: s, finished_at: nil} = run, now) do
+    status = Map.get(run, :status) || Map.get(run, "status")
+    format_live_duration(status, s, run, now)
   end
 
-  defp format_duration(%{started_at: started_at, finished_at: finished_at}, _now) do
-    diff = DateTime.diff(finished_at, started_at, :second)
-    format_seconds(diff)
+  defp format_duration(%{started_at: s, finished_at: f}, _now),
+    do: format_seconds(DateTime.diff(f, s, :second))
+
+  # Active runs: show a growing elapsed timer with "…" suffix.
+  defp format_live_duration(status, started_at, _run, now)
+       when status in ["pending", "running"],
+       do: elapsed(started_at, now || DateTime.utc_now())
+
+  # Paused runs: freeze at updated_at (the moment pause was recorded) so the
+  # display does not grow on page refreshes where @now is set to mount time.
+  defp format_live_duration("paused", started_at, run, now) do
+    ref = Map.get(run, :updated_at) || Map.get(run, "updated_at") || now || DateTime.utc_now()
+    format_seconds(DateTime.diff(ref, started_at, :second))
   end
+
+  # All other terminal statuses with no finished_at: show diff against @now.
+  defp format_live_duration(_status, started_at, _run, now),
+    do: format_seconds(DateTime.diff(now || DateTime.utc_now(), started_at, :second))
 
   defp elapsed(started_at, now) do
     diff = DateTime.diff(now, started_at, :second)
@@ -1529,6 +1545,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp dag_status_colors("completed", _), do: {"#f0fdf4", "#22c55e", "#15803d"}
   defp dag_status_colors("failed", _), do: {"#fef2f2", "#ef4444", "#dc2626"}
   defp dag_status_colors("waiting", _), do: {"#fffbeb", "#f59e0b", "#92400e"}
+  defp dag_status_colors("paused", _), do: {"#f8fafc", "#94a3b8", "#475569"}
   defp dag_status_colors("pending", _), do: {"#f9fafb", "#9ca3af", "#6b7280"}
   defp dag_status_colors(_, true), do: {"#fffbeb", "#f59e0b", "#92400e"}
   defp dag_status_colors(_, _), do: nil

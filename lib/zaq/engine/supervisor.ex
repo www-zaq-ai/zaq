@@ -20,6 +20,7 @@ defmodule Zaq.Engine.Supervisor do
   - `Zaq.Engine.Telemetry.Supervisor` — runtime telemetry collection
   - `Zaq.Engine.IngestionSupervisor` — supervises all ingestion channel adapters
   - `Zaq.Engine.RetrievalSupervisor` — supervises all retrieval channel adapters
+  - `Zaq.Engine.Workflows.StartupRecovery` — one-shot task that marks stale runs as interrupted
   """
 
   use Supervisor
@@ -35,7 +36,8 @@ defmodule Zaq.Engine.Supervisor do
       Zaq.Engine.Telemetry.Supervisor,
       Zaq.Engine.IngestionSupervisor,
       Zaq.Engine.RetrievalSupervisor,
-      Zaq.Engine.EventRegistry
+      Zaq.Engine.EventRegistry,
+      Zaq.Engine.Workflows.StartupRecovery
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
