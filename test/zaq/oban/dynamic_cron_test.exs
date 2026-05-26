@@ -463,4 +463,128 @@ defmodule Zaq.Oban.DynamicCronTest do
       assert :ok = DynamicCron.validate(conf: conf)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # remove_schedule/1
+  # ---------------------------------------------------------------------------
+
+  describe "remove_schedule/1" do
+    test "removes entries registered under a feature key", %{conf: conf} do
+      pid = start_plugin(conf)
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+
+      :ok = add(pid, :removable_feature, [{"0 * * * *", worker}])
+      assert crontab_size(pid) == 1
+
+      :ok = GenServer.call(pid, {:remove_schedule, :removable_feature})
+
+      assert crontab_size(pid) == 0
+      refute :removable_feature in state(pid).registered_keys
+    end
+
+    test "is a no-op for an unknown key", %{conf: conf} do
+      pid = start_plugin(conf)
+      assert :ok = GenServer.call(pid, {:remove_schedule, :nonexistent_key})
+      assert crontab_size(pid) == 0
+    end
+
+    test "clears the key from registered_keys so it can be re-registered", %{conf: conf} do
+      pid = start_plugin(conf)
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+
+      :ok = add(pid, :reusable_key, [{"0 * * * *", worker}])
+      :ok = GenServer.call(pid, {:remove_schedule, :reusable_key})
+
+      refute :reusable_key in state(pid).registered_keys
+
+      :ok = add(pid, :reusable_key, [{"0 0 * * *", worker}])
+      assert crontab_size(pid) == 1
+      assert :reusable_key in state(pid).registered_keys
+    end
+
+    test "only removes entries for the specified key, preserving others", %{conf: conf} do
+      pid = start_plugin(conf)
+      worker_a = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+      worker_b = Zaq.Engine.Telemetry.Workers.PushRollupsWorker
+
+      :ok = add(pid, :keep_feature, [{"0 * * * *", worker_a}])
+      :ok = add(pid, :drop_feature, [{"*/5 * * * *", worker_b}])
+
+      :ok = GenServer.call(pid, {:remove_schedule, :drop_feature})
+
+      assert crontab_size(pid) == 1
+      assert worker_a in worker_modules(pid)
+      refute worker_b in worker_modules(pid)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # replace_schedule/2
+  # ---------------------------------------------------------------------------
+
+  describe "replace_schedule/2" do
+    test "replaces the cron expression for an existing key", %{conf: conf} do
+      pid = start_plugin(conf)
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+
+      :ok = add(pid, :updatable_feature, [{"0 * * * *", worker}])
+
+      :ok =
+        GenServer.call(pid, {
+          :replace_schedule,
+          :updatable_feature,
+          [{"0 0 * * *", worker}]
+        })
+
+      assert crontab_size(pid) == 1
+      [{expr, _, _, _}] = state(pid).crontab
+      assert expr == "0 0 * * *"
+    end
+
+    test "acts as add when key was never registered", %{conf: conf} do
+      pid = start_plugin(conf)
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+
+      :ok =
+        GenServer.call(pid, {
+          :replace_schedule,
+          :fresh_key,
+          [{"*/15 * * * *", worker}]
+        })
+
+      assert crontab_size(pid) == 1
+      assert :fresh_key in state(pid).registered_keys
+    end
+
+    test "replaces schedule even when args change", %{conf: conf} do
+      pid = start_plugin(conf)
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+
+      :ok =
+        add(pid, {:cron_trigger, "abc"}, [
+          {"0 * * * *", worker, [args: %{"trigger_id" => "abc"}]}
+        ])
+
+      :ok =
+        GenServer.call(pid, {
+          :replace_schedule,
+          {:cron_trigger, "abc"},
+          [{"0 0 * * *", worker, [args: %{"trigger_id" => "abc"}]}]
+        })
+
+      assert crontab_size(pid) == 1
+      [{expr, _, _, _}] = state(pid).crontab
+      assert expr == "0 0 * * *"
+    end
+
+    test "does not duplicate entries after replace", %{conf: conf} do
+      pid = start_plugin(conf)
+      worker = Zaq.Engine.Telemetry.Workers.PrunePointsWorker
+
+      :ok = add(pid, :dedup_key, [{"0 * * * *", worker}])
+      :ok = GenServer.call(pid, {:replace_schedule, :dedup_key, [{"0 * * * *", worker}]})
+
+      assert crontab_size(pid) == 1
+    end
+  end
 end
