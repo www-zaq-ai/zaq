@@ -32,12 +32,11 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
 
   # ── Module names (used in workflow definition JSON) ───────────────────────────
 
-  @batch_module "Zaq.Agent.Tools.Batch"
-  @iterate_module "Zaq.Agent.Tools.Iterate"
+  @batch_module "Zaq.Agent.Tools.Workflow.Batch"
+  @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
+  @condition_module "Zaq.Agent.Tools.Workflow.Condition"
 
   @list_contacts_module "Zaq.Engine.Workflows.Steps.BatchIterateE2ETest.ListContacts"
-  @check_status_module "Zaq.Engine.Workflows.Steps.BatchIterateE2ETest.CheckContactStatus"
-  @check_seq_module "Zaq.Engine.Workflows.Steps.BatchIterateE2ETest.CheckEmailSeq"
   @dispatch_module "Zaq.Engine.Workflows.Steps.BatchIterateE2ETest.DispatchContact"
   @sleep_module "Zaq.Engine.Workflows.Test.SleepMs"
 
@@ -75,45 +74,17 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     def run(_params, _ctx), do: {:ok, %{contacts: @contacts}}
   end
 
-  defmodule CheckContactStatus do
-    @moduledoc false
-    use Jido.Action,
-      name: "e2e_check_contact_status",
-      schema: [contact: [type: :map, required: true]],
-      output_schema: [contact: [type: :map, required: true]]
-
-    use Zaq.Engine.Workflows.Action
-
-    @impl Jido.Action
-    def run(%{contact: %{active: false}}, _ctx), do: {:error, :inactive}
-    def run(%{contact: contact}, _ctx), do: {:ok, %{contact: contact}}
-  end
-
-  defmodule CheckEmailSeq do
-    @moduledoc false
-    use Jido.Action,
-      name: "e2e_check_email_seq",
-      schema: [contact: [type: :map, required: true]],
-      output_schema: [contact: [type: :map, required: true]]
-
-    use Zaq.Engine.Workflows.Action
-
-    @impl Jido.Action
-    def run(%{contact: %{in_sequence: true}}, _ctx), do: {:error, :in_sequence}
-    def run(%{contact: contact}, _ctx), do: {:ok, %{contact: contact}}
-  end
-
   defmodule DispatchContact do
     @moduledoc false
     use Jido.Action,
       name: "e2e_dispatch_contact",
-      schema: [contact: [type: :map, required: true]],
+      schema: [input: [type: :map, required: true]],
       output_schema: [dispatched: [type: :map, required: true]]
 
     use Zaq.Engine.Workflows.Action
 
     @impl Jido.Action
-    def run(%{contact: contact}, _ctx), do: {:ok, %{dispatched: contact}}
+    def run(%{input: contact}, _ctx), do: {:ok, %{dispatched: contact}}
   end
 
   # ── Workflow factory ──────────────────────────────────────────────────────────
@@ -156,16 +127,20 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
                     "strategy" => "skip_and_continue",
                     "pipeline" => [
                       %{
-                        "name" => "check_status",
+                        "name" => "condition_active",
                         "type" => "action",
-                        "module" => @check_status_module,
-                        "params" => %{}
+                        "module" => @condition_module,
+                        "params" => %{
+                          "conditions" => [%{"key" => "active", "value" => true}]
+                        }
                       },
                       %{
-                        "name" => "check_seq",
+                        "name" => "condition_not_in_seq",
                         "type" => "action",
-                        "module" => @check_seq_module,
-                        "params" => %{}
+                        "module" => @condition_module,
+                        "params" => %{
+                          "conditions" => [%{"key" => "in_sequence", "value" => false}]
+                        }
                       },
                       %{
                         "name" => "dispatch",
@@ -231,8 +206,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
 
       # All scoped nodes must NOT have step_run rows
       refute MapSet.member?(step_names, "iterate_contacts")
-      refute MapSet.member?(step_names, "check_status")
-      refute MapSet.member?(step_names, "check_seq")
+      refute MapSet.member?(step_names, "condition_active")
+      refute MapSet.member?(step_names, "condition_not_in_seq")
       refute MapSet.member?(step_names, "dispatch")
       refute MapSet.member?(step_names, "sleep_between")
     end
@@ -305,19 +280,17 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       assert length(errors) == 6
     end
 
-    test "inactive contacts produce :inactive error, in_sequence produce :in_sequence error" do
+    test "3 contacts fail the active condition, 3 fail the in_sequence condition" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
       reasons =
         total_iterate_errors(run)
-        |> Enum.map(&(Map.get(&1, "reason") || Map.get(&1, :reason)))
-        |> Enum.sort()
+        |> Enum.map(&to_string(Map.get(&1, "reason") || Map.get(&1, :reason)))
 
-      # 3 inactive, 3 in_sequence
-      assert Enum.count(reasons, &(&1 == "inactive" or &1 == :inactive)) == 3
-      assert Enum.count(reasons, &(&1 == "in_sequence" or &1 == :in_sequence)) == 3
+      assert Enum.count(reasons, &String.contains?(&1, "active")) == 3
+      assert Enum.count(reasons, &String.contains?(&1, "in_sequence")) == 3
     end
   end
 
@@ -556,7 +529,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       end
     end
 
-    test "item error reasons are readable strings — 3 inactive and 3 in_sequence" do
+    test "item error log reasons reference the failed condition key" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
@@ -565,11 +538,10 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
         run
         |> item_logs()
         |> Enum.filter(&(Map.get(&1, "event") == "item_error"))
-        |> Enum.map(&Map.get(&1, "reason"))
-        |> Enum.sort()
+        |> Enum.map(&to_string(Map.get(&1, "reason")))
 
-      assert Enum.count(error_reasons, &(&1 == "inactive")) == 3
-      assert Enum.count(error_reasons, &(&1 == "in_sequence")) == 3
+      assert Enum.count(error_reasons, &String.contains?(&1, "active")) == 3
+      assert Enum.count(error_reasons, &String.contains?(&1, "in_sequence")) == 3
     end
 
     test "log trail is visible in finished run's log_summary timeline" do
@@ -584,6 +556,138 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       assert batch_entry != nil
       # 1 step_completed + 3 chunk_completed
       assert length(batch_entry.logs) == 4
+    end
+  end
+
+  # ── Single combined-condition workflow ───────────────────────────────────────
+
+  # Both conditions (active: true AND in_sequence: false) merged into one Condition
+  # node. Contacts that violate multiple conditions produce a single error whose
+  # reason lists all failing keys (e.g. "condition_failed:active,in_sequence").
+  defp combined_condition_workflow do
+    {:ok, wf} =
+      Workflows.create_workflow(%{
+        name: "Combined Condition E2E #{System.unique_integer()}",
+        status: "active",
+        nodes: [
+          %{
+            name: "list_contacts",
+            type: "action",
+            module: @list_contacts_module,
+            params: %{},
+            index: 0
+          },
+          %{
+            name: "batch_contacts",
+            type: "action",
+            module: @batch_module,
+            params: %{
+              "batch_size" => 4,
+              "strategy" => "skip_and_continue",
+              "process" => [
+                %{
+                  "name" => "iterate_contacts",
+                  "type" => "action",
+                  "module" => @iterate_module,
+                  "params" => %{
+                    "strategy" => "skip_and_continue",
+                    "pipeline" => [
+                      %{
+                        "name" => "condition_eligibility",
+                        "type" => "action",
+                        "module" => @condition_module,
+                        "params" => %{
+                          "conditions" => [
+                            %{"key" => "active", "value" => true},
+                            %{"key" => "in_sequence", "value" => false}
+                          ]
+                        }
+                      },
+                      %{
+                        "name" => "dispatch",
+                        "type" => "action",
+                        "module" => @dispatch_module,
+                        "params" => %{}
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            index: 1
+          }
+        ],
+        edges: [
+          %{
+            from: "list_contacts",
+            to: "batch_contacts",
+            condition: %{"field" => "contacts", "op" => "not_empty"},
+            mapping: %{"items" => "contacts"}
+          }
+        ]
+      })
+
+    wf
+  end
+
+  describe "single combined-condition step" do
+    test "same 6 contacts dispatched as in the two-step variant" do
+      wf = combined_condition_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, _} = WorkflowAgent.execute(run)
+
+      dispatched_names =
+        total_dispatched(run)
+        |> Enum.map(&(Map.get(&1, "name") || Map.get(&1, :name)))
+        |> Enum.sort()
+
+      assert dispatched_names == ~w[Alice Dave Frank Hank Jake Leo]
+    end
+
+    test "6 contacts skipped in total" do
+      wf = combined_condition_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, _} = WorkflowAgent.execute(run)
+
+      assert length(total_iterate_errors(run)) == 6
+    end
+
+    test "contacts failing multiple conditions produce a single error listing all failed keys" do
+      # Iris is active: false AND in_sequence: true — both fail in one step.
+      wf = combined_condition_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, _} = WorkflowAgent.execute(run)
+
+      reasons =
+        total_iterate_errors(run)
+        |> Enum.map(&to_string(Map.get(&1, "reason") || Map.get(&1, :reason)))
+
+      # Iris fails both → reason contains both keys
+      multi_fail =
+        Enum.filter(
+          reasons,
+          &(String.contains?(&1, "active") and String.contains?(&1, "in_sequence"))
+        )
+
+      assert length(multi_fail) == 1
+
+      # Bob and Eve are inactive but not in_sequence → fail only active
+      active_only =
+        Enum.filter(
+          reasons,
+          &(String.contains?(&1, "active") and not String.contains?(&1, "in_sequence"))
+        )
+
+      assert length(active_only) == 2
+
+      # Carol, Grace, Kate are active but in_sequence → fail only in_sequence
+      seq_only =
+        Enum.filter(
+          reasons,
+          &(String.contains?(&1, "in_sequence") and not String.contains?(&1, "active"))
+        )
+
+      assert length(seq_only) == 3
     end
   end
 
