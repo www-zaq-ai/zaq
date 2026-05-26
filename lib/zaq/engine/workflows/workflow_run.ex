@@ -11,12 +11,15 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   callers access fields directly (e.g. `run.source_event.trace_id`).
 
   Statuses:
-  - `pending`   — created, agent not yet started
-  - `running`   — agent actively executing steps
-  - `waiting`   — reserved for future human-in-the-loop steps; not yet driven
-  - `paused`    — externally paused; resume via `Workflows.resume_run/2`
-  - `completed` — all steps finished successfully
-  - `failed`    — a step exceeded retries or a fatal error occurred
+  - `pending`      — created, agent not yet started
+  - `running`      — agent actively executing steps
+  - `waiting`      — a `HumanInTheLoop` step suspended execution pending approval
+  - `paused`       — externally paused; resume via `Workflows.resume_run/2`
+  - `completed`    — all steps finished successfully
+  - `failed`       — a step exceeded retries or a fatal error occurred
+  - `cancelled`    — explicitly cancelled before completion
+  - `interrupted`  — node restarted while run was executing; use
+                     `Workflows.interrupt_run/1` to mark it and surface it in the BO
   """
 
   use Ecto.Schema
@@ -27,7 +30,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(pending running waiting paused completed failed cancelled)
+  @statuses ~w(pending running waiting paused completed failed cancelled interrupted)
 
   @type t :: %__MODULE__{}
 
