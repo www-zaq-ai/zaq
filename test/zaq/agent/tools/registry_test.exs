@@ -37,6 +37,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
+             "workflow.condition",
              "advanced.lua_eval"
            ]
   end
@@ -79,6 +80,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
+             "workflow.condition",
              "advanced.lua_eval"
            ]
   end

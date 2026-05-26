@@ -365,14 +365,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       node = %{
         name: "batch",
         type: "action",
-        module: "Zaq.Agent.Tools.Batch",
+        module: "Zaq.Agent.Tools.Workflow.Batch",
         index: 0,
         params: %{
           "process" => [
             %{"name" => "plain_step", "module" => "SomeMod"},
             %{
               "name" => "iter_step",
-              "module" => "Zaq.Agent.Tools.Iterate",
+              "module" => "Zaq.Agent.Tools.Workflow.Iterate",
               "params" => %{"pipeline" => [%{"name" => "inner_1"}, %{"name" => "inner_2"}]}
             }
           ],
@@ -391,7 +391,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       node = %{
         name: "iter",
         type: "action",
-        module: "Zaq.Agent.Tools.Iterate",
+        module: "Zaq.Agent.Tools.Workflow.Iterate",
         index: 0,
         params: %{"pipeline" => [%{"name" => "a"}, %{"name" => "b"}, %{"name" => "c"}]}
       }
@@ -601,7 +601,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
               %{"name" => "p1", "module" => "Some.Step"},
               %{
                 "name" => "p2_iter",
-                "module" => "Zaq.Agent.Tools.Iterate",
+                "module" => "Zaq.Agent.Tools.Workflow.Iterate",
                 "params" => %{"pipeline" => [%{"name" => "ip1"}, %{"name" => "ip2"}]}
               }
             ],

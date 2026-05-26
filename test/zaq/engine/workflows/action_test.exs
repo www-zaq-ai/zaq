@@ -249,7 +249,7 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     test "log_start/0 and log_entry/3 are imported in modules that use Action" do
       # Modules that `use Zaq.Engine.Workflows.Action` should get both helpers
       # via the import in __using__ — test via the Batch/Iterate modules which use it.
-      assert function_exported?(Zaq.Agent.Tools.Batch, :log_start, 0) == false
+      assert function_exported?(Zaq.Agent.Tools.Workflow.Batch, :log_start, 0) == false
       # They are imported (not exported), so we verify the import does not crash
       # by calling them through Action directly (public functions).
       assert is_integer(Action.log_start())

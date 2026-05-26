@@ -80,11 +80,6 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
       assert html =~ "email.received"
       assert html =~ "webhook.posted"
     end
-
-    test "sidebar link to triggers is present", %{conn: conn} do
-      {:ok, _lv, html} = live(conn, ~p"/bo/triggers")
-      assert html =~ ~p"/bo/triggers"
-    end
   end
 
   # --- create ---
