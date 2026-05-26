@@ -159,7 +159,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
     case NodeRouter.dispatch(event).response do
       {:ok, updated_run} ->
-        {:noreply, assign(socket, run: updated_run)}
+        # Optimistically flip any "running" step_runs to "paused" so the badge
+        # and frozen duration are visible immediately (before the PubSub round-trip).
+        paused_at = DateTime.utc_now(:second)
+        updated_step_runs = Enum.map(socket.assigns.step_runs, &pause_step_run(&1, paused_at))
+        {:noreply, assign(socket, run: updated_run, step_runs: updated_step_runs)}
 
       {:error, :not_running} ->
         {:noreply, put_flash(socket, :error, "Run is not currently running.")}
@@ -181,6 +185,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     end)
 
     {:noreply, socket}
+  end
+
+  def handle_event("retry_run", _params, socket) do
+    run = socket.assigns.run
+    workflow = socket.assigns.workflow
+
+    event =
+      Event.new(
+        %{module: Zaq.Engine.Workflows, function: :retry_run, args: [run]},
+        :engine
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, new_run} ->
+        {:noreply, push_navigate(socket, to: ~p"/bo/workflows/#{workflow.id}/runs/#{new_run.id}")}
+
+      {:error, :not_retryable} ->
+        {:noreply, put_flash(socket, :error, "Run cannot be retried.")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to retry run.")}
+    end
   end
 
   def handle_event("approve_run", _params, socket) do
@@ -385,6 +411,57 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
               </div>
             </div>
           </div>
+        </div>
+
+        <%!-- Interrupted notice --%>
+        <div
+          :if={@run.status == "interrupted"}
+          class="mb-6 bg-yellow-50 rounded-xl border border-yellow-200 p-4 flex items-start justify-between gap-4"
+        >
+          <div>
+            <p class="font-mono text-[0.7rem] font-semibold text-yellow-700 uppercase tracking-wider mb-1">
+              Run Interrupted
+            </p>
+            <p class="font-mono text-[0.82rem] text-black/60">
+              This run was interrupted when the server restarted. Any steps that were
+              in progress have been marked as failed.
+            </p>
+          </div>
+          <button
+            phx-click="retry_run"
+            class="flex-shrink-0 font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-[#03b6d4]/30 text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+
+        <%!-- Failure summary banner --%>
+        <% failed_steps = Enum.filter(@step_runs, &(&1.status == "failed")) %>
+        <% build_error = get_in(@run.log_summary, ["error"]) %>
+        <div
+          :if={@run.status == "failed"}
+          class="mb-6 bg-red-50 rounded-xl border border-red-200 p-4 space-y-3"
+        >
+          <%= if failed_steps != [] do %>
+            <p class="font-mono text-[0.7rem] font-semibold text-red-600 uppercase tracking-wider">
+              {length(failed_steps)} step{if length(failed_steps) > 1, do: "s"} failed
+            </p>
+            <div :for={sr <- failed_steps} class="space-y-1">
+              <p class="font-mono text-[0.82rem] font-semibold text-black">{sr.step_name}</p>
+              <pre
+                :if={sr.errors != nil}
+                class="font-mono text-[0.73rem] text-red-700 whitespace-pre-wrap break-all bg-red-100/60 rounded-lg px-3 py-2"
+              >{format_step_error(sr.errors)}</pre>
+            </div>
+          <% else %>
+            <p class="font-mono text-[0.7rem] font-semibold text-red-600 uppercase tracking-wider">
+              Run failed before any step executed
+            </p>
+            <pre
+              :if={build_error != nil}
+              class="font-mono text-[0.73rem] text-red-700 whitespace-pre-wrap break-all bg-red-100/60 rounded-lg px-3 py-2"
+            >{build_error}</pre>
+          <% end %>
         </div>
 
         <%!-- DAG + optional step detail panel --%>
@@ -608,6 +685,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     _ -> :error
   end
 
+  defp pause_step_run(%{status: "running"} = sr, paused_at),
+    do: %{sr | status: "paused", finished_at: paused_at}
+
+  defp pause_step_run(sr, _paused_at), do: sr
+
   defp visible_steps(step_runs) do
     Enum.reject(step_runs, fn sr ->
       String.contains?(sr.step_name, "__to__") and String.ends_with?(sr.step_name, "__edge")
@@ -623,6 +705,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   defp clean_results(results), do: WorkflowResultHelpers.clean_results(results)
+
+  defp format_step_error(%{"message" => msg}) when is_binary(msg), do: msg
+  defp format_step_error(%{"reason" => reason}) when is_binary(reason), do: reason
+  defp format_step_error(errors), do: inspect(errors, pretty: true)
 
   defp short_id(nil), do: "?"
   defp short_id(id), do: String.slice(id, 0, 8)

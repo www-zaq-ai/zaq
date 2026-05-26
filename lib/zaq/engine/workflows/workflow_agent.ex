@@ -91,7 +91,17 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
               error: inspect(reason)
             )
 
-            Workflows.update_run(run, %{status: "failed", finished_at: DateTime.utc_now(:second)})
+            Workflows.update_run(run, %{
+              status: "failed",
+              finished_at: DateTime.utc_now(:second),
+              log_summary: %{
+                error: format_build_error(reason),
+                failed_step_count: 0,
+                failed_steps: [],
+                step_count: 0
+              }
+            })
+
             dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
             {:error, reason}
         end
@@ -215,6 +225,40 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
         end)
     }
   end
+
+  defp format_build_error(:invalid_steps),
+    do: "Workflow steps configuration is invalid or missing."
+
+  defp format_build_error(:empty_dag),
+    do: "Workflow has no nodes configured."
+
+  defp format_build_error({:unknown_node_type, type}),
+    do: "Unknown node type \"#{type}\". Expected \"action\" or \"agent\"."
+
+  defp format_build_error({:unknown_module, nil}),
+    do: "A node is missing its module configuration."
+
+  defp format_build_error({:unknown_module, mod}),
+    do: "Module not found: \"#{mod}\". Check that the module name is spelled correctly."
+
+  defp format_build_error({:unknown_node, name}),
+    do: "An edge references node \"#{name}\" which does not exist."
+
+  defp format_build_error({:invalid_edge_condition, _}),
+    do: "An edge has an invalid condition configuration."
+
+  defp format_build_error(:inline_node_required),
+    do: "A Batch or Iterate node is missing its required inline nodes."
+
+  defp format_build_error({:missing_process_pipeline, _}),
+    do: "A Batch node is missing its process pipeline."
+
+  defp format_build_error({:contract_violation, mod, missing}),
+    do:
+      "Module #{inspect(mod)} does not satisfy the Action contract. Missing: #{inspect(missing)}."
+
+  defp format_build_error(reason),
+    do: inspect(reason)
 
   # Safely fetch the input from assigns, handling both atom and string keys
   # (JSONB round-trip converts atom keys to strings). The resolved input is

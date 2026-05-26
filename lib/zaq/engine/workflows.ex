@@ -104,30 +104,54 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc """
-  Pauses a running workflow run.
+  Pauses a running workflow run immediately.
+
+  Hard-kills the executing `WorkflowAgent` process so the current step stops
+  at once, then in a single transaction marks the run `"paused"` and any
+  in-flight `StepRun` rows `"paused"`.
+
+  On resume, `ActionWrapper` sees the `"paused"` step_run as non-terminal
+  (not in `completed/failed/skipped/waiting`) and re-executes it from the
+  beginning.
 
   Returns `{:error, :not_running}` if the run is not in `"running"` state.
-  The `WorkflowAgent` detects the status change at its next checkpoint and
-  halts cleanly before starting the next step.
   """
   @spec pause_run(WorkflowRun.t(), keyword()) ::
           {:ok, WorkflowRun.t()} | {:error, :not_running | Ecto.Changeset.t()}
   def pause_run(%WorkflowRun{} = run, _opts \\ []) do
     case run.status do
       "running" ->
-        Repo.transaction(fn ->
-          {:ok, paused_run} = update_run(run, %{status: "paused"})
+        # Kill the agent so the current step stops immediately
+        Registry.lookup(Zaq.Engine.Workflows.RunRegistry, run.id)
+        |> Enum.each(fn {pid, _} -> Process.exit(pid, :kill) end)
 
-          from(sr in StepRun,
-            where: sr.workflow_run_id == ^run.id and sr.status == "running"
-          )
-          |> Repo.update_all(set: [status: "paused", updated_at: DateTime.utc_now(:second)])
+        result =
+          Repo.transaction(fn ->
+            {:ok, paused_run} = update_run(run, %{status: "paused"})
 
-          paused_run
-        end)
-        |> case do
-          {:ok, paused_run} -> {:ok, paused_run}
-          {:error, reason} -> {:error, reason}
+            now = DateTime.utc_now(:second)
+
+            from(sr in StepRun,
+              where: sr.workflow_run_id == ^run.id and sr.status == "running"
+            )
+            |> Repo.update_all(set: [status: "paused", finished_at: now, updated_at: now])
+
+            paused_run
+          end)
+
+        case result do
+          {:ok, paused_run} ->
+            # Broadcast each paused step_run so all subscribers update in real-time
+            Repo.all(
+              from sr in StepRun,
+                where: sr.workflow_run_id == ^run.id and sr.status == "paused"
+            )
+            |> Enum.each(&broadcast_step({:ok, &1}))
+
+            {:ok, paused_run}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       _ ->
@@ -148,6 +172,23 @@ defmodule Zaq.Engine.Workflows do
     case run.status do
       "paused" -> WorkflowAgent.execute(run, opts)
       _ -> {:error, :not_paused}
+    end
+  end
+
+  @doc """
+  Retries an interrupted, failed, or cancelled workflow run by creating a new
+  run for the same workflow, reusing the original `source_event`.
+
+  Returns `{:error, :not_retryable}` if the run is not in a retryable state.
+  """
+  @spec retry_run(WorkflowRun.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, :not_retryable | Ecto.Changeset.t()}
+  def retry_run(%WorkflowRun{} = run, _opts \\ []) do
+    if run.status in ["interrupted", "failed", "cancelled"] do
+      workflow = get_workflow!(run.workflow_id)
+      create_run(workflow, run.source_event)
+    else
+      {:error, :not_retryable}
     end
   end
 
@@ -424,6 +465,82 @@ defmodule Zaq.Engine.Workflows do
   @spec count_runs(term()) :: non_neg_integer()
   def count_runs(workflow_id) do
     Repo.one(from r in WorkflowRun, where: r.workflow_id == ^workflow_id, select: count(r.id))
+  end
+
+  @doc """
+  Returns all runs stuck in a non-terminal state that can never resume on their
+  own — `"running"` and `"pending"`.
+
+  Used by `StartupRecovery` on engine boot to find runs orphaned by a previous
+  node shutdown.
+  """
+  @spec list_stale_runs(keyword()) :: [WorkflowRun.t()]
+  def list_stale_runs(_opts \\ []) do
+    Repo.all(from r in WorkflowRun, where: r.status in ["running", "pending"])
+  end
+
+  @doc """
+  Marks a workflow run as `"interrupted"` — the node restarted while it was
+  executing.
+
+  Idempotent: returns `{:ok, run}` immediately if the run is already in a
+  terminal state (`completed`, `failed`, `cancelled`, `interrupted`).
+
+  In a single transaction:
+  - Sets run `status: "interrupted"` and `finished_at`.
+  - Bulk-marks any in-flight `StepRun` rows (`status: "running"`) as `"failed"`
+    with a `node_shutdown` error.
+
+  After commit, dispatches a `"run.interrupted"` event (fire-and-forget).
+  """
+  @spec interrupt_run(WorkflowRun.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, Ecto.Changeset.t()}
+  def interrupt_run(%WorkflowRun{} = run, _opts \\ []) do
+    if run.status in ["completed", "failed", "cancelled", "interrupted"] do
+      {:ok, run}
+    else
+      now = DateTime.utc_now(:second)
+
+      result =
+        Repo.transaction(fn ->
+          {:ok, interrupted_run} =
+            update_run(run, %{status: "interrupted", finished_at: now})
+
+          from(sr in StepRun,
+            where: sr.workflow_run_id == ^run.id and sr.status == "running"
+          )
+          |> Repo.update_all(
+            set: [
+              status: "failed",
+              errors: %{reason: "node_shutdown", message: "Server restarted during execution"},
+              finished_at: now,
+              updated_at: now
+            ]
+          )
+
+          interrupted_run
+        end)
+
+      case result do
+        {:ok, interrupted_run} ->
+          node_router().dispatch(
+            Zaq.Event.new(
+              %{
+                action: "run.interrupted",
+                run_id: interrupted_run.id,
+                workflow_id: interrupted_run.workflow_id
+              },
+              :engine,
+              name: :workflow
+            )
+          )
+
+          {:ok, interrupted_run}
+
+        error ->
+          error
+      end
+    end
   end
 
   # --- Step runs ---
