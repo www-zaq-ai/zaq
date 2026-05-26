@@ -59,6 +59,40 @@ const liveSocket = new LiveSocket("/live", Socket, {
         });
       }
     },
+    CronCountdown: {
+      mounted() { this._start() },
+      updated() { this._stop(); this._start() },
+      destroyed() { this._stop() },
+      _start() {
+        this._fired = false
+        this._tick()
+        this._interval = setInterval(() => this._tick(), 1000)
+      },
+      _stop() { clearInterval(this._interval) },
+      _tick() {
+        const nextAt = parseInt(this.el.dataset.nextAt, 10)
+        if (isNaN(nextAt)) { this.el.textContent = ""; return }
+        const remaining = nextAt - Math.floor(Date.now() / 1000)
+        if (remaining <= 0) {
+          this.el.textContent = "now"
+          if (!this._fired) {
+            this._fired = true
+            this.pushEvent("cron_fired", {})
+          }
+          return
+        }
+        const h = Math.floor(remaining / 3600)
+        const m = Math.floor((remaining % 3600) / 60)
+        const s = remaining % 60
+        if (h > 0) {
+          this.el.textContent = `next in ${h}h ${m}m`
+        } else if (m > 0) {
+          this.el.textContent = `next in ${m}m ${s}s`
+        } else {
+          this.el.textContent = `next in ${s}s`
+        }
+      }
+    },
     FocusAndSelect: {
       mounted() {
         this.el.focus()

@@ -8,6 +8,8 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
   import ZaqWeb.Live.BO.AI.WorkflowComponents, only: [run_status_badge: 1]
   import ZaqWeb.Components.SearchableSelect
 
+  alias Phoenix.HTML.Form, as: HTMLForm
+
   # ── Explainer ────────────────────────────────────────────────────
 
   @doc "Collapsible callout explaining how triggers work."
@@ -70,7 +72,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
       <svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
         <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
       </svg>
-      {@event_name}
+      {display_event_name(@event_name)}
       <span :if={!@enabled} class="text-[0.65rem]">(disabled)</span>
     </span>
     """
@@ -248,20 +250,74 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
 
   # ── Trigger form ─────────────────────────────────────────────────
 
+  @cron_presets [
+    {"Every 5 min", "*/5 * * * *"},
+    {"Every 15 min", "*/15 * * * *"},
+    {"Every 30 min", "*/30 * * * *"},
+    {"Hourly", "0 * * * *"},
+    {"Daily", "0 0 * * *"},
+    {"Weekly (Mon)", "0 0 * * 1"},
+    {"Custom", :custom}
+  ]
+
   @doc "Form used in both create and edit modals."
   attr :form, :map, required: true
   attr :known_events, :list, default: []
 
   def trigger_form(assigns) do
+    trigger_type = HTMLForm.input_value(assigns.form, :trigger_type) || "event"
+    cron_schedule = HTMLForm.input_value(assigns.form, :cron_schedule)
+
+    preset_value =
+      case Enum.find(@cron_presets, fn {_, expr} -> expr == cron_schedule end) do
+        nil -> if cron_schedule in [nil, ""], do: "*/5 * * * *", else: :custom
+        {_, expr} -> expr
+      end
+
+    assigns =
+      assigns
+      |> assign(:trigger_type, to_string(trigger_type))
+      |> assign(:cron_preset, preset_value)
+      |> assign(:cron_schedule, cron_schedule || "")
+      |> assign(:cron_presets, @cron_presets)
+
     ~H"""
     <div class="space-y-4">
+      <%!-- Trigger type selector --%>
       <div>
+        <label class="block font-mono text-[0.72rem] text-black/50 mb-2">Trigger type</label>
+        <div class="flex gap-3">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="trigger[trigger_type]"
+              value="event"
+              checked={@trigger_type == "event"}
+              class="accent-[var(--zaq-color-accent)]"
+            />
+            <span class="font-mono text-[0.78rem] text-[var(--zaq-color-ink)]">Event</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="trigger[trigger_type]"
+              value="cron"
+              checked={@trigger_type == "cron"}
+              class="accent-[var(--zaq-color-accent)]"
+            />
+            <span class="font-mono text-[0.78rem] text-[var(--zaq-color-ink)]">Cron schedule</span>
+          </label>
+        </div>
+      </div>
+
+      <%!-- Event name (shown for event type) --%>
+      <div :if={@trigger_type != "cron"}>
         <label class="block font-mono text-[0.72rem] text-black/50 mb-1">Event name</label>
         <.searchable_select
           id="trigger-event-name-select"
           name="trigger[event_name]"
-          value={Phoenix.HTML.Form.input_value(@form, :event_name)}
-          options={Enum.map(@known_events, &{&1, &1})}
+          value={display_event_name(HTMLForm.input_value(@form, :event_name))}
+          options={Enum.map(@known_events, &{display_event_name(&1), display_event_name(&1)})}
           placeholder="Search events..."
           empty_label="Select or type an event..."
           allow_create={true}
@@ -274,12 +330,92 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
           {translate_error(hd(@form[:event_name].errors))}
         </p>
       </div>
+
+      <%!-- Cron schedule (shown for cron type) --%>
+      <div :if={@trigger_type == "cron"} class="space-y-3">
+        <div>
+          <label class="block font-mono text-[0.72rem] text-black/50 mb-1">Event name</label>
+          <input
+            type="text"
+            name="trigger[event_name]"
+            value={display_event_name(HTMLForm.input_value(@form, :event_name))}
+            placeholder="e.g. cron.daily_report"
+            class="w-full font-mono text-[0.82rem] text-[var(--zaq-color-ink)] px-3 py-1.5 rounded-lg border border-black/15 focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent)]/30"
+          />
+          <p class="font-mono text-[0.65rem] text-black/35 mt-1">
+            The event fired each time the schedule triggers (used to link workflows).
+          </p>
+          <p
+            :if={@form[:event_name].errors != []}
+            class="font-mono text-[0.68rem] text-red-500 mt-1"
+          >
+            {translate_error(hd(@form[:event_name].errors))}
+          </p>
+        </div>
+
+        <div>
+          <label class="block font-mono text-[0.72rem] text-black/50 mb-1">Schedule</label>
+          <select
+            name="trigger[cron_preset]"
+            id="trigger_cron_preset"
+            class="w-full font-mono text-[0.82rem] text-[var(--zaq-color-ink)] px-3 py-1.5 rounded-lg border border-black/15 focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent)]/30"
+          >
+            <option
+              :for={{label, expr} <- @cron_presets}
+              value={if expr == :custom, do: "custom", else: expr}
+              selected={
+                if expr == :custom,
+                  do: @cron_preset == :custom,
+                  else: @cron_preset == expr
+              }
+            >
+              {label}
+            </option>
+          </select>
+        </div>
+
+        <%!-- Hidden or visible cron expression input --%>
+        <div :if={@cron_preset == :custom}>
+          <label class="block font-mono text-[0.72rem] text-black/50 mb-1">
+            Custom cron expression
+          </label>
+          <input
+            type="text"
+            name="trigger[cron_schedule]"
+            value={@cron_schedule}
+            placeholder="e.g. 0 9 * * 1-5"
+            class="w-full font-mono text-[0.82rem] text-[var(--zaq-color-ink)] px-3 py-1.5 rounded-lg border border-black/15 focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent)]/30"
+          />
+          <p class="font-mono text-[0.65rem] text-black/35 mt-1">
+            5-field cron: minute hour day month weekday
+          </p>
+        </div>
+
+        <%!-- Hidden input carrying the preset expression when not custom --%>
+        <input
+          :if={@cron_preset != :custom}
+          type="hidden"
+          name="trigger[cron_schedule]"
+          value={@cron_preset}
+        />
+
+        <p
+          :if={@form[:cron_schedule].errors != []}
+          class="font-mono text-[0.68rem] text-red-500"
+        >
+          {translate_error(hd(@form[:cron_schedule].errors))}
+        </p>
+      </div>
+
       <div class="flex items-center gap-3">
+        <%!-- Hidden fallback so unchecked state sends false instead of omitting the field --%>
+        <input type="hidden" name="trigger[enabled]" value="false" />
         <input
           type="checkbox"
           name="trigger[enabled]"
           id="trigger_enabled"
-          checked={Phoenix.HTML.Form.input_value(@form, :enabled)}
+          value="true"
+          checked={HTMLForm.input_value(@form, :enabled)}
           class="w-4 h-4 rounded border-black/20 accent-[var(--zaq-color-accent)]"
         />
         <label for="trigger_enabled" class="font-mono text-[0.78rem] text-[var(--zaq-color-ink)]">
@@ -314,6 +450,11 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
       true -> "#{div(diff, 86_400)} days ago"
     end
   end
+
+  # Strips the internal "engine:" routing prefix before showing to users.
+  # e.g. "engine:cron.daily_sync" → "cron.daily_sync"
+  defp display_event_name(nil), do: ""
+  defp display_event_name(name), do: String.replace_prefix(name, "engine:", "")
 
   defp translate_error({msg, opts}) do
     Enum.reduce(opts, msg, fn {key, value}, acc ->
