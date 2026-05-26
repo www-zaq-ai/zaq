@@ -5,7 +5,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Event
+  alias Zaq.NodeRouter
   alias Zaq.Repo
+  alias ZaqWeb.Live.BO.Communication.IngressStatusUI
 
   import Ecto.Query
 
@@ -110,7 +113,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
      socket
      |> assign(:retrieval_preview, @retrieval_preview)
      |> assign(:data_source_preview, @data_source_preview)
-     |> assign(:stats, if(available, do: compute_stats(), else: %{}))}
+     |> assign(:stats, if(available, do: compute_stats(), else: %{}))
+     |> assign(:ingress_statuses, if(available, do: compute_ingress_statuses(), else: %{}))
+     |> assign(:ingress_status_modal, nil)}
+  end
+
+  @impl true
+  def handle_event("open_ingress_status", %{"provider" => provider}, socket) do
+    status = Map.get(socket.assigns.ingress_statuses || %{}, provider)
+    {:noreply, assign(socket, :ingress_status_modal, %{provider: provider, status: status})}
+  end
+
+  def handle_event("close_ingress_status", _params, socket) do
+    {:noreply, assign(socket, :ingress_status_modal, nil)}
   end
 
   @impl true
@@ -179,6 +194,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   def provider_path(:data_source, id), do: "/bo/channels/data_source/#{id}"
   def provider_path(:notification, id), do: "/bo/channels/notifications/#{id}"
 
+  def ingress_status_color(status) do
+    IngressStatusUI.color(status)
+  end
+
   # --- Private ---
 
   defp compute_stats do
@@ -195,5 +214,32 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     Enum.reduce(all_providers, %{}, fn provider, acc ->
       Map.put(acc, String.to_atom(provider), Map.get(counts, provider, 0))
     end)
+  end
+
+  defp compute_ingress_statuses do
+    configured_providers = configured_retrieval_providers()
+
+    providers =
+      @retrieval_cards
+      |> Enum.map(& &1.id)
+      |> Enum.reject(&(&1 == "email"))
+      |> Enum.filter(&MapSet.member?(configured_providers, &1))
+
+    Enum.reduce(providers, %{}, fn provider, acc ->
+      Map.put(acc, provider, fetch_ingress_status(provider))
+    end)
+  end
+
+  defp configured_retrieval_providers do
+    ChannelConfig
+    |> where([c], c.kind == "retrieval")
+    |> select([c], c.provider)
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  defp fetch_ingress_status(provider) do
+    event = Event.new(%{provider: provider}, :channels, opts: [action: :channel_ingress_status])
+    event |> NodeRouter.dispatch() |> Map.get(:response) |> IngressStatusUI.normalize_response()
   end
 end

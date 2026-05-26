@@ -484,6 +484,22 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
+        %Event{request: %{provider: provider} = request} = event,
+        :channel_ingress_status,
+        _context
+      ) do
+    bridge_module = bridge_module(event)
+
+    with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
+         true <- supports_callback?(bridge, :channel_ingress_status, 1) || {:error, :unsupported},
+         {:ok, config} <- ingress_status_config(bridge_module, provider, request) do
+      %{event | response: bridge.channel_ingress_status(config)}
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+    end
+  end
+
+  def handle_event(
         %Event{request: %{config: %ChannelConfig{} = config, channel_id: channel_id}} = event,
         :test_connection,
         _context
@@ -530,6 +546,15 @@ defmodule Zaq.Channels.Api do
   end
 
   defp bridge_module(_event), do: Bridge
+
+  defp ingress_status_config(_bridge_module, _provider, %{config: %ChannelConfig{} = config}),
+    do: {:ok, config}
+
+  defp ingress_status_config(_bridge_module, _provider, %{config: config}) when is_map(config),
+    do: {:ok, config}
+
+  defp ingress_status_config(bridge_module, provider, _request),
+    do: bridge_module.fetch_channel_config(provider)
 
   defp validate_update_intent(nil), do: :ok
 

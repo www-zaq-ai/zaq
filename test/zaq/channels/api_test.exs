@@ -83,6 +83,11 @@ defmodule Zaq.Channels.ApiTest do
       {:ok,
        %{action: :created, message_id: "m-1", update_intent: Map.get(request, :update_intent)}}
     end
+
+    def channel_ingress_status(config) do
+      send(self(), {:bridge_channel_ingress_status, config})
+      {:ok, %{status: :ok, mode: "websocket", summary: "running"}}
+    end
   end
 
   defmodule StubBridgeNoCallbacks do
@@ -1160,6 +1165,28 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :test_connection, nil)
     assert result.response == {:error, {:no_bridge, "mattermost"}}
+  end
+
+  test "handles channel_ingress_status with provider config lookup" do
+    event =
+      Event.new(%{provider: "mattermost"}, :channels,
+        opts: [action: :channel_ingress_status, bridge_module: StubCommunicationBridge]
+      )
+
+    result = Api.handle_event(event, :channel_ingress_status, nil)
+
+    assert result.response == {:ok, %{status: :ok, mode: "websocket", summary: "running"}}
+    assert_received {:bridge_channel_ingress_status, %{id: 1, provider: "mattermost"}}
+  end
+
+  test "channel_ingress_status returns unsupported when callback missing" do
+    event =
+      Event.new(%{provider: "mattermost"}, :channels,
+        opts: [action: :channel_ingress_status, bridge_module: StubCommunicationBridgeNoCallbacks]
+      )
+
+    result = Api.handle_event(event, :channel_ingress_status, nil)
+    assert result.response == {:error, :unsupported}
   end
 
   test "returns unsupported_action for unhandled action" do

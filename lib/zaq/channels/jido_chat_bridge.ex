@@ -137,6 +137,24 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @impl true
+  def channel_ingress_status(config) when is_map(config) do
+    provider = Map.get(config, :provider) || Map.get(config, "provider")
+    ingress_mode = ingress_mode_for(provider)
+
+    case ingress_mode do
+      mode when mode in [:websocket, :gateway, :polling] ->
+        listener_runtime_status(config, mode)
+
+      :webhook ->
+        webhook_ingress_status(config)
+
+      other ->
+        {:ok,
+         %{status: :unsupported, mode: to_string(other), summary: "Ingress mode is not supported"}}
+    end
+  end
+
+  @impl true
   def capability_snapshot(config) when is_map(config) do
     with {:ok, adapter} <- adapter_for(config.provider) do
       raw_capabilities = Adapter.capabilities(adapter)
@@ -672,6 +690,135 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp ingress_starts_listener?(mode), do: mode in [:websocket, :gateway, :polling]
+
+  defp listener_runtime_status(config, mode) do
+    bridge_id = runtime_bridge_id(config)
+
+    case supervisor_module().lookup_runtime(bridge_id) do
+      {:ok, %{listener_pids: listener_pids, state_pid: state_pid}} ->
+        alive_listener_count = Enum.count(listener_pids, &Process.alive?/1)
+        state_alive = is_pid(state_pid) and Process.alive?(state_pid)
+
+        if state_alive or alive_listener_count > 0 do
+          {:ok,
+           %{
+             status: :ok,
+             mode: Atom.to_string(mode),
+             summary: "Ingress listener runtime is running",
+             details: %{
+               bridge_id: bridge_id,
+               state_pid: inspect(state_pid),
+               state_alive: state_alive,
+               listeners_total: length(listener_pids),
+               listeners_alive: alive_listener_count
+             }
+           }}
+        else
+          {:ok,
+           %{
+             status: :error,
+             mode: Atom.to_string(mode),
+             summary: "Ingress runtime exists but no process is alive",
+             reason: :runtime_not_alive,
+             details: %{bridge_id: bridge_id}
+           }}
+        end
+
+      {:error, :not_running} ->
+        {:ok,
+         %{
+           status: :error,
+           mode: Atom.to_string(mode),
+           summary: "Ingress runtime is not running",
+           reason: :not_running,
+           details: %{bridge_id: bridge_id}
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp webhook_ingress_status(config) do
+    with {:ok, adapter} <- adapter_for(config.provider),
+         true <- function_exported?(adapter, :ingress_status, 2) || {:error, :unsupported} do
+      config
+      |> webhook_ingress_opts()
+      |> then(&adapter.ingress_status(config, &1))
+      |> webhook_ingress_status_result()
+    else
+      {:error, :unsupported} ->
+        {:ok,
+         %{
+           status: :unsupported,
+           mode: "webhook",
+           summary: "Adapter does not support webhook ingress status checks"
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp webhook_ingress_status_result({:ok, details}) when is_map(details) do
+    if webhook_status_ok?(details) do
+      {:ok,
+       %{
+         status: :ok,
+         mode: "webhook",
+         summary: "Webhook ingress subscription is configured",
+         details: details
+       }}
+    else
+      {:ok,
+       %{
+         status: :error,
+         mode: "webhook",
+         summary: "Webhook ingress subscription is missing or invalid",
+         reason: Map.get(details, :reason) || Map.get(details, "reason") || :not_configured,
+         details: details
+       }}
+    end
+  end
+
+  defp webhook_ingress_status_result({:error, reason}) do
+    {:ok,
+     %{
+       status: :error,
+       mode: "webhook",
+       summary: "Webhook ingress status check failed",
+       reason: reason
+     }}
+  end
+
+  defp webhook_ingress_status_result(other) do
+    {:ok,
+     %{
+       status: :error,
+       mode: "webhook",
+       summary: "Webhook ingress status returned unexpected payload",
+       reason: {:unexpected_result, other}
+     }}
+  end
+
+  defp webhook_ingress_opts(config) do
+    [
+      url: config.url,
+      token: config.token,
+      provider: config.provider,
+      bot_user_id: ChannelConfig.jido_chat_bot_user_id(config),
+      bot_name: ChannelConfig.jido_chat_bot_name(config)
+    ]
+  end
+
+  defp webhook_status_ok?(details) when is_map(details) do
+    case Map.get(details, :status) || Map.get(details, "status") do
+      :ok -> true
+      "ok" -> true
+      true -> true
+      _ -> false
+    end
+  end
 
   defp accumulate_capability(acc, capability, raw_capabilities, ingress_mode, adapter) do
     case capability_value(capability, raw_capabilities, ingress_mode, adapter) do

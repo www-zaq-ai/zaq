@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
+  alias ZaqWeb.Live.BO.Communication.IngressStatusUI
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
   alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
 
@@ -75,6 +76,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:provider, provider)
      |> assign(:provider_label, label)
      |> assign(:configs, configs)
+     |> assign(:ingress_statuses, ingress_statuses(configs))
+     |> assign(:ingress_status_modal, nil)
      |> assign(:agent_options, agent_options())
      |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
      # config modal
@@ -365,6 +368,21 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     {:noreply, assign(socket, :capability_modal_open, true)}
   end
 
+  def handle_event("open_ingress_status", %{"id" => id}, socket) do
+    case ParseUtils.parse_int_strict(id) do
+      {:ok, parsed_id} ->
+        status = Map.get(socket.assigns.ingress_statuses || %{}, parsed_id)
+        {:noreply, assign(socket, :ingress_status_modal, %{config_id: parsed_id, status: status})}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_ingress_status", _params, socket) do
+    {:noreply, assign(socket, :ingress_status_modal, nil)}
+  end
+
   def handle_event("close_capabilities", _params, socket) do
     {:noreply, assign(socket, :capability_modal_open, false)}
   end
@@ -388,6 +406,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          socket
          |> assign(:confirm_delete, nil)
          |> assign(:configs, configs)
+         |> assign(:ingress_statuses, ingress_statuses(configs))
          |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
          |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
@@ -411,6 +430,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     {:noreply,
      socket
      |> assign(:configs, configs)
+     |> assign(:ingress_statuses, ingress_statuses(configs))
      |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
      |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
      |> maybe_put_runtime_sync_flash(
@@ -440,6 +460,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       {:noreply,
        socket
        |> assign(:configs, configs)
+       |> assign(:ingress_statuses, ingress_statuses(configs))
        |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
        |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
        |> maybe_put_runtime_sync_flash(sync_result, "Provider default agent updated.")}
@@ -1109,6 +1130,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     Map.get(grants_by_config || %{}, config.id)
   end
 
+  def ingress_status_color(status) do
+    IngressStatusUI.color(status)
+  end
+
   def credential_auth_kind_from_changeset(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.get_field(changeset, :auth_kind, "oauth2")
   end
@@ -1257,6 +1282,21 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       {:ok, map} when is_map(map) -> map
       _ -> %{}
     end
+  end
+
+  defp ingress_statuses(configs) when is_list(configs) do
+    Enum.reduce(configs, %{}, fn config, acc ->
+      Map.put(acc, config.id, ingress_status(config))
+    end)
+  end
+
+  defp ingress_status(%ChannelConfig{} = config) do
+    event =
+      Event.new(%{provider: config.provider, config: config}, :channels,
+        opts: [action: :channel_ingress_status]
+      )
+
+    event |> NodeRouter.dispatch() |> Map.get(:response) |> IngressStatusUI.normalize_response()
   end
 
   defp open_credential_modal(socket, changeset, :ok) do
