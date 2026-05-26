@@ -467,7 +467,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
                  enabled: true
                })
 
-      assert t.event_name == "manual_trigger"
+      assert t.event_name == "engine:manual_trigger"
       assert t.enabled == true
     end
 

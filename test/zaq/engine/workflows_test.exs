@@ -101,8 +101,8 @@ defmodule Zaq.Engine.WorkflowsTest do
       create_trigger(%{event_name: "enabled_event_2", enabled: true})
 
       names = Workflows.list_trigger_event_names()
-      assert "enabled_event_1" in names
-      assert "enabled_event_2" in names
+      assert "engine:enabled_event_1" in names
+      assert "engine:enabled_event_2" in names
     end
 
     test "excludes disabled triggers" do
@@ -110,8 +110,8 @@ defmodule Zaq.Engine.WorkflowsTest do
       create_trigger(%{event_name: "disabled_skip", enabled: false})
 
       names = Workflows.list_trigger_event_names()
-      assert "enabled_ok" in names
-      refute "disabled_skip" in names
+      assert "engine:enabled_ok" in names
+      refute "engine:disabled_skip" in names
     end
 
     test "returns empty list when no enabled triggers" do
@@ -146,7 +146,7 @@ defmodule Zaq.Engine.WorkflowsTest do
   describe "create_trigger/2" do
     test "creates a trigger with event_name" do
       assert {:ok, %Trigger{} = t} = Workflows.create_trigger(%{event_name: "order_created"})
-      assert t.event_name == "order_created"
+      assert t.event_name == "engine:order_created"
       assert t.enabled == true
     end
 
