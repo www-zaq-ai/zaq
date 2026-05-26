@@ -5,7 +5,7 @@ defmodule Zaq.Engine.SupervisorTest do
 
   alias Zaq.Engine.Supervisor
 
-  test "init/1 defines Telemetry, Ingestion, Retrieval supervisors and EventRegistry" do
+  test "init/1 defines RunRegistry, Telemetry, Ingestion, Retrieval supervisors, EventRegistry, and StartupRecovery" do
     assert {:ok, {spec, children}} = Supervisor.init([])
     assert spec.strategy == :one_for_one
 
@@ -14,7 +14,8 @@ defmodule Zaq.Engine.SupervisorTest do
              Zaq.Engine.Telemetry.Supervisor,
              Zaq.Engine.IngestionSupervisor,
              Zaq.Engine.RetrievalSupervisor,
-             Zaq.Engine.EventRegistry
+             Zaq.Engine.EventRegistry,
+             Zaq.Engine.Workflows.StartupRecovery
            ]
   end
 end
