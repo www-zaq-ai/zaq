@@ -76,8 +76,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ "—"
     end
 
-    test "renders elapsed time with trailing '…' when finished_at is nil" do
-      run = %{started_at: DateTime.add(DateTime.utc_now(), -10, :second), finished_at: nil}
+    test "renders elapsed time with trailing '…' when finished_at is nil and run is active" do
+      run = %{
+        started_at: DateTime.add(DateTime.utc_now(), -10, :second),
+        finished_at: nil,
+        status: "running"
+      }
+
       html = render_component(&WorkflowComponents.run_duration/1, run: run)
       assert html =~ "…"
       assert html =~ "s"

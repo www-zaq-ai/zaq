@@ -541,4 +541,135 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert is_nil(Workflows.get_run(run.id))
     end
   end
+
+  # --- list_stale_runs/0 ---
+
+  describe "list_stale_runs/0" do
+    test "returns running and pending runs" do
+      w = create_workflow()
+      running = create_run(w) |> set_run_status("running")
+      pending = create_run(w)
+
+      stale_ids = Workflows.list_stale_runs() |> Enum.map(& &1.id) |> MapSet.new()
+      assert MapSet.member?(stale_ids, running.id)
+      assert MapSet.member?(stale_ids, pending.id)
+    end
+
+    test "excludes terminal runs" do
+      w = create_workflow()
+      completed = create_run(w) |> set_run_status("completed")
+      failed = create_run(w) |> set_run_status("failed")
+      cancelled = create_run(w) |> set_run_status("cancelled")
+      interrupted = create_run(w) |> set_run_status("interrupted")
+
+      stale_ids = Workflows.list_stale_runs() |> Enum.map(& &1.id) |> MapSet.new()
+      refute MapSet.member?(stale_ids, completed.id)
+      refute MapSet.member?(stale_ids, failed.id)
+      refute MapSet.member?(stale_ids, cancelled.id)
+      refute MapSet.member?(stale_ids, interrupted.id)
+    end
+
+    test "returns empty list when no stale runs" do
+      w = create_workflow()
+      create_run(w) |> set_run_status("completed")
+      assert Workflows.list_stale_runs() == []
+    end
+  end
+
+  # --- interrupt_run/1 ---
+
+  describe "interrupt_run/1" do
+    test "marks a running run as interrupted with finished_at" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      assert {:ok, interrupted} = Workflows.interrupt_run(run)
+      assert interrupted.status == "interrupted"
+      assert %DateTime{} = interrupted.finished_at
+    end
+
+    test "marks a pending run as interrupted" do
+      w = create_workflow()
+      run = create_run(w)
+
+      assert {:ok, interrupted} = Workflows.interrupt_run(run)
+      assert interrupted.status == "interrupted"
+    end
+
+    test "bulk-marks in-flight step_runs as failed with node_shutdown error" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "running",
+          started_at: DateTime.utc_now(:second)
+        })
+
+      assert {:ok, _} = Workflows.interrupt_run(run)
+
+      reloaded = Repo.get!(Zaq.Engine.Workflows.Step.Run, sr.id)
+      assert reloaded.status == "failed"
+      assert reloaded.errors["reason"] == "node_shutdown"
+      assert %DateTime{} = reloaded.finished_at
+    end
+
+    test "does not touch already-completed step_runs" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "completed",
+          started_at: DateTime.utc_now(:second)
+        })
+
+      assert {:ok, _} = Workflows.interrupt_run(run)
+
+      reloaded = Repo.get!(Zaq.Engine.Workflows.Step.Run, sr.id)
+      assert reloaded.status == "completed"
+    end
+
+    test "is idempotent for already-interrupted run" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("interrupted")
+
+      assert {:ok, returned} = Workflows.interrupt_run(run)
+      assert returned.id == run.id
+      assert returned.status == "interrupted"
+    end
+
+    test "is idempotent for completed run" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("completed")
+
+      assert {:ok, returned} = Workflows.interrupt_run(run)
+      assert returned.status == "completed"
+    end
+
+    test "is idempotent for failed run" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("failed")
+
+      assert {:ok, returned} = Workflows.interrupt_run(run)
+      assert returned.status == "failed"
+    end
+
+    test "works when there are no in-flight step_runs" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      assert {:ok, interrupted} = Workflows.interrupt_run(run)
+      assert interrupted.status == "interrupted"
+    end
+  end
+
+  defp set_run_status(run, status) do
+    {:ok, updated} = Workflows.update_run(run, %{status: status})
+    updated
+  end
 end
