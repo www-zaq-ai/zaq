@@ -7,7 +7,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   import ZaqWeb.Live.BO.AI.WorkflowComponents
 
-  alias Zaq.{Event, NodeRouter}
+  alias Zaq.Event
   alias ZaqWeb.Components.{BOFileUpload, BOLayout, BOModal}
 
   @impl true
@@ -96,7 +96,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       get_event =
         Event.new(%{module: Zaq.Engine.Workflows, function: :get_workflow!, args: [id]}, :engine)
 
-      case NodeRouter.dispatch(get_event).response do
+      case node_router().dispatch(get_event).response do
         %Zaq.Engine.Workflows.Workflow{} = wf ->
           del_event =
             Event.new(
@@ -104,7 +104,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
               :engine
             )
 
-          NodeRouter.dispatch(del_event)
+          node_router().dispatch(del_event)
 
         _ ->
           :skip
@@ -148,7 +148,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       %Zaq.Engine.Workflows.Workflow{} = workflow ->
         run_event =
           Event.new(
@@ -156,7 +156,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
             :engine
           )
 
-        case NodeRouter.dispatch(run_event).response do
+        case node_router().dispatch(run_event).response do
           {:ok, run} ->
             start_event =
               Event.new(
@@ -164,7 +164,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
                 :engine
               )
 
-            NodeRouter.dispatch(start_event)
+            node_router().dispatch(start_event)
             {:noreply, push_navigate(socket, to: ~p"/bo/workflows/#{workflow_id}/runs/#{run.id}")}
 
           _ ->
@@ -251,7 +251,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       {:ok, _workflow} ->
         all = load_workflows(socket)
 
@@ -635,7 +635,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       workflows when is_list(workflows) -> workflows
       _ -> []
     end
@@ -655,6 +655,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       true -> "#{div(diff, 86_400)}d ago"
     end
   end
+
+  defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 
   defp upload_error_label(:too_large), do: "file exceeds size limit"
   defp upload_error_label(:not_accepted), do: "file type not accepted"

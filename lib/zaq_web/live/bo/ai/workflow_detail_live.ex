@@ -8,7 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   import ZaqWeb.Live.BO.AI.WorkflowComponents
 
   alias Oban.Cron.Expression, as: CronExpression
-  alias Zaq.{Event, NodeRouter}
+  alias Zaq.Event
 
   alias ZaqWeb.Components.{BOLayout, BOModal}
 
@@ -91,7 +91,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       data when is_map(data) ->
         json = Jason.encode!(data, pretty: true)
         filename = "workflow-#{socket.assigns.workflow.id}.json"
@@ -128,7 +128,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       {:ok, _} ->
         {:noreply,
          socket
@@ -159,7 +159,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         :engine
       )
 
-    case NodeRouter.dispatch(run_event).response do
+    case node_router().dispatch(run_event).response do
       {:ok, run} ->
         {:noreply, push_navigate(socket, to: ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")}
 
@@ -192,7 +192,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           :engine
         )
 
-      case NodeRouter.dispatch(event).response do
+      case node_router().dispatch(event).response do
         {:ok, updated_workflow} ->
           {:noreply, assign(socket, workflow: updated_workflow)}
 
@@ -250,7 +250,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
           :engine
         )
 
-      case NodeRouter.dispatch(event).response do
+      case node_router().dispatch(event).response do
         {:ok, updated_workflow} ->
           {:noreply,
            socket
@@ -618,7 +618,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       %Zaq.Engine.Workflows.Workflow{} = workflow -> {:ok, workflow}
       _ -> :error
     end
@@ -633,7 +633,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       count when is_integer(count) -> count
       _ -> 0
     end
@@ -652,7 +652,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       triggers when is_list(triggers) -> triggers
       _ -> []
     end
@@ -673,13 +673,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         :engine
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       runs when is_list(runs) -> runs
       _ -> []
     end
   rescue
     _ -> []
   end
+
+  defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 
   defp format_dt(nil), do: "—"
 

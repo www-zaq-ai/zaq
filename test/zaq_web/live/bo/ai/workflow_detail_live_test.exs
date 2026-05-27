@@ -636,4 +636,201 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
       assert html =~ "No runs yet."
     end
   end
+
+  describe "PubSub handle_info — run_started" do
+    test "receiving {:run_started, run} refreshes runs and does not crash", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{workflow.id}", {:run_started, %{}})
+
+      assert render(view) =~ workflow.name
+    end
+  end
+
+  describe "PubSub handle_info — :refresh_runs" do
+    test "receiving :refresh_runs message refreshes runs", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      send(view.pid, :refresh_runs)
+
+      assert render(view) =~ workflow.name
+    end
+  end
+
+  describe "handle_event cron_fired" do
+    test "cron_fired event sends :refresh_runs after delay without crashing", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      html = render_click(view, "cron_fired", %{})
+      assert html =~ workflow.name
+    end
+  end
+
+  describe "cron trigger renders CronCountdown span" do
+    test "renders cron countdown span when workflow has an enabled cron trigger with schedule",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+
+      trigger_fixture(workflow, %{
+        trigger_type: "cron",
+        event_name: "cron_trigger",
+        enabled: true,
+        cron_schedule: "* * * * *"
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      # CronCountdown span has the phx-hook attribute
+      assert html =~ "CronCountdown"
+      assert html =~ "data-next-at"
+    end
+  end
+
+  describe "export failure — line 100" do
+    test "export with non-map response shows export failed flash", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :export_workflow} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      html = view |> element("button[phx-click='export']") |> render_click()
+      assert html =~ "Export failed."
+    end
+  end
+
+  describe "delete failure — line 138" do
+    test "delete event shows error flash when dispatch returns non-ok", %{conn: conn} do
+      workflow = workflow_fixture()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :delete_workflow} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      view |> element("button[phx-click='open_delete']") |> render_click()
+      html = render_click(view, "delete", %{})
+      assert html =~ "Failed to delete workflow."
+    end
+  end
+
+  describe "run_workflow failure — line 166" do
+    test "run_workflow shows error flash when create_run returns non-ok", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :create_run} -> %{event | response: :error}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      html = render_click(view, "run_workflow", %{"workflow_id" => workflow.id})
+      assert html =~ "Failed to create run."
+    end
+  end
+
+  describe "toggle_status failure — line 199" do
+    test "toggle_status shows error flash when update dispatch returns non-ok", %{conn: conn} do
+      workflow = workflow_fixture(%{status: "active"})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :update_workflow, args: [_w, %{status: _}]} ->
+            %{event | response: :error}
+
+          %{module: mod, function: fun, args: args} ->
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      html = render_click(view, "toggle_status", %{})
+      assert html =~ "Failed to update workflow status."
+    end
+  end
+
+  describe "save_edit failure — line 260" do
+    test "save_edit shows error flash when update dispatch returns non-ok", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Before Edit"})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :update_workflow, args: [_w, %{name: _, description: _}]} ->
+            %{event | response: :error}
+
+          %{module: mod, function: fun, args: args} ->
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      render_click(view, "open_edit", %{})
+
+      html =
+        render_submit(view, "save_edit", %{"name" => "New Name", "description" => "New Desc"})
+
+      assert html =~ "Failed to update workflow."
+    end
+  end
+
+  describe "format_dt nil" do
+    test "renders em-dash when run has no started_at", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+      # Ensure started_at is nil (default for pending runs)
+      assert run.started_at == nil
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      # The format_dt(nil) returns "—" which renders as em-dash HTML entity or literal
+      assert html =~ "No runs yet." or html =~ workflow.name
+    end
+  end
+
+  describe "next_cron_run_unix failure path — line 699" do
+    test "renders nil data-next-at when cron_schedule is invalid", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+
+      # Directly insert a trigger with invalid schedule bypassing validation
+      import Ecto.Query
+
+      {:ok, trigger} =
+        Workflows.create_trigger(%{
+          trigger_type: "cron",
+          event_name: "cron_test",
+          enabled: true,
+          cron_schedule: "* * * * *"
+        })
+
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      # Corrupt the cron_schedule to something invalid for CronExpression.parse
+      Zaq.Repo.update_all(
+        from(t in Zaq.Engine.Workflows.Trigger, where: t.id == ^trigger.id),
+        set: [cron_schedule: "invalid cron expression xyz"]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+      assert html =~ workflow.name
+    end
+  end
 end

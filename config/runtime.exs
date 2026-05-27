@@ -20,6 +20,18 @@ if System.get_env("PHX_SERVER") do
   config :zaq, ZaqWeb.Endpoint, server: true
 end
 
+config :req_llm,
+  finch: [
+    name: ReqLLM.Finch,
+    pools: %{
+      :default => [
+        protocols: [:http1],
+        size: 1,
+        count: String.to_integer(System.get_env("REQ_LLM_POOL_COUNT", "20"))
+      ]
+    }
+  ]
+
 config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
@@ -28,7 +40,8 @@ if config_env() == :prod do
   # in prod, so it never clobbers those compile-time values.
   config :zaq,
     user_portal_base_url: System.get_env("USER_PORTAL_BASE_URL", "https://portal.zaq.ai"),
-    litellm_base_url: System.get_env("LITELLM_BASE_URL", "https://llm.zaq.ai")
+    litellm_base_url: System.get_env("LITELLM_BASE_URL", "https://llm.zaq.ai"),
+    workflows_enabled: System.get_env("WORKFLOWS_ENABLED", "false") == "true"
 
   # Secret-at-rest encryption (SMTP passwords, AI provider keys, MCP secrets — any
   # Zaq.Types.EncryptedString field). Required and validated at boot so a missing
