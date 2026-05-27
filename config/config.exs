@@ -10,7 +10,8 @@ import Config
 config :zaq, :channels, %{
   :"email:imap" => %{
     bridge: Zaq.Channels.EmailBridge,
-    adapter: Zaq.Channels.EmailBridge.ImapAdapter
+    adapter: Zaq.Channels.EmailBridge.ImapAdapter,
+    message_format: :html
   },
   mattermost: %{
     bridge: Zaq.Channels.JidoChatBridge,
@@ -28,7 +29,9 @@ config :zaq, :channels, %{
   telegram: %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Telegram.Adapter,
-    ingress_mode: :webhook
+    ingress_mode: :webhook,
+    message_format: :html,
+    message_formatter: {Telegex.Marked, :as_html}
   },
   google_drive: %{
     bridge: Zaq.Channels.JidoConnectBridge,

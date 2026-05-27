@@ -108,7 +108,11 @@ defmodule Zaq.MixProject do
       {:jido_chat_discord, "~> 1.0"},
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
-      {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"},
+      # {:jido_chat_telegram,
+      #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_telegram",
+      #  override: true},
+      {:jido_chat_telegram, github: "jfayad/jido_chat_telegram", branch: "main"},
+      {:telegex_marked, "~> 0.0.0"},
       {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       {:jido_mcp, github: "agentjido/jido_mcp", branch: "main"},

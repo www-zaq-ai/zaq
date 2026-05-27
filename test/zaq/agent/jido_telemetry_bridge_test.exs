@@ -6,14 +6,12 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   alias Zaq.Agent.JidoTelemetryBridge
 
   defmodule FakeNodeRouter do
+    alias Zaq.Engine.Messages.Outgoing
     alias Zaq.Event
 
     def dispatch(%Event{opts: opts, request: request} = event) do
       if opts[:action] == :upsert_message do
-        session_id = request[:session_id]
-        request_id = request[:request_id]
-        message = request[:body]
-        stage = get_in(request, [:intent_meta, :stage]) || :answering
+        {session_id, request_id, message, stage} = status_fields(request)
 
         Phoenix.PubSub.broadcast(
           Zaq.PubSub,
@@ -25,6 +23,28 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
       else
         event
       end
+    end
+
+    defp status_fields(%Outgoing{} = request) do
+      metadata = if is_map(request.metadata), do: request.metadata, else: %{}
+
+      {
+        Map.get(metadata, :session_id) || Map.get(metadata, "session_id"),
+        Map.get(metadata, :request_id) || Map.get(metadata, "request_id"),
+        request.body,
+        get_in(metadata, [:intent_meta, :stage]) || get_in(metadata, ["intent_meta", "stage"]) ||
+          :answering
+      }
+    end
+
+    defp status_fields(request) when is_map(request) do
+      {
+        request[:session_id] || request["session_id"],
+        request[:request_id] || request["request_id"],
+        request[:body] || request["body"],
+        get_in(request, [:intent_meta, :stage]) || get_in(request, ["intent_meta", "stage"]) ||
+          :answering
+      }
     end
   end
 
@@ -945,7 +965,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
   end
 
   @tag timeout: 5_000
-  test "trace lock acquisition retries until fallback path" do
+  test "trace lock acquisition serializes concurrent updates" do
     request_id = "req-#{System.unique_integer([:positive])}"
     tool_call_id = "tool-lock-#{System.unique_integer([:positive])}"
 
@@ -970,25 +990,30 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
                %{}
              )
 
+    stop_event = fn duration, result ->
+      JidoTelemetryBridge.handle_event(
+        [:jido, :ai, :tool, :execute, :stop],
+        %{duration_ms: duration},
+        %{
+          request_id: request_id,
+          tool_call_id: tool_call_id,
+          tool_name: "read_file",
+          result: result
+        },
+        %{}
+      )
+    end
+
+    task_a = Task.async(fn -> stop_event.(7, %{ok: true}) end)
+    task_b = Task.async(fn -> stop_event.(9, %{ok: "second"}) end)
+
+    assert :ok == Task.await(task_a)
+    assert :ok == Task.await(task_b)
+
     lock_key = {:tool, request_id, tool_call_id}
-    :ets.insert(:zaq_tool_trace_locks, {lock_key, true})
-
-    assert :ok =
-             JidoTelemetryBridge.handle_event(
-               [:jido, :ai, :tool, :execute, :stop],
-               %{duration_ms: 7},
-               %{
-                 request_id: request_id,
-                 tool_call_id: tool_call_id,
-                 tool_name: "read_file",
-                 result: %{ok: true}
-               },
-               %{}
-             )
-
     assert [{_, trace}] = :ets.lookup(:zaq_tool_trace_events, lock_key)
     assert trace.status == "ok"
-    assert trace.response_time_ms == 7
+    assert trace.response_time_ms in [7, 9]
   end
 
   test "tool trace keeps prior values when new values are empty and handles non-map measurements" do

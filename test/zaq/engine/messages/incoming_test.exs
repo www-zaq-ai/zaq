@@ -78,6 +78,34 @@ defmodule Zaq.Engine.Messages.IncomingTest do
     assert email.metadata["telemetry_dimensions"]["channel_type"] == "email:imap"
   end
 
+  test "new/1 maps atom :email provider to email:imap channel type" do
+    attrs = %{content: "hello", channel_id: "mail-1", provider: :email}
+
+    msg = Incoming.new(attrs)
+
+    assert msg.metadata["telemetry_dimensions"]["channel_type"] == "email:imap"
+    assert msg.metadata["telemetry_dimensions"]["provider"] == "email"
+    assert msg.provider == :email
+  end
+
+  test "new/1 maps string provider \"web\" to bo channel type" do
+    attrs = %{content: "hello", channel_id: "bo-1", provider: "web"}
+
+    msg = Incoming.new(attrs)
+
+    assert msg.metadata["telemetry_dimensions"]["channel_type"] == "bo"
+    assert msg.metadata["telemetry_dimensions"]["provider"] == "web"
+  end
+
+  test "new/1 preserves unrecognized string provider as channel type" do
+    attrs = %{content: "hello", channel_id: "ch-x", provider: "teams"}
+
+    msg = Incoming.new(attrs)
+
+    assert msg.metadata["telemetry_dimensions"]["channel_type"] == "teams"
+    assert msg.metadata["telemetry_dimensions"]["provider"] == "teams"
+  end
+
   test "new/1 normalizes channel_config_id variants" do
     blank =
       Incoming.new(%{
@@ -127,5 +155,23 @@ defmodule Zaq.Engine.Messages.IncomingTest do
 
     assert is_map(msg.metadata)
     assert msg.content_filter == ["ok", "safe"]
+  end
+
+  describe "new/1 required keys" do
+    test "raises ArgumentError when :content key is missing" do
+      attrs = %{channel_id: "ch1", provider: :mattermost}
+
+      assert_raise ArgumentError, "missing required key :content for Incoming.new/1", fn ->
+        Incoming.new(attrs)
+      end
+    end
+
+    test "raises ArgumentError when required key is absent in both atom and string forms" do
+      attrs = %{"content" => "hello", provider: :mattermost}
+
+      assert_raise ArgumentError, "missing required key :channel_id for Incoming.new/1", fn ->
+        Incoming.new(attrs)
+      end
+    end
   end
 end

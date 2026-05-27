@@ -13,7 +13,8 @@ defmodule Zaq.Agent.Status do
   import Zaq.Engine.Messages,
     only: [is_present_message_id: 1, present_message_id?: 1, request_key: 2]
 
-  alias Zaq.{Engine.Messages.Incoming, Event}
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Event
 
   @doc """
   Extracts session context from a `%Zaq.Event{}` for ETS registration in `StatusRegistry`.
@@ -62,8 +63,8 @@ defmodule Zaq.Agent.Status do
   end
 
   def broadcast(%Incoming{} = incoming, stage, message, node_router, opts) do
-    params =
-      build_upsert_params(
+    outgoing =
+      build_upsert_outgoing(
         %{
           session_id: incoming.metadata[:session_id],
           request_id: request_key(incoming.metadata, incoming.message_id),
@@ -77,7 +78,7 @@ defmodule Zaq.Agent.Status do
         message
       )
 
-    case dispatch_upsert(params, node_router) do
+    case dispatch_upsert(outgoing, node_router) do
       %Event{} = event -> merge_status_message_id(incoming, event)
       _ -> incoming
     end
@@ -92,8 +93,8 @@ defmodule Zaq.Agent.Status do
 
   defp dispatch_upsert(nil, _node_router), do: :ok
 
-  defp dispatch_upsert(params, node_router) do
-    ChannelEvents.build_and_dispatch_upsert_message_event(params,
+  defp dispatch_upsert(%Outgoing{} = outgoing, node_router) do
+    ChannelEvents.build_and_dispatch_upsert_message_event(outgoing,
       node_router: node_router
     )
   end
@@ -116,22 +117,24 @@ defmodule Zaq.Agent.Status do
     end
   end
 
-  defp build_upsert_params(%{} = context, stage, message) do
+  defp build_upsert_outgoing(%{} = context, stage, message) do
     request_id = Map.get(context, :request_id)
     provider = Map.get(context, :provider) || :web
     channel_id = Map.get(context, :channel_id) || "bo"
 
     if present_message_id?(request_id) do
-      %{
+      %Outgoing{
         provider: provider,
         channel_id: channel_id,
         thread_id: Map.get(context, :thread_id),
-        request_id: request_id,
-        status_message_id: Map.get(context, :status_message_id),
         body: message,
-        update_intent: Map.get(context, :update_intent) || :status,
-        session_id: Map.get(context, :session_id),
-        intent_meta: %{stage: stage}
+        metadata: %{
+          request_id: request_id,
+          status_message_id: Map.get(context, :status_message_id),
+          update_intent: Map.get(context, :update_intent) || :status,
+          session_id: Map.get(context, :session_id),
+          intent_meta: %{stage: stage}
+        }
       }
     else
       nil

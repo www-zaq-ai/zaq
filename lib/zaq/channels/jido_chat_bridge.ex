@@ -350,11 +350,29 @@ defmodule Zaq.Channels.JidoChatBridge do
       thread_id = Map.get(request, :thread_id)
       channel_id = Map.get(request, :channel_id)
       body = Map.get(request, :body)
+      request_metadata = Map.get(request, :metadata, request)
 
       if is_present_message_id(message_id) do
-        edit_message(adapter, channel_id, message_id, body, url, token, request)
+        edit_message(
+          adapter,
+          channel_id,
+          message_id,
+          body,
+          url,
+          token,
+          Map.put(request, :metadata, request_metadata)
+        )
       else
-        create_message(provider_atom, adapter, channel_id, thread_id, body, url, token)
+        create_message(
+          provider_atom,
+          adapter,
+          channel_id,
+          thread_id,
+          body,
+          url,
+          token,
+          request_metadata
+        )
       end
     end
   end
@@ -1197,6 +1215,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, url, token) do
+    metadata = outgoing.metadata || %{}
+
     with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
          {:ok, _result} <-
            edit_message(
@@ -1206,7 +1226,7 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.body,
              url,
              token,
-             %{request_id: outgoing.metadata[:request_id]}
+             %{request_id: metadata[:request_id], metadata: metadata}
            ) do
       :ok
     else
@@ -1226,6 +1246,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, url, token) do
+    metadata = outgoing.metadata || %{}
+
     with {:ok, %{message_id: post_id}} <-
            create_message(
              outgoing.provider,
@@ -1234,7 +1256,8 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.thread_id,
              outgoing.body,
              url,
-             token
+             token,
+             metadata
            ) do
       dispatch_on_reply(outgoing.metadata, post_id)
       :ok
@@ -1306,7 +1329,16 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp dispatch_on_reply(_metadata, _post_id), do: :ok
 
-  defp create_message(provider, adapter_module, channel_id, thread_id, body, url, token) do
+  defp create_message(
+         provider,
+         adapter_module,
+         channel_id,
+         thread_id,
+         body,
+         url,
+         token,
+         metadata
+       ) do
     effective_thread_id = thread_id || channel_id
 
     thread =
@@ -1319,7 +1351,9 @@ defmodule Zaq.Channels.JidoChatBridge do
         metadata: %{url: url, token: token}
       })
 
-    case Chat.Thread.post(thread, body, url: url, token: token) do
+    post_body = build_post_body(body, metadata)
+
+    case Chat.Thread.post(thread, post_body, format_delivery_opts(url, token, metadata)) do
       {:ok, post} ->
         {:ok,
          %{
@@ -1333,7 +1367,12 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp edit_message(adapter_module, channel_id, message_id, body, url, token, request) do
-    opts = [url: url, token: token, update_intent: Map.get(request, :update_intent)]
+    metadata = Map.get(request, :metadata, %{})
+
+    opts =
+      [url: url, token: token, update_intent: Map.get(request, :update_intent)]
+      |> maybe_put_format_from_metadata(metadata)
+
     result = adapter_module.edit_message(channel_id, message_id, body, opts)
 
     case normalize_outbound_result(result) do
@@ -1351,4 +1390,33 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp metadata_message_id(_), do: nil
+
+  defp format_delivery_opts(url, token, metadata) do
+    [url: url, token: token]
+    |> maybe_put_format_from_metadata(metadata)
+  end
+
+  defp build_post_body(body, metadata) when is_binary(body) do
+    %{text: body, formatted: body, metadata: post_metadata(metadata)}
+  end
+
+  defp build_post_body(body, _metadata), do: body
+
+  defp post_metadata(metadata) when is_map(metadata) do
+    case Map.get(metadata, :format) || Map.get(metadata, "format") do
+      format when format in [:html, :plain_text, :markdown] -> %{format: format}
+      _ -> %{}
+    end
+  end
+
+  defp post_metadata(_metadata), do: %{}
+
+  defp maybe_put_format_from_metadata(opts, metadata) when is_map(metadata) do
+    case Map.get(metadata, :format) || Map.get(metadata, "format") do
+      format when format in [:html, :plain_text, :markdown] -> Keyword.put(opts, :format, format)
+      _ -> opts
+    end
+  end
+
+  defp maybe_put_format_from_metadata(opts, _metadata), do: opts
 end

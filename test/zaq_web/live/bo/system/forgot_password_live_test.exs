@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
-  use ZaqWeb.ConnCase, async: true
+  use ZaqWeb.ConnCase, async: false
 
   import Ecto.Query
   import Phoenix.LiveViewTest
@@ -34,7 +34,8 @@ defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
         |> render_submit()
 
       assert html =~ "Check your inbox"
-      assert_email_sent(subject: "Reset your ZAQ password")
+      assert_receive {:email, email}, 1_000
+      assert email.subject == "Reset your ZAQ password"
     end
   end
 

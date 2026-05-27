@@ -128,6 +128,7 @@ defmodule Zaq.Channels.EmailBridge do
     from_name = resolve_from_name(outgoing.metadata)
 
     html_body = get_meta(outgoing.metadata, "html_body", :html_body)
+    format = get_meta(outgoing.metadata, "format", :format)
     headers = if reply?, do: reply_headers(outgoing), else: %{}
 
     payload =
@@ -135,6 +136,7 @@ defmodule Zaq.Channels.EmailBridge do
         "subject" => subject,
         "body" => outgoing.body,
         "html_body" => html_body,
+        "format" => format,
         "headers" => headers
       }
       |> maybe_put("from_email", from_email)

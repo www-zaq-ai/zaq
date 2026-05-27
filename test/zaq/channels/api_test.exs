@@ -41,6 +41,18 @@ defmodule Zaq.Channels.ApiTest do
     def fetch_channel_config(_provider), do: {:error, :channel_not_configured}
   end
 
+  defmodule StubIngressRuntimeModule do
+    def ensure_ingress_subscription(provider, params) do
+      send(self(), {:ensure_ingress_subscription, provider, params})
+      {:ok, %{subscription_id: "sub-1"}}
+    end
+
+    def delete_ingress_subscription(provider, params) do
+      send(self(), {:delete_ingress_subscription, provider, params})
+      :ok
+    end
+  end
+
   defmodule StubBridgeImpl do
     def send_reply(%Outgoing{} = outgoing, details) do
       send(self(), {:bridge_send_reply, outgoing, details})
@@ -328,6 +340,29 @@ defmodule Zaq.Channels.ApiTest do
     assert_received {:bridge_send_reply, %Outgoing{metadata: %{message_id: "m-status"}}, _details}
   end
 
+  describe "deliver_outgoing metadata preservation" do
+    test "deliver_outgoing keeps existing message_id and does not overwrite it with status_message_id" do
+      outgoing = %Outgoing{
+        body: "ok",
+        channel_id: "c1",
+        provider: :web,
+        metadata: %{message_id: "m-existing", status_message_id: "m-status", request_id: "r1"}
+      }
+
+      event =
+        Event.new(outgoing, :channels,
+          opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+        )
+
+      result = Api.handle_event(event, :deliver_outgoing, nil)
+
+      assert result.response == :ok
+      assert_received {:bridge_send_reply, %Outgoing{metadata: metadata}, _details}
+      assert metadata[:message_id] == "m-existing"
+      assert metadata[:status_message_id] == "m-status"
+    end
+  end
+
   test "handles deliver_outgoing action when outgoing is in event response" do
     outgoing = %Outgoing{body: "ok", channel_id: "c1", provider: :web}
 
@@ -359,8 +394,10 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == {:ok, %{action: :created, message_id: "m-1", update_intent: nil}}
 
-    assert_received {:bridge_upsert_message, %{id: 1, provider: "mattermost"}, ^request,
+    assert_received {:bridge_upsert_message, %{id: 1, provider: "mattermost"}, bridged_request,
                      %{url: "https://example.test", token: "token"}}
+
+    assert Map.take(bridged_request, Map.keys(request)) == request
   end
 
   test "upsert_message maps status_message_id into message_id" do
@@ -464,6 +501,84 @@ defmodule Zaq.Channels.ApiTest do
     refute_received {:bridge_upsert_message, _, _, _}
   end
 
+  describe "upsert_message uncovered branches" do
+    test "upsert_message returns fetch_channel_config error for non-web provider" do
+      request = %{provider: :mattermost, channel_id: "c1", request_id: "r1", body: "partial"}
+
+      event =
+        Event.new(request, :channels,
+          opts: [action: :upsert_message, bridge_module: StubCommunicationBridgeConfigError]
+        )
+
+      result = Api.handle_event(event, :upsert_message, nil)
+
+      assert result.response == {:error, :channel_not_configured}
+      refute_received {:bridge_upsert_message, _, _, _}
+    end
+
+    test "upsert_message accepts update_intent as supported binary" do
+      request = %{
+        provider: :web,
+        channel_id: "c1",
+        request_id: "r1",
+        body: "partial",
+        update_intent: "tool_call"
+      }
+
+      event =
+        Event.new(request, :channels,
+          opts: [action: :upsert_message, bridge_module: StubCommunicationBridge]
+        )
+
+      result = Api.handle_event(event, :upsert_message, nil)
+
+      assert result.response ==
+               {:ok, %{action: :created, message_id: "m-1", update_intent: "tool_call"}}
+
+      assert_received {:bridge_upsert_message, _cfg, _request, _details}
+    end
+
+    test "upsert_message rejects unknown binary update_intent" do
+      request = %{
+        provider: :web,
+        channel_id: "c1",
+        request_id: "r1",
+        body: "partial",
+        update_intent: "totally_unknown_intent_xyz"
+      }
+
+      event =
+        Event.new(request, :channels,
+          opts: [action: :upsert_message, bridge_module: StubCommunicationBridge]
+        )
+
+      result = Api.handle_event(event, :upsert_message, nil)
+
+      assert result.response == {:error, :unsupported_update_intent}
+      refute_received {:bridge_upsert_message, _, _, _}
+    end
+
+    test "upsert_message rejects non atom/binary update_intent" do
+      request = %{
+        provider: :web,
+        channel_id: "c1",
+        request_id: "r1",
+        body: "partial",
+        update_intent: 123
+      }
+
+      event =
+        Event.new(request, :channels,
+          opts: [action: :upsert_message, bridge_module: StubCommunicationBridge]
+        )
+
+      result = Api.handle_event(event, :upsert_message, nil)
+
+      assert result.response == {:error, :unsupported_update_intent}
+      refute_received {:bridge_upsert_message, _, _, _}
+    end
+  end
+
   test "handles sync_channel_runtime action" do
     before_config = %{id: 1, enabled: true}
     after_config = %{id: 1, enabled: false}
@@ -495,6 +610,49 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == :ok
     assert_received {:bridge_sync_provider_runtime, :mattermost}
+  end
+
+  describe "channel ingress runtime actions" do
+    test "handles channel_ensure_ingress_subscription via runtime_module option" do
+      event =
+        Event.new(%{provider: :mattermost, params: %{"channel_id" => "c1"}}, :channels,
+          opts: [
+            action: :channel_ensure_ingress_subscription,
+            runtime_module: StubIngressRuntimeModule
+          ]
+        )
+
+      result = Api.handle_event(event, :channel_ensure_ingress_subscription, nil)
+
+      assert result.response == {:ok, %{subscription_id: "sub-1"}}
+      assert_received {:ensure_ingress_subscription, :mattermost, %{"channel_id" => "c1"}}
+    end
+
+    test "handles channel_delete_ingress_subscription via runtime_module option" do
+      event =
+        Event.new(%{provider: :mattermost, params: %{"subscription_id" => "sub-1"}}, :channels,
+          opts: [
+            action: :channel_delete_ingress_subscription,
+            runtime_module: StubIngressRuntimeModule
+          ]
+        )
+
+      result = Api.handle_event(event, :channel_delete_ingress_subscription, nil)
+
+      assert result.response == :ok
+      assert_received {:delete_ingress_subscription, :mattermost, %{"subscription_id" => "sub-1"}}
+    end
+
+    test "channel ingress subscription actions return unsupported_action when params is not a map" do
+      ensure_event = Event.new(%{provider: :mattermost, params: "bad"}, :channels)
+      delete_event = Event.new(%{provider: :mattermost, params: "bad"}, :channels)
+
+      assert Api.handle_event(ensure_event, :channel_ensure_ingress_subscription, nil).response ==
+               {:error, {:unsupported_action, :channel_ensure_ingress_subscription}}
+
+      assert Api.handle_event(delete_event, :channel_delete_ingress_subscription, nil).response ==
+               {:error, {:unsupported_action, :channel_delete_ingress_subscription}}
+    end
   end
 
   test "handles test_connection action" do
@@ -1204,6 +1362,25 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == {:ok, %{status: :ok, mode: "websocket", summary: "running"}}
     assert_received {:bridge_channel_ingress_status, %{id: 1, provider: "mattermost"}}
+  end
+
+  describe "channel_ingress_status config override" do
+    test "channel_ingress_status uses request config map directly" do
+      event =
+        Event.new(
+          %{provider: "mattermost", config: %{provider: "mattermost", token: "x"}},
+          :channels,
+          opts: [
+            action: :channel_ingress_status,
+            bridge_module: StubCommunicationBridgeConfigError
+          ]
+        )
+
+      result = Api.handle_event(event, :channel_ingress_status, nil)
+
+      assert result.response == {:ok, %{status: :ok, mode: "websocket", summary: "running"}}
+      assert_received {:bridge_channel_ingress_status, %{provider: "mattermost", token: "x"}}
+    end
   end
 
   test "channel_ingress_status returns unsupported when callback missing" do

@@ -267,13 +267,15 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   defmodule StubAdapterThreadPost do
-    def send_message(_channel_id, _text, _opts) do
+    def send_message(channel_id, text, opts) do
+      send(self(), {:adapter_send_message, channel_id, text, opts})
       {:ok, %{external_message_id: "post-123"}}
     end
   end
 
   defmodule StubAdapterThreadPostWithUpdate do
-    def send_message(_channel_id, _text, _opts) do
+    def send_message(channel_id, text, opts) do
+      send(self(), {:adapter_send_message, channel_id, text, opts})
       {:ok, %{external_message_id: "post-123"}}
     end
 
@@ -334,6 +336,48 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   defmodule StubAdapterCapabilitiesBooleans do
     def capabilities do
       %{"edit_messages" => true, "file" => false, "mode" => "native"}
+    end
+  end
+
+  defmodule StubAdapterCapabilitiesBoolsAndNil do
+    def capabilities do
+      %{"typing" => true, "file" => false, "audio" => nil}
+    end
+  end
+
+  defmodule StubAdapterCapabilitiesNativeOnly do
+    def capabilities do
+      %{typing: :native}
+    end
+  end
+
+  defmodule StubAdapterWebhookIngress do
+    def listener_child_specs(_bridge_id, _opts), do: {:ok, []}
+
+    def ensure_ingress_subscription(bridge_id, opts) do
+      send(self(), {:ensure_ingress_subscription, bridge_id, opts})
+      Process.get(:stub_ensure_ingress_subscription_result, {:ok, %{subscription_id: bridge_id}})
+    end
+
+    def list_ingress_subscriptions(bridge_id, opts) do
+      send(self(), {:list_ingress_subscriptions, bridge_id, opts})
+      Process.get(:stub_list_ingress_subscriptions_result, {:ok, []})
+    end
+
+    def delete_ingress_subscription(bridge_id, subscription_id, opts) do
+      send(self(), {:delete_ingress_subscription, bridge_id, subscription_id, opts})
+
+      Process.get(
+        :stub_delete_ingress_subscription_result,
+        {:ok, %{subscription_id: subscription_id}}
+      )
+    end
+  end
+
+  defmodule StubSupervisorRuntimeLookup do
+    def lookup_runtime(bridge_id) do
+      send(self(), {:lookup_runtime_called, bridge_id})
+      Process.get(:stub_lookup_runtime_result, {:error, :not_running})
     end
   end
 
@@ -2179,6 +2223,64 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:adapter_edit_message, "chan-1", "msg-1", "final", opts}
       assert opts[:url] == "https://mm.example.com"
       assert opts[:token] == "tok"
+      refute Keyword.has_key?(opts, :format)
+    end
+
+    test "do_send_reply/2 relays canonical format to create flow" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterThreadPost}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      outgoing = %Outgoing{
+        body: "<strong>final</strong>",
+        channel_id: "chan-1",
+        thread_id: "thread-9",
+        provider: :mattermost,
+        metadata: %{format: :html}
+      }
+
+      assert :ok =
+               JidoChatBridge.do_send_reply(outgoing, %{
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+
+      assert_received {:adapter_send_message, "chan-1", "<strong>final</strong>", opts}
+      assert opts[:format] == :html
+    end
+
+    test "do_send_reply/2 relays canonical format to edit flow" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdate
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      outgoing = %Outgoing{
+        body: "final",
+        channel_id: "chan-1",
+        thread_id: "thread-9",
+        provider: :mattermost,
+        metadata: %{message_id: "msg-1", request_id: "req-1", format: :plain_text}
+      }
+
+      assert :ok =
+               JidoChatBridge.do_send_reply(outgoing, %{
+                 url: "https://mm.example.com",
+                 token: "tok"
+               })
+
+      assert_received {:adapter_edit_message, "chan-1", "msg-1", "final", opts}
+      assert opts[:format] == :plain_text
     end
 
     test "do_send_reply/2 returns adapter edit errors" do
@@ -2354,7 +2456,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  %{url: "https://mm.example.com", token: "tok"}
                )
 
-      assert_received {:adapter_edit_message, "chan-1", "msg-42", "partial", _opts}
+      assert_received {:adapter_edit_message, "chan-1", "msg-42", "partial", opts}
+      refute Keyword.has_key?(opts, :format)
     end
 
     test "updates when integer message_id is present and adapter supports updates" do
@@ -2381,7 +2484,60 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  %{url: "https://mm.example.com", token: "tok"}
                )
 
-      assert_received {:adapter_edit_message, "chan-1", 52, "partial", _opts}
+      assert_received {:adapter_edit_message, "chan-1", 52, "partial", opts}
+      refute Keyword.has_key?(opts, :format)
+    end
+
+    test "relays canonical format in upsert create flow" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdate
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{action: :created, message_id: "post-123"}} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost", provider_atom: :mattermost},
+                 %{channel_id: "chan-1", thread_id: "thread-1", body: "partial", format: :html},
+                 %{url: "https://mm.example.com", token: "tok"}
+               )
+
+      assert_received {:adapter_send_message, "chan-1", "partial", opts}
+      assert opts[:format] == :html
+    end
+
+    test "relays canonical format in upsert edit flow" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdate
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{action: :updated, message_id: "msg-42"}} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost", provider_atom: :mattermost},
+                 %{
+                   channel_id: "chan-1",
+                   body: "partial",
+                   request_id: "req-1",
+                   message_id: "msg-42",
+                   format: :plain_text
+                 },
+                 %{url: "https://mm.example.com", token: "tok"}
+               )
+
+      assert_received {:adapter_edit_message, "chan-1", "msg-42", "partial", opts}
+      assert opts[:format] == :plain_text
     end
 
     test "returns missing_provider_atom when provider_atom is absent" do
@@ -3160,6 +3316,559 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:listener_child_specs_opts, opts}
       assert opts[:ingress] == %{"mode" => "websocket"}
       assert {:ok, _state_pid} = Supervisor.lookup_state_pid("#{updated.provider}_#{updated.id}")
+    end
+  end
+
+  describe "runtime_update_enabled_enabled/2" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+    end
+
+    test "restarts runtime when startup/listener fingerprint changes" do
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert_received {:listener_child_specs_opts, initial_opts}
+      assert initial_opts[:url] == config.url
+      assert {:ok, old_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      updated =
+        config
+        |> ChannelConfig.changeset(%{url: "https://mattermost.updated.local"})
+        |> Repo.update!()
+
+      assert :ok = JidoChatBridge.runtime_update_enabled_enabled(config, updated)
+      assert_received {:listener_child_specs_opts, updated_opts}
+      assert updated_opts[:url] == "https://mattermost.updated.local"
+
+      assert {:ok, new_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+      refute new_state_pid == old_state_pid
+    end
+
+    test "refreshes runtime when only refresh fingerprint changes" do
+      config =
+        insert_channel_config(%{settings: %{"jido_chat" => %{"message_patterns" => ["deploy"]}}})
+
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert_received {:listener_child_specs_opts, _initial_opts}
+      assert {:ok, old_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      updated =
+        config
+        |> ChannelConfig.changeset(%{
+          settings: %{"jido_chat" => %{"message_patterns" => ["incident"]}}
+        })
+        |> Repo.update!()
+
+      assert :ok = JidoChatBridge.runtime_update_enabled_enabled(config, updated)
+      assert {:ok, new_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+      assert new_state_pid == old_state_pid
+
+      state = :sys.get_state(new_state_pid)
+      assert state.config.settings["jido_chat"]["message_patterns"] == ["incident"]
+    end
+
+    test "returns :ok when neither restart nor refresh is required" do
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert_received {:listener_child_specs_opts, _initial_opts}
+      assert {:ok, old_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      assert :ok = JidoChatBridge.runtime_update_enabled_enabled(config, config)
+      refute_received {:listener_child_specs_opts, _}
+      assert {:ok, new_state_pid} = Supervisor.lookup_state_pid(bridge_id)
+      assert new_state_pid == old_state_pid
+    end
+  end
+
+  describe "sync_runtime/2 webhook teardown and ingress ensure" do
+    setup do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_supervisor do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous_supervisor)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+
+        for key <- [
+              :stub_delete_ingress_subscription_result,
+              :stub_ensure_ingress_subscription_result,
+              :stub_list_ingress_subscriptions_result
+            ] do
+          Process.delete(key)
+        end
+      end)
+    end
+
+    test "returns ingress_teardown_failed when stop succeeds but webhook deletion fails" do
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+      assert {:ok, _state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:ok, [%{subscription_id: "sub-1"}]})
+      Process.put(:stub_delete_ingress_subscription_result, {:error, :delete_failed})
+
+      disabled = config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
+
+      assert {:error, {:ingress_teardown_failed, :delete_failed}} =
+               JidoChatBridge.sync_runtime(config, disabled)
+
+      assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+    end
+
+    test "returns stop_runtime error when stop fails even if teardown fails" do
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorStopError)
+
+      on_exit(fn ->
+        if previous_supervisor do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous_supervisor)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+      end)
+
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      disabled = config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
+
+      Process.put(:stub_delete_ingress_subscription_result, {:error, :delete_failed})
+
+      assert {:error, :stop_failed} = JidoChatBridge.sync_runtime(config, disabled)
+    end
+
+    test "wraps ensure_ingress_subscription failure on enable path" do
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      Process.put(:stub_ensure_ingress_subscription_result, {:error, :boom})
+
+      assert {:error, {:ingress_ensure_failed, :boom}} = JidoChatBridge.sync_runtime(nil, config)
+    end
+  end
+
+  describe "channel_ingress_status/1" do
+    test "returns unsupported status for unknown ingress mode" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :custom_mode
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{status: :unsupported, mode: "custom_mode", summary: summary}} =
+               JidoChatBridge.channel_ingress_status(%{provider: "mattermost"})
+
+      assert summary == "Ingress mode is not supported"
+    end
+
+    test "listener mode returns upstream lookup error" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+      Process.put(:stub_lookup_runtime_result, {:error, :db_down})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_supervisor do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous_supervisor)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+
+        Process.delete(:stub_lookup_runtime_result)
+      end)
+
+      assert {:error, :db_down} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "https://mattermost.example.com",
+                 token: "plain-token"
+               })
+    end
+
+    test "listener mode reports running when state pid alive but listeners dead" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+
+      dead_listener =
+        spawn(fn ->
+          receive do
+            :never -> :ok
+          end
+        end)
+
+      Process.exit(dead_listener, :kill)
+      refute Process.alive?(dead_listener)
+
+      Process.put(
+        :stub_lookup_runtime_result,
+        {:ok, %{listener_pids: [dead_listener], state_pid: self()}}
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_supervisor do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous_supervisor)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+
+        Process.delete(:stub_lookup_runtime_result)
+      end)
+
+      assert {:ok, %{status: :ok, details: details}} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "https://mattermost.example.com",
+                 token: "plain-token"
+               })
+
+      assert details.state_alive == true
+      assert details.listeners_alive == 0
+    end
+
+    test "webhook status returns warning when no subscriptions" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:ok, []})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:stub_list_ingress_subscriptions_result)
+      end)
+
+      assert {:ok, %{status: :warning, reason: :not_configured, details: %{count: 0}}} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "https://mattermost.example.com",
+                 token: "plain-token"
+               })
+    end
+
+    test "webhook status returns unsupported when listing unsupported" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:error, :unsupported})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:stub_list_ingress_subscriptions_result)
+      end)
+
+      assert {:ok, %{status: :unsupported}} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "https://mattermost.example.com",
+                 token: "plain-token"
+               })
+    end
+
+    test "webhook status surfaces listing error" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:error, :timeout})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:stub_list_ingress_subscriptions_result)
+      end)
+
+      assert {:ok, %{status: :error, reason: :timeout}} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "https://mattermost.example.com",
+                 token: "plain-token"
+               })
+    end
+
+    test "webhook status handles unexpected listing payload" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      Process.put(:stub_list_ingress_subscriptions_result, :unexpected)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:stub_list_ingress_subscriptions_result)
+      end)
+
+      assert {:ok, %{status: :error, reason: {:unexpected_result, :unexpected}}} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "https://mattermost.example.com",
+                 token: "plain-token"
+               })
+    end
+  end
+
+  describe "ingress subscription APIs" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+
+        for key <- [
+              :stub_delete_ingress_subscription_result,
+              :stub_ensure_ingress_subscription_result,
+              :stub_list_ingress_subscriptions_result
+            ] do
+          Process.delete(key)
+        end
+      end)
+    end
+
+    test "list_ingress_subscriptions/2 delegates with computed opts" do
+      previous_base_url = Zaq.System.get_global_base_url()
+      :ok = Zaq.System.set_global_base_url("https://zaq.example/base/")
+
+      on_exit(fn -> :ok = Zaq.System.set_global_base_url(previous_base_url) end)
+
+      config =
+        insert_channel_config(%{
+          token: "plain-token",
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:ok, [%{subscription_id: "sub-1"}]})
+
+      assert {:ok, [%{subscription_id: "sub-1"}]} =
+               JidoChatBridge.list_ingress_subscriptions(config, %{})
+
+      assert_received {:list_ingress_subscriptions, bridge_id, opts}
+      assert bridge_id == "#{config.provider}_#{config.id}"
+      assert opts[:token] == "plain-token"
+      assert opts[:bridge_config][:credentials][:token] == "plain-token"
+
+      assert opts[:target_url] ==
+               "https://zaq.example/base/channels/webhook/conversation/mattermost"
+    end
+
+    test "delete_ingress_subscription/2 uses explicit subscription_id" do
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      Process.put(:stub_delete_ingress_subscription_result, {:ok, %{deleted: "sub-1"}})
+
+      assert {:ok, %{deleted: "sub-1"}} =
+               JidoChatBridge.delete_ingress_subscription(config, %{"subscription_id" => "sub-1"})
+
+      assert_received {:delete_ingress_subscription, bridge_id, "sub-1", _opts}
+      assert bridge_id == "#{config.provider}_#{config.id}"
+      refute_received {:list_ingress_subscriptions, _, _}
+    end
+
+    test "delete_ingress_subscription/2 derives subscription_id from first listed subscription" do
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      Process.put(
+        :stub_list_ingress_subscriptions_result,
+        {:ok, [%{subscription_id: "sub-from-list"}]}
+      )
+
+      Process.put(:stub_delete_ingress_subscription_result, {:ok, %{deleted: "sub-from-list"}})
+
+      assert {:ok, %{deleted: "sub-from-list"}} =
+               JidoChatBridge.delete_ingress_subscription(config, %{})
+
+      assert_received {:list_ingress_subscriptions, bridge_id, _opts}
+      assert_received {:delete_ingress_subscription, ^bridge_id, "sub-from-list", _opts}
+    end
+
+    test "delete_ingress_subscription/2 returns missing_subscription_id when list is empty/invalid" do
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:ok, []})
+
+      assert {:error, :missing_subscription_id} =
+               JidoChatBridge.delete_ingress_subscription(config, %{})
+
+      assert_received {:list_ingress_subscriptions, _bridge_id, _opts}
+    end
+  end
+
+  describe "webhook target URL and capability coercion" do
+    test "ingress opts uses global base URL when target_url absent" do
+      previous = Application.get_env(:zaq, :channels, %{})
+      previous_base_url = Zaq.System.get_global_base_url()
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      :ok = Zaq.System.set_global_base_url("https://zaq.example/")
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        :ok = Zaq.System.set_global_base_url(previous_base_url)
+      end)
+
+      config =
+        insert_channel_config(%{
+          token: "plain-token",
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:ok, []})
+
+      assert {:ok, []} = JidoChatBridge.list_ingress_subscriptions(config, %{})
+      assert_received {:list_ingress_subscriptions, _bridge_id, opts}
+      assert opts[:target_url] == "https://zaq.example/channels/webhook/conversation/mattermost"
+    end
+
+    test "capability_snapshot keeps native values and normalizes unsupported ones" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterCapabilitiesNativeOnly,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{resolved: resolved}} =
+               JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
+
+      assert resolved[:typing] == :native
+      assert resolved[:file] == :unsupported
+      assert resolved[:audio] == :unsupported
     end
   end
 

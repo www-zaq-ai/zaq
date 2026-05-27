@@ -92,6 +92,32 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert email.html_body == "<p>Hello</p>"
     end
 
+    test "uses body as html when format is html and html_body is absent" do
+      upsert_smtp_channel()
+
+      p = payload(body: "<h1>Hello</h1><p><strong>World</strong></p>") |> Map.put("format", :html)
+      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+
+      assert_receive {:email, email}
+      assert email.html_body == "<h1>Hello</h1><p><strong>World</strong></p>"
+      assert email.text_body == "Hello\nWorld"
+    end
+
+    test "uses explicit html_body when format is html" do
+      upsert_smtp_channel()
+
+      p =
+        payload(body: "ignored body")
+        |> Map.put("format", "html")
+        |> Map.put("html_body", "<p>Preferred HTML</p>")
+
+      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+
+      assert_receive {:email, email}
+      assert email.html_body == "<p>Preferred HTML</p>"
+      assert email.text_body == "Preferred HTML"
+    end
+
     test "generates html from plain text body when html_body is absent" do
       upsert_smtp_channel()
 

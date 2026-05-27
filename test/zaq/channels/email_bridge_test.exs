@@ -558,6 +558,24 @@ defmodule Zaq.Channels.EmailBridgeTest do
       refute Enum.any?(email.headers, fn {k, _v} -> k in ["In-Reply-To", "References"] end)
     end
 
+    test "send_reply relays formatter format for html delivery" do
+      upsert_smtp_channel()
+
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: "<h1>Title</h1><p><strong>hello</strong></p>",
+        channel_id: "recipient@example.com",
+        provider: :email,
+        metadata: %{"subject" => "Formatted", "format" => "html"}
+      }
+
+      assert :ok = EmailBridge.send_reply(outgoing, %{})
+
+      assert_receive {:email, email}
+      assert email.subject == "Formatted"
+      assert email.html_body == "<h1>Title</h1><p><strong>hello</strong></p>"
+      assert email.text_body == "Title\nhello"
+    end
+
     test "send_reply keeps canonical message-id casing for threading headers" do
       upsert_smtp_channel()
 

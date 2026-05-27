@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Mailer
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.HtmlUtils
 
   @smtp_provider "email:smtp"
   alias Zaq.Channels.SmtpHelpers
@@ -24,14 +25,15 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
 
     subject = Map.get(payload, "subject", "")
     body = Map.get(metadata, "email_body") || Map.get(payload, "body", "")
-    html = Map.get(payload, "html_body") || text_to_html(body)
+    format = Map.get(payload, "format")
+    {text, html} = resolve_email_bodies(body, Map.get(payload, "html_body"), format)
 
     email =
       new()
       |> to(identifier)
       |> from({from_name, from_email})
       |> subject(subject)
-      |> text_body(body)
+      |> text_body(text)
       |> html_body(html)
       |> apply_custom_headers(payload, metadata)
 
@@ -44,6 +46,21 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp resolve_email_bodies(body, html_body, format) do
+    case normalize_format(format) do
+      :html ->
+        html = html_body || body || ""
+        {HtmlUtils.html_to_text(html), html}
+
+      _ ->
+        text = body || ""
+        {text, html_body || text_to_html(text)}
+    end
+  end
+
+  defp normalize_format(value) when value in [:html, "html"], do: :html
+  defp normalize_format(_value), do: nil
 
   defp text_to_html(text) do
     text

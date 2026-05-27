@@ -7,14 +7,16 @@ defmodule Zaq.Agent.StatusTest do
 
   # Executes the event's request locally — avoids real RPC in unit tests.
   defmodule FakeNodeRouter do
+    alias Zaq.Engine.Messages.Outgoing
     alias Zaq.Event
 
     def dispatch(%Event{opts: opts, request: request} = event) do
-      if opts[:action] == :upsert_message do
-        session_id = request[:session_id]
-        request_id = request[:request_id]
-        message = request[:body]
-        stage = get_in(request, [:intent_meta, :stage]) || :answering
+      if opts[:action] == :upsert_message and match?(%Outgoing{}, request) do
+        metadata = if is_map(request.metadata), do: request.metadata, else: %{}
+        session_id = metadata[:session_id]
+        request_id = metadata[:request_id]
+        message = request.body
+        stage = get_in(metadata, [:intent_meta, :stage]) || :answering
 
         if is_binary(session_id) and session_id != "" do
           Phoenix.PubSub.broadcast(
@@ -40,7 +42,8 @@ defmodule Zaq.Agent.StatusTest do
       if opts[:action] == :upsert_message do
         %{event | response: {:ok, %{action: :updated, message_id: 52}}}
       else
-        %{event | response: {:ok, %{message_id: request[:request_id]}}}
+        metadata = if is_map(request.metadata), do: request.metadata, else: %{}
+        %{event | response: {:ok, %{message_id: metadata[:request_id]}}}
       end
     end
   end

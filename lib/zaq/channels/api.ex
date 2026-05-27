@@ -17,6 +17,7 @@ defmodule Zaq.Channels.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.MessageFormatter
   alias Zaq.Engine.Messages.Outgoing
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
@@ -31,7 +32,9 @@ defmodule Zaq.Channels.Api do
 
     with {:ok, outgoing} <- outgoing_from_event(event),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider) do
-      outgoing = maybe_attach_status_message_id(outgoing)
+      outgoing =
+        outgoing |> maybe_attach_status_message_id() |> MessageFormatter.format_outgoing()
+
       connection_details = bridge_module.fetch_connection_details(outgoing.provider)
 
       response = bridge.send_reply(outgoing, connection_details)
@@ -64,22 +67,30 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{provider: provider} = request} = event,
+        %Event{} = event,
         :upsert_message,
         _context
       ) do
     bridge_module = bridge_module(event)
 
-    with :ok <- validate_upsert_request(request),
-         :ok <- validate_update_intent(Map.get(request, :update_intent)),
-         {:ok, bridge} <- resolve_bridge(bridge_module, provider),
+    with {:ok, outgoing} <- upsert_outgoing_from_event(event),
+         :ok <- validate_upsert_outgoing(outgoing),
+         :ok <- validate_update_intent(upsert_update_intent(outgoing)),
+         {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
          true <- supports_callback?(bridge, :upsert_message, 3) || {:error, :unsupported} do
-      config = bridge_module.fetch_channel_config(provider)
-      details = bridge_module.fetch_connection_details(provider)
+      config = bridge_module.fetch_channel_config(outgoing.provider)
+      details = bridge_module.fetch_connection_details(outgoing.provider)
 
-      case normalize_upsert_config(provider, config) do
+      formatted_outgoing =
+        outgoing
+        |> maybe_attach_status_message_id()
+        |> MessageFormatter.format_outgoing()
+
+      case normalize_upsert_config(outgoing.provider, config) do
         {:ok, cfg} ->
-          response = bridge.upsert_message(cfg, normalize_upsert_request(request), details)
+          response =
+            bridge.upsert_message(cfg, outgoing_to_upsert_request(formatted_outgoing), details)
+
           %{event | response: response}
 
         {:error, reason} ->
@@ -550,6 +561,15 @@ defmodule Zaq.Channels.Api do
   defp outgoing_from_event(%Event{response: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(_event), do: {:error, {:invalid_request, :missing_outgoing_payload}}
 
+  defp upsert_outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
+
+  defp upsert_outgoing_from_event(%Event{request: request}) when is_map(request) do
+    {:ok, map_to_upsert_outgoing(request)}
+  end
+
+  defp upsert_outgoing_from_event(_event),
+    do: {:error, {:invalid_request, :missing_upsert_payload}}
+
   defp resolve_bridge(bridge_module, provider) when is_atom(bridge_module) do
     case bridge_module.bridge_for(provider) do
       nil -> {:error, {:no_bridge, provider}}
@@ -595,10 +615,14 @@ defmodule Zaq.Channels.Api do
 
   defp validate_update_intent(_), do: {:error, :unsupported_update_intent}
 
-  defp validate_upsert_request(request) when is_map(request) do
-    required = [:provider, :channel_id, :request_id, :body]
+  defp validate_upsert_outgoing(%Outgoing{} = outgoing) do
+    metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
+    request_id = Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
 
-    if Enum.all?(required, &Helper.present?(Map.get(request, &1))) do
+    if Enum.all?(
+         [outgoing.provider, outgoing.channel_id, request_id, outgoing.body],
+         &Helper.present?/1
+       ) do
       :ok
     else
       {:error, {:invalid_request, :missing_upsert_fields}}
@@ -621,15 +645,48 @@ defmodule Zaq.Channels.Api do
     end
   end
 
-  defp normalize_upsert_request(request) when is_map(request) do
-    case Map.get(request, :status_message_id) do
-      message_id when is_present_message_id(message_id) ->
-        Map.put(request, :message_id, message_id)
+  defp outgoing_to_upsert_request(%Outgoing{} = outgoing) do
+    metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
 
-      _ ->
-        request
-    end
+    %{
+      provider: outgoing.provider,
+      channel_id: outgoing.channel_id,
+      thread_id: outgoing.thread_id,
+      body: outgoing.body,
+      request_id: Map.get(metadata, :request_id) || Map.get(metadata, "request_id"),
+      session_id: Map.get(metadata, :session_id) || Map.get(metadata, "session_id"),
+      intent_meta: Map.get(metadata, :intent_meta) || Map.get(metadata, "intent_meta"),
+      update_intent: Map.get(metadata, :update_intent) || Map.get(metadata, "update_intent"),
+      message_id: Map.get(metadata, :message_id) || Map.get(metadata, "message_id"),
+      format: Map.get(metadata, :format)
+    }
   end
+
+  defp map_to_upsert_outgoing(request) when is_map(request) do
+    metadata = %{
+      request_id: fetch(request, :request_id),
+      session_id: fetch(request, :session_id),
+      status_message_id: fetch(request, :status_message_id),
+      update_intent: fetch(request, :update_intent),
+      intent_meta: fetch(request, :intent_meta),
+      message_id: fetch(request, :message_id)
+    }
+
+    %Outgoing{
+      provider: fetch(request, :provider),
+      channel_id: fetch(request, :channel_id),
+      thread_id: fetch(request, :thread_id),
+      body: fetch(request, :body),
+      metadata: metadata
+    }
+  end
+
+  defp upsert_update_intent(%Outgoing{} = outgoing) do
+    metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
+    Map.get(metadata, :update_intent) || Map.get(metadata, "update_intent")
+  end
+
+  defp fetch(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp normalize_upsert_config(provider, {:error, _reason}) when provider in [:web, "web"],
     do: {:ok, %{provider: "web"}}

@@ -2,6 +2,7 @@ defmodule Zaq.Channels.EventsTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.Events
+  alias Zaq.Engine.Messages.Outgoing
 
   defmodule StubNodeRouter do
     def dispatch(event) do
@@ -12,11 +13,11 @@ defmodule Zaq.Channels.EventsTest do
 
   test "build_upsert_message_event forces sync when message_id missing" do
     event =
-      Events.build_upsert_message_event(%{
+      Events.build_upsert_message_event(%Outgoing{
         provider: :web,
         channel_id: "c1",
-        request_id: "r1",
-        body: "hello"
+        body: "hello",
+        metadata: %{request_id: "r1"}
       })
 
     assert event.next_hop.type == :sync
@@ -25,12 +26,11 @@ defmodule Zaq.Channels.EventsTest do
 
   test "build_upsert_message_event defaults to async when status_message_id atom key is present" do
     event =
-      Events.build_upsert_message_event(%{
+      Events.build_upsert_message_event(%Outgoing{
         provider: :web,
         channel_id: "c1",
-        request_id: "r1",
-        status_message_id: "m1",
-        body: "hello"
+        body: "hello",
+        metadata: %{request_id: "r1", status_message_id: "m1"}
       })
 
     assert event.next_hop.type == :async
@@ -39,12 +39,11 @@ defmodule Zaq.Channels.EventsTest do
 
   test "build_upsert_message_event defaults to async when status_message_id string key is present" do
     event =
-      Events.build_upsert_message_event(%{
-        "provider" => :web,
-        "channel_id" => "c1",
-        "request_id" => "r1",
-        "status_message_id" => "m1",
-        "body" => "hello"
+      Events.build_upsert_message_event(%Outgoing{
+        provider: :web,
+        channel_id: "c1",
+        body: "hello",
+        metadata: %{"request_id" => "r1", "status_message_id" => "m1"}
       })
 
     assert event.next_hop.type == :async
@@ -53,12 +52,11 @@ defmodule Zaq.Channels.EventsTest do
 
   test "build_upsert_message_event defaults to sync when message_id is present without status_message_id" do
     event =
-      Events.build_upsert_message_event(%{
+      Events.build_upsert_message_event(%Outgoing{
         provider: :web,
         channel_id: "c1",
-        request_id: "r1",
-        message_id: "m1",
-        body: "hello"
+        body: "hello",
+        metadata: %{request_id: "r1", message_id: "m1"}
       })
 
     assert event.next_hop.type == :sync
@@ -68,12 +66,11 @@ defmodule Zaq.Channels.EventsTest do
   test "build_upsert_message_event honors explicit type override even when status_message_id would imply async" do
     event =
       Events.build_upsert_message_event(
-        %{
+        %Outgoing{
           provider: :web,
           channel_id: "c1",
-          request_id: "r1",
-          status_message_id: "m1",
-          body: "hello"
+          body: "hello",
+          metadata: %{request_id: "r1", status_message_id: "m1"}
         },
         type: :sync
       )
@@ -85,7 +82,7 @@ defmodule Zaq.Channels.EventsTest do
   test "build_and_dispatch_upsert_message_event dispatches built event" do
     event =
       Events.build_and_dispatch_upsert_message_event(
-        %{provider: :web, channel_id: "c1", request_id: "r1", body: "hello"},
+        %Outgoing{provider: :web, channel_id: "c1", body: "hello", metadata: %{request_id: "r1"}},
         node_router: StubNodeRouter
       )
 

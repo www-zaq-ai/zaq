@@ -108,6 +108,36 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     def send_reply(_outgoing, _details), do: :ok
   end
 
+  defmodule StubBridgeIngress do
+    def send_reply(_outgoing, _details), do: :ok
+
+    def ensure_ingress_subscription(config, params) do
+      send(self(), {:ensure_ingress_subscription, config, params})
+      {:ok, %{status: :ensured, params: params}}
+    end
+
+    def list_ingress_subscriptions(config, params) do
+      send(self(), {:list_ingress_subscriptions, config, params})
+      {:ok, [%{id: "sub-1"}]}
+    end
+
+    def delete_ingress_subscription(config, params) do
+      send(self(), {:delete_ingress_subscription, config, params})
+
+      {:ok, %{deleted: true, id: params["id"] || params[:id]}}
+    end
+  end
+
+  defmodule StubBridgeWithoutIngress do
+    def send_reply(_outgoing, _details), do: :ok
+  end
+
+  defmodule StubBridgeIngressError do
+    def send_reply(_outgoing, _details), do: :ok
+
+    def ensure_ingress_subscription(_config, _params), do: {:error, :provider_down}
+  end
+
   defmodule StubNodeRouter do
     alias Zaq.Engine.Messages.Outgoing
 
@@ -134,6 +164,53 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
   setup do
     original_channels = Application.get_env(:zaq, :channels)
+    original_bridge_path = Path.expand("../../../lib/zaq/channels/bridge.ex", __DIR__)
+    original_bridge_source = File.read!(original_bridge_path)
+
+    bridge_base_source =
+      String.replace(original_bridge_source, "Zaq.Channels.Bridge", "Zaq.Channels.BridgeBase")
+
+    :code.purge(Zaq.Channels.Bridge)
+    :code.delete(Zaq.Channels.Bridge)
+
+    Code.compiler_options(ignore_module_conflict: true)
+
+    Code.compile_string(bridge_base_source)
+
+    Code.compile_string("""
+    defmodule Zaq.Channels.Bridge do
+      defdelegate route_incoming(bridge_module, config, payload, sink_opts),
+        to: Zaq.Channels.BridgeBase
+
+      defdelegate before_incoming(config, payload, sink_opts, bridge_module),
+        to: Zaq.Channels.BridgeBase
+
+      defdelegate after_incoming(config, payload, sink_opts, result, bridge_module),
+        to: Zaq.Channels.BridgeBase
+
+      defdelegate ack_from_event_response(response), to: Zaq.Channels.BridgeBase
+      defdelegate bridge_for(provider), to: Zaq.Channels.BridgeBase
+      defdelegate provider_to_bridge_key(provider), to: Zaq.Channels.BridgeBase
+      defdelegate resolve_bridge(provider), to: Zaq.Channels.BridgeBase
+      defdelegate fetch_connection_details(provider), to: Zaq.Channels.BridgeBase
+      defdelegate fetch_any_channel_config(provider), to: Zaq.Channels.BridgeBase
+      defdelegate dispatch_provider_runtime_sync(bridge, config), to: Zaq.Channels.BridgeBase
+      defdelegate capability_snapshot(provider), to: Zaq.Channels.BridgeBase
+      defdelegate sync_config_runtime(before_config, after_config), to: Zaq.Channels.BridgeBase
+      defdelegate sync_provider_runtime(provider), to: Zaq.Channels.BridgeBase
+      defdelegate required_capabilities(kind), to: Zaq.Channels.BridgeBase
+      defdelegate capability_meta(kind), to: Zaq.Channels.BridgeBase
+
+      def fetch_channel_config(provider) do
+        case Process.get(:bridge_fetch_channel_config_override) do
+          nil -> Zaq.Channels.BridgeBase.fetch_channel_config(provider)
+          result -> result
+        end
+      end
+    end
+    """)
+
+    Code.compiler_options(ignore_module_conflict: false)
 
     Application.put_env(:zaq, :channels, %{
       mattermost: %{bridge: StubBridge},
@@ -141,6 +218,17 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     })
 
     on_exit(fn ->
+      Process.delete(:bridge_fetch_channel_config_override)
+
+      :code.purge(Zaq.Channels.Bridge)
+      :code.delete(Zaq.Channels.Bridge)
+      :code.purge(Zaq.Channels.BridgeBase)
+      :code.delete(Zaq.Channels.BridgeBase)
+
+      Code.compiler_options(ignore_module_conflict: true)
+      Code.compile_file(original_bridge_path)
+      Code.compiler_options(ignore_module_conflict: false)
+
       if original_channels do
         Application.put_env(:zaq, :channels, original_channels)
       else
@@ -488,6 +576,151 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       assert {:error, :unsupported} =
                CommunicationBridge.handle_webhook(:mattermost, %{text: "hi"})
+    end
+
+    test "returns upstream config error for non-channel_not_configured reasons" do
+      Process.put(:bridge_fetch_channel_config_override, {:error, :db_unavailable})
+
+      assert {:error, :db_unavailable} =
+               CommunicationBridge.handle_webhook(:mattermost, %{text: "hi"})
+    end
+  end
+
+  describe "ingress subscription delegates" do
+    setup do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: StubBridgeIngress},
+        email: %{bridge: StubBridgeWithoutIngress}
+      })
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      :ok
+    end
+
+    test "ensure_ingress_subscription delegates when callback exists" do
+      insert_config(:mattermost)
+
+      params = %{"topic" => "sales"}
+
+      assert {:ok, %{status: :ensured}} =
+               CommunicationBridge.ensure_ingress_subscription(:mattermost, params)
+
+      assert_received {:ensure_ingress_subscription, config, ^params}
+      assert config.enabled == true
+    end
+
+    test "ensure_ingress_subscription returns :unsupported when callback missing" do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{mattermost: %{bridge: StubBridgeWithoutIngress}})
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      insert_config(:mattermost)
+
+      assert {:error, :unsupported} =
+               CommunicationBridge.ensure_ingress_subscription(:mattermost, %{})
+    end
+
+    test "list_ingress_subscriptions uses fetch_any_channel_config and delegates" do
+      insert_config(:mattermost, %{enabled: false})
+
+      params = %{"topic" => "sales"}
+
+      assert {:ok, [%{id: "sub-1"}]} =
+               CommunicationBridge.list_ingress_subscriptions(:mattermost, params)
+
+      assert_received {:list_ingress_subscriptions, config, ^params}
+      assert config.enabled == false
+    end
+
+    test "list_ingress_subscriptions returns :unsupported when callback missing" do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{mattermost: %{bridge: StubBridgeWithoutIngress}})
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      insert_config(:mattermost, %{enabled: false})
+
+      assert {:error, :unsupported} =
+               CommunicationBridge.list_ingress_subscriptions(:mattermost, %{})
+    end
+
+    test "delete_ingress_subscription uses fetch_any_channel_config and delegates" do
+      insert_config(:mattermost, %{enabled: false})
+
+      params = %{"id" => "sub-1"}
+
+      assert {:ok, %{deleted: true, id: "sub-1"}} =
+               CommunicationBridge.delete_ingress_subscription(:mattermost, params)
+
+      assert_received {:delete_ingress_subscription, config, ^params}
+      assert config.enabled == false
+    end
+
+    test "delete_ingress_subscription returns :unsupported when callback missing" do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{mattermost: %{bridge: StubBridgeWithoutIngress}})
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      insert_config(:mattermost, %{enabled: false})
+
+      assert {:error, :unsupported} =
+               CommunicationBridge.delete_ingress_subscription(:mattermost, %{})
+    end
+
+    test "ingress functions return no_bridge for unknown provider" do
+      assert {:error, {:no_bridge, "missing-provider"}} =
+               CommunicationBridge.ensure_ingress_subscription("missing-provider", %{})
+
+      assert {:error, {:no_bridge, "missing-provider"}} =
+               CommunicationBridge.list_ingress_subscriptions("missing-provider", %{})
+
+      assert {:error, {:no_bridge, "missing-provider"}} =
+               CommunicationBridge.delete_ingress_subscription("missing-provider", %{})
+    end
+
+    test "ensure_ingress_subscription returns channel_not_configured when enabled config missing" do
+      assert {:error, {:channel_not_configured, :email}} =
+               CommunicationBridge.ensure_ingress_subscription(:email, %{})
+    end
+
+    test "list/delete ingress return channel_not_configured when no config exists" do
+      assert {:error, {:channel_not_configured, :email}} =
+               CommunicationBridge.list_ingress_subscriptions(:email, %{})
+
+      assert {:error, {:channel_not_configured, :email}} =
+               CommunicationBridge.delete_ingress_subscription(:email, %{})
     end
   end
 

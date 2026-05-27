@@ -13,25 +13,25 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 
 ## Module Map
 
-| Module                              | File                                         | Role                                          |
-| ----------------------------------- | -------------------------------------------- | --------------------------------------------- |
-| `Zaq.Channels.Api`                  | `lib/zaq/channels/api.ex`                    | Channels role boundary for `NodeRouter` events |
+| Module                              | File                                         | Role                                            |
+| ----------------------------------- | -------------------------------------------- | ----------------------------------------------- |
+| `Zaq.Channels.Api`                  | `lib/zaq/channels/api.ex`                    | Channels role boundary for `NodeRouter` events  |
 | `Zaq.Channels.CommunicationBridge`  | `lib/zaq/channels/communication_bridge.ex`   | Communication-domain routing/delegation helpers |
-| `Zaq.Channels.DataSourceBridge`     | `lib/zaq/channels/data_source_bridge.ex`     | DataSource-domain routing/delegation helpers   |
-| `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers             |
-| `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters        |
-| `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources |
-| `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder             |
-| `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery              |
-| `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub   |
-| `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle         |
-| `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs               |
+| `Zaq.Channels.DataSourceBridge`     | `lib/zaq/channels/data_source_bridge.ex`     | DataSource-domain routing/delegation helpers    |
+| `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers               |
+| `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters          |
+| `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
+| `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
+| `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery                |
+| `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
+| `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle           |
+| `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs                 |
 | `Zaq.Engine.Connect`                | `lib/zaq/engine/connect.ex`                  | Credential/grant lifecycle for Data Source auth |
-| `Zaq.Channels.RetrievalChannel`     | `lib/zaq/channels/retrieval_channel.ex`      | Ecto schema — per-channel subscriptions       |
-| `Zaq.Channels.MattermostAdmin`      | `lib/zaq/channels/mattermost_admin.ex`       | Admin helpers for Mattermost UI               |
-| `Zaq.Channels.SmtpHelpers`          | `lib/zaq/channels/smtp_helpers.ex`           | Internal SMTP settings key normalizer         |
-| `Zaq.Engine.Messages.Incoming`      | `lib/zaq/engine/messages/incoming.ex`        | Canonical inbound message struct              |
-| `Zaq.Engine.Messages.Outgoing`      | `lib/zaq/engine/messages/outgoing.ex`        | Canonical outbound message struct             |
+| `Zaq.Channels.RetrievalChannel`     | `lib/zaq/channels/retrieval_channel.ex`      | Ecto schema — per-channel subscriptions         |
+| `Zaq.Channels.MattermostAdmin`      | `lib/zaq/channels/mattermost_admin.ex`       | Admin helpers for Mattermost UI                 |
+| `Zaq.Channels.SmtpHelpers`          | `lib/zaq/channels/smtp_helpers.ex`           | Internal SMTP settings key normalizer           |
+| `Zaq.Engine.Messages.Incoming`      | `lib/zaq/engine/messages/incoming.ex`        | Canonical inbound message struct                |
+| `Zaq.Engine.Messages.Outgoing`      | `lib/zaq/engine/messages/outgoing.ex`        | Canonical outbound message struct               |
 
 ---
 
@@ -216,6 +216,67 @@ config :zaq, :channels, %{
 
 The string `"email:smtp"` is mapped to the `:email` key before lookup. For `:web`, connection details are always `%{}` — delivery is via PubSub only.
 
+### Outbound message formatting (Channels concern)
+
+Outbound formatting is owned by Channels and applied at the `Zaq.Channels.Api`
+boundary before transport delegation to bridge callbacks.
+
+- Delivery path: `:deliver_outgoing` -> `MessageFormatter.format_outgoing/1` -> `bridge.send_reply/2`
+- Upsert/edit path: `:upsert_message` -> `MessageFormatter.format_outgoing/1` -> `bridge.upsert_message/3`
+
+Formatting is configured per provider in `config :zaq, :channels` through
+`message_format`, and optionally `message_formatter`:
+
+```elixir
+config :zaq, :channels, %{
+  mattermost: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.Mattermost.Adapter,
+    ingress_mode: :websocket
+    # markdown-capable channel: no formatter needed
+    # message_format: nil
+  },
+  email: %{
+    bridge: Zaq.Channels.EmailBridge,
+    message_format: :html
+  },
+  web: %{
+    bridge: Zaq.Channels.WebBridge,
+    message_format: :plain_text
+  },
+  telegram: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.Telegram.Adapter,
+    message_format: :html,
+    message_formatter: {Telegex.Marked, :as_html}
+  }
+}
+```
+
+Supported values:
+
+- `nil` / unset / `:none` -> keep body unchanged
+- `:plain_text` -> markdown source rendered through `Earmark` then converted to text
+- `:html` -> markdown source rendered through `Earmark` and delivered as HTML
+
+If `message_formatter` is configured as `{Module, function_name}`, it is called
+with arity 1 (`function_name.(body)`) and takes precedence over the default
+`message_format` formatter.
+
+Custom formatter errors are not swallowed.
+
+When formatting is applied, `MessageFormatter` also stamps the canonical outbound
+format hint in `Outgoing.metadata[:format]`:
+
+- `:plain_text` formatting -> `metadata[:format] = :plain_text`
+- `:html` formatting -> `metadata[:format] = :html`
+- no-op formatting (`nil` / unset / `:none`) -> no format hint key is set
+
+`Zaq.Channels.JidoChatBridge` relays this canonical `:format` hint in outbound
+adapter opts for create/edit flows without provider-specific mapping. Adapter
+packages are responsible for mapping canonical `:format` values to transport-
+specific fields (for example Telegram `parse_mode`) when supported.
+
 `sync_config_runtime/2` calls `bridge.start_runtime/1` or `bridge.stop_runtime/1` on the bridge if the function is exported. This is how the Supervisor delegates lifecycle to the bridge.
 
 ### Conversation Agent Eligibility
@@ -311,14 +372,14 @@ Configured per provider via `:ingress_mode` in app config. Supported values:
 
 All cross-service calls are overridable via Application env:
 
-| Key                                 | Default                    |
-| ----------------------------------- | -------------------------- |
-| `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`       |
+| Key                                 | Default                            |
+| ----------------------------------- | ---------------------------------- |
+| `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`               |
 | `:chat_bridge_router_module`        | `Zaq.Channels.CommunicationBridge` |
-| `:chat_bridge_conversations_module` | `Zaq.Engine.Conversations` |
-| `:chat_bridge_accounts_module`      | `Zaq.Accounts`             |
-| `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions` |
-| `:pipeline_hooks_module`            | `Zaq.Hooks`                |
+| `:chat_bridge_conversations_module` | `Zaq.Engine.Conversations`         |
+| `:chat_bridge_accounts_module`      | `Zaq.Accounts`                     |
+| `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions`         |
+| `:pipeline_hooks_module`            | `Zaq.Hooks`                        |
 
 When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
 Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
