@@ -64,6 +64,14 @@ defmodule Zaq.Agent do
     {agents, total}
   end
 
+  @spec get_agent_by_name(String.t()) :: {:ok, ConfiguredAgent.t()} | {:error, :agent_not_found}
+  def get_agent_by_name(name) when is_binary(name) do
+    case Repo.get_by(ConfiguredAgent, name: name) do
+      nil -> {:error, :agent_not_found}
+      agent -> {:ok, agent}
+    end
+  end
+
   @spec get_agent!(integer() | String.t()) :: ConfiguredAgent.t()
   def get_agent!(id), do: id |> parse_id!() |> do_get_agent!()
 

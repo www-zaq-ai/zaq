@@ -36,10 +36,17 @@ defmodule Zaq.Agent.Tools.GoogleSheets.UpdateSheetValues do
         doc: "Provider value input option (for example USER_ENTERED)"
       ],
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
+    ],
+    output_schema: [
+      status: [type: :string, required: true, doc: "Result status, e.g. \"updated\"."],
+      record: [type: :any, required: false, doc: "Datasource record returned by the provider."]
     ]
+
+  use Zaq.Engine.Workflows.Action
 
   alias Zaq.Agent.Tools.DataSourceTool
 
+  @impl Jido.Action
   def run(%{provider: provider} = params, context) do
     request =
       %{

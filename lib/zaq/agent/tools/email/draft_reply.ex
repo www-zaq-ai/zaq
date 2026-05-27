@@ -39,6 +39,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
     agent_name = Map.get(params, :agent_name, "MailResponder")
     agent_id = resolve_agent_id!(agent_name)
     scope = "email:run:#{Map.get(context, :run_id, "anon")}"
+    executor = Map.get(context, :executor, Executor)
 
     Logger.info("[DraftReply] Starting — #{length(emails)} email(s) via agent '#{agent_name}'")
 
@@ -65,7 +66,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
             metadata: %{"subject" => subject}
           }
 
-        outgoing = Executor.run(incoming, agent_id: agent_id, scope: scope)
+        outgoing = executor.run(incoming, agent_id: agent_id, scope: scope)
 
         if outgoing.metadata[:error] do
           Logger.error(

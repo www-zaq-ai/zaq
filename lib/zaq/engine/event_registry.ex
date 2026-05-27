@@ -95,9 +95,22 @@ defmodule Zaq.Engine.EventRegistry do
 
   @impl true
   def handle_info({:node_router_event, event}, state) do
-    case derive_event_key(event) do
-      nil -> {:noreply, state}
-      event_key -> {:noreply, fire_or_register(event_key, event, state)}
+    event_key = derive_event_key(event)
+
+    Logger.debug(
+      "[event_registry] event received event_name=#{inspect(event.name)} event_key=#{inspect(event_key)} known_triggers=#{inspect(Map.keys(state.events))}"
+    )
+
+    case event_key do
+      nil ->
+        Logger.debug(
+          "[event_registry] event ignored — could not derive key event_name=#{inspect(event.name)}"
+        )
+
+        {:noreply, state}
+
+      key ->
+        {:noreply, fire_or_register(key, event, state)}
     end
   end
 
@@ -106,11 +119,21 @@ defmodule Zaq.Engine.EventRegistry do
   defp fire_or_register(event_key, event, state) do
     case Map.get(state.events, event_key) do
       true ->
+        Logger.info("[event_registry] trigger fired event_key=#{event_key}")
+
         Task.Supervisor.start_child(Zaq.TaskSupervisor, fn -> state.fire_fn.(event_key, event) end)
 
         state
 
-      _ ->
+      false ->
+        Logger.debug("[event_registry] event seen but not a trigger event_key=#{event_key}")
+        state
+
+      nil ->
+        Logger.debug(
+          "[event_registry] event not in registry — registering as non-trigger event_key=#{event_key}"
+        )
+
         %{state | events: Map.put_new(state.events, event_key, false)}
     end
   end

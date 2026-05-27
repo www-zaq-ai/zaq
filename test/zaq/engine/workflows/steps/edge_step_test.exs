@@ -257,9 +257,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
       assert_raise ConditionNotMet, fn -> run(params) end
     end
 
-    test "depth > 2 (A.b.c) returns nil and logs a warning" do
-      import ExUnit.CaptureLog
-
+    test "depth-3 path 'A.b.c' resolves into nested map (atom keys)" do
       cascade = %{"A" => %{b: %{c: "deep"}}}
 
       params = %{
@@ -269,8 +267,64 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
         __cascade__: cascade
       }
 
-      log = capture_log(fn -> assert_raise ConditionNotMet, fn -> run(params) end end)
-      assert log =~ "cascade"
+      assert {:ok, _} = run(params)
+    end
+
+    test "depth-3 path resolves string-keyed nested map (JSONB round-trip)" do
+      cascade = %{"ensure_person" => %{"row" => %{"row_index" => 5}}}
+
+      params = %{
+        __edge_condition__: %{
+          "field" => "ensure_person.row.row_index",
+          "op" => "eq",
+          "value" => 5
+        },
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: cascade
+      }
+
+      assert {:ok, _} = run(params)
+    end
+
+    test "depth-3 path in mapping injects nested value as top-level key" do
+      cascade = %{"ensure_person" => %{row: %{"row_index" => 7}}}
+
+      params = %{
+        __edge_condition__: nil,
+        __edge_mapping__: %{"row_index" => "ensure_person.row.row_index"},
+        __edge_name__: "e",
+        __cascade__: cascade
+      }
+
+      assert {:ok, result} = run(params)
+      assert result[:row_index] == 7
+    end
+
+    test "depth-3 path where intermediate map is absent returns nil" do
+      cascade = %{"A" => %{other: "field"}}
+
+      params = %{
+        __edge_condition__: %{"field" => "A.b.c", "op" => "eq", "value" => "deep"},
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: cascade
+      }
+
+      assert_raise ConditionNotMet, fn -> run(params) end
+    end
+
+    test "depth-3 path where intermediate value is a scalar returns nil" do
+      cascade = %{"A" => %{b: "not_a_map"}}
+
+      params = %{
+        __edge_condition__: %{"field" => "A.b.c", "op" => "eq", "value" => "deep"},
+        __edge_mapping__: %{},
+        __edge_name__: "e",
+        __cascade__: cascade
+      }
+
+      assert_raise ConditionNotMet, fn -> run(params) end
     end
 
     test "__cascade__ is preserved in the output fact" do
