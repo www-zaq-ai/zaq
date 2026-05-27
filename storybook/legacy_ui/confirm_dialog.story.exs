@@ -1,4 +1,4 @@
-defmodule Storybook.BoModal.ConfirmDialog do
+defmodule Storybook.LegacyUi.ConfirmDialog do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.BOModal.confirm_dialog/1

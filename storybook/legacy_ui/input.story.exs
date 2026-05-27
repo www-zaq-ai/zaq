@@ -1,4 +1,4 @@
-defmodule Storybook.CoreComponents.Input do
+defmodule Storybook.LegacyUi.Input do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.CoreComponents.input/1

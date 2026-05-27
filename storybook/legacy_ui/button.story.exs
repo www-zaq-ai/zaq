@@ -1,4 +1,4 @@
-defmodule Storybook.CoreComponents.Button do
+defmodule Storybook.LegacyUi.Button do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.CoreComponents.button/1

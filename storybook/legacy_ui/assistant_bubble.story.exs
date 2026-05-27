@@ -1,4 +1,4 @@
-defmodule Storybook.ChatMessage.AssistantBubble do
+defmodule Storybook.LegacyUi.AssistantBubble do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.ChatMessage.assistant_bubble/1
