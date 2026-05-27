@@ -6,5 +6,5 @@ defmodule ZaqWeb.Storybook do
     css_path: "/assets/css/app.css",
     js_path: "/assets/js/app.js",
     title: "ZAQ Design System",
-    sandbox_class: "theme-light"
+    sandbox_class: "zaq-sandbox"
 end

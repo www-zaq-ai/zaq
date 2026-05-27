@@ -1,0 +1,75 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   ZAQ Design Foundations
+   Single source of truth for: color palette, typography, scale, and icon sizing.
+
+   Icons: use Heroicons exclusively via the `hero-*` Tailwind utility classes
+   (registered by assets/vendor/heroicons.js).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Light palette (default) ─────────────────────────────────────────────── */
+:root {
+  /* ── Zaq Color Palette (light) ──────────────────────────────────────────── */
+  --color-blue-400:    #027589;
+  --color-blue-300:    #03b6d4;
+  --color-blue-200:    #cdf0f6;
+  --color-blue-100:    #e6f8fb;
+
+  --color-black-400:   #111822;
+  --color-black-300:   #293442;
+  --color-black-200:   #43536d;
+  --color-black-100:   #8691a0;
+
+  --color-neutral-400: #acb3bd;
+  --color-neutral-300: #e2e8f0;
+  --color-neutral-200: #fafafa;
+  --color-neutral-100: #ffffff;
+
+  --color-system-red:    #ea003e;
+  --color-system-green:  #00baa6;
+  --color-system-blue:   #2a7eff;
+  --color-system-orange: #df6f00;
+
+/* ============================================
+   FOUNDATION TOKENS — Scale
+   Base 8px grid. Raw values only.
+   ============================================ */
+  --scale-0:    0px;
+  --scale-2:    2px;
+  --scale-4:    4px;
+  --scale-8:    8px;
+  --scale-12:   12px; /*small text only*/
+  --scale-16:   16px;
+  --scale-24:   24px;
+  --scale-32:   32px;
+  --scale-40:   40px;
+  --scale-42:   48px;   
+  --scale-56:   56px;
+  --scale-64:   64px;
+  --scale-72:   72px;
+  --scale-80:   80px;
+  --scale-999:  999px;  /* pill radius */
+  --scale-1440: 1440px; /* desktop max-width */
+}
+
+/* ── Dark palette ────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --color-blue-400:    #0aadca;
+  --color-blue-300:    #3dd5ee;
+  --color-blue-200:    #083d52;
+  --color-blue-100:    #031d2a;
+
+  --color-black-400:   #F3F5F7;
+  --color-black-300:   #D8E2EF;
+  --color-black-200:   #A0B2C8;
+  --color-black-100:   #65788F;
+
+  --color-neutral-400: #1B2D3E;
+  --color-neutral-300: #161F2E;
+  --color-neutral-200: #0D1720;
+  --color-neutral-100: #081017;
+
+  --color-system-red:    #ff2d55;
+  --color-system-green:  #0fd4bf;
+  --color-system-blue:   #5b9fff;
+  --color-system-orange: #f78514;
+}

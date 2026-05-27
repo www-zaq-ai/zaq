@@ -377,3 +377,12 @@
   75% { transform: translateX(4px); }
 }
 .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
+
+/* ── Storybook sandbox base styles ── */
+.zaq-sandbox {
+  font-family: var(--zaq-font-primary);
+  color: var(--zaq-color-ink);
+  background: var(--color-neutral-100, #fff);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
