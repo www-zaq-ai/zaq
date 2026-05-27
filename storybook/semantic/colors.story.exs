@@ -1,4 +1,4 @@
-defmodule Storybook.Foundations.Colors do
+defmodule Storybook.Semantic.Colors do
   use PhoenixStorybook.Story, :page
 
   def description,
@@ -48,10 +48,10 @@ defmodule Storybook.Foundations.Colors do
       <div style={"height: 48px; border-radius: 8px; background: var(#{@var}); #{if Map.get(assigns, :border), do: "border: 1px solid rgba(0,0,0,0.08);"}"}>
       </div>
       <span style="font-size: 0.7rem; opacity: 0.6; font-family: ui-monospace, monospace;">
-        {@name}
+        <%= @name %>
       </span>
       <span style="font-size: 0.65rem; opacity: 0.35; font-family: ui-monospace, monospace;">
-        {@var}
+        <%= @var %>
       </span>
     </div>
     """
@@ -61,7 +61,7 @@ defmodule Storybook.Foundations.Colors do
     ~H"""
     <div style="display: grid; grid-template-columns: 120px repeat(5, 1fr); gap: 0.5rem; align-items: center;">
       <span style="font-size: 0.75rem; font-weight: 500; text-transform: capitalize; opacity: 0.7;">
-        {@entity}
+        <%= @entity %>
       </span>
       <.swatch name="accent" var={"--zaq-ontology-#{@entity}-accent"} />
       <.swatch name="bg" var={"--zaq-ontology-#{@entity}-bg"} border />
