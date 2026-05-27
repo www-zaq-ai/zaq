@@ -331,14 +331,14 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Creates a workflow from an exported map.
 
-  Always sets `status` to `"draft"` regardless of the exported value — the
-  operator must explicitly activate the workflow after reviewing it.
+  Always sets `status` to `"active"` regardless of the exported value so the
+  workflow is immediately usable after import.
   Returns `{:error, changeset}` if the map is missing required fields.
   """
   @spec import_workflow(map()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
   def import_workflow(attrs) when is_map(attrs) do
     attrs
-    |> Map.put("status", "draft")
+    |> Map.put("status", "active")
     |> create_workflow()
   end
 

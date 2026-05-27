@@ -354,6 +354,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
             >
               Reject
             </button>
+            <button
+              :if={@run.status == "failed"}
+              phx-click="retry_run"
+              class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-[#03b6d4]/30 text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         </div>
 

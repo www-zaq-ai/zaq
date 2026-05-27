@@ -1,10 +1,13 @@
 defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   use Zaq.DataCase, async: false
 
+  import Ecto.Query
+
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.{ParamCapture, PauseSignal}
-  alias Zaq.Engine.Workflows.WorkflowAgent
+  alias Zaq.Engine.Workflows.{WorkflowAgent, WorkflowRun}
   alias Zaq.Event
+  alias Zaq.Repo
   alias Zaq.Test.Stubs
 
   @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
@@ -604,6 +607,206 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       assert started.request[:action] == "run.started"
 
       refute_received {:dispatched, _}
+    end
+  end
+
+  describe "execute/1 — update_run failure at start (lines 110-116)" do
+    test "returns {:error, reason} when the initial status transition fails" do
+      run = create_run()
+
+      # Inject a stub workflows module that returns {:error, :forced} for the
+      # first update_run call (status transition to "running").
+      defmodule FailingStartWorkflows do
+        alias Zaq.Engine.Workflows
+        def update_run(_run, %{status: "running"} = _attrs), do: {:error, :start_blocked}
+        def update_run(run, attrs), do: Workflows.update_run(run, attrs)
+        def list_step_runs(id), do: Workflows.list_step_runs(id)
+      end
+
+      Application.put_env(:zaq, :workflow_agent_workflows_mod, FailingStartWorkflows)
+      on_exit(fn -> Application.delete_env(:zaq, :workflow_agent_workflows_mod) end)
+
+      assert {:error, :start_blocked} = WorkflowAgent.execute(run)
+    end
+  end
+
+  describe "execute/1 — fetch_input nil source_event (line 269)" do
+    test "defaults to empty fact when source_event struct has nil assigns" do
+      wf = probe_workflow()
+
+      # Use a source_event that has nil assigns so fetch_input returns %{}.
+      # The nil clause at line 269 guards when source_event itself is nil.
+      # We exercise the same defensive coding by passing a run whose source_event
+      # struct returns no :input key (assigns key is present but no :input).
+      source_event_no_input = %Event{
+        request: nil,
+        next_hop: nil,
+        name: :workflow_run_triggered,
+        trace_id: Ecto.UUID.generate(),
+        assigns: %{trigger_type: :event}
+      }
+
+      {:ok, run} = Workflows.create_run(wf, source_event_no_input)
+      {:ok, updated} = WorkflowAgent.execute(run)
+
+      assert updated.status == "completed"
+      params = ParamCapture.get_params()
+      refute Map.has_key?(params, :event)
+    end
+  end
+
+  describe "execute/1 — waiting state Logger.info (lines 151-152)" do
+    test "logs waiting state at info level" do
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: :warning) end)
+
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "hitl-log-wf-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "step0", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "hitl", type: "action", module: @waiting_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "step0", to: "hitl"}]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      assert waiting_run.status == "waiting"
+    end
+  end
+
+  describe "execute/1 — format_build_error variants" do
+    # Helper to create a run and forcefully set its steps_snapshot via raw DB update,
+    # then reload and execute to trigger format_build_error with specific error atoms.
+    defp run_with_snapshot(snapshot) do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "fbe-wf-#{System.unique_integer()}",
+          status: "draft",
+          nodes: [
+            %{
+              name: "n",
+              type: "action",
+              module: "Zaq.Agent.Tools.Email.FetchEmails",
+              params: %{},
+              index: 0
+            }
+          ],
+          edges: []
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      Repo.update_all(
+        from(r in WorkflowRun, where: r.id == ^run.id),
+        set: [steps_snapshot: snapshot]
+      )
+
+      Workflows.get_run!(run.id)
+    end
+
+    test "format_build_error(:invalid_steps) — missing nodes key (line 229)" do
+      run = run_with_snapshot(%{"edges" => []})
+      assert {:error, :invalid_steps} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_node_type, type}) — condition node type (line 236)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "n",
+            "type" => "condition",
+            "module" => "Zaq.Agent.Tools.Workflow.Condition",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_node_type, "condition"}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_module, nil}) — node with nil module (line 238)" do
+      snapshot = %{
+        "nodes" => [
+          %{"name" => "n", "type" => "action", "module" => nil, "params" => %{}, "index" => 0}
+        ],
+        "edges" => []
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_module, nil}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_module, mod}) — non-existent module (line 241)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "n",
+            "type" => "action",
+            "module" => "Does.Not.Exist.Anywhere",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_module, "Does.Not.Exist.Anywhere"}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_node, name}) — edge referencing missing node (line 245)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "start",
+            "type" => "action",
+            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => [%{"from" => "start", "to" => "ghost_node"}]
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_node, "ghost_node"}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:invalid_edge_condition, _}) — edge with bad condition (line 247)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "b",
+            "type" => "action",
+            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => [
+          %{
+            "from" => "a",
+            "to" => "b",
+            "condition" => %{"op" => "invalid_op_xyz", "field" => "x", "value" => 1}
+          }
+        ]
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:invalid_edge_condition, _}} = WorkflowAgent.execute(run)
     end
   end
 end

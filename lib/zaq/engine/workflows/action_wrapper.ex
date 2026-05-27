@@ -251,6 +251,10 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
   # Recursively converts action_params to a JSON-safe structure for Postgres JSONB.
   # Tuples (e.g. {Module, params} pipeline steps) become lists; atoms become strings.
+  defp json_safe(%_{} = struct) do
+    struct |> Map.from_struct() |> json_safe()
+  end
+
   defp json_safe(map) when is_map(map) do
     Map.new(map, fn {k, v} -> {json_safe_key(k), json_safe(v)} end)
   end

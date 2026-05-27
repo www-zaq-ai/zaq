@@ -83,9 +83,6 @@ defmodule ZaqWeb.Router do
       live "/ai-diagnostics", Live.BO.AI.AIDiagnosticsLive
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive
       live "/agents", Live.BO.AI.AgentsLive
-      live "/workflows", Live.BO.AI.WorkflowsLive, :index
-      live "/workflows/:id", Live.BO.AI.WorkflowDetailLive, :show
-      live "/workflows/:id/runs/:run_id", Live.BO.AI.WorkflowRunLive, :show
       live "/triggers", Live.BO.AI.TriggersLive, :index
       live "/ingestion", Live.BO.AI.IngestionLive
       live "/ingestion/:provider", Live.BO.AI.IngestionLive
@@ -120,6 +117,16 @@ defmodule ZaqWeb.Router do
       live "/conversations/:id", Live.BO.Communication.ConversationDetailLive, :show
 
       live "/people", Live.BO.System.PeopleLive
+    end
+
+    live_session :bo_workflows,
+      on_mount: [
+        {ZaqWeb.Live.BO.AuthHook, :default},
+        {ZaqWeb.Live.BO.WorkflowGuard, :require_workflows}
+      ] do
+      live "/workflows", Live.BO.AI.WorkflowsLive, :index
+      live "/workflows/:id", Live.BO.AI.WorkflowDetailLive, :show
+      live "/workflows/:id/runs/:run_id", Live.BO.AI.WorkflowRunLive, :show
     end
 
     jido_studio("/studio")

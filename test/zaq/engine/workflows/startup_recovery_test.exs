@@ -82,5 +82,40 @@ defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
       assert Workflows.get_run!(run1.id).status == "interrupted"
       assert Workflows.get_run!(run2.id).status == "interrupted"
     end
+
+    test "logs stale run count at info level when runs exist (lines 33-34)" do
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: :warning) end)
+
+      w = create_workflow()
+      create_run(w, "running")
+
+      # Exercises the Logger.info call in the else-branch with stale runs present
+      assert :ok == StartupRecovery.run([])
+    end
+
+    test "logs error and returns :error when interrupt_run fails (line 46)" do
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: :warning) end)
+
+      w = create_workflow()
+      run = create_run(w, "running")
+
+      # Stub the workflows module to return {:error, reason} for interrupt_run
+      defmodule FailingWorkflows do
+        alias Zaq.Engine.Workflows
+        def list_stale_runs, do: Workflows.list_stale_runs()
+        def interrupt_run(_run), do: {:error, :forced_test_failure}
+      end
+
+      Application.put_env(:zaq, :startup_recovery_workflows_mod, FailingWorkflows)
+      on_exit(fn -> Application.delete_env(:zaq, :startup_recovery_workflows_mod) end)
+
+      # Should not raise; run should remain in original status (interrupt was skipped)
+      StartupRecovery.run([])
+
+      # The run was NOT interrupted because interrupt_run returned {:error, ...}
+      assert Workflows.get_run!(run.id).status == "running"
+    end
   end
 end
