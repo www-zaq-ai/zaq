@@ -118,7 +118,21 @@ defmodule Zaq.Engine.TriggerNodeTest do
     end
   end
 
-  describe "fire/2 — event payload propagation (Step 1)" do
+  describe "fire/2 — event payload propagation" do
+    test "passes request payload directly as input (not wrapped in event map)" do
+      trigger = create_trigger("direct_payload_event")
+      workflow = create_active_workflow("DirectPayloadWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      payload = %{"email" => "lead@example.com", "name" => "John"}
+      incoming_event = build_event(:direct_payload_event, payload)
+
+      assert :ok = TriggerNode.fire("engine:direct_payload_event", incoming_event)
+
+      [run] = Workflows.list_runs(workflow.id)
+      assert get_in(run.source_event.assigns, ["input"]) == payload
+    end
+
     test "propagates incoming event payload into source_event.assigns.input" do
       trigger = create_trigger("payload_event")
       workflow = create_active_workflow("PayloadWorkflow")
@@ -130,8 +144,7 @@ defmodule Zaq.Engine.TriggerNodeTest do
       assert :ok = TriggerNode.fire("engine:payload_event", incoming_event)
 
       [run] = Workflows.list_runs(workflow.id)
-      # JSONB round-trip converts atom keys to strings
-      assert get_in(run.source_event.assigns, ["input", "event", "payload"]) == payload
+      assert get_in(run.source_event.assigns, ["input"]) == payload
     end
 
     test "preserves trace_id from incoming event" do
@@ -146,7 +159,6 @@ defmodule Zaq.Engine.TriggerNodeTest do
 
       [run] = Workflows.list_runs(workflow.id)
       assert run.source_event.trace_id == trace_id
-      assert get_in(run.source_event.assigns, ["input", "event", "trace_id"]) == trace_id
     end
 
     test "sets trigger_type and workflow_id in assigns" do
@@ -157,12 +169,11 @@ defmodule Zaq.Engine.TriggerNodeTest do
       assert :ok = TriggerNode.fire("engine:assigns_event", build_event(:assigns_event))
 
       [run] = Workflows.list_runs(workflow.id)
-      # JSONB round-trip converts atom keys to strings
       assert get_in(run.source_event.assigns, ["trigger_type"]) == "event"
       assert get_in(run.source_event.assigns, ["workflow_id"]) == workflow.id
     end
 
-    test "handles nil request payload" do
+    test "handles nil request payload — defaults to empty map" do
       trigger = create_trigger("nil_payload_event")
       workflow = create_active_workflow("NilPayloadWorkflow")
       Workflows.assign_workflow_to_trigger(trigger, workflow)
@@ -172,34 +183,7 @@ defmodule Zaq.Engine.TriggerNodeTest do
       assert :ok = TriggerNode.fire("engine:nil_payload_event", incoming_event)
 
       [run] = Workflows.list_runs(workflow.id)
-      assert get_in(run.source_event.assigns, ["input", "event", "payload"]) == nil
-    end
-
-    test "handles empty assigns in incoming event" do
-      trigger = create_trigger("empty_assigns_event")
-      workflow = create_active_workflow("EmptyAssignsWorkflow")
-      Workflows.assign_workflow_to_trigger(trigger, workflow)
-
-      incoming_event = build_event(:empty_assigns_event, %{"data" => "value"}, %{})
-
-      assert :ok = TriggerNode.fire("engine:empty_assigns_event", incoming_event)
-
-      [run] = Workflows.list_runs(workflow.id)
-      assert get_in(run.source_event.assigns, ["input", "event", "assigns"]) == %{}
-    end
-
-    test "preserves incoming event assigns in input" do
-      trigger = create_trigger("nested_assigns_event")
-      workflow = create_active_workflow("NestedAssignsWorkflow")
-      Workflows.assign_workflow_to_trigger(trigger, workflow)
-
-      event_assigns = %{"context" => "important_value"}
-      incoming_event = build_event(:nested_assigns_event, %{"data" => "value"}, event_assigns)
-
-      assert :ok = TriggerNode.fire("engine:nested_assigns_event", incoming_event)
-
-      [run] = Workflows.list_runs(workflow.id)
-      assert get_in(run.source_event.assigns, ["input", "event", "assigns"]) == event_assigns
+      assert get_in(run.source_event.assigns, ["input"]) == %{}
     end
 
     test "JSONB round-trip: string-keyed assigns path" do
@@ -215,14 +199,10 @@ defmodule Zaq.Engine.TriggerNodeTest do
       [run] = Workflows.list_runs(workflow.id)
       source_event = run.source_event
 
-      # Simulate JSONB dump and load (converts atom keys to strings)
       {:ok, dumped} = WorkflowEvent.dump(source_event)
       {:ok, reloaded} = WorkflowEvent.load(dumped)
 
-      # Verify that the payload is still accessible via string keys after round-trip
-      assert get_in(reloaded.assigns, ["input", "event", "payload"]) == %{
-               "email" => "user@example.com"
-             }
+      assert get_in(reloaded.assigns, ["input"]) == %{"email" => "user@example.com"}
     end
 
     test "generates trace_id if not present in incoming event" do

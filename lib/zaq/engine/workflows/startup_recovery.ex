@@ -20,7 +20,7 @@ defmodule Zaq.Engine.Workflows.StartupRecovery do
   end
 
   def run(_opts) do
-    stale = Workflows.list_stale_runs()
+    stale = workflows_mod().list_stale_runs()
 
     if stale == [] do
       Logger.info("[StartupRecovery] No stale workflow runs found")
@@ -37,7 +37,7 @@ defmodule Zaq.Engine.Workflows.StartupRecovery do
   end
 
   defp interrupt_one(run) do
-    case Workflows.interrupt_run(run) do
+    case workflows_mod().interrupt_run(run) do
       {:ok, _} ->
         Logger.info("[StartupRecovery] Interrupted run #{run.id} (was #{run.status})")
         :ok
@@ -47,4 +47,7 @@ defmodule Zaq.Engine.Workflows.StartupRecovery do
         :error
     end
   end
+
+  defp workflows_mod,
+    do: Application.get_env(:zaq, :startup_recovery_workflows_mod, Workflows)
 end
