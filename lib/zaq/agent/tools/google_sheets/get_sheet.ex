@@ -24,10 +24,16 @@ defmodule Zaq.Agent.Tools.GoogleSheets.GetSheet do
       spreadsheet_id: [type: :string, required: true, doc: "Spreadsheet identifier"],
       range: [type: :string, required: false, doc: "Optional A1 range"],
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
+    ],
+    output_schema: [
+      record: [type: :any, required: true, doc: "Normalized spreadsheet record."]
     ]
+
+  use Zaq.Engine.Workflows.Action
 
   alias Zaq.Agent.Tools.DataSourceTool
 
+  @impl Jido.Action
   def run(%{provider: provider, spreadsheet_id: spreadsheet_id} = params, context) do
     request =
       %{"spreadsheet_id" => spreadsheet_id}

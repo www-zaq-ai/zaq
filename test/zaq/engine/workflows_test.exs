@@ -408,11 +408,11 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert imported.name == "Import Test"
     end
 
-    test "always sets status to draft regardless of exported status" do
+    test "always sets status to active regardless of exported status" do
       w = create_workflow(%{name: "Was Active", status: "active"})
       exported = Workflows.export_workflow(w)
       assert {:ok, imported} = Workflows.import_workflow(exported)
-      assert imported.status == "draft"
+      assert imported.status == "active"
     end
 
     test "preserves nodes on import" do

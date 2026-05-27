@@ -6,8 +6,21 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Tools.Email.DraftReply
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.TestSupport.OpenAIStub
+
+  # Mock executor that returns a successful outgoing without calling the real LLM.
+  defmodule MockExecutor do
+    def run(%Incoming{} = incoming, _opts) do
+      %Outgoing{
+        body: "Thank you for your email. We will get back to you shortly.",
+        channel_id: incoming.channel_id,
+        provider: incoming.provider,
+        metadata: %{}
+      }
+    end
+  end
 
   defp raw_email(overrides \\ %{}) do
     Map.merge(
@@ -266,6 +279,99 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
 
       assert is_integer(active_id)
       assert is_nil(inactive_id)
+    end
+  end
+
+  describe "run/2 — happy path with injected executor" do
+    setup do
+      {:ok, agent: insert_configured_agent("MailResponder")}
+    end
+
+    @mock_ctx %{executor: MockExecutor}
+
+    test "returns {:ok, %{drafts: [draft]}, logs: logs} for a single email" do
+      email = raw_email()
+
+      assert {:ok, %{drafts: [draft]}, logs: logs} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.to_address == "sender@example.com"
+      assert draft.to_name == "Sender"
+      assert draft.subject == "Re: Hello ZAQ"
+      assert draft.draft =~ "Thank you"
+      assert draft.message_id == "<abc123@mail>"
+      assert is_list(logs)
+      assert length(logs) >= 2
+    end
+
+    test "handles multiple emails and returns one draft per email" do
+      email1 = raw_email()
+
+      email2 =
+        raw_email(%{
+          "from" => %{"address" => "b@b.com", "name" => "Bob"},
+          "message_id" => "<b1@mail>"
+        })
+
+      assert {:ok, %{drafts: drafts}, logs: _logs} =
+               DraftReply.run(
+                 %{emails: [email1, email2], agent_name: "MailResponder"},
+                 @mock_ctx
+               )
+
+      assert length(drafts) == 2
+    end
+
+    test "reply_subject prepends 'Re: ' to a generic subject (line 141)" do
+      email = raw_email(%{"subject" => "Help needed"})
+
+      assert {:ok, %{drafts: [draft]}, logs: _} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.subject == "Re: Help needed"
+    end
+
+    test "reply_subject preserves existing 'Re: ' prefix (line 140)" do
+      email = raw_email(%{"subject" => "Re: Previous thread"})
+
+      assert {:ok, %{drafts: [draft]}, logs: _} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.subject == "Re: Previous thread"
+    end
+
+    test "reply_subject uses 'Re: (no subject)' when subject is nil (line 139)" do
+      email = raw_email(%{"subject" => nil})
+
+      assert {:ok, %{drafts: [draft]}, logs: _} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.subject == "Re: (no subject)"
+    end
+
+    test "logs include a per-email log and a summary log" do
+      email = raw_email()
+
+      assert {:ok, _result, logs: logs} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert Enum.any?(logs, fn l ->
+               l.level == "info" and String.contains?(l.message, "Draft ready")
+             end)
+
+      assert Enum.any?(logs, fn l ->
+               l.level == "info" and String.contains?(l.message, "Drafted 1")
+             end)
+    end
+
+    test "uses run_id from context in scope when provided" do
+      email = raw_email()
+
+      assert {:ok, %{drafts: [_]}, logs: _} =
+               DraftReply.run(
+                 %{emails: [email], agent_name: "MailResponder"},
+                 Map.put(@mock_ctx, :run_id, "my-run-123")
+               )
     end
   end
 

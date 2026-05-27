@@ -147,9 +147,13 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     ArgumentError -> key
   end
 
-  # Look up a key in the fact. Supports dotted cascade paths ("A.gender")
-  # which navigate into the __cascade__ accumulator built by ActionWrapper.
-  # Depth > 2 (e.g., "A.b.c") is not supported and returns nil with a warning.
+  # Look up a key in the fact. Supports dotted cascade paths up to depth 3:
+  #
+  #   "field"           — top-level fact key
+  #   "step.field"      — cascade[step][field]
+  #   "step.map.field"  — cascade[step][map][field]  (one level of nesting inside a map)
+  #
+  # Depth > 3 (e.g., "A.b.c.d") is not supported and returns nil.
   defp lookup(fact, key) when is_binary(key) do
     case String.split(key, ".", parts: 2) do
       [step_name, nested_key] -> lookup_cascade(fact, step_name, nested_key)
@@ -160,37 +164,46 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   defp lookup(fact, key), do: Map.get(fact, key)
 
   defp lookup_cascade(fact, step_name, nested_key) do
-    if String.contains?(nested_key, ".") do
-      require Logger
+    cascade = Map.get(fact, :__cascade__, Map.get(fact, "__cascade__", %{}))
 
-      Logger.warning(
-        "[workflow] edge condition: cascade path depth > 2 is not supported, " <>
-          "field=#{step_name}.#{nested_key}"
-      )
+    case Map.get(cascade, to_key(step_name), Map.get(cascade, step_name)) do
+      nil ->
+        nil
 
-      nil
-    else
-      cascade = Map.get(fact, :__cascade__, Map.get(fact, "__cascade__", %{}))
+      step_result when is_map(step_result) ->
+        case String.split(nested_key, ".", parts: 2) do
+          [field, subfield] -> lookup_nested_field(step_result, field, subfield)
+          [field] -> Map.get(step_result, to_key(field), Map.get(step_result, field))
+        end
 
-      case Map.get(cascade, step_name) do
-        nil ->
-          nil
-
-        step_result when is_map(step_result) ->
-          Map.get(step_result, to_key(nested_key), Map.get(step_result, nested_key))
-
-        _ ->
-          nil
-      end
+      _ ->
+        nil
     end
   end
 
-  # Convert a string to an atom. Uses String.to_atom/1 since field names come
-  # from workflow definitions (bounded set). Safe for pre-production use.
-  defp to_key(s) when is_binary(s), do: String.to_atom(s)
+  defp lookup_nested_field(step_result, field, subfield) do
+    case Map.get(step_result, to_key(field), Map.get(step_result, field)) do
+      nested when is_map(nested) -> Map.get(nested, to_key(subfield), Map.get(nested, subfield))
+      _ -> nil
+    end
+  end
+
+  # Convert a string key to an existing atom, falling back to the original
+  # string if the atom has never been interned (avoids atom exhaustion).
+  defp to_key(s) when is_binary(s) do
+    String.to_existing_atom(s)
+  rescue
+    ArgumentError -> s
+  end
+
   defp to_key(k), do: k
 
   # Convert a string or atom op to an atom understood by EdgeCondition.
   defp to_op(op) when is_atom(op), do: op
-  defp to_op(op) when is_binary(op), do: String.to_atom(op)
+
+  defp to_op(op) when is_binary(op) do
+    String.to_existing_atom(op)
+  rescue
+    ArgumentError -> op
+  end
 end
