@@ -35,7 +35,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           author_id: String.t() | nil,
           author_name: String.t() | nil,
           thread_id: String.t() | nil,
-          message_id: String.t() | nil,
+          message_id: String.t() | integer() | nil,
           provider: atom() | String.t(),
           person_id: integer() | nil,
           is_dm: boolean(),

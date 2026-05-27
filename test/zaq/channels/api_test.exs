@@ -390,6 +390,33 @@ defmodule Zaq.Channels.ApiTest do
     assert bridged_request.message_id == "m-status"
   end
 
+  test "upsert_message maps integer status_message_id into message_id" do
+    request = %{
+      provider: :web,
+      channel_id: "c1",
+      request_id: "r1",
+      body: "partial",
+      status_message_id: 52
+    }
+
+    event =
+      Event.new(request, :channels,
+        opts: [
+          action: :upsert_message,
+          bridge_module: StubCommunicationBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :upsert_message, nil)
+
+    assert result.response == {:ok, %{action: :created, message_id: "m-1", update_intent: nil}}
+
+    assert_received {:bridge_upsert_message, %{id: 1, provider: "mattermost"}, bridged_request,
+                     %{url: "https://example.test", token: "token"}}
+
+    assert bridged_request.message_id == 52
+  end
+
   test "upsert_message preserves tool_call intent while mapping status_message_id" do
     request = %{
       provider: :web,

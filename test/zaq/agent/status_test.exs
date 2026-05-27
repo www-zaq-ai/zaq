@@ -33,6 +33,18 @@ defmodule Zaq.Agent.StatusTest do
     end
   end
 
+  defmodule FakeNodeRouterIntegerMessageId do
+    alias Zaq.Event
+
+    def dispatch(%Event{opts: opts, request: request} = event) do
+      if opts[:action] == :upsert_message do
+        %{event | response: {:ok, %{action: :updated, message_id: 52}}}
+      else
+        %{event | response: {:ok, %{message_id: request[:request_id]}}}
+      end
+    end
+  end
+
   describe "broadcast/4 with %Incoming{}" do
     test "broadcasts {:status_update, request_id, stage, message} to the correct topic" do
       session_id = "test-session-#{System.unique_integer([:positive])}"
@@ -78,6 +90,18 @@ defmodule Zaq.Agent.StatusTest do
 
       assert %Incoming{} = Status.broadcast(incoming, :validating, "x", FakeNodeRouter)
       refute_receive {:status_update, _, _, _}
+    end
+
+    test "stores integer status_message_id returned by upsert response" do
+      incoming = %Incoming{
+        content: "hi",
+        channel_id: "bo",
+        provider: :web,
+        metadata: %{session_id: "s1", request_id: "r1"}
+      }
+
+      assert %Incoming{metadata: %{status_message_id: 52}} =
+               Status.broadcast(incoming, :validating, "Checking", FakeNodeRouterIntegerMessageId)
     end
   end
 
@@ -155,6 +179,54 @@ defmodule Zaq.Agent.StatusTest do
              } = Status.context_from_event(missing_session)
 
       assert Status.context_from_event(missing_request) == nil
+    end
+
+    test "accepts integer request_id from incoming message_id fallback" do
+      event =
+        Event.new(
+          %Incoming{
+            content: "hi",
+            channel_id: "bo",
+            provider: :web,
+            message_id: 52,
+            metadata: %{session_id: "s1"}
+          },
+          :agent,
+          opts: [node_router: FakeNodeRouter]
+        )
+
+      assert %{
+               session_id: "s1",
+               request_id: 52,
+               provider: :web,
+               channel_id: "bo",
+               thread_id: nil,
+               node_router: FakeNodeRouter
+             } = Status.context_from_event(event)
+    end
+
+    test "falls back to incoming message_id when metadata request_id is blank" do
+      event =
+        Event.new(
+          %Incoming{
+            content: "hi",
+            channel_id: "bo",
+            provider: :web,
+            message_id: "msg-52",
+            metadata: %{session_id: "s1", request_id: ""}
+          },
+          :agent,
+          opts: [node_router: FakeNodeRouter]
+        )
+
+      assert %{
+               session_id: "s1",
+               request_id: "msg-52",
+               provider: :web,
+               channel_id: "bo",
+               thread_id: nil,
+               node_router: FakeNodeRouter
+             } = Status.context_from_event(event)
     end
   end
 end

@@ -4,6 +4,8 @@ defmodule Zaq.Agent.ExecutorTest do
   doctest Zaq.Agent.Executor
 
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.Factory
+  alias Zaq.Agent.JidoTelemetryBridge
   alias Zaq.Engine.Messages.Incoming
 
   defmodule StubAgent do
@@ -28,20 +30,103 @@ defmodule Zaq.Agent.ExecutorTest do
       extra_refs = Keyword.get(opts, :extra_refs, %{})
       trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
       status_ctx = Map.get(extra_refs, :zaq_status_context)
+      mode = Process.get(:stub_tool_trace_mode, :direct)
 
       if is_map(trace_ctx) do
         send(self(), {:trace_ctx, trace_ctx})
+        Process.put(:stub_trace_request_id, trace_ctx[:request_id])
       end
 
       if is_map(status_ctx) do
         send(self(), {:status_ctx, status_ctx})
       end
 
+      if mode == :runtime_topology do
+        Factory.on_before_cmd(%{}, {:ai_react_start, %{extra_refs: extra_refs}})
+        emit_runtime_topology_events(trace_ctx)
+      end
+
       {:ok, :request}
     end
 
     def await(:request, _opts) do
-      send(self(), {:zaq_tool_traces, "req-123", [%{tool_name: "read_file", status: "ok"}]})
+      request_id = Process.get(:stub_trace_request_id)
+
+      if Process.get(:stub_tool_trace_mode, :direct) == :direct do
+        send(self(), {:zaq_tool_traces, request_id, [%{tool_name: "read_file", status: "ok"}]})
+      end
+
+      {:ok, %{result: "stubbed answer"}}
+    end
+
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+
+    defp emit_runtime_topology_events(%{request_id: request_id}) do
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          :ok =
+            JidoTelemetryBridge.handle_event(
+              [:jido, :ai, :tool, :start],
+              %{},
+              %{tool_call_id: "tool-1", tool_name: "mcp__read_file"},
+              %{}
+            )
+
+          :ok =
+            JidoTelemetryBridge.handle_event(
+              [:jido, :ai, :tool, :execute, :stop],
+              %{duration_ms: 8},
+              %{
+                request_id: request_id,
+                tool_call_id: "tool-1",
+                tool_name: "mcp__read_file",
+                args: %{path: "README.md"},
+                result: %{ok: true}
+              },
+              %{}
+            )
+
+          :ok =
+            JidoTelemetryBridge.handle_event(
+              [:jido, :ai, :request, :complete],
+              %{},
+              %{request_id: request_id},
+              %{}
+            )
+
+          send(parent, :stub_runtime_topology_done)
+        end)
+
+      Task.await(task, 1_000)
+
+      receive do
+        :stub_runtime_topology_done -> :ok
+      after
+        1_000 -> :ok
+      end
+    end
+
+    defp emit_runtime_topology_events(_), do: :ok
+  end
+
+  defmodule StubFactoryWithIntegerToolTrace do
+    def ask_with_config(_server, _content, _configured_agent, opts \\ []) do
+      extra_refs = Keyword.get(opts, :extra_refs, %{})
+      trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
+
+      if is_map(trace_ctx) do
+        send(self(), {:trace_ctx, trace_ctx})
+        Process.put(:stub_trace_request_id, trace_ctx[:request_id])
+      end
+
+      {:ok, :request}
+    end
+
+    def await(:request, _opts) do
+      request_id = Process.get(:stub_trace_request_id)
+      send(self(), {:zaq_tool_traces, request_id, [%{tool_name: "read_file", status: "ok"}]})
       {:ok, %{result: "stubbed answer"}}
     end
 
@@ -318,7 +403,7 @@ defmodule Zaq.Agent.ExecutorTest do
           agent_id: "stub",
           agent_module: StubAgent,
           server_manager_module: StubServerManager,
-          factory_module: StubFactoryWithToolTrace,
+          factory_module: StubFactoryWithIntegerToolTrace,
           node_router: StubNodeRouter
         )
 
@@ -391,7 +476,7 @@ defmodule Zaq.Agent.ExecutorTest do
         channel_id: "bo-test",
         provider: :web,
         message_id: "",
-        metadata: %{request_id: "req-empty"}
+        metadata: %{}
       }
 
       outgoing =
@@ -405,6 +490,132 @@ defmodule Zaq.Agent.ExecutorTest do
 
       refute_received {:trace_ctx, _}
       assert outgoing.metadata[:tool_calls] == []
+    end
+
+    test "falls back to message_id when metadata request_id is missing" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: 52,
+        metadata: %{}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryNoToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert_received {:trace_ctx, %{request_id: 52, collector_pid: pid}}
+      assert pid == self()
+      assert outgoing.metadata[:tool_calls] == []
+    end
+
+    test "falls back to message_id when metadata request_id is blank" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: "req-blank-fallback",
+        metadata: %{request_id: ""}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryNoToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert_received {:trace_ctx, %{request_id: "req-blank-fallback", collector_pid: pid}}
+      assert pid == self()
+      assert outgoing.metadata[:tool_calls] == []
+    end
+
+    test "adds tool_calls from telemetry message when message_id is integer" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: 52,
+        metadata: %{request_id: 52}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryWithToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert_received {:trace_ctx, %{request_id: 52, collector_pid: pid}}
+      assert pid == self()
+      assert outgoing.metadata[:tool_calls] == [%{tool_name: "read_file", status: "ok"}]
+    end
+
+    test "runtime bridge topology collects tool_calls for integer request_id" do
+      Process.put(:stub_tool_trace_mode, :runtime_topology)
+
+      on_exit(fn ->
+        Process.delete(:stub_tool_trace_mode)
+        Process.delete(:zaq_status_context)
+        Process.delete(:zaq_tool_trace_context)
+      end)
+
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: 52,
+        metadata: %{}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryWithToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert [%{tool_call_id: "tool-1", tool_name: "mcp__read_file", status: "ok"} = trace] =
+               outgoing.metadata[:tool_calls]
+
+      assert trace.params == %{"path" => "README.md"}
+      assert trace.response == %{"ok" => true}
+      assert trace.response_time_ms == 8
+    end
+
+    test "uses string-key metadata request_id for tool trace context and collection" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo-test",
+        provider: :web,
+        message_id: nil,
+        metadata: %{"request_id" => "req-123"}
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryWithToolTrace,
+          node_router: StubNodeRouter
+        )
+
+      assert_received {:trace_ctx, %{request_id: "req-123", collector_pid: pid}}
+      assert pid == self()
+      assert outgoing.metadata[:tool_calls] == [%{tool_name: "read_file", status: "ok"}]
     end
   end
 

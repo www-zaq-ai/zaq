@@ -15,6 +15,14 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   alias Zaq.Agent.Status
   alias Zaq.Engine.Telemetry
 
+  import Zaq.Engine.Messages,
+    only: [
+      is_present_message_id: 1,
+      present_message_id?: 1,
+      correlation_id: 2,
+      request_key: 2
+    ]
+
   @handler_id "zaq-agent-jido-telemetry-bridge"
   @tool_trace_table :zaq_tool_trace_events
   @tool_trace_lock_table :zaq_tool_trace_locks
@@ -115,6 +123,31 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
     end
   end
 
+  @doc "Registers request-scoped context for cross-process telemetry correlation."
+  @spec register_request_context(term(), map()) :: :ok
+  def register_request_context(request_id, context)
+      when is_present_message_id(request_id) and is_map(context) do
+    table = ensure_trace_table()
+    current = get_request_context(request_id) || %{}
+
+    merged =
+      current
+      |> Map.merge(
+        Map.take(context, [:collector_pid, :incoming, :node_router, :telemetry_dimensions])
+      )
+      |> Map.put(:request_id, request_id)
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.new()
+
+    if map_size(merged) > 0 do
+      :ets.insert(table, {{:request_context, request_id}, merged})
+    end
+
+    :ok
+  end
+
+  def register_request_context(_request_id, _context), do: :ok
+
   defp skip_event?([:jido, :ai, :llm, :delta], %{include_llm_deltas: false}), do: true
   defp skip_event?(_, _), do: false
 
@@ -143,7 +176,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp track_tool_event(event, measurements, metadata)
        when event in [[:jido, :ai, :tool, :start], [:jido, :ai, :tool, :execute, :start]] do
-    with request_id when is_binary(request_id) and request_id != "" <- request_id(metadata),
+    with request_id when is_present_message_id(request_id) <- request_id(metadata),
          tool_call_id when is_binary(tool_call_id) and tool_call_id != "" <-
            tool_call_id(metadata),
          tool_name when is_binary(tool_name) and tool_name != "" <- tool_name(metadata) do
@@ -166,7 +199,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
               [:jido, :ai, :tool, :timeout],
               [:jido, :ai, :tool, :execute, :exception]
             ] do
-    with request_id when is_binary(request_id) and request_id != "" <- request_id(metadata),
+    with request_id when is_present_message_id(request_id) <- request_id(metadata),
          tool_call_id when is_binary(tool_call_id) and tool_call_id != "" <-
            tool_call_id(metadata),
          tool_name when is_binary(tool_name) and tool_name != "" <- tool_name(metadata) do
@@ -194,16 +227,13 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
               [:jido, :ai, :request, :rejected]
             ] do
     case request_id(metadata) do
-      request_id when is_binary(request_id) and request_id != "" ->
+      request_id when is_present_message_id(request_id) ->
         traces = list_request_traces(request_id)
 
-        proc_ctx = Process.get(:zaq_status_context)
-        ctx_request_id = proc_ctx_value(proc_ctx, :request_id)
-
-        case {get_request_context(request_id), ctx_request_id} do
-          {%{collector_pid: collector_pid}, ctx_req_id}
-          when is_pid(collector_pid) and is_binary(ctx_req_id) and ctx_req_id != "" ->
-            send(collector_pid, {:zaq_tool_traces, ctx_req_id, traces})
+        case get_request_context(request_id) do
+          %{collector_pid: collector_pid} = ctx when is_pid(collector_pid) ->
+            collector_key = Map.get(ctx, :request_id, request_id)
+            send(collector_pid, {:zaq_tool_traces, collector_key, traces})
 
           _ ->
             :ok
@@ -241,7 +271,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp remember_request_context_from_metadata(metadata) do
     case request_id(metadata) do
-      request_id when is_binary(request_id) and request_id != "" ->
+      request_id when is_present_message_id(request_id) ->
         remember_request_context(request_id)
 
       _ ->
@@ -590,7 +620,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   end
 
   defp request_id(metadata) when is_map(metadata) do
-    Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
+    request_key(metadata, Map.get(metadata, :message_id) || Map.get(metadata, "message_id"))
   end
 
   defp request_id(_), do: nil
@@ -806,12 +836,11 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
     request_id =
       preferred_ctx_value(proc_ctx, remembered_ctx, :request_id) ||
-        request_id_from_incoming(incoming) || req_id
+        correlation_id(incoming && incoming.metadata, incoming && incoming.message_id) || req_id
 
     node_router = preferred_ctx_value(proc_ctx, remembered_ctx, :node_router) || Zaq.NodeRouter
 
-    if match?(%Zaq.Engine.Messages.Incoming{}, incoming) and is_binary(request_id) and
-         request_id != "" do
+    if match?(%Zaq.Engine.Messages.Incoming{}, incoming) and present_message_id?(request_id) do
       %{incoming: incoming, node_router: node_router, request_id: request_id}
     else
       nil
@@ -823,7 +852,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
          %Zaq.Engine.Messages.Incoming{} = incoming,
          node_router
        )
-       when is_binary(request_id) and request_id != "" do
+       when is_present_message_id(request_id) do
     table = ensure_trace_table()
 
     current = get_request_context(request_id) || %{}
@@ -840,7 +869,7 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
 
   defp remember_updated_incoming(_request_id, _incoming, _node_router), do: :ok
 
-  defp remembered_context(request_id) when is_binary(request_id) and request_id != "",
+  defp remembered_context(request_id) when is_present_message_id(request_id),
     do: get_request_context(request_id)
 
   defp remembered_context(_request_id), do: nil
@@ -848,12 +877,6 @@ defmodule Zaq.Agent.JidoTelemetryBridge do
   defp preferred_ctx_value(proc_ctx, remembered_ctx, key) do
     proc_ctx_value(proc_ctx, key) || proc_ctx_value(remembered_ctx, key)
   end
-
-  defp request_id_from_incoming(%Zaq.Engine.Messages.Incoming{} = incoming) do
-    incoming.metadata[:request_id] || incoming.message_id
-  end
-
-  defp request_id_from_incoming(_incoming), do: nil
 
   defp proc_ctx_value(nil, _key), do: nil
   defp proc_ctx_value(proc_ctx, key), do: Map.get(proc_ctx, key)

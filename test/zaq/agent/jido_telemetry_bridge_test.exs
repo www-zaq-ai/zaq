@@ -664,7 +664,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert is_binary(trace.timestamp)
   end
 
-  test "request completion does not publish when ctx request_id is missing even if metadata has request_id" do
+  test "request completion publishes using request context even when process ctx request_id is missing" do
     request_id = "req-#{System.unique_integer([:positive])}"
 
     Process.delete(:zaq_status_context)
@@ -690,7 +690,8 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
                %{}
              )
 
-    refute_receive {:zaq_tool_traces, _, _}
+    assert_receive {:zaq_tool_traces, ^request_id, [trace]}
+    assert trace.tool_call_id == "tool-1"
   end
 
   test "request terminal events with blank request_id metadata no-op" do
@@ -798,7 +799,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
     assert_receive {:status_update, ^request_id, :retrieving, "part two"}
   end
 
-  test "llm.delta uses message_id fallback and tolerates non-map measurements" do
+  test "llm.delta requires canonical request_id and tolerates non-map measurements" do
     session_id = "bridge-session-#{System.unique_integer([:positive])}"
     request_id = "bridge-req-#{System.unique_integer([:positive])}"
 
@@ -827,7 +828,7 @@ defmodule Zaq.Agent.JidoTelemetryBridgeTest do
       )
     end
 
-    refute_receive {:status_update, ^request_id, :retrieving, _}
+    refute_receive {:status_update, _, :retrieving, _}
   end
 
   test "request contexts store telemetry dimensions from status context" do

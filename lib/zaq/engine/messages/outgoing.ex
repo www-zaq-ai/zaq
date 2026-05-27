@@ -35,7 +35,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
           author_id: String.t() | nil,
           author_name: String.t() | nil,
           provider: atom() | String.t(),
-          in_reply_to: String.t() | nil,
+          in_reply_to: String.t() | integer() | nil,
           metadata: map()
         }
 

@@ -11,6 +11,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
+  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
@@ -575,6 +576,21 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert is_nil(msg.author_name)
     end
 
+    test "preserves integer external_message_id" do
+      incoming = %ChatIncoming{
+        text: "hi",
+        external_room_id: "room-int",
+        external_thread_id: nil,
+        external_message_id: 123,
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{}
+      }
+
+      msg = JidoChatBridge.to_internal(incoming, :telegram)
+
+      assert msg.message_id == 123
+    end
+
     test "normalizes nil metadata to empty map" do
       incoming = %ChatIncoming{
         text: "hi",
@@ -1032,8 +1048,173 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                &match?(%{"type" => "function_call_output"}, &1)
              )
 
-      # Conversation persistence is validated in dedicated Agent/Conversation suites.
-      # This bridge test focuses on the tool-call round-trip payload shape.
+      assistant_message =
+        eventually_value(fn ->
+          Conversations.list_conversations(channel_type: "mattermost")
+          |> Enum.find(&(&1.channel_user_id == "u-persist"))
+          |> case do
+            nil ->
+              nil
+
+            conv ->
+              conv
+              |> Conversations.list_messages()
+              |> Enum.filter(&(&1.role == "assistant"))
+              |> List.last()
+          end
+        end)
+
+      assert assistant_message
+      assert is_list(assistant_message.metadata["tool_calls"])
+      refute assistant_message.metadata["tool_calls"] == []
+
+      [first_call | _] = assistant_message.metadata["tool_calls"]
+      assert String.contains?(first_call["tool_name"], "lookup_tool")
+      assert first_call["status"] in ["ok", "error"]
+    end
+
+    test "persists tool_calls metadata when incoming external_message_id is integer" do
+      handler_id = "zaq-agent-jido-telemetry-bridge"
+      :telemetry.detach(handler_id)
+      assert {:ok, %{enabled?: true}} = JidoTelemetryBridge.init([])
+
+      on_exit(fn ->
+        :ok = JidoTelemetryBridge.terminate(:normal, %{enabled?: true})
+      end)
+
+      {mcp_child_spec, mcp_endpoint} = mcp_server(self(), timeout_ms: 0, tool_name: "lookup_tool")
+      start_supervised!(mcp_child_spec)
+
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, RealAllActionsNodeRouter)
+
+      {child_spec, endpoint} =
+        OpenAIStub.server(
+          fn conn, body ->
+            payload = Jason.decode!(body)
+
+            tool_name =
+              payload
+              |> Map.get("tools", [])
+              |> Enum.find_value(fn tool ->
+                name = Map.get(tool, "name") || get_in(tool, ["function", "name"])
+                if is_binary(name), do: name
+              end)
+
+            has_tool_output =
+              body =~ "function_call_output" or
+                Enum.any?(
+                  Map.get(payload, "input", []),
+                  &match?(%{"type" => "function_call_output"}, &1)
+                )
+
+            if has_tool_output do
+              {200, streamed_reply(conn.request_path, "final answer", "gpt-4.1-mini")}
+            else
+              {200,
+               tool_call_reply(
+                 conn.request_path,
+                 tool_name || "lookup_tool",
+                 ~s({"query":"zaq telemetry"}),
+                 "gpt-4.1-mini"
+               )}
+            end
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          name:
+            "Bridge Tool Persist Integer Credential #{System.unique_integer([:positive, :monotonic])}",
+          provider: "openai",
+          endpoint: endpoint,
+          api_key: "test-key"
+        })
+
+      {:ok, mcp_endpoint_record} =
+        MCP.create_mcp_endpoint(%{
+          name: "Bridge Persist Integer MCP #{System.unique_integer([:positive])}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 500,
+          url: mcp_endpoint <> "/mcp"
+        })
+
+      {:ok, configured_agent} =
+        Zaq.Agent.create_agent(%{
+          name: "Bridge Persist Integer Tool Agent #{System.unique_integer([:positive])}",
+          description: "",
+          job: "Use tools when relevant.",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          enabled_mcp_endpoint_ids: [mcp_endpoint_record.id],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{"stream" => false}
+        })
+
+      on_exit(fn ->
+        _ = ServerManager.stop_server(configured_agent)
+      end)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => configured_agent.id}}
+        })
+        |> Map.put(:provider, :mattermost)
+
+      channel_id = "room-tool-persist-int-#{System.unique_integer([:positive])}"
+
+      incoming =
+        ChatIncoming.new(%{
+          text: "run tool and persist int",
+          external_room_id: channel_id,
+          external_thread_id: nil,
+          external_message_id: 52,
+          author: Author.new(%{user_id: "u-persist-int", user_name: "alice"}),
+          metadata: %{"request_id" => ""}
+        })
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+
+      assert_receive {:openai_request, "POST", _path1, "", _body1}, 1_000
+      assert_receive {:mcp_request, "tools/call", _tool_payload}, 1_000
+      assert_receive {:openai_request, "POST", _path2, "", body2}, 1_000
+
+      payload2 = Jason.decode!(body2)
+
+      assert Enum.any?(
+               Map.get(payload2, "input", []),
+               &match?(%{"type" => "function_call_output"}, &1)
+             )
+
+      assistant_message =
+        eventually_value(fn ->
+          Conversations.list_conversations(channel_type: "mattermost")
+          |> Enum.find(&(&1.channel_user_id == "u-persist-int"))
+          |> case do
+            nil ->
+              nil
+
+            conv ->
+              conv
+              |> Conversations.list_messages()
+              |> Enum.filter(&(&1.role == "assistant"))
+              |> List.last()
+          end
+        end)
+
+      assert assistant_message
+      assert is_list(assistant_message.metadata["tool_calls"])
+      refute assistant_message.metadata["tool_calls"] == []
     end
 
     test "uses NodeRouter dispatch path when bridge modules are defaults" do
@@ -2174,6 +2355,33 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                )
 
       assert_received {:adapter_edit_message, "chan-1", "msg-42", "partial", _opts}
+    end
+
+    test "updates when integer message_id is present and adapter supports updates" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterThreadPostWithUpdate
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{action: :updated, message_id: 52}} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost", provider_atom: :mattermost},
+                 %{
+                   channel_id: "chan-1",
+                   body: "partial",
+                   request_id: "req-1",
+                   message_id: 52
+                 },
+                 %{url: "https://mm.example.com", token: "tok"}
+               )
+
+      assert_received {:adapter_edit_message, "chan-1", 52, "partial", _opts}
     end
 
     test "returns missing_provider_atom when provider_atom is absent" do
@@ -3511,6 +3719,21 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     ]
     |> IO.iodata_to_binary()
   end
+
+  defp eventually_value(fun, retries \\ 80)
+
+  defp eventually_value(fun, retries) when retries > 0 do
+    case fun.() do
+      nil ->
+        Process.sleep(25)
+        eventually_value(fun, retries - 1)
+
+      value ->
+        value
+    end
+  end
+
+  defp eventually_value(_fun, 0), do: nil
 
   defp mcp_timeout_server(test_pid) do
     mcp_server(test_pid, timeout_ms: 300, tool_name: "slow_tool", server_name: "mcp-timeout")

@@ -18,6 +18,7 @@ defmodule Zaq.Channels.Api do
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Engine.Messages.Outgoing
+  import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
   alias Zaq.Events.Helper
   alias Zaq.InternalBoundaries
@@ -611,7 +612,7 @@ defmodule Zaq.Channels.Api do
       outgoing
     else
       case Map.get(metadata, :status_message_id) || Map.get(metadata, "status_message_id") do
-        message_id when is_binary(message_id) and message_id != "" ->
+        message_id when is_present_message_id(message_id) ->
           %{outgoing | metadata: Map.put(metadata, :message_id, message_id)}
 
         _ ->
@@ -622,7 +623,7 @@ defmodule Zaq.Channels.Api do
 
   defp normalize_upsert_request(request) when is_map(request) do
     case Map.get(request, :status_message_id) do
-      message_id when is_binary(message_id) and message_id != "" ->
+      message_id when is_present_message_id(message_id) ->
         Map.put(request, :message_id, message_id)
 
       _ ->

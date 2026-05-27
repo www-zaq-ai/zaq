@@ -263,6 +263,12 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       assert is_map(details)
     end
 
+    test "add_reaction accepts integer message_id" do
+      assert :ok = CommunicationBridge.add_reaction(:mattermost, "chan-1", 52, "thumbsup")
+      assert_received {:add_reaction, "chan-1", 52, "thumbsup", details}
+      assert is_map(details)
+    end
+
     test "remove_reaction merges extra opts into connection details" do
       assert :ok =
                CommunicationBridge.remove_reaction(:mattermost, "chan-1", "msg-1", "eyes", %{
@@ -271,6 +277,13 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       assert_received {:remove_reaction, "chan-1", "msg-1", "eyes", details}
       assert details.request_id == "req-1"
+      assert is_binary(details.url)
+      assert is_binary(details.token)
+    end
+
+    test "remove_reaction accepts integer message_id" do
+      assert :ok = CommunicationBridge.remove_reaction(:mattermost, "chan-1", 52, "eyes")
+      assert_received {:remove_reaction, "chan-1", 52, "eyes", details}
       assert is_binary(details.url)
       assert is_binary(details.token)
     end

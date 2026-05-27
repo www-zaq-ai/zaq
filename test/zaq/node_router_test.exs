@@ -1,6 +1,8 @@
 defmodule Zaq.NodeRouterTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Zaq.{Event, EventHop, NodeRouter}
 
   @pubsub Zaq.PubSub
@@ -308,6 +310,76 @@ defmodule Zaq.NodeRouterTest do
       assert length(result.hops) == 1
       assert hd(result.hops).destination == :agent
       assert_receive {:async_remote_called, ^trace_id}
+    end
+
+    test "logs and emits telemetry when async dispatch fails" do
+      event =
+        Event.new(
+          %{provider: "telegram", channel_id: "chan-1", request_id: "req-1", body: "working"},
+          :channels,
+          type: :async,
+          opts: [action: :upsert_message]
+        )
+
+      telemetry_handler_id = "node-router-async-failed-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach(
+        telemetry_handler_id,
+        [:zaq, :node_router, :async, :failed],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:node_router_async_failed, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(telemetry_handler_id) end)
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Channels.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host,
+          Zaq.Channels.Api,
+          :handle_event,
+          [%Event{} = routed, :upsert_message, _] ->
+            %{routed | response: {:error, :edit_failed}}
+        end,
+        async_start_fn: fn fun ->
+          fun.()
+          {:ok, self()}
+        end
+      }
+
+      log =
+        capture_log([level: :error], fn ->
+          result = NodeRouter.dispatch(event, runtime)
+
+          assert %Event{} = result
+          assert result.response == nil
+        end)
+
+      assert log =~ "[NodeRouter] async dispatch failed"
+      assert log =~ "role=channels"
+      assert log =~ "action=upsert_message"
+      assert log =~ "provider=\"telegram\""
+      assert log =~ "channel_id=\"chan-1\""
+      assert log =~ "request_id=\"req-1\""
+
+      assert_receive {:node_router_async_failed, [:zaq, :node_router, :async, :failed],
+                      %{count: 1}, metadata}
+
+      assert metadata.role == :channels
+      assert metadata.action == :upsert_message
+      assert metadata.target == :remote@host
+      assert metadata.provider == "telegram"
+      assert metadata.channel_id == "chan-1"
+      assert metadata.request_id == "req-1"
+      assert is_binary(metadata.trace_id)
     end
 
     test "passes a hop-consumed event to local handler" do

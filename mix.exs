@@ -101,7 +101,10 @@ defmodule Zaq.MixProject do
       {:llm_db, "~> 2026.4", runtime: false},
       {:jido, "~> 2.2", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
-      {:jido_chat, "~> 1.0"},
+      # {:jido_chat, "~> 1.0"},
+      # {:jido_chat,
+      #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat", override: true},
+      {:jido_chat, github: "jfayad/jido_chat", branch: "main", override: true},
       {:jido_chat_discord, "~> 1.0"},
       {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}

@@ -25,6 +25,8 @@ defmodule Zaq.NodeRouter do
 
   @behaviour Zaq.NodeRouter.Behaviour
 
+  require Logger
+
   alias Zaq.{Event, EventHop}
 
   @pubsub Zaq.PubSub
@@ -209,10 +211,12 @@ defmodule Zaq.NodeRouter do
   defp do_dispatch(%{hop_type: :async} = dispatch_ctx) do
     _ =
       async_start(dispatch_ctx.runtime, fn ->
-        _ =
+        routed_event =
           do_dispatch_sync(dispatch_ctx)
           |> broadcast_event()
           |> continue_dispatch(dispatch_ctx.runtime)
+
+        log_async_failure(routed_event, dispatch_ctx)
 
         :ok
       end)
@@ -256,6 +260,51 @@ defmodule Zaq.NodeRouter do
 
   defp unwrap_call_response(%Event{response: {:error, {:rpc_failed, _, _}} = error}), do: error
   defp unwrap_call_response(%Event{response: response}), do: response
+
+  defp log_async_failure(%Event{response: {:error, reason}} = event, dispatch_ctx) do
+    metadata = async_failure_metadata(event, dispatch_ctx)
+
+    :telemetry.execute([:zaq, :node_router, :async, :failed], %{count: 1}, metadata)
+
+    Logger.error(
+      "[NodeRouter] async dispatch failed role=#{metadata.role} action=#{metadata.action} " <>
+        "target=#{inspect(metadata.target)} trace_id=#{metadata.trace_id} " <>
+        "provider=#{inspect(metadata.provider)} channel_id=#{inspect(metadata.channel_id)} " <>
+        "request_id=#{inspect(metadata.request_id)} reason=#{inspect(reason)}"
+    )
+  end
+
+  defp log_async_failure(%Event{}, _dispatch_ctx), do: :ok
+
+  defp async_failure_metadata(%Event{} = event, dispatch_ctx) do
+    request = event.request
+    role = current_async_role(event)
+
+    %{
+      role: role,
+      action: dispatch_ctx.action,
+      target: dispatch_ctx.target,
+      trace_id: event.trace_id,
+      provider: request_field(request, :provider),
+      channel_id: request_field(request, :channel_id),
+      request_id: request_field(request, :request_id)
+    }
+  end
+
+  defp request_field(request, key) when is_map(request) do
+    Map.get(request, key) || Map.get(request, Atom.to_string(key))
+  end
+
+  defp request_field(_, _), do: nil
+
+  defp current_async_role(%Event{hops: hops}) when is_list(hops) do
+    case List.last(hops) do
+      %EventHop{destination: destination} -> destination
+      _ -> :unknown
+    end
+  end
+
+  defp current_async_role(_), do: :unknown
 
   defp consume_current_hop(%Event{next_hop: %EventHop{} = next_hop, hops: hops} = event)
        when is_list(hops) do

@@ -27,6 +27,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Supervisor}
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
 
@@ -350,7 +351,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       channel_id = Map.get(request, :channel_id)
       body = Map.get(request, :body)
 
-      if is_binary(message_id) and message_id != "" do
+      if is_present_message_id(message_id) do
         edit_message(adapter, channel_id, message_id, body, url, token, request)
       else
         create_message(provider_atom, adapter, channel_id, thread_id, body, url, token)
@@ -424,7 +425,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     do: add_reaction(provider, channel_id, message_id, emoji, details)
 
   def add_reaction(provider, channel_id, message_id, emoji, %{url: url, token: token})
-      when is_binary(message_id) and is_binary(emoji) do
+      when is_present_message_id(message_id) and is_binary(emoji) do
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :add_reaction, 4) || {:error, :unsupported},
          result <- adapter.add_reaction(channel_id, message_id, emoji, url: url, token: token) do
@@ -455,7 +456,7 @@ defmodule Zaq.Channels.JidoChatBridge do
         emoji,
         %{url: url, token: token} = details
       )
-      when is_binary(message_id) and is_binary(emoji) do
+      when is_present_message_id(message_id) and is_binary(emoji) do
     opts =
       [url: url, token: token]
       |> maybe_put_user_id(details)
@@ -1216,7 +1217,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp send_mode(%Outgoing{} = outgoing, adapter_module) do
     case metadata_message_id(outgoing.metadata) do
-      message_id when is_binary(message_id) and message_id != "" ->
+      message_id when is_present_message_id(message_id) ->
         if supports_message_updates?(adapter_module), do: {:use_update, message_id}, else: :create
 
       _ ->
@@ -1320,7 +1321,11 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     case Chat.Thread.post(thread, body, url: url, token: token) do
       {:ok, post} ->
-        {:ok, %{action: :created, message_id: post.response.external_message_id || post.id}}
+        {:ok,
+         %{
+           action: :created,
+           message_id: post.id
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -1329,7 +1334,6 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp edit_message(adapter_module, channel_id, message_id, body, url, token, request) do
     opts = [url: url, token: token, update_intent: Map.get(request, :update_intent)]
-
     result = adapter_module.edit_message(channel_id, message_id, body, opts)
 
     case normalize_outbound_result(result) do

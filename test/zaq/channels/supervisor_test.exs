@@ -168,7 +168,7 @@ defmodule Zaq.Channels.SupervisorTest do
 
   test "lookup_state_pid/1 returns runtime state pid", %{config: config} do
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket}
     })
 
     bridge_id = "mattermost_test_typing"
@@ -212,7 +212,7 @@ defmodule Zaq.Channels.SupervisorTest do
 
   test "start_runtime/3 returns already_running when bridge id is active", %{config: config} do
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket}
     })
 
     bridge_id = "mattermost_test_already_running"
@@ -531,7 +531,7 @@ defmodule Zaq.Channels.SupervisorTest do
       })
 
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket}
     })
 
     bridge_id = "#{channel_config.provider}_#{channel_config.id}"
@@ -571,7 +571,7 @@ defmodule Zaq.Channels.SupervisorTest do
 
   test "data source configs can be synced to runtime via DataSourceBridge" do
     Application.put_env(:zaq, :channels, %{
-      google_drive: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+      google_drive: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket}
     })
 
     {:ok, channel_config} =
@@ -651,8 +651,8 @@ defmodule Zaq.Channels.SupervisorTest do
 
     # Set up app env with providers that have adapters (hits configured_providers)
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook},
-      google_drive: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket},
+      google_drive: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket}
     })
 
     # Manually invoke what the bootstrap's load_initial_runtimes does:
@@ -691,7 +691,7 @@ defmodule Zaq.Channels.SupervisorTest do
     # will return ["mattermost"], but neither retrieval nor data_source configs
     # exist in the DB, so list_enabled_by_kind returns [] for both.
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :webhook}
+      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket}
     })
 
     # The supervisor is already running from the application startup.

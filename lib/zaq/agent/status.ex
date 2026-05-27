@@ -9,6 +9,10 @@ defmodule Zaq.Agent.Status do
   """
 
   alias Zaq.Channels.Events, as: ChannelEvents
+
+  import Zaq.Engine.Messages,
+    only: [is_present_message_id: 1, present_message_id?: 1, request_key: 2]
+
   alias Zaq.{Engine.Messages.Incoming, Event}
 
   @doc """
@@ -22,9 +26,9 @@ defmodule Zaq.Agent.Status do
   @spec context_from_event(Event.t() | nil) :: map() | nil
   def context_from_event(%Event{request: %Incoming{metadata: meta}} = event) do
     session_id = meta[:session_id]
-    request_id = meta[:request_id] || event.request.message_id
+    request_id = request_key(meta, event.request.message_id)
 
-    if is_binary(request_id) and request_id != "" do
+    if present_message_id?(request_id) do
       node_router = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
       %{
@@ -62,7 +66,7 @@ defmodule Zaq.Agent.Status do
       build_upsert_params(
         %{
           session_id: incoming.metadata[:session_id],
-          request_id: incoming.metadata[:request_id] || incoming.message_id,
+          request_id: request_key(incoming.metadata, incoming.message_id),
           provider: incoming.provider,
           channel_id: incoming.channel_id,
           thread_id: incoming.thread_id,
@@ -96,7 +100,7 @@ defmodule Zaq.Agent.Status do
 
   defp merge_status_message_id(%Incoming{} = incoming, %Event{response: response}) do
     case response do
-      {:ok, %{message_id: message_id}} when is_binary(message_id) and message_id != "" ->
+      {:ok, %{message_id: message_id}} when is_present_message_id(message_id) ->
         metadata =
           incoming.metadata
           |> case do
@@ -113,11 +117,11 @@ defmodule Zaq.Agent.Status do
   end
 
   defp build_upsert_params(%{} = context, stage, message) do
-    request_id = Map.get(context, :request_id) || Map.get(context, :message_id)
+    request_id = Map.get(context, :request_id)
     provider = Map.get(context, :provider) || :web
     channel_id = Map.get(context, :channel_id) || "bo"
 
-    if is_binary(request_id) and request_id != "" do
+    if present_message_id?(request_id) do
       %{
         provider: provider,
         channel_id: channel_id,

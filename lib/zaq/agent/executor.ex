@@ -35,6 +35,7 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
   alias Zaq.Utils.DateUtils
+  import Zaq.Engine.Messages, only: [present_message_id?: 1, request_key: 1]
 
   @doc """
   Derives a stable scope string from an incoming message used to key the Jido agent server.
@@ -126,7 +127,7 @@ defmodule Zaq.Agent.Executor do
       |> Keyword.get(:question, incoming.content)
       |> timestamp_question()
 
-    initial_request_id = incoming.metadata[:request_id] || incoming.message_id
+    initial_request_id = request_id_from_incoming(incoming)
 
     result =
       with {:ok, configured_agent} <- selected_agent_result,
@@ -384,9 +385,9 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp tool_trace_context(%Incoming{} = incoming) do
-    request_id = incoming.message_id
+    request_id = request_id_from_incoming(incoming)
 
-    if is_binary(request_id) and request_id != "" do
+    if present_message_id?(request_id) do
       %{request_id: request_id, collector_pid: self()}
     else
       nil
@@ -394,9 +395,9 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp collect_tool_calls(%Incoming{} = incoming) do
-    request_id = incoming.message_id
+    request_id = request_id_from_incoming(incoming)
 
-    if is_binary(request_id) and request_id != "" do
+    if present_message_id?(request_id) do
       receive do
         {:zaq_tool_traces, ^request_id, traces} when is_list(traces) -> traces
       after
@@ -406,5 +407,9 @@ defmodule Zaq.Agent.Executor do
     else
       []
     end
+  end
+
+  defp request_id_from_incoming(%Incoming{} = incoming) do
+    request_key(incoming)
   end
 end

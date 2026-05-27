@@ -20,6 +20,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   alias Zaq.{Agent, Event}
   alias Zaq.Channels.Bridge
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Utils.ParseUtils
 
   @callback send_reply(term(), map()) :: :ok | {:error, term()}
@@ -30,7 +31,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback add_reaction(
               map() | atom() | String.t(),
               String.t(),
-              String.t(),
+              String.t() | integer(),
               String.t(),
               map()
             ) :: :ok | {:error, term()}
@@ -38,7 +39,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback remove_reaction(
               map() | atom() | String.t(),
               String.t(),
-              String.t(),
+              String.t() | integer(),
               String.t(),
               map()
             ) :: :ok | {:error, term()}
@@ -101,7 +102,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   @spec add_reaction(atom() | String.t(), String.t() | integer(), String.t(), String.t()) ::
           :ok | {:error, term()}
   def add_reaction(provider, channel_id, message_id, emoji)
-      when is_binary(message_id) and is_binary(emoji) do
+      when is_present_message_id(message_id) and is_binary(emoji) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- Bridge.fetch_channel_config(provider) do
       bridge.add_reaction(
@@ -118,7 +119,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   @spec remove_reaction(
           atom() | String.t(),
           String.t() | integer(),
-          String.t(),
+          String.t() | integer(),
           String.t(),
           map()
         ) ::
@@ -126,7 +127,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   def remove_reaction(provider, channel_id, message_id, emoji, opts \\ %{})
 
   def remove_reaction(provider, channel_id, message_id, emoji, opts)
-      when is_binary(message_id) and is_binary(emoji) and is_map(opts) do
+      when is_present_message_id(message_id) and is_binary(emoji) and is_map(opts) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- Bridge.fetch_channel_config(provider) do
       bridge.remove_reaction(

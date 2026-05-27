@@ -43,9 +43,11 @@ defmodule Zaq.Agent.Factory do
     tools: []
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec}
+  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, JidoTelemetryBridge, ProviderSpec}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
+
+  import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 
   def strategy_opts do
     super()
@@ -187,8 +189,9 @@ defmodule Zaq.Agent.Factory do
 
     case Map.get(refs, :zaq_status_context) do
       %{request_id: request_id, incoming: %Zaq.Engine.Messages.Incoming{}} = ctx
-      when is_binary(request_id) and request_id != "" ->
+      when is_present_message_id(request_id) ->
         Process.put(:zaq_status_context, ctx)
+        JidoTelemetryBridge.register_request_context(request_id, ctx)
 
       _ ->
         :ok
@@ -202,11 +205,14 @@ defmodule Zaq.Agent.Factory do
   defp maybe_put_tool_trace_context(refs) when is_map(refs) do
     case Map.get(refs, :zaq_tool_trace_context) do
       %{request_id: request_id, collector_pid: collector_pid}
-      when is_binary(request_id) and request_id != "" and is_pid(collector_pid) ->
-        Process.put(:zaq_tool_trace_context, %{
+      when is_present_message_id(request_id) and is_pid(collector_pid) ->
+        trace_ctx = %{
           request_id: request_id,
           collector_pid: collector_pid
-        })
+        }
+
+        Process.put(:zaq_tool_trace_context, trace_ctx)
+        JidoTelemetryBridge.register_request_context(request_id, trace_ctx)
 
       _ ->
         :ok
