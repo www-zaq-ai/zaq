@@ -926,20 +926,27 @@ defmodule ZaqWeb.Components.BOLayout do
         icon: "ai",
         active: ai_section_active?(current_path),
         open: ai_section_active?(current_path),
-        items: [
-          %{
-            href: ~p"/bo/agents",
-            icon: "conversations",
-            label: "Agents",
-            active: current_path == "/bo/agents"
-          },
-          %{
-            href: ~p"/bo/workflows",
-            icon: "workflows",
-            label: "Workflows",
-            active: String.starts_with?(current_path, "/bo/workflows")
-          }
-        ]
+        items:
+          [
+            %{
+              href: ~p"/bo/agents",
+              icon: "conversations",
+              label: "Agents",
+              active: current_path == "/bo/agents"
+            }
+          ] ++
+            if workflows_enabled?() do
+              [
+                %{
+                  href: ~p"/bo/workflows",
+                  icon: "workflows",
+                  label: "Workflows",
+                  active: String.starts_with?(current_path, "/bo/workflows")
+                }
+              ]
+            else
+              []
+            end
       },
       %{
         id: "section-data",
@@ -1019,6 +1026,8 @@ defmodule ZaqWeb.Components.BOLayout do
     String.starts_with?(current_path, "/bo/channels") or
       current_path in ["/bo/chat", "/bo/history"]
   end
+
+  defp workflows_enabled?, do: Application.get_env(:zaq, :workflows_enabled, true)
 
   defp load_update_badge_enabled do
     System.get_config("ui.update_badge_enabled") == "true"

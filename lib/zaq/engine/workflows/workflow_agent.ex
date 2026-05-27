@@ -76,7 +76,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     start_attrs =
       if run.started_at, do: %{status: "running"}, else: %{status: "running", started_at: now}
 
-    case Workflows.update_run(run, start_attrs) do
+    case workflows_mod().update_run(run, start_attrs) do
       {:ok, run} ->
         dispatch_workflow_event("run.started", %{run_id: run.id, workflow_id: run.workflow_id})
 
@@ -113,7 +113,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
           error: inspect(reason)
         )
 
-        Workflows.update_run(run, %{status: "failed", finished_at: DateTime.utc_now(:second)})
+        workflows_mod().update_run(run, %{
+          status: "failed",
+          finished_at: DateTime.utc_now(:second)
+        })
+
         {:error, reason}
     end
   end
@@ -312,4 +316,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   end
 
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
+
+  defp workflows_mod,
+    do: Application.get_env(:zaq, :workflow_agent_workflows_mod, Workflows)
 end
