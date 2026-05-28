@@ -36,6 +36,10 @@ defmodule Storybook.Welcome do
           description="Modals, selects, icons, layouts — active components used across the back office and chat interfaces."
         />
         <.section_card
+          label="Layouts"
+          description="Full-page shell components — BO layout, sidebar navigation, header, and sub-components."
+        />
+        <.section_card
           label="Legacy UI"
           description="Components that predate the current design system. Being reviewed for migration or replacement."
         />
