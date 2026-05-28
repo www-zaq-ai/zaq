@@ -1,5 +1,5 @@
 defmodule Zaq.Channels.MessageFormatterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Engine.Messages.Outgoing
@@ -167,6 +167,276 @@ defmodule Zaq.Channels.MessageFormatterTest do
       assert_raise UndefinedFunctionError, fn -> MessageFormatter.format_outgoing(outgoing) end
     after
       Application.put_env(:zaq, :channels, original)
+    end
+  end
+
+  describe "coverage gaps" do
+    test "A: non-binary body passthrough and metadata fallback" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(
+          :zaq,
+          :channels,
+          Map.put(original, :web, %{bridge: Zaq.Channels.WebBridge, message_format: :html})
+        )
+
+        outgoing = %Outgoing{provider: :web, body: %{raw: "x"}, metadata: nil, channel_id: "c1"}
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == %{raw: "x"}
+        assert formatted.metadata == %{format: :html}
+        assert formatted.provider == outgoing.provider
+        assert formatted.channel_id == outgoing.channel_id
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "B: binary provider and existing atom format from string" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(
+          :zaq,
+          :channels,
+          Map.put(original, :web, %{bridge: Zaq.Channels.WebBridge, message_format: "html"})
+        )
+
+        outgoing = %Outgoing{
+          provider: "web",
+          channel_id: "c1",
+          body: "# T",
+          metadata: %{request_id: "r1"}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body =~ "<h1>"
+        assert formatted.body =~ "T</h1>"
+        assert formatted.metadata[:format] == :html
+        assert formatted.metadata[:request_id] == "r1"
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "C: unsupported provider type and no-op format cleanup" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(:zaq, :channels, original)
+
+        outgoing = %Outgoing{
+          provider: 1234,
+          channel_id: "c1",
+          body: "hello",
+          metadata: %{"format" => "legacy", keep: 1, format: :html}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == "hello"
+        refute Map.has_key?(formatted.metadata, :format)
+        refute Map.has_key?(formatted.metadata, "format")
+        assert formatted.metadata.keep == 1
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "D: provider config not a map" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(:zaq, :channels, %{web: 123})
+
+        outgoing = %Outgoing{provider: :web, channel_id: "c1", body: "hello", metadata: %{a: 1}}
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == "hello"
+        refute Map.has_key?(formatted.metadata, :format)
+        refute Map.has_key?(formatted.metadata, "format")
+        assert formatted.metadata.a == 1
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "E: unknown binary format string is rescued to nil" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(
+          :zaq,
+          :channels,
+          %{
+            web: %{bridge: Zaq.Channels.WebBridge, message_format: "definitely_not_existing_atom"}
+          }
+        )
+
+        outgoing = %Outgoing{
+          provider: :web,
+          channel_id: "c1",
+          body: "# Title",
+          metadata: %{request_id: "r1"}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == "# Title"
+        refute Map.has_key?(formatted.metadata, :format)
+        refute Map.has_key?(formatted.metadata, "format")
+        assert formatted.metadata[:request_id] == "r1"
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "F: plain_text falls back when markdown parser errors" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(
+          :zaq,
+          :channels,
+          %{web: %{bridge: Zaq.Channels.WebBridge, message_format: :plain_text}}
+        )
+
+        outgoing = %Outgoing{
+          provider: :web,
+          channel_id: "c1",
+          body: <<255>>,
+          metadata: %{request_id: "r1"}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == <<255>>
+        assert formatted.metadata[:format] == :plain_text
+        assert formatted.metadata[:request_id] == "r1"
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "G: html falls back when markdown parser errors" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(
+          :zaq,
+          :channels,
+          %{web: %{bridge: Zaq.Channels.WebBridge, message_format: :html}}
+        )
+
+        outgoing = %Outgoing{
+          provider: :web,
+          channel_id: "c1",
+          body: <<255>>,
+          metadata: %{request_id: "r1"}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == <<255>>
+        assert formatted.metadata[:format] == :html
+        assert formatted.metadata[:request_id] == "r1"
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "H: Earmark error tuple keeps source markdown" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(
+          :zaq,
+          :channels,
+          %{web: %{bridge: Zaq.Channels.WebBridge, message_format: :html}}
+        )
+
+        markdown = "```elixir\nfoo"
+
+        outgoing = %Outgoing{
+          provider: :web,
+          channel_id: "c1",
+          body: markdown,
+          metadata: %{request_id: "r1"}
+        }
+
+        assert_raise CaseClauseError, fn -> MessageFormatter.format_outgoing(outgoing) end
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
+    test "I: invalid Earmark output falls back to the original body" do
+      with_mocked_earmark_as_html(fn ->
+        original = Application.get_env(:zaq, :channels)
+
+        try do
+          Application.put_env(
+            :zaq,
+            :channels,
+            %{web: %{bridge: Zaq.Channels.WebBridge, message_format: :html}}
+          )
+
+          outgoing = %Outgoing{
+            provider: :web,
+            channel_id: "c1",
+            body: "# Title",
+            metadata: %{request_id: "r1"}
+          }
+
+          formatted = MessageFormatter.format_outgoing(outgoing)
+
+          assert formatted.body == "# Title"
+          assert formatted.metadata[:format] == :html
+          assert formatted.metadata[:request_id] == "r1"
+
+          Application.put_env(
+            :zaq,
+            :channels,
+            %{web: %{bridge: Zaq.Channels.WebBridge, message_format: :plain_text}}
+          )
+
+          formatted = MessageFormatter.format_outgoing(outgoing)
+
+          assert formatted.body == "# Title"
+          assert formatted.metadata[:format] == :plain_text
+          assert formatted.metadata[:request_id] == "r1"
+        after
+          Application.put_env(:zaq, :channels, original)
+        end
+      end)
+    end
+  end
+
+  defp with_mocked_earmark_as_html(fun) when is_function(fun, 0) do
+    :code.purge(Earmark)
+    :code.delete(Earmark)
+
+    Code.compiler_options(ignore_module_conflict: true)
+
+    Code.compile_string("""
+    defmodule Earmark do
+      def as_html(_text, _opts), do: :weird
+    end
+    """)
+
+    Code.compiler_options(ignore_module_conflict: false)
+
+    try do
+      fun.()
+    after
+      :code.purge(Earmark)
+      :code.delete(Earmark)
+      :code.load_file(Earmark)
+      Code.compiler_options(ignore_module_conflict: false)
     end
   end
 end

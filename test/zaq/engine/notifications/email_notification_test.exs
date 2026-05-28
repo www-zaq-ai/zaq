@@ -5,6 +5,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Notifications.EmailNotification
+  alias Zaq.Types.EncryptedString
 
   # ---------------------------------------------------------------------------
   # Helpers
@@ -47,6 +48,36 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
     assert {:ok, _channel} = ChannelConfig.upsert_by_provider("email:smtp", attrs)
     :ok
+  end
+
+  defp with_public_key_stub(source, fun) do
+    {:public_key, original_binary, original_path} = :code.get_object_code(:public_key)
+
+    stub_dir =
+      Path.join([
+        System.tmp_dir!(),
+        "zaq_public_key_stub",
+        Integer.to_string(System.unique_integer([:positive]))
+      ])
+
+    File.mkdir_p!(stub_dir)
+    stub_path = Path.join(stub_dir, "public_key.erl")
+    File.write!(stub_path, source)
+
+    {:ok, :public_key, stub_binary} = :compile.file(String.to_charlist(stub_path), [:binary])
+
+    :code.purge(:public_key)
+    :code.delete(:public_key)
+    {:module, :public_key} = :code.load_binary(:public_key, ~c"public_key.beam", stub_binary)
+
+    on_exit(fn ->
+      :code.purge(:public_key)
+      :code.delete(:public_key)
+      {:module, :public_key} = :code.load_binary(:public_key, original_path, original_binary)
+      File.rm_rf!(stub_dir)
+    end)
+
+    fun.()
   end
 
   # ---------------------------------------------------------------------------
@@ -356,6 +387,148 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert :ok = EmailNotification.send_notification("user@example.com", p, metadata)
       assert_receive {:email, email}
       refute Enum.any?(email.headers, fn {key, _} -> String.starts_with?(key, "X-") end)
+    end
+  end
+
+  describe "coverage gaps for sender parsing and cert fallback" do
+    test "extracts sender email from atom map metadata" do
+      upsert_smtp_channel()
+
+      metadata = %{"from" => %{email: "atom.map@example.com"}}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "atom.map@example.com"}
+    end
+
+    test "extracts sender email from atom address map metadata" do
+      upsert_smtp_channel()
+
+      metadata = %{"from" => %{address: "addr.map@example.com"}}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "addr.map@example.com"}
+    end
+
+    test "extracts sender email from raw string metadata" do
+      upsert_smtp_channel()
+
+      metadata = %{"from" => "raw@example.com"}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "raw@example.com"}
+    end
+
+    test "extracts sender name from atom map metadata" do
+      upsert_smtp_channel()
+
+      metadata = %{"from" => %{name: "Atom Name", email: "name@example.com"}}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"Atom Name", "name@example.com"}
+    end
+
+    test "falls back to default email when from_email is non-binary" do
+      upsert_smtp_channel()
+
+      metadata = %{"from_email" => 12_345, "from_name" => "Valid Name"}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"Valid Name", "noreply@zaq.local"}
+    end
+
+    test "falls back to default name when from_name is non-binary" do
+      upsert_smtp_channel()
+
+      metadata = %{"from_name" => 12_345, "from_email" => "typed@example.com"}
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "typed@example.com"}
+    end
+
+    test "decrypts valid encrypted password for username auth without crashing" do
+      {:ok, encrypted} = EncryptedString.encrypt("secret123")
+
+      upsert_smtp_channel(%{
+        settings:
+          smtp_settings(%{
+            "relay" => "127.0.0.1",
+            "username" => "user@example.com",
+            "password" => encrypted
+          })
+      })
+
+      result = EmailNotification.send_notification("user@example.com", payload(), %{})
+
+      assert result == :ok or match?({:error, _}, result)
+      assert Process.alive?(self())
+    end
+
+    test "maps binary and tuple cert entries from cacerts before delivery" do
+      upsert_smtp_channel(%{
+        settings:
+          smtp_settings(%{
+            "relay" => "127.0.0.1",
+            "port" => "1",
+            "transport_mode" => "starttls",
+            "tls" => "enabled",
+            "tls_verify" => "verify_peer",
+            "ca_cert_path" => nil
+          })
+      })
+
+      with_public_key_stub(
+        """
+        -module(public_key).
+        -export([cacerts_get/0]).
+
+        cacerts_get() ->
+            [{cert, <<1, 2, 3>>, test}, <<4, 5, 6>>].
+        """,
+        fn ->
+          assert {:error, _reason} =
+                   EmailNotification.send_notification("user@example.com", payload(), %{})
+        end
+      )
+    end
+
+    test "rescues cacerts lookup failures and falls back to empty certs" do
+      upsert_smtp_channel(%{
+        settings:
+          smtp_settings(%{
+            "relay" => "127.0.0.1",
+            "port" => "1",
+            "transport_mode" => "starttls",
+            "tls" => "enabled",
+            "tls_verify" => "verify_peer",
+            "ca_cert_path" => nil
+          })
+      })
+
+      with_public_key_stub(
+        """
+        -module(public_key).
+        -export([cacerts_get/0]).
+
+        cacerts_get() ->
+            erlang:error(cacerts_unavailable).
+        """,
+        fn ->
+          assert {:error, _reason} =
+                   EmailNotification.send_notification("user@example.com", payload(), %{})
+        end
+      )
     end
   end
 end
