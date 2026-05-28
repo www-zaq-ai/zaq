@@ -43,6 +43,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     refute has_element?(view, "#ingress-status-dot-slack")
   end
 
+  test "does not render ingress status dot for disabled retrieval config", %{conn: conn} do
+    insert_channel_config(%{provider: "mattermost", name: "MM Disabled", enabled: false})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval")
+
+    refute has_element?(view, "#ingress-status-dot-mattermost")
+  end
+
   test "opens ingress status modal from retrieval provider card", %{conn: conn} do
     insert_channel_config(%{provider: "mattermost", name: "MM Config"})
 

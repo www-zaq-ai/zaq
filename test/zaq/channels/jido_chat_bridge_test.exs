@@ -3802,7 +3802,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:delete_ingress_subscription, ^bridge_id, "sub-from-list", _opts}
     end
 
-    test "delete_ingress_subscription/2 returns missing_subscription_id when list is empty/invalid" do
+    test "delete_ingress_subscription/2 is idempotent when list is empty/invalid" do
       config =
         insert_channel_config(%{
           settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
@@ -3810,7 +3810,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       Process.put(:stub_list_ingress_subscriptions_result, {:ok, []})
 
-      assert {:error, :missing_subscription_id} =
+      assert {:ok, %{type: :ingress_webhook, deleted: false, reason: :missing_subscription_id}} =
                JidoChatBridge.delete_ingress_subscription(config, %{})
 
       assert_received {:list_ingress_subscriptions, _bridge_id, _opts}
