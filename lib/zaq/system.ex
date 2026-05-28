@@ -7,6 +7,7 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
+  alias Zaq.Agent.ZAQProvider
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
@@ -275,6 +276,78 @@ defmodule Zaq.System do
 
   @doc "Gets an AI provider credential by id, returning `nil` when not found."
   def get_ai_provider_credential(id), do: Repo.get(AIProviderCredential, id)
+
+  @doc "Gets an AI provider credential by name, returning `nil` when not found."
+  def get_ai_provider_credential_by_name(name) when is_binary(name) do
+    Repo.get_by(AIProviderCredential, name: name)
+  end
+
+  @doc """
+  Creates or updates the auto-provisioned LiteLLM AI credential, then wires
+  the credential into LLM, embedding, and image-to-text configs (first time only).
+
+  Idempotent — safe to call multiple times. System configs are only set when
+  their `credential_id` is nil (i.e. not yet configured).
+  """
+  @spec provision_litellm_credential(%{litellm_api_key: String.t()}) ::
+          {:ok, map()} | {:error, term()}
+  def provision_litellm_credential(%{litellm_api_key: api_key}) do
+    litellm_url = ZAQProvider.default_endpoint()
+    name = "ZAQ Provider"
+
+    attrs = %{
+      name: name,
+      provider: "zaq_provider",
+      endpoint: litellm_url,
+      api_key: api_key,
+      sovereign: false,
+      description: "Zaq Provider (Free Tier) gives you ability to access different models."
+    }
+
+    result =
+      case get_ai_provider_credential_by_name(name) do
+        nil -> create_ai_provider_credential(attrs)
+        existing -> update_ai_provider_credential(existing, attrs)
+      end
+
+    case result do
+      {:ok, credential} ->
+        provision_system_configs(credential)
+        {:ok, credential}
+
+      error ->
+        error
+    end
+  end
+
+  defp provision_system_configs(%AIProviderCredential{id: cred_id}) do
+    if is_nil(get_llm_config().credential_id) do
+      %LLMConfig{}
+      |> LLMConfig.changeset(%{credential_id: cred_id, model: "gpt-oss-120b"})
+      |> save_llm_config()
+    end
+
+    if is_nil(get_embedding_config().credential_id) do
+      %EmbeddingConfig{}
+      |> EmbeddingConfig.changeset(%{
+        credential_id: cred_id,
+        model: "llama-nemotron-embed-vl-1b-v2",
+        dimension: 2048
+      })
+      |> save_embedding_config()
+    end
+
+    if is_nil(get_image_to_text_config().credential_id) do
+      %ImageToTextConfig{}
+      |> ImageToTextConfig.changeset(%{
+        credential_id: cred_id,
+        model: "gemma-4-31b-it"
+      })
+      |> save_image_to_text_config()
+    end
+
+    :ok
+  end
 
   @doc "Returns a changeset for AI provider credentials."
   def change_ai_provider_credential(%AIProviderCredential{} = credential, attrs \\ %{}) do

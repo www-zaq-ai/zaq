@@ -22,6 +22,10 @@ end
 
 config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+config :zaq,
+  user_portal_base_url: System.get_env("USER_PORTAL_BASE_URL", "http://localhost:4015"),
+  litellm_base_url: System.get_env("LITELLM_BASE_URL", "http://localhost:4020")
+
 if config_env() == :prod do
   # SMTP password encryption (used by BO System Configuration page)
   # - SYSTEM_CONFIG_ENCRYPTION_KEY is required to save non-empty SMTP passwords

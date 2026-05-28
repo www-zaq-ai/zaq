@@ -39,6 +39,12 @@ config :zaq, Zaq.Embedding.Client,
   dimension: 1536,
   req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
+config :zaq, :user_portal_base_url, "http://user-portal.test"
+
+config :zaq, :litellm_base_url, "http://litellm.test"
+
+config :zaq, Zaq.UserPortal.Client, req_options: [plug: {Req.Test, Zaq.UserPortal.Client}]
+
 # --MOX--
 config :zaq,
   chunk_title_module: Zaq.Agent.ChunkTitleMock,
