@@ -87,8 +87,12 @@ defmodule Zaq.Channels.MessageFormatter do
 
   defp normalize_format(format), do: format
 
-  defp format_text(text, _format, {module, function}) when is_atom(module) and is_atom(function),
-    do: apply(module, function, [text])
+  defp format_text(text, _format, {module, function})
+       when is_atom(module) and is_atom(function) do
+    apply(module, function, [text])
+  rescue
+    _error -> text
+  end
 
   defp format_text(text, nil, _formatter), do: text
 

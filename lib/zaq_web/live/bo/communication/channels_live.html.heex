@@ -128,8 +128,9 @@
               >
                 <span class={[
                   "status",
-                  ZaqWeb.Live.BO.Communication.ChannelsLive.ingress_status_color(
-                    Map.get(@ingress_statuses || %{}, config.id)
+                  if(Map.get(@ingress_status_loading || %{}, config.id),
+                    do: "status-neutral animate-pulse",
+                    else: IngressStatusUI.color(Map.get(@ingress_statuses || %{}, config.id))
                   )
                 ]} />
               </button>

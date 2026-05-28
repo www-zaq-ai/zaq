@@ -20,4 +20,16 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUI do
   def normalize_response(other) do
     %{status: :error, mode: "unknown", summary: "Unexpected status response", reason: other}
   end
+
+  def apply_async_result(socket, {:ok, statuses}) when is_map(statuses) do
+    socket
+    |> Phoenix.Component.assign(:ingress_statuses, statuses)
+    |> Phoenix.Component.assign(:ingress_status_loading, %{})
+  end
+
+  def apply_async_result(socket, _result) do
+    socket
+    |> Phoenix.Component.assign(:ingress_statuses, %{})
+    |> Phoenix.Component.assign(:ingress_status_loading, %{})
+  end
 end

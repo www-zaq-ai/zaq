@@ -240,7 +240,10 @@
             <div class="flex items-center gap-2 mb-1">
               <h3 class="font-mono text-sm font-bold text-black">{card.label}</h3>
               <button
-                :if={@kind == :retrieval and Map.has_key?(@ingress_statuses || %{}, card.id)}
+                :if={
+                  @kind == :retrieval and
+                    MapSet.member?(@configured_ingress_providers || MapSet.new(), card.id)
+                }
                 id={"ingress-status-dot-#{card.id}"}
                 type="button"
                 phx-click="open_ingress_status"
@@ -250,8 +253,9 @@
               >
                 <span class={[
                   "status",
-                  ZaqWeb.Live.BO.Communication.ChannelsIndexLive.ingress_status_color(
-                    Map.get(@ingress_statuses || %{}, card.id)
+                  if(Map.get(@ingress_status_loading || %{}, card.id),
+                    do: "status-neutral animate-pulse",
+                    else: IngressStatusUI.color(Map.get(@ingress_statuses || %{}, card.id))
                   )
                 ]} />
               </button>

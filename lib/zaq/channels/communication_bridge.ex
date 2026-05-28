@@ -216,7 +216,11 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Ensures provider ingress subscription through the configured communication bridge."
+  @doc """
+  Ensures provider ingress subscription through the configured communication bridge.
+
+  This operation requires an enabled channel config (`fetch_channel_config/1`).
+  """
   @spec ensure_ingress_subscription(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
   def ensure_ingress_subscription(provider, params \\ %{}) when is_map(params) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
@@ -227,7 +231,13 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Lists provider ingress subscriptions through the configured communication bridge."
+  @doc """
+  Lists provider ingress subscriptions through the configured communication bridge.
+
+  This operation accepts any provider config, including disabled ones
+  (`fetch_any_channel_config/1`), so operators can inspect subscriptions during
+  disable/teardown workflows.
+  """
   @spec list_ingress_subscriptions(atom() | String.t(), map()) ::
           {:ok, [map()]} | {:error, term()}
   def list_ingress_subscriptions(provider, params \\ %{}) when is_map(params) do
@@ -239,7 +249,13 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Deletes provider ingress subscription through the configured communication bridge."
+  @doc """
+  Deletes provider ingress subscription through the configured communication bridge.
+
+  This operation accepts any provider config, including disabled ones
+  (`fetch_any_channel_config/1`), so teardown can still run after a channel has
+  been disabled.
+  """
   @spec delete_ingress_subscription(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
   def delete_ingress_subscription(provider, params \\ %{}) when is_map(params) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),

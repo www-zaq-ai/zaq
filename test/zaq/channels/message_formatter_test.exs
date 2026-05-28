@@ -6,6 +6,7 @@ defmodule Zaq.Channels.MessageFormatterTest do
 
   defmodule CustomFormatter do
     def as_html(text), do: "<custom>#{text}</custom>"
+    def raise_error(_text), do: raise("boom")
   end
 
   test "returns outgoing unchanged when format is not configured" do
@@ -148,7 +149,7 @@ defmodule Zaq.Channels.MessageFormatterTest do
     end
   end
 
-  test "custom formatter crashes when configured function is missing" do
+  test "custom formatter falls back when configured function is missing" do
     original = Application.get_env(:zaq, :channels)
 
     try do
@@ -164,7 +165,36 @@ defmodule Zaq.Channels.MessageFormatterTest do
 
       outgoing = %Outgoing{provider: :web, channel_id: "c1", body: "hello", metadata: %{}}
 
-      assert_raise UndefinedFunctionError, fn -> MessageFormatter.format_outgoing(outgoing) end
+      formatted = MessageFormatter.format_outgoing(outgoing)
+
+      assert formatted.body == "hello"
+      assert formatted.metadata[:format] == :html
+    after
+      Application.put_env(:zaq, :channels, original)
+    end
+  end
+
+  test "custom formatter falls back when configured function raises" do
+    original = Application.get_env(:zaq, :channels)
+
+    try do
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(original, :web, %{
+          bridge: Zaq.Channels.WebBridge,
+          message_format: :html,
+          message_formatter: {CustomFormatter, :raise_error}
+        })
+      )
+
+      outgoing = %Outgoing{provider: :web, channel_id: "c1", body: "hello", metadata: %{a: 1}}
+
+      formatted = MessageFormatter.format_outgoing(outgoing)
+
+      assert formatted.body == "hello"
+      assert formatted.metadata[:format] == :html
+      assert formatted.metadata[:a] == 1
     after
       Application.put_env(:zaq, :channels, original)
     end

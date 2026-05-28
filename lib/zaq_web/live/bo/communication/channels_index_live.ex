@@ -108,14 +108,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   @impl true
   def mount(_params, _session, socket) do
     available = socket.assigns.service_available
+    configured_providers = if(available, do: configured_retrieval_providers(), else: MapSet.new())
 
     {:ok,
      socket
      |> assign(:retrieval_preview, @retrieval_preview)
      |> assign(:data_source_preview, @data_source_preview)
      |> assign(:stats, if(available, do: compute_stats(), else: %{}))
-     |> assign(:ingress_statuses, if(available, do: compute_ingress_statuses(), else: %{}))
-     |> assign(:ingress_status_modal, nil)}
+     |> assign(:configured_ingress_providers, configured_providers)
+     |> assign(:ingress_statuses, %{})
+     |> assign(:ingress_status_loading, ingress_status_loading(configured_providers))
+     |> assign(:ingress_status_modal, nil)
+     |> schedule_ingress_status_refresh(configured_providers)}
+  end
+
+  @impl true
+  def handle_async(:ingress_statuses, result, socket) do
+    {:noreply, IngressStatusUI.apply_async_result(socket, result)}
   end
 
   @impl true
@@ -194,10 +203,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   def provider_path(:data_source, id), do: "/bo/channels/data_source/#{id}"
   def provider_path(:notification, id), do: "/bo/channels/notifications/#{id}"
 
-  def ingress_status_color(status) do
-    IngressStatusUI.color(status)
-  end
-
   # --- Private ---
 
   defp compute_stats do
@@ -216,18 +221,35 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     end)
   end
 
-  defp compute_ingress_statuses do
-    configured_providers = configured_retrieval_providers()
-
-    providers =
-      @retrieval_cards
-      |> Enum.map(& &1.id)
-      |> Enum.reject(&(&1 == "email"))
-      |> Enum.filter(&MapSet.member?(configured_providers, &1))
+  defp compute_ingress_statuses(configured_providers)
+       when is_struct(configured_providers, MapSet) do
+    providers = ingress_status_providers(configured_providers)
 
     Enum.reduce(providers, %{}, fn provider, acc ->
       Map.put(acc, provider, fetch_ingress_status(provider))
     end)
+  end
+
+  defp ingress_status_providers(configured_providers) do
+    @retrieval_cards
+    |> Enum.map(& &1.id)
+    |> Enum.reject(&(&1 == "email"))
+    |> Enum.filter(&MapSet.member?(configured_providers, &1))
+  end
+
+  defp ingress_status_loading(configured_providers)
+       when is_struct(configured_providers, MapSet) do
+    configured_providers
+    |> ingress_status_providers()
+    |> Map.new(fn provider -> {provider, true} end)
+  end
+
+  defp schedule_ingress_status_refresh(socket, configured_providers)
+       when is_struct(configured_providers, MapSet) do
+    socket
+    |> assign(:ingress_statuses, %{})
+    |> assign(:ingress_status_loading, ingress_status_loading(configured_providers))
+    |> start_async(:ingress_statuses, fn -> compute_ingress_statuses(configured_providers) end)
   end
 
   defp configured_retrieval_providers do
