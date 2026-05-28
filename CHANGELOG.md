@@ -1,5 +1,75 @@
 # Changelog
 
+## [0.10.0](https://github.com/www-zaq-ai/zaq/compare/v0.9.0...v0.10.0) (2026-05-28)
+
+
+### Features
+
+* **BO:** Expose global base url field and use for oauth2 and webhooks ([bf4ba40](https://github.com/www-zaq-ai/zaq/commit/bf4ba409ee5635c45e112fc8e5160144ab583d5a))
+* **Channels:** Automatic webhook ingress management ([4016dda](https://github.com/www-zaq-ai/zaq/commit/4016ddade429e8c7d396c78600aae81d988d7222))
+* **Channels:** introduce a new upsert_message event with rules to abstract that away from internal ZAQ consumers ([ab000b9](https://github.com/www-zaq-ai/zaq/commit/ab000b9daa950367ab393e7570e8beee6df09c6a))
+* **communication channels:** define a channel based formatter for outgoing messages rendering ([26f5625](https://github.com/www-zaq-ai/zaq/commit/26f5625a78e14c70358c3b194ad4ec1a346d6db5))
+* **communication channels:** display an indicator for the ingress status of active channels ([80e7fe5](https://github.com/www-zaq-ai/zaq/commit/80e7fe5be63cc93d7f57403db0b18f8e9d9b5872))
+* **communication channels:** Telegram (int ID) integration with editable message and tool call registration ([05bd3a3](https://github.com/www-zaq-ai/zaq/commit/05bd3a338cf6b633f733100d338758c6852233ab))
+* **Communication:** standardize capabilities display across channel types ([95c7b10](https://github.com/www-zaq-ai/zaq/commit/95c7b105d15b8737e392f591ed8162f2ba6c4b35))
+* **Communication:** start wiring up webhooks into communication channels ([51096d7](https://github.com/www-zaq-ai/zaq/commit/51096d7671b0867a72d8efd4b05ca21dbbce6d60))
+* **Data Source:** adding Actions for data source interactions ([da8b7dc](https://github.com/www-zaq-ai/zaq/commit/da8b7dc227162f2e2d3807c76a2b6a6f8f1b5eb9))
+* **Data Source:** wire capabilities implementation ([a9932ed](https://github.com/www-zaq-ai/zaq/commit/a9932edd3793d46056f61b85ad0e4607767dd7a5))
+* **Data Source:** wire create and edit docs into new Actions ([72e9a25](https://github.com/www-zaq-ai/zaq/commit/72e9a259feb1cb37ef4d6ef63fd4da1e373c762c))
+* **DataSource:** Integrate google sheets connector and merge into google_drive Data Source ([a37d122](https://github.com/www-zaq-ai/zaq/commit/a37d122a6fb0ffa6c27646935501548b59b89588))
+* enable webhooks route in channels ([7186781](https://github.com/www-zaq-ai/zaq/commit/71867818183145681ad4a87bff9d74e238eb43c4))
+* **engine:** add EventRegistry CRUD ops + Workflows sync + Event.new/3 compliance ([42e6aa8](https://github.com/www-zaq-ai/zaq/commit/42e6aa8da7eb87d24b6e59e3f4ab182939e11196))
+* **engine:** TriggerNode threads event payload into workflow starting node input ([5597daf](https://github.com/www-zaq-ai/zaq/commit/5597daf9132f414bd57965328f45b9a981a84856))
+* **workflow:** add contract to maintain on_success and on_failure path for the workflow ([b58a8da](https://github.com/www-zaq-ai/zaq/commit/b58a8daea80d499e9c553f5ce24c27185dae0842))
+* **workflows:** add structured log storage to workflow step runs and email tools ([2b18822](https://github.com/www-zaq-ai/zaq/commit/2b18822e29f6782aea22796a5610a5d3b1375309))
+* **workflows:** data model — zaq-3ux ([0583557](https://github.com/www-zaq-ai/zaq/commit/05835573b7a3501793ea22d189c9ea163693b50f))
+* **workflows:** make workflows runnable from DB — zaq-3ux ([ba8226d](https://github.com/www-zaq-ai/zaq/commit/ba8226d571ef2fec9af1b438c9de2cd2643eb80d))
+* **workflows:** move into engine namespace, rename ActionResult to StepRun, add structured logging with ([c8ad192](https://github.com/www-zaq-ai/zaq/commit/c8ad1925005ace4d190eee3434427d5f44c97148))
+* **workflows:** replace raw steps map with typed StepNode/StepEdge embedded schemas ([bd243f4](https://github.com/www-zaq-ai/zaq/commit/bd243f42585dec104f4a75bc7fcb87f9d1e7b49c))
+* **workflows:** replace trigger system with event-driven NodeRouter/PubSub architecture ([018a27d](https://github.com/www-zaq-ai/zaq/commit/018a27d6a2cd839c7a3319b9bc98f3fc7581d30c))
+* **workflows:** wire DB-stored runs to Runic execution with ActionResult tracking, fix condition ([c6120d7](https://github.com/www-zaq-ai/zaq/commit/c6120d708f178eb332dbb6411af169a9edec0d75))
+
+
+### Bug Fixes
+
+* **agent:** max iterations ([b5187af](https://github.com/www-zaq-ai/zaq/commit/b5187aff3b833eafd924317025d2a5d900cccc5c))
+* **agent:** stop using patch for max_iterations ([613302e](https://github.com/www-zaq-ai/zaq/commit/613302edd17be75946a6be4e0365c28d48e3ea4c))
+* **bo:** add bulk delete for people with selection, confirmation modal, and gateway ([e79fbda](https://github.com/www-zaq-ai/zaq/commit/e79fbda6df9b7d02c6c76fc7be1e829054be8c4a))
+* **bo:** address bulk-delete review findings — transactional delete, unified confirm bar, key normalization ([7e49cce](https://github.com/www-zaq-ai/zaq/commit/7e49cce3bdb49be594e1b7b9fd41e8b8f5ce575f))
+* **Channels Config:** generalize Send message through NodeRouter ([f1ad3af](https://github.com/www-zaq-ai/zaq/commit/f1ad3af16a117739a6d00edce24a8539978e23ff))
+* **communication channels:** deliver_outgoing :ok response handling ([e85ad16](https://github.com/www-zaq-ai/zaq/commit/e85ad1662c0eb9229054161f35bcfb4540c4538f))
+* **Communication:** send_typing fix for non binary channel_id (i.e Telegram) ([f16a2b3](https://github.com/www-zaq-ai/zaq/commit/f16a2b3e2e635bd25693b4135743a5ac506ade58))
+* **engine:** defer EventRegistry trigger load to handle_continue and make isolate_event_registry ([f0b28e8](https://github.com/www-zaq-ai/zaq/commit/f0b28e82ddfb620e0bd558b2d5258fb1a287b881))
+* **engine:** EventRegistry.list_events/2 returns map instead of list ([f750415](https://github.com/www-zaq-ai/zaq/commit/f750415e4b9dce00ff73df9c5f28cb30fe4fd129))
+* **test:** resolve module name collision and fix StepRun.statuses assertion ([ee2e4cc](https://github.com/www-zaq-ai/zaq/commit/ee2e4ccfdccbe90ede66907c5d1b6977035daf4e))
+* **workflow:** creating and updating trigger sync the event registery ([298ce92](https://github.com/www-zaq-ai/zaq/commit/298ce9233e3e19ee990fc06fc1eb88d13a8dd66d))
+* **workflow:** make event registry fire async and event name coupled with destination ([fa9b0ac](https://github.com/www-zaq-ai/zaq/commit/fa9b0acd16b6b3896b0bdb91362ba98078b7c9f9))
+* **workflows/permissions:** address all PR review findings ([aadb282](https://github.com/www-zaq-ai/zaq/commit/aadb28288d5e2d834dc12f837b88a3827f0f6b92))
+* **workflows:** auto-set started_at in create_action_result/3 ([c7431fa](https://github.com/www-zaq-ai/zaq/commit/c7431fac35052dcdfdda33ad23d1088f4f8c7204))
+
+
+### Performance Improvements
+
+* **channels:** only load ingress status indicator for active channels, allow deleting config with missing webhook ingress sub ([e49a0ac](https://github.com/www-zaq-ai/zaq/commit/e49a0acfe5928fde9a446c61fcd25302149079ee))
+* **communication channels:** non blocking channel status load, non blocking formatting error ([8a38789](https://github.com/www-zaq-ai/zaq/commit/8a38789d3472454a436d0fa00f43eb1e46a924c2))
+
+
+### Refactoring
+
+* **Agents:** define an Error.format helper to use accross tools ([7eeadd6](https://github.com/www-zaq-ai/zaq/commit/7eeadd6e02ebebfba7cf21618634c9504d142820))
+* **Agent:** Simplify data source tools code ([c094399](https://github.com/www-zaq-ai/zaq/commit/c0943992211850cf54c9da194da80c8d7a224fc7))
+* **Channels:** adjust code path for code quality and upsert feature standardization ([2149b95](https://github.com/www-zaq-ai/zaq/commit/2149b95915106233644763b21d52bb207e7e29b1))
+* **Channels:** Run webhook verification sync then enqueue Data Source webhook in Oban for async process ([df298b3](https://github.com/www-zaq-ai/zaq/commit/df298b382d249a6b62c3a305995ad58bbaef8d86))
+* **Channels:** wire messages to new upsert_message feature ([2ba875e](https://github.com/www-zaq-ai/zaq/commit/2ba875ec364018a0dedb7b232f345bda408c0352))
+* **data source:** resolve integration module in bridge ([76c2ed9](https://github.com/www-zaq-ai/zaq/commit/76c2ed9e2b61d65b9ca45ae765ccb93de490f50a))
+* extract MapUtils, unify valid_rights contract, and add Action default callbacks via __using__ ([45edf8a](https://github.com/www-zaq-ai/zaq/commit/45edf8adedc65521192a423ffc2b77a956c9ea1d))
+* Implement code review comments on channel's webhook ([49ffdde](https://github.com/www-zaq-ai/zaq/commit/49ffdde3fe9e956a6e3a843f3a4cbdea75fa4fc0))
+* **NodeRouter:** deprecate call/ clauses ([c0a36dd](https://github.com/www-zaq-ai/zaq/commit/c0a36dd06250435b5ce8c49e99fc1a0af5bd1139))
+* **permission:** move Ingestion.Permission to Permissions.DocumentPermission ([cf9219c](https://github.com/www-zaq-ai/zaq/commit/cf9219c511e83cc7ee1043fa60ce33ec436ea7a4))
+* **System:** extract mcp, ai credentials and auth credentials into dedicated module files ([d39b28a](https://github.com/www-zaq-ai/zaq/commit/d39b28a77e63ba6ac2b051b858cdd750615ad6cd))
+* **System:** extract remaining logic to keep routing only in system config live ([72e67ce](https://github.com/www-zaq-ai/zaq/commit/72e67ce797d806fd5548eaf4352ec64d663bdeea))
+* **tools:** add output schema for tools for the workflow ([202fa9a](https://github.com/www-zaq-ai/zaq/commit/202fa9a6792b005ccaa8220e73e1a09200666bae))
+
 ## [0.9.0](https://github.com/www-zaq-ai/zaq/compare/v0.8.1...v0.9.0) (2026-05-15)
 
 
