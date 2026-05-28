@@ -1,5 +1,5 @@
 defmodule Zaq.NodeRouterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
@@ -380,6 +380,194 @@ defmodule Zaq.NodeRouterTest do
       assert metadata.channel_id == "chan-1"
       assert metadata.request_id == "req-1"
       assert is_binary(metadata.trace_id)
+    end
+
+    test "logs async failure with nil request metadata when request is not a map" do
+      event = %Event{
+        request: :not_a_map,
+        next_hop: %EventHop{destination: :channels, type: :async, timestamp: DateTime.utc_now()},
+        opts: [action: :upsert_message],
+        trace_id: Ecto.UUID.generate(),
+        hops: []
+      }
+
+      telemetry_handler_id = "node-router-async-failed-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach(
+        telemetry_handler_id,
+        [:zaq, :node_router, :async, :failed],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:node_router_async_failed, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(telemetry_handler_id) end)
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Channels.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host,
+          Zaq.Channels.Api,
+          :handle_event,
+          [%Event{} = routed, :upsert_message, _] ->
+            %{routed | response: {:error, :edit_failed}}
+        end,
+        async_start_fn: fn fun ->
+          fun.()
+          {:ok, self()}
+        end
+      }
+
+      log =
+        capture_log([level: :error], fn ->
+          result = NodeRouter.dispatch(event, runtime)
+
+          assert %Event{} = result
+          assert result.response == nil
+        end)
+
+      assert log =~ "[NodeRouter] async dispatch failed"
+      assert log =~ "provider=nil"
+      assert log =~ "channel_id=nil"
+      assert log =~ "request_id=nil"
+
+      assert_receive {:node_router_async_failed, [:zaq, :node_router, :async, :failed],
+                      %{count: 1}, metadata}
+
+      assert metadata.provider == nil
+      assert metadata.channel_id == nil
+      assert metadata.request_id == nil
+    end
+
+    test "uses :unknown role in async failure metadata when hops list has invalid last entry" do
+      event = %Event{
+        request: %{provider: "telegram"},
+        next_hop: %EventHop{destination: :channels, type: :async, timestamp: DateTime.utc_now()},
+        opts: [action: :upsert_message],
+        trace_id: Ecto.UUID.generate(),
+        hops: [:bad_hop_shape]
+      }
+
+      telemetry_handler_id = "node-router-async-failed-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach(
+        telemetry_handler_id,
+        [:zaq, :node_router, :async, :failed],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:node_router_async_failed, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(telemetry_handler_id) end)
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Channels.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host,
+          Zaq.Channels.Api,
+          :handle_event,
+          [%Event{} = routed, :upsert_message, _] ->
+            %{routed | hops: [:bad_hop_shape], response: {:error, :edit_failed}}
+        end,
+        async_start_fn: fn fun ->
+          fun.()
+          {:ok, self()}
+        end
+      }
+
+      log =
+        capture_log([level: :error], fn ->
+          result = NodeRouter.dispatch(event, runtime)
+
+          assert %Event{} = result
+          assert result.response == nil
+        end)
+
+      assert log =~ "[NodeRouter] async dispatch failed"
+      assert log =~ "role=unknown"
+
+      assert_receive {:node_router_async_failed, [:zaq, :node_router, :async, :failed],
+                      %{count: 1}, metadata}
+
+      assert metadata.role == :unknown
+      assert metadata.target == :remote@host
+      assert metadata.action == :upsert_message
+    end
+
+    test "uses :unknown role in async failure metadata when hops is not a list" do
+      event = %Event{
+        request: %{provider: "telegram"},
+        next_hop: %EventHop{destination: :channels, type: :async, timestamp: DateTime.utc_now()},
+        opts: [action: :upsert_message],
+        trace_id: Ecto.UUID.generate(),
+        hops: []
+      }
+
+      telemetry_handler_id = "node-router-async-failed-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach(
+        telemetry_handler_id,
+        [:zaq, :node_router, :async, :failed],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:node_router_async_failed, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(telemetry_handler_id) end)
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Channels.Supervisor] ->
+            spawn(fn -> :ok end)
+
+          :remote@host,
+          Zaq.Channels.Api,
+          :handle_event,
+          [%Event{} = routed, :upsert_message, _] ->
+            %{routed | hops: nil, response: {:error, :edit_failed}}
+        end,
+        async_start_fn: fn fun ->
+          fun.()
+          {:ok, self()}
+        end
+      }
+
+      log =
+        capture_log([level: :error], fn ->
+          result = NodeRouter.dispatch(event, runtime)
+
+          assert %Event{} = result
+          assert result.response == nil
+        end)
+
+      assert log =~ "[NodeRouter] async dispatch failed"
+
+      assert_receive {:node_router_async_failed, [:zaq, :node_router, :async, :failed],
+                      %{count: 1}, metadata}
+
+      assert metadata.role == :unknown
+      assert metadata.action == :upsert_message
+      assert metadata.target == :remote@host
+      assert metadata.provider == "telegram"
     end
 
     test "passes a hop-consumed event to local handler" do

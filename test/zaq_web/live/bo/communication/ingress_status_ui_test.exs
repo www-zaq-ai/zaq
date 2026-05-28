@@ -49,4 +49,32 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUITest do
              }
     end
   end
+
+  describe "apply_async_result/2" do
+    test "sets statuses and clears loading for successful async map result" do
+      socket =
+        %Phoenix.LiveView.Socket{}
+        |> Phoenix.Component.assign(:ingress_statuses, %{old: :value})
+        |> Phoenix.Component.assign(:ingress_status_loading, %{mattermost: true})
+
+      statuses = %{mattermost: %{status: :ok}}
+
+      updated = IngressStatusUI.apply_async_result(socket, {:ok, statuses})
+
+      assert updated.assigns.ingress_statuses == statuses
+      assert updated.assigns.ingress_status_loading == %{}
+    end
+
+    test "clears statuses and loading for failed async result" do
+      socket =
+        %Phoenix.LiveView.Socket{}
+        |> Phoenix.Component.assign(:ingress_statuses, %{mattermost: %{status: :ok}})
+        |> Phoenix.Component.assign(:ingress_status_loading, %{mattermost: true})
+
+      updated = IngressStatusUI.apply_async_result(socket, {:error, :timeout})
+
+      assert updated.assigns.ingress_statuses == %{}
+      assert updated.assigns.ingress_status_loading == %{}
+    end
+  end
 end
