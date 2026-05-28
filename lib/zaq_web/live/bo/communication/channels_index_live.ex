@@ -254,7 +254,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   defp configured_retrieval_providers do
     ChannelConfig
-    |> where([c], c.kind == "retrieval")
+    |> where([c], c.kind == "retrieval" and c.enabled == true)
     |> select([c], c.provider)
     |> Repo.all()
     |> MapSet.new()

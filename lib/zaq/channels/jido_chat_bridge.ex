@@ -230,6 +230,12 @@ defmodule Zaq.Channels.JidoChatBridge do
          bridge_id <- runtime_bridge_id(config) do
       opts = ingress_subscription_opts(config, params)
       adapter.delete_ingress_subscription(bridge_id, subscription_id, opts)
+    else
+      {:error, :missing_subscription_id} ->
+        {:ok, %{type: :ingress_webhook, deleted: false, reason: :missing_subscription_id}}
+
+      other ->
+        other
     end
   end
 

@@ -409,19 +409,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       config ->
         case teardown_ingress_before_delete(config) do
           :ok ->
-            Repo.delete!(config)
-            configs = list_configs(socket.assigns.provider)
-            first_config = List.first(configs)
+            {:noreply, delete_config_success_socket(socket, config, "Channel config deleted.")}
 
-            {:noreply,
-             socket
-             |> assign(:confirm_delete, nil)
-             |> assign(:configs, configs)
-             |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
-             |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
-             |> assign(:retrieval_channels, load_retrieval_channels(first_config))
-             |> schedule_ingress_status_refresh(configs)
-             |> put_flash(:info, "Channel config deleted.")}
+          {:ok, message} when is_binary(message) ->
+            {:noreply, delete_config_success_socket(socket, config, message)}
 
           {:error, reason} ->
             {:noreply,
@@ -1082,14 +1073,41 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         )
 
       case NodeRouter.dispatch(event).response do
-        {:ok, _result} -> :ok
-        {:error, :unsupported} -> :ok
-        {:error, reason} -> {:error, reason}
-        other -> {:error, {:unexpected_response, other}}
+        {:ok, %{type: :ingress_webhook, deleted: false, reason: reason}} ->
+          {:ok,
+           "Channel config deleted. Webhook ingress subscription was not deleted (#{inspect(reason)})."}
+
+        {:ok, _result} ->
+          :ok
+
+        {:error, :unsupported} ->
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+
+        other ->
+          {:error, {:unexpected_response, other}}
       end
     else
       :ok
     end
+  end
+
+  defp delete_config_success_socket(socket, %ChannelConfig{} = config, flash_message)
+       when is_binary(flash_message) do
+    Repo.delete!(config)
+    configs = list_configs(socket.assigns.provider)
+    first_config = List.first(configs)
+
+    socket
+    |> assign(:confirm_delete, nil)
+    |> assign(:configs, configs)
+    |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
+    |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+    |> assign(:retrieval_channels, load_retrieval_channels(first_config))
+    |> schedule_ingress_status_refresh(configs)
+    |> put_flash(:info, flash_message)
   end
 
   defp test_connection(%ChannelConfig{} = config, channel_id) when is_binary(channel_id) do

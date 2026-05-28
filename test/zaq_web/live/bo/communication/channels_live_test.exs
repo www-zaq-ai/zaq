@@ -59,6 +59,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       fetch_state(:channel_ingress_status, default)
     end
 
+    def delete_ingress_subscription(_config, _params) do
+      fetch_state(:delete_ingress_subscription, {:ok, %{deleted: true}})
+    end
+
     def put(key, value), do: put_state(key, value)
     def calls(key), do: fetch_state(key, []) |> Enum.reverse()
 
@@ -220,6 +224,37 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     view |> element("#delete-config-button") |> render_click()
 
     refute Repo.get(ChannelConfig, config.id)
+  end
+
+  test "delete confirmation indicates ingress webhook not deleted", %{conn: conn} do
+    config = insert_channel_config(%{})
+
+    previous_channels = Application.get_env(:zaq, :channels, %{})
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: BridgeFake, ingress_mode: :webhook},
+      web: %{bridge: Zaq.Channels.WebBridge},
+      email: %{bridge: Zaq.Channels.EmailBridge}
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, previous_channels)
+    end)
+
+    BridgeFake.put(
+      :delete_ingress_subscription,
+      {:ok, %{type: :ingress_webhook, deleted: false, reason: :missing_subscription_id}}
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("#confirm-delete-config-#{config.id}") |> render_click()
+    view |> element("#delete-config-button") |> render_click()
+
+    refute Repo.get(ChannelConfig, config.id)
+
+    assert render(view) =~
+             "Channel config deleted. Webhook ingress subscription was not deleted (:missing_subscription_id)."
   end
 
   test "opens ingress status modal from config card", %{conn: conn} do
