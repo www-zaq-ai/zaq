@@ -1,5 +1,6 @@
-%{
-  name: "Semantics",
-  description: "Role-based design tokens — how raw palette values map to meaning: color, borders, and shadows.",
-  folder_index: 1
-}
+defmodule Storybook.Semantic do
+  use PhoenixStorybook.Index
+
+  def folder_name, do: "Semantics"
+  def folder_index, do: 1
+end

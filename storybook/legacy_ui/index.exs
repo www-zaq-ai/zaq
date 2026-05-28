@@ -1,5 +1,6 @@
-%{
-  name: "Legacy UI",
-  description: "Components that predate the design system. May be migrated or replaced in future iterations.",
-  folder_index: 3
-}
+defmodule Storybook.LegacyUi do
+  use PhoenixStorybook.Index
+
+  def folder_name, do: "Legacy UI"
+  def folder_index, do: 3
+end

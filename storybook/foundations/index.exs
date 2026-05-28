@@ -1,5 +1,6 @@
-%{
-  name: "Foundation",
-  description: "Raw design tokens — color palette, typography, spacing, and scale. The primitives semantic tokens are built from.",
-  folder_index: 0
-}
+defmodule Storybook.Foundations do
+  use PhoenixStorybook.Index
+
+  def folder_name, do: "Foundation"
+  def folder_index, do: 0
+end

@@ -1,5 +1,6 @@
-%{
-  name: "Components",
-  description: "All ZAQ UI components — modals, inputs, icons, layouts, and more.",
-  folder_index: 2
-}
+defmodule Storybook.Components do
+  use PhoenixStorybook.Index
+
+  def folder_name, do: "Components"
+  def folder_index, do: 2
+end
