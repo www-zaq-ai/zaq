@@ -71,7 +71,10 @@ config :git_ops,
     ci: [hidden?: true]
   ]
 
-config :zaq, :base_url, "http://localhost:4000"
+config :zaq,
+  base_url: "http://localhost:4000",
+  user_portal_base_url: "http://localhost:4015",
+  litellm_base_url: "http://localhost:4020"
 
 config :zaq, Zaq.System.SecretConfig,
   encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",

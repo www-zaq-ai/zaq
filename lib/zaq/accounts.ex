@@ -8,6 +8,7 @@ defmodule Zaq.Accounts do
   import Ecto.Query
   alias Zaq.Accounts.{Role, User}
   alias Zaq.Repo
+  alias Zaq.UserPortal.Client, as: UserPortalClient
 
   # Roles
 
@@ -117,9 +118,29 @@ defmodule Zaq.Accounts do
   completed onboarding. Sets `must_change_password` to false.
   """
   def complete_bootstrap_onboarding(user, attrs) do
-    user
-    |> User.bootstrap_onboarding_changeset(attrs)
-    |> Repo.update()
+    with {:ok, updated_user} <-
+           user |> User.bootstrap_onboarding_changeset(attrs) |> Repo.update(),
+         {:ok, litellm} <-
+           UserPortalClient.onboard_user(updated_user.email) do
+      case Zaq.System.provision_litellm_credential(litellm) do
+        {:ok, _} ->
+          :ok
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
+      end
+
+      {:ok, updated_user}
+    else
+      {:error, %Ecto.Changeset{}} = error ->
+        error
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("User portal onboarding failed: #{inspect(reason)}")
+        {:ok, Repo.get!(User, user.id)}
+    end
   end
 
   @doc """

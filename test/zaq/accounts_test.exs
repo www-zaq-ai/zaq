@@ -336,6 +336,20 @@ defmodule Zaq.AccountsTest do
   end
 
   describe "complete_bootstrap_onboarding/2" do
+    setup do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.json(conn, %{
+          "status" => "ok",
+          "user" => %{
+            "litellm_api_key" => "sk-test-key",
+            "litellm_user_id" => "llm-user-test"
+          }
+        })
+      end)
+
+      :ok
+    end
+
     test "updates password and email when user email is missing" do
       user = user_fixture()
       Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
@@ -389,6 +403,42 @@ defmodule Zaq.AccountsTest do
 
       assert updated.email == "person@example.com"
       refute updated.must_change_password
+    end
+
+    test "creates litellm credential on success" do
+      user = user_fixture(%{email: "admin@zaq.local"})
+
+      assert {:ok, _updated} =
+               Accounts.complete_bootstrap_onboarding(user, %{password: "StrongPass1!"})
+
+      assert %Zaq.System.AIProviderCredential{name: "ZAQ Provider"} =
+               Zaq.System.get_ai_provider_credential_by_name("ZAQ Provider")
+    end
+
+    test "still succeeds when user portal is unreachable" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.transport_error(conn, :econnrefused)
+      end)
+
+      user = user_fixture(%{email: "offline@zaq.local"})
+
+      assert {:ok, updated} =
+               Accounts.complete_bootstrap_onboarding(user, %{password: "StrongPass1!"})
+
+      refute updated.must_change_password
+    end
+
+    test "does not call user portal when changeset is invalid" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn _conn ->
+        flunk("user portal should not be called on invalid changeset")
+      end)
+
+      user = user_fixture()
+      Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+      user = Accounts.get_user!(user.id)
+
+      assert {:error, _changeset} =
+               Accounts.complete_bootstrap_onboarding(user, %{password: "StrongPass1!"})
     end
   end
 end
