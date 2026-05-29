@@ -3,4 +3,7 @@ defmodule Storybook.Semantic do
 
   def folder_name, do: "Semantics"
   def folder_index, do: 1
+
+  def entry("text_styles_deprecated"),
+    do: [name: "Text Styles deprecated ⚠"]
 end
