@@ -1,0 +1,98 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   ZAQ Text Styles
+   Semantic text classes sourced from Figma node 141:1320.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Heading Scale ───────────────────────────────────────────────────────── */
+
+.zaq-text-h1 {
+  font-family:    var(--font-family-heading);
+  font-size:      var(--scale-24);
+  font-weight:    var(--font-weight-semibold);
+  line-height:    var(--line-height-normal);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-h2 {
+  font-family:    var(--font-family-heading);
+  font-size:      var(--scale-20);
+  font-weight:    var(--font-weight-semibold);
+  line-height:    var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-h3 {
+  font-family:    var(--font-family-heading);
+  font-size:      var(--scale-16);
+  font-weight:    var(--font-weight-semibold);
+  line-height:    var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-h4 {
+  font-family:    var(--font-family-heading);
+  font-size:      var(--scale-14);
+  font-weight:    var(--font-weight-semibold);
+  line-height:    var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-h5 {
+  font-family:    var(--font-family-heading);
+  font-size:      var(--scale-12);
+  font-weight:    var(--font-weight-semibold);
+  line-height:    var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+/* ── Body Scale ──────────────────────────────────────────────────────────── */
+
+.zaq-text-body-lg {
+  font-family:    var(--font-family-body);
+  font-size:      var(--scale-16);
+  font-weight:    var(--font-weight-regular);
+  line-height:    var(--line-height-relaxed);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-body {
+  font-family:    var(--font-family-body);
+  font-size:      var(--scale-14);
+  font-weight:    var(--font-weight-regular);
+  line-height:    var(--line-height-relaxed);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-body-sm {
+  font-family:    var(--font-family-body);
+  font-size:      var(--scale-12);
+  font-weight:    var(--font-weight-regular);
+  line-height:    var(--line-height-relaxed);
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-caption {
+  font-family:    var(--font-family-body);
+  font-size:      var(--scale-10);
+  font-weight:    var(--font-weight-regular);
+  line-height:    var(--line-height-relaxed);
+  letter-spacing: var(--letter-spacing-relaxed);
+}
+
+/* ── Code & Monospace ────────────────────────────────────────────────────── */
+
+.zaq-text-code {
+  font-family:    var(--font-family-code);
+  font-size:      var(--scale-12);
+  font-weight:    var(--font-weight-regular);
+  line-height:    normal;
+  letter-spacing: var(--letter-spacing-default);
+}
+
+.zaq-text-pre {
+  font-family:    var(--font-family-code);
+  font-size:      var(--scale-14);
+  font-weight:    var(--font-weight-regular);
+  line-height:    var(--line-height-relaxed);
+  letter-spacing: var(--letter-spacing-default);
+}
