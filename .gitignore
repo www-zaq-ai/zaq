@@ -45,7 +45,6 @@ npm-debug.log
 /test/storybook/node_modules/
 /test/storybook/test-results/
 /test/storybook/playwright-report/
-/test/storybook/support/story-urls.json
 
 /priv/keys
 /priv/licenses
