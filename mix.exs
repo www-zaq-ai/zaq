@@ -194,6 +194,7 @@ defmodule Zaq.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       e2e: ["cmd npm --prefix test/e2e run test:journeys"],
+      storybook: ["cmd npm --prefix test/storybook run test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind zaq", "esbuild zaq"],
       "assets.deploy": [
