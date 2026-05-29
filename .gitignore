@@ -42,6 +42,9 @@ npm-debug.log
 /test/e2e/node_modules/
 /test/e2e/test-results/
 /test/e2e/playwright-report/
+/test/storybook/node_modules/
+/test/storybook/test-results/
+/test/storybook/playwright-report/
 
 /priv/keys
 /priv/licenses
