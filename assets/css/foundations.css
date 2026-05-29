@@ -8,13 +8,33 @@
 
 /* ── Light palette (default) ─────────────────────────────────────────────── */
 :root {
+  /* ============================================
+   FOUNDATION TOKENS — Typography
+   ============================================ */
+  --font-family-heading: "Hanken Grotesk", sans-serif;
+  --font-family-body:    "Inter", system-ui, sans-serif;
+  --font-family-code:    "JetBrains Mono", ui-monospace, monospace;
+
+  --font-weight-regular:  400;
+  --font-weight-semibold: 600;
+
+  --line-height-tight:   1.2;
+  --line-height-normal:  1.4;
+  --line-height-relaxed: 1.6;
+
+  --letter-spacing-default: 0;
+  --letter-spacing-relaxed: 0.1em;
+
+  /* ============================================
+   FOUNDATION TOKENS — Color Palette
+   ============================================ */
   /* ── Zaq Color Palette (light) ──────────────────────────────────────────── */
   --color-blue-400:    #027589;
   --color-blue-300:    #03b6d4;
   --color-blue-200:    #cdf0f6;
   --color-blue-100:    #e6f8fb;
 
-  --color-black-400:   #111822;
+  --color-black-400:   #0C1324;
   --color-black-300:   #293442;
   --color-black-200:   #43536d;
   --color-black-100:   #8691a0;
@@ -31,22 +51,28 @@
 
 /* ============================================
    FOUNDATION TOKENS — Scale
-   Base 8px grid. Raw values only.
+   Base 8px grid. Raw values only (some exception using base 2px grid for text-styles). 
    ============================================ */
   --scale-0:    0px;
   --scale-2:    2px;
   --scale-4:    4px;
   --scale-8:    8px;
-  --scale-12:   12px; /*small text only*/
+  --scale-10:   10px; /*only for small text only in BO*/
+  --scale-12:   12px; /*only small text*/
+  --scale-14:   14px; /*default texts for BO*/
   --scale-16:   16px;
+  --scale-20:   20px; /*Bo text style in header*/
   --scale-24:   24px;
   --scale-32:   32px;
   --scale-40:   40px;
-  --scale-42:   48px;   
+  --scale-48:   48px;   
   --scale-56:   56px;
   --scale-64:   64px;
   --scale-72:   72px;
   --scale-80:   80px;
+  --scale-88:   88px;
+  --scale-96:   96px;
+  --scale-120:  120px;
   --scale-999:  999px;  /* pill radius */
   --scale-1440: 1440px; /* desktop max-width */
 }
@@ -65,7 +91,7 @@
 
   --color-neutral-400: #1B2D3E;
   --color-neutral-300: #161F2E;
-  --color-neutral-200: #0D1720;
+  --color-neutral-200: #0C1324;
   --color-neutral-100: #081017;
 
   --color-system-red:    #ff2d55;
