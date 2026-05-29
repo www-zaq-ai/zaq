@@ -42,7 +42,7 @@ defmodule Storybook.Semantic.TextStyles do
         </h2>
         <div style="display: flex; flex-direction: column; gap: 1rem;">
           <.type_row class_name="zaq-text-code" tokens="JetBrains Mono · 12px · 400 · lh relaxed" sample="inline code snippet" />
-          <.type_row class_name="zaq-text-pre" tokens="JetBrains Mono · 14px · 400 · lh 1.6" sample={~s(def hello(name), do: "Hello, " <> name <> "!")} />
+          <.type_row class_name="zaq-text-pre" tokens="JetBrains Mono · 14px · 400 · lh 1.6" sample="def greet(name), do: IO.puts(name)" />
         </div>
       </section>
 
