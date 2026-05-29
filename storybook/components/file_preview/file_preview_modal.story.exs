@@ -7,7 +7,7 @@ defmodule Storybook.Components.FilePreview.FilePreviewModal do
     ~H"""
     <div style="font-family: var(--zaq-font-primary, monospace); padding: 2rem; max-width: 700px;">
       <p style="font-size: 0.75rem; opacity: 0.5; font-family: ui-monospace, monospace; margin-bottom: 1.5rem;">
-        &lt;ZaqWeb.Components.FilePreviewModal.modal preview={&#64;preview} cancel_event="close_preview_modal" /&gt;
+        &lt;ZaqWeb.Components.FilePreviewModal.modal preview=&#123;&#64;preview&#125; cancel_event="close_preview_modal" /&gt;
       </p>
       <p style="font-size: 0.85rem; opacity: 0.6; line-height: 1.6;">
         This component renders a full modal overlay. In the app it is toggled via a LiveView event.
@@ -15,7 +15,7 @@ defmodule Storybook.Components.FilePreview.FilePreviewModal do
       </p>
       <pre style="margin-top: 1.5rem; background: var(--zaq-color-surface, #faf9f7); border: 1px solid var(--zaq-color-surface-border, #e8e6e1); border-radius: 6px; padding: 1rem; font-size: 0.75rem; overflow-x: auto;"><code>&lt;ZaqWeb.Components.FilePreviewModal.modal
   id="file-preview-modal"
-  preview={&#64;selected_preview}
+  preview=&#123;&#64;selected_preview&#125;
   cancel_event="close_preview_modal"
 /&gt;</code></pre>
 
