@@ -17,6 +17,7 @@ defmodule Zaq.Accounts.User do
     field :password, :string, virtual: true
     field :password_hash, :string
     field :must_change_password, :boolean, default: true
+    field :portal_consent, :string
 
     belongs_to :role, Zaq.Accounts.Role
 
@@ -74,6 +75,10 @@ defmodule Zaq.Accounts.User do
       message: "must be a valid email address"
     )
     |> unique_constraint(:email)
+  end
+
+  def portal_consent_changeset(user, consent) when consent in ["accepted", "declined"] do
+    change(user, portal_consent: consent)
   end
 
   defp hash_password(%{valid?: true, changes: %{password: password}} = changeset) do

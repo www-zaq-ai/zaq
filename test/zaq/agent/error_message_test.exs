@@ -5,7 +5,15 @@ defmodule Zaq.Agent.ErrorMessageTest do
   alias Zaq.Agent.ErrorMessage
 
   @default_message "Something went wrong while answering your question. Please try again."
-  @known_reasons [:leaked, :guard_blocked, :halted, :dispatch_error, :no_results, :blocked]
+  @known_reasons [
+    :leaked,
+    :guard_blocked,
+    :halted,
+    :dispatch_error,
+    :no_results,
+    :blocked,
+    :provider_not_supported
+  ]
 
   describe "from_reason/2" do
     test "maps prompt guard reasons to shared guard message" do
@@ -29,6 +37,26 @@ defmodule Zaq.Agent.ErrorMessageTest do
     test "maps dispatch_error reason" do
       assert ErrorMessage.from_reason(:dispatch_error) ==
                "Sorry, something went wrong. Please try again."
+    end
+
+    test "maps provider_not_supported to a clear message" do
+      assert ErrorMessage.from_reason(:provider_not_supported) ==
+               "The selected AI provider is not supported. Please check your agent configuration."
+    end
+
+    test "surfaces reason from ReqLLM API request errors (e.g. LiteLLM budget exceeded)" do
+      error = %ReqLLM.Error.API.Request{reason: "Budget has been exceeded.", status: 429}
+      assert ErrorMessage.from_reason(error) == "Budget has been exceeded."
+    end
+
+    test "surfaces reason from ReqLLM API response errors" do
+      error = %ReqLLM.Error.API.Response{reason: "No message in response.", status: 200}
+      assert ErrorMessage.from_reason(error) == "No message in response."
+    end
+
+    test "falls back to default for ReqLLM API errors with blank reason" do
+      error = %ReqLLM.Error.API.Request{reason: "", status: 429}
+      assert ErrorMessage.from_reason(error) == @default_message
     end
 
     property "returns fallback for unknown reasons when fallback is non-empty" do

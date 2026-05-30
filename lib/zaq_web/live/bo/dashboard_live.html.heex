@@ -5,6 +5,42 @@
   current_path={@current_path}
   features_version={@features_version}
 >
+  <!-- Portal consent retry banner -->
+  <div
+    :if={@show_portal_banner}
+    class="mb-6 flex items-center justify-between gap-4 rounded-xl border border-cyan-200 bg-cyan-50 px-5 py-4"
+  >
+    <div class="flex items-center gap-3 min-w-0">
+      <svg
+        class="w-5 h-5 text-cyan-600 shrink-0"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        viewBox="0 0 24 24"
+      >
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+      <p class="font-mono text-[0.78rem] text-slate-600 truncate">
+        Claim your <span class="text-cyan-700 font-semibold">$2 in free AI credits</span>
+        — activate your ZAQ portal account.
+      </p>
+    </div>
+    <button
+      phx-click="show_portal_consent"
+      class="shrink-0 rounded-lg bg-cyan-600 px-4 py-1.5 font-mono text-[0.75rem] font-semibold text-white hover:bg-cyan-700 transition-colors"
+    >
+      Activate
+    </button>
+  </div>
+
+  <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
+    show={@show_portal_consent_modal}
+    on_decline="close_portal_consent_modal"
+    decline_label="Not now"
+    subtitle="One-time setup"
+    error={@portal_provision_error}
+  />
+
   <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
     <div :for={metric <- @metric_cards} class="space-y-2">
       <.link
