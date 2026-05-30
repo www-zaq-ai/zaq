@@ -116,30 +116,78 @@ defmodule Zaq.Accounts do
 
   Only used during the initial bootstrap flow when the admin user has not yet
   completed onboarding. Sets `must_change_password` to false.
+
+  `portal_consent` must be `:accepted` or `:declined`. When `:accepted`, an account
+  is provisioned on the user portal (email + machine fingerprint sent) and a LiteLLM
+  credential is created. When `:declined`, the portal step is skipped and the user
+  can retry from the dashboard.
   """
-  def complete_bootstrap_onboarding(user, attrs) do
-    with {:ok, updated_user} <-
-           user |> User.bootstrap_onboarding_changeset(attrs) |> Repo.update(),
-         {:ok, litellm} <-
-           UserPortalClient.onboard_user(updated_user.email) do
-      case Zaq.System.provision_litellm_credential(litellm) do
-        {:ok, _} ->
-          :ok
+  def complete_bootstrap_onboarding(user, attrs, portal_consent)
+      when portal_consent in [:accepted, :declined] do
+    require Logger
 
-        {:error, reason} ->
-          require Logger
-          Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
-      end
+    case user |> User.bootstrap_onboarding_changeset(attrs) |> Repo.update() do
+      {:ok, updated_user} ->
+        {:ok, consented_user} =
+          User.portal_consent_changeset(updated_user, to_string(portal_consent))
+          |> Repo.update()
 
-      {:ok, updated_user}
-    else
+        if portal_consent == :accepted do
+          attempt_portal_provisioning(consented_user)
+        end
+
+        {:ok, consented_user}
+
       {:error, %Ecto.Changeset{}} = error ->
         error
+    end
+  end
+
+  @doc """
+  Provisions the ZAQ user portal account for an already-onboarded user.
+
+  Used from the dashboard when the admin previously declined during bootstrap.
+  On success, updates `portal_consent` to `"accepted"` and provisions the
+  LiteLLM credential. Returns `{:ok, user}` or `{:error, reason}`.
+  """
+  def provision_portal_for_user(user) do
+    require Logger
+
+    case UserPortalClient.onboard_user(user.email) do
+      {:ok, litellm} ->
+        case Zaq.System.provision_litellm_credential(litellm) do
+          {:ok, _} ->
+            {:ok, updated_user} =
+              User.portal_consent_changeset(user, "accepted") |> Repo.update()
+
+            {:ok, updated_user}
+
+          {:error, reason} ->
+            Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
+            {:error, :credential_failed}
+        end
 
       {:error, reason} ->
-        require Logger
+        Logger.warning("User portal provisioning failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp attempt_portal_provisioning(user) do
+    require Logger
+
+    case UserPortalClient.onboard_user(user.email) do
+      {:ok, litellm} ->
+        case Zaq.System.provision_litellm_credential(litellm) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
+        end
+
+      {:error, reason} ->
         Logger.warning("User portal onboarding failed: #{inspect(reason)}")
-        {:ok, Repo.get!(User, user.id)}
     end
   end
 

@@ -24,6 +24,18 @@ defmodule Zaq.Agent.ErrorMessage do
   def from_reason(:dispatch_error, _fallback),
     do: "Sorry, something went wrong. Please try again."
 
+  def from_reason(:provider_not_supported, _fallback),
+    do: "The selected AI provider is not supported. Please check your agent configuration."
+
+  # Surface the provider's error message (e.g. LiteLLM budget exceeded with a custom message).
+  def from_reason(%ReqLLM.Error.API.Request{reason: reason}, _fallback)
+      when is_binary(reason) and reason != "",
+      do: reason
+
+  def from_reason(%ReqLLM.Error.API.Response{reason: reason}, _fallback)
+      when is_binary(reason) and reason != "",
+      do: reason
+
   def from_reason(_reason, fallback) when is_binary(fallback) and fallback != "",
     do: fallback
 

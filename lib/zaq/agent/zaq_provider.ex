@@ -18,7 +18,7 @@ defmodule Zaq.Agent.ZAQProvider do
 
   @default_models %{
     # Chat model
-    "gpt-oss-120b" => %{
+    "openai/gpt-oss-120b" => %{
       capabilities: %{chat: true, tools: %{enabled: true}}
     },
     # Vision models (appear in image-to-text config)
@@ -26,7 +26,7 @@ defmodule Zaq.Agent.ZAQProvider do
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
       modalities: @vision_modalities
     },
-    "gemma-4-31b-it" => %{
+    "google/gemma-4-31b-it" => %{
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
       modalities: @vision_modalities
     },
@@ -39,7 +39,7 @@ defmodule Zaq.Agent.ZAQProvider do
       modalities: @vision_modalities
     },
     # Embedding model
-    "llama-nemotron-embed-vl-1b-v2" => %{
+    "nvidia/llama-nemotron-embed-vl-1b-v2" => %{
       capabilities: %{
         chat: false,
         embeddings: %{default_dimensions: 2048, max_dimensions: 2048},

@@ -323,7 +323,7 @@ defmodule Zaq.System do
   defp provision_system_configs(%AIProviderCredential{id: cred_id}) do
     if is_nil(get_llm_config().credential_id) do
       %LLMConfig{}
-      |> LLMConfig.changeset(%{credential_id: cred_id, model: "gpt-oss-120b"})
+      |> LLMConfig.changeset(%{credential_id: cred_id, model: "openai/gpt-oss-120b"})
       |> save_llm_config()
     end
 
@@ -331,7 +331,7 @@ defmodule Zaq.System do
       %EmbeddingConfig{}
       |> EmbeddingConfig.changeset(%{
         credential_id: cred_id,
-        model: "llama-nemotron-embed-vl-1b-v2",
+        model: "nvidia/llama-nemotron-embed-vl-1b-v2",
         dimension: 2048
       })
       |> save_embedding_config()
@@ -341,7 +341,7 @@ defmodule Zaq.System do
       %ImageToTextConfig{}
       |> ImageToTextConfig.changeset(%{
         credential_id: cred_id,
-        model: "gemma-4-31b-it"
+        model: "google/gemma-4-31b-it"
       })
       |> save_image_to_text_config()
     end

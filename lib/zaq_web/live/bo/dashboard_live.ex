@@ -3,6 +3,7 @@
 defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
+  alias Zaq.Accounts
   alias Zaq.Addons.FeatureStore
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
@@ -37,13 +38,18 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
           end
       end
 
+    show_portal_banner = socket.assigns.current_user.portal_consent == "declined"
+
     {:ok,
      assign(socket,
        current_path: "/bo/dashboard",
        addon_data: addon_data,
        days_left: days_left,
        services: refresh_services(),
-       metric_cards: telemetry_metrics
+       metric_cards: telemetry_metrics,
+       show_portal_banner: show_portal_banner,
+       show_portal_consent_modal: false,
+       portal_provision_error: nil
      )}
   end
 
@@ -56,6 +62,39 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
 
   @impl true
   def handle_info(:addons_updated, socket), do: {:noreply, socket}
+
+  # -- Portal consent retry --
+
+  @impl true
+  def handle_event("show_portal_consent", _params, socket) do
+    {:noreply, assign(socket, show_portal_consent_modal: true, portal_provision_error: nil)}
+  end
+
+  @impl true
+  def handle_event("close_portal_consent_modal", _params, socket) do
+    {:noreply, assign(socket, show_portal_consent_modal: false, portal_provision_error: nil)}
+  end
+
+  @impl true
+  def handle_event("accept_portal_consent", _params, socket) do
+    case Accounts.provision_portal_for_user(socket.assigns.current_user) do
+      {:ok, updated_user} ->
+        {:noreply,
+         socket
+         |> assign(:current_user, updated_user)
+         |> assign(:show_portal_banner, false)
+         |> assign(:show_portal_consent_modal, false)
+         |> assign(:portal_provision_error, nil)
+         |> put_flash(:info, "Free credits activated — your ZAQ portal account is ready.")}
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(socket,
+           portal_provision_error: "Could not reach the ZAQ portal. Please try again later.",
+           show_portal_consent_modal: true
+         )}
+    end
+  end
 
   # -- Private --
 
