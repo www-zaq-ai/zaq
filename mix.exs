@@ -120,7 +120,7 @@ defmodule Zaq.MixProject do
       {:jido_runic, github: "agentjido/jido_runic", branch: "main"},
       {:gen_stage, "~> 1.2"},
       {:flow, "~> 1.2"},
-      {:req_llm, "~> 1.12.0"},
+      {:req_llm, "~> 1.14"},
       # {:jido_connect,
       #  path:
       #    "/Users/julien/Documents/Repos/Github/OSS/jido/connect/jido_connect/apps/jido_connect",
