@@ -61,6 +61,54 @@ defmodule Storybook.Foundations.Fonts do
           />
         </div>
       </section>
+      
+    <!-- Line Heights -->
+      <section>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
+          Line Heights
+        </h2>
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <.font_row
+            sample="Tight — headings h2–h5"
+            style="font-family: var(--zaq-font-family-heading); font-size: 1rem; font-weight: 600; line-height: var(--zaq-line-height-tight);"
+            var="--zaq-line-height-tight"
+            detail="1.2 · headings"
+          />
+          <.font_row
+            sample="Normal — page titles"
+            style="font-family: var(--zaq-font-family-heading); font-size: 1rem; font-weight: 600; line-height: var(--zaq-line-height-normal);"
+            var="--zaq-line-height-normal"
+            detail="1.4 · h1"
+          />
+          <.font_row
+            sample="Relaxed — body copy and captions"
+            style="font-family: var(--zaq-font-family-body); font-size: 1rem; font-weight: 400; line-height: var(--zaq-line-height-relaxed);"
+            var="--zaq-line-height-relaxed"
+            detail="1.6 · body, caption, code"
+          />
+        </div>
+      </section>
+      
+    <!-- Letter Spacing -->
+      <section>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
+          Letter Spacing
+        </h2>
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <.font_row
+            sample="Default — no extra spacing"
+            style="font-family: var(--zaq-font-family-body); font-size: 1rem; letter-spacing: var(--zaq-letter-spacing-default);"
+            var="--zaq-letter-spacing-default"
+            detail="0 · headings, body"
+          />
+          <.font_row
+            sample="RELAXED — CAPTION TEXT, LABELS"
+            style="font-family: var(--zaq-font-family-body); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: var(--zaq-letter-spacing-relaxed);"
+            var="--zaq-letter-spacing-relaxed"
+            detail="0.1em · caption, section labels"
+          />
+        </div>
+      </section>
     </div>
     """
   end
