@@ -1,7 +1,8 @@
 defmodule Storybook.Foundations.Fonts do
   use PhoenixStorybook.Story, :page
 
-  def description, do: "ZAQ font families and weights — foundation tokens for heading, body, and code."
+  def description,
+    do: "ZAQ font families and weights — foundation tokens for heading, body, and code."
 
   def render(assigns) do
     ~H"""
@@ -9,10 +10,11 @@ defmodule Storybook.Foundations.Fonts do
       <div style="background: rgba(255, 200, 60, 0.1); border: 1px solid rgba(255, 180, 0, 0.3); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.75rem; line-height: 1.5; color: inherit;">
         <strong style="font-weight: 600;">Foundation tokens are source values only.</strong>
         They exist to define semantic tokens — never reference them directly in components or pages.
-        Use <strong style="font-weight: 600;">semantic tokens</strong> in all UI code.
+        Use <strong style="font-weight: 600;">semantic tokens</strong>
+        in all UI code.
       </div>
-
-      <!-- Font Families -->
+      
+    <!-- Font Families -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
           Font Families
@@ -21,25 +23,25 @@ defmodule Storybook.Foundations.Fonts do
           <.font_row
             sample="Heading — Hanken Grotesk"
             style="font-family: var(--zaq-font-family-heading); font-size: 1.5rem; font-weight: 600;"
-            var="--font-family-heading"
+            var="--zaq-font-family-heading"
             detail="Hanken Grotesk · headings"
           />
           <.font_row
             sample="Body — Inter"
             style="font-family: var(--zaq-font-family-body); font-size: 1rem; font-weight: 400;"
-            var="--font-family-body"
+            var="--zaq-font-family-body"
             detail="Inter · body text"
           />
           <.font_row
             sample="Code — JetBrains Mono"
             style="font-family: var(--zaq-font-family-code); font-size: 1rem; font-weight: 400;"
-            var="--font-family-code"
+            var="--zaq-font-family-code"
             detail="JetBrains Mono · code &amp; data"
           />
         </div>
       </section>
-
-      <!-- Font Weights -->
+      
+    <!-- Font Weights -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
           Font Weights
@@ -48,13 +50,13 @@ defmodule Storybook.Foundations.Fonts do
           <.font_row
             sample="Regular — The quick brown fox"
             style="font-family: var(--zaq-font-family-body); font-size: 1rem; font-weight: var(--zaq-font-weight-regular);"
-            var="--font-weight-regular"
+            var="--zaq-font-weight-regular"
             detail="400 · body, caption, code"
           />
           <.font_row
             sample="SemiBold — The quick brown fox"
             style="font-family: var(--zaq-font-family-heading); font-size: 1rem; font-weight: var(--zaq-font-weight-semibold);"
-            var="--font-weight-semibold"
+            var="--zaq-font-weight-semibold"
             detail="600 · headings h2–h5"
           />
         </div>
