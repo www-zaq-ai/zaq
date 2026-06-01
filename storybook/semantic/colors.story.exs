@@ -13,10 +13,10 @@ defmodule Storybook.Semantic.Colors do
           Surface
         </h2>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-          <.swatch name="surface/base" var="--color-surface-base" border />
-          <.swatch name="surface/raised" var="--color-surface-raised" border />
-          <.swatch name="surface/elevated" var="--color-surface-elevated" border />
-          <.swatch name="surface/accent" var="--color-surface-accent" border />
+          <.swatch name="surface/base" var="--zaq-color-surface-base" border />
+          <.swatch name="surface/raised" var="--zaq-color-surface-raised" border />
+          <.swatch name="surface/elevated" var="--zaq-color-surface-elevated" border />
+          <.swatch name="surface/accent" var="--zaq-color-surface-accent" border />
         </div>
       </section>
 
@@ -25,10 +25,10 @@ defmodule Storybook.Semantic.Colors do
           Border
         </h2>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-          <.swatch name="border/default" var="--color-border-default" border />
-          <.swatch name="border/strong" var="--color-border-strong" border />
-          <.swatch name="border/accent" var="--color-border-accent" border />
-          <.swatch name="border/error" var="--color-border-error" />
+          <.swatch name="border/default" var="--zaq-color-border-default" border />
+          <.swatch name="border/strong" var="--zaq-color-border-strong" border />
+          <.swatch name="border/accent" var="--zaq-color-border-accent" border />
+          <.swatch name="border/error" var="--zaq-color-border-error" />
         </div>
       </section>
 
@@ -37,10 +37,10 @@ defmodule Storybook.Semantic.Colors do
           Text
         </h2>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-          <.swatch name="text/body/default"   var="--color-text-body-default" />
-          <.swatch name="text/body/secondary" var="--color-text-body-secondary" />
-          <.swatch name="text/body/tertiary"  var="--color-text-body-tertiary" />
-          <.swatch name="text/body/invert"    var="--color-text-body-invert" border />
+          <.swatch name="text/body/default"   var="--zaq-color-text-body-default" />
+          <.swatch name="text/body/secondary" var="--zaq-color-text-body-secondary" />
+          <.swatch name="text/body/tertiary"  var="--zaq-color-text-body-tertiary" />
+          <.swatch name="text/body/invert"    var="--zaq-color-text-body-invert" border />
         </div>
       </section>
     </div>

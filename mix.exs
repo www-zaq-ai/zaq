@@ -55,6 +55,7 @@ defmodule Zaq.MixProject do
   end
 
   # Specifies which paths to compile per environment.
+  defp elixirc_paths(:dev), do: ["lib", "lib/dev"]
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(:docs), do: ["lib"]
   defp elixirc_paths(_), do: ["lib"]
@@ -194,7 +195,7 @@ defmodule Zaq.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       e2e: ["cmd npm --prefix test/e2e run test:journeys"],
-      storybook: ["cmd npm --prefix test/storybook run test"],
+      storybook: ["cmd npm --prefix test/e2e run test:storybook"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind zaq", "esbuild zaq"],
       "assets.deploy": [

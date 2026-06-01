@@ -2,7 +2,7 @@ defmodule ZaqWeb.Storybook do
   @moduledoc false
   use PhoenixStorybook,
     otp_app: :zaq,
-    content_path: Path.expand("../../storybook", __DIR__),
+    content_path: Path.expand("../../../storybook", __DIR__),
     css_path: "/assets/css/app.css",
     js_path: "/assets/js/app.js",
     title: "ZAQ Design System",

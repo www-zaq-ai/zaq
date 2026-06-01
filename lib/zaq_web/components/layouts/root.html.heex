@@ -8,8 +8,10 @@
     <.live_title default="ZAQ" suffix=" · Back Office">
       {assigns[:page_title]}
     </.live_title>
-    <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async>
-    </script>
+    <%= if Application.get_env(:zaq, :dev_routes) do %>
+      <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async>
+      </script>
+    <% end %>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>

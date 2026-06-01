@@ -1,63 +1,37 @@
 {
-  "permissions": {
-    "allow": [
-      "mcp__plugin_figma_figma__get_metadata",
-      "mcp__plugin_figma_figma__get_variable_defs",
-      "mcp__plugin_figma_figma__use_figma",
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git -C /Users/jana.abiakar/Desktop/Zaq log --all --format=\"%h %s\" --grep=\"hardcoded\\\\|hardcode\\\\|migration\" -i)",
-      "Bash(npx playwright *)",
-      "Read(//tmp/**)",
-      "Read(//private/tmp/**)",
-      "Bash(curl -s \"http://localhost:4000/storybook/layouts/bo-layout\")",
-      "Bash(curl -s \"http://localhost:4000/storybook/layouts/bo_layout\")",
-      "Bash(mix format *)",
-      "Bash(which npx && npx playwright --version 2>/dev/null *)",
-      "Read(//Users/jana.abiakar/**)",
-      "Read(//Users/jana.abiakar/.npm-global/lib/**)",
-      "Bash(node -e ' *)",
-      "Bash(mix compile *)",
-      "Bash(git -C /Users/jana.abiakar/Desktop/Zaq add storybook/layouts/index.exs storybook/layouts/bo_layout.story.exs storybook/_welcome.story.exs)",
-      "Bash(git -C /Users/jana.abiakar/Desktop/Zaq commit -m ' *)",
-      "Bash(git -C /Users/jana.abiakar/Desktop/Zaq status --short storybook/)",
-      "Bash(git -C /Users/jana.abiakar/Desktop/Zaq add storybook/layouts/ storybook/_welcome.story.exs)",
-      "mcp__plugin_figma_figma__get_screenshot"
-    ]
-  },
   "hooks": {
     "PreCompact": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bw prime"
+            "command": "bw prime",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit",
         "hooks": [
           {
-            "type": "command",
-            "command": "input=$(cat); file=$(echo \"$input\" | jq -r '.tool_input.file_path // \"\"'); if echo \"$file\" | grep -qE '\\.exs?$'; then old=$(echo \"$input\" | jq -r '.tool_input.old_string // \"\"'); new=$(echo \"$input\" | jq -r '.tool_input.new_string // \"\"'); old_n=$(echo \"$old\" | grep -cE '^[[:space:]]*defp? ' 2>/dev/null || true); new_n=$(echo \"$new\" | grep -cE '^[[:space:]]*defp? ' 2>/dev/null || true); if [ \"$new_n\" -gt \"$old_n\" ]; then printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"FUNCTION OWNERSHIP CHECK: You are adding a new function to an Elixir module. Before writing: (1) Re-read this module @moduledoc — what is its stated responsibility? (2) Does this function fit that responsibility? (3) If not, stop and add it to the correct module instead.\"}}'; fi; fi",
-            "statusMessage": "Checking function ownership..."
+            "command": "input=$(cat); file=$(echo \"$input\" | jq -r '.tool_input.file_path // \"\"'); if echo \"$file\" | grep -qE '\\.exs?$'; then old=$(echo \"$input\" | jq -r '.tool_input.old_string // \"\"'); new=$(echo \"$input\" | jq -r '.tool_input.new_string // \"\"'); old_n=$(echo \"$old\" | grep -cE '^[[:space:]]*defp? ' 2\u003e/dev/null || true); new_n=$(echo \"$new\" | grep -cE '^[[:space:]]*defp? ' 2\u003e/dev/null || true); if [ \"$new_n\" -gt \"$old_n\" ]; then printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"FUNCTION OWNERSHIP CHECK: You are adding a new function to an Elixir module. Before writing: (1) Re-read this module @moduledoc — what is its stated responsibility? (2) Does this function fit that responsibility? (3) If not, stop and add it to the correct module instead.\"}}'; fi; fi",
+            "statusMessage": "Checking function ownership...",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "Edit"
       }
     ],
     "SessionStart": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bw prime"
+            "command": "bw prime",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
     ]
   }

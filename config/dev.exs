@@ -18,7 +18,6 @@ config :zaq, Zaq.Repo,
   password: System.get_env("DB_PASSWORD", "postgres"),
   hostname: System.get_env("DB_HOST", "localhost"),
   database: System.get_env("DB_NAME", "zaq_dev"),
-  port: 5431,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -104,9 +103,7 @@ config :zaq, ZaqWeb.Endpoint,
     tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
   ]
 
-if File.exists?(Path.expand("dev.secret.exs", __DIR__)) do
-  import_config "dev.secret.exs"
-end
+import_config "dev.secret.exs"
 
 # ## SSL Support
 #

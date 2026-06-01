@@ -5,7 +5,7 @@ defmodule Storybook.Foundations.Fonts do
 
   def render(assigns) do
     ~H"""
-    <div style="font-family: var(--font-family-body, sans-serif); padding: 2rem; display: flex; flex-direction: column; gap: 3rem; max-width: 760px;">
+    <div style="font-family: var(--zaq-font-family-body, sans-serif); padding: 2rem; display: flex; flex-direction: column; gap: 3rem; max-width: 760px;">
       <div style="background: rgba(255, 200, 60, 0.1); border: 1px solid rgba(255, 180, 0, 0.3); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.75rem; line-height: 1.5; color: inherit;">
         <strong style="font-weight: 600;">Foundation tokens are source values only.</strong>
         They exist to define semantic tokens — never reference them directly in components or pages.
@@ -20,19 +20,19 @@ defmodule Storybook.Foundations.Fonts do
         <div style="display: flex; flex-direction: column; gap: 1.5rem;">
           <.font_row
             sample="Heading — Hanken Grotesk"
-            style="font-family: var(--font-family-heading); font-size: 1.5rem; font-weight: 600;"
+            style="font-family: var(--zaq-font-family-heading); font-size: 1.5rem; font-weight: 600;"
             var="--font-family-heading"
             detail="Hanken Grotesk · headings"
           />
           <.font_row
             sample="Body — Inter"
-            style="font-family: var(--font-family-body); font-size: 1rem; font-weight: 400;"
+            style="font-family: var(--zaq-font-family-body); font-size: 1rem; font-weight: 400;"
             var="--font-family-body"
             detail="Inter · body text"
           />
           <.font_row
             sample="Code — JetBrains Mono"
-            style="font-family: var(--font-family-code); font-size: 1rem; font-weight: 400;"
+            style="font-family: var(--zaq-font-family-code); font-size: 1rem; font-weight: 400;"
             var="--font-family-code"
             detail="JetBrains Mono · code &amp; data"
           />
@@ -47,13 +47,13 @@ defmodule Storybook.Foundations.Fonts do
         <div style="display: flex; flex-direction: column; gap: 1.5rem;">
           <.font_row
             sample="Regular — The quick brown fox"
-            style="font-family: var(--font-family-body); font-size: 1rem; font-weight: var(--font-weight-regular);"
+            style="font-family: var(--zaq-font-family-body); font-size: 1rem; font-weight: var(--zaq-font-weight-regular);"
             var="--font-weight-regular"
             detail="400 · body, caption, code"
           />
           <.font_row
             sample="SemiBold — The quick brown fox"
-            style="font-family: var(--font-family-heading); font-size: 1rem; font-weight: var(--font-weight-semibold);"
+            style="font-family: var(--zaq-font-family-heading); font-size: 1rem; font-weight: var(--zaq-font-weight-semibold);"
             var="--font-weight-semibold"
             detail="600 · headings h2–h5"
           />
