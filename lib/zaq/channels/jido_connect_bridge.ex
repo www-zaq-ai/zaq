@@ -5,6 +5,11 @@ defmodule Zaq.Channels.JidoConnectBridge do
   Credentials and grants are resolved exclusively through `Zaq.Engine.Connect`
   and mapped to runtime contracts by `Zaq.Channels.JidoConnectBridge.RuntimeMapper`.
 
+  JWT bearer grant refresh is intentionally synchronous during runtime context
+  resolution so tools execute with a fresh token on the same request path.
+  If minting or cache persistence fails, the bridge degrades to the existing
+  grant instead of failing the request.
+
   ## Adding a provider connector in this bridge
 
   Use this path when the provider should run on the jido_connect implementation
@@ -2500,6 +2505,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp maybe_refresh_grant_access_token(%{auth_kind: "jwt_bearer"} = grant, credential) do
+    # Intentionally synchronous: runtime execution needs a fresh token now.
+    # Failures are treated as non-fatal and fall back to the existing grant.
     if grant_access_token_stale?(grant) do
       with {:ok, token_payload} <- mint_grant_access_token(grant, credential),
            {:ok, refreshed} <- engine_update_grant_token_cache(grant, token_payload) do

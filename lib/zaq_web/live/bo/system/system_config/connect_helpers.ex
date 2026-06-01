@@ -25,9 +25,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpers do
     scopes
     |> String.replace("\n", ",")
     |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+    |> Scopes.normalize()
   end
 
   def parse_scope_list(_), do: []
