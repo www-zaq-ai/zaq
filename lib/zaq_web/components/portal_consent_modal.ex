@@ -6,6 +6,13 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   then lets the user accept or decline. Used during bootstrap onboarding
   and from the dashboard retry banner.
 
+  ## Email capture
+
+  When `require_email` is `true` (e.g. an older account that has no email on
+  file), the modal renders an email input and disables the accept button until
+  a non-blank email is provided. Track the value in the parent LiveView via the
+  `on_email_change` event and feed it back through the `email` assign.
+
   ## Usage
 
       <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
@@ -15,6 +22,9 @@ defmodule ZaqWeb.Components.PortalConsentModal do
         decline_label="Decline — continue without free credits"
         subtitle="Optional · You can skip this"
         footnote="Free credits can be claimed later from the dashboard."
+        require_email={@require_portal_email}
+        email={@portal_consent_email}
+        on_email_change="portal_consent_email_change"
         error={nil}
       />
   """
@@ -28,8 +38,18 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :subtitle, :string, default: "Optional · You can skip this"
   attr :footnote, :string, default: nil
   attr :error, :string, default: nil
+  attr :require_email, :boolean, default: false
+  attr :email, :string, default: nil
+  attr :on_email_change, :string, default: "portal_consent_email_change"
 
   def portal_consent_modal(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :accept_disabled,
+        assigns.require_email and not email_present?(assigns.email)
+      )
+
     ~H"""
     <div
       :if={@show}
@@ -101,6 +121,25 @@ defmodule ZaqWeb.Components.PortalConsentModal do
           </li>
         </ul>
 
+        <form :if={@require_email} phx-change={@on_email_change} class="mb-5">
+          <label
+            for="portal-consent-email"
+            class="block font-mono text-[0.72rem] text-[#4a5a7a] tracking-wide mb-2"
+          >
+            We don't have your email on file — enter it to continue
+          </label>
+          <input
+            id="portal-consent-email"
+            type="email"
+            name="email"
+            value={@email}
+            required
+            autocomplete="email"
+            placeholder="you@company.com"
+            class="w-full rounded-xl border border-[#1b2538] bg-[#0a0f1a] px-4 py-2.5 font-mono text-[0.8rem] text-white placeholder:text-[#3a4a6a] focus:border-cyan-500/50 focus:outline-none"
+          />
+        </form>
+
         <p :if={@footnote} class="font-mono text-[0.72rem] text-[#4a5a7a] leading-relaxed mb-5">
           {@footnote}
         </p>
@@ -124,7 +163,8 @@ defmodule ZaqWeb.Components.PortalConsentModal do
         <div class="flex flex-col gap-3">
           <button
             phx-click={@on_accept}
-            class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0"
+            disabled={@accept_disabled}
+            class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0"
             style="background: linear-gradient(135deg, #22d3ee, #34d399); color: #060a12;"
           >
             Accept &amp; activate free credits
@@ -140,4 +180,6 @@ defmodule ZaqWeb.Components.PortalConsentModal do
     </div>
     """
   end
+
+  defp email_present?(email), do: is_binary(email) and String.trim(email) != ""
 end

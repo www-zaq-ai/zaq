@@ -38,6 +38,9 @@
     on_decline="close_portal_consent_modal"
     decline_label="Not now"
     subtitle="One-time setup"
+    require_email={@require_portal_email}
+    email={@portal_consent_email}
+    on_email_change="portal_consent_email_change"
     error={@portal_provision_error}
   />
 
