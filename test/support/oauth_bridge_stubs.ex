@@ -4,7 +4,12 @@ defmodule Zaq.Test.StubOAuthSuccess do
   @doc "Stub OAuth token refresh that always succeeds."
   def oauth_refresh_token(_config, _params) do
     {:ok,
-     %{access_token: "new_access", refresh_token: "new_refresh", expires_at: nil, scopes: []}}
+     %{
+       access_token: "new_access",
+       refresh_token: "new_refresh",
+       expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+       scopes: []
+     }}
   end
 end
 

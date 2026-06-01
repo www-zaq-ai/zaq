@@ -108,6 +108,26 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :connect_issue_grant, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: Connect.issue_grant(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :connect_update_grant_token_cache, _context) do
+    case event.request do
+      %{grant: grant, token_payload: token_payload} when is_map(token_payload) ->
+        %{event | response: Connect.update_grant_token_cache(grant, token_payload)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :system_config_list_ai_provider_credentials, _context) do
     %{event | response: System.list_ai_provider_credentials()}
   end

@@ -2,6 +2,7 @@ defmodule Zaq.Engine.ApiTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Api
+  alias Zaq.Engine.Connect
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
 
@@ -68,6 +69,16 @@ defmodule Zaq.Engine.ApiTest do
     assert result.response == "HI"
   end
 
+  test "handles noop action by returning event unchanged" do
+    event = Event.new(%{marker: 1}, :engine, opts: [action: :noop])
+
+    result = Api.handle_event(event, :noop, nil)
+
+    assert result == event
+    assert result.request == %{marker: 1}
+    assert result.response == event.response
+  end
+
   test "returns unsupported action" do
     event = Event.new(%{}, :engine)
     result = Api.handle_event(event, :unknown, nil)
@@ -109,6 +120,97 @@ defmodule Zaq.Engine.ApiTest do
   test "returns invalid request for connect_create_credential with non-map attrs" do
     result = Api.handle_event(Event.new(%{attrs: :bad}, :engine), :connect_create_credential, nil)
     assert result.response == {:error, {:invalid_request, %{attrs: :bad}}}
+  end
+
+  test "handles connect_issue_grant with valid attrs map" do
+    unique = System.unique_integer([:positive])
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "Api Test #{unique}",
+        provider: "google_drive",
+        auth_kind: "api_key",
+        request_format: "raw",
+        user_level: false,
+        metadata: %{},
+        api_key: "shared-token"
+      })
+
+    attrs = %{
+      credential_id: credential.id,
+      resource_type: "data_source",
+      resource_id: "42",
+      owner_type: "org",
+      metadata: %{}
+    }
+
+    event = Event.new(%{attrs: attrs}, :engine)
+
+    result = Api.handle_event(event, :connect_issue_grant, nil)
+
+    assert {:ok, grant} = result.response
+    assert grant.credential_id == credential.id
+    assert grant.provider == "google_drive"
+  end
+
+  test "returns invalid request for connect_issue_grant when attrs is not map" do
+    request = %{attrs: :bad}
+    event = Event.new(request, :engine)
+
+    result = Api.handle_event(event, :connect_issue_grant, nil)
+
+    assert result.response == {:error, {:invalid_request, request}}
+  end
+
+  test "handles connect_update_grant_token_cache with valid grant and token_payload map" do
+    unique = System.unique_integer([:positive])
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "JWT Test #{unique}",
+        provider: "google_drive",
+        auth_kind: "jwt_bearer",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{"auth_profile_id" => "service_account"},
+        issuer: "svc@example.iam.gserviceaccount.com",
+        private_key: "private-key",
+        key_id: "kid-1",
+        scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+      })
+
+    {:ok, grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "data_source",
+        resource_id: "42",
+        owner_type: "org",
+        owner_id: nil,
+        metadata: %{"auth_profile_id" => "service_account"},
+        scopes: credential.scopes
+      })
+
+    token_payload = %{
+      access_token: "new-token",
+      expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+    }
+
+    event = Event.new(%{grant: grant, token_payload: token_payload}, :engine)
+
+    result = Api.handle_event(event, :connect_update_grant_token_cache, nil)
+
+    assert {:ok, updated_grant} = result.response
+    assert updated_grant.id == grant.id
+    assert updated_grant.access_token == "new-token"
+  end
+
+  test "returns invalid request for connect_update_grant_token_cache when token_payload is not map" do
+    request = %{grant: %{}, token_payload: :bad}
+    event = Event.new(request, :engine)
+
+    result = Api.handle_event(event, :connect_update_grant_token_cache, nil)
+
+    assert result.response == {:error, {:invalid_request, request}}
   end
 
   test "returns invalid request for connect_list_grants with non-map filters" do
@@ -167,7 +269,8 @@ defmodule Zaq.Engine.ApiTest do
       {:system_config_connect_list_grants, %{}},
       {:system_config_connect_next_refresh_jobs_for_grants, %{grants: :bad}},
       {:system_config_connect_delete_grant, %{}},
-      {:system_config_connect_schedule_refresh, %{}}
+      {:system_config_connect_schedule_refresh, %{}},
+      {:system_config_set_global_base_url, %{}}
     ]
 
     Enum.each(invalid_cases, fn {action, request} ->

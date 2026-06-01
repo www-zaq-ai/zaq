@@ -78,7 +78,86 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
         >
           <option value="oauth2" selected={auth_kind(@changeset) == "oauth2"}>oauth2</option>
           <option value="api_key" selected={auth_kind(@changeset) == "api_key"}>api_key</option>
+          <option value="jwt_bearer" selected={auth_kind(@changeset) == "jwt_bearer"}>
+            jwt_bearer
+          </option>
         </select>
+      </div>
+
+      <div :if={auth_kind(@changeset) == "jwt_bearer"}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Auth Profile
+        </label>
+        <select
+          name="credential[metadata][auth_profile_id]"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        >
+          <option
+            value="service_account"
+            selected={jwt_profile(@changeset) == "service_account"}
+          >
+            service_account
+          </option>
+          <option
+            value="domain_delegated_service_account"
+            selected={jwt_profile(@changeset) == "domain_delegated_service_account"}
+          >
+            domain_delegated_service_account
+          </option>
+        </select>
+      </div>
+
+      <div :if={auth_kind(@changeset) == "jwt_bearer"}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Issuer
+        </label>
+        <input
+          type="text"
+          name="credential[issuer]"
+          value={@form[:issuer].value}
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
+
+      <div :if={auth_kind(@changeset) == "jwt_bearer"}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Key ID
+        </label>
+        <input
+          type="text"
+          name="credential[key_id]"
+          value={@form[:key_id].value}
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
+
+      <div :if={auth_kind(@changeset) == "jwt_bearer"}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Private Key
+        </label>
+        <.secret_input
+          id={"#{@id_prefix}-private-key"}
+          name="credential[private_key]"
+          value={@form[:private_key].value}
+          placeholder="••••••••"
+          input_class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+          button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+        />
+      </div>
+
+      <div :if={
+        auth_kind(@changeset) == "jwt_bearer" &&
+          jwt_profile(@changeset) == "domain_delegated_service_account"
+      }>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Subject
+        </label>
+        <input
+          type="text"
+          name="credential[metadata][subject]"
+          value={jwt_subject(@form[:metadata].value)}
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
       </div>
 
       <div :if={auth_kind(@changeset) == "oauth2"}>
@@ -189,6 +268,28 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
   end
 
   defp auth_kind(_), do: "oauth2"
+
+  defp jwt_profile(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.get_field(:metadata, %{})
+    |> jwt_profile_from_metadata()
+  end
+
+  defp jwt_profile(_), do: "service_account"
+
+  defp jwt_profile_from_metadata(metadata) when is_map(metadata) do
+    Map.get(metadata, "auth_profile_id") ||
+      Map.get(metadata, :auth_profile_id) ||
+      "service_account"
+  end
+
+  defp jwt_profile_from_metadata(_), do: "service_account"
+
+  defp jwt_subject(metadata) when is_map(metadata) do
+    Map.get(metadata, "subject") || Map.get(metadata, :subject) || ""
+  end
+
+  defp jwt_subject(_), do: ""
 
   defp scopes_input_value(scopes) when is_list(scopes) do
     scopes

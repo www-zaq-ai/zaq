@@ -64,6 +64,174 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
     refute html =~ "credential[scopes]"
   end
 
+  test "renders jwt bearer inputs and hides oauth2/api_key-only inputs" do
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Drive SA",
+        provider: "google_drive",
+        auth_kind: "jwt_bearer",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{"auth_profile_id" => "service_account"},
+        issuer: "svc@example.iam.gserviceaccount.com",
+        private_key: "secret",
+        key_id: "kid-1"
+      })
+
+    form = to_form(changeset, as: :credential)
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: form,
+        changeset: changeset,
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal"
+      )
+
+    assert html =~ "credential[metadata][auth_profile_id]"
+    assert html =~ "credential[issuer]"
+    assert html =~ "credential[key_id]"
+    assert html =~ "credential[private_key]"
+    refute html =~ "credential[client_id]"
+    refute html =~ "credential[client_secret]"
+    refute html =~ "credential[api_key]"
+  end
+
+  describe "jwt bearer delegated subject + metadata fallbacks" do
+    # NOTE: `jwt_profile/1`'s catch-all fallback is unreachable from
+    # `credential_form/1`; non-changeset input short-circuits through
+    # `auth_kind(_) == "oauth2"` before `jwt_profile/1` is called.
+
+    test "renders delegated JWT profile with string-key subject" do
+      changeset =
+        Credential.changeset(%Credential{}, %{
+          name: "Drive SA",
+          provider: "google_drive",
+          auth_kind: "jwt_bearer",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{
+            "auth_profile_id" => "domain_delegated_service_account",
+            "subject" => "admin@example.com"
+          },
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "secret",
+          key_id: "kid-1"
+        })
+
+      form = to_form(changeset, as: :credential)
+
+      html =
+        render_component(&ConnectCredentialForm.credential_form/1,
+          form: form,
+          changeset: changeset,
+          submit_event: "save_connect_credential",
+          change_event: "validate_connect_credential",
+          cancel_event: "close_connect_credential_modal"
+        )
+
+      assert html =~ ~s(name="credential[metadata][subject]")
+      assert html =~ ~s(value="admin@example.com")
+      assert html =~ "credential[issuer]"
+      assert html =~ "credential[key_id]"
+      assert html =~ "credential[private_key]"
+    end
+
+    test "renders delegated JWT profile with atom-key subject fallback" do
+      changeset =
+        Credential.changeset(%Credential{}, %{
+          name: "Drive SA",
+          provider: "google_drive",
+          auth_kind: "jwt_bearer",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{
+            auth_profile_id: "domain_delegated_service_account",
+            subject: "delegated@corp.test"
+          },
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "secret",
+          key_id: "kid-1"
+        })
+
+      form = to_form(changeset, as: :credential)
+
+      html =
+        render_component(&ConnectCredentialForm.credential_form/1,
+          form: form,
+          changeset: changeset,
+          submit_event: "save_connect_credential",
+          change_event: "validate_connect_credential",
+          cancel_event: "close_connect_credential_modal"
+        )
+
+      assert html =~ ~s(name="credential[metadata][subject]")
+      assert html =~ ~s(value="delegated@corp.test")
+    end
+
+    test "renders delegated subject with empty value when form metadata is not a map" do
+      changeset =
+        Credential.changeset(%Credential{}, %{
+          name: "Drive SA",
+          provider: "google_drive",
+          auth_kind: "jwt_bearer",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"auth_profile_id" => "domain_delegated_service_account"},
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "secret",
+          key_id: "kid-1"
+        })
+
+      form = to_form(%{"metadata" => "not-a-map"}, as: :credential)
+
+      html =
+        render_component(&ConnectCredentialForm.credential_form/1,
+          form: form,
+          changeset: changeset,
+          submit_event: "save_connect_credential",
+          change_event: "validate_connect_credential",
+          cancel_event: "close_connect_credential_modal"
+        )
+
+      assert html =~ ~s(name="credential[metadata][subject]")
+      assert html =~ ~s(value="")
+    end
+
+    test "defaults to service account and hides subject field for non-map metadata" do
+      # Use struct data so `get_field/3` sees a non-map metadata value and
+      # exercises the `jwt_profile_from_metadata(_)` fallback directly.
+      changeset =
+        Ecto.Changeset.change(%Credential{metadata: "oops"}, %{
+          name: "Drive SA",
+          provider: "google_drive",
+          auth_kind: "jwt_bearer",
+          request_format: "bearer",
+          user_level: false,
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "secret",
+          key_id: "kid-1"
+        })
+
+      form = to_form(changeset, as: :credential)
+
+      html =
+        render_component(&ConnectCredentialForm.credential_form/1,
+          form: form,
+          changeset: changeset,
+          submit_event: "save_connect_credential",
+          change_event: "validate_connect_credential",
+          cancel_event: "close_connect_credential_modal"
+        )
+
+      assert html =~ "credential[issuer]"
+      assert html =~ "credential[key_id]"
+      assert html =~ "credential[private_key]"
+      refute html =~ "credential[metadata][subject]"
+    end
+  end
+
   test "defaults to oauth2 fields when changeset is not provided" do
     form =
       to_form(%{"name" => "Fallback", "provider" => "google_drive", "request_format" => "bearer"},

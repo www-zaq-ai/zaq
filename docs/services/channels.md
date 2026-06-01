@@ -46,6 +46,8 @@ grant bound to that credential.
 
 - Credential definitions are provider-scoped and reusable.
 - Grants are bound to resource + owner context (for Data Sources, `resource_type: "data_source"`).
+- Connect auth kinds currently supported in ZAQ are `oauth2`, `api_key`, and `jwt_bearer`.
+- `jwt_bearer` stays provider-agnostic in ZAQ (`issuer`/`private_key`/`key_id` plus metadata profile), while connector-specific profile setup remains in `jido_connect` integrations.
 - OAuth2 claims open in a popup and finalize through the channels node callback:
   - `GET /channels/oauth2/:provider/redirect`
   - callback page posts result to the opener and auto-closes.

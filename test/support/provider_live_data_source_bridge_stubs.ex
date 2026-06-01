@@ -108,3 +108,23 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NonListRecordsPage do
     {:ok, Stubs.page(:not_a_list, nil)}
   end
 end
+
+defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.DefaultScopesSuccess do
+  @moduledoc false
+
+  alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
+
+  def list_files(_config, _params), do: {:ok, Stubs.page([], nil)}
+
+  def oauth_default_scopes(_config), do: {:ok, ["scope.z", "scope.a", "scope.z"]}
+end
+
+defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.DefaultScopesInvalid do
+  @moduledoc false
+
+  alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
+
+  def list_files(_config, _params), do: {:ok, Stubs.page([], nil)}
+
+  def oauth_default_scopes(_config), do: {:ok, "not-a-list"}
+end

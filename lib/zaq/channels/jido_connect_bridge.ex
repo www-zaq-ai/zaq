@@ -41,6 +41,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   alias Jido.Connect.Authorization
   alias Jido.Connect.Catalog.ToolEntry
+  alias Jido.Connect.Google.ServiceAccount
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
@@ -58,9 +59,11 @@ defmodule Zaq.Channels.JidoConnectBridge do
   }
 
   alias Zaq.Contracts.{Record, RecordPage}
+  alias Zaq.Engine.Connect
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
+  alias Zaq.Utils.Scopes
   require Logger
 
   @impl true
@@ -930,21 +933,21 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def oauth_authorize_url(config, params) when is_map(config) and is_map(params) do
-    with {:ok, runtime} <- runtime_ctx_for_oauth(config),
-         {:ok, oauth_module} <- oauth_module_for(config.provider),
-         {:ok, profile} <- oauth_profile_for(config.provider) do
+    with {:ok, oauth_module} <- oauth_module_for(config.provider),
+         {:ok, profile} <- oauth_profile_for(config.provider),
+         {:ok, credential, redirect_uri} <- oauth_credential_and_redirect_uri(config, params) do
       opts = [
-        client_id: runtime.credential.client_id,
-        redirect_uri: runtime.redirect_uri,
-        state: Map.get(params, "state"),
+        client_id: credential.client_id,
+        redirect_uri: redirect_uri,
+        state: param_get(params, :state),
         authorize_url: profile.authorize_url
       ]
 
-      scope = oauth_scope_for_authorize(runtime.credential, params, config.provider)
+      scope = oauth_scope_for_authorize(credential, params, config.provider)
       opts = maybe_put_scope_opt(opts, scope)
       opts = maybe_put_provider_authorize_opts(opts, config.provider)
 
-      {:ok, oauth_module.authorize_url(opts)}
+      safe_oauth_authorize_url(fn -> oauth_module.authorize_url(opts) end)
     end
   end
 
@@ -970,40 +973,153 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def oauth_exchange_code(config, params) when is_map(config) and is_map(params) do
-    with {:ok, runtime} <- runtime_ctx_for_oauth(config),
-         {:ok, oauth_module} <- oauth_module_for(config.provider),
+    with {:ok, oauth_module} <- oauth_module_for(config.provider),
          {:ok, profile} <- oauth_profile_for(config.provider),
+         {:ok, credential, redirect_uri} <- oauth_credential_and_redirect_uri(config, params),
          {:ok, token} <-
-           oauth_module.exchange_code(Map.get(params, "code"),
-             client_id: runtime.credential.client_id,
-             client_secret: runtime.credential.client_secret,
-             redirect_uri: runtime.redirect_uri,
-             token_url: profile.token_url
-           ) do
+           safe_oauth_invoke(fn ->
+             oauth_module.exchange_code(param_get(params, :code),
+               client_id: credential.client_id,
+               client_secret: credential.client_secret,
+               redirect_uri: redirect_uri,
+               token_url: profile.token_url
+             )
+           end) do
       {:ok, normalize_oauth_token(token)}
     end
   end
 
   @impl true
   def oauth_refresh_token(config, params) when is_map(config) and is_map(params) do
-    with {:ok, runtime} <- runtime_ctx_for_oauth(config),
-         {:ok, oauth_module} <- oauth_module_for(config.provider),
+    with {:ok, oauth_module} <- oauth_module_for(config.provider),
          {:ok, profile} <- oauth_profile_for(config.provider),
+         {:ok, credential, _redirect_uri} <- oauth_credential_and_redirect_uri(config, params),
          {:ok, token} <-
-           oauth_module.refresh_token(
-             Map.get(params, "refresh_token"),
-             maybe_put_scope_opt(
-               [
-                 client_id: runtime.credential.client_id,
-                 client_secret: runtime.credential.client_secret,
-                 token_url: profile.token_url
-               ],
-               Map.get(params, "scope")
+           safe_oauth_invoke(fn ->
+             oauth_module.refresh_token(
+               param_get(params, :refresh_token),
+               maybe_put_scope_opt(
+                 [
+                   client_id: credential.client_id,
+                   client_secret: credential.client_secret,
+                   token_url: profile.token_url
+                 ],
+                 param_get(params, :scope)
+               )
              )
-           ) do
+           end) do
       {:ok, normalize_oauth_token(token)}
     end
   end
+
+  defp oauth_credential_and_redirect_uri(config, params) do
+    fallback_credential = oauth_credential_from_config(config)
+
+    client_id = resolve_oauth_client_id(params, fallback_credential)
+    client_secret = resolve_oauth_client_secret(params, fallback_credential)
+    scopes = resolve_oauth_scopes(params, fallback_credential)
+    redirect_uri = resolve_oauth_redirect_uri(params, config.provider)
+
+    build_oauth_credential_result(
+      client_id,
+      client_secret,
+      scopes,
+      redirect_uri,
+      fallback_credential
+    )
+  end
+
+  defp oauth_credential_from_config(%{provider: provider} = config) do
+    credential_id =
+      config
+      |> Map.get(:settings, %{})
+      |> Map.get("connect", %{})
+      |> Map.get("credential_id")
+
+    case credential_id do
+      id when is_binary(id) and id != "" ->
+        case engine_fetch_credential(id) do
+          {:ok, credential} -> {:ok, credential}
+          {:error, :not_found} -> {:error, :not_found}
+          _ -> {:error, :invalid_oauth_request}
+        end
+
+      _ ->
+        Logger.debug(
+          "oauth_credential_from_config missing credential_id for provider=#{provider}"
+        )
+
+        {:error, :missing_credential_id}
+    end
+  end
+
+  defp oauth_credential_error({:error, reason}), do: {:error, reason}
+  defp oauth_credential_error(_), do: {:error, :invalid_oauth_request}
+
+  defp credential_field({:ok, credential}, key) when is_atom(key), do: Map.get(credential, key)
+  defp credential_field(_, _), do: nil
+
+  defp resolve_oauth_client_id(params, fallback_credential),
+    do: param_get(params, :client_id) || credential_field(fallback_credential, :client_id)
+
+  defp resolve_oauth_client_secret(params, fallback_credential),
+    do: param_get(params, :client_secret) || credential_field(fallback_credential, :client_secret)
+
+  defp resolve_oauth_scopes(params, fallback_credential) do
+    case credential_field(fallback_credential, :scopes) do
+      list when is_list(list) and list != [] -> list
+      _ -> normalize_scope_input(param_get(params, :scope))
+    end
+  end
+
+  defp resolve_oauth_redirect_uri(params, provider),
+    do: param_get(params, :redirect_uri) || engine_oauth_redirect_uri_for(provider)
+
+  defp normalize_scope_input(nil), do: []
+
+  defp normalize_scope_input(scope) when is_binary(scope),
+    do: String.split(scope, ~r/\s+/, trim: true)
+
+  defp normalize_scope_input(scope) when is_list(scope), do: scope
+  defp normalize_scope_input(_scope), do: []
+
+  defp build_oauth_credential_result(
+         client_id,
+         client_secret,
+         scopes,
+         redirect_uri,
+         fallback_credential
+       ) do
+    if is_binary(client_id) and client_id != "" and is_binary(redirect_uri) and redirect_uri != "" do
+      {:ok, %{client_id: client_id, client_secret: client_secret, scopes: scopes}, redirect_uri}
+    else
+      oauth_credential_error(fallback_credential)
+    end
+  end
+
+  defp safe_oauth_invoke(fun) when is_function(fun, 0) do
+    case fun.() do
+      {:ok, _} = ok -> ok
+      {:error, _} = error -> error
+      other -> {:error, {:invalid_oauth_response, other}}
+    end
+  rescue
+    error -> {:error, {:oauth_provider_exception, Exception.message(error)}}
+  end
+
+  defp safe_oauth_authorize_url(fun) when is_function(fun, 0) do
+    case fun.() do
+      url when is_binary(url) -> {:ok, url}
+      {:ok, url} when is_binary(url) -> {:ok, url}
+      {:error, _} = error -> error
+      other -> {:error, {:invalid_oauth_response, other}}
+    end
+  rescue
+    error -> {:error, {:oauth_provider_exception, Exception.message(error)}}
+  end
+
+  defp param_get(params, key) when is_map(params),
+    do: Map.get(params, key) || Map.get(params, Atom.to_string(key))
 
   @impl true
   def build_runtime_specs(_config), do: {:ok, {nil, []}}
@@ -1022,7 +1138,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
       })
 
     with %{credential_id: credential_id} = grant <- grant,
-         {:ok, credential} <- engine_fetch_credential(credential_id) do
+         {:ok, credential} <- engine_fetch_credential(credential_id),
+         {:ok, grant} <- maybe_refresh_grant_access_token(grant, credential) do
       {:ok,
        %{
          connection: RuntimeMapper.to_connection(grant),
@@ -1033,31 +1150,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
     else
       nil -> {:error, :missing_active_grant}
       {:error, :not_found} -> {:error, :credential_not_found}
-    end
-  end
-
-  defp runtime_ctx_for_oauth(%{provider: provider} = config) do
-    credential_id =
-      config
-      |> Map.get(:settings, %{})
-      |> Map.get("connect", %{})
-      |> Map.get("credential_id")
-
-    if is_nil(credential_id) or credential_id == "" do
-      {:error, :missing_credential_id}
-    else
-      with {:ok, credential} <- engine_fetch_credential(credential_id),
-           redirect_uri when is_binary(redirect_uri) <-
-             engine_oauth_redirect_uri_for(provider) do
-        {:ok,
-         %{
-           provider: provider,
-           credential: credential,
-           redirect_uri: redirect_uri
-         }}
-      else
-        {:error, _} = error -> error
-      end
     end
   end
 
@@ -1276,10 +1368,15 @@ defmodule Zaq.Channels.JidoConnectBridge do
     case Map.get(params, "filters") || Map.get(params, :filters) do
       filters when is_map(filters) ->
         query = build_provider_list_query(filters)
+        all_drives? = normalized_boolean(filters, [:all_drives, "all_drives"], true)
 
         params
         |> Map.put("query", query)
         |> Map.put(:query, query)
+        |> Map.put(:supports_all_drives, all_drives?)
+        |> Map.put("supports_all_drives", all_drives?)
+        |> Map.put(:include_items_from_all_drives, all_drives?)
+        |> Map.put("include_items_from_all_drives", all_drives?)
 
       _ ->
         params
@@ -1560,14 +1657,15 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp build_provider_list_query(filters) when is_map(filters) do
     kind = map_get_string(filters, [:kind, "kind"])
     parent = map_get_string(filters, [:parent, "parent"])
+    include_shared = normalized_boolean(filters, [:include_shared, "include_shared"], true)
     trashed = Map.get(filters, :trashed, Map.get(filters, "trashed", false))
 
     clauses =
       []
       |> maybe_add_clause(kind == "folder", "mimeType = 'application/vnd.google-apps.folder'")
       |> maybe_add_clause(
-        is_binary(parent) and String.trim(parent) != "",
-        "'#{escape_query_value(parent)}' in parents"
+        true,
+        parent_shared_clause(parent, include_shared)
       )
       |> maybe_add_clause(
         is_boolean(trashed),
@@ -1577,8 +1675,45 @@ defmodule Zaq.Channels.JidoConnectBridge do
     Enum.join(clauses, " and ")
   end
 
-  defp maybe_add_clause(clauses, true, clause), do: [clause | clauses]
+  defp maybe_add_clause(clauses, true, clause) when is_binary(clause) and clause != "",
+    do: [clause | clauses]
+
+  defp maybe_add_clause(clauses, true, _clause), do: clauses
+
   defp maybe_add_clause(clauses, false, _clause), do: clauses
+
+  defp parent_shared_clause(parent, include_shared) do
+    parent_clause =
+      if is_binary(parent) and String.trim(parent) != "",
+        do: "'#{escape_query_value(parent)}' in parents",
+        else: nil
+
+    shared_clause = if include_shared, do: "sharedWithMe = true", else: nil
+
+    case {parent_clause, shared_clause} do
+      {nil, nil} -> nil
+      {clause, nil} -> clause
+      {nil, clause} -> clause
+      {left, right} -> "(#{left} or #{right})"
+    end
+  end
+
+  defp normalized_boolean(map, keys, default) when is_map(map) and is_list(keys) do
+    map
+    |> read_any(keys)
+    |> to_boolean(default)
+  end
+
+  defp to_boolean(true, _default), do: true
+  defp to_boolean(false, _default), do: false
+  defp to_boolean("true", _default), do: true
+  defp to_boolean("false", _default), do: false
+  defp to_boolean("1", _default), do: true
+  defp to_boolean("0", _default), do: false
+  defp to_boolean(1, _default), do: true
+  defp to_boolean(0, _default), do: false
+  defp to_boolean(nil, default), do: default
+  defp to_boolean(_value, default), do: default
 
   defp escape_query_value(value) when is_binary(value), do: String.replace(value, "'", "\\'")
 
@@ -2058,10 +2193,16 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp match_webhook_watch_trigger?(_), do: false
 
   defp normalize_runtime_profile(runtime, action) when is_map(runtime) do
-    allowed_profiles = Authorization.operation_auth_profiles(action)
+    allowed_profiles = normalize_allowed_profiles(Authorization.operation_auth_profiles(action))
     owner_type = runtime.grant.owner_type |> to_string()
-    preferred = owner_type_profile_candidates(owner_type)
-    profile = Enum.find(preferred, &(&1 in allowed_profiles)) || List.first(allowed_profiles)
+    current_profile = map_get_atom(runtime.connection, [:profile, "profile"])
+
+    profile =
+      choose_runtime_profile(
+        current_profile,
+        owner_type_profile_candidates(owner_type),
+        allowed_profiles
+      )
 
     %{
       runtime
@@ -2069,6 +2210,41 @@ defmodule Zaq.Channels.JidoConnectBridge do
         lease: Map.put(runtime.lease, :profile, profile)
     }
   end
+
+  defp choose_runtime_profile(current_profile, _preferred_profiles, []), do: current_profile
+
+  defp choose_runtime_profile(current_profile, preferred_profiles, allowed_profiles) do
+    if not is_nil(current_profile) and current_profile in allowed_profiles do
+      current_profile
+    else
+      Enum.find(preferred_profiles, &(&1 in allowed_profiles)) ||
+        List.first(allowed_profiles) ||
+        current_profile
+    end
+  end
+
+  defp normalize_allowed_profiles(profiles) when is_list(profiles) do
+    profiles
+    |> Enum.map(&normalize_allowed_profile/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_allowed_profiles(_), do: []
+
+  defp normalize_allowed_profile(profile) when is_atom(profile), do: profile
+
+  defp normalize_allowed_profile(profile) when is_binary(profile) do
+    if profile == "" do
+      nil
+    else
+      String.to_existing_atom(profile)
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp normalize_allowed_profile(_), do: nil
 
   defp owner_type_profile_candidates("org"), do: [:org, :user]
   defp owner_type_profile_candidates("app_user"), do: [:app_user, :user]
@@ -2255,6 +2431,137 @@ defmodule Zaq.Channels.JidoConnectBridge do
     node_router_module().dispatch(event).response
   end
 
+  defp maybe_refresh_grant_access_token(%{auth_kind: "jwt_bearer"} = grant, credential) do
+    if grant_access_token_stale?(grant) do
+      with {:ok, token_payload} <- mint_grant_access_token(grant, credential),
+           {:ok, refreshed} <- engine_update_grant_token_cache(grant, token_payload) do
+        {:ok, refreshed}
+      else
+        {:error, _} -> {:ok, grant}
+      end
+    else
+      {:ok, grant}
+    end
+  end
+
+  defp maybe_refresh_grant_access_token(grant, _credential), do: {:ok, grant}
+
+  defp grant_access_token_stale?(%Connect.Grant{} = grant) do
+    now = DateTime.utc_now()
+    threshold = DateTime.add(now, 120, :second)
+
+    token_missing? = not (is_binary(grant.access_token) and grant.access_token != "")
+    expires_at = grant.expires_at
+    expires_soon? = is_nil(expires_at) or DateTime.compare(expires_at, threshold) != :gt
+
+    token_missing? or expires_soon?
+  end
+
+  defp grant_access_token_stale?(grant) when is_map(grant) do
+    now = DateTime.utc_now()
+    threshold = DateTime.add(now, 120, :second)
+
+    access_token = Map.get(grant, :access_token)
+    expires_at = Map.get(grant, :expires_at)
+
+    token_missing? = not (is_binary(access_token) and access_token != "")
+    expires_soon? = is_nil(expires_at) or DateTime.compare(expires_at, threshold) != :gt
+
+    token_missing? or expires_soon?
+  end
+
+  defp mint_grant_access_token(
+         %Connect.Grant{provider: "google_drive", auth_kind: "jwt_bearer"} = grant,
+         %Connect.Credential{} = credential
+       ) do
+    scopes = Scopes.normalize(grant.scopes || credential.scopes || [])
+
+    credentials = jwt_credentials_from(grant, credential)
+    opts = jwt_mint_opts(credentials.subject, scopes)
+
+    case service_account_module().mint_token(credentials, opts) do
+      {:ok, token} -> {:ok, token_payload_from(token, scopes)}
+      {:error, reason} -> log_jwt_mint_failure(reason)
+    end
+  end
+
+  defp mint_grant_access_token(_grant, _credential), do: {:error, :unsupported_auth_mint}
+
+  defp metadata_subject(metadata) when is_map(metadata) do
+    case Map.get(metadata, "subject") || Map.get(metadata, :subject) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp metadata_subject(_), do: nil
+
+  defp jwt_credentials_from(%Connect.Grant{} = grant, %Connect.Credential{} = credential) do
+    %{
+      client_email: grant.issuer || credential.issuer,
+      private_key: normalize_private_key(grant.private_key || credential.private_key),
+      private_key_id: grant.key_id || credential.key_id,
+      subject: grant.subject || metadata_subject(grant.metadata || %{})
+    }
+  end
+
+  defp normalize_private_key(private_key) when is_binary(private_key) do
+    private_key
+    |> String.trim()
+    |> trim_wrapping_quotes()
+    |> maybe_unescape_newlines()
+  end
+
+  defp normalize_private_key(private_key), do: private_key
+
+  defp trim_wrapping_quotes(private_key) do
+    if String.starts_with?(private_key, "\"") and String.ends_with?(private_key, "\"") and
+         String.length(private_key) >= 2 do
+      String.slice(private_key, 1, String.length(private_key) - 2)
+    else
+      private_key
+    end
+  end
+
+  defp maybe_unescape_newlines(private_key) do
+    if String.contains?(private_key, "\\n") and not String.contains?(private_key, "\n") do
+      String.replace(private_key, "\\n", "\n")
+    else
+      private_key
+    end
+  end
+
+  defp jwt_mint_opts(subject, scopes) when is_binary(subject) and subject != "",
+    do: [scopes: scopes, subject: subject]
+
+  defp jwt_mint_opts(_subject, scopes), do: [scopes: scopes]
+
+  defp token_payload_from(token, fallback_scopes) do
+    %{
+      access_token: Map.get(token, :access_token),
+      expires_at: Map.get(token, :expires_at),
+      scopes: Scopes.normalize(Map.get(token, :scope) || fallback_scopes)
+    }
+  end
+
+  defp log_jwt_mint_failure(reason) do
+    Logger.warning("[JidoConnectBridge] jwt_bearer mint failed: #{inspect(reason)}")
+    {:error, reason}
+  end
+
+  defp engine_update_grant_token_cache(grant, token_payload) do
+    event =
+      Event.new(%{grant: grant, token_payload: token_payload}, :engine,
+        opts: [action: :connect_update_grant_token_cache]
+      )
+
+    case node_router_module().dispatch(event).response do
+      {:ok, %{} = refreshed} -> {:ok, refreshed}
+      {:error, _} = error -> error
+      _ -> {:error, :unexpected_response}
+    end
+  end
+
   defp engine_oauth_redirect_uri_for(provider) do
     event =
       Event.new(%{provider: provider}, :engine, opts: [action: :connect_oauth_redirect_uri_for])
@@ -2264,6 +2571,14 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp node_router_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_node_router_module, NodeRouter)
+
+  defp service_account_module,
+    do:
+      Application.get_env(
+        :zaq,
+        :jido_connect_bridge_service_account_module,
+        ServiceAccount
+      )
 
   defp webhook_worker_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_webhook_worker_module, WebhookWorker)

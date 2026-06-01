@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.Utils.ParseUtils
+  alias Zaq.Utils.Scopes
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
@@ -253,6 +254,20 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     case result do
       {:ok, config} ->
         _sync = sync_channel_runtime(previous_config, config)
+
+        socket =
+          case ensure_non_oauth_grant_for_config(config) do
+            :ok ->
+              socket
+
+            {:error, reason} ->
+              put_flash(
+                socket,
+                :error,
+                "Data source config saved, but grant claim failed: #{inspect(reason)}"
+              )
+          end
+
         {:noreply, refresh_provider_page(socket, "Data source config saved.")}
 
       {:error, changeset} ->
@@ -804,9 +819,10 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   defp datasource_list_filters(root_selector) do
     %{
-      "kind" => "folder",
       "parent" => root_selector,
-      "trashed" => false
+      "trashed" => false,
+      "include_shared" => true,
+      "all_drives" => true
     }
   end
 
@@ -952,11 +968,94 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp engine_connect_list_grants(filters) when is_map(filters),
     do: dispatch_engine(:connect_list_grants, %{filters: filters})
 
+  defp engine_connect_get_active_grant(filters) when is_map(filters),
+    do: dispatch_engine(:connect_get_active_grant, filters)
+
+  defp engine_connect_issue_grant(attrs) when is_map(attrs),
+    do: dispatch_engine(:connect_issue_grant, %{attrs: attrs})
+
   defp engine_connect_change_credential(credential, attrs),
     do: dispatch_engine(:connect_change_credential, %{credential: credential, attrs: attrs})
 
   defp engine_connect_create_credential(attrs),
     do: dispatch_engine(:connect_create_credential, %{attrs: attrs})
+
+  defp ensure_non_oauth_grant_for_config(%ChannelConfig{} = config) do
+    credential_id =
+      config
+      |> Map.get(:settings, %{})
+      |> Map.get("connect", %{})
+      |> Map.get("credential_id")
+
+    with id when id not in [nil, ""] <- credential_id,
+         {:ok, credential} <- engine_connect_fetch_credential(id),
+         false <- credential.auth_kind == "oauth2" do
+      filters = %{
+        provider: config.provider,
+        resource_type: "data_source",
+        resource_id: config.id,
+        owner_type: "org",
+        owner_id: nil
+      }
+
+      case engine_connect_get_active_grant(filters) do
+        %{credential_id: active_credential_id}
+        when not is_nil(active_credential_id) ->
+          maybe_issue_data_source_grant(config, credential, active_credential_id)
+
+        _ ->
+          issue_data_source_grant(config, credential)
+      end
+    else
+      id when id in [nil, ""] -> :ok
+      {:error, _} = error -> error
+      true -> :ok
+    end
+  end
+
+  defp issue_data_source_grant(config, credential) do
+    scopes = grant_scopes_for(credential, config.provider)
+
+    engine_connect_issue_grant(%{
+      credential_id: credential.id,
+      auth_kind: credential.auth_kind,
+      resource_type: "data_source",
+      resource_id: config.id,
+      owner_type: "org",
+      owner_id: nil,
+      metadata: credential.metadata || %{},
+      scopes: scopes
+    })
+    |> case do
+      {:ok, _grant} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp grant_scopes_for(credential, provider) do
+    explicit = Scopes.normalize(credential.scopes)
+
+    if credential.auth_kind == "jwt_bearer" and explicit == [] do
+      provider_default_scopes(provider)
+    else
+      explicit
+    end
+  end
+
+  defp provider_default_scopes(provider) do
+    case dispatch_default_scopes(provider) do
+      {:ok, scopes} when is_list(scopes) -> Scopes.normalize(scopes)
+      _ -> []
+    end
+  end
+
+  defp maybe_issue_data_source_grant(config, credential, active_credential_id) do
+    if to_string(active_credential_id) == to_string(credential.id) do
+      :ok
+    else
+      issue_data_source_grant(config, credential)
+    end
+  end
 
   defp refresh_provider_page(socket, message) do
     configs = list_configs(socket.assigns.provider)
@@ -1014,6 +1113,15 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp dispatch_channel_capability_snapshot(provider) do
     event =
       Event.new(%{provider: provider}, :channels, opts: [action: :channel_capability_snapshot])
+
+    NodeRouter.dispatch(event).response
+  end
+
+  defp dispatch_default_scopes(provider) do
+    event =
+      Event.new(%{provider: provider, params: %{}}, :channels,
+        opts: [action: :data_source_oauth_default_scopes]
+      )
 
     NodeRouter.dispatch(event).response
   end

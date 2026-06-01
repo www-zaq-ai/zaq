@@ -5,7 +5,7 @@ defmodule Zaq.Engine.Connect.Grant do
 
   import Ecto.Changeset
 
-  @auth_kinds ~w(api_key oauth2)
+  @auth_kinds ~w(api_key oauth2 jwt_bearer)
   @request_formats ~w(bearer raw)
   @resource_types ~w(data_source mcp)
   @owner_types ~w(org user)
@@ -30,6 +30,10 @@ defmodule Zaq.Engine.Connect.Grant do
     field :refresh_token, Zaq.Types.EncryptedString
     field :scopes, {:array, :string}, default: []
     field :api_key, Zaq.Types.EncryptedString
+    field :issuer, :string
+    field :private_key, Zaq.Types.EncryptedString
+    field :key_id, :string
+    field :subject, :string
 
     belongs_to :credential, Zaq.Engine.Connect.Credential
 
@@ -37,7 +41,7 @@ defmodule Zaq.Engine.Connect.Grant do
   end
 
   @required_fields ~w(credential_id provider auth_kind resource_type resource_id owner_type request_format metadata status)a
-  @optional_fields ~w(owner_id expires_at access_token refresh_token scopes api_key)a
+  @optional_fields ~w(owner_id expires_at access_token refresh_token scopes api_key issuer private_key key_id subject)a
 
   @type t :: %__MODULE__{
           id: integer() | nil,
@@ -57,6 +61,10 @@ defmodule Zaq.Engine.Connect.Grant do
           refresh_token: String.t() | nil,
           scopes: [String.t()] | nil,
           api_key: String.t() | nil,
+          issuer: String.t() | nil,
+          private_key: String.t() | nil,
+          key_id: String.t() | nil,
+          subject: String.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
@@ -92,6 +100,10 @@ defmodule Zaq.Engine.Connect.Grant do
       "api_key" ->
         changeset
         |> validate_required([:api_key])
+
+      "jwt_bearer" ->
+        changeset
+        |> validate_required([:issuer, :private_key, :key_id])
 
       _ ->
         changeset

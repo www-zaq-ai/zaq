@@ -5,7 +5,7 @@ defmodule Zaq.Engine.Connect.Credential do
 
   import Ecto.Changeset
 
-  @auth_kinds ~w(api_key oauth2)
+  @auth_kinds ~w(api_key oauth2 jwt_bearer)
   @request_formats ~w(bearer raw)
 
   schema "connect_credentials" do
@@ -19,6 +19,9 @@ defmodule Zaq.Engine.Connect.Credential do
     field :client_id, :string
     field :client_secret, Zaq.Types.EncryptedString
     field :scopes, {:array, :string}, default: []
+    field :issuer, :string
+    field :private_key, Zaq.Types.EncryptedString
+    field :key_id, :string
 
     field :api_key, Zaq.Types.EncryptedString
     field :expires_at, :utc_datetime
@@ -29,7 +32,7 @@ defmodule Zaq.Engine.Connect.Credential do
   end
 
   @required_fields ~w(name provider auth_kind request_format user_level metadata)a
-  @optional_fields ~w(client_id client_secret scopes api_key expires_at)a
+  @optional_fields ~w(client_id client_secret scopes api_key expires_at issuer private_key key_id)a
 
   @type t :: %__MODULE__{
           id: integer() | nil,
@@ -42,6 +45,9 @@ defmodule Zaq.Engine.Connect.Credential do
           client_id: String.t() | nil,
           client_secret: String.t() | nil,
           scopes: [String.t()] | nil,
+          issuer: String.t() | nil,
+          private_key: String.t() | nil,
+          key_id: String.t() | nil,
           api_key: String.t() | nil,
           expires_at: DateTime.t() | nil,
           grants: [Zaq.Engine.Connect.Grant.t()] | Ecto.Association.NotLoaded.t(),
@@ -71,8 +77,45 @@ defmodule Zaq.Engine.Connect.Credential do
       "api_key" ->
         changeset
 
+      "jwt_bearer" ->
+        changeset
+        |> validate_required([:issuer, :private_key, :key_id])
+        |> validate_length(:issuer, min: 2, max: 255)
+        |> validate_length(:key_id, min: 2, max: 255)
+        |> validate_metadata_auth_profile()
+
       _ ->
         changeset
     end
+  end
+
+  defp validate_metadata_auth_profile(changeset) do
+    metadata = get_field(changeset, :metadata) || %{}
+    profile = map_get(metadata, ["auth_profile_id", :auth_profile_id])
+    subject = map_get(metadata, ["subject", :subject])
+
+    if profile in ["service_account", "domain_delegated_service_account"] do
+      validate_delegation_subject(changeset, profile, subject)
+    else
+      add_error(
+        changeset,
+        :metadata,
+        "auth_profile_id must be service_account or domain_delegated_service_account"
+      )
+    end
+  end
+
+  defp validate_delegation_subject(changeset, "domain_delegated_service_account", subject) do
+    if is_binary(subject) and String.trim(subject) != "" do
+      changeset
+    else
+      add_error(changeset, :metadata, "subject is required for domain_delegated_service_account")
+    end
+  end
+
+  defp validate_delegation_subject(changeset, _profile, _subject), do: changeset
+
+  defp map_get(map, keys) when is_map(map) do
+    Enum.find_value(keys, fn key -> Map.get(map, key) end)
   end
 end

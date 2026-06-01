@@ -13,7 +13,7 @@ defmodule Zaq.Engine.Connect do
   alias Zaq.Repo
   alias Zaq.Types.EncryptedString
 
-  @secret_fields ~w(client_secret api_key access_token refresh_token)a
+  @secret_fields ~w(client_secret api_key access_token refresh_token private_key)a
 
   @spec list_credentials() :: [Credential.t()]
   def list_credentials do
@@ -83,7 +83,9 @@ defmodule Zaq.Engine.Connect do
     attrs = Map.new(attrs)
 
     with {:ok, credential} <- fetch_credential(attrs[:credential_id] || attrs["credential_id"]) do
-      grant_attrs = enrich_grant_attrs(attrs, credential)
+      grant_attrs =
+        attrs
+        |> enrich_grant_attrs(credential)
 
       with :ok <- validate_resource_provider(grant_attrs, credential.provider) do
         %Grant{}
@@ -93,6 +95,10 @@ defmodule Zaq.Engine.Connect do
       end
     end
   end
+
+  @spec update_grant_token_cache(Grant.t(), map()) :: {:ok, Grant.t()} | {:error, term()}
+  def update_grant_token_cache(%Grant{} = grant, token_payload) when is_map(token_payload),
+    do: update_grant_tokens(grant, token_payload)
 
   defp validate_resource_provider(attrs, provider) do
     resource_type = Map.get(attrs, :resource_type) || Map.get(attrs, "resource_type")
@@ -127,7 +133,7 @@ defmodule Zaq.Engine.Connect do
 
     Grant
     |> where([g], g.status == "active")
-    |> where([g], is_nil(g.expires_at) or g.expires_at > ^now)
+    |> where([g], is_nil(g.expires_at) or g.expires_at > ^now or g.auth_kind == "jwt_bearer")
     |> where([g], g.provider == ^Map.get(filters, :provider))
     |> where([g], g.resource_type == ^Map.get(filters, :resource_type))
     |> where([g], g.resource_id == ^to_string(Map.get(filters, :resource_id)))
@@ -233,22 +239,72 @@ defmodule Zaq.Engine.Connect do
   end
 
   defp update_grant_tokens(%Grant{} = grant, token_payload) do
-    attrs = %{
-      access_token: token_payload.access_token,
-      refresh_token: token_payload.refresh_token || grant.refresh_token,
-      expires_at: token_payload.expires_at,
-      scopes: token_payload.scopes || grant.scopes || []
-    }
-
-    grant
-    |> Grant.changeset(attrs)
-    |> encrypt_secret_fields(@secret_fields)
-    |> Repo.update()
-    |> case do
-      {:ok, updated_grant} -> {:ok, Repo.reload!(updated_grant)}
-      {:error, _} = error -> error
+    with {:ok, attrs} <- token_update_attrs(grant, token_payload) do
+      grant
+      |> Grant.changeset(attrs)
+      |> encrypt_secret_fields(@secret_fields)
+      |> Repo.update()
+      |> case do
+        {:ok, updated_grant} -> {:ok, Repo.reload!(updated_grant)}
+        {:error, _} = error -> error
+      end
     end
   end
+
+  defp token_update_attrs(%Grant{auth_kind: "oauth2"} = grant, token_payload) do
+    access_token = payload_get(token_payload, :access_token)
+    refresh_token = payload_get(token_payload, :refresh_token)
+    expires_at = payload_get(token_payload, :expires_at)
+
+    cond do
+      blank?(access_token) ->
+        {:error, {:invalid_token_payload, :missing_access_token}}
+
+      blank?(refresh_token) ->
+        {:error, {:invalid_token_payload, :missing_refresh_token}}
+
+      is_nil(expires_at) ->
+        {:error, {:invalid_token_payload, :missing_expires_at}}
+
+      true ->
+        {:ok,
+         %{
+           access_token: access_token,
+           refresh_token: refresh_token,
+           expires_at: expires_at,
+           scopes: payload_get(token_payload, :scopes) || grant.scopes || []
+         }}
+    end
+  end
+
+  defp token_update_attrs(%Grant{auth_kind: "jwt_bearer"} = grant, token_payload) do
+    access_token = payload_get(token_payload, :access_token)
+    expires_at = payload_get(token_payload, :expires_at)
+
+    cond do
+      blank?(access_token) ->
+        {:error, {:invalid_token_payload, :missing_access_token}}
+
+      is_nil(expires_at) ->
+        {:error, {:invalid_token_payload, :missing_expires_at}}
+
+      true ->
+        {:ok,
+         %{
+           access_token: access_token,
+           refresh_token: payload_get(token_payload, :refresh_token) || grant.refresh_token,
+           expires_at: expires_at
+         }}
+    end
+  end
+
+  defp token_update_attrs(%Grant{}, _token_payload),
+    do: {:error, {:invalid_token_payload, :unsupported_auth_kind}}
+
+  defp payload_get(payload, key) when is_map(payload),
+    do: Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
+
+  defp blank?(value), do: is_nil(value) or value == ""
 
   defp enrich_grant_attrs(attrs, %Credential{} = credential) do
     auth_kind = Map.get(attrs, :auth_kind) || Map.get(attrs, "auth_kind") || credential.auth_kind
@@ -262,8 +318,20 @@ defmodule Zaq.Engine.Connect do
     |> Map.put(:request_format, credential.request_format)
     |> Map.put_new(:status, "active")
     |> Map.put(:resource_id, normalized_resource_id)
+    |> maybe_copy_credential_scopes(credential, auth_kind)
     |> maybe_copy_credential_api_key(credential, auth_kind)
+    |> maybe_copy_credential_jwt_fields(credential, auth_kind)
   end
+
+  defp maybe_copy_credential_scopes(attrs, credential, "jwt_bearer") do
+    case Map.get(attrs, :scopes) || Map.get(attrs, "scopes") do
+      nil -> Map.put(attrs, :scopes, credential.scopes || [])
+      [] -> Map.put(attrs, :scopes, credential.scopes || [])
+      _ -> attrs
+    end
+  end
+
+  defp maybe_copy_credential_scopes(attrs, _credential, _), do: attrs
 
   defp maybe_copy_credential_api_key(attrs, credential, "api_key") do
     case Map.get(attrs, :api_key) || Map.get(attrs, "api_key") do
@@ -273,6 +341,32 @@ defmodule Zaq.Engine.Connect do
   end
 
   defp maybe_copy_credential_api_key(attrs, _credential, _), do: attrs
+
+  defp maybe_copy_credential_jwt_fields(attrs, credential, "jwt_bearer") do
+    attrs
+    |> maybe_put_missing_attr(:issuer, credential.issuer)
+    |> maybe_put_missing_attr(:private_key, credential.private_key)
+    |> maybe_put_missing_attr(:key_id, credential.key_id)
+    |> maybe_put_missing_attr(:subject, metadata_subject(credential.metadata))
+  end
+
+  defp maybe_copy_credential_jwt_fields(attrs, _credential, _), do: attrs
+
+  defp maybe_put_missing_attr(attrs, _key, value) when value in [nil, ""], do: attrs
+
+  defp maybe_put_missing_attr(attrs, key, value) do
+    case Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key)) do
+      nil -> Map.put(attrs, key, value)
+      "" -> Map.put(attrs, key, value)
+      _ -> attrs
+    end
+  end
+
+  defp metadata_subject(metadata) when is_map(metadata) do
+    Map.get(metadata, "subject") || Map.get(metadata, :subject)
+  end
+
+  defp metadata_subject(_), do: nil
 
   defp drop_blank_secret_attrs(attrs, keys) do
     Enum.reduce(keys, attrs, fn key, acc ->

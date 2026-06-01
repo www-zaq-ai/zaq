@@ -249,6 +249,44 @@ defmodule Zaq.Channels.JidoConnectBridge.RuntimeMapperTest do
       assert lease.fields.api_key == "k-abc"
       assert lease.connection_id == "grant:77"
     end
+
+    test "builds jwt_bearer credential lease with connector-compatible keys" do
+      grant =
+        build_grant(%{
+          id: 88,
+          auth_kind: "jwt_bearer",
+          access_token: "jwt-access-token",
+          scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "-----BEGIN PRIVATE KEY-----x",
+          key_id: "kid-1"
+        })
+
+      credential = build_credential(%{})
+
+      lease = RuntimeMapper.to_credential_lease(grant, credential)
+
+      assert lease.fields.access_token == "jwt-access-token"
+      assert lease.fields.scopes == ["https://www.googleapis.com/auth/drive.readonly"]
+      assert lease.fields.issuer == "svc@example.iam.gserviceaccount.com"
+      assert lease.fields.client_email == "svc@example.iam.gserviceaccount.com"
+      assert lease.fields.private_key == "-----BEGIN PRIVATE KEY-----x"
+      assert lease.fields.key_id == "kid-1"
+      assert lease.fields.private_key_id == "kid-1"
+      assert lease.connection_id == "grant:88"
+    end
+
+    test "prefers metadata auth_profile_id when building connection profile" do
+      grant =
+        build_grant(%{
+          auth_kind: "jwt_bearer",
+          metadata: %{"auth_profile_id" => "domain_delegated_service_account"}
+        })
+
+      conn = RuntimeMapper.to_connection(grant)
+
+      assert conn.profile == :domain_delegated_service_account
+    end
   end
 
   # ── Helpers ──────────────────────────────────────────────────────────
@@ -270,6 +308,10 @@ defmodule Zaq.Channels.JidoConnectBridge.RuntimeMapperTest do
       refresh_token: nil,
       scopes: [],
       api_key: nil,
+      issuer: nil,
+      private_key: nil,
+      key_id: nil,
+      subject: nil,
       expires_at: nil,
       inserted_at: DateTime.utc_now(),
       updated_at: DateTime.utc_now()
@@ -290,6 +332,9 @@ defmodule Zaq.Channels.JidoConnectBridge.RuntimeMapperTest do
       client_id: nil,
       client_secret: nil,
       scopes: [],
+      issuer: nil,
+      private_key: nil,
+      key_id: nil,
       api_key: nil,
       expires_at: nil,
       inserted_at: DateTime.utc_now(),

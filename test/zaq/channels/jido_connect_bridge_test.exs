@@ -20,7 +20,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
            id: "stub.files.list",
            resource: :file,
            verb: :list,
-           auth_profile: :user,
+           auth_profile: :service_account,
            auth_profiles: [:user],
            input: [%{name: :fields}, %{name: :page_size}]
          },
@@ -219,6 +219,83 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
            size: 8
          }
        }}
+    end
+  end
+
+  defmodule StubServiceAccountModule do
+    def mint_token(credentials, opts) do
+      send(self(), {:service_account_mint_token, credentials, opts})
+
+      {:ok,
+       %{
+         access_token: "minted-access-token",
+         expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+         scope: "https://www.googleapis.com/auth/drive.readonly"
+       }}
+    end
+  end
+
+  defmodule StubNodeRouterJwtBearerTokenRefresh do
+    def dispatch(%{opts: [action: :connect_get_active_grant]} = event) do
+      grant = %Zaq.Engine.Connect.Grant{
+        id: 999,
+        credential_id: 999,
+        provider: "google_drive",
+        auth_kind: "jwt_bearer",
+        resource_type: "data_source",
+        resource_id: "1",
+        owner_type: "org",
+        owner_id: nil,
+        request_format: "bearer",
+        metadata: %{"auth_profile_id" => "service_account"},
+        expires_at: nil,
+        status: "active",
+        access_token: nil,
+        refresh_token: nil,
+        scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+        issuer: "svc@example.iam.gserviceaccount.com",
+        private_key:
+          "-----BEGIN PRIVATE KEY-----\\nMII-test-grant-line\\n-----END PRIVATE KEY-----\\n",
+        key_id: "kid-1",
+        subject: nil,
+        inserted_at: nil,
+        updated_at: nil
+      }
+
+      %{event | response: grant}
+    end
+
+    def dispatch(%{opts: [action: :connect_fetch_credential]} = event) do
+      credential = %Zaq.Engine.Connect.Credential{
+        id: 999,
+        name: "jwt-credential",
+        provider: "google_drive",
+        auth_kind: "jwt_bearer",
+        user_level: false,
+        request_format: "bearer",
+        metadata: %{"auth_profile_id" => "service_account"},
+        issuer: "svc@example.iam.gserviceaccount.com",
+        private_key:
+          "-----BEGIN PRIVATE KEY-----\\nMII-test-credential-line\\n-----END PRIVATE KEY-----\\n",
+        key_id: "kid-1",
+        scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+        expires_at: nil,
+        inserted_at: nil,
+        updated_at: nil
+      }
+
+      %{event | response: {:ok, credential}}
+    end
+
+    def dispatch(
+          %{
+            opts: [action: :connect_update_grant_token_cache],
+            request: %{grant: grant, token_payload: payload}
+          } =
+            event
+        ) do
+      send(self(), {:connect_update_grant_token_cache, grant, payload})
+      %{event | response: {:ok, struct(grant, payload)}}
     end
   end
 
@@ -692,6 +769,26 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
+  defmodule StubJidoConnectNoAuthProfiles do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.files.list",
+           resource: :file,
+           verb: :list,
+           auth_profile: :service_account,
+           auth_profiles: nil
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.files.list", params, opts) do
+      send(self(), {:invoke_files, params, opts})
+      {:ok, %{files: [%{"id" => "f1", "name" => "Doc", "mimeType" => "application/pdf"}]}}
+    end
+  end
+
   defmodule StubJidoConnectFilesWithOwnerMap do
     def actions(_integration) do
       {:ok, [%{id: "stub.files.list", resource: :file, verb: :list, auth_profiles: [:user]}]}
@@ -778,6 +875,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     original_catalog = Application.get_env(:zaq, :jido_connect_bridge_catalog_module)
     original_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
 
+    original_service_account =
+      Application.get_env(:zaq, :jido_connect_bridge_service_account_module)
+
     Application.put_env(:zaq, :channels, %{
       google_drive: %{bridge: JidoConnectBridge, integration: StubIntegration}
     })
@@ -815,6 +915,16 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
         Application.put_env(:zaq, :jido_connect_bridge_node_router_module, original_node_router)
       else
         Application.delete_env(:zaq, :jido_connect_bridge_node_router_module)
+      end
+
+      if original_service_account do
+        Application.put_env(
+          :zaq,
+          :jido_connect_bridge_service_account_module,
+          original_service_account
+        )
+      else
+        Application.delete_env(:zaq, :jido_connect_bridge_service_account_module)
       end
     end)
 
@@ -886,6 +996,84 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     assert opts[:context].connection.id == "grant:#{grant.id}"
     assert opts[:credential_lease].connection_id == "grant:#{grant.id}"
+  end
+
+  test "list_files preserves service_account profile when action has no auth_profiles" do
+    config = insert_data_source_config(:google_drive)
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "cred-jwt-#{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        auth_kind: "jwt_bearer",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{"auth_profile_id" => "service_account"},
+        issuer: "svc@example.iam.gserviceaccount.com",
+        private_key: "private-key",
+        key_id: "kid-1",
+        scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+      })
+
+    {:ok, _grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        auth_kind: "jwt_bearer",
+        resource_type: "data_source",
+        resource_id: config.id,
+        owner_type: "org",
+        owner_id: nil,
+        request_format: "bearer",
+        metadata: %{"auth_profile_id" => "service_account"},
+        status: "active",
+        issuer: credential.issuer,
+        private_key: credential.private_key,
+        key_id: credential.key_id,
+        scopes: credential.scopes
+      })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectNoAuthProfiles
+    )
+
+    assert {:ok, %Zaq.Contracts.RecordPage{records: [%Zaq.Contracts.Record{id: "f1"}]}} =
+             JidoConnectBridge.list_files(config, %{})
+
+    assert_received {:invoke_files, _params, opts}
+    assert opts[:context].connection.profile == :service_account
+    assert opts[:credential_lease].profile == :service_account
+  end
+
+  test "list_files with stale jwt_bearer grant mints token and persists grant token cache" do
+    config = insert_data_source_config(:google_drive)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_node_router_module,
+      StubNodeRouterJwtBearerTokenRefresh
+    )
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_service_account_module,
+      StubServiceAccountModule
+    )
+
+    assert {:ok, %Zaq.Contracts.RecordPage{records: [%Zaq.Contracts.Record{id: "f1"} | _]}} =
+             JidoConnectBridge.list_files(config, %{})
+
+    assert_received {:service_account_mint_token, credentials, opts}
+    assert credentials.client_email == "svc@example.iam.gserviceaccount.com"
+    assert String.contains?(credentials.private_key, "\n")
+    refute String.contains?(credentials.private_key, "\\n")
+    assert opts[:scopes] == ["https://www.googleapis.com/auth/drive.readonly"]
+
+    assert_received {:connect_update_grant_token_cache, grant, payload}
+    assert grant.auth_kind == "jwt_bearer"
+    assert payload.access_token == "minted-access-token"
+    assert %DateTime{} = payload.expires_at
   end
 
   test "list_files opportunistically maps embedded permissions on item records" do
@@ -1100,9 +1288,8 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubBadOAuthNodeRouter)
 
-    assert_raise WithClauseError, fn ->
-      JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
-    end
+    assert {:error, :invalid_oauth_request} =
+             JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
   end
 
   # ---------------------------------------------------------------------------
@@ -1248,7 +1435,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
              JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
   end
 
-  test "runtime_ctx_for_oauth raises when redirect_uri is not binary" do
+  test "oauth authorize url returns invalid_oauth_request when redirect_uri is not binary" do
     config =
       insert_data_source_config(:google_drive, %{
         settings: %{"connect" => %{"credential_id" => "cred-1"}}
@@ -1260,9 +1447,8 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       StubNodeRouterRedirectNotBinary
     )
 
-    assert_raise WithClauseError, fn ->
-      JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
-    end
+    assert {:error, :invalid_oauth_request} =
+             JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
   end
 
   test "oauth_profile_for returns unsupported for unknown provider" do
@@ -1495,7 +1681,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # token normalization edge cases
   # ---------------------------------------------------------------------------
 
-  test "normalize_oauth_token handles empty tokens" do
+  test "oauth handlers return invalid_oauth_request for invalid redirect context" do
     config =
       insert_data_source_config(:google_drive, %{
         settings: %{"connect" => %{"credential_id" => "cred-1"}}
@@ -1503,20 +1689,14 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubBadOAuthNodeRouter)
 
-    # redirect_uri returns :invalid (atom) which does not match is_binary guard
-    # in runtime_ctx_for_oauth with else clause → WithClauseError
-    assert_raise WithClauseError, fn ->
-      JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
-    end
+    assert {:error, :invalid_oauth_request} =
+             JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
 
-    # Same for exchange and refresh
-    assert_raise WithClauseError, fn ->
-      JidoConnectBridge.oauth_exchange_code(config, %{"code" => "code"})
-    end
+    assert {:error, :invalid_oauth_request} =
+             JidoConnectBridge.oauth_exchange_code(config, %{"code" => "code"})
 
-    assert_raise WithClauseError, fn ->
-      JidoConnectBridge.oauth_refresh_token(config, %{"refresh_token" => "token"})
-    end
+    assert {:error, :invalid_oauth_request} =
+             JidoConnectBridge.oauth_refresh_token(config, %{"refresh_token" => "token"})
   end
 
   # ---------------------------------------------------------------------------

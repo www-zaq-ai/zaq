@@ -33,6 +33,56 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpersTest do
     assert sanitized["scopes"] == ["openid", "email"]
   end
 
+  test "sanitize_credential_params/1 normalizes metadata auth profile and subject" do
+    params = %{
+      "name" => "JWT Credential",
+      "metadata" => %{
+        "auth_profile_id" => "domain_delegated_service_account",
+        "subject" => "  user@example.com  "
+      }
+    }
+
+    sanitized = ConnectHelpers.sanitize_credential_params(params)
+
+    assert sanitized["metadata"] == %{
+             "auth_profile_id" => "domain_delegated_service_account",
+             "subject" => "user@example.com"
+           }
+  end
+
+  test "sanitize_credential_params/1 sets metadata to empty map when metadata is not a map" do
+    params = %{"name" => "JWT Credential", "metadata" => "not-a-map", "scopes" => "openid"}
+
+    sanitized = ConnectHelpers.sanitize_credential_params(params)
+
+    assert sanitized["metadata"] == %{}
+    assert sanitized["name"] == "JWT Credential"
+    assert sanitized["scopes"] == ["openid"]
+  end
+
+  test "sanitize_credential_params/1 drops subject when subject is non-binary" do
+    params = %{
+      "metadata" => %{
+        "auth_profile_id" => "domain_delegated_service_account",
+        "subject" => 12_345
+      }
+    }
+
+    sanitized = ConnectHelpers.sanitize_credential_params(params)
+
+    assert sanitized["metadata"] == %{"auth_profile_id" => "domain_delegated_service_account"}
+    refute Map.has_key?(sanitized["metadata"], "subject")
+  end
+
+  test "sanitize_credential_params/1 drops subject when subject is blank string" do
+    params = %{"metadata" => %{"subject" => "   "}}
+
+    sanitized = ConnectHelpers.sanitize_credential_params(params)
+
+    assert sanitized["metadata"] == %{}
+    refute Map.has_key?(sanitized["metadata"], "subject")
+  end
+
   test "sanitize_credential_params/1 returns default scopes for non-map input" do
     assert ConnectHelpers.sanitize_credential_params(nil) == %{"scopes" => []}
     assert ConnectHelpers.sanitize_credential_params("scopes=openid") == %{"scopes" => []}

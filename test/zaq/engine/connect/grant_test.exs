@@ -63,6 +63,27 @@ defmodule Zaq.Engine.Connect.GrantTest do
     assert "is invalid" in errors.status
   end
 
+  test "requires issuer, private_key and key_id for jwt_bearer grants" do
+    changeset =
+      Grant.changeset(%Grant{}, %{
+        credential_id: 1,
+        provider: "google_drive",
+        auth_kind: "jwt_bearer",
+        resource_type: "data_source",
+        resource_id: "123",
+        owner_type: "org",
+        request_format: "bearer",
+        metadata: %{},
+        status: "active"
+      })
+
+    refute changeset.valid?
+    errors = errors_on(changeset)
+    assert "can't be blank" in errors.issuer
+    assert "can't be blank" in errors.private_key
+    assert "can't be blank" in errors.key_id
+  end
+
   test "validates required fields" do
     changeset = Grant.changeset(%Grant{}, %{})
 

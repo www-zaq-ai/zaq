@@ -673,6 +673,558 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert errored.assigns.modal_errors != []
   end
 
+  describe "save/grant-claim coverage gaps" do
+    test "save succeeds but grant claim failure flashes an error" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          "name" => "cred-flash-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "api_key",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{}
+        })
+
+      name = "save-grant-fail-#{System.unique_integer([:positive])}"
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :new,
+          changeset:
+            ChannelConfig.changeset(%ChannelConfig{}, %{
+              "name" => name,
+              "provider" => "google_drive",
+              "kind" => "data_source",
+              "enabled" => true,
+              "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+            }),
+          form: nil,
+          modal_errors: [],
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, updated} =
+               ProviderLive.handle_event(
+                 "save",
+                 %{
+                   "form" => %{
+                     "name" => name,
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{
+                       "connect" => %{"credential_id" => Integer.to_string(credential.id)}
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      assert Repo.get_by(ChannelConfig, name: name) != nil
+
+      assert Phoenix.Flash.get(updated.assigns.flash, :error) =~
+               "Data source config saved, but grant claim failed"
+    end
+
+    test "non-oauth credential without active grant gets an issued grant with explicit scopes" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          "name" => "cred-api-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "api_key",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{},
+          "api_key" => "api-key-#{System.unique_integer([:positive])}",
+          "scopes" => ["scope.a", "scope.a", "scope.b"]
+        })
+
+      name = "save-api-#{System.unique_integer([:positive])}"
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :new,
+          changeset:
+            ChannelConfig.changeset(%ChannelConfig{}, %{
+              "name" => name,
+              "provider" => "google_drive",
+              "kind" => "data_source",
+              "enabled" => true,
+              "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+            }),
+          form: nil,
+          modal_errors: [],
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, saved} =
+               ProviderLive.handle_event(
+                 "save",
+                 %{
+                   "form" => %{
+                     "name" => name,
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{
+                       "connect" => %{"credential_id" => Integer.to_string(credential.id)}
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      saved_config = Repo.get_by!(ChannelConfig, name: name)
+
+      assert saved_config.id > 0
+      assert saved.assigns.modal == nil
+
+      grant =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: saved_config.id,
+          owner_type: "org",
+          owner_id: nil
+        })
+
+      assert grant.credential_id == credential.id
+      assert grant.auth_kind == "api_key"
+      assert grant.resource_id == Integer.to_string(saved_config.id)
+      assert grant.metadata == credential.metadata
+      assert grant.scopes == ["scope.a", "scope.b"]
+    end
+
+    test "non-oauth credential with matching active grant does not create a replacement" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          "name" => "cred-same-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "api_key",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{},
+          "api_key" => "api-key-#{System.unique_integer([:positive])}",
+          "scopes" => ["scope.same"]
+        })
+
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-same-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+        })
+        |> Repo.insert!()
+
+      {:ok, _grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: Integer.to_string(config.id),
+          owner_type: "org",
+          status: "active",
+          metadata: %{},
+          api_key: credential.api_key
+        })
+
+      filters = %{
+        provider: "google_drive",
+        resource_type: "data_source",
+        resource_id: config.id,
+        owner_type: "org",
+        owner_id: nil
+      }
+
+      before_count =
+        Connect.list_grants(
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: Integer.to_string(config.id),
+          owner_type: "org"
+        )
+        |> length()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :edit,
+          changeset: ChannelConfig.changeset(config, %{}),
+          form: nil,
+          modal_errors: [],
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, saved} =
+               ProviderLive.handle_event(
+                 "save",
+                 %{
+                   "form" => %{
+                     "name" => "#{config.name}-edited",
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{
+                       "connect" => %{"credential_id" => Integer.to_string(credential.id)}
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      after_count =
+        Connect.list_grants(
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: Integer.to_string(config.id),
+          owner_type: "org"
+        )
+        |> length()
+
+      assert saved.assigns.modal == nil
+      assert after_count == before_count
+      assert Connect.get_active_grant(filters).credential_id == credential.id
+    end
+
+    test "non-oauth credential with different active grant replaces it" do
+      {:ok, credential_a} =
+        Connect.create_credential(%{
+          "name" => "cred-a-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "api_key",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{},
+          "api_key" => "api-key-a-#{System.unique_integer([:positive])}",
+          "scopes" => ["scope.a"]
+        })
+
+      {:ok, credential_b} =
+        Connect.create_credential(%{
+          "name" => "cred-b-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "api_key",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{},
+          "api_key" => "api-key-b-#{System.unique_integer([:positive])}",
+          "scopes" => ["scope.b", "scope.b"]
+        })
+
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          "name" => "cfg-replace-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential_a.id)}}
+        })
+        |> Repo.insert!()
+
+      {:ok, _grant} =
+        Connect.issue_grant(%{
+          credential_id: credential_a.id,
+          resource_type: "data_source",
+          resource_id: Integer.to_string(config.id),
+          owner_type: "org",
+          status: "active",
+          metadata: %{},
+          api_key: credential_a.api_key
+        })
+
+      filters = %{
+        provider: "google_drive",
+        resource_type: "data_source",
+        resource_id: config.id,
+        owner_type: "org",
+        owner_id: nil
+      }
+
+      before_count =
+        Connect.list_grants(
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: Integer.to_string(config.id),
+          owner_type: "org"
+        )
+        |> length()
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :edit,
+          changeset: ChannelConfig.changeset(config, %{}),
+          form: nil,
+          modal_errors: [],
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, saved} =
+               ProviderLive.handle_event(
+                 "save",
+                 %{
+                   "form" => %{
+                     "name" => "#{config.name}-updated",
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{
+                       "connect" => %{"credential_id" => Integer.to_string(credential_b.id)}
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      after_count =
+        Connect.list_grants(
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: Integer.to_string(config.id),
+          owner_type: "org"
+        )
+        |> length()
+
+      assert saved.assigns.modal == nil
+      assert after_count == before_count + 1
+      assert Connect.get_active_grant(filters).credential_id == credential_b.id
+    end
+
+    test "oauth2 credential path skips non-oauth grant issuance" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          "name" => "cred-oauth-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "oauth2",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{},
+          "client_id" => "client-#{System.unique_integer([:positive])}",
+          "client_secret" => "secret-#{System.unique_integer([:positive])}",
+          "scopes" => ["scope.read"]
+        })
+
+      name = "save-oauth-#{System.unique_integer([:positive])}"
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :new,
+          changeset:
+            ChannelConfig.changeset(%ChannelConfig{}, %{
+              "name" => name,
+              "provider" => "google_drive",
+              "kind" => "data_source",
+              "enabled" => true,
+              "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+            }),
+          form: nil,
+          modal_errors: [],
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      before_count =
+        Connect.list_grants(
+          provider: "google_drive",
+          resource_type: "data_source",
+          owner_type: "org"
+        )
+        |> length()
+
+      assert {:noreply, saved} =
+               ProviderLive.handle_event(
+                 "save",
+                 %{
+                   "form" => %{
+                     "name" => name,
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{
+                       "connect" => %{"credential_id" => Integer.to_string(credential.id)}
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      after_count =
+        Connect.list_grants(
+          provider: "google_drive",
+          resource_type: "data_source",
+          owner_type: "org"
+        )
+        |> length()
+
+      filters = %{
+        provider: "google_drive",
+        resource_type: "data_source",
+        resource_id: Repo.get_by!(ChannelConfig, name: name).id,
+        owner_type: "org",
+        owner_id: nil
+      }
+
+      assert saved.assigns.modal == nil
+      assert after_count == before_count
+      assert Connect.get_active_grant(filters) == nil
+    end
+
+    test "jwt bearer empty scopes use provider default scopes when available" do
+      use_data_source_bridge(:google_drive, BridgeStubs.DefaultScopesSuccess)
+
+      {:ok, credential} =
+        Connect.create_credential(%{
+          "name" => "cred-jwt-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "jwt_bearer",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{"auth_profile_id" => "service_account"},
+          "issuer" => "issuer-#{System.unique_integer([:positive])}",
+          "private_key" => "private-key-#{System.unique_integer([:positive])}",
+          "key_id" => "key-id-#{System.unique_integer([:positive])}",
+          "scopes" => []
+        })
+
+      name = "save-jwt-default-#{System.unique_integer([:positive])}"
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :new,
+          changeset:
+            ChannelConfig.changeset(%ChannelConfig{}, %{
+              "name" => name,
+              "provider" => "google_drive",
+              "kind" => "data_source",
+              "enabled" => true,
+              "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+            }),
+          form: nil,
+          modal_errors: [],
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, saved} =
+               ProviderLive.handle_event(
+                 "save",
+                 %{
+                   "form" => %{
+                     "name" => name,
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{
+                       "connect" => %{"credential_id" => Integer.to_string(credential.id)}
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      saved_config = Repo.get_by!(ChannelConfig, name: name)
+
+      grant =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: saved_config.id,
+          owner_type: "org",
+          owner_id: nil
+        })
+
+      assert saved.assigns.modal == nil
+      assert grant.scopes == ["scope.z", "scope.a"]
+    end
+
+    test "jwt bearer empty scopes fall back to no provider defaults when response is invalid" do
+      use_data_source_bridge(:google_drive, BridgeStubs.DefaultScopesInvalid)
+
+      {:ok, credential} =
+        Connect.create_credential(%{
+          "name" => "cred-jwt-invalid-#{System.unique_integer([:positive])}",
+          "provider" => "google_drive",
+          "auth_kind" => "jwt_bearer",
+          "request_format" => "bearer",
+          "user_level" => false,
+          "metadata" => %{"auth_profile_id" => "service_account"},
+          "issuer" => "issuer-#{System.unique_integer([:positive])}",
+          "private_key" => "private-key-#{System.unique_integer([:positive])}",
+          "key_id" => "key-id-#{System.unique_integer([:positive])}",
+          "scopes" => []
+        })
+
+      name = "save-jwt-invalid-#{System.unique_integer([:positive])}"
+
+      socket =
+        socket_with(%{
+          provider: "google_drive",
+          modal: :new,
+          changeset:
+            ChannelConfig.changeset(%ChannelConfig{}, %{
+              "name" => name,
+              "provider" => "google_drive",
+              "kind" => "data_source",
+              "enabled" => true,
+              "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+            }),
+          form: nil,
+          modal_errors: [],
+          root_folders_by_config: %{},
+          root_folder_meta_by_config: %{},
+          stats_errors_by_config: %{}
+        })
+
+      assert {:noreply, saved} =
+               ProviderLive.handle_event(
+                 "save",
+                 %{
+                   "form" => %{
+                     "name" => name,
+                     "provider" => "google_drive",
+                     "kind" => "data_source",
+                     "enabled" => true,
+                     "settings" => %{
+                       "connect" => %{"credential_id" => Integer.to_string(credential.id)}
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      saved_config = Repo.get_by!(ChannelConfig, name: name)
+
+      grant =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: saved_config.id,
+          owner_type: "org",
+          owner_id: nil
+        })
+
+      assert saved.assigns.modal == nil
+      assert grant.scopes == []
+    end
+  end
+
   test "validate detects credential provider mismatch" do
     {:ok, mismatch_cred} =
       Connect.create_credential(%{

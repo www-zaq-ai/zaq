@@ -14,7 +14,25 @@ defmodule Zaq.Engine.ConnectTest do
 
   defmodule StubOAuthNoScopes do
     def oauth_refresh_token(_config, _params) do
-      {:ok, %{access_token: "new-access", refresh_token: nil, expires_at: nil, scopes: nil}}
+      {:ok,
+       %{
+         access_token: "new-access",
+         refresh_token: "new-refresh",
+         expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+         scopes: nil
+       }}
+    end
+  end
+
+  defmodule StubOAuthMissingRefreshToken do
+    def oauth_refresh_token(_config, _params) do
+      {:ok,
+       %{
+         access_token: "new-access",
+         refresh_token: nil,
+         expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+         scopes: ["scope.from.refresh"]
+       }}
     end
   end
 
@@ -240,6 +258,116 @@ defmodule Zaq.Engine.ConnectTest do
       assert grant.api_key == "shared-token"
       assert grant.provider == "google_drive"
       assert grant.auth_kind == "api_key"
+    end
+
+    test "issues jwt_bearer grant and copies scopes from credential when missing" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Drive JWT",
+          provider: "google_drive",
+          auth_kind: "jwt_bearer",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"auth_profile_id" => "service_account"},
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "private-key",
+          key_id: "kid-1",
+          scopes: [
+            "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/drive.metadata.readonly"
+          ]
+        })
+
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "data_source",
+                 resource_id: "42",
+                 owner_type: "org",
+                 owner_id: nil,
+                 metadata: %{"auth_profile_id" => "service_account"}
+               })
+
+      grant = Repo.get!(Grant, grant.id)
+
+      assert grant.auth_kind == "jwt_bearer"
+      assert grant.scopes == credential.scopes
+    end
+
+    test "issues jwt_bearer grant and falls back to credential scopes when attrs scopes are empty" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Drive JWT Empty Scopes",
+          provider: "google_drive",
+          auth_kind: "jwt_bearer",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"auth_profile_id" => "service_account"},
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "private-key",
+          key_id: "kid-3",
+          scopes: [
+            "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/drive.metadata.readonly"
+          ]
+        })
+
+      assert {:ok, %Grant{} = grant} =
+               Connect.issue_grant(%{
+                 credential_id: credential.id,
+                 resource_type: "data_source",
+                 resource_id: "43",
+                 owner_type: "org",
+                 owner_id: nil,
+                 metadata: %{"auth_profile_id" => "service_account"},
+                 scopes: []
+               })
+
+      grant = Repo.get!(Grant, grant.id)
+      assert grant.scopes == credential.scopes
+    end
+
+    test "update_grant_token_cache for jwt_bearer does not overwrite scopes" do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Drive JWT Update",
+          provider: "google_drive",
+          auth_kind: "jwt_bearer",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"auth_profile_id" => "service_account"},
+          issuer: "svc@example.iam.gserviceaccount.com",
+          private_key: "private-key",
+          key_id: "kid-2",
+          scopes: [
+            "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/drive.metadata.readonly"
+          ]
+        })
+
+      {:ok, grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "42",
+          owner_type: "org",
+          owner_id: nil,
+          metadata: %{"auth_profile_id" => "service_account"},
+          scopes: credential.scopes
+        })
+
+      expires_at = DateTime.add(DateTime.utc_now(), 3600, :second)
+
+      assert {:ok, updated} =
+               Connect.update_grant_token_cache(grant, %{
+                 access_token: "jwt-access-token",
+                 expires_at: expires_at,
+                 scopes: []
+               })
+
+      assert updated.access_token == "jwt-access-token"
+      assert DateTime.to_unix(updated.expires_at) == DateTime.to_unix(expires_at)
+      assert updated.scopes == credential.scopes
     end
 
     test "resolves latest active grant for owner and resource context", %{credential: credential} do
@@ -722,7 +850,7 @@ defmodule Zaq.Engine.ConnectTest do
       assert {:error, {:invalid_refresh_response, :unexpected}} = Connect.refresh_grant(grant)
     end
 
-    test "refresh_grant falls back to existing scopes and refresh_token when payload omits both" do
+    test "refresh_grant falls back to existing scopes when payload omits scopes" do
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
         name: "cfg-refresh-fallback-#{System.unique_integer([:positive])}",
@@ -774,8 +902,62 @@ defmodule Zaq.Engine.ConnectTest do
 
       assert {:ok, refreshed} = Connect.refresh_grant(grant)
       assert refreshed.access_token != "old-access"
-      assert refreshed.refresh_token == "old-refresh"
+      assert refreshed.refresh_token == "new-refresh"
       assert refreshed.scopes == ["scope.from.grant"]
+    end
+
+    test "refresh_grant hard fails for oauth2 when payload misses refresh_token" do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "cfg-refresh-missing-refresh-#{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        google_drive: %{bridge: StubOAuthMissingRefreshToken}
+      })
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Missing refresh payload credential",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{},
+          client_id: "id",
+          client_secret: "secret",
+          scopes: ["scope.from.credential"]
+        })
+
+      {:ok, grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "mcp",
+          resource_id: "missing-refresh-response",
+          owner_type: "org",
+          metadata: %{},
+          access_token: "old-access",
+          refresh_token: "old-refresh",
+          scopes: ["scope.from.grant"]
+        })
+
+      assert {:error, {:invalid_token_payload, :missing_refresh_token}} =
+               Connect.refresh_grant(grant)
     end
   end
 
