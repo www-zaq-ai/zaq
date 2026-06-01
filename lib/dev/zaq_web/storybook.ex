@@ -1,0 +1,9 @@
+defmodule ZaqWeb.Storybook do
+  use PhoenixStorybook,
+    otp_app: :zaq,
+    content_path: Path.expand("../../../storybook", __DIR__),
+    css_path: "/assets/css/app.css",
+    js_path: "/assets/js/app.js",
+    title: "ZAQ Design System",
+    sandbox_class: "zaq-sandbox"
+end
