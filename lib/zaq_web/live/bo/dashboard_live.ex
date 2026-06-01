@@ -39,6 +39,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
       end
 
     show_portal_banner = socket.assigns.current_user.portal_consent == "declined"
+    user_email = socket.assigns.current_user.email
 
     {:ok,
      assign(socket,
@@ -49,7 +50,9 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
        metric_cards: telemetry_metrics,
        show_portal_banner: show_portal_banner,
        show_portal_consent_modal: false,
-       portal_provision_error: nil
+       portal_provision_error: nil,
+       require_portal_email: blank?(user_email),
+       portal_consent_email: user_email || ""
      )}
   end
 
@@ -76,16 +79,34 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   end
 
   @impl true
+  def handle_event("portal_consent_email_change", %{"email" => email}, socket) do
+    {:noreply, assign(socket, portal_consent_email: email, portal_provision_error: nil)}
+  end
+
+  @impl true
   def handle_event("accept_portal_consent", _params, socket) do
-    case Accounts.provision_portal_for_user(socket.assigns.current_user) do
-      {:ok, updated_user} ->
+    with {:ok, user} <-
+           maybe_set_portal_email(
+             socket.assigns.current_user,
+             socket.assigns.portal_consent_email
+           ),
+         {:ok, updated_user} <- Accounts.provision_portal_for_user(user) do
+      {:noreply,
+       socket
+       |> assign(:current_user, updated_user)
+       |> assign(:show_portal_banner, false)
+       |> assign(:show_portal_consent_modal, false)
+       |> assign(:require_portal_email, false)
+       |> assign(:portal_consent_email, updated_user.email)
+       |> assign(:portal_provision_error, nil)
+       |> put_flash(:info, "Free credits activated — your ZAQ portal account is ready.")}
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
-         socket
-         |> assign(:current_user, updated_user)
-         |> assign(:show_portal_banner, false)
-         |> assign(:show_portal_consent_modal, false)
-         |> assign(:portal_provision_error, nil)
-         |> put_flash(:info, "Free credits activated — your ZAQ portal account is ready.")}
+         assign(socket,
+           portal_provision_error: email_error_message(changeset),
+           show_portal_consent_modal: true
+         )}
 
       {:error, _reason} ->
         {:noreply,
@@ -97,6 +118,25 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   end
 
   # -- Private --
+
+  # Older accounts may not have an email on file. Persist the one entered in the
+  # consent modal before provisioning; accounts that already have an email skip this.
+  defp maybe_set_portal_email(user, entered_email) do
+    if blank?(user.email) do
+      Accounts.update_user(user, %{"email" => String.trim(entered_email || "")})
+    else
+      {:ok, user}
+    end
+  end
+
+  defp email_error_message(changeset) do
+    case changeset.errors[:email] do
+      {message, _opts} -> "Email #{message}."
+      _ -> "Please enter a valid email address."
+    end
+  end
+
+  defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
 
   defp refresh_services do
     service_defs = [

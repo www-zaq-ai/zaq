@@ -4,8 +4,13 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
 
+  import Ecto.Query
+
   alias Zaq.Accounts
+  alias Zaq.Accounts.User
   alias Zaq.Addons.FeatureStore
+  alias Zaq.License.FeatureStore
+  alias Zaq.Repo
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
@@ -110,6 +115,86 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
       assert html =~ "Acme"
       assert html =~ "Days Left"
+    end
+  end
+
+  describe "portal consent email capture" do
+    setup %{conn: conn} do
+      # An "old" account: declined portal consent and has no email on file.
+      user = user_fixture(%{username: "oldadmin"})
+      {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+
+      Repo.update_all(from(u in User, where: u.id == ^user.id),
+        set: [email: nil, portal_consent: "declined"]
+      )
+
+      user = Accounts.get_user!(user.id)
+      conn = conn |> init_test_session(%{user_id: user.id})
+
+      %{conn: conn, user: user}
+    end
+
+    test "omits email input and enables accept when user already has an email", %{conn: conn} do
+      # Override the no-email setup with an account that has an email on file.
+      user = user_fixture(%{username: "hasemail", email: "has@example.com"})
+      {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+      conn = conn |> init_test_session(%{user_id: user.id})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_click(view, "show_portal_consent", %{})
+
+      refute has_element?(view, "#portal-consent-email")
+      refute has_element?(view, "button[disabled]", "Accept")
+    end
+
+    test "renders email input and disables accept when user has no email", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      html = render_click(view, "show_portal_consent", %{})
+
+      assert html =~ "enter it to continue"
+      assert has_element?(view, "#portal-consent-email")
+      assert has_element?(view, "button[disabled]", "Accept")
+    end
+
+    test "enables accept once a non-blank email is entered", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_click(view, "show_portal_consent", %{})
+
+      render_change(view, "portal_consent_email_change", %{"email" => "new@example.com"})
+
+      refute has_element?(view, "button[disabled]", "Accept")
+    end
+
+    test "shows a validation error when the entered email is invalid", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_click(view, "show_portal_consent", %{})
+      render_change(view, "portal_consent_email_change", %{"email" => "not-an-email"})
+
+      html = render_click(view, "accept_portal_consent", %{})
+
+      assert html =~ "Email must be a valid email address."
+    end
+
+    test "provisions the portal with the entered email for old users", %{conn: conn, user: user} do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.json(conn, %{
+          "status" => "ok",
+          "user" => %{
+            "litellm_api_key" => "sk-test-key",
+            "litellm_user_id" => "llm-user-test"
+          }
+        })
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_click(view, "show_portal_consent", %{})
+      render_change(view, "portal_consent_email_change", %{"email" => "claimed@example.com"})
+
+      html = render_click(view, "accept_portal_consent", %{})
+
+      assert html =~ "Free credits activated"
+      assert Accounts.get_user!(user.id).email == "claimed@example.com"
     end
   end
 
