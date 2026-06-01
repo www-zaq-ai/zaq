@@ -116,19 +116,19 @@
             id={"open-test-config-#{config.id}"}
             phx-click="open_test"
             phx-value-id={config.id}
-            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-amber-500 hover:border-amber-300 transition-all"
+            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-amber-500 hover:border-amber-300 transition-all phx-click-loading:opacity-70"
             title="Refresh"
           >
             <svg
-              class="w-3.5 h-3.5"
+              class="w-3.5 h-3.5 phx-click-loading:animate-spin"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
               viewBox="0 0 24 24"
             >
-              <path d="M4 4v6h6" />
-              <path d="M20 20v-6h-6" />
-              <path d="M20 9a8 8 0 0 0-13.66-5.66L4 10m16 4-2.34 2.34A8 8 0 0 1 4 15" />
+              <path d="M20 4v6h-6" />
+              <path d="M4 20v-6h6" />
+              <path d="M4 9a8 8 0 0 1 13.66-5.66L20 10M4 14l2.34 2.34A8 8 0 0 0 20 15" />
             </svg>
           </button>
           <button

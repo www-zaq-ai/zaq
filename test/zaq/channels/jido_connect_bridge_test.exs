@@ -965,6 +965,14 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   def create_active_grant!(credential, resource_id, owner_type \\ "org") do
+    config = Repo.get!(ChannelConfig, resource_id)
+
+    config
+    |> ChannelConfig.changeset(%{
+      "settings" => %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
+    })
+    |> Repo.update!()
+
     {:ok, grant} =
       Connect.issue_grant(%{
         credential_id: credential.id,
@@ -999,8 +1007,6 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   test "list_files preserves service_account profile when action has no auth_profiles" do
-    config = insert_data_source_config(:google_drive)
-
     {:ok, credential} =
       Connect.create_credential(%{
         name: "cred-jwt-#{System.unique_integer([:positive])}",
@@ -1013,6 +1019,11 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
         private_key: "private-key",
         key_id: "kid-1",
         scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+      })
+
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => Integer.to_string(credential.id)}}
       })
 
     {:ok, _grant} =
@@ -1047,7 +1058,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   test "list_files with stale jwt_bearer grant mints token and persists grant token cache" do
-    config = insert_data_source_config(:google_drive)
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => "999"}}
+      })
 
     Application.put_env(
       :zaq,
@@ -1120,10 +1134,52 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
              record.permissions
   end
 
-  test "returns error when active grant is missing" do
+  test "returns missing_credential_id when config has no credential configured" do
     config = insert_data_source_config(:google_drive)
 
-    assert {:error, :missing_active_grant} = JidoConnectBridge.list_resources(config, %{})
+    assert {:error, :missing_credential_id} = JidoConnectBridge.list_resources(config, %{})
+  end
+
+  test "selects freshest active grant scoped to configured credential id" do
+    credential_a = create_credential!()
+    credential_b = create_credential!()
+
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => Integer.to_string(credential_b.id)}}
+      })
+
+    {:ok, _grant_a} =
+      Connect.issue_grant(%{
+        credential_id: credential_a.id,
+        resource_type: "data_source",
+        resource_id: config.id,
+        owner_type: "org",
+        owner_id: nil,
+        request_format: "bearer",
+        status: "active",
+        access_token: "access-a",
+        refresh_token: "refresh-a",
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+      })
+
+    {:ok, grant_b} =
+      Connect.issue_grant(%{
+        credential_id: credential_b.id,
+        resource_type: "data_source",
+        resource_id: config.id,
+        owner_type: "org",
+        owner_id: nil,
+        request_format: "bearer",
+        status: "active",
+        access_token: "access-b",
+        refresh_token: "refresh-b",
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+      })
+
+    assert {:ok, _} = JidoConnectBridge.list_files(config, %{})
+    assert_received {:invoke_files, _params, opts}
+    assert opts[:context].connection.id == "grant:#{grant_b.id}"
   end
 
   test "unsupported callbacks return unsupported errors" do
@@ -1351,7 +1407,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   test "list_permissions returns error with missing grant" do
     config = insert_data_source_config(:google_drive)
 
-    assert {:error, :missing_active_grant} =
+    assert {:error, :missing_credential_id} =
              JidoConnectBridge.list_permissions(config, %{file_id: "f1"})
   end
 
@@ -1366,7 +1422,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert stats.files_count == nil
     assert stats.folders_count == nil
     assert stats.principals_count == 0
-    assert stats._error == :missing_active_grant
+    assert stats._error == :missing_credential_id
   end
 
   test "channel_stats collects principals with limit on many files" do
@@ -4377,7 +4433,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
     end)
 
-    config = insert_data_source_config(:google_drive)
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => "1"}}
+      })
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
@@ -4759,7 +4818,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   test "list_files with app_user owner_type selects app_user profile" do
-    config = insert_data_source_config(:google_drive)
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => "1"}}
+      })
 
     Application.put_env(
       :zaq,
@@ -4772,7 +4834,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   test "list_files with installation owner_type hits catch-all profile candidates" do
-    config = insert_data_source_config(:google_drive)
+    config =
+      insert_data_source_config(:google_drive, %{
+        settings: %{"connect" => %{"credential_id" => "1"}}
+      })
 
     Application.put_env(
       :zaq,

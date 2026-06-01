@@ -12,6 +12,7 @@ defmodule Zaq.Engine.Connect do
   alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.Map, as: MapUtils
 
   @secret_fields ~w(client_secret api_key access_token refresh_token private_key)a
 
@@ -134,6 +135,7 @@ defmodule Zaq.Engine.Connect do
     Grant
     |> where([g], g.status == "active")
     |> where([g], is_nil(g.expires_at) or g.expires_at > ^now or g.auth_kind == "jwt_bearer")
+    |> maybe_where_credential_id(Map.get(filters, :credential_id))
     |> where([g], g.provider == ^Map.get(filters, :provider))
     |> where([g], g.resource_type == ^Map.get(filters, :resource_type))
     |> where([g], g.resource_id == ^to_string(Map.get(filters, :resource_id)))
@@ -215,6 +217,26 @@ defmodule Zaq.Engine.Connect do
   defp maybe_where_owner_id(query, nil), do: where(query, [g], is_nil(g.owner_id))
   defp maybe_where_owner_id(query, owner_id), do: where(query, [g], g.owner_id == ^owner_id)
 
+  defp maybe_where_credential_id(query, nil), do: query
+
+  defp maybe_where_credential_id(query, credential_id) do
+    case normalize_credential_id(credential_id) do
+      nil -> query
+      id -> where(query, [g], g.credential_id == ^id)
+    end
+  end
+
+  defp normalize_credential_id(id) when is_integer(id), do: id
+
+  defp normalize_credential_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {value, ""} -> value
+      _ -> nil
+    end
+  end
+
+  defp normalize_credential_id(_), do: nil
+
   defp dispatch_refresh(%Grant{} = grant, %Credential{} = credential) do
     params = %{
       "credential_id" => credential.id,
@@ -253,7 +275,7 @@ defmodule Zaq.Engine.Connect do
 
   defp token_update_attrs(%Grant{auth_kind: "oauth2"} = grant, token_payload) do
     access_token = payload_get(token_payload, :access_token)
-    refresh_token = payload_get(token_payload, :refresh_token)
+    refresh_token = payload_get(token_payload, :refresh_token) || grant.refresh_token
     expires_at = payload_get(token_payload, :expires_at)
 
     cond do
@@ -289,6 +311,8 @@ defmodule Zaq.Engine.Connect do
         {:error, {:invalid_token_payload, :missing_expires_at}}
 
       true ->
+        # JWT bearer mint responses generally do not carry scope information.
+        # Keep existing grant scopes unchanged when refreshing token cache.
         {:ok,
          %{
            access_token: access_token,
@@ -347,7 +371,7 @@ defmodule Zaq.Engine.Connect do
     |> maybe_put_missing_attr(:issuer, credential.issuer)
     |> maybe_put_missing_attr(:private_key, credential.private_key)
     |> maybe_put_missing_attr(:key_id, credential.key_id)
-    |> maybe_put_missing_attr(:subject, metadata_subject(credential.metadata))
+    |> maybe_put_missing_attr(:subject, MapUtils.metadata_subject(credential.metadata))
   end
 
   defp maybe_copy_credential_jwt_fields(attrs, _credential, _), do: attrs
@@ -361,12 +385,6 @@ defmodule Zaq.Engine.Connect do
       _ -> attrs
     end
   end
-
-  defp metadata_subject(metadata) when is_map(metadata) do
-    Map.get(metadata, "subject") || Map.get(metadata, :subject)
-  end
-
-  defp metadata_subject(_), do: nil
 
   defp drop_blank_secret_attrs(attrs, keys) do
     Enum.reduce(keys, attrs, fn key, acc ->

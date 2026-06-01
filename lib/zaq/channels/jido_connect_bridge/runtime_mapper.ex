@@ -37,6 +37,7 @@ defmodule Zaq.Channels.JidoConnectBridge.RuntimeMapper do
             api_key: grant.api_key || credential.api_key
           }
 
+        # jido_connect ServiceAccount expects client_email/private_key_id keys
         "jwt_bearer" ->
           %{
             access_token: grant.access_token,

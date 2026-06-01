@@ -1,4 +1,6 @@
 defmodule Zaq.Engine.ConnectTokenEdgeCasesTest do
+  @moduledoc "Tests token update and persistence edge cases across Connect auth kinds."
+
   use Zaq.DataCase, async: false
 
   alias Zaq.Engine.Connect

@@ -1,4 +1,6 @@
 defmodule Zaq.Engine.ConnectEncryptionErrorTest do
+  @moduledoc "Tests Connect credential encryption failures and user-facing errors."
+
   use Zaq.DataCase, async: false
 
   alias Zaq.Engine.Connect

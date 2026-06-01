@@ -5,6 +5,8 @@ defmodule Zaq.Engine.Connect.Credential do
 
   import Ecto.Changeset
 
+  alias Zaq.Utils.Map, as: MapUtils
+
   @auth_kinds ~w(api_key oauth2 jwt_bearer)
   @request_formats ~w(bearer raw)
 
@@ -91,8 +93,8 @@ defmodule Zaq.Engine.Connect.Credential do
 
   defp validate_metadata_auth_profile(changeset) do
     metadata = get_field(changeset, :metadata) || %{}
-    profile = map_get(metadata, ["auth_profile_id", :auth_profile_id])
-    subject = map_get(metadata, ["subject", :subject])
+    profile = MapUtils.read_any(metadata, ["auth_profile_id", :auth_profile_id])
+    subject = MapUtils.read_any(metadata, ["subject", :subject])
 
     if profile in ["service_account", "domain_delegated_service_account"] do
       validate_delegation_subject(changeset, profile, subject)
@@ -114,8 +116,4 @@ defmodule Zaq.Engine.Connect.Credential do
   end
 
   defp validate_delegation_subject(changeset, _profile, _subject), do: changeset
-
-  defp map_get(map, keys) when is_map(map) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
-  end
 end

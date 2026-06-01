@@ -1,6 +1,18 @@
 defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   use Zaq.DataCase, async: false
 
+  defmodule StubOAuthMissingRefreshToken do
+    def oauth_refresh_token(_config, _params) do
+      {:ok,
+       %{
+         access_token: "new-access",
+         refresh_token: nil,
+         expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+         scopes: ["scope.from.refresh"]
+       }}
+    end
+  end
+
   alias Oban.Job
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
@@ -198,5 +210,54 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
       })
 
     assert :ok = GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}})
+  end
+
+  test "perform/1 keeps existing refresh_token when refresh payload omits it" do
+    insert_config(:google_drive, kind: "data_source")
+
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubOAuthMissingRefreshToken}
+    })
+
+    on_exit(fn ->
+      if original_channels do
+        Application.put_env(:zaq, :channels, original_channels)
+      else
+        Application.delete_env(:zaq, :channels)
+      end
+    end)
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "OAuth credential",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "id",
+        client_secret: "secret"
+      })
+
+    {:ok, grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "data_source",
+        resource_id: "2",
+        owner_type: "org",
+        metadata: %{},
+        status: "active",
+        access_token: "old-access",
+        refresh_token: "old-refresh"
+      })
+
+    assert :ok = GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}})
+
+    refreshed = Repo.get!(Connect.Grant, grant.id)
+    assert refreshed.access_token == "new-access"
+    assert refreshed.refresh_token == "old-refresh"
+    assert refreshed.scopes == ["scope.from.refresh"]
   end
 end

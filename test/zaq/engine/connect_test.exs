@@ -407,6 +407,162 @@ defmodule Zaq.Engine.ConnectTest do
       assert selected.id == grant2.id
     end
 
+    test "get_active_grant respects integer credential_id filters", %{credential: credential_a} do
+      {:ok, credential_b} =
+        Connect.create_credential(%{
+          name: "OAuth2 Config B",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth"},
+          client_id: "client-id-b",
+          client_secret: "secret-b"
+        })
+
+      {:ok, grant_a} =
+        Connect.issue_grant(%{
+          credential_id: credential_a.id,
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          metadata: %{},
+          access_token: "a",
+          refresh_token: "r"
+        })
+
+      {:ok, grant_b} =
+        Connect.issue_grant(%{
+          credential_id: credential_b.id,
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          metadata: %{},
+          access_token: "b",
+          refresh_token: "r2"
+        })
+
+      selected =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          credential_id: credential_a.id
+        })
+
+      assert selected.id == grant_a.id
+      assert selected.credential_id == credential_a.id
+      refute selected.id == grant_b.id
+    end
+
+    test "get_active_grant ignores invalid binary credential_id values", %{
+      credential: credential_a
+    } do
+      {:ok, credential_b} =
+        Connect.create_credential(%{
+          name: "OAuth2 Config B",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth"},
+          client_id: "client-id-b",
+          client_secret: "secret-b"
+        })
+
+      {:ok, _grant_a} =
+        Connect.issue_grant(%{
+          credential_id: credential_a.id,
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          metadata: %{},
+          access_token: "a",
+          refresh_token: "r"
+        })
+
+      {:ok, grant_b} =
+        Connect.issue_grant(%{
+          credential_id: credential_b.id,
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          metadata: %{},
+          access_token: "b",
+          refresh_token: "r2"
+        })
+
+      selected =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          credential_id: "abc"
+        })
+
+      assert selected.id == grant_b.id
+      assert selected.credential_id == credential_b.id
+    end
+
+    test "get_active_grant ignores non-binary credential_id values", %{credential: credential_a} do
+      {:ok, credential_b} =
+        Connect.create_credential(%{
+          name: "OAuth2 Config B",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth"},
+          client_id: "client-id-b",
+          client_secret: "secret-b"
+        })
+
+      {:ok, _grant_a} =
+        Connect.issue_grant(%{
+          credential_id: credential_a.id,
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          metadata: %{},
+          access_token: "a",
+          refresh_token: "r"
+        })
+
+      {:ok, grant_b} =
+        Connect.issue_grant(%{
+          credential_id: credential_b.id,
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          metadata: %{},
+          access_token: "b",
+          refresh_token: "r2"
+        })
+
+      selected =
+        Connect.get_active_grant(%{
+          provider: "google_drive",
+          resource_type: "data_source",
+          resource_id: "12",
+          owner_type: "user",
+          owner_id: 100,
+          credential_id: %{bad: "shape"}
+        })
+
+      assert selected.id == grant_b.id
+      assert selected.credential_id == credential_b.id
+    end
+
     test "issue_grant rejects provider mismatch for data source resource", %{
       credential: credential
     } do
@@ -906,7 +1062,7 @@ defmodule Zaq.Engine.ConnectTest do
       assert refreshed.scopes == ["scope.from.grant"]
     end
 
-    test "refresh_grant hard fails for oauth2 when payload misses refresh_token" do
+    test "refresh_grant keeps existing oauth2 refresh_token when payload omits it" do
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
         name: "cfg-refresh-missing-refresh-#{System.unique_integer([:positive])}",
@@ -956,8 +1112,10 @@ defmodule Zaq.Engine.ConnectTest do
           scopes: ["scope.from.grant"]
         })
 
-      assert {:error, {:invalid_token_payload, :missing_refresh_token}} =
-               Connect.refresh_grant(grant)
+      assert {:ok, refreshed} = Connect.refresh_grant(grant)
+      assert refreshed.access_token == "new-access"
+      assert refreshed.refresh_token == "old-refresh"
+      assert refreshed.scopes == ["scope.from.refresh"]
     end
   end
 

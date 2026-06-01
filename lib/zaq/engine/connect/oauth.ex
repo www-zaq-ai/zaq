@@ -88,6 +88,12 @@ defmodule Zaq.Engine.Connect.OAuth do
   defp validate_provider(_provider, _payload), do: {:error, :provider_mismatch}
 
   defp build_oauth_grant_attrs(%Credential{} = credential, state_payload, token_payload) do
+    scopes =
+      Map.get(token_payload, :scopes) ||
+        Map.get(token_payload, "scopes") ||
+        Map.get(token_payload, :scope) ||
+        Map.get(token_payload, "scope")
+
     %{
       credential_id: credential.id,
       provider: credential.provider,
@@ -98,12 +104,24 @@ defmodule Zaq.Engine.Connect.OAuth do
       owner_id: state_payload["owner_id"],
       request_format: credential.request_format,
       metadata: state_payload["metadata"] || %{},
-      expires_at: token_payload.expires_at,
-      access_token: token_payload.access_token,
-      refresh_token: token_payload.refresh_token,
-      scopes: token_payload.scopes || []
+      expires_at: Map.get(token_payload, :expires_at) || Map.get(token_payload, "expires_at"),
+      access_token:
+        Map.get(token_payload, :access_token) || Map.get(token_payload, "access_token"),
+      refresh_token:
+        Map.get(token_payload, :refresh_token) || Map.get(token_payload, "refresh_token"),
+      scopes: normalize_token_scopes(scopes)
     }
   end
+
+  defp normalize_token_scopes(scopes) when is_list(scopes), do: scopes
+
+  defp normalize_token_scopes(scopes) when is_binary(scopes) do
+    scopes
+    |> String.split()
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_token_scopes(_), do: []
 
   defp dispatch_data_source_oauth_action(provider, params, action) do
     event =

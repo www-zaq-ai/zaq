@@ -541,12 +541,32 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   defp grants_by_config(configs) do
-    config_ids = Enum.map(configs, &to_string(&1.id))
+    Map.new(configs, fn config ->
+      credential_id =
+        case configured_credential_id(config) do
+          id when is_binary(id) and id != "" -> id
+          _ -> nil
+        end
 
-    engine_connect_list_grants(%{resource_type: "data_source", status: "active"})
-    |> Enum.filter(&(&1.resource_id in config_ids))
-    |> Enum.group_by(&String.to_integer(&1.resource_id))
-    |> Map.new(fn {config_id, grants} -> {config_id, Enum.max_by(grants, & &1.id)} end)
+      grant =
+        engine_connect_get_active_grant(%{
+          credential_id: credential_id,
+          provider: config.provider,
+          resource_type: "data_source",
+          resource_id: config.id,
+          owner_type: "org",
+          owner_id: nil
+        })
+
+      {config.id, grant}
+    end)
+  end
+
+  defp configured_credential_id(%ChannelConfig{} = config) do
+    config
+    |> Map.get(:settings, %{})
+    |> Map.get("connect", %{})
+    |> Map.get("credential_id")
   end
 
   defp seed_root_folders_by_config(configs), do: Map.new(configs, &{&1.id, nil})
@@ -964,9 +984,6 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   defp engine_connect_list_credentials,
     do: dispatch_engine(:connect_list_credentials)
-
-  defp engine_connect_list_grants(filters) when is_map(filters),
-    do: dispatch_engine(:connect_list_grants, %{filters: filters})
 
   defp engine_connect_get_active_grant(filters) when is_map(filters),
     do: dispatch_engine(:connect_get_active_grant, filters)

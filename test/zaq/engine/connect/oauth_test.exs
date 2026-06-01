@@ -8,6 +8,7 @@ defmodule Zaq.Engine.Connect.OAuthTest do
   alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
+  alias Zaq.Types.EncryptedString
 
   defmodule TestOAuthBridge do
     def auth_handshake(_config, _params), do: {:error, :unsupported}
@@ -48,6 +49,32 @@ defmodule Zaq.Engine.Connect.OAuthTest do
 
     def oauth_authorize_url(_config, _params), do: :invalid
     def oauth_exchange_code(_config, _params), do: :invalid
+    def oauth_refresh_token(_config, _params), do: {:error, :unsupported}
+  end
+
+  defmodule StringKeyOAuthBridge do
+    def auth_handshake(_config, _params), do: {:error, :unsupported}
+    def list_resources(_config, _params), do: {:error, :unsupported}
+    def download_resource(_config, _resource, _params), do: {:error, :unsupported}
+    def setup_listener(_config, _params), do: {:error, :unsupported}
+    def teardown_listener(_config, _params), do: {:error, :unsupported}
+    def list_files(_config, _params), do: {:error, :unsupported}
+    def list_permissions(_config, _params), do: {:error, :unsupported}
+    def channel_stats(_config, _params), do: {:error, :unsupported}
+    def capability_snapshot(_config), do: {:error, :unsupported}
+
+    def oauth_authorize_url(_config, _params), do: {:ok, "https://oauth.example/authorize"}
+
+    def oauth_exchange_code(_config, _params) do
+      {:ok,
+       %{
+         "access_token" => "string-access-token",
+         "refresh_token" => "string-refresh-token",
+         "expires_at" => DateTime.add(DateTime.utc_now(), 1800, :second),
+         "scope" => ["scope.read"]
+       }}
+    end
+
     def oauth_refresh_token(_config, _params), do: {:error, :unsupported}
   end
 
@@ -240,6 +267,41 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     assert grant.auth_kind == "oauth2"
     assert grant.resource_type == "data_source"
     assert grant.resource_id == "42"
+  end
+
+  test "finalize_callback/2 persists refresh token when exchange payload uses string keys" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StringKeyOAuthBridge}
+    })
+
+    on_exit(fn ->
+      if is_nil(original_channels) do
+        Application.delete_env(:zaq, :channels)
+      else
+        Application.put_env(:zaq, :channels, original_channels)
+      end
+    end)
+
+    credential = create_credential!()
+    _config = create_data_source_config!("google_drive")
+
+    state =
+      OAuthState.sign(%{
+        "credential_id" => credential.id,
+        "provider" => "google_drive",
+        "resource_type" => "data_source",
+        "resource_id" => "42",
+        "owner_type" => "org",
+        "owner_id" => nil,
+        "metadata" => %{"source" => "unit"}
+      })
+
+    assert {:ok, grant} =
+             OAuth.finalize_callback("google_drive", %{"state" => state, "code" => "oauth-code"})
+
+    assert EncryptedString.decrypt!(grant.refresh_token) == "string-refresh-token"
   end
 
   test "build_authorize_url/2 maps invalid bridge response" do

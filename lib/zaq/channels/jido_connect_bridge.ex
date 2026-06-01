@@ -63,6 +63,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
+  alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.Scopes
   require Logger
 
@@ -1078,9 +1079,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp normalize_scope_input(nil), do: []
 
   defp normalize_scope_input(scope) when is_binary(scope),
-    do: String.split(scope, ~r/\s+/, trim: true)
+    do: Scopes.normalize(String.split(scope))
 
-  defp normalize_scope_input(scope) when is_list(scope), do: scope
+  defp normalize_scope_input(scope) when is_list(scope), do: Scopes.normalize(scope)
   defp normalize_scope_input(_scope), do: []
 
   defp build_oauth_credential_result(
@@ -1127,17 +1128,23 @@ defmodule Zaq.Channels.JidoConnectBridge do
   @impl true
   def to_internal(_payload, _config), do: {:error, :unsupported}
 
-  defp runtime_ctx(%{provider: provider, id: id}) do
-    grant =
-      engine_get_active_grant(%{
-        provider: provider,
-        resource_type: "data_source",
-        resource_id: id,
-        owner_type: "org",
-        owner_id: nil
-      })
+  defp runtime_ctx(%{provider: provider, id: id} = config) do
+    with {:ok, credential_id_filter, missing_credential_id?} <-
+           credential_id_filter_from_config(config) do
+      resolve_runtime_ctx(provider, id, credential_id_filter, missing_credential_id?)
+    end
+  end
 
-    with %{credential_id: credential_id} = grant <- grant,
+  defp resolve_runtime_ctx(provider, id, credential_id_filter, missing_credential_id?) do
+    with %{credential_id: credential_id} = grant <-
+           engine_get_active_grant(%{
+             credential_id: credential_id_filter,
+             provider: provider,
+             resource_type: "data_source",
+             resource_id: id,
+             owner_type: "org",
+             owner_id: nil
+           }),
          {:ok, credential} <- engine_fetch_credential(credential_id),
          {:ok, grant} <- maybe_refresh_grant_access_token(grant, credential) do
       {:ok,
@@ -1148,9 +1155,69 @@ defmodule Zaq.Channels.JidoConnectBridge do
          credential: credential
        }}
     else
-      nil -> {:error, :missing_active_grant}
-      {:error, :not_found} -> {:error, :credential_not_found}
+      nil ->
+        if missing_credential_id? do
+          {:error, :missing_credential_id}
+        else
+          {:error, :missing_active_grant}
+        end
+
+      {:error, :not_found} ->
+        {:error, :credential_not_found}
     end
+  end
+
+  defp credential_id_filter_from_config(%{provider: provider, id: config_id} = config) do
+    credential_id =
+      config
+      |> settings_from_config(config_id)
+      |> credential_id_from_settings()
+
+    case credential_id do
+      id when is_integer(id) ->
+        {:ok, id, false}
+
+      id when is_binary(id) and id != "" ->
+        {:ok, id, false}
+
+      _ ->
+        log_missing_credential_id(provider, config_id)
+        {:ok, nil, true}
+    end
+  end
+
+  defp settings_from_config(config, config_id) do
+    case read_any(config, [:settings, "settings"]) do
+      map when is_map(map) and map != %{} -> map
+      _ -> settings_from_persisted_config(config_id)
+    end
+  end
+
+  defp settings_from_persisted_config(config_id) do
+    case Repo.get(ChannelConfig, config_id) do
+      %ChannelConfig{settings: persisted_settings} when is_map(persisted_settings) ->
+        persisted_settings
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp credential_id_from_settings(settings) when is_map(settings) do
+    settings
+    |> read_any(["connect", :connect])
+    |> case do
+      connect when is_map(connect) -> read_any(connect, ["credential_id", :credential_id])
+      _ -> nil
+    end
+  end
+
+  defp credential_id_from_settings(_), do: nil
+
+  defp log_missing_credential_id(provider, config_id) do
+    Logger.debug(
+      "runtime_ctx missing credential_id for provider=#{provider} config_id=#{config_id}"
+    )
   end
 
   defp oauth_module_for(provider), do: ProviderCatalog.oauth_module(to_string(provider))
@@ -1227,10 +1294,10 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp normalize_oauth_token(token) when is_map(token) do
     %{
-      access_token: Map.get(token, :access_token),
-      refresh_token: Map.get(token, :refresh_token),
-      expires_at: Map.get(token, :expires_at),
-      scopes: Map.get(token, :scope, [])
+      access_token: param_get(token, :access_token),
+      refresh_token: param_get(token, :refresh_token),
+      expires_at: param_get(token, :expires_at),
+      scopes: param_get(token, :scope) || []
     }
   end
 
@@ -1244,13 +1311,14 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp oauth_scope_opt(nil), do: nil
 
   defp oauth_scope_opt(scope) when is_list(scope) do
-    normalized = Enum.filter(scope, &(is_binary(&1) and String.trim(&1) != ""))
+    normalized = Scopes.normalize(scope)
     if normalized == [], do: nil, else: normalized
   end
 
   defp oauth_scope_opt(scope) when is_binary(scope) do
     scope
-    |> String.split(" ", trim: true)
+    |> String.split()
+    |> Scopes.normalize()
     |> oauth_scope_opt()
   end
 
@@ -1266,7 +1334,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp maybe_put_provider_authorize_opts(opts, "google_drive") do
-    Keyword.put_new(opts, :access_type, "offline")
+    opts
+    |> Keyword.put_new(:access_type, "offline")
+    |> Keyword.put_new(:prompt, "consent")
   end
 
   defp maybe_put_provider_authorize_opts(opts, _provider), do: opts
@@ -2396,9 +2466,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp principal_keys(_), do: []
 
-  defp read_any(map, keys) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
-  end
+  defp read_any(map, keys), do: MapUtils.read_any(map, keys)
 
   defp read_list(map, keys, default) when is_map(map) do
     case read_any(map, keys) do
@@ -2487,21 +2555,12 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp mint_grant_access_token(_grant, _credential), do: {:error, :unsupported_auth_mint}
 
-  defp metadata_subject(metadata) when is_map(metadata) do
-    case Map.get(metadata, "subject") || Map.get(metadata, :subject) do
-      value when is_binary(value) and value != "" -> value
-      _ -> nil
-    end
-  end
-
-  defp metadata_subject(_), do: nil
-
   defp jwt_credentials_from(%Connect.Grant{} = grant, %Connect.Credential{} = credential) do
     %{
       client_email: grant.issuer || credential.issuer,
       private_key: normalize_private_key(grant.private_key || credential.private_key),
       private_key_id: grant.key_id || credential.key_id,
-      subject: grant.subject || metadata_subject(grant.metadata || %{})
+      subject: grant.subject || MapUtils.metadata_subject(grant.metadata || %{})
     }
   end
 

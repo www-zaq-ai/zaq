@@ -7,6 +7,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Tools.Email.DraftReply
   alias Zaq.Repo
+  alias Zaq.TestSupport.OpenAIStub
 
   defp raw_email(overrides \\ %{}) do
     Map.merge(
@@ -89,6 +90,14 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
 
   describe "run/2 — draft shape when agent found" do
     setup do
+      handler = fn conn, _body ->
+        {200, streamed_reply(conn.request_path, "Stubbed draft", "gpt-4o")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
       {:ok, agent: insert_configured_agent("MailResponder")}
     end
 
@@ -232,5 +241,47 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
       assert is_integer(active_id)
       assert is_nil(inactive_id)
     end
+  end
+
+  defp streamed_reply("/v1/chat/completions", text, model) do
+    chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{"content" => text}, "finish_reason" => nil}]
+      })
+
+    done_chunk =
+      Jason.encode!(%{
+        "id" => "chatcmpl-test",
+        "object" => "chat.completion.chunk",
+        "model" => model,
+        "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "stop"}],
+        "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 1, "total_tokens" => 6}
+      })
+
+    "data: #{chunk}\n\ndata: #{done_chunk}\n\ndata: [DONE]\n\n"
+  end
+
+  defp streamed_reply(_path, text, model) do
+    delta_event = Jason.encode!(%{"delta" => text})
+
+    completed_event =
+      Jason.encode!(%{
+        "response" => %{
+          "id" => "resp_test",
+          "model" => model,
+          "usage" => %{"input_tokens" => 5, "output_tokens" => 1, "total_tokens" => 6}
+        }
+      })
+
+    [
+      "event: response.output_text.delta\n",
+      "data: #{delta_event}\n\n",
+      "event: response.completed\n",
+      "data: #{completed_event}\n\n"
+    ]
+    |> IO.iodata_to_binary()
   end
 end

@@ -3,6 +3,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpers do
   Pure helpers for Connect credential param normalization.
   """
 
+  alias Zaq.Utils.Map, as: MapUtils
+  alias Zaq.Utils.Scopes
+
   def sanitize_credential_params(params) when is_map(params) do
     params
     |> Map.drop(["provider", "request_format"])
@@ -15,11 +18,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpers do
   def parse_scope_list(nil), do: []
 
   def parse_scope_list(scopes) when is_list(scopes) do
-    scopes
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+    Scopes.normalize(scopes)
   end
 
   def parse_scope_list(scopes) when is_binary(scopes) do
@@ -34,8 +33,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpers do
   def parse_scope_list(_), do: []
 
   defp sanitize_metadata(metadata) when is_map(metadata) do
-    profile = map_get(metadata, ["auth_profile_id", :auth_profile_id])
-    subject = map_get(metadata, ["subject", :subject])
+    profile = MapUtils.read_any(metadata, ["auth_profile_id", :auth_profile_id])
+    subject = MapUtils.read_any(metadata, ["subject", :subject])
 
     %{}
     |> maybe_put("auth_profile_id", profile)
@@ -53,8 +52,4 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpers do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp map_get(map, keys) when is_map(map) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
-  end
 end
