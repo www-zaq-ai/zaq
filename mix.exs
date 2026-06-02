@@ -99,7 +99,7 @@ defmodule Zaq.MixProject do
 
       # Jido Ecosystem
       {:llm_db, "~> 2026.5", runtime: false},
-      {:jido, "~> 2.2", override: true},
+      {:jido, "~> 2.3", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       # {:jido_chat, "~> 1.0"},
       # {:jido_chat,
@@ -115,6 +115,8 @@ defmodule Zaq.MixProject do
       {:telegex_marked, "~> 0.0.0"},
       {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
+      # Bump zoi to avoid conflicts with deps using the old 0.17.1 (jido_connect)
+      {:zoi, "~> 0.18", override: true},
       {:jido_mcp, github: "agentjido/jido_mcp", branch: "main"},
       {:jido_studio, github: "agentjido/jido_studio"},
       {:jido_runic, github: "agentjido/jido_runic", branch: "main"},
