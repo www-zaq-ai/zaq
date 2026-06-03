@@ -181,5 +181,6 @@ defmodule ZaqWeb.Components.PortalConsentModal do
     """
   end
 
-  defp email_present?(email), do: is_binary(email) and String.trim(email) != ""
+  defp email_present?(email),
+    do: is_binary(email) and Regex.match?(~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, String.trim(email))
 end
