@@ -317,7 +317,7 @@ defmodule Zaq.Agent.Pipeline do
       measurements: Map.get(outgoing.metadata, :measurements, %{}),
       model: Map.get(outgoing.metadata, :model),
       agent: Map.get(outgoing.metadata, :agent),
-      error: false
+      error: Map.get(outgoing.metadata, :error, false)
     }
   end
 
@@ -346,6 +346,7 @@ defmodule Zaq.Agent.Pipeline do
   defp error_result(reason) do
     %{
       answer: ErrorMessage.from_reason(reason),
+      error_type: ErrorMessage.error_type_for(reason),
       error_reason: reason,
       confidence_score: 0.0,
       latency_ms: nil,

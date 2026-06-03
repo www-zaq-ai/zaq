@@ -52,7 +52,25 @@ defmodule Zaq.Channels.MessageFormatter do
         other -> other
       end
 
+    body = maybe_append_budget_exceeded_link(body, outgoing)
+
     %{outgoing | body: body, metadata: put_format_metadata(metadata, format)}
+  end
+
+  # Web bridge renders budget exceeded via BO component — no link needed.
+  # All other channels get a plain-text URL appended after format conversion
+  # so the link survives plain-text and HTML stripping.
+  defp maybe_append_budget_exceeded_link(body, %Outgoing{provider: provider})
+       when provider in [:web, "web"],
+       do: body
+
+  defp maybe_append_budget_exceeded_link(body, %Outgoing{} = outgoing) do
+    with :budget_exceeded <- outgoing.metadata[:error_type],
+         portal_url when is_binary(portal_url) <- Application.get_env(:zaq, :user_portal_base_url) do
+      body <> "\nTop up your wallet: #{portal_url}"
+    else
+      _ -> body
+    end
   end
 
   defp provider_channel_config(provider) do

@@ -21,6 +21,9 @@ defmodule Zaq.Agent.ZAQProvider do
     "openai/gpt-oss-120b" => %{
       capabilities: %{chat: true, tools: %{enabled: true}}
     },
+    "owl-alpha" => %{
+      capabilities: %{chat: true, tools: %{enabled: true}}
+    },
     # Vision models (appear in image-to-text config)
     "gemma-4-26b-a4b-it" => %{
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},

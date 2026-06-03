@@ -60,6 +60,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
+    render_click(view, "accept_portal_consent")
+
     assert has_element?(
              view,
              "div.alert-error span",
@@ -107,6 +109,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
+    render_click(view, "decline_portal_consent")
     assert_redirect(view, ~p"/bo/dashboard")
 
     updated_user = Accounts.get_user!(user.id)
@@ -139,6 +142,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
+    render_click(view, "accept_portal_consent")
+
     assert has_element?(view, "div.alert-error span", "must be a valid email address")
   end
 
@@ -157,6 +162,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
+    render_click(view, "decline_portal_consent")
     assert_redirect(view, ~p"/bo/dashboard")
 
     updated_user = Accounts.get_user!(user.id)

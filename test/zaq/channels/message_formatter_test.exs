@@ -404,6 +404,73 @@ defmodule Zaq.Channels.MessageFormatterTest do
       end
     end
 
+    test "J: budget exceeded link appended for non-web provider when portal_url is set" do
+      original_portal = Application.get_env(:zaq, :user_portal_base_url)
+
+      try do
+        Application.put_env(:zaq, :user_portal_base_url, "https://portal.example.com")
+
+        outgoing = %Outgoing{
+          provider: :mattermost,
+          channel_id: "c1",
+          body: "You ran out.",
+          metadata: %{error_type: :budget_exceeded}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == "You ran out.\nTop up your wallet: https://portal.example.com"
+      after
+        Application.put_env(:zaq, :user_portal_base_url, original_portal)
+      end
+    end
+
+    test "J-contrast: budget exceeded body unchanged when portal_url is nil" do
+      original_portal = Application.get_env(:zaq, :user_portal_base_url)
+
+      try do
+        Application.put_env(:zaq, :user_portal_base_url, nil)
+
+        outgoing = %Outgoing{
+          provider: :mattermost,
+          channel_id: "c1",
+          body: "You ran out.",
+          metadata: %{error_type: :budget_exceeded}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == "You ran out."
+      after
+        Application.put_env(:zaq, :user_portal_base_url, original_portal)
+      end
+    end
+
+    test "K: unknown format atom falls back to original body" do
+      original = Application.get_env(:zaq, :channels)
+
+      try do
+        Application.put_env(
+          :zaq,
+          :channels,
+          %{web: %{bridge: Zaq.Channels.WebBridge, message_format: :json}}
+        )
+
+        outgoing = %Outgoing{
+          provider: :web,
+          channel_id: "c1",
+          body: "hello world",
+          metadata: %{}
+        }
+
+        formatted = MessageFormatter.format_outgoing(outgoing)
+
+        assert formatted.body == "hello world"
+      after
+        Application.put_env(:zaq, :channels, original)
+      end
+    end
+
     test "I: invalid Earmark output falls back to the original body" do
       with_mocked_earmark_as_html(fn ->
         original = Application.get_env(:zaq, :channels)

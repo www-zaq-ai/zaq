@@ -187,6 +187,38 @@ defmodule Zaq.Agent.Executor do
         :ok = record_success_telemetry(result, dims)
         Outgoing.from_pipeline_result(incoming, result)
       else
+        {:error, %ReqLLM.Error.API.Stream{} = reason} ->
+          if is_nil(get_in(incoming.metadata, [:status_message_id])) do
+            Logger.error("Configured agent execution failed: #{inspect(reason)}")
+
+            :ok =
+              Telemetry.record(
+                "qa.custom_agent.execution.error",
+                1,
+                Map.put(dims, :error_type, error_type(reason))
+              )
+
+            Outgoing.from_pipeline_result(
+              incoming,
+              error_result(reason, maybe_configured_agent(selected_agent_result))
+            )
+          else
+            # Stream error after tokens were already delivered — the answer is visible.
+            # Suppress the error bubble so we don't overlay a complete streamed response.
+            Logger.warning(
+              "Stream ended with error after content was delivered (suppressing error bubble): #{inspect(reason)}"
+            )
+
+            :ok =
+              Telemetry.record(
+                "qa.custom_agent.execution.error",
+                1,
+                Map.put(dims, :error_type, error_type(reason))
+              )
+
+            Outgoing.from_pipeline_result(incoming, suppressed_stream_error_result(reason))
+          end
+
         {:error, reason} ->
           Logger.error("Configured agent execution failed: #{inspect(reason)}")
 
@@ -197,7 +229,10 @@ defmodule Zaq.Agent.Executor do
               Map.put(dims, :error_type, error_type(reason))
             )
 
-          Outgoing.from_pipeline_result(incoming, error_result(reason))
+          Outgoing.from_pipeline_result(
+            incoming,
+            error_result(reason, maybe_configured_agent(selected_agent_result))
+          )
       end
 
     result
@@ -263,13 +298,28 @@ defmodule Zaq.Agent.Executor do
     }
   end
 
-  defp error_result(reason) do
+  defp suppressed_stream_error_result(_reason) do
+    %{
+      answer: "",
+      confidence_score: nil,
+      latency_ms: nil,
+      prompt_tokens: nil,
+      completion_tokens: nil,
+      total_tokens: nil,
+      error: false,
+      suppressed: true,
+      sources: []
+    }
+  end
+
+  defp error_result(reason, _configured_agent) do
     %{
       answer:
         ErrorMessage.from_reason(
           reason,
           "Sorry, something went wrong while executing the selected agent."
         ),
+      error_type: ErrorMessage.error_type_for(reason),
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,
@@ -280,6 +330,9 @@ defmodule Zaq.Agent.Executor do
       sources: []
     }
   end
+
+  defp maybe_configured_agent({:ok, agent}), do: agent
+  defp maybe_configured_agent(_), do: nil
 
   defp normalize_answer(%{result: result}), do: normalize_answer(result)
   defp normalize_answer(%{answer: answer}) when is_binary(answer), do: answer
@@ -373,9 +426,18 @@ defmodule Zaq.Agent.Executor do
     incoming.metadata
     |> Map.get("telemetry_dimensions", %{})
     |> Enum.reduce(%{}, fn
-      {key, value}, acc when is_binary(key) -> Map.put(acc, String.to_atom(key), value)
-      {key, value}, acc when is_atom(key) -> Map.put(acc, key, value)
-      _, acc -> acc
+      {key, value}, acc when is_binary(key) ->
+        try do
+          Map.put(acc, String.to_existing_atom(key), value)
+        rescue
+          ArgumentError -> acc
+        end
+
+      {key, value}, acc when is_atom(key) ->
+        Map.put(acc, key, value)
+
+      _, acc ->
+        acc
     end)
   end
 

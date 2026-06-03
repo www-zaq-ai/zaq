@@ -47,6 +47,16 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
 
+  defmodule StubFactoryStreamError do
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
+
+    def await(:request, _opts) do
+      {:error, ReqLLM.Error.API.Stream.exception(reason: "stream closed mid-flight", cause: nil)}
+    end
+
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
   test "runs configured agent end-to-end with only AI edge mocked" do
     handler = fn conn, body ->
       payload = Jason.decode!(body)
@@ -401,8 +411,72 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
 
     assert outgoing.metadata.error == true
-    assert outgoing.body =~ "something went wrong"
+    assert outgoing.body =~ "temporarily unavailable"
     assert_receive {:openai_request, "POST", "/v1/responses", "", _body}, 1_000
+  end
+
+  test "suppresses stream error when status_message_id is already set in incoming metadata" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "bo-test",
+      provider: :web,
+      metadata: %{status_message_id: "msg-123"}
+    }
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: StubAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryStreamError
+      )
+
+    assert outgoing.metadata.error == false
+    assert outgoing.metadata[:suppressed] == true
+    assert outgoing.body == ""
+  end
+
+  test "surfaces stream error when no status_message_id is set in incoming metadata" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "bo-test",
+      provider: :web
+    }
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: StubAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryStreamError
+      )
+
+    assert outgoing.metadata.error == true
+    assert outgoing.body =~ "something went wrong"
+  end
+
+  test "telemetry_dimensions silently drops unknown string keys in incoming metadata" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "ch",
+      provider: :web,
+      metadata: %{
+        "telemetry_dimensions" => %{
+          "definitely_not_an_existing_atom_zxqy_#{System.unique_integer()}" => "value",
+          "execution_path" => "custom_agent"
+        }
+      }
+    }
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: StubAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryAnswer
+      )
+
+    assert outgoing.metadata.error == false
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do

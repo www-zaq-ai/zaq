@@ -86,8 +86,7 @@ defmodule Zaq.Agent.Retrieval do
         end
 
       {:error, reason} ->
-        reason = "Failed to process question: #{inspect(reason)}"
-        Logger.error("Retrieval failed: #{reason}")
+        Logger.error("Retrieval failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -122,6 +121,7 @@ defmodule Zaq.Agent.Retrieval do
     value |> String.split() |> List.first() |> then(&(&1 || "eng"))
   end
 
+  # coveralls-ignore-next-line
   defp normalized_text(nil), do: nil
 
   defp normalized_text(text) when is_binary(text),

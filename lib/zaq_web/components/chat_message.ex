@@ -70,17 +70,21 @@ defmodule ZaqWeb.Components.ChatMessage do
   # List of sources — strings (file paths) or maps with "path" and optional "index"
   attr :sources, :list, default: []
   attr :is_error, :boolean, default: false
+  attr :error_type, :atom, default: nil
   attr :source_click_event, :string, default: nil
   attr :source_click_target, :string, default: nil
 
   slot :actions
 
   def assistant_bubble(assigns) do
-    assigns = assign(assigns, :rendered_content, Markdown.render(assigns.content))
+    assigns =
+      assigns
+      |> assign(:rendered_content, assigns.content |> Markdown.render() |> Phoenix.HTML.raw())
+      |> assign_error_parts()
 
     ~H"""
     <div class="flex justify-start animate-slide-in-left group">
-      <div class="flex gap-3 max-w-[82%]">
+      <div class="flex gap-3 max-w-[82%] min-w-0">
         <%!-- ZAQ avatar --%>
         <div class="flex-shrink-0 mt-0.5">
           <img src={~p"/images/zaq.png"} alt="ZAQ" class="w-7 h-7 rounded-lg object-contain" />
@@ -92,16 +96,76 @@ defmodule ZaqWeb.Components.ChatMessage do
             "px-4 py-3 rounded-2xl rounded-bl-none border shadow-sm",
             if(@is_error, do: "bg-red-50 border-red-200", else: "bg-white zaq-card-border-soft")
           ]}>
-            <%!-- Body — markdown is rendered before display and patched immediately. --%>
-            <div
-              id={@msg_id && "msg-body-#{@msg_id}"}
-              class={[
-                "text-[0.85rem] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4",
-                if(@is_error, do: "text-red-600", else: "zaq-text-ink")
-              ]}
-            >
-              {Phoenix.HTML.raw(@rendered_content)}
-            </div>
+            <%!-- Error layout: summary + collapsible code box --%>
+            <%= if @is_error && (@error_detail || @error_type != nil) do %>
+              <p class="text-[0.85rem] leading-relaxed text-red-600 mb-2">{@error_summary}</p>
+              <%= if @error_type == :budget_exceeded do %>
+                <%!-- Budget exceeded: prompt user to top up wallet via portal --%>
+                <div class="mt-1 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p class="text-[0.8rem] text-green-800 mb-3">
+                    Top up your wallet to continue using ZAQ AI Provider.
+                  </p>
+                  <a
+                    href={@portal_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[0.78rem] font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                  >
+                    Top up wallet
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                  </a>
+                </div>
+              <% else %>
+                <div class="relative">
+                  <pre class="font-mono text-[0.72rem] leading-relaxed text-red-700 bg-red-100/60 border border-red-200 rounded-lg px-3 py-2.5 overflow-x-auto whitespace-pre-wrap break-all">{@error_detail}</pre>
+                  <button
+                    type="button"
+                    phx-click="copy_message"
+                    phx-value-text={@error_detail}
+                    class="absolute top-1.5 right-1.5 p-1 rounded bg-red-200/60 hover:bg-red-300/60 text-red-500 transition-colors"
+                    title="Copy error detail"
+                  >
+                    <svg
+                      width="11"
+                      height="11"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
+                </div>
+              <% end %>
+            <% else %>
+              <%!-- Body — markdown is rendered before display and patched immediately. --%>
+              <div
+                id={@msg_id && "msg-body-#{@msg_id}"}
+                class={[
+                  "text-[0.85rem] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4",
+                  if(@is_error, do: "text-red-600", else: "zaq-text-ink")
+                ]}
+              >
+                {@rendered_content}
+              </div>
+            <% end %>
 
             <%!-- Source cards --%>
             <div
@@ -734,6 +798,61 @@ defmodule ZaqWeb.Components.ChatMessage do
     end
   end
 
+  defp assign_error_parts(%{is_error: true, content: content} = assigns) do
+    # Prefer structured error_type from metadata; fall back to body parsing for
+    # messages loaded from DB that predate the structured field.
+    error_type =
+      case assigns[:error_type] do
+        nil -> detect_error_type_from_body(content)
+        type -> type
+      end
+
+    case String.split(content, "\n", parts: 2) do
+      [summary, detail] when detail != "" ->
+        assigns
+        |> assign(:error_summary, summary)
+        |> assign(:error_detail, detail)
+        |> assign(:error_type, error_type)
+        |> assign(
+          :portal_url,
+          if(error_type == :budget_exceeded, do: portal_base_url(), else: nil)
+        )
+
+      _ ->
+        assigns
+        |> assign(:error_summary, content)
+        |> assign(:error_detail, nil)
+        |> assign(:error_type, error_type)
+        |> assign(
+          :portal_url,
+          if(error_type == :budget_exceeded, do: portal_base_url(), else: nil)
+        )
+    end
+  end
+
+  defp assign_error_parts(assigns),
+    do:
+      assigns
+      |> assign(:error_summary, nil)
+      |> assign(:error_detail, nil)
+      |> assign(:error_type, nil)
+      |> assign(:portal_url, nil)
+
+  defp detect_error_type_from_body(content) do
+    case String.split(content, "\n", parts: 2) do
+      [_summary, detail] when detail != "" ->
+        case Jason.decode(detail) do
+          {:ok, %{"type" => "budget_exceeded"}} -> :budget_exceeded
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp portal_base_url, do: Application.get_env(:zaq, :user_portal_base_url, "#")
+
   defp build_body_html(content, []), do: Phoenix.HTML.html_escape(content)
 
   defp build_body_html(content, filters) do
@@ -758,6 +877,6 @@ defmodule ZaqWeb.Components.ChatMessage do
         end
       end)
 
-    Phoenix.HTML.raw(html)
+    {:safe, html}
   end
 end

@@ -187,6 +187,13 @@ defmodule Zaq.AccountsTest do
       assert second_user.username in usernames
       assert Enum.all?(users, fn u -> %Role{} = u.role end)
     end
+
+    test "count_users/0 returns the number of users in the database" do
+      initial = Accounts.count_users()
+      _u1 = user_fixture()
+      _u2 = user_fixture()
+      assert Accounts.count_users() == initial + 2
+    end
   end
 
   describe "change_password/2" do
@@ -264,6 +271,33 @@ defmodule Zaq.AccountsTest do
 
       assert "should be at least 8 character(s)" in errors_on(changeset).new_password
     end
+
+    test "rejects password change when user has no password hash set" do
+      user = user_fixture()
+
+      assert {:error, changeset} =
+               Accounts.change_user_password(user, user, %{
+                 current_password: "anything",
+                 new_password: "NewPass123!",
+                 new_password_confirmation: "NewPass123!"
+               })
+
+      assert "is invalid" in errors_on(changeset).current_password
+    end
+
+    test "preserves non-password field errors in remapped changeset" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "CurrentPass1!"})
+
+      assert {:error, changeset} =
+               Accounts.change_user_password(user, user, %{
+                 current_password: "CurrentPass1!",
+                 new_password: "NewPass123!",
+                 new_password_confirmation: "DifferentPass123!"
+               })
+
+      assert errors_on(changeset).new_password_confirmation != []
+    end
   end
 
   describe "authenticate_user/2" do
@@ -335,7 +369,7 @@ defmodule Zaq.AccountsTest do
     end
   end
 
-  describe "complete_bootstrap_onboarding/2" do
+  describe "complete_bootstrap_onboarding/3" do
     setup do
       Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
         Req.Test.json(conn, %{
@@ -356,10 +390,14 @@ defmodule Zaq.AccountsTest do
       user = Accounts.get_user!(user.id)
 
       assert {:ok, updated} =
-               Accounts.complete_bootstrap_onboarding(user, %{
-                 email: "admin@zaq.local",
-                 password: "StrongPass1!"
-               })
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{
+                   email: "admin@zaq.local",
+                   password: "StrongPass1!"
+                 },
+                 :accepted
+               )
 
       assert updated.email == "admin@zaq.local"
       refute updated.must_change_password
@@ -372,9 +410,13 @@ defmodule Zaq.AccountsTest do
       user = Accounts.get_user!(user.id)
 
       assert {:error, changeset} =
-               Accounts.complete_bootstrap_onboarding(user, %{
-                 password: "StrongPass1!"
-               })
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{
+                   password: "StrongPass1!"
+                 },
+                 :accepted
+               )
 
       assert "can't be blank" in errors_on(changeset).email
     end
@@ -385,10 +427,14 @@ defmodule Zaq.AccountsTest do
       user = Accounts.get_user!(user.id)
 
       assert {:error, changeset} =
-               Accounts.complete_bootstrap_onboarding(user, %{
-                 email: "not-an-email",
-                 password: "StrongPass1!"
-               })
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{
+                   email: "not-an-email",
+                   password: "StrongPass1!"
+                 },
+                 :accepted
+               )
 
       assert "must be a valid email address" in errors_on(changeset).email
     end
@@ -397,9 +443,13 @@ defmodule Zaq.AccountsTest do
       user = user_fixture(%{email: "person@example.com"})
 
       assert {:ok, updated} =
-               Accounts.complete_bootstrap_onboarding(user, %{
-                 password: "StrongPass1!"
-               })
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{
+                   password: "StrongPass1!"
+                 },
+                 :accepted
+               )
 
       assert updated.email == "person@example.com"
       refute updated.must_change_password
@@ -409,7 +459,11 @@ defmodule Zaq.AccountsTest do
       user = user_fixture(%{email: "admin@zaq.local"})
 
       assert {:ok, _updated} =
-               Accounts.complete_bootstrap_onboarding(user, %{password: "StrongPass1!"})
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{password: "StrongPass1!"},
+                 :accepted
+               )
 
       assert %Zaq.System.AIProviderCredential{name: "ZAQ Provider"} =
                Zaq.System.get_ai_provider_credential_by_name("ZAQ Provider")
@@ -423,7 +477,11 @@ defmodule Zaq.AccountsTest do
       user = user_fixture(%{email: "offline@zaq.local"})
 
       assert {:ok, updated} =
-               Accounts.complete_bootstrap_onboarding(user, %{password: "StrongPass1!"})
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{password: "StrongPass1!"},
+                 :accepted
+               )
 
       refute updated.must_change_password
     end
@@ -438,7 +496,60 @@ defmodule Zaq.AccountsTest do
       user = Accounts.get_user!(user.id)
 
       assert {:error, _changeset} =
-               Accounts.complete_bootstrap_onboarding(user, %{password: "StrongPass1!"})
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{password: "StrongPass1!"},
+                 :accepted
+               )
+    end
+
+    test "still succeeds when litellm credential creation fails after portal onboarding" do
+      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: nil,
+        key_id: "v1"
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret) end)
+
+      user = user_fixture(%{email: "admin@zaq.local"})
+
+      assert {:ok, updated_user} =
+               Accounts.complete_bootstrap_onboarding(
+                 user,
+                 %{password: "StrongPass1!"},
+                 :accepted
+               )
+
+      refute updated_user.must_change_password
+    end
+  end
+
+  describe "provision_portal_for_user/1" do
+    test "returns error when litellm credential creation fails" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.json(conn, %{
+          "status" => "ok",
+          "user" => %{
+            "litellm_api_key" => "sk-test-key",
+            "litellm_user_id" => "llm-user-test"
+          }
+        })
+      end)
+
+      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: nil,
+        key_id: "v1"
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret) end)
+
+      user = user_fixture(%{email: "portal@zaq.local"})
+
+      assert {:error, :credential_failed} = Accounts.provision_portal_for_user(user)
     end
   end
 end

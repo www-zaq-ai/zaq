@@ -484,4 +484,164 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     refute hidden_html =~ "data-testid=\"message-info-popin\""
     refute non_binary_id_html =~ "data-testid=\"message-info-popin\""
   end
+
+  # ── Group 1 — assistant_bubble with structured error_type ───────────────────
+
+  describe "assistant_bubble structured error detail block" do
+    setup do
+      original = Application.get_env(:zaq, :user_portal_base_url)
+      Application.put_env(:zaq, :user_portal_base_url, "https://portal.test")
+      on_exit(fn -> Application.put_env(:zaq, :user_portal_base_url, original) end)
+      :ok
+    end
+
+    test "budget_exceeded error renders green top-up box and portal URL" do
+      html =
+        render_component(&ChatMessage.assistant_bubble/1,
+          content: "Budget exceeded\n{\"type\":\"budget_exceeded\"}",
+          timestamp: ~N[2026-04-15 09:40:00],
+          is_error: true,
+          error_type: :budget_exceeded,
+          sources: []
+        )
+
+      assert html =~ "text-red-600 mb-2"
+      assert html =~ "bg-green-50"
+      assert html =~ "https://portal.test"
+      assert html =~ "Top up wallet"
+      refute html =~ "font-mono text-["
+    end
+
+    test "generic error with multi-line content renders pre code box and copy button" do
+      html =
+        render_component(&ChatMessage.assistant_bubble/1,
+          content: "Something failed\nStack trace detail here",
+          timestamp: ~N[2026-04-15 09:41:00],
+          is_error: true,
+          sources: []
+        )
+
+      assert html =~ "text-red-600 mb-2"
+      assert html =~ "font-mono"
+      assert html =~ "Stack trace detail here"
+      assert html =~ ~s(phx-click="copy_message")
+      assert html =~ ~s(phx-value-text="Stack trace detail here")
+      refute html =~ "bg-green-50"
+    end
+  end
+
+  # ── Group 2 — tool_calls_popin with empty expanded_ids (collapsed default) ───
+
+  test "tool_calls_popin with empty expanded_ids renders row collapsed" do
+    html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: "msg-x",
+        tool_calls: [%{"tool_call_id" => "c1", "tool_name" => "search"}],
+        expanded_ids: MapSet.new(),
+        close_event: "close",
+        toggle_event: "toggle"
+      )
+
+    assert html =~ "data-testid=\"tool-calls-popin\""
+    assert html =~ "data-testid=\"tool-call-row-c1\""
+    refute html =~ "tool-call-details"
+  end
+
+  # ── Group 3 — format_detail_value/1 with nil and integer timestamps ─────────
+
+  test "tool_calls_popin expanded shows n/a for nil timestamp and inspect for integer" do
+    nil_html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: "msg-nil-ts",
+        tool_calls: [
+          %{
+            "tool_call_id" => "c-nil",
+            "tool_name" => "search",
+            "timestamp" => nil,
+            "params" => nil,
+            "response" => nil,
+            "response_time_ms" => 10
+          }
+        ],
+        expanded_ids: MapSet.new(["c-nil"]),
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+
+    assert nil_html =~ "Timestamp:</span>\n              n/a"
+
+    int_html =
+      render_component(&ChatMessage.tool_calls_popin/1,
+        visible: true,
+        message_id: "msg-int-ts",
+        tool_calls: [
+          %{
+            "tool_call_id" => "c-int",
+            "tool_name" => "search",
+            "timestamp" => 12_345,
+            "params" => nil,
+            "response" => nil,
+            "response_time_ms" => 10
+          }
+        ],
+        expanded_ids: MapSet.new(["c-int"]),
+        close_event: "close_tool_calls_modal",
+        toggle_event: "toggle_tool_call_details"
+      )
+
+    assert int_html =~ "12345"
+  end
+
+  # ── Group 4 — detect_error_type_from_body/1 and portal_base_url/0 ───────────
+
+  describe "assistant_bubble body-driven error type detection" do
+    setup do
+      original = Application.get_env(:zaq, :user_portal_base_url)
+      Application.put_env(:zaq, :user_portal_base_url, "https://portal.test")
+      on_exit(fn -> Application.put_env(:zaq, :user_portal_base_url, original) end)
+      :ok
+    end
+
+    test "detects budget_exceeded from JSON body and renders top-up box" do
+      html =
+        render_component(&ChatMessage.assistant_bubble/1,
+          content: "Budget exceeded\n{\"type\":\"budget_exceeded\"}",
+          timestamp: ~N[2026-04-15 09:42:00],
+          is_error: true,
+          sources: []
+        )
+
+      assert html =~ "bg-green-50"
+      assert html =~ "https://portal.test"
+    end
+
+    test "returns nil for non-budget JSON body and shows code box instead" do
+      html =
+        render_component(&ChatMessage.assistant_bubble/1,
+          content: "Some error\n{\"type\":\"other_error\"}",
+          timestamp: ~N[2026-04-15 09:43:00],
+          is_error: true,
+          sources: []
+        )
+
+      assert html =~ "font-mono"
+      refute html =~ "bg-green-50"
+    end
+
+    test "structured error_type takes precedence over body parsing" do
+      html =
+        render_component(&ChatMessage.assistant_bubble/1,
+          content: "Budget error\nsome plain detail",
+          timestamp: ~N[2026-04-15 09:44:00],
+          is_error: true,
+          error_type: :budget_exceeded,
+          sources: []
+        )
+
+      assert html =~ "bg-green-50"
+      assert html =~ "https://portal.test"
+    end
+  end
 end

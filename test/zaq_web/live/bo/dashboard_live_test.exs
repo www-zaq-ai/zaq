@@ -196,6 +196,30 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       assert html =~ "Free credits activated"
       assert Accounts.get_user!(user.id).email == "claimed@example.com"
     end
+
+    test "closes the portal consent modal when close event is fired", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      render_click(view, "show_portal_consent", %{})
+      assert has_element?(view, "#portal-consent-email")
+
+      render_click(view, "close_portal_consent_modal", %{})
+      refute has_element?(view, "#portal-consent-email")
+    end
+
+    test "shows network error when portal HTTP call fails", %{conn: conn} do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.transport_error(conn, :econnrefused)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_click(view, "show_portal_consent", %{})
+      render_change(view, "portal_consent_email_change", %{"email" => "retry@example.com"})
+
+      html = render_click(view, "accept_portal_consent", %{})
+
+      assert html =~ "Could not reach the ZAQ portal"
+    end
   end
 
   describe "node events via PubSub" do

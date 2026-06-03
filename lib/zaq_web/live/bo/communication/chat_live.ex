@@ -531,6 +531,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       confidence: Map.get(result.metadata, :confidence_score),
       timestamp: DateTime.utc_now(),
       error: result.metadata[:error] || false,
+      error_type: result.metadata[:error_type],
       feedback: nil,
       sources: normalized_sources,
       message_info: MessageHelpers.message_info_from_runtime(result.metadata),

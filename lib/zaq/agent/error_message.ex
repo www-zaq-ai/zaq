@@ -7,7 +7,7 @@ defmodule Zaq.Agent.ErrorMessage do
   """
 
   @default_message "Something went wrong while answering your question. Please try again."
-  @guard_message "I can’t help with that request, but I’m here to help with other questions you might have."
+  @guard_message "I can't help with that request, but I'm here to help with other questions you might have."
 
   @spec from_reason(term(), String.t() | nil) :: String.t()
   def from_reason(reason, fallback \\ nil)
@@ -27,18 +27,83 @@ defmodule Zaq.Agent.ErrorMessage do
   def from_reason(:provider_not_supported, _fallback),
     do: "The selected AI provider is not supported. Please check your agent configuration."
 
-  # Surface the provider's error message (e.g. LiteLLM budget exceeded with a custom message).
-  def from_reason(%ReqLLM.Error.API.Request{reason: reason}, _fallback)
-      when is_binary(reason) and reason != "",
-      do: reason
+  def from_reason(
+        %ReqLLM.Error.API.Request{response_body: %{"error" => %{"type" => "budget_exceeded"}}},
+        _fallback
+      ),
+      do: "Your AI credits have run out."
 
-  def from_reason(%ReqLLM.Error.API.Response{reason: reason}, _fallback)
-      when is_binary(reason) and reason != "",
-      do: reason
+  def from_reason(
+        %ReqLLM.Error.API.Request{response_body: %{"type" => "budget_exceeded"}},
+        _fallback
+      ),
+      do: "Your AI credits have run out."
+
+  def from_reason(%ReqLLM.Error.API.Request{} = err, _fallback),
+    do: provider_error_message(err.status, build_detail(err.reason, err.response_body))
+
+  def from_reason(%ReqLLM.Error.API.Response{} = err, _fallback),
+    do: provider_error_message(err.status, build_detail(err.reason, err.response_body))
+
+  # Stream errors wrap an inner Request error as `cause` — unwrap and delegate.
+  def from_reason(%ReqLLM.Error.API.Stream{cause: %ReqLLM.Error.API.Request{} = inner}, fallback),
+    do: from_reason(inner, fallback)
+
+  # Jido wraps agent failures as {:failed, :error, reason} — unwrap and delegate.
+  def from_reason({:failed, :error, inner}, fallback),
+    do: from_reason(inner, fallback)
 
   def from_reason(_reason, fallback) when is_binary(fallback) and fallback != "",
     do: fallback
 
   def from_reason(_reason, _fallback),
     do: @default_message
+
+  @doc """
+  Returns the structured error type atom for a reason, or `nil` if not a known type.
+
+  Used by pipeline/executor to set `error_type` in the result map so all channels
+  can render budget exceeded (and future typed errors) in their own way.
+  """
+  @spec error_type_for(term()) :: :budget_exceeded | nil
+  def error_type_for(%ReqLLM.Error.API.Request{
+        response_body: %{"error" => %{"type" => "budget_exceeded"}}
+      }),
+      do: :budget_exceeded
+
+  def error_type_for(%ReqLLM.Error.API.Request{response_body: %{"type" => "budget_exceeded"}}),
+    do: :budget_exceeded
+
+  def error_type_for(%ReqLLM.Error.API.Stream{cause: inner}), do: error_type_for(inner)
+  def error_type_for({:failed, :error, inner}), do: error_type_for(inner)
+  def error_type_for(_), do: nil
+
+  defp provider_error_message(status, detail) do
+    summary =
+      cond do
+        is_integer(status) and status >= 500 -> "The AI service is temporarily unavailable."
+        is_integer(status) and status >= 400 -> "The AI provider rejected the request."
+        true -> "There was an error communicating with the AI provider."
+      end
+
+    if detail && detail != "", do: "#{summary}\n#{detail}", else: summary
+  end
+
+  # Build a human-useful detail string from the provider response.
+  # Shows the full response body as JSON when available; falls back to the reason string.
+  defp build_detail(reason, response_body) do
+    cond do
+      is_map(response_body) and map_size(response_body) > 0 ->
+        case Jason.encode(response_body, pretty: true) do
+          {:ok, json} -> json
+          _ -> inspect(response_body, pretty: true)
+        end
+
+      is_binary(reason) and reason != "" ->
+        reason
+
+      true ->
+        nil
+    end
+  end
 end
