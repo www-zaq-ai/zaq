@@ -5,66 +5,10 @@
   current_path={@current_path}
   features_version={@features_version}
 >
-  <!-- Portal consent retry banner (only when portal is reachable) -->
-  <div
-    :if={@show_portal_banner}
-    class="mb-6 flex items-center justify-between gap-4 rounded-xl border border-cyan-200 bg-cyan-50 px-5 py-4"
-  >
-    <div class="flex items-center gap-3 min-w-0">
-      <svg
-        class="w-5 h-5 text-cyan-600 shrink-0"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        viewBox="0 0 24 24"
-      >
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      </svg>
-      <p class="font-mono text-[0.78rem] text-slate-600 truncate">
-        {@portal_metadata["metadata"]["banner_text"]}
-      </p>
-    </div>
-    <button
-      phx-click="show_portal_consent"
-      class="shrink-0 rounded-lg bg-cyan-600 px-4 py-1.5 font-mono text-[0.75rem] font-semibold text-white hover:bg-cyan-700 transition-colors"
-    >
-      Activate
-    </button>
-  </div>
-  
-<!-- Offline notice (airgapped / portal unreachable) -->
-  <div
-    :if={not @portal_reachable}
-    class="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4"
-  >
-    <svg
-      class="w-4 h-4 text-slate-400 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M18.364 5.636a9 9 0 1 1-12.728 0" /><path d="M12 2v7" />
-    </svg>
-    <p class="font-mono text-[0.75rem] text-slate-500">
-      ZAQ portal is not reachable in this environment — portal features are unavailable.
-    </p>
-  </div>
-
-  <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
-    :if={@portal_reachable}
-    show={@show_portal_consent_modal}
-    on_decline="close_portal_consent_modal"
-    title={@portal_metadata["metadata"]["title"]}
-    body={@portal_metadata["metadata"]["body"]}
-    accept_label={@portal_metadata["metadata"]["accept_label"]}
-    decline_label={@portal_metadata["metadata"]["decline_label"]}
-    subtitle={@portal_metadata["metadata"]["subtitle"]}
-    footnote={@portal_metadata["metadata"]["footnote"]}
-    require_email={@require_portal_email}
-    email={@portal_consent_email}
-    on_email_change="portal_consent_email_change"
-    error={@portal_provision_error}
+  <.live_component
+    module={ZaqWeb.Live.BO.PortalConsentLive}
+    id="portal-consent"
+    current_user={@current_user}
   />
 
   <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

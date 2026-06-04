@@ -9,7 +9,6 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   alias Zaq.Accounts
   alias Zaq.Accounts.User
   alias Zaq.Addons.FeatureStore
-  alias Zaq.License.FeatureStore
   alias Zaq.Repo
 
   setup %{conn: conn} do
@@ -140,10 +139,11 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       # Override the no-email setup with an account that has an email on file.
       user = user_fixture(%{username: "hasemail", email: "has@example.com"})
       {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+      set_portal_consent(user, "declined")
       conn = conn |> init_test_session(%{user_id: user.id})
 
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_click(view, "show_portal_consent", %{})
+      open_portal_consent(view)
 
       refute has_element?(view, "#portal-consent-email")
       refute has_element?(view, "button[disabled]", "Accept")
@@ -152,7 +152,7 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
     test "renders email input and disables accept when user has no email", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
-      html = render_click(view, "show_portal_consent", %{})
+      html = open_portal_consent(view)
 
       assert html =~ "enter it to continue"
       assert has_element?(view, "#portal-consent-email")
@@ -161,19 +161,19 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
 
     test "enables accept once a non-blank email is entered", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_click(view, "show_portal_consent", %{})
+      open_portal_consent(view)
 
-      render_change(view, "portal_consent_email_change", %{"email" => "new@example.com"})
+      change_portal_email(view, "new@example.com")
 
       refute has_element?(view, "button[disabled]", "Accept")
     end
 
     test "shows a validation error when the entered email is invalid", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_click(view, "show_portal_consent", %{})
-      render_change(view, "portal_consent_email_change", %{"email" => "not-an-email"})
+      open_portal_consent(view)
+      change_portal_email(view, "not-an-email")
 
-      html = render_click(view, "accept_portal_consent", %{})
+      html = accept_portal_consent(view)
 
       assert html =~ "Email must be a valid email address."
     end
@@ -199,10 +199,10 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_click(view, "show_portal_consent", %{})
-      render_change(view, "portal_consent_email_change", %{"email" => "claimed@example.com"})
+      open_portal_consent(view)
+      change_portal_email(view, "claimed@example.com")
 
-      html = render_click(view, "accept_portal_consent", %{})
+      html = accept_portal_consent(view)
 
       assert html =~ "Free credits activated"
       assert Accounts.get_user!(user.id).email == "claimed@example.com"
@@ -230,12 +230,13 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
 
       user = user_fixture(%{username: "portalready", email: "ready@example.com"})
       {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+      set_portal_consent(user, "declined")
       conn = conn |> init_test_session(%{user_id: user.id})
 
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_click(view, "show_portal_consent", %{})
+      open_portal_consent(view)
 
-      html = render_click(view, "accept_portal_consent", %{})
+      html = accept_portal_consent(view)
 
       assert html =~ "Free credits activated"
       assert Accounts.get_user!(user.id).email == "ready@example.com"
@@ -244,10 +245,10 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
     test "closes the portal consent modal when close event is fired", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
-      render_click(view, "show_portal_consent", %{})
+      open_portal_consent(view)
       assert has_element?(view, "#portal-consent-email")
 
-      render_click(view, "close_portal_consent_modal", %{})
+      close_portal_consent(view)
       refute has_element?(view, "#portal-consent-email")
     end
 
@@ -266,10 +267,10 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_click(view, "show_portal_consent", %{})
-      render_change(view, "portal_consent_email_change", %{"email" => "retry@example.com"})
+      open_portal_consent(view)
+      change_portal_email(view, "retry@example.com")
 
-      html = render_click(view, "accept_portal_consent", %{})
+      html = accept_portal_consent(view)
 
       assert html =~ "Could not reach the ZAQ portal"
     end
@@ -387,6 +388,36 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {key, value} ->
         Application.put_env(:zaq, key, value)
     end)
+  end
+
+  defp open_portal_consent(view) do
+    view
+    |> element("#portal-consent button", "Activate")
+    |> render_click()
+  end
+
+  defp change_portal_email(view, email) do
+    view
+    |> element("form[phx-change='portal_consent_email_change']")
+    |> render_change(%{"email" => email})
+  end
+
+  defp accept_portal_consent(view) do
+    view
+    |> element("button[phx-click='accept_portal_consent']")
+    |> render_click()
+
+    render(view)
+  end
+
+  defp close_portal_consent(view) do
+    view
+    |> element("button[phx-click='close_portal_consent_modal']")
+    |> render_click()
+  end
+
+  defp set_portal_consent(user, consent) do
+    Repo.update_all(from(u in User, where: u.id == ^user.id), set: [portal_consent: consent])
   end
 end
 

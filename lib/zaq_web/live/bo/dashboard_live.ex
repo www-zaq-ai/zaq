@@ -3,12 +3,10 @@
 defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.Accounts
   alias Zaq.Addons.FeatureStore
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.NodeRouter
-  alias Zaq.UserPortal.Client, as: PortalClient
 
   @kpi_range "30d"
 
@@ -39,26 +37,13 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
           end
       end
 
-    user_email = socket.assigns.current_user.email
-    {portal_reachable, portal_metadata} = load_portal_onboarding()
-
-    show_portal_banner =
-      portal_reachable and socket.assigns.current_user.portal_consent == "declined"
-
     {:ok,
      assign(socket,
        current_path: "/bo/dashboard",
        addon_data: addon_data,
        days_left: days_left,
        services: refresh_services(),
-       metric_cards: telemetry_metrics,
-       show_portal_banner: show_portal_banner,
-       show_portal_consent_modal: false,
-       portal_provision_error: nil,
-       require_portal_email: blank?(user_email),
-       portal_consent_email: user_email || "",
-       portal_reachable: portal_reachable,
-       portal_metadata: portal_metadata
+       metric_cards: telemetry_metrics
      )}
   end
 
@@ -73,83 +58,17 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   def handle_info(:addons_updated, socket), do: {:noreply, socket}
 
   # -- Portal consent retry --
-
   @impl true
-  def handle_event("show_portal_consent", _params, socket) do
-    {:noreply, assign(socket, show_portal_consent_modal: true, portal_provision_error: nil)}
+  def handle_info({:portal_flash, level, message}, socket) do
+    {:noreply, put_flash(socket, level, message)}
   end
 
   @impl true
-  def handle_event("close_portal_consent_modal", _params, socket) do
-    {:noreply, assign(socket, show_portal_consent_modal: false, portal_provision_error: nil)}
-  end
-
-  @impl true
-  def handle_event("portal_consent_email_change", %{"email" => email}, socket) do
-    {:noreply, assign(socket, portal_consent_email: email, portal_provision_error: nil)}
-  end
-
-  @impl true
-  def handle_event("accept_portal_consent", _params, socket) do
-    with {:ok, user} <-
-           maybe_set_portal_email(
-             socket.assigns.current_user,
-             socket.assigns.portal_consent_email
-           ),
-         {:ok, updated_user} <- Accounts.provision_portal_for_user(user) do
-      {:noreply,
-       socket
-       |> assign(:current_user, updated_user)
-       |> assign(:show_portal_banner, false)
-       |> assign(:show_portal_consent_modal, false)
-       |> assign(:require_portal_email, false)
-       |> assign(:portal_consent_email, updated_user.email)
-       |> assign(:portal_provision_error, nil)
-       |> put_flash(:info, socket.assigns.portal_metadata["message"])}
-    else
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply,
-         assign(socket,
-           portal_provision_error: email_error_message(changeset),
-           show_portal_consent_modal: true
-         )}
-
-      {:error, _reason} ->
-        {:noreply,
-         assign(socket,
-           portal_provision_error: "Could not reach the ZAQ portal. Please try again later.",
-           show_portal_consent_modal: true
-         )}
-    end
+  def handle_info({:portal_user_updated, user}, socket) do
+    {:noreply, assign(socket, :current_user, user)}
   end
 
   # -- Private --
-
-  # Older accounts may not have an email on file. Persist the one entered in the
-  # consent modal before provisioning; accounts that already have an email skip this.
-  defp maybe_set_portal_email(user, entered_email) do
-    if blank?(user.email) do
-      Accounts.update_user(user, %{"email" => String.trim(entered_email || "")})
-    else
-      {:ok, user}
-    end
-  end
-
-  defp email_error_message(changeset) do
-    case changeset.errors[:email] do
-      {message, _opts} -> "Email #{message}."
-      _ -> "Please enter a valid email address."
-    end
-  end
-
-  defp load_portal_onboarding do
-    case PortalClient.fetch_onboarding("free") do
-      {:ok, metadata} -> {true, metadata}
-      :unavailable -> {false, nil}
-    end
-  end
-
-  defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
 
   defp refresh_services do
     service_defs = [

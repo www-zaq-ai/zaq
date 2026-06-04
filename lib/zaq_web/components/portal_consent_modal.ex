@@ -44,13 +44,14 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :require_email, :boolean, default: false
   attr :email, :string, default: nil
   attr :on_email_change, :string, default: "portal_consent_email_change"
+  attr :target, :any, default: nil
 
   def portal_consent_modal(assigns) do
     assigns =
       assign(
         assigns,
         :accept_disabled,
-        assigns.require_email and not email_present?(assigns.email)
+        assigns.require_email and not email_entered?(assigns.email)
       )
 
     ~H"""
@@ -124,7 +125,12 @@ defmodule ZaqWeb.Components.PortalConsentModal do
           </li>
         </ul>
 
-        <form :if={@require_email} phx-change={@on_email_change} class="mb-5">
+        <form
+          :if={@require_email}
+          phx-change={@on_email_change}
+          phx-target={@target}
+          class="mb-5"
+        >
           <label
             for="portal-consent-email"
             class="block font-mono text-[0.72rem] text-[#4a5a7a] tracking-wide mb-2"
@@ -166,6 +172,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
         <div class="flex flex-col gap-3">
           <button
             phx-click={@on_accept}
+            phx-target={@target}
             disabled={@accept_disabled}
             class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0"
             style="background: linear-gradient(135deg, #22d3ee, #34d399); color: #060a12;"
@@ -174,6 +181,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
           </button>
           <button
             phx-click={@on_decline}
+            phx-target={@target}
             class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide font-mono border border-[#1b2538] text-[#6f7f9f] bg-transparent hover:border-[#2a3a55] hover:text-[#8b9cc0] transition-all"
           >
             {@decline_label}
@@ -184,6 +192,5 @@ defmodule ZaqWeb.Components.PortalConsentModal do
     """
   end
 
-  defp email_present?(email),
-    do: is_binary(email) and Regex.match?(~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, String.trim(email))
+  defp email_entered?(email), do: is_binary(email) and String.trim(email) != ""
 end

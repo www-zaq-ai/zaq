@@ -9,6 +9,7 @@ defmodule Zaq.Accounts do
   alias Zaq.Accounts.{Role, User}
   alias Zaq.Repo
   alias Zaq.UserPortal.Client, as: UserPortalClient
+  alias Zaq.UserPortal.Provisioner
 
   # Roles
 
@@ -135,7 +136,7 @@ defmodule Zaq.Accounts do
         if portal_consent == :accepted do
           attempt_portal_provisioning(consented_user)
         else
-          Zaq.System.provision_zaq_provider_credential()
+          Provisioner.provision_without_key()
         end
 
         {:ok, consented_user}
@@ -157,7 +158,7 @@ defmodule Zaq.Accounts do
 
     case UserPortalClient.onboard_user(user.email) do
       {:ok, litellm} ->
-        case Zaq.System.provision_litellm_credential(litellm) do
+        case Provisioner.provision_with_key(litellm) do
           {:ok, _} ->
             {:ok, updated_user} =
               User.portal_consent_changeset(user, "accepted") |> Repo.update()
@@ -180,7 +181,7 @@ defmodule Zaq.Accounts do
 
     case UserPortalClient.onboard_user(user.email) do
       {:ok, litellm} ->
-        case Zaq.System.provision_litellm_credential(litellm) do
+        case Provisioner.provision_with_key(litellm) do
           {:ok, _} ->
             :ok
 

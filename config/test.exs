@@ -43,7 +43,11 @@ config :zaq, :user_portal_base_url, "http://user-portal.test"
 
 config :zaq, :litellm_base_url, "http://litellm.test"
 
-config :zaq, Zaq.UserPortal.Client, req_options: [plug: {Req.Test, Zaq.UserPortal.Client}]
+if e2e? do
+  config :zaq, Zaq.UserPortal.Client, req_options: [receive_timeout: 500, retry: false]
+else
+  config :zaq, Zaq.UserPortal.Client, req_options: [plug: {Req.Test, Zaq.UserPortal.Client}]
+end
 
 # --MOX--
 config :zaq,

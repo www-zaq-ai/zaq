@@ -6,6 +6,8 @@ defmodule Zaq.System.AIProviderCredential do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "ai_provider_credentials" do
     field :name, :string
     field :provider, :string
