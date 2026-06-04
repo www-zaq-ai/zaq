@@ -33,7 +33,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-config"})
 
       assert System.get_llm_config().credential_id == credential.id
-      assert System.get_llm_config().model == "owl-alpha"
+      assert System.get_llm_config().model == "openai/gpt-oss-120b"
 
       assert System.get_embedding_config().credential_id == credential.id
       assert System.get_embedding_config().model == "nvidia/llama-nemotron-embed-vl-1b-v2"

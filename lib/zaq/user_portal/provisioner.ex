@@ -120,7 +120,7 @@ defmodule Zaq.UserPortal.Provisioner do
   defp provision_system_configs(%AIProviderCredential{id: cred_id}) do
     if is_nil(System.get_llm_config().credential_id) do
       %LLMConfig{}
-      |> LLMConfig.changeset(%{credential_id: cred_id, model: "owl-alpha"})
+      |> LLMConfig.changeset(%{credential_id: cred_id, model: "openai/gpt-oss-120b"})
       |> System.save_llm_config()
     end
 
