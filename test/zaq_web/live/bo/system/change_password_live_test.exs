@@ -107,12 +107,15 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
-    view
-    |> form("#change-password-form", %{
-      "password" => "StrongPass1!",
-      "password_confirmation" => "StrongPass1!"
-    })
-    |> render_submit()
+    html =
+      view
+      |> form("#change-password-form", %{
+        "password" => "StrongPass1!",
+        "password_confirmation" => "StrongPass1!"
+      })
+      |> render_submit()
+
+    assert html =~ "To create your ZAQ account..."
 
     render_click(view, "decline_portal_consent")
     assert_redirect(view, ~p"/bo/dashboard")

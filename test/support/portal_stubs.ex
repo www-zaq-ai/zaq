@@ -3,8 +3,8 @@ defmodule Zaq.PortalStubs do
   Req.Test stubs for Zaq.UserPortal.Client.
 
   Call `stub_portal_reachable/0` in a setup block for any test that mounts
-  DashboardLive or ChangePasswordLive, which call PortalClient.fetch_onboarding/1
-  at mount time.
+  DashboardLive or ChangePasswordLive, which render portal metadata through the
+  consent modal.
   """
 
   @valid_onboarding_response %{

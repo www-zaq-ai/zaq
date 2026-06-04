@@ -8,7 +8,6 @@ defmodule Zaq.Accounts do
   import Ecto.Query
   alias Zaq.Accounts.{Role, User}
   alias Zaq.Repo
-  alias Zaq.UserPortal.Client, as: UserPortalClient
   alias Zaq.UserPortal.Provisioner
 
   # Roles
@@ -134,7 +133,7 @@ defmodule Zaq.Accounts do
           |> Repo.update()
 
         if portal_consent == :accepted do
-          attempt_portal_provisioning(consented_user)
+          Provisioner.attempt_provision_for_user(consented_user.email)
         else
           Provisioner.provision_without_key()
         end
@@ -143,54 +142,6 @@ defmodule Zaq.Accounts do
 
       {:error, %Ecto.Changeset{}} = error ->
         error
-    end
-  end
-
-  @doc """
-  Provisions the ZAQ user portal account for an already-onboarded user.
-
-  Used from the dashboard when the admin previously declined during bootstrap.
-  On success, updates `portal_consent` to `"accepted"` and provisions the
-  LiteLLM credential. Returns `{:ok, user}` or `{:error, reason}`.
-  """
-  def provision_portal_for_user(user) do
-    require Logger
-
-    case UserPortalClient.onboard_user(user.email) do
-      {:ok, litellm} ->
-        case Provisioner.provision_with_key(litellm) do
-          {:ok, _} ->
-            {:ok, updated_user} =
-              User.portal_consent_changeset(user, "accepted") |> Repo.update()
-
-            {:ok, updated_user}
-
-          {:error, reason} ->
-            Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
-            {:error, :credential_failed}
-        end
-
-      {:error, reason} ->
-        Logger.warning("User portal provisioning failed: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp attempt_portal_provisioning(user) do
-    require Logger
-
-    case UserPortalClient.onboard_user(user.email) do
-      {:ok, litellm} ->
-        case Provisioner.provision_with_key(litellm) do
-          {:ok, _} ->
-            :ok
-
-          {:error, reason} ->
-            Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
-        end
-
-      {:error, reason} ->
-        Logger.warning("User portal onboarding failed: #{inspect(reason)}")
     end
   end
 

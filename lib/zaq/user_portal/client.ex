@@ -20,19 +20,13 @@ defmodule Zaq.UserPortal.Client do
   require Logger
 
   @doc """
-  Checks portal liveness then fetches onboarding metadata.
+  Fetches onboarding metadata for the given slug.
 
-  Returns `{:ok, metadata}` only when the portal is reachable AND
-  `/onboarding/free` returns a valid payload. Any failure — connection
-  refused, timeout, non-200, or unexpected body — returns `:unavailable`.
+  Returns `{:ok, metadata}` on success. Any failure — connection refused,
+  timeout, non-200, or unexpected body — returns `:unavailable`.
   """
   @spec fetch_onboarding(String.t()) :: {:ok, map()} | :unavailable
-  def fetch_onboarding(slug) do
-    case check_liveness() do
-      :reachable -> fetch_onboarding_metadata(slug)
-      :unreachable -> :unavailable
-    end
-  end
+  def fetch_onboarding(slug), do: fetch_onboarding_metadata(slug)
 
   @spec onboard_user(String.t()) ::
           {:ok, %{litellm_api_key: String.t()}} | {:error, term()}
@@ -59,19 +53,6 @@ defmodule Zaq.UserPortal.Client do
       {:error, reason} ->
         Logger.warning("User portal onboarding HTTP error: #{inspect(reason)}")
         {:error, reason}
-    end
-  end
-
-  defp check_liveness do
-    base_url = Application.fetch_env!(:zaq, :user_portal_base_url)
-
-    req_opts =
-      [url: base_url <> "/health/liveliness", receive_timeout: 3_000, retry: false]
-      |> Keyword.merge(req_options())
-
-    case Req.get(req_opts) do
-      {:ok, %{status: 200}} -> :reachable
-      _ -> :unreachable
     end
   end
 
