@@ -121,7 +121,6 @@ defmodule Zaq.Agent.Retrieval do
     value |> String.split() |> List.first() |> then(&(&1 || "eng"))
   end
 
-  # coveralls-ignore-next-line
   defp normalized_text(nil), do: nil
 
   defp normalized_text(text) when is_binary(text),

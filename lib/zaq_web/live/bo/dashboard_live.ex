@@ -132,7 +132,6 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   defp email_error_message(changeset) do
     case changeset.errors[:email] do
       {message, _opts} -> "Email #{message}."
-      # coveralls-ignore-next-line
       _ -> "Please enter a valid email address."
     end
   end
@@ -196,12 +195,10 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
       %{metric_cards_chart: %{summary: %{metrics: metrics}}} when is_list(metrics) ->
         metrics
 
-      # coveralls-ignore-next-line
       _ ->
         default_telemetry_metric_cards()
     end
   rescue
-    # coveralls-ignore-next-line
     _ -> default_telemetry_metric_cards()
   end
 
@@ -250,7 +247,6 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     }
     |> DashboardChart.new()
     |> Map.get(:summary, %{})
-    # coveralls-ignore-next-line
     |> Map.get(:metrics, [])
   end
 end
