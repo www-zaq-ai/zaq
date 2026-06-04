@@ -21,26 +21,26 @@ defmodule Zaq.Agent.ZAQProvider do
     "openai/gpt-oss-120b" => %{
       capabilities: %{chat: true, tools: %{enabled: true}}
     },
-    "owl-alpha" => %{
-      capabilities: %{chat: true, tools: %{enabled: true}}
-    },
+    # "owl-alpha" => %{
+    #   capabilities: %{chat: true, tools: %{enabled: true}}
+    # },
     # Vision models (appear in image-to-text config)
-    "gemma-4-26b-a4b-it" => %{
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-      modalities: @vision_modalities
-    },
+    # "gemma-4-26b-a4b-it" => %{
+    #   capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
+    #   modalities: @vision_modalities
+    # },
     "google/gemma-4-31b-it" => %{
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
       modalities: @vision_modalities
     },
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" => %{
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-      modalities: %{input: [:image, :text, :video, :audio], output: [:text]}
-    },
-    "nvidia/nemotron-nano-12b-v2-vl" => %{
-      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-      modalities: @vision_modalities
-    },
+    # "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" => %{
+    #   capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
+    #   modalities: %{input: [:image, :text, :video, :audio], output: [:text]}
+    # },
+    # "nvidia/nemotron-nano-12b-v2-vl" => %{
+    #   capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
+    #   modalities: @vision_modalities
+    # },
     # Embedding model
     "nvidia/llama-nemotron-embed-vl-1b-v2" => %{
       capabilities: %{
