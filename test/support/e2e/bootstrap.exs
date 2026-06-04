@@ -1,5 +1,13 @@
 :logger.add_handler(:e2e_collector, Zaq.E2E.LogHandler, %{})
 
+# Remove the Req.Test plug so portal HTTP calls hit the real network
+# (and fail immediately with connection refused → portal treated as unavailable).
+# Req.Test stubs are process-scoped and cannot be inherited by LiveView processes
+# spawned by the web server.
+Application.put_env(:zaq, Zaq.UserPortal.Client,
+  req_options: [receive_timeout: 500, retry: false]
+)
+
 alias Zaq.Accounts
 alias Zaq.Agent.PromptTemplate
 alias Zaq.Engine.Conversations
