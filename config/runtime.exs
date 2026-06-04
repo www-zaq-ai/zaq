@@ -22,9 +22,19 @@ end
 
 config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-config :zaq,
-  user_portal_base_url: System.get_env("USER_PORTAL_BASE_URL", "https://portal.zaq.ai"),
-  litellm_base_url: System.get_env("LITELLM_BASE_URL", "https://llm.zaq.ai")
+if config_env() == :prod do
+  config :zaq,
+    user_portal_base_url: System.get_env("USER_PORTAL_BASE_URL", "https://portal.zaq.ai"),
+    litellm_base_url: System.get_env("LITELLM_BASE_URL", "https://llm.zaq.ai")
+else
+  if url = System.get_env("USER_PORTAL_BASE_URL") do
+    config :zaq, user_portal_base_url: url
+  end
+
+  if url = System.get_env("LITELLM_BASE_URL") do
+    config :zaq, litellm_base_url: url
+  end
+end
 
 if config_env() == :prod do
   # SMTP password encryption (used by BO System Configuration page)

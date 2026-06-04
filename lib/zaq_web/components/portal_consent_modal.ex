@@ -34,6 +34,9 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :show, :boolean, required: true
   attr :on_accept, :string, default: "accept_portal_consent"
   attr :on_decline, :string, required: true
+  attr :title, :string, default: "Activate your free credits"
+  attr :body, :string, default: nil
+  attr :accept_label, :string, default: "Accept & activate free credits"
   attr :decline_label, :string, default: "Decline — continue without free credits"
   attr :subtitle, :string, default: "Optional · You can skip this"
   attr :footnote, :string, default: nil
@@ -83,7 +86,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
           </div>
           <div>
             <h2 class="font-mono text-base font-bold text-white tracking-tight">
-              Activate your free credits
+              {@title}
             </h2>
             <p class="font-mono text-[0.72rem] text-[#4a5a7a] tracking-wide mt-1">
               {@subtitle}
@@ -91,8 +94,8 @@ defmodule ZaqWeb.Components.PortalConsentModal do
           </div>
         </div>
 
-        <p class="font-mono text-[0.8rem] text-[#8b9cc0] leading-relaxed mb-4">
-          To create your ZAQ account and unlock <span class="text-cyan-300 font-semibold">$2 in free AI credits</span>, we need to send the following to the ZAQ user portal:
+        <p :if={@body} class="font-mono text-[0.8rem] text-[#8b9cc0] leading-relaxed mb-4">
+          {@body}
         </p>
         <ul class="space-y-2 mb-5">
           <li class="flex items-center gap-2 font-mono text-[0.78rem] text-[#8b9cc0]">
@@ -167,7 +170,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
             class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0"
             style="background: linear-gradient(135deg, #22d3ee, #34d399); color: #060a12;"
           >
-            Accept &amp; activate free credits
+            {@accept_label}
           </button>
           <button
             phx-click={@on_decline}

@@ -9,6 +9,11 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
   alias Zaq.Accounts.User
   alias Zaq.Repo
 
+  setup do
+    Zaq.PortalStubs.stub_portal_reachable()
+    :ok
+  end
+
   test "allows users with must_change_password to access change-password", %{conn: conn} do
     user = user_fixture(%{username: "must_change_password_user"})
     conn = init_test_session(conn, %{user_id: user.id})

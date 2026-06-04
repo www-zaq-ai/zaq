@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.NodeRouter
+  alias Zaq.UserPortal.Client, as: PortalClient
 
   @kpi_range "30d"
 
@@ -38,8 +39,11 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
           end
       end
 
-    show_portal_banner = socket.assigns.current_user.portal_consent == "declined"
     user_email = socket.assigns.current_user.email
+    {portal_reachable, portal_metadata} = load_portal_onboarding()
+
+    show_portal_banner =
+      portal_reachable and socket.assigns.current_user.portal_consent == "declined"
 
     {:ok,
      assign(socket,
@@ -52,7 +56,9 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
        show_portal_consent_modal: false,
        portal_provision_error: nil,
        require_portal_email: blank?(user_email),
-       portal_consent_email: user_email || ""
+       portal_consent_email: user_email || "",
+       portal_reachable: portal_reachable,
+       portal_metadata: portal_metadata
      )}
   end
 
@@ -99,7 +105,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
        |> assign(:require_portal_email, false)
        |> assign(:portal_consent_email, updated_user.email)
        |> assign(:portal_provision_error, nil)
-       |> put_flash(:info, "Free credits activated — your ZAQ portal account is ready.")}
+       |> put_flash(:info, socket.assigns.portal_metadata["message"])}
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
@@ -133,6 +139,13 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     case changeset.errors[:email] do
       {message, _opts} -> "Email #{message}."
       _ -> "Please enter a valid email address."
+    end
+  end
+
+  defp load_portal_onboarding do
+    case PortalClient.fetch_onboarding("free") do
+      {:ok, metadata} -> {true, metadata}
+      :unavailable -> {false, nil}
     end
   end
 

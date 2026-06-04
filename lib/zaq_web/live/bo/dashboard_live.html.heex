@@ -5,7 +5,7 @@
   current_path={@current_path}
   features_version={@features_version}
 >
-  <!-- Portal consent retry banner -->
+  <!-- Portal consent retry banner (only when portal is reachable) -->
   <div
     :if={@show_portal_banner}
     class="mb-6 flex items-center justify-between gap-4 rounded-xl border border-cyan-200 bg-cyan-50 px-5 py-4"
@@ -21,8 +21,7 @@
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
       </svg>
       <p class="font-mono text-[0.78rem] text-slate-600 truncate">
-        Claim your <span class="text-cyan-700 font-semibold">$2 in free AI credits</span>
-        — activate your ZAQ portal account.
+        {@portal_metadata["metadata"]["banner_text"]}
       </p>
     </div>
     <button
@@ -32,12 +31,36 @@
       Activate
     </button>
   </div>
+  
+<!-- Offline notice (airgapped / portal unreachable) -->
+  <div
+    :if={not @portal_reachable}
+    class="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4"
+  >
+    <svg
+      class="w-4 h-4 text-slate-400 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M18.364 5.636a9 9 0 1 1-12.728 0" /><path d="M12 2v7" />
+    </svg>
+    <p class="font-mono text-[0.75rem] text-slate-500">
+      ZAQ portal is not reachable in this environment — portal features are unavailable.
+    </p>
+  </div>
 
   <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
+    :if={@portal_reachable}
     show={@show_portal_consent_modal}
     on_decline="close_portal_consent_modal"
-    decline_label="Not now"
-    subtitle="One-time setup"
+    title={@portal_metadata["metadata"]["title"]}
+    body={@portal_metadata["metadata"]["body"]}
+    accept_label={@portal_metadata["metadata"]["accept_label"]}
+    decline_label={@portal_metadata["metadata"]["decline_label"]}
+    subtitle={@portal_metadata["metadata"]["subtitle"]}
+    footnote={@portal_metadata["metadata"]["footnote"]}
     require_email={@require_portal_email}
     email={@portal_consent_email}
     on_email_change="portal_consent_email_change"

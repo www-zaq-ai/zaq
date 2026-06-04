@@ -283,6 +283,34 @@ defmodule Zaq.System do
   end
 
   @doc """
+  Creates or updates the ZAQ Provider credential without an API key and without
+  wiring any model configs.
+
+  Used when the user declines portal consent or is in an airgapped environment.
+  The provider record is created so it is visible in the admin UI, but no models
+  are configured — the admin must supply credentials manually later.
+
+  Idempotent — safe to call multiple times.
+  """
+  @spec provision_zaq_provider_credential() :: {:ok, map()} | {:error, term()}
+  def provision_zaq_provider_credential do
+    name = "ZAQ Provider"
+
+    attrs = %{
+      name: name,
+      provider: "zaq_provider",
+      endpoint: ZAQProvider.default_endpoint(),
+      sovereign: false,
+      description: "Zaq Provider (Free Tier) gives you ability to access different models."
+    }
+
+    case get_ai_provider_credential_by_name(name) do
+      nil -> create_ai_provider_credential(attrs)
+      existing -> {:ok, existing}
+    end
+  end
+
+  @doc """
   Creates or updates the auto-provisioned LiteLLM AI credential, then wires
   the credential into LLM, embedding, and image-to-text configs (first time only).
 

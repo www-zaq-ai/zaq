@@ -2,12 +2,19 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
+  alias Zaq.UserPortal.Client, as: PortalClient
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Helpers.PasswordHelpers
 
   def mount(_params, session, socket) do
     user = Accounts.get_user!(session["user_id"])
     form_params = %{"email" => user.email || "", "password" => "", "password_confirmation" => ""}
+
+    {portal_reachable, portal_metadata} =
+      case PortalClient.fetch_onboarding("free") do
+        {:ok, metadata} -> {true, metadata}
+        :unavailable -> {false, nil}
+      end
 
     {:ok,
      socket
@@ -16,7 +23,9 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> PasswordHelpers.assign_password_feedback(form_params)
      |> assign(:error_message, nil)
      |> assign(:show_consent_modal, false)
-     |> assign(:pending_attrs, nil)}
+     |> assign(:pending_attrs, nil)
+     |> assign(:portal_reachable, portal_reachable)
+     |> assign(:portal_metadata, portal_metadata)}
   end
 
   def handle_event("validate", params, socket) do
@@ -59,11 +68,13 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
           %{"password" => password}
         end
 
-      {:noreply,
-       socket
-       |> assign(:pending_attrs, attrs)
-       |> assign(:show_consent_modal, true)
-       |> assign(:error_message, nil)}
+      socket = socket |> assign(:pending_attrs, attrs) |> assign(:error_message, nil)
+
+      if socket.assigns.portal_reachable do
+        {:noreply, assign(socket, :show_consent_modal, true)}
+      else
+        socket |> do_complete_onboarding(:declined) |> then(&{:noreply, &1})
+      end
     end
   end
 

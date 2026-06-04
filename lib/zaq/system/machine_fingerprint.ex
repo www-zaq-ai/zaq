@@ -25,9 +25,20 @@ defmodule Zaq.System.MachineFingerprint do
     identifiers =
       case :os.type() do
         {:unix, :linux} ->
+          cfg = Application.get_env(:zaq, __MODULE__, [])
+
+          machine_id_paths =
+            Keyword.get(cfg, :machine_id_paths, [
+              "/etc/machine-id",
+              "/var/lib/dbus/machine-id"
+            ])
+
+          product_uuid_path =
+            Keyword.get(cfg, :product_uuid_path, "/sys/class/dmi/id/product_uuid")
+
           [
-            {:linux_machine_id, read_first_file(["/etc/machine-id", "/var/lib/dbus/machine-id"])},
-            {:linux_product_uuid, read_file("/sys/class/dmi/id/product_uuid")}
+            {:linux_machine_id, read_first_file(machine_id_paths)},
+            {:linux_product_uuid, read_file(product_uuid_path)}
           ]
 
         {:unix, :darwin} ->

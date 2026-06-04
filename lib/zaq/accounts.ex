@@ -134,6 +134,8 @@ defmodule Zaq.Accounts do
 
         if portal_consent == :accepted do
           attempt_portal_provisioning(consented_user)
+        else
+          Zaq.System.provision_zaq_provider_credential()
         end
 
         {:ok, consented_user}

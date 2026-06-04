@@ -85,10 +85,16 @@ defmodule Zaq.System.MachineFingerprintTest do
     System.put_env("XDG_DATA_HOME", Path.join(tmp_dir, "xdg-data"))
     System.put_env("PATH", Path.join(tmp_dir, "empty-bin"))
 
+    Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+      machine_id_paths: [Path.join(tmp_dir, "no-machine-id")],
+      product_uuid_path: Path.join(tmp_dir, "no-product-uuid")
+    )
+
     on_exit(fn ->
       restore_env("HOME", previous_home)
       restore_env("XDG_DATA_HOME", previous_xdg_data_home)
       restore_env("PATH", previous_path)
+      Application.delete_env(:zaq, Zaq.System.MachineFingerprint)
       File.rm_rf(tmp_dir)
     end)
 
