@@ -17,11 +17,9 @@ defmodule ZaqWeb.Components.PortalConsentModal do
 
       <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
         show={@show_consent_modal}
+        slug="free"
         on_accept="accept_portal_consent"
         on_decline="decline_portal_consent"
-        decline_label="Decline — continue without free credits"
-        subtitle="Optional · You can skip this"
-        footnote="Free credits can be claimed later from the dashboard."
         require_email={@require_portal_email}
         email={@portal_consent_email}
         on_email_change="portal_consent_email_change"
@@ -31,15 +29,21 @@ defmodule ZaqWeb.Components.PortalConsentModal do
 
   use ZaqWeb, :html
 
+  alias Zaq.UserPortal.Client, as: PortalClient
+
+  @default_metadata %{
+    "title" => "Activate your free credits",
+    "body" => nil,
+    "accept_label" => "Accept & activate free credits",
+    "decline_label" => "Decline — continue without free credits",
+    "subtitle" => "Optional · You can skip this",
+    "footnote" => nil
+  }
+
   attr :show, :boolean, required: true
+  attr :slug, :string, required: true
   attr :on_accept, :string, default: "accept_portal_consent"
   attr :on_decline, :string, required: true
-  attr :title, :string, default: "Activate your free credits"
-  attr :body, :string, default: nil
-  attr :accept_label, :string, default: "Accept & activate free credits"
-  attr :decline_label, :string, default: "Decline — continue without free credits"
-  attr :subtitle, :string, default: "Optional · You can skip this"
-  attr :footnote, :string, default: nil
   attr :error, :string, default: nil
   attr :require_email, :boolean, default: false
   attr :email, :string, default: nil
@@ -47,12 +51,12 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :target, :any, default: nil
 
   def portal_consent_modal(assigns) do
+    metadata = load_metadata(assigns.show, assigns.slug)
+
     assigns =
-      assign(
-        assigns,
-        :accept_disabled,
-        assigns.require_email and not email_entered?(assigns.email)
-      )
+      assigns
+      |> assign(:metadata, metadata)
+      |> assign(:accept_disabled, assigns.require_email and not email_entered?(assigns.email))
 
     ~H"""
     <div
@@ -87,16 +91,19 @@ defmodule ZaqWeb.Components.PortalConsentModal do
           </div>
           <div>
             <h2 class="font-mono text-base font-bold text-white tracking-tight">
-              {@title}
+              {@metadata["title"]}
             </h2>
             <p class="font-mono text-[0.72rem] text-[#4a5a7a] tracking-wide mt-1">
-              {@subtitle}
+              {@metadata["subtitle"]}
             </p>
           </div>
         </div>
 
-        <p :if={@body} class="font-mono text-[0.8rem] text-[#8b9cc0] leading-relaxed mb-4">
-          {@body}
+        <p
+          :if={@metadata["body"]}
+          class="font-mono text-[0.8rem] text-[#8b9cc0] leading-relaxed mb-4"
+        >
+          {@metadata["body"]}
         </p>
         <ul class="space-y-2 mb-5">
           <li class="flex items-center gap-2 font-mono text-[0.78rem] text-[#8b9cc0]">
@@ -149,8 +156,11 @@ defmodule ZaqWeb.Components.PortalConsentModal do
           />
         </form>
 
-        <p :if={@footnote} class="font-mono text-[0.72rem] text-[#4a5a7a] leading-relaxed mb-5">
-          {@footnote}
+        <p
+          :if={@metadata["footnote"]}
+          class="font-mono text-[0.72rem] text-[#4a5a7a] leading-relaxed mb-5"
+        >
+          {@metadata["footnote"]}
         </p>
 
         <div
@@ -177,19 +187,28 @@ defmodule ZaqWeb.Components.PortalConsentModal do
             class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0"
             style="background: linear-gradient(135deg, #22d3ee, #34d399); color: #060a12;"
           >
-            {@accept_label}
+            {@metadata["accept_label"]}
           </button>
           <button
             phx-click={@on_decline}
             phx-target={@target}
             class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide font-mono border border-[#1b2538] text-[#6f7f9f] bg-transparent hover:border-[#2a3a55] hover:text-[#8b9cc0] transition-all"
           >
-            {@decline_label}
+            {@metadata["decline_label"]}
           </button>
         </div>
       </div>
     </div>
     """
+  end
+
+  defp load_metadata(false, _slug), do: @default_metadata
+
+  defp load_metadata(true, slug) do
+    case PortalClient.fetch_onboarding(slug) do
+      {:ok, payload} -> Map.merge(@default_metadata, get_in(payload, ["metadata"]) || %{})
+      :unavailable -> @default_metadata
+    end
   end
 
   defp email_entered?(email), do: is_binary(email) and String.trim(email) != ""

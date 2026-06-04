@@ -56,24 +56,19 @@ defmodule Zaq.UserPortal.ClientTest do
       assert body["offer_slug"] == "free"
     end
 
-    test "returns :unavailable when liveness check fails" do
+    test "returns :unavailable when metadata endpoint returns 503" do
       Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-        case conn.request_path do
-          "/health/liveliness" ->
-            conn
-            |> Plug.Conn.put_status(503)
-            |> Req.Test.json(%{"error" => "service_unavailable"})
-        end
+        conn
+        |> Plug.Conn.put_status(503)
+        |> Req.Test.json(%{"error" => "service_unavailable"})
       end)
 
       assert Client.fetch_onboarding("free") == :unavailable
     end
 
-    test "returns :unavailable when liveness check has a transport error" do
+    test "returns :unavailable when metadata endpoint has a transport error" do
       Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-        case conn.request_path do
-          "/health/liveliness" -> Req.Test.transport_error(conn, :econnrefused)
-        end
+        Req.Test.transport_error(conn, :econnrefused)
       end)
 
       assert Client.fetch_onboarding("free") == :unavailable

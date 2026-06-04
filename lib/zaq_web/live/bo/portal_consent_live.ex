@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   alias Zaq.Accounts
   alias Zaq.UserPortal.Client, as: PortalClient
+  alias Zaq.UserPortal.Provisioner
 
   @impl true
   def update(%{id: id, current_user: current_user}, socket) do
@@ -92,14 +93,9 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
       <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
         :if={@portal_reachable}
         show={@show_portal_consent_modal}
+        slug="free"
         target={@myself}
         on_decline="close_portal_consent_modal"
-        title={@metadata["title"]}
-        body={@metadata["body"]}
-        accept_label={@metadata["accept_label"]}
-        decline_label={@metadata["decline_label"]}
-        subtitle={@metadata["subtitle"]}
-        footnote={@metadata["footnote"]}
         require_email={@require_portal_email}
         email={@portal_consent_email}
         on_email_change="portal_consent_email_change"
@@ -131,7 +127,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
              socket.assigns.current_user,
              socket.assigns.portal_consent_email
            ),
-         {:ok, updated_user} <- Accounts.provision_portal_for_user(user) do
+         {:ok, updated_user} <- Provisioner.provision_for_existing_user(user) do
       send(
         self(),
         {:portal_flash, :info, Map.get(socket.assigns.portal_metadata || %{}, "message")}

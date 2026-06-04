@@ -7,15 +7,73 @@ defmodule Zaq.UserPortal.Provisioner do
   portal returns a LiteLLM API key. It delegates all persistence to `Zaq.System`.
   """
 
+  alias Zaq.Accounts.User
   alias Zaq.Agent.ZAQProvider
+  alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
+  alias Zaq.UserPortal.Client
+
+  require Logger
 
   @credential_name "ZAQ Provider"
   @description "Zaq Provider (Free Tier) gives you ability to access different models."
+
+  @doc """
+  Calls the portal to onboard the user by email and provisions the ZAQ credential
+  with the returned API key. Returns `{:ok, credential}` or `{:error, reason}`.
+  """
+  @spec provision_for_user(String.t()) :: {:ok, AIProviderCredential.t()} | {:error, term()}
+  def provision_for_user(email) when is_binary(email) do
+    case Client.onboard_user(email) do
+      {:ok, litellm} -> provision_with_key(litellm)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Fire-and-forget variant of `provision_for_user/1`. Logs failures but does not
+  propagate errors — used during bootstrap where provisioning is best-effort.
+  """
+  @spec attempt_provision_for_user(String.t()) :: :ok
+  def attempt_provision_for_user(email) when is_binary(email) do
+    case Client.onboard_user(email) do
+      {:ok, litellm} ->
+        case provision_with_key(litellm) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
+        end
+
+      {:error, reason} ->
+        Logger.warning("User portal onboarding failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc """
+  Provisions the portal account for an already-onboarded user.
+
+  Used from the dashboard retry flow when the admin previously declined portal
+  consent during bootstrap. On success, marks the user's portal consent as
+  accepted and provisions the LiteLLM credential.
+  """
+  @spec provision_for_existing_user(User.t()) :: {:ok, User.t()} | {:error, term()}
+  def provision_for_existing_user(%User{} = user) do
+    case provision_for_user(user.email) do
+      {:ok, _credential} ->
+        user
+        |> User.portal_consent_changeset("accepted")
+        |> Repo.update()
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   @spec provision_with_key(%{litellm_api_key: String.t()}, keyword()) ::
           {:ok, AIProviderCredential.t()} | {:error, term()}

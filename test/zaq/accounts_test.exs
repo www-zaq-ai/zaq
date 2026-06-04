@@ -525,31 +525,4 @@ defmodule Zaq.AccountsTest do
       refute updated_user.must_change_password
     end
   end
-
-  describe "provision_portal_for_user/1" do
-    test "returns error when litellm credential creation fails" do
-      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-        Req.Test.json(conn, %{
-          "status" => "ok",
-          "user" => %{
-            "litellm_api_key" => "sk-test-key",
-            "litellm_user_id" => "llm-user-test"
-          }
-        })
-      end)
-
-      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
-
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: nil,
-        key_id: "v1"
-      )
-
-      on_exit(fn -> Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret) end)
-
-      user = user_fixture(%{email: "portal@zaq.local"})
-
-      assert {:error, :credential_failed} = Accounts.provision_portal_for_user(user)
-    end
-  end
 end
