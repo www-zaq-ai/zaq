@@ -197,6 +197,30 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       assert Accounts.get_user!(user.id).email == "claimed@example.com"
     end
 
+    test "provisions the portal without changing an existing user email", %{conn: conn} do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.json(conn, %{
+          "status" => "ok",
+          "user" => %{
+            "litellm_api_key" => "sk-test-key",
+            "litellm_user_id" => "llm-user-test"
+          }
+        })
+      end)
+
+      user = user_fixture(%{username: "portalready", email: "ready@example.com"})
+      {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+      conn = conn |> init_test_session(%{user_id: user.id})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      render_click(view, "show_portal_consent", %{})
+
+      html = render_click(view, "accept_portal_consent", %{})
+
+      assert html =~ "Free credits activated"
+      assert Accounts.get_user!(user.id).email == "ready@example.com"
+    end
+
     test "closes the portal consent modal when close event is fired", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
