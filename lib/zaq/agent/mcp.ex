@@ -67,6 +67,24 @@ defmodule Zaq.Agent.MCP do
         settings: %{}
       }
     },
+    # "firecrawl_mcp" => %{
+    #   id: "firecrawl_mcp",
+    #   name: "Firecrawl",
+    #   icon: "hero-fire-solid",
+    #   description: "Firecrawl MCP for web crawling, scraping, and search workflows.",
+    #   editable: true,
+    #   defaults: %{
+    #     type: "remote",
+    #     status: "disabled",
+    #     timeout_ms: 5000,
+    #     url: "https://mcp.firecrawl.dev",
+    #     headers: %{},
+    #     secret_headers: %{"Authorization" => "Bearer {API_KEY}"},
+    #     environments: %{},
+    #     secret_environments: %{},
+    #     settings: %{}
+    #   }
+    # },
     # MCP Client incompatibility
     #  [debug] MCP transport details: %{timeout: 30000, url: "https://www.context-awesome.com/api/mcp", headers:
     # %{"accept" => "application/json, text/event-stream", "content-type" => "application/json"}, method: :post}

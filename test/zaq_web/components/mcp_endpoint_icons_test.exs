@@ -16,6 +16,11 @@ defmodule ZaqWeb.Components.MCPEndpointIconsTest do
 
     assert stripe =~ "#635BFF"
 
+    firecrawl =
+      render_component(&MCPEndpointIcons.icon/1, endpoint_key: "firecrawl_mcp", class: "w-4 h-4")
+
+    assert firecrawl =~ "#F97316"
+
     datagouv =
       render_component(&MCPEndpointIcons.icon/1, endpoint_key: "datagouv_mcp", class: "w-4 h-4")
 

@@ -26,6 +26,18 @@ defmodule ZaqWeb.Components.MCPEndpointIcons do
             fill="#fff"
           />
         </svg>
+      <% "firecrawl_mcp" -> %>
+        <svg class={@class} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">
+          <rect x="2" y="2" width="20" height="20" rx="6" fill="#FFF7ED" />
+          <path
+            d="M12.7 4.8c.9 2.1.2 3.6-.8 4.7-.8.9-1.4 1.7-1.1 2.8.9-.6 1.3-1.4 1.4-2.4 2 1.3 3.5 3 3.5 5.1 0 2.5-1.8 4.2-4.1 4.2-2.5 0-4.5-1.8-4.5-4.6 0-1.8.9-3.4 2.5-4.9 1.4-1.4 2.4-2.7 3.1-4.9z"
+            fill="#F97316"
+          />
+          <path
+            d="M14.8 7.3c2.3 1.3 4.1 3.6 4.1 6.7 0 3.4-2.7 5.8-6.6 5.8 1.8-.7 3-2.4 3-4.7 0-1.9-.9-3.4-2.3-4.5.8-.8 1.6-1.9 1.8-3.3z"
+            fill="#EA580C"
+          />
+        </svg>
       <% "context_awesome_mcp" -> %>
         <svg class={@class} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 585 300" fill="none">
           <path

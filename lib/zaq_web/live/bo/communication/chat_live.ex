@@ -664,6 +664,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
        do: outgoing
 
   defp build_outgoing_from_event(%Event{response: {:error, reason}}, incoming) do
+    Logger.error("[Outgoing] error: #{inspect(reason)}")
+
     Outgoing.from_pipeline_result(incoming, %{
       answer: ErrorMessage.from_reason(:dispatch_error),
       error_reason: :dispatch_error,
