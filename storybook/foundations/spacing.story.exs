@@ -10,7 +10,7 @@ defmodule Storybook.Foundations.Spacing do
         <strong style="font-weight: 600;">Foundation tokens are source values only.</strong>
         They exist to define semantic tokens — never reference them directly in components or pages.
         Use <strong style="font-weight: 600;">semantic tokens</strong>
-        (e.g. <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">--zaq-color-surface-base</code>) in all UI code.
+        (e.g. <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">--zaq-surface-color-base</code>) in all UI code.
       </div>
       <p style="font-size: 0.75rem; opacity: 0.45; margin-bottom: 1.5rem;">
         Base-8 grid. Each bar represents the token's raw pixel value.

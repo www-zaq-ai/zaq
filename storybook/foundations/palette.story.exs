@@ -12,7 +12,7 @@ defmodule Storybook.Foundations.Palette do
         <strong style="font-weight: 600;">Foundation tokens are source values only.</strong>
         They exist to define semantic tokens — never reference them directly in components or pages.
         Use <strong style="font-weight: 600;">semantic tokens</strong>
-        (e.g. <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">--zaq-color-surface-base</code>, <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">--zaq-color-border-default</code>) in all UI code.
+        (e.g. <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">--zaq-surface-color-base</code>, <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">--zaq-border-color-default</code>) in all UI code.
       </div>
 
       <section>
@@ -24,6 +24,15 @@ defmodule Storybook.Foundations.Palette do
           <.swatch name="blue-300" var="--zaq-color-blue-300" usage="→ border/accent" />
           <.swatch name="blue-200" var="--zaq-color-blue-200" usage="→ surface/accent" />
           <.swatch name="blue-100" var="--zaq-color-blue-100" usage="→ surface/accent (light)" />
+        </div>
+      </section>
+
+      <section>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1rem;">
+          Neon
+        </h2>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+          <.swatch name="gradient-neon" var="--zaq-gradient-neon" usage="→ brand identity / logo gradient" />
         </div>
       </section>
 

@@ -1,0 +1,114 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   ZAQ Button Tokens
+   These --zaq-btn-* variables are INTERNAL to btn.css only.
+   ⚠️  Never reference --zaq-btn-* variables outside this file.
+       They exist solely to build .zaq-btn-* classes below.
+   Dark mode is handled automatically — all tokens reference foundation
+   variables that flip in [data-theme="dark"] via foundations.css.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* btn/all */
+  --zaq-btn-all-radius-default: var(--zaq-scale-8);
+
+  /* btn/primary*/
+  /* btn/primary/color/bg */
+  --zaq-btn-primary-color-bg-resting:  var(--zaq-color-blue-400);
+  --zaq-btn-primary-color-bg-hover:    var(--zaq-color-blue-300);
+  --zaq-btn-primary-color-bg-disabled: var(--zaq-color-black-100);
+
+  /* btn/primary/color/text */
+  --zaq-btn-primary-color-text-resting:  var(--zaq-color-neutral-100);
+  --zaq-btn-primary-color-text-hover:    var(--zaq-color-neutral-100);
+  --zaq-btn-primary-color-text-disabled: var(--zaq-color-neutral-200);
+
+  /* btn/primary/color/icon */
+  --zaq-btn-primary-color-icon-resting:  var(--zaq-color-black-200);
+  --zaq-btn-primary-color-icon-hover:    var(--zaq-color-black-300);
+  --zaq-btn-primary-color-icon-disabled: var(--zaq-color-black-100);
+  
+  
+  
+  /* btn/secondary/
+  /* btn/secondary/color/bg */
+  --zaq-btn-secondary-color-bg-resting:  transparent;
+  --zaq-btn-secondary-color-bg-hover:    var(--zaq-color-neutral-200);
+  --zaq-btn-secondary-color-bg-disabled: transparent;
+
+  /* btn/secondary/thickness/border */
+  --zaq-btn-secondary-thickness-border-resting: var(--zaq-scale-1);
+
+  /* btn/secondary/color/border */
+  --zaq-btn-secondary-color-border-resting:  var(--zaq-color-black-100);
+  --zaq-btn-secondary-color-border-hover:    var(--zaq-color-blue-300);
+  --zaq-btn-secondary-color-border-disabled: var(--zaq-color-neutral-300);
+
+  /* btn/secondary/color/text */
+  --zaq-btn-secondary-color-text-resting:  var(--zaq-color-black-400);
+  --zaq-btn-secondary-color-text-hover:    var(--zaq-color-black-200);
+  --zaq-btn-secondary-color-text-disabled: var(--zaq-color-black-100);
+
+  /* btn/secondary/color/icon */
+  --zaq-btn-secondary-color-icon-resting:  var(--zaq-color-blue-300);
+  --zaq-btn-secondary-color-icon-hover:    var(--zaq-color-blue-400);
+  --zaq-btn-secondary-color-icon-disabled: var(--zaq-color-black-100);
+}
+
+/* ── Base — layout & shape only, no color ────────────────────────────────── */
+/* Always combine with .zaq-btn-text_label-default for typography */
+.zaq-btn {
+  display:         inline-flex;
+  align-items:     center;
+  justify-content: center;
+  gap:             var(--zaq-scale-8);
+  padding:         var(--zaq-scale-8) var(--zaq-scale-16);
+  border-radius:   var(--zaq-btn-all-radius-default);
+  border:          var(--zaq-scale-1) solid transparent;
+  cursor:          pointer;
+  transition:      background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.zaq-btn:disabled,
+.zaq-btn[aria-disabled="true"] {
+  cursor:         not-allowed;
+  pointer-events: none;
+}
+
+/* ── Primary ─────────────────────────────────────────────────────────────── */
+.zaq-btn-primary {
+  background-color: var(--zaq-btn-primary-color-bg-resting);
+  color:            var(--zaq-btn-primary-color-text-resting);
+  border-color:     transparent;
+}
+
+.zaq-btn-primary:hover {
+  background-color: var(--zaq-btn-primary-color-bg-hover);
+  color:            var(--zaq-btn-primary-color-text-hover);
+}
+
+.zaq-btn-primary:disabled,
+.zaq-btn-primary[aria-disabled="true"] {
+  background-color: var(--zaq-btn-primary-color-bg-disabled);
+  color:            var(--zaq-btn-primary-color-text-disabled);
+}
+
+/* ── Secondary ───────────────────────────────────────────────────────────── */
+.zaq-btn-secondary {
+  background-color: var(--zaq-btn-secondary-color-bg-resting);
+  color:            var(--zaq-btn-secondary-color-text-resting);
+  border-color:     var(--zaq-btn-secondary-color-border-resting);
+  border-width:     var(--zaq-btn-secondary-thickness-border-resting);
+}
+
+.zaq-btn-secondary:hover {
+  background-color: var(--zaq-btn-secondary-color-bg-hover);
+  color:            var(--zaq-btn-secondary-color-text-hover);
+  border-color:     var(--zaq-btn-secondary-color-border-hover);
+}
+
+.zaq-btn-secondary:disabled,
+.zaq-btn-secondary[aria-disabled="true"] {
+  background-color: var(--zaq-btn-secondary-color-bg-disabled);
+  color:            var(--zaq-btn-secondary-color-text-disabled);
+  border-color:     var(--zaq-btn-secondary-color-border-disabled);
+}

@@ -79,6 +79,17 @@
   letter-spacing: var(--zaq-letter-spacing-relaxed);
 }
 
+/* ── Button label ────────────────────────────────────────────────────────── */
+
+/* ⚠️  Button-scoped only — never use .zaq-btn-text_label-default outside a btn element */
+.zaq-btn-text_label-default {
+  font-family:    var(--zaq-font-family-body);
+  font-size:      var(--zaq-scale-12);
+  font-weight:    var(--zaq-font-weight-semibold);
+  line-height:    var(--zaq-line-height-tight);
+  letter-spacing: var(--zaq-letter-spacing-default);
+}
+
 /* ── Code & Monospace ────────────────────────────────────────────────────── */
 
 .zaq-text-code {

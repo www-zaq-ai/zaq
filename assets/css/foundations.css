@@ -28,6 +28,9 @@
   /* ============================================
    FOUNDATION TOKENS — Color Palette
    ============================================ */
+  /* ── Zaq neon (light and dark) ──────────────────────────────────────────── */
+  --zaq-gradient-neon: linear-gradient(135deg, #0aadca 0%, #3dd5ee 50%, #00d492 100%);
+  
   /* ── Zaq Color Palette (light) ──────────────────────────────────────────── */
   --zaq-color-blue-400:    #027589;
   --zaq-color-blue-300:    #03b6d4;
@@ -54,6 +57,7 @@
    Base 8px grid. Raw values only (some exception using base 2px grid for text-styles). 
    ============================================ */
   --zaq-scale-0:    0px;
+  --zaq-scale-1:    1px; /*only used for border thickness */
   --zaq-scale-2:    2px;
   --zaq-scale-4:    4px;
   --zaq-scale-8:    8px;
@@ -78,7 +82,9 @@
 }
 
 /* ── Dark palette ────────────────────────────────────────────────────────── */
-[data-theme="dark"] {
+/* .dark mirrors [data-theme="dark"] for Storybook sandbox compatibility */
+[data-theme="dark"],
+.dark {
   --zaq-color-blue-400:    #0aadca;
   --zaq-color-blue-300:    #3dd5ee;
   --zaq-color-blue-200:    #083d52;

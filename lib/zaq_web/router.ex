@@ -157,9 +157,16 @@ defmodule ZaqWeb.Router do
     end
   end
 
-  if Application.compile_env(:zaq, :dev_routes) do
+  if Application.compile_env(:zaq, :dev_routes, false) do
     import Phoenix.LiveDashboard.Router
     import PhoenixStorybook.Router
+
+    scope "/dev" do
+      pipe_through :browser
+
+      live_dashboard "/dashboard", metrics: ZaqWeb.Telemetry
+      forward "/mailbox", Plug.Swoosh.MailboxPreview
+    end
 
     scope "/" do
       storybook_assets()
@@ -168,13 +175,6 @@ defmodule ZaqWeb.Router do
     scope "/" do
       pipe_through :browser
       live_storybook("/storybook", backend_module: ZaqWeb.Storybook)
-    end
-
-    scope "/dev" do
-      pipe_through :browser
-
-      live_dashboard "/dashboard", metrics: ZaqWeb.Telemetry
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
   end
 end

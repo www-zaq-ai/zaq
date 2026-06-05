@@ -13,11 +13,11 @@ defmodule Storybook.Semantic.Colors do
           Surface
         </h2>
         <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem;">
-          <.swatch name="surface/base" var="--zaq-color-surface-base" border />
-          <.swatch name="surface/raised" var="--zaq-color-surface-raised" border />
-          <.swatch name="surface/elevated" var="--zaq-color-surface-elevated" border />
-          <.swatch name="surface/accent" var="--zaq-color-surface-accent" border />
-          <.swatch name="surface/dark" var="--zaq-color-surface-dark" />
+          <.swatch name="surface/base" var="--zaq-surface-color-base" border />
+          <.swatch name="surface/raised" var="--zaq-surface-color-raised" border />
+          <.swatch name="surface/elevated" var="--zaq-surface-color-elevated" border />
+          <.swatch name="surface/accent" var="--zaq-surface-color-accent" border />
+          <.swatch name="surface/dark" var="--zaq-surface-color-dark" />
         </div>
       </section>
 
@@ -26,10 +26,10 @@ defmodule Storybook.Semantic.Colors do
           Border
         </h2>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-          <.swatch name="border/default" var="--zaq-color-border-default" border />
-          <.swatch name="border/strong" var="--zaq-color-border-strong" border />
-          <.swatch name="border/accent" var="--zaq-color-border-accent" border />
-          <.swatch name="border/error" var="--zaq-color-border-error" />
+          <.swatch name="border/default" var="--zaq-border-color-default" border />
+          <.swatch name="border/strong" var="--zaq-border-color-strong" border />
+          <.swatch name="border/accent" var="--zaq-border-color-accent" border />
+          <.swatch name="border/error" var="--zaq-border-color-error" />
         </div>
       </section>
 
@@ -38,10 +38,10 @@ defmodule Storybook.Semantic.Colors do
           Text
         </h2>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-          <.swatch name="text/body/default" var="--zaq-color-text-body-default" />
-          <.swatch name="text/body/secondary" var="--zaq-color-text-body-secondary" />
-          <.swatch name="text/body/tertiary" var="--zaq-color-text-body-tertiary" />
-          <.swatch name="text/body/invert" var="--zaq-color-text-body-invert" border />
+          <.swatch name="text/body/default" var="--zaq-text-color-body-default" />
+          <.swatch name="text/body/secondary" var="--zaq-text-color-body-secondary" />
+          <.swatch name="text/body/tertiary" var="--zaq-text-color-body-tertiary" />
+          <.swatch name="text/body/invert" var="--zaq-text-color-body-invert" border />
         </div>
       </section>
     </div>
