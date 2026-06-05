@@ -103,7 +103,7 @@ config :zaq, ZaqWeb.Endpoint,
     tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
   ]
 
-import_config "dev.secret.exs"
+if File.exists?("config/dev.secret.exs"), do: import_config("dev.secret.exs")
 
 # ## SSL Support
 #
