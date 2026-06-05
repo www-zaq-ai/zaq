@@ -76,6 +76,6 @@ defmodule Zaq.Agent.ZAQProvider do
   end
 
   defp build_opts(models) do
-    [custom: %{@provider_id => [name: "ZAQ Provider", models: models]}]
+    [custom: %{@provider_id => [name: "ZAQ Router", models: models]}]
   end
 end

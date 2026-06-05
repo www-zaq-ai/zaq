@@ -10,7 +10,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
   use ZaqWeb, :live_component
 
   alias Zaq.Accounts
-  alias Zaq.UserPortal.Client, as: PortalClient
   alias Zaq.UserPortal.Provisioner
 
   @impl true
@@ -176,11 +175,13 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
   end
 
   defp load_portal_onboarding do
-    case PortalClient.fetch_onboarding("free") do
+    case portal_client().fetch_onboarding("free") do
       {:ok, metadata} -> {true, metadata}
       :unavailable -> {false, nil}
     end
   end
+
+  defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 
   defp metadata(portal_metadata), do: get_in(portal_metadata || %{}, ["metadata"]) || %{}
 

@@ -1,12 +1,8 @@
 :logger.add_handler(:e2e_collector, Zaq.E2E.LogHandler, %{})
 
-# Remove the Req.Test plug so portal HTTP calls hit the real network
-# (and fail immediately with connection refused → portal treated as unavailable).
-# Req.Test stubs are process-scoped and cannot be inherited by LiveView processes
-# spawned by the web server.
-Application.put_env(:zaq, Zaq.UserPortal.Client,
-  req_options: [receive_timeout: 500, retry: false]
-)
+# The portal client uses the real HTTP path in e2e, pointed at loopback stub
+# endpoints served by this server (see config/test.exs :user_portal_base_url and
+# ZaqWeb.E2EController :portal_*). No req_options override is needed.
 
 alias Zaq.Accounts
 alias Zaq.Agent.PromptTemplate

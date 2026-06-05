@@ -177,4 +177,56 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert updated_user.email == "admin@zaq.local"
     refute updated_user.must_change_password
   end
+
+  test "skips consent popup and redirects when portal is unreachable", %{conn: conn} do
+    Zaq.PortalStubs.stub_portal_unreachable()
+
+    user = user_fixture(%{username: "must_change_password_portal_unreachable"})
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    # Submitting redirects straight to the dashboard: no consent popup is shown.
+    # (If the popup were rendered the view would stay put awaiting accept/decline.)
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    assert_redirect(view, ~p"/bo/dashboard")
+
+    updated_user = Accounts.get_user!(user.id)
+    refute updated_user.must_change_password
+    assert is_binary(updated_user.password_hash)
+    assert updated_user.portal_consent == "declined"
+  end
+
+  test "redirects to dashboard when portal provisioning fails on accept", %{conn: conn} do
+    # Registration succeeds, but the portal provisioning call fails.
+    Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email -> {:error, :econnrefused} end)
+
+    user = user_fixture(%{username: "must_change_password_provision_fail"})
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    render_click(view, "accept_portal_consent")
+
+    assert_redirect(view, ~p"/bo/dashboard")
+
+    updated_user = Accounts.get_user!(user.id)
+    # Password changed (registration persisted), consent reverted so the dashboard
+    # retry flow remains valid.
+    refute updated_user.must_change_password
+    assert updated_user.portal_consent == "declined"
+  end
 end

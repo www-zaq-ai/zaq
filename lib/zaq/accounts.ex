@@ -8,7 +8,6 @@ defmodule Zaq.Accounts do
   import Ecto.Query
   alias Zaq.Accounts.{Role, User}
   alias Zaq.Repo
-  alias Zaq.UserPortal.Provisioner
 
   # Roles
 
@@ -112,37 +111,16 @@ defmodule Zaq.Accounts do
   end
 
   @doc """
-  Completes the bootstrap onboarding by updating the admin user's password and email.
+  Completes the bootstrap registration by writing the admin user's email and password.
 
-  Only used during the initial bootstrap flow when the admin user has not yet
-  completed onboarding. Sets `must_change_password` to false.
-
-  `portal_consent` must be `:accepted` or `:declined`. When `:accepted`, an account
-  is provisioned on the user portal (email + machine fingerprint sent) and a LiteLLM
-  credential is created. When `:declined`, the portal step is skipped and the user
-  can retry from the dashboard.
+  Used during the initial bootstrap flow. Email and password are required; on
+  success `must_change_password` is set to false. This is a single registration
+  write — portal consent and provisioning are owned by `Zaq.UserPortal.Onboarding`.
   """
-  def complete_bootstrap_onboarding(user, attrs, portal_consent)
-      when portal_consent in [:accepted, :declined] do
-    require Logger
-
-    case user |> User.bootstrap_onboarding_changeset(attrs) |> Repo.update() do
-      {:ok, updated_user} ->
-        {:ok, consented_user} =
-          User.portal_consent_changeset(updated_user, to_string(portal_consent))
-          |> Repo.update()
-
-        if portal_consent == :accepted do
-          Provisioner.attempt_provision_for_user(consented_user.email)
-        else
-          Provisioner.provision_without_key()
-        end
-
-        {:ok, consented_user}
-
-      {:error, %Ecto.Changeset{}} = error ->
-        error
-    end
+  def complete_registration(user, attrs) do
+    user
+    |> User.bootstrap_onboarding_changeset(attrs)
+    |> Repo.update()
   end
 
   @doc """

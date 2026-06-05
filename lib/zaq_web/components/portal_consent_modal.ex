@@ -29,13 +29,11 @@ defmodule ZaqWeb.Components.PortalConsentModal do
 
   use ZaqWeb, :html
 
-  alias Zaq.UserPortal.Client, as: PortalClient
-
   @default_metadata %{
-    "title" => "Activate your free credits",
+    "title" => "Activate your ZAQ Router account",
     "body" => nil,
-    "accept_label" => "Accept & activate free credits",
-    "decline_label" => "Decline — continue without free credits",
+    "accept_label" => "Accept & activate",
+    "decline_label" => "Decline — continue without setup",
     "subtitle" => "Optional · You can skip this",
     "footnote" => nil
   }
@@ -205,11 +203,13 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   defp load_metadata(false, _slug), do: @default_metadata
 
   defp load_metadata(true, slug) do
-    case PortalClient.fetch_onboarding(slug) do
+    case portal_client().fetch_onboarding(slug) do
       {:ok, payload} -> Map.merge(@default_metadata, get_in(payload, ["metadata"]) || %{})
       :unavailable -> @default_metadata
     end
   end
+
+  defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 
   defp email_entered?(email), do: is_binary(email) and String.trim(email) != ""
 end

@@ -253,6 +253,18 @@ async function createE2EAgent(request, attrs, options = {}) {
   return res.json();
 }
 
+// Seed a user pending bootstrap onboarding (must_change_password, no email).
+// Returns { username, password } to feed into loginToBackOffice — logging in
+// redirects to /bo/change-password, the onboarding flow under test.
+async function createE2EOnboardingUser(request, attrs = {}, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/onboarding-user`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/onboarding-user returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 module.exports = {
   gotoBackOfficeLive,
   loginToBackOffice,
@@ -267,6 +279,7 @@ module.exports = {
   createE2EAiCredential,
   createE2EMcpEndpoint,
   createE2EAgent,
+  createE2EOnboardingUser,
   pickSearchableSelect,
   createAiCredential,
 };

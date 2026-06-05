@@ -179,25 +179,6 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
     end
 
     test "provisions the portal with the entered email for old users", %{conn: conn, user: user} do
-      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-        case {conn.method, conn.request_path} do
-          {"GET", "/health/liveliness"} ->
-            Req.Test.json(conn, "I'm alive!")
-
-          {"GET", "/onboarding/" <> _} ->
-            Req.Test.json(conn, Zaq.PortalStubs.onboarding_response())
-
-          {"POST", "/onboarding"} ->
-            Req.Test.json(conn, %{
-              "status" => "ok",
-              "user" => %{
-                "litellm_api_key" => "sk-test-key",
-                "litellm_user_id" => "llm-user-test"
-              }
-            })
-        end
-      end)
-
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
       open_portal_consent(view)
       change_portal_email(view, "claimed@example.com")
@@ -209,25 +190,6 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
     end
 
     test "provisions the portal without changing an existing user email", %{conn: conn} do
-      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-        case {conn.method, conn.request_path} do
-          {"GET", "/health/liveliness"} ->
-            Req.Test.json(conn, "I'm alive!")
-
-          {"GET", "/onboarding/" <> _} ->
-            Req.Test.json(conn, Zaq.PortalStubs.onboarding_response())
-
-          {"POST", "/onboarding"} ->
-            Req.Test.json(conn, %{
-              "status" => "ok",
-              "user" => %{
-                "litellm_api_key" => "sk-test-key",
-                "litellm_user_id" => "llm-user-test"
-              }
-            })
-        end
-      end)
-
       user = user_fixture(%{username: "portalready", email: "ready@example.com"})
       {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
       set_portal_consent(user, "declined")
@@ -253,17 +215,9 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
     end
 
     test "shows network error when portal HTTP call fails", %{conn: conn} do
-      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-        case {conn.method, conn.request_path} do
-          {"GET", "/health/liveliness"} ->
-            Req.Test.json(conn, "I'm alive!")
-
-          {"GET", "/onboarding/" <> _} ->
-            Req.Test.json(conn, Zaq.PortalStubs.onboarding_response())
-
-          {"POST", "/onboarding"} ->
-            Req.Test.transport_error(conn, :econnrefused)
-        end
+      # Portal metadata loads (reachable), but the provisioning POST fails.
+      Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+        {:error, :econnrefused}
       end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
