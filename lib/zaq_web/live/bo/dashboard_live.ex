@@ -57,15 +57,16 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   @impl true
   def handle_info(:addons_updated, socket), do: {:noreply, socket}
 
-  # -- Portal consent retry --
   @impl true
-  def handle_info({:portal_flash, level, message}, socket) do
-    {:noreply, put_flash(socket, level, message)}
-  end
-
-  @impl true
-  def handle_info({:portal_user_updated, user}, socket) do
-    {:noreply, assign(socket, :current_user, user)}
+  def handle_info({:portal_consent_accepted, user}, socket) do
+    {:noreply,
+     socket
+     |> assign(:current_user, user)
+     |> put_flash(
+       :info,
+       "You're all set! Your workspace is ready — just drop your files and ingest them to bring your company brain to life."
+     )
+     |> push_navigate(to: ~p"/bo/ingestion")}
   end
 
   # -- Private --
