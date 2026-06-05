@@ -62,6 +62,47 @@ defmodule Zaq.E2E.Reset do
     :ok
   end
 
+  @doc """
+  Seed (or replace) a user that is pending bootstrap onboarding.
+
+  The user has a known password so it can authenticate at `/bo/login`, no email
+  on file (so the change-password form prompts for one), and
+  `must_change_password: true` so login redirects to `/bo/change-password` —
+  the bootstrap onboarding flow under test. Idempotent: any existing user with
+  the same username is removed first.
+
+  Returns `{user, password}`.
+  """
+  def seed_onboarding_user!(attrs \\ %{}) do
+    username = Map.get(attrs, "username", "e2e_onboard")
+    password = Map.get(attrs, "password", "StrongPass1!")
+
+    case Accounts.get_user_by_username(username) do
+      %{} = existing -> Repo.delete!(existing)
+      nil -> :ok
+    end
+
+    role = Accounts.get_role_by_name("super_admin")
+
+    {:ok, user} =
+      Accounts.create_user_with_password(%{
+        username: username,
+        email: "#{username}@seed.local",
+        role_id: role.id,
+        password: password
+      })
+
+    # create_user_with_password hashes the password but also clears
+    # must_change_password. Force the pending-onboarding state and drop the seed
+    # email so the change-password form prompts for a real one.
+    {:ok, user} =
+      user
+      |> Ecto.Changeset.change(must_change_password: true, email: nil)
+      |> Repo.update()
+
+    {user, password}
+  end
+
   @doc "Bump the mtime of a file inside the documents root, so stale detection fires."
   def touch_file!(relative_path) when is_binary(relative_path) do
     absolute = safe_path!(relative_path)

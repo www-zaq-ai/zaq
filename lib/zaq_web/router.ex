@@ -143,6 +143,13 @@ defmodule ZaqWeb.Router do
       post "/mcp-endpoints", E2EController, :create_mcp_endpoint
       post "/agents", E2EController, :create_agent
       post "/ingestion/touch_file", E2EController, :touch_file
+      post "/onboarding-user", E2EController, :create_onboarding_user
+
+      # Loopback stub for the user portal — the real Zaq.UserPortal.Client points
+      # its base_url here in e2e (see config/test.exs) so portal calls are
+      # deterministic and never leave the box.
+      get "/portal/onboarding/:slug", E2EController, :portal_onboarding_metadata
+      post "/portal/onboarding", E2EController, :portal_onboard
     end
 
     scope "/e2e", ZaqWeb do

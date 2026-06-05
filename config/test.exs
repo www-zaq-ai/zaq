@@ -39,21 +39,27 @@ config :zaq, Zaq.Embedding.Client,
   dimension: 1536,
   req_options: [plug: {Req.Test, Zaq.Embedding.Client}]
 
-config :zaq, :user_portal_base_url, "http://user-portal.test"
-
 config :zaq, :litellm_base_url, "http://litellm.test"
-
-if e2e? do
-  config :zaq, Zaq.UserPortal.Client, req_options: [receive_timeout: 500, retry: false]
-else
-  config :zaq, Zaq.UserPortal.Client, req_options: [plug: {Req.Test, Zaq.UserPortal.Client}]
-end
 
 # --MOX--
 config :zaq,
   chunk_title_module: Zaq.Agent.ChunkTitleMock,
   document_processor: Zaq.DocumentProcessorMock,
   node_router: Zaq.NodeRouterMock
+
+if e2e? do
+  # E2E exercises the real portal client (real Req HTTP), but pointed at loopback
+  # stub endpoints served by the e2e server itself (ZaqWeb.E2EController :portal_*).
+  # Responses are deterministic and fast — no external network, no DNS, no retries
+  # — same idea as the fake LLM endpoint at /e2e/llm.
+  config :zaq, :user_portal_base_url, "http://127.0.0.1:4002/e2e/portal"
+else
+  # Unit/integration tests mock the portal client via Mox (Zaq.UserPortal.ClientMock)
+  # — see test/support/portal_stubs.ex. The real client's own unit test
+  # (client_test.exs) configures Req.Test in its setup. base_url is unused here.
+  config :zaq, :user_portal_base_url, "http://user-portal.test"
+  config :zaq, :user_portal_client, Zaq.UserPortal.ClientMock
+end
 
 config :zaq, Zaq.System.SecretConfig,
   encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",

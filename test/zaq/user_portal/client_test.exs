@@ -21,6 +21,12 @@ defmodule Zaq.UserPortal.ClientTest do
   }
 
   setup do
+    # This test exercises the real HTTP client, so it configures Req.Test plumbing
+    # itself (the global test config mocks the client via Mox instead).
+    Application.put_env(:zaq, Zaq.UserPortal.Client,
+      req_options: [plug: {Req.Test, Zaq.UserPortal.Client}]
+    )
+
     Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
       case conn.request_path do
         "/health/liveliness" ->

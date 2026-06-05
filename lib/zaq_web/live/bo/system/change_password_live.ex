@@ -2,6 +2,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Accounts
+  alias Zaq.UserPortal.Onboarding
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Helpers.PasswordHelpers
 
@@ -54,11 +55,18 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     else
       attrs = %{"password" => password, "email" => merged_form_params["email"]}
 
-      {:noreply,
-       socket
-       |> assign(:pending_attrs, attrs)
-       |> assign(:error_message, nil)
-       |> assign(:show_consent_modal, true)}
+      socket =
+        socket
+        |> assign(:pending_attrs, attrs)
+        |> assign(:error_message, nil)
+
+      if portal_reachable?() do
+        {:noreply, assign(socket, :show_consent_modal, true)}
+      else
+        # Portal is unreachable — there is nothing to consent to, so skip the
+        # popup entirely and finish onboarding with consent recorded as declined.
+        {:noreply, apply_onboarding(socket, :declined)}
+      end
     end
   end
 
@@ -75,7 +83,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   end
 
   defp apply_onboarding(socket, portal_consent) do
-    case Accounts.complete_bootstrap_onboarding(
+    case Onboarding.complete_bootstrap_onboarding(
            socket.assigns.user,
            socket.assigns.pending_attrs,
            portal_consent
@@ -88,11 +96,32 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> put_flash(:info, "Password changed successfully")
         |> push_navigate(to: ~p"/bo/dashboard")
 
-      {:error, changeset} ->
+      {:error, {:provisioning_failed, _reason}} ->
+        # Registration succeeded (password changed) but portal provisioning failed.
+        # Consent was recorded as declined — the user can retry from the dashboard.
+        user = Accounts.get_user!(socket.assigns.user.id)
+
+        socket
+        |> assign(:user, user)
+        |> assign(:show_consent_modal, false)
+        |> assign(:pending_attrs, nil)
+        |> put_flash(
+          :info,
+          "Password changed. ZAQ portal activation failed — you can retry it from the dashboard."
+        )
+        |> push_navigate(to: ~p"/bo/dashboard")
+
+      {:error, %Ecto.Changeset{} = changeset} ->
         socket
         |> assign(:show_consent_modal, false)
         |> assign(:pending_attrs, nil)
         |> assign(:error_message, ChangesetErrors.format(changeset))
     end
   end
+
+  defp portal_reachable? do
+    match?({:ok, _metadata}, portal_client().fetch_onboarding("free"))
+  end
+
+  defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 end

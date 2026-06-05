@@ -129,6 +129,48 @@ defmodule ZaqWeb.E2EController do
     end
   end
 
+  # POST /e2e/onboarding-user — seed (or replace) a user pending bootstrap
+  # onboarding. Returns the credentials the spec uses to log in and drive the
+  # /bo/change-password flow. Optional JSON body: {"username": ..., "password": ...}.
+  def create_onboarding_user(conn, params) do
+    {user, password} = Reset.seed_onboarding_user!(params)
+    json(conn, %{ok: true, username: user.username, password: password})
+  end
+
+  # GET /e2e/portal/onboarding/:slug — loopback stub for
+  # Zaq.UserPortal.Client.fetch_onboarding/1. Mirrors the real portal's
+  # `{"message" => %{"message" => _, "metadata" => _}}` shape.
+  def portal_onboarding_metadata(conn, _params) do
+    json(conn, %{
+      "status" => "ok",
+      "message" => %{
+        "message" => "Free credits activated — your ZAQ portal account is ready.",
+        "offer_slug" => "free",
+        "metadata" => %{
+          "title" => "Activate your free credits",
+          "body" => "To create your ZAQ account...",
+          "accept_label" => "Accept & activate free credits",
+          "decline_label" => "Decline — continue without free credits",
+          "subtitle" => "Optional · You can skip this",
+          "footnote" => "Free credits can be claimed later from the dashboard.",
+          "banner_text" => "Claim your $2 in free AI credits — activate your ZAQ portal account."
+        }
+      }
+    })
+  end
+
+  # POST /e2e/portal/onboarding — loopback stub for
+  # Zaq.UserPortal.Client.onboard_user/1. Returns a canned LiteLLM key.
+  def portal_onboard(conn, _params) do
+    json(conn, %{
+      "status" => "ok",
+      "user" => %{
+        "litellm_api_key" => "sk-e2e-portal-key",
+        "litellm_user_id" => "llm-user-e2e"
+      }
+    })
+  end
+
   # GET /e2e/health
   def health(conn, _params) do
     json(conn, %{

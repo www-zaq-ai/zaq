@@ -1,10 +1,11 @@
 defmodule Zaq.PortalStubs do
   @moduledoc """
-  Req.Test stubs for Zaq.UserPortal.Client.
+  Mox stubs for the portal client (`Zaq.UserPortal.ClientMock`).
 
   Call `stub_portal_reachable/0` in a setup block for any test that mounts
   DashboardLive or ChangePasswordLive, which render portal metadata through the
-  consent modal.
+  consent modal. The LiveView process inherits the stub via Mox's `$callers`
+  ownership chain.
   """
 
   @valid_onboarding_response %{
@@ -24,32 +25,27 @@ defmodule Zaq.PortalStubs do
     }
   }
 
+  @doc "Full portal onboarding response body (status + message)."
   def onboarding_response, do: @valid_onboarding_response
 
+  @doc "The inner `message` map, matching what `Client.fetch_onboarding/1` returns."
+  def onboarding_message, do: @valid_onboarding_response["message"]
+
   def stub_portal_reachable do
-    Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-      case {conn.method, conn.request_path} do
-        {"GET", "/health/liveliness"} ->
-          Req.Test.json(conn, "I'm alive!")
+    Mox.stub(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn _slug ->
+      {:ok, onboarding_message()}
+    end)
 
-        {"GET", "/onboarding/" <> _slug} ->
-          Req.Test.json(conn, @valid_onboarding_response)
-
-        {"POST", "/onboarding"} ->
-          Req.Test.json(conn, %{
-            "status" => "ok",
-            "user" => %{
-              "litellm_api_key" => "sk-test-key",
-              "litellm_user_id" => "llm-user-test"
-            }
-          })
-      end
+    Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+      {:ok, %{litellm_api_key: "sk-test-key"}}
     end)
   end
 
   def stub_portal_unreachable do
-    Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
-      Req.Test.transport_error(conn, :econnrefused)
+    Mox.stub(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn _slug -> :unavailable end)
+
+    Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+      {:error, :econnrefused}
     end)
   end
 end

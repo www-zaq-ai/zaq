@@ -1,9 +1,9 @@
 defmodule Zaq.UserPortal.Provisioner do
   @moduledoc """
-  Provisions the ZAQ Provider credential from user portal onboarding results.
+  Provisions the ZAQ Router credential from user portal onboarding results.
 
   This module owns the portal-specific bootstrap behavior: creating or updating
-  the "ZAQ Provider" credential, and wiring first-run model configs when the
+  the "ZAQ Router" credential, and wiring first-run model configs when the
   portal returns a LiteLLM API key. It delegates all persistence to `Zaq.System`.
   """
 
@@ -15,12 +15,11 @@ defmodule Zaq.UserPortal.Provisioner do
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
-  alias Zaq.UserPortal.Client
 
   require Logger
 
-  @credential_name "ZAQ Provider"
-  @description "Zaq Provider (Free Tier) gives you ability to access different models."
+  @credential_name "ZAQ Router"
+  @description "ZAQ Router gives you the ability to access different models."
 
   @doc """
   Calls the portal to onboard the user by email and provisions the ZAQ credential
@@ -28,30 +27,9 @@ defmodule Zaq.UserPortal.Provisioner do
   """
   @spec provision_for_user(String.t()) :: {:ok, AIProviderCredential.t()} | {:error, term()}
   def provision_for_user(email) when is_binary(email) do
-    case Client.onboard_user(email) do
+    case client().onboard_user(email) do
       {:ok, litellm} -> provision_with_key(litellm)
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
-  Fire-and-forget variant of `provision_for_user/1`. Logs failures but does not
-  propagate errors — used during bootstrap where provisioning is best-effort.
-  """
-  @spec attempt_provision_for_user(String.t()) :: :ok
-  def attempt_provision_for_user(email) when is_binary(email) do
-    case Client.onboard_user(email) do
-      {:ok, litellm} ->
-        case provision_with_key(litellm) do
-          {:ok, _} ->
-            :ok
-
-          {:error, reason} ->
-            Logger.warning("LiteLLM credential creation failed: #{inspect(reason)}")
-        end
-
-      {:error, reason} ->
-        Logger.warning("User portal onboarding failed: #{inspect(reason)}")
     end
   end
 
@@ -96,13 +74,7 @@ defmodule Zaq.UserPortal.Provisioner do
     end
   end
 
-  @spec provision_without_key(keyword()) :: {:ok, AIProviderCredential.t()} | {:error, term()}
-  def provision_without_key(_opts \\ []) do
-    case System.get_ai_provider_credential_by_name(@credential_name) do
-      nil -> System.create_ai_provider_credential(credential_attrs(%{}))
-      existing -> {:ok, existing}
-    end
-  end
+  defp client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 
   defp credential_attrs(extra) do
     Map.merge(

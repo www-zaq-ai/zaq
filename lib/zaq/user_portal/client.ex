@@ -7,13 +7,15 @@ defmodule Zaq.UserPortal.Client do
 
   ## Testing
 
-  In `config/test.exs`, configure Req.Test stubbing:
+  Application code calls the portal through the configurable client returned by
+  `Application.get_env(:zaq, :user_portal_client, __MODULE__)`, so tests mock
+  `Zaq.UserPortal.ClientMock` (a `Mox` mock of `Zaq.UserPortal.ClientBehaviour`).
 
-      config :zaq, Zaq.UserPortal.Client,
-        req_options: [plug: {Req.Test, Zaq.UserPortal.Client}]
-
-  Then in tests, use `Req.Test.stub/2` to mock responses.
+  This module — the real HTTP client — is exercised directly only by its own unit
+  test, which configures `Req.Test` plumbing in its setup.
   """
+
+  @behaviour Zaq.UserPortal.ClientBehaviour
 
   alias Zaq.System.MachineFingerprint
 
@@ -25,11 +27,10 @@ defmodule Zaq.UserPortal.Client do
   Returns `{:ok, metadata}` on success. Any failure — connection refused,
   timeout, non-200, or unexpected body — returns `:unavailable`.
   """
-  @spec fetch_onboarding(String.t()) :: {:ok, map()} | :unavailable
+  @impl Zaq.UserPortal.ClientBehaviour
   def fetch_onboarding(slug), do: fetch_onboarding_metadata(slug)
 
-  @spec onboard_user(String.t()) ::
-          {:ok, %{litellm_api_key: String.t()}} | {:error, term()}
+  @impl Zaq.UserPortal.ClientBehaviour
   def onboard_user(email) when is_binary(email) do
     base_url = Application.fetch_env!(:zaq, :user_portal_base_url)
     fingerprint = MachineFingerprint.get()
