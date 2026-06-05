@@ -8,6 +8,26 @@ defmodule Storybook.Layouts.BoLayout do
   def render(assigns) do
     ~H"""
     <div style="font-family: var(--zaq-font-primary, monospace); color: var(--zaq-color-ink); padding: 2rem; max-width: 900px;">
+      <%!-- ── Preview ────────────────────────────────────────── --%>
+      <section style="margin-bottom: 3rem;">
+        <h2 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--zaq-color-ink);">
+          Preview
+        </h2>
+        <div style="height: 500px; overflow: hidden; border-radius: 8px; border: 1px solid var(--zaq-color-surface-border); position: relative;">
+          <ZaqWeb.Components.BOLayout.bo_layout
+            current_user={%{username: "Admin"}}
+            page_title="Dashboard"
+            current_path="/bo/dashboard"
+            flash={%{}}
+            update_badge_enabled={false}
+          >
+            <div style="padding: 2rem; color: var(--zaq-color-ink-soft);">
+              ← Sidebar visible on the left
+            </div>
+          </ZaqWeb.Components.BOLayout.bo_layout>
+        </div>
+      </section>
+
       <%!-- ── Usage ─────────────────────────────────────────── --%>
       <section style="margin-bottom: 3rem;">
         <h2 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--zaq-color-ink);">
