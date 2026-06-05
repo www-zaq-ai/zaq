@@ -70,6 +70,22 @@ defmodule Zaq.Accounts.User do
     change(user, portal_consent: consent)
   end
 
+  @doc """
+  Changeset for the dashboard portal-activation (retry) flow.
+
+  Records consent as accepted and, for older accounts with no email on file,
+  captures and validates the email. The email format is validated here so an
+  invalid address never reaches the portal. `Zaq.UserPortal.Onboarding.activate_portal/2`
+  builds this changeset, validates it up front, and only persists it once
+  provisioning succeeds — so a failed attempt never commits an email change.
+  """
+  def portal_activation_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email, :portal_consent])
+    |> validate_required([:email, :portal_consent])
+    |> validate_email_format_and_uniqueness()
+  end
+
   defp hash_password(%{valid?: true, changes: %{password: password}} = changeset) do
     changeset
     |> put_change(:password_hash, Bcrypt.hash_pwd_salt(password))

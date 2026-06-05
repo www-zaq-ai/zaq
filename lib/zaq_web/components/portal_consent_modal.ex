@@ -13,11 +13,18 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   a non-blank email is provided. Track the value in the parent LiveView via the
   `on_email_change` event and feed it back through the `email` assign.
 
+  ## Metadata
+
+  This is a pure presentational component: it performs no portal calls. The
+  caller fetches onboarding metadata once (via `Zaq.UserPortal.Client.fetch_onboarding/1`)
+  and passes the inner `metadata` map through the `metadata` assign. Missing keys
+  fall back to `@default_metadata`. Passing `nil` renders the defaults.
+
   ## Usage
 
       <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
         show={@show_consent_modal}
-        slug="free"
+        metadata={@portal_metadata}
         on_accept="accept_portal_consent"
         on_decline="decline_portal_consent"
         require_email={@require_portal_email}
@@ -39,7 +46,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   }
 
   attr :show, :boolean, required: true
-  attr :slug, :string, required: true
+  attr :metadata, :map, default: nil
   attr :on_accept, :string, default: "accept_portal_consent"
   attr :on_decline, :string, required: true
   attr :error, :string, default: nil
@@ -49,11 +56,9 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :target, :any, default: nil
 
   def portal_consent_modal(assigns) do
-    metadata = load_metadata(assigns.show, assigns.slug)
-
     assigns =
       assigns
-      |> assign(:metadata, metadata)
+      |> assign(:metadata, Map.merge(@default_metadata, assigns.metadata || %{}))
       |> assign(:accept_disabled, assigns.require_email and not email_entered?(assigns.email))
 
     ~H"""
@@ -182,10 +187,30 @@ defmodule ZaqWeb.Components.PortalConsentModal do
             phx-click={@on_accept}
             phx-target={@target}
             disabled={@accept_disabled}
-            class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0"
+            class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide uppercase font-mono font-bold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(34,211,238,0.35)] hover:-translate-y-[1px] active:translate-y-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0 phx-click-loading:pointer-events-none phx-click-loading:cursor-wait phx-click-loading:opacity-90"
             style="background: linear-gradient(135deg, #22d3ee, #34d399); color: #060a12;"
           >
-            {@metadata["accept_label"]}
+            <span class="inline-flex items-center justify-center gap-2 phx-click-loading:hidden">
+              {@metadata["accept_label"]}
+            </span>
+            <span class="hidden items-center justify-center gap-2 phx-click-loading:inline-flex">
+              <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                />
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"
+                />
+              </svg>
+              Activating…
+            </span>
           </button>
           <button
             phx-click={@on_decline}
@@ -199,17 +224,6 @@ defmodule ZaqWeb.Components.PortalConsentModal do
     </div>
     """
   end
-
-  defp load_metadata(false, _slug), do: @default_metadata
-
-  defp load_metadata(true, slug) do
-    case portal_client().fetch_onboarding(slug) do
-      {:ok, payload} -> Map.merge(@default_metadata, get_in(payload, ["metadata"]) || %{})
-      :unavailable -> @default_metadata
-    end
-  end
-
-  defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 
   defp email_entered?(email), do: is_binary(email) and String.trim(email) != ""
 end

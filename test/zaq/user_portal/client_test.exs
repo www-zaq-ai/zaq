@@ -80,6 +80,22 @@ defmodule Zaq.UserPortal.ClientTest do
       assert Client.fetch_onboarding("free") == :unavailable
     end
 
+    test "makes exactly one request when the portal is unreachable (no retries)" do
+      test_pid = self()
+
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        send(test_pid, {:portal_request, conn.request_path})
+        Req.Test.transport_error(conn, :econnrefused)
+      end)
+
+      assert Client.fetch_onboarding("free") == :unavailable
+
+      # Req's default `:safe_transient` retry would fire this 4 times for a GET;
+      # `retry: false` guarantees a single attempt.
+      assert_received {:portal_request, "/onboarding/free"}
+      refute_received {:portal_request, _}
+    end
+
     test "returns :unavailable when metadata endpoint returns 404" do
       Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
         case conn.request_path do

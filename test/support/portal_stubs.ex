@@ -48,4 +48,19 @@ defmodule Zaq.PortalStubs do
       {:error, :econnrefused}
     end)
   end
+
+  @doc """
+  Portal is reachable, but `onboard_user/1` responds with the given non-200
+  `status` and `body` (matching `Client.onboard_user/1`'s `{:error, {status, body}}`
+  shape). Use to exercise error messaging such as a 409 "user already exists".
+  """
+  def stub_portal_onboard_error(status, body) do
+    Mox.stub(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn _slug ->
+      {:ok, onboarding_message()}
+    end)
+
+    Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+      {:error, {status, body}}
+    end)
+  end
 end

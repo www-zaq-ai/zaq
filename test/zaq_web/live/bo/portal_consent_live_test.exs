@@ -42,6 +42,42 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
     end
   end
 
+  describe "accept_portal_consent error messaging" do
+    test "surfaces the portal's own message on a non-200 response", %{conn: conn} do
+      Zaq.PortalStubs.stub_portal_onboard_error(409, %{
+        "error" => "user_already_exists",
+        "message" => "A user with this email is already provisioned."
+      })
+
+      conn = conn_for_portal_user(conn, "declined")
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      view |> element("#portal-consent button", "Activate") |> render_click()
+      html = view |> element("button", "Accept") |> render_click()
+
+      assert html =~ "A user with this email is already provisioned."
+      refute html =~ "Could not reach the ZAQ portal"
+    end
+
+    test "falls back to a generic message on transport failure", %{conn: conn} do
+      Mox.stub(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn _slug ->
+        {:ok, Zaq.PortalStubs.onboarding_message()}
+      end)
+
+      Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+        {:error, :econnrefused}
+      end)
+
+      conn = conn_for_portal_user(conn, "declined")
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      view |> element("#portal-consent button", "Activate") |> render_click()
+      html = view |> element("button", "Accept") |> render_click()
+
+      assert html =~ "Could not reach the ZAQ portal. Please try again later."
+    end
+  end
+
   defp conn_for_portal_user(conn, portal_consent) do
     user = user_fixture(%{username: "portal_#{System.unique_integer([:positive])}"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})

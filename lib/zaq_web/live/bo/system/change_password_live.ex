@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> PasswordHelpers.assign_password_feedback(form_params)
      |> assign(:error_message, nil)
      |> assign(:show_consent_modal, false)
+     |> assign(:portal_metadata, nil)
      |> assign(:pending_attrs, nil)}
   end
 
@@ -60,12 +61,18 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> assign(:pending_attrs, attrs)
         |> assign(:error_message, nil)
 
-      if portal_reachable?() do
-        {:noreply, assign(socket, :show_consent_modal, true)}
-      else
-        # Portal is unreachable — there is nothing to consent to, so skip the
-        # popup entirely and finish onboarding with consent recorded as declined.
-        {:noreply, apply_onboarding(socket, :declined)}
+      case fetch_portal_metadata() do
+        {:ok, metadata} ->
+          {:noreply,
+           socket
+           |> assign(:portal_metadata, metadata)
+           |> assign(:show_consent_modal, true)}
+
+        :unavailable ->
+          # Portal is unreachable — there is nothing to consent to, so skip the
+          # popup entirely. Onboarding records consent as declined and scaffolds
+          # the (keyless) ZAQ Router provider so it is still listed for the user.
+          {:noreply, apply_onboarding(socket, :unavailable)}
       end
     end
   end
@@ -135,8 +142,13 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     |> push_navigate(to: ~p"/bo/dashboard")
   end
 
-  defp portal_reachable? do
-    match?({:ok, _metadata}, portal_client().fetch_onboarding("free"))
+  # Single portal request for the bootstrap flow: returns the inner metadata map
+  # when reachable so the consent modal can render without making its own call.
+  defp fetch_portal_metadata do
+    case portal_client().fetch_onboarding("free") do
+      {:ok, payload} -> {:ok, get_in(payload, ["metadata"]) || %{}}
+      :unavailable -> :unavailable
+    end
   end
 
   defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)

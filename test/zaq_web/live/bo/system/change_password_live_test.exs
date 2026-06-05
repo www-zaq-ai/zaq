@@ -224,6 +224,11 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     refute updated_user.must_change_password
     assert is_binary(updated_user.password_hash)
     assert updated_user.portal_consent == "declined"
+
+    # The keyless ZAQ Router provider is scaffolded so it is still listed.
+    credential = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
+    assert credential.provider == "zaq_router"
+    assert is_nil(credential.api_key)
   end
 
   test "redirects to dashboard when portal provisioning fails on accept", %{conn: conn} do

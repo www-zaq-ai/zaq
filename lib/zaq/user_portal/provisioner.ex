@@ -7,9 +7,7 @@ defmodule Zaq.UserPortal.Provisioner do
   portal returns a LiteLLM API key. It delegates all persistence to `Zaq.System`.
   """
 
-  alias Zaq.Accounts.User
   alias Zaq.Agent.ZAQProvider
-  alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.EmbeddingConfig
@@ -34,22 +32,18 @@ defmodule Zaq.UserPortal.Provisioner do
   end
 
   @doc """
-  Provisions the portal account for an already-onboarded user.
+  Creates the "ZAQ Router" credential with no API key, used when the portal is
+  unreachable during onboarding so the provider is still listed for the user.
 
-  Used from the dashboard retry flow when the admin previously declined portal
-  consent during bootstrap. On success, marks the user's portal consent as
-  accepted and provisions the LiteLLM credential.
+  Unlike `provision_with_key/2`, this does **not** wire the LLM/embedding/image
+  configs and does **not** overwrite an existing credential. A later successful
+  portal claim updates the same credential by name and fills in the API key.
   """
-  @spec provision_for_existing_user(User.t()) :: {:ok, User.t()} | {:error, term()}
-  def provision_for_existing_user(%User{} = user) do
-    case provision_for_user(user.email) do
-      {:ok, _credential} ->
-        user
-        |> User.portal_consent_changeset("accepted")
-        |> Repo.update()
-
-      {:error, reason} ->
-        {:error, reason}
+  @spec ensure_offline_credential() :: {:ok, AIProviderCredential.t()} | {:error, term()}
+  def ensure_offline_credential do
+    case System.get_ai_provider_credential_by_name(@credential_name) do
+      nil -> System.create_ai_provider_credential(credential_attrs(%{}))
+      %AIProviderCredential{} = existing -> {:ok, existing}
     end
   end
 
@@ -80,7 +74,7 @@ defmodule Zaq.UserPortal.Provisioner do
     Map.merge(
       %{
         name: @credential_name,
-        provider: "zaq_provider",
+        provider: "zaq_router",
         endpoint: ZAQProvider.default_endpoint(),
         sovereign: false,
         description: @description

@@ -5,14 +5,14 @@ defmodule Zaq.Agent.ZAQProvider do
   ZAQ Provider is a LiteLLM gateway exposed through the User Portal. It appears
   in the provider list alongside openai/anthropic but routes all requests through
   the credential endpoint using the OpenAI-compatible protocol — `ProviderSpec`
-  maps `:zaq_provider` to `:openai` for ReqLLM routing.
+  maps `:zaq_router` to `:openai` for ReqLLM routing.
 
   The model list below is the default set advertised at startup. Call `reload/1`
   with a runtime list (e.g. from the portal `/models` response) to update it
   without restarting.
   """
 
-  @provider_id :zaq_provider
+  @provider_id :zaq_router
 
   @vision_modalities %{input: [:image, :text, :video], output: [:text]}
 

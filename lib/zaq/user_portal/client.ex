@@ -38,7 +38,8 @@ defmodule Zaq.UserPortal.Client do
     req_opts =
       [
         url: base_url <> "/onboarding",
-        json: %{email: email, machine_fingerprint: fingerprint, plan: "free"}
+        json: %{email: email, machine_fingerprint: fingerprint, plan: "free"},
+        retry: false
       ]
       |> Keyword.merge(req_options())
 
@@ -61,7 +62,7 @@ defmodule Zaq.UserPortal.Client do
     base_url = Application.fetch_env!(:zaq, :user_portal_base_url)
 
     req_opts =
-      [url: base_url <> "/onboarding/#{slug}"]
+      [url: base_url <> "/onboarding/#{slug}", retry: false]
       |> Keyword.merge(req_options())
 
     case Req.get(req_opts) do
@@ -81,6 +82,10 @@ defmodule Zaq.UserPortal.Client do
     end
   end
 
+  # Both requests pass `retry: false` so a single logical call makes exactly one
+  # HTTP request — when the portal is unreachable we surface that immediately
+  # rather than letting Req's default `:safe_transient` retry the GET several times.
+  # Configured `req_options` are merged last and may override this if ever needed.
   defp req_options do
     :zaq
     |> Application.get_env(__MODULE__, [])

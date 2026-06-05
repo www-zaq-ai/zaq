@@ -9,28 +9,35 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   use ZaqWeb, :live_component
 
-  alias Zaq.Accounts
-  alias Zaq.UserPortal.Provisioner
+  alias Zaq.UserPortal.Onboarding
 
   @impl true
-  def update(%{id: id, current_user: current_user}, socket) do
-    user_email = current_user.email
+  def mount(socket) do
+    # Reachability + metadata are fetched exactly once, when the component is
+    # first added to the page — never again on parent re-renders.
     {portal_reachable, portal_metadata} = load_portal_onboarding()
-
-    show_portal_banner = portal_reachable and current_user.portal_consent == "declined"
 
     {:ok,
      assign(socket,
-       id: id,
-       current_user: current_user,
-       show_portal_banner: show_portal_banner,
-       show_portal_consent_modal: false,
-       portal_provision_error: nil,
-       require_portal_email: blank?(user_email),
-       portal_consent_email: user_email || "",
        portal_reachable: portal_reachable,
-       portal_metadata: portal_metadata
+       portal_metadata: portal_metadata,
+       show_portal_consent_modal: false,
+       portal_provision_error: nil
      )}
+  end
+
+  @impl true
+  def update(%{id: id, current_user: current_user}, socket) do
+    {:ok,
+     socket
+     |> assign(:id, id)
+     |> assign(:current_user, current_user)
+     |> assign(
+       :show_portal_banner,
+       socket.assigns.portal_reachable and current_user.portal_consent == "declined"
+     )
+     |> assign(:require_portal_email, blank?(current_user.email))
+     |> assign_new(:portal_consent_email, fn -> current_user.email || "" end)}
   end
 
   @impl true
@@ -92,7 +99,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
       <ZaqWeb.Components.PortalConsentModal.portal_consent_modal
         :if={@portal_reachable}
         show={@show_portal_consent_modal}
-        slug="free"
+        metadata={@metadata}
         target={@myself}
         on_decline="close_portal_consent_modal"
         require_email={@require_portal_email}
@@ -121,23 +128,22 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   @impl true
   def handle_event("accept_portal_consent", _params, socket) do
-    with {:ok, user} <-
-           maybe_set_portal_email(
-             socket.assigns.current_user,
-             socket.assigns.portal_consent_email
-           ),
-         {:ok, updated_user} <- Provisioner.provision_for_existing_user(user) do
-      send(self(), {:portal_consent_accepted, updated_user})
+    case Onboarding.activate_portal(
+           socket.assigns.current_user,
+           socket.assigns.portal_consent_email
+         ) do
+      {:ok, updated_user} ->
+        send(self(), {:portal_consent_accepted, updated_user})
 
-      {:noreply,
-       socket
-       |> assign(:current_user, updated_user)
-       |> assign(:show_portal_banner, false)
-       |> assign(:show_portal_consent_modal, false)
-       |> assign(:require_portal_email, false)
-       |> assign(:portal_consent_email, updated_user.email)
-       |> assign(:portal_provision_error, nil)}
-    else
+        {:noreply,
+         socket
+         |> assign(:current_user, updated_user)
+         |> assign(:show_portal_banner, false)
+         |> assign(:show_portal_consent_modal, false)
+         |> assign(:require_portal_email, false)
+         |> assign(:portal_consent_email, updated_user.email)
+         |> assign(:portal_provision_error, nil)}
+
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
          assign(socket,
@@ -145,21 +151,25 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
            show_portal_consent_modal: true
          )}
 
-      {:error, _reason} ->
+      {:error, reason} ->
         {:noreply,
          assign(socket,
-           portal_provision_error: "Could not reach the ZAQ portal. Please try again later.",
+           portal_provision_error: provision_error_message(reason),
            show_portal_consent_modal: true
          )}
     end
   end
 
-  defp maybe_set_portal_email(user, entered_email) do
-    if blank?(user.email) do
-      Accounts.update_user(user, %{"email" => String.trim(entered_email || "")})
-    else
-      {:ok, user}
-    end
+  # Surface the portal's own message (e.g. a 409 "user already exists") when the
+  # portal actually responded. Only genuine transport failures — where no
+  # response body is available — fall back to the "could not reach" message.
+  defp provision_error_message({_status, %{"message" => message}})
+       when is_binary(message) and message != "" do
+    message
+  end
+
+  defp provision_error_message(_reason) do
+    "Could not reach the ZAQ portal. Please try again later."
   end
 
   defp email_error_message(changeset) do

@@ -1,14 +1,7 @@
 defmodule Zaq.UserPortal.ProvisionerTest do
   use Zaq.DataCase, async: false
 
-  import Mox
-  import Zaq.AccountsFixtures
-
-  alias Zaq.Accounts
-  alias Zaq.Accounts.User
-  alias Zaq.Repo
   alias Zaq.System
-  alias Zaq.UserPortal.ClientMock
   alias Zaq.UserPortal.Provisioner
 
   describe "provision_with_key/2" do
@@ -17,7 +10,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       credential = System.get_ai_provider_credential!(credential.id)
 
       assert credential.name == "ZAQ Router"
-      assert credential.provider == "zaq_provider"
+      assert credential.provider == "zaq_router"
       assert credential.api_key == "sk-new"
     end
 
@@ -65,67 +58,28 @@ defmodule Zaq.UserPortal.ProvisionerTest do
     end
   end
 
-  describe "provision_for_existing_user/1" do
-    setup :verify_on_exit!
+  describe "ensure_offline_credential/0" do
+    test "creates a keyless ZAQ Router credential without wiring model configs" do
+      assert {:ok, credential} = Provisioner.ensure_offline_credential()
+      credential = System.get_ai_provider_credential!(credential.id)
 
-    test "provisions the portal and marks consent as accepted" do
-      expect(ClientMock, :onboard_user, fn "portal@zaq.local" ->
-        {:ok, %{litellm_api_key: "sk-test-key"}}
-      end)
+      assert credential.name == "ZAQ Router"
+      assert credential.provider == "zaq_router"
+      assert is_nil(credential.api_key)
 
-      user =
-        user_fixture(%{email: "portal@zaq.local"})
-        |> set_portal_consent("declined")
-
-      assert {:ok, updated_user} = Provisioner.provision_for_existing_user(user)
-
-      assert updated_user.portal_consent == "accepted"
-      assert Accounts.get_user!(user.id).portal_consent == "accepted"
-
-      assert %Zaq.System.AIProviderCredential{name: "ZAQ Router"} =
-               System.get_ai_provider_credential_by_name("ZAQ Router")
+      # Provider is listed, but not set as the active model configuration.
+      assert is_nil(System.get_llm_config().credential_id)
+      assert is_nil(System.get_embedding_config().credential_id)
+      assert is_nil(System.get_image_to_text_config().credential_id)
     end
 
-    test "returns error when litellm credential creation fails" do
-      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+    test "does not overwrite an existing credential or its key" do
+      assert {:ok, existing} = Provisioner.provision_with_key(%{litellm_api_key: "sk-keep"})
 
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: nil,
-        key_id: "v1"
-      )
+      assert {:ok, same} = Provisioner.ensure_offline_credential()
 
-      on_exit(fn -> Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret) end)
-
-      expect(ClientMock, :onboard_user, fn _email ->
-        {:ok, %{litellm_api_key: "sk-test-key"}}
-      end)
-
-      user =
-        user_fixture(%{email: "portal-error@zaq.local"})
-        |> set_portal_consent("declined")
-
-      assert {:error, %Ecto.Changeset{}} = Provisioner.provision_for_existing_user(user)
-      assert Accounts.get_user!(user.id).portal_consent == "declined"
+      assert same.id == existing.id
+      assert System.get_ai_provider_credential!(same.id).api_key == "sk-keep"
     end
-
-    test "returns error when the portal is unreachable" do
-      expect(ClientMock, :onboard_user, fn _email -> {:error, :econnrefused} end)
-
-      user =
-        user_fixture(%{email: "portal-down@zaq.local"})
-        |> set_portal_consent("declined")
-
-      assert {:error, :econnrefused} = Provisioner.provision_for_existing_user(user)
-      assert Accounts.get_user!(user.id).portal_consent == "declined"
-    end
-  end
-
-  defp set_portal_consent(%User{} = user, consent) do
-    {:ok, user} =
-      user
-      |> User.portal_consent_changeset(consent)
-      |> Repo.update()
-
-    user
   end
 end
