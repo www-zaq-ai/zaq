@@ -169,7 +169,7 @@ defmodule Zaq.Agent.Executor do
                }
              ),
            # With tool calling, multiple turns can occur in a single request, high timeout avoids false negatives
-           {:ok, answer} <- factory_module.await(request, timeout: 120_000) do
+           {:ok, answer} <- factory_module.await(request, timeout: 320_000) do
         tool_calls = collect_tool_calls(incoming)
 
         confidence =
