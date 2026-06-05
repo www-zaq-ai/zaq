@@ -70,6 +70,11 @@
   --zaq-btn-ghost-color-icon-disabled: var(--zaq-color-black-100);
 }
 
+/* ── Dark mode overrides ─────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --zaq-btn-secondary-color-border-resting: var(--zaq-color-neutral-400);
+}
+
 /* ── Base — layout & shape only, no color ────────────────────────────────── */
 /* Always combine with .zaq-btn-text_label-default for typography */
 .zaq-btn {
