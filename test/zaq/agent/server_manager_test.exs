@@ -609,6 +609,130 @@ defmodule Zaq.Agent.ServerManagerTest do
              )
   end
 
+  test "handle_call stop_server/3 untracks only the matching stopped server" do
+    configured_agent = %ConfiguredAgent{id: 123_457}
+    target_server_id = "configured_agent_123457:target"
+    other_server_id = "configured_agent_123457:other"
+
+    state = %{
+      fingerprints: %{target_server_id => "old", other_server_id => "current"},
+      agent_servers: %{configured_agent.id => MapSet.new([target_server_id, other_server_id])},
+      server_to_agent: %{
+        target_server_id => configured_agent.id,
+        other_server_id => configured_agent.id
+      },
+      draining: %{},
+      monitors: %{}
+    }
+
+    assert {:reply, :ok, next_state} =
+             ServerManager.handle_call(
+               {:stop_server, configured_agent, target_server_id},
+               self(),
+               state
+             )
+
+    assert next_state.fingerprints == %{other_server_id => "current"}
+    assert next_state.server_to_agent == %{other_server_id => configured_agent.id}
+    assert next_state.agent_servers == %{configured_agent.id => MapSet.new([other_server_id])}
+  end
+
+  test "handle_call stop_server/3 leaves an already draining running server tracked" do
+    configured_agent = %ConfiguredAgent{id: 123_458}
+    server_id = "configured_agent_123458:draining"
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+    drain_ref = make_ref()
+
+    pid = start_registered_dummy_server(registry, server_id)
+
+    on_exit(fn -> stop_registered_dummy_server(pid) end)
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{configured_agent.id => MapSet.new([server_id])},
+      server_to_agent: %{server_id => configured_agent.id},
+      draining: %{server_id => drain_ref},
+      monitors: %{}
+    }
+
+    assert {:reply, :ok, ^state} =
+             ServerManager.handle_call({:stop_server, configured_agent, server_id}, self(), state)
+  end
+
+  test "handle_info DOWN ignores unknown monitors and untracks known monitors" do
+    configured_agent = %ConfiguredAgent{id: 123_459}
+    server_id = "configured_agent_123459:monitored"
+    monitor_ref = make_ref()
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{configured_agent.id => MapSet.new([server_id])},
+      server_to_agent: %{server_id => configured_agent.id},
+      draining: %{},
+      monitors: %{server_id => monitor_ref}
+    }
+
+    assert {:noreply, ^state} =
+             ServerManager.handle_info({:DOWN, make_ref(), :process, self(), :normal}, state)
+
+    assert {:noreply, next_state} =
+             ServerManager.handle_info({:DOWN, monitor_ref, :process, self(), :normal}, state)
+
+    assert next_state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             monitors: %{}
+           }
+  end
+
+  test "handle_info force_stop_server ignores stale drain refs" do
+    server_id = "configured_agent_123460:stale_drain"
+    active_ref = make_ref()
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{123_460 => MapSet.new([server_id])},
+      server_to_agent: %{server_id => 123_460},
+      draining: %{server_id => active_ref},
+      monitors: %{}
+    }
+
+    assert {:noreply, ^state} =
+             ServerManager.handle_info({:force_stop_server, server_id, make_ref()}, state)
+  end
+
+  test "handle_info force_stop_server kills a registered process not owned by the supervisor" do
+    server_id = "configured_agent_123461:unsupervised"
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+    drain_ref = make_ref()
+
+    pid = start_registered_dummy_server(registry, server_id)
+    monitor_ref = Process.monitor(pid)
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{123_461 => MapSet.new([server_id])},
+      server_to_agent: %{server_id => 123_461},
+      draining: %{server_id => drain_ref},
+      monitors: %{}
+    }
+
+    assert {:noreply, next_state} =
+             ServerManager.handle_info({:force_stop_server, server_id, drain_ref}, state)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :killed}, 1_000
+
+    assert next_state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             monitors: %{}
+           }
+  end
+
   test "start_link returns already_started when manager is running" do
     assert {:error, {:already_started, pid}} = ServerManager.start_link([])
     assert is_pid(pid)
@@ -1473,4 +1597,25 @@ defmodule Zaq.Agent.ServerManagerTest do
   end
 
   defp extract_request_content(_), do: ""
+
+  defp start_registered_dummy_server(registry, server_id) do
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        {:ok, _} = Registry.register(registry, server_id, nil)
+        send(parent, {:dummy_server_registered, self(), server_id})
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert_receive {:dummy_server_registered, ^pid, ^server_id}, 1_000
+    pid
+  end
+
+  defp stop_registered_dummy_server(pid) when is_pid(pid) do
+    if Process.alive?(pid), do: send(pid, :stop)
+  end
 end
