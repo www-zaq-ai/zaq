@@ -183,9 +183,12 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       open_portal_consent(view)
       change_portal_email(view, "claimed@example.com")
 
-      html = accept_portal_consent(view)
+      view
+      |> element("button[phx-click='accept_portal_consent']")
+      |> render_click()
 
-      assert html =~ "Free credits activated"
+      flash = assert_redirect(view, ~p"/bo/ingestion")
+      assert flash["info"] =~ "drop your files and ingest them"
       assert Accounts.get_user!(user.id).email == "claimed@example.com"
     end
 
@@ -198,9 +201,12 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
       open_portal_consent(view)
 
-      html = accept_portal_consent(view)
+      view
+      |> element("button[phx-click='accept_portal_consent']")
+      |> render_click()
 
-      assert html =~ "Free credits activated"
+      flash = assert_redirect(view, ~p"/bo/ingestion")
+      assert flash["info"] =~ "drop your files and ingest them"
       assert Accounts.get_user!(user.id).email == "ready@example.com"
     end
 

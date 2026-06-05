@@ -93,8 +93,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> assign(:user, user)
         |> assign(:show_consent_modal, false)
         |> assign(:pending_attrs, nil)
-        |> put_flash(:info, "Password changed successfully")
-        |> push_navigate(to: ~p"/bo/dashboard")
+        |> onboarding_success_redirect(portal_consent)
 
       {:error, {:provisioning_failed, _reason}} ->
         # Registration succeeded (password changed) but portal provisioning failed.
@@ -117,6 +116,23 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> assign(:pending_attrs, nil)
         |> assign(:error_message, ChangesetErrors.format(changeset))
     end
+  end
+
+  # When the user activates the ZAQ portal, send them straight to ingestion so
+  # they can start dropping files. Declining keeps the original dashboard flow.
+  defp onboarding_success_redirect(socket, :accepted) do
+    socket
+    |> put_flash(
+      :info,
+      "You're all set! Your workspace is ready — just drop your files and ingest them to bring your company brain to life."
+    )
+    |> push_navigate(to: ~p"/bo/ingestion")
+  end
+
+  defp onboarding_success_redirect(socket, _portal_consent) do
+    socket
+    |> put_flash(:info, "Password changed successfully")
+    |> push_navigate(to: ~p"/bo/dashboard")
   end
 
   defp portal_reachable? do

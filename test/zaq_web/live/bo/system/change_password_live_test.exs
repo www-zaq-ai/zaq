@@ -125,6 +125,29 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert is_binary(updated_user.password_hash)
   end
 
+  test "redirects to ingestion when the portal consent is accepted", %{conn: conn} do
+    user = user_fixture(%{username: "must_change_password_accept_ingestion"})
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    render_click(view, "accept_portal_consent")
+
+    flash = assert_redirect(view, ~p"/bo/ingestion")
+    assert flash["info"] =~ "drop your files and ingest them"
+
+    updated_user = Accounts.get_user!(user.id)
+    refute updated_user.must_change_password
+    assert updated_user.portal_consent == "accepted"
+  end
+
   test "shows mandatory email field when user email is missing", %{conn: conn} do
     user = user_fixture(%{username: "must_change_password_missing_email"})
     Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])

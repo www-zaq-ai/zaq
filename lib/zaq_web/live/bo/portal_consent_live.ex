@@ -127,12 +127,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
              socket.assigns.portal_consent_email
            ),
          {:ok, updated_user} <- Provisioner.provision_for_existing_user(user) do
-      send(
-        self(),
-        {:portal_flash, :info, Map.get(socket.assigns.portal_metadata || %{}, "message")}
-      )
-
-      send(self(), {:portal_user_updated, updated_user})
+      send(self(), {:portal_consent_accepted, updated_user})
 
       {:noreply,
        socket
