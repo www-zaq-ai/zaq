@@ -38,7 +38,7 @@ module.exports = defineConfig({
       stderr: "pipe",
     }] : []),
     {
-      command: "sh -c 'cd ../.. && mix phx.server'",
+      command: "sh -c 'cd ../.. && PORT=4000 MIX_ENV=dev mix phx.server'",
       url: "http://localhost:4000/storybook",
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,

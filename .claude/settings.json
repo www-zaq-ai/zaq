@@ -11,7 +11,8 @@
       "Read(//Applications/**)",
       "Bash(check if *)",
       "Bash(MIX_ENV=test mix ecto.create)",
-      "Bash(MIX_ENV=test mix ecto.migrate)"
+      "Bash(MIX_ENV=test mix ecto.migrate)",
+      "Bash(git push *)"
     ]
   },
   "hooks": {

@@ -383,9 +383,9 @@
 
 /* ── Storybook sandbox base styles ── */
 .zaq-sandbox {
-  font-family: var(--zaq-font-primary);
-  color: var(--zaq-color-ink);
-  background: var(--color-neutral-100, #fff);
+  font-family: var(--zaq-font-family-body);
+  color: var(--zaq-text-color-body-default);
+  background: var(--zaq-surface-color-base);
   font-size: 0.875rem;
   line-height: 1.5;
 }

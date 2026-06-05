@@ -37,5 +37,6 @@
   "/storybook/semantic/colors_deprecated",
   "/storybook/semantic/shadows",
   "/storybook/semantic/text_styles",
-  "/storybook/semantic/text_styles_deprecated"
+  "/storybook/semantic/text_styles_deprecated",
+  "/storybook/playground/button_playground"
 ]
