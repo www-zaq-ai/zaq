@@ -17,10 +17,10 @@ mix phx.server
 
 ## Branching
 
-| Branch type | Naming | Targets |
-|---|---|---|
-| New features / fixes | `feature/description` or `feature/issue-123-description` | `main` |
-| Urgent post-release patches | `hotfix/description` | `main` |
+| Branch type                 | Naming                                                   | Targets |
+| --------------------------- | -------------------------------------------------------- | ------- |
+| New features / fixes        | `feature/description` or `feature/issue-123-description` | `main`  |
+| Urgent post-release patches | `hotfix/description`                                     | `main`  |
 
 Never push directly to `main`. All changes go through a Pull Request.
 
@@ -30,17 +30,18 @@ All commits and PR titles must follow [Conventional Commits](https://www.convent
 
 **Format:** `<type>(<scope>): <description>`
 
-| Type | When to use |
-|---|---|
-| `feat:` | New user-facing feature |
-| `fix:` | Bug fix |
-| `docs:` | Documentation only |
+| Type        | When to use                            |
+| ----------- | -------------------------------------- |
+| `feat:`     | New user-facing feature                |
+| `fix:`      | Bug fix                                |
+| `docs:`     | Documentation only                     |
 | `refactor:` | Code restructuring, no behavior change |
-| `perf:` | Performance improvement |
-| `test:` | Adding or updating tests |
-| `chore:` | Tooling, build, deps |
+| `perf:`     | Performance improvement                |
+| `test:`     | Adding or updating tests               |
+| `chore:`    | Tooling, build, deps                   |
 
 **Examples:**
+
 ```
 feat(auth): add OAuth2 login support
 fix(api): resolve null pointer in user endpoint
@@ -48,6 +49,7 @@ docs(readme): update installation instructions
 ```
 
 **Breaking changes** — append `!` after the type:
+
 ```
 feat(api)!: remove deprecated v1 endpoints
 ```
@@ -96,3 +98,19 @@ Releases are managed automatically by [release-please](https://github.com/google
 ## Questions
 
 Open a [GitHub Issue](https://github.com/www-zaq-ai/zaq/issues) if something is unclear or you run into a problem during setup.
+
+## Contributor License Agreement
+
+External contributors must accept the [Contributor License Agreement](CLA.md)
+before their pull requests can be merged. The repository CLA status check is
+the source of enforcement; the pull request template is only a reminder.
+
+ZAQ currently distributes the open-source version of this repository under the
+GNU Affero General Public License v3.0 unless otherwise stated. The CLA permits
+ZAQ to distribute and relicense accepted contributions under any
+OSI-approved open-source license selected by ZAQ and under separate commercial
+license terms. It also includes a patent grant scoped to claims necessarily
+infringed by the contribution.
+
+By contributing, you represent that you have the right to submit the
+contribution under these terms.

@@ -21,6 +21,18 @@ With ZAQ dashboard monitor your data quality and it's impact on your AI performa
 
 Built with [Elixir](https://elixir-lang.org/), [Phoenix](https://www.phoenixframework.org/), and [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).
 
+## License
+
+ZAQ is dual-licensed:
+
+- **Open-source license:** GNU Affero General Public License v3.0.
+- **Commercial license:** available for organizations that need different terms.
+
+Unless you have a separate commercial license agreement with ZAQ, your use of
+this repository is governed by the AGPLv3.
+
+For commercial licensing, contact: license@zaq.ai
+
 ## Documentation
 
 Project documentation is published at [www-zaq-ai.github.io/zaq](https://www-zaq-ai.github.io/zaq/) and is updated on each release.

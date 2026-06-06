@@ -7,6 +7,11 @@ defmodule Zaq.MixProject do
       version: "0.10.0",
       source_url: "https://github.com/www-zaq-ai/zaq",
       homepage_url: "https://www-zaq-ai.github.io/zaq/",
+      licenses: ["AGPL-3.0-only"],
+      links: %{
+        "GitHub" => "https://github.com/www-zaq-ai/zaq",
+        "Commercial License" => "mailto:license@zaq.ai"
+      },
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
