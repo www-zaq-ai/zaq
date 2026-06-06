@@ -76,6 +76,78 @@ defmodule Zaq.Addons.PackageLoaderTest do
     assert log =~ "invalid_license_dat_format"
   end
 
+  test "returns invalid_license_dat_encoding for non-base64 license.dat parts", %{
+    tmp_dir: tmp_dir
+  } do
+    path = Path.join(tmp_dir, "bad_encoding.zaq-license")
+
+    signature_b64 = Base.encode64("sig")
+
+    :code.purge(Base)
+    :code.delete(Base)
+
+    Code.compile_string("""
+    defmodule Base do
+      def decode64(_), do: {:error, :invalid_base64}
+      def encode64(bin), do: :base64.encode(bin)
+    end
+    """)
+
+    on_exit(fn ->
+      :code.purge(Base)
+      :code.delete(Base)
+      :code.load_file(Base)
+    end)
+
+    create_archive!(path, [
+      {~c"license.dat", "not-base64?!." <> signature_b64}
+    ])
+
+    log =
+      capture_log(fn ->
+        assert {:error, :invalid_license_dat_encoding} = PackageLoader.load(path)
+      end)
+
+    assert log =~ "invalid_license_dat_encoding"
+  end
+
+  test "returns invalid_public_key_encoding when public.key is not base64", %{
+    tmp_dir: tmp_dir,
+    priv: priv
+  } do
+    payload = valid_payload("lic_bad_public_key_encoding")
+    signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+
+    path = Path.join(tmp_dir, "bad_public_key_encoding.zaq-license")
+
+    create_archive!(path, [
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", "not-base64?!"}
+    ])
+
+    log =
+      capture_log(fn ->
+        assert {:error, :invalid_public_key_encoding} = PackageLoader.load(path)
+      end)
+
+    assert log =~ "invalid_public_key_encoding"
+  end
+
+  test "returns missing_public_key when package lacks public.key", %{tmp_dir: tmp_dir, priv: priv} do
+    payload = valid_payload("lic_missing_public_key")
+    signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+
+    path = Path.join(tmp_dir, "missing_public_key.zaq-license")
+
+    create_archive!(path, [
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)}
+    ])
+
+    log = capture_log(fn -> assert {:error, :missing_public_key} = PackageLoader.load(path) end)
+
+    assert log =~ "missing_public_key"
+  end
+
   test "returns invalid_payload_json for non-json payload", %{
     tmp_dir: tmp_dir,
     pub: pub,
@@ -314,6 +386,54 @@ defmodule Zaq.Addons.PackageLoaderTest do
     log = capture_log(fn -> assert {:ok, _} = PackageLoader.load(path) end)
 
     refute log =~ "[ObanProvisioner]"
+  end
+
+  test "invokes register_hooks on loaded modules that export callback", %{
+    tmp_dir: tmp_dir,
+    pub: pub,
+    priv: priv
+  } do
+    test_process_name = String.to_atom("hook_receiver_#{System.unique_integer([:positive])}")
+    test_pid = self()
+    true = Process.register(self(), test_process_name)
+
+    on_exit(fn ->
+      if Process.whereis(test_process_name) == test_pid do
+        Process.unregister(test_process_name)
+      end
+    end)
+
+    mod_name = "Elixir.LicenseManager.Paid.RegisterHooks#{System.unique_integer([:positive])}"
+    module_atom = String.to_atom(mod_name)
+
+    module_source = """
+    defmodule #{mod_name} do
+      def enabled?, do: true
+
+      def register_hooks do
+        send(#{inspect(test_process_name)}, {:hook_registered, __MODULE__})
+      end
+    end
+    """
+
+    [{_module, beam_binary}] = Code.compile_string(module_source)
+
+    payload = valid_payload("lic_register_hooks")
+    signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+    key = BeamDecryptor.derive_key(payload)
+    encrypted_module = encrypt_module(beam_binary, key, <<13::96>>)
+
+    path = Path.join(tmp_dir, "register_hooks.zaq-license")
+
+    create_archive!(path, [
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)},
+      {String.to_charlist("modules/#{mod_name}.beam.enc"), encrypted_module}
+    ])
+
+    assert {:ok, _} = PackageLoader.load(path)
+    assert_receive {:hook_registered, ^module_atom}
+    assert FeatureStore.module_loaded?(module_atom)
   end
 
   test "loads valid package and updates feature store", %{tmp_dir: tmp_dir, pub: pub, priv: priv} do

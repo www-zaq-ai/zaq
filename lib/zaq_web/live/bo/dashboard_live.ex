@@ -54,6 +54,9 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     {:noreply, assign(socket, :services, refresh_services())}
   end
 
+  @impl true
+  def handle_info(:addons_updated, socket), do: {:noreply, socket}
+
   # -- Private --
 
   defp refresh_services do
@@ -76,24 +79,38 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   # Checks local node + all connected peer nodes for each supervisor.
   # Returns %{role => {true | false, node_name}}
   defp detect_running_services do
-    all_nodes = [node() | Node.list()]
+    all_nodes = [node() | node_list_fun().()]
+    running_on_node = supervisor_running_on_node_fun()
 
     Enum.reduce(@supervisor_map, %{}, fn {role, supervisor}, acc ->
-      result = Enum.find_value(all_nodes, &node_running_supervisor?(&1, supervisor))
+      result = Enum.find_value(all_nodes, &running_on_node.(&1, supervisor))
       Map.put(acc, role, result || {false, nil})
     end)
   end
 
-  defp node_running_supervisor?(n, supervisor) when n == node() do
+  # Test seams: keep remote-supervisor and telemetry fallback coverage stable
+  # without requiring distributed peers or live NodeRouter replacement.
+  defp node_list_fun,
+    do: Application.get_env(:zaq, :dashboard_live_node_list_fun, &Node.list/0)
+
+  defp supervisor_running_on_node_fun,
+    do:
+      Application.get_env(
+        :zaq,
+        :dashboard_live_supervisor_running_on_node_fun,
+        &default_supervisor_running_on_node?/2
+      )
+
+  defp default_supervisor_running_on_node?(n, supervisor) when n == node() do
     if Process.whereis(supervisor) != nil, do: {true, n}
   end
 
-  defp node_running_supervisor?(n, supervisor) do
+  defp default_supervisor_running_on_node?(n, supervisor) do
     if :rpc.call(n, Process, :whereis, [supervisor]) != nil, do: {true, n}
   end
 
   defp load_main_dashboard_metrics do
-    case NodeRouter.invoke(:engine, Telemetry, :load_main_dashboard_metrics, [
+    case node_router_module().invoke(:engine, Telemetry, :load_main_dashboard_metrics, [
            %{range: @kpi_range}
          ]) do
       %{metric_cards_chart: %{summary: %{metrics: metrics}}} when is_list(metrics) ->
@@ -105,6 +122,9 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   rescue
     _ -> default_telemetry_metric_cards()
   end
+
+  defp node_router_module,
+    do: Application.get_env(:zaq, :dashboard_live_node_router_module, NodeRouter)
 
   defp default_telemetry_metric_cards do
     %{

@@ -71,8 +71,10 @@ defmodule Zaq.TestSupport.FakeImapServer do
     seen = Keyword.get(opts, :seen, false)
     list_mode = Keyword.get(opts, :list_mode, :ok)
     fetch_mode = Keyword.get(opts, :fetch_mode, :ok)
+    store_mode = Keyword.get(opts, :store_mode, :ok)
     include_envelope = Keyword.get(opts, :include_envelope, true)
     include_header = Keyword.get(opts, :include_header, true)
+    header = Keyword.get(opts, :header)
 
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [
@@ -100,8 +102,10 @@ defmodule Zaq.TestSupport.FakeImapServer do
        seen: seen,
        list_mode: list_mode,
        fetch_mode: fetch_mode,
+       store_mode: store_mode,
        include_envelope: include_envelope,
        include_header: include_header,
+       header: header,
        command_log: [],
        connections: MapSet.new()
      }}
@@ -141,12 +145,20 @@ defmodule Zaq.TestSupport.FakeImapServer do
     {:reply, state.fetch_mode, state}
   end
 
+  def handle_call(:store_mode, _from, state) do
+    {:reply, state.store_mode, state}
+  end
+
   def handle_call(:include_envelope, _from, state) do
     {:reply, state.include_envelope, state}
   end
 
   def handle_call(:include_header, _from, state) do
     {:reply, state.include_header, state}
+  end
+
+  def handle_call(:header, _from, state) do
+    {:reply, state.header, state}
   end
 
   def handle_call(:search_unseen, _from, state) do
@@ -307,10 +319,21 @@ defmodule Zaq.TestSupport.FakeImapServer do
   end
 
   defp run_command("STORE", tag, _rest, state) do
-    _ = GenServer.call(state.server, :mark_seen)
-    _ = :gen_tcp.send(state.socket, "* 1 FETCH (FLAGS (\\Seen))\r\n")
-    _ = :gen_tcp.send(state.socket, "#{tag} OK STORE completed\r\n")
-    state
+    case GenServer.call(state.server, :store_mode) do
+      :close ->
+        _ = :gen_tcp.close(state.socket)
+        :stop
+
+      :bad ->
+        _ = :gen_tcp.send(state.socket, "#{tag} BAD STORE failed\r\n")
+        state
+
+      _ ->
+        _ = GenServer.call(state.server, :mark_seen)
+        _ = :gen_tcp.send(state.socket, "* 1 FETCH (FLAGS (\\Seen))\r\n")
+        _ = :gen_tcp.send(state.socket, "#{tag} OK STORE completed\r\n")
+        state
+    end
   end
 
   defp run_command("IDLE", tag, _rest, state) do
@@ -333,6 +356,16 @@ defmodule Zaq.TestSupport.FakeImapServer do
     case GenServer.call(state.server, :list_mode) do
       :bad ->
         _ = :gen_tcp.send(state.socket, "#{tag} BAD LIST failed\r\n")
+
+      :no ->
+        _ = :gen_tcp.send(state.socket, "#{tag} NO LIST failed\r\n")
+
+      :untagged_bare_list ->
+        Enum.each(GenServer.call(state.server, :mailboxes), fn mailbox ->
+          _ = :gen_tcp.send(state.socket, "* LIST (\\HasNoChildren) \"/\" \"#{mailbox}\"\r\n")
+        end)
+
+        _ = :gen_tcp.send(state.socket, "#{tag} OK LIST completed\r\n")
 
       _ ->
         Enum.each(GenServer.call(state.server, :mailboxes), fn mailbox ->
@@ -364,7 +397,12 @@ defmodule Zaq.TestSupport.FakeImapServer do
         _ =
           :gen_tcp.send(
             state.socket,
-            fetch_response(message, include_envelope, include_header)
+            fetch_response(
+              message,
+              include_envelope,
+              include_header,
+              GenServer.call(state.server, :header)
+            )
           )
 
         _ = :gen_tcp.send(state.socket, "#{tag} OK FETCH completed\r\n")
@@ -376,7 +414,7 @@ defmodule Zaq.TestSupport.FakeImapServer do
     send(server, {:command, atom, raw})
   end
 
-  defp fetch_response(message, include_envelope, include_header) do
+  defp fetch_response(message, include_envelope, include_header, header_override) do
     uid = Map.fetch!(message, :uid)
     subject = escape(Map.fetch!(message, :subject))
     from_name = escape(Map.fetch!(message, :from_name))
@@ -384,7 +422,13 @@ defmodule Zaq.TestSupport.FakeImapServer do
     from_host = escape(Map.fetch!(message, :from_host))
     message_id = escape(Map.fetch!(message, :message_id))
     in_reply_to = escape(Map.fetch!(message, :in_reply_to))
-    references = escape("References: #{Map.fetch!(message, :references)}")
+
+    header =
+      case header_override do
+        nil -> escape("References: #{Map.fetch!(message, :references)}")
+        value when is_binary(value) -> escape(value)
+      end
+
     rfc822 = escape(Map.fetch!(message, :rfc822))
 
     parts = ["UID #{uid}"]
@@ -403,7 +447,7 @@ defmodule Zaq.TestSupport.FakeImapServer do
 
     parts =
       if include_header do
-        ["BODY.PEEK[HEADER] \"#{references}\"" | parts]
+        ["BODY.PEEK[HEADER] \"#{header}\"" | parts]
       else
         parts
       end

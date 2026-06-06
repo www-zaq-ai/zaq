@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  import ExUnit.CaptureLog
 
   alias Mailroom.IMAP
   alias Zaq.Channels.EmailBridge.ImapAdapter
@@ -37,6 +38,70 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
     assert {:error, :invalid_imap_url} = ImapAdapter.connect(%{}, "INBOX")
   end
 
+  test "list_mailboxes/1 returns invalid_imap_url when url is missing" do
+    assert {:error, :invalid_imap_url} = ImapAdapter.list_mailboxes(%{})
+  end
+
+  test "list_mailboxes/1 handles bare list response" do
+    fake =
+      start_supervised!(
+        {FakeImapServer,
+         owner: self(), mailboxes: ["INBOX", "Support"], list_mode: :untagged_bare_list}
+      )
+
+    config = FakeImapServer.config(fake)
+
+    assert {:ok, ["INBOX", "Support"]} = ImapAdapter.list_mailboxes(config)
+    assert_receive {:imap_fake_command, ^fake, :list, _}, 1_000
+  end
+
+  test "list_mailboxes/1 returns tagged failure for non-list LIST response" do
+    fake = start_supervised!({FakeImapServer, owner: self(), list_mode: :no})
+
+    config = FakeImapServer.config(fake)
+
+    assert {:error, {:list_mailboxes_failed, other}} = ImapAdapter.list_mailboxes(config)
+    assert match?({:error, _}, other)
+  end
+
+  test "connect/list_mailboxes return connection error when endpoint is unreachable" do
+    config = %{
+      url: "imap://127.0.0.1:1",
+      username: "demo",
+      password: "secret",
+      ssl: false,
+      timeout: 75
+    }
+
+    assert {:error, _} = ImapAdapter.connect(config, "INBOX")
+    assert {:error, _} = ImapAdapter.list_mailboxes(config)
+  end
+
+  test "connect/list_mailboxes return invalid_imap_url when config is not a map" do
+    assert {:error, :invalid_imap_url} = ImapAdapter.connect(:invalid, "INBOX")
+    assert {:error, :invalid_imap_url} = ImapAdapter.list_mailboxes(:invalid)
+  end
+
+  test "connect/2 falls back to the default port when url omits one" do
+    fake = start_supervised!({FakeImapServer, owner: self()})
+
+    config =
+      FakeImapServer.config(fake)
+      |> Map.put(:url, "imap://127.0.0.1")
+
+    assert {:error, _} = ImapAdapter.connect(config, "INBOX")
+  end
+
+  test "connect/2 handles ssl_depth string parsing and fallback" do
+    base = %{url: "imap://127.0.0.1:1", username: "demo", password: "secret", ssl: true}
+
+    capture_log(fn ->
+      assert {:error, _} = ImapAdapter.connect(Map.put(base, :ssl_depth, "0"), "INBOX")
+      assert {:error, _} = ImapAdapter.connect(Map.put(base, :ssl_depth, "bad"), "INBOX")
+      assert {:error, _} = ImapAdapter.connect(base, "INBOX")
+    end)
+  end
+
   test "connect/2 and list_mailboxes/1 work against fake IMAP server" do
     fake = start_supervised!({FakeImapServer, owner: self(), mailboxes: ["INBOX", "Support"]})
     config = FakeImapServer.config(fake)
@@ -69,23 +134,6 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
     assert_receive {:imap_fake_command, ^fake, :login, raw_login}, 1_000
     assert raw_login =~ "token-secret"
     assert :ok = ImapAdapter.disconnect(client)
-  end
-
-  test "list_mailboxes/1 returns invalid_imap_url when url is missing" do
-    assert {:error, :invalid_imap_url} = ImapAdapter.list_mailboxes(%{})
-  end
-
-  test "connect/list_mailboxes return connection error when endpoint is unreachable" do
-    config = %{
-      url: "imap://127.0.0.1:1",
-      username: "demo",
-      password: "secret",
-      ssl: false,
-      timeout: 75
-    }
-
-    assert {:error, _} = ImapAdapter.connect(config, "INBOX")
-    assert {:error, _} = ImapAdapter.list_mailboxes(config)
   end
 
   test "connect/2 handles different timeout, port and ssl_depth value shapes" do
@@ -193,6 +241,37 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
     assert payload["from"] == %{name: nil, address: nil}
     assert payload["in_reply_to"] == nil
     assert payload["references"] == nil
+
+    assert :ok = ImapAdapter.disconnect(client)
+  end
+
+  test "fetch_unseen/3 sets references to nil when header lacks References" do
+    fake =
+      start_supervised!(
+        {FakeImapServer,
+         owner: self(), message: %{subject: "No refs"}, header: "Subject: No refs"}
+      )
+
+    config = FakeImapServer.config(fake)
+    assert {:ok, client} = ImapAdapter.connect(config, "INBOX")
+
+    assert :ok =
+             ImapAdapter.fetch_unseen(client, "INBOX", fn payload ->
+               send(self(), {:no_refs_payload, payload})
+             end)
+
+    assert_receive {:no_refs_payload, payload}, 1_000
+    assert payload["references"] == nil
+
+    assert :ok = ImapAdapter.disconnect(client)
+  end
+
+  test "disconnect/1 suppresses logout and cancel errors after server closes" do
+    fake = start_supervised!({FakeImapServer, owner: self()})
+    config = FakeImapServer.config(fake)
+    assert {:ok, client} = ImapAdapter.connect(config, "INBOX")
+
+    GenServer.stop(fake)
 
     assert :ok = ImapAdapter.disconnect(client)
   end

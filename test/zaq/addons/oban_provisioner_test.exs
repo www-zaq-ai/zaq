@@ -199,14 +199,36 @@ defmodule Zaq.Addons.ObanProvisionerTest do
   # ---------------------------------------------------------------------------
 
   describe "provision/1 — error resilience" do
-    test "does not raise when Oban.start_queue returns an error" do
-      # Provision with a valid feature module — even if Oban is in inline mode
-      # and start_queue behaves unexpectedly, provision/1 must not raise.
+    test "logs a warning when Oban.start_queue returns an error" do
       queue = unique_queue()
       mod = compile_oban_feature(queues: [{queue, 1}], crontab: [])
 
-      assert :ok =
-               capture_log(fn -> ObanProvisioner.provision([mod]) end) |> then(fn _ -> :ok end)
+      oban_supervisor = Oban.Registry.whereis(Oban)
+      notifier = Oban.Registry.whereis(Oban, Oban.Notifier)
+
+      assert is_pid(oban_supervisor)
+      assert is_pid(notifier)
+
+      on_exit(fn ->
+        if Process.alive?(oban_supervisor) do
+          :sys.resume(oban_supervisor)
+        end
+
+        Process.sleep(100)
+      end)
+
+      :sys.suspend(oban_supervisor)
+
+      monitor = Process.monitor(notifier)
+      Process.exit(notifier, :kill)
+
+      assert_receive {:DOWN, ^monitor, :process, ^notifier, :killed}, 1_000
+
+      log = capture_log(fn -> ObanProvisioner.provision([mod]) end)
+
+      assert log =~ "[ObanProvisioner] Failed to start queue :#{queue}:"
+      assert log =~ "no notifier running for instance Oban"
+      refute log =~ "Started queue :#{queue}"
     end
 
     test "does not raise when DynamicCron.add_schedules is called with crontab entries" do

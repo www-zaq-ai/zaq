@@ -140,4 +140,99 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       assert render(view) =~ "Engine"
     end
   end
+
+  describe "service detection and telemetry fallback" do
+    setup do
+      original = %{
+        node_list_fun: Application.get_env(:zaq, :dashboard_live_node_list_fun),
+        supervisor_running_on_node_fun:
+          Application.get_env(:zaq, :dashboard_live_supervisor_running_on_node_fun),
+        node_router_module: Application.get_env(:zaq, :dashboard_live_node_router_module)
+      }
+
+      on_exit(fn ->
+        restore_dashboard_runtime_env(original)
+      end)
+
+      :ok
+    end
+
+    test "detects a remote supervisor when only a peer reports it", %{conn: conn} do
+      remote_node = :remote@localhost
+
+      Application.put_env(:zaq, :dashboard_live_node_list_fun, fn -> [remote_node] end)
+
+      Application.put_env(
+        :zaq,
+        :dashboard_live_supervisor_running_on_node_fun,
+        fn
+          node, Zaq.Engine.Supervisor when node == node() -> nil
+          ^remote_node, Zaq.Engine.Supervisor -> {true, remote_node}
+          _node, _supervisor -> nil
+        end
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      state = :sys.get_state(view.pid)
+      engine_service = Enum.find(state.socket.assigns.services, &(&1.role == :engine))
+
+      assert engine_service.active
+      assert engine_service.node == remote_node
+    end
+
+    test "falls back to default telemetry cards when the router returns an unexpected payload", %{
+      conn: conn
+    } do
+      Application.put_env(
+        :zaq,
+        :dashboard_live_node_router_module,
+        ZaqWeb.Live.BO.DashboardLiveTest.UnexpectedTelemetryRouter
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      state = :sys.get_state(view.pid)
+
+      assert length(state.socket.assigns.metric_cards) == 3
+      assert Enum.at(state.socket.assigns.metric_cards, 0).label == "Documents ingested"
+    end
+
+    test "falls back to default telemetry cards when the router raises", %{conn: conn} do
+      Application.put_env(
+        :zaq,
+        :dashboard_live_node_router_module,
+        ZaqWeb.Live.BO.DashboardLiveTest.RaisingTelemetryRouter
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      state = :sys.get_state(view.pid)
+
+      assert length(state.socket.assigns.metric_cards) == 3
+      assert Enum.at(state.socket.assigns.metric_cards, 1).label == "LLM API calls"
+    end
+  end
+
+  defp restore_dashboard_runtime_env(original) do
+    Enum.each(original, fn
+      {key, nil} ->
+        Application.delete_env(:zaq, key)
+
+      {key, value} ->
+        Application.put_env(:zaq, key, value)
+    end)
+  end
+end
+
+defmodule ZaqWeb.Live.BO.DashboardLiveTest.UnexpectedTelemetryRouter do
+  def invoke(:engine, Zaq.Engine.Telemetry, :load_main_dashboard_metrics, [_params]) do
+    %{unexpected: :payload}
+  end
+end
+
+defmodule ZaqWeb.Live.BO.DashboardLiveTest.RaisingTelemetryRouter do
+  def invoke(:engine, Zaq.Engine.Telemetry, :load_main_dashboard_metrics, [_params]) do
+    raise "telemetry unavailable"
+  end
 end

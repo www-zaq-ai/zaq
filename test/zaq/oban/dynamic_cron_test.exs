@@ -2,6 +2,7 @@ defmodule Zaq.Oban.DynamicCronTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Oban.Job
@@ -66,6 +67,12 @@ defmodule Zaq.Oban.DynamicCronTest do
 
     @impl GenServer
     def handle_call(:leader?, _from, state), do: {:reply, state.leader?, state}
+  end
+
+  defmodule TransactionErrorRepo do
+    @moduledoc false
+
+    def transaction(_fun, _opts), do: {:error, :forced_transaction_error}
   end
 
   defp start_registered_plugin(conf, base_crontab \\ []) do
@@ -370,13 +377,66 @@ defmodule Zaq.Oban.DynamicCronTest do
 
       pid =
         start_plugin(dynamic_conf, [
-          {"* * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker, args: %{from: "test"}}
+          {
+            "* * * * *",
+            Zaq.Engine.Telemetry.Workers.PrunePointsWorker,
+            args: %{from: "test"}, meta: %{source: "addon", cron_expr: "caller-value"}
+          }
         ])
 
       {:noreply, _updated} = DynamicCron.handle_info(:evaluate, state(pid))
       after_count = Repo.aggregate(Job, :count, :id)
+      job = Repo.one(from(j in Job, order_by: [desc: j.id], limit: 1))
 
       assert after_count == before_count + 1
+      assert Map.get(job.meta, "source") == "addon"
+      assert Map.get(job.meta, "cron") == true
+      assert Map.get(job.meta, "cron_expr") == "* * * * *"
+      refute Map.get(job.meta, "cron_expr") == "caller-value"
+      assert Map.get(job.meta, "cron_tz") == "Etc/UTC"
+      assert Map.get(job.meta, "cron_name")
+    end
+
+    test "evaluate reports transaction errors from the repo", %{conf: conf} do
+      oban_name = :oban_dynamic_cron_error_test
+      peer_name = Oban.Registry.via(oban_name, Oban.Peer)
+
+      {:ok, peer_pid} =
+        start_supervised({PeerStub, [name: peer_name, leader?: true]})
+
+      assert is_pid(peer_pid)
+
+      leader_conf = %{conf | name: oban_name, peer: {LeaderPeer, []}, repo: TransactionErrorRepo}
+
+      handler_id = {:dynamic_cron_stop, System.unique_integer([:positive])}
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:oban, :plugin, :stop],
+          fn _event, _measurements, metadata, _config ->
+            send(test_pid, {:dynamic_cron_stop, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn ->
+        try do
+          :telemetry.detach(handler_id)
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      pid = start_plugin(leader_conf, [])
+      {:noreply, updated} = DynamicCron.handle_info(:evaluate, state(pid))
+
+      assert is_reference(updated.timer)
+      assert_receive {:dynamic_cron_stop, metadata}
+      assert metadata.plugin == Zaq.Oban.DynamicCron
+      assert metadata.conf == leader_conf
+      assert metadata.error == {:error, :forced_transaction_error}
     end
   end
 

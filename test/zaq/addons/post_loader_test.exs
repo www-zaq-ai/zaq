@@ -4,7 +4,7 @@ defmodule Zaq.Addons.PostLoaderTest do
   import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Zaq.Addons.PostLoader
+  alias Zaq.Addons.{FeatureStore, PostLoader}
 
   setup do
     case GenServer.whereis(PostLoader) do
@@ -99,6 +99,32 @@ defmodule Zaq.Addons.PostLoaderTest do
   # handle_info :load_startup_addons — {:ok, files} branch (lines 55-56, 83, 87-88)
   # ---------------------------------------------------------------------------
 
+  test "load_startup_addons skips when licenses directory is missing" do
+    dir = Application.app_dir(:zaq, "priv/licenses")
+    existed_before = File.dir?(dir)
+    previous_level = Logger.level()
+
+    File.rm_rf!(dir)
+    Logger.configure(level: :debug)
+
+    on_exit(fn ->
+      Logger.configure(level: previous_level)
+
+      if existed_before do
+        File.mkdir_p!(dir)
+      end
+    end)
+
+    log =
+      capture_log(fn ->
+        assert {:noreply, %{test: :missing_dir}} =
+                 PostLoader.handle_info(:load_startup_addons, %{test: :missing_dir})
+      end)
+
+    assert log =~ "No licenses directory"
+    assert log =~ "skipping"
+  end
+
   test "load_startup_addons logs warning when add-on package is invalid" do
     # Create a fake .zaq-license add-on package in the priv/licenses dir so the
     # {:ok, files} branch is taken and load_addon_package/1 is called.
@@ -122,5 +148,64 @@ defmodule Zaq.Addons.PostLoaderTest do
       end)
 
     assert log =~ "Failed to load"
+  end
+
+  test "load_startup_addons logs success when a valid add-on package loads" do
+    ensure_started(FeatureStore)
+    FeatureStore.clear()
+
+    dir = Application.app_dir(:zaq, "priv/licenses")
+    File.mkdir_p!(dir)
+
+    previous_level = Logger.level()
+    Logger.configure(level: :info)
+
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    payload = valid_payload("lic_startup_success")
+    signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
+
+    id = System.unique_integer([:positive, :monotonic])
+    license_path = Path.join(dir, "startup_success_#{id}.zaq-license")
+
+    create_archive!(license_path, [
+      {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
+      {~c"public.key", Base.encode64(pub)}
+    ])
+
+    on_exit(fn ->
+      Logger.configure(level: previous_level)
+      FeatureStore.clear()
+      File.rm(license_path)
+    end)
+
+    pid = GenServer.whereis(PostLoader)
+
+    log =
+      capture_log(fn ->
+        send(pid, :load_startup_addons)
+        :sys.get_state(pid)
+      end)
+
+    assert log =~ "[PostLoader] Loaded add-on package from"
+    assert log =~ license_path
+  end
+
+  defp valid_payload(license_key) do
+    Jason.encode!(%{
+      "license_key" => license_key,
+      "features" => [],
+      "expires_at" => DateTime.utc_now() |> DateTime.add(3_600, :second) |> DateTime.to_iso8601()
+    })
+  end
+
+  defp create_archive!(path, entries) do
+    :ok = :erl_tar.create(String.to_charlist(path), entries, [:compressed])
+  end
+
+  defp ensure_started(module) do
+    case GenServer.whereis(module) do
+      nil -> start_supervised!(module)
+      _pid -> :ok
+    end
   end
 end
