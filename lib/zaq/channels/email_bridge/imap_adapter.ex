@@ -220,18 +220,12 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   defp connect_client(config) do
     {server, port_from_url} = endpoint_from_url(config_get(config, :url))
 
-    username = config_get(config, :username)
-    password = config_get(config, :token) || config_get(config, :password)
-    ssl = ssl?(config)
-
-    opts = [
-      ssl: ssl,
-      ssl_opts: [depth: ssl_depth(config), cacerts: :public_key.cacerts_get()],
-      port: port_from_url || port(config),
-      timeout: timeout(config)
-    ]
-
     if is_binary(server) and server != "" do
+      username = config_get(config, :username)
+      password = config_get(config, :token) || config_get(config, :password)
+      ssl = ssl?(config)
+      opts = connect_opts(config, ssl, port_from_url)
+
       try do
         IMAP.connect(server, username, password, opts)
       rescue
@@ -254,6 +248,33 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     else
       {:error, :invalid_imap_url}
     end
+  end
+
+  defp connect_opts(config, ssl, port_from_url) do
+    opts = [
+      ssl: ssl,
+      port: port_from_url || port(config),
+      timeout: timeout(config)
+    ]
+
+    if ssl do
+      Keyword.put(opts, :ssl_opts, depth: ssl_depth(config), cacerts: default_cacerts())
+    else
+      opts
+    end
+  end
+
+  defp default_cacerts do
+    :public_key.cacerts_get()
+    |> Enum.flat_map(fn
+      {:cert, der, _} when is_binary(der) -> [der]
+      der when is_binary(der) -> [der]
+      _ -> []
+    end)
+  rescue
+    _ -> []
+  catch
+    _, _ -> []
   end
 
   defp normalize_connect_error({:timeout, _}), do: :timeout

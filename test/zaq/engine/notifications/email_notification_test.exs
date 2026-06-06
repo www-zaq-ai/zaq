@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Notifications.EmailNotificationTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
 
   @moduletag capture_log: true
 
