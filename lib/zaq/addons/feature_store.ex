@@ -1,12 +1,12 @@
-defmodule Zaq.License.FeatureStore do
+defmodule Zaq.Addons.FeatureStore do
   @moduledoc """
-  Stores and queries loaded license data and modules.
+  Stores and queries loaded add-on package data and modules.
   Uses an ETS table for fast runtime lookups.
   """
 
   use GenServer
 
-  @table :zaq_license_features
+  @table :zaq_addon_features
 
   # --- Client API ---
 
@@ -15,18 +15,18 @@ defmodule Zaq.License.FeatureStore do
   end
 
   @doc """
-  Stores license data and loaded module atoms.
+  Stores add-on package data and loaded module atoms.
   """
-  def store(license_data, loaded_modules) do
-    GenServer.call(__MODULE__, {:store, license_data, loaded_modules})
+  def store(addon_data, loaded_modules) do
+    GenServer.call(__MODULE__, {:store, addon_data, loaded_modules})
   end
 
   @doc """
-  Returns the stored license data, or nil if no license is loaded.
+  Returns the stored add-on package data, or nil if no add-on package is loaded.
   """
-  def license_data do
-    case :ets.lookup(@table, :license_data) do
-      [{:license_data, data}] -> data
+  def addon_data do
+    case :ets.lookup(@table, :addon_data) do
+      [{:addon_data, data}] -> data
       [] -> nil
     end
   end
@@ -45,7 +45,7 @@ defmodule Zaq.License.FeatureStore do
   Returns true if a given feature name is loaded.
   """
   def feature_loaded?(feature_name) do
-    case license_data() do
+    case addon_data() do
       nil ->
         false
 
@@ -64,7 +64,7 @@ defmodule Zaq.License.FeatureStore do
   end
 
   @doc """
-  Clears all stored license data and modules.
+  Clears all stored add-on package data and modules.
   """
   def clear do
     GenServer.call(__MODULE__, :clear)
@@ -79,8 +79,8 @@ defmodule Zaq.License.FeatureStore do
   end
 
   @impl true
-  def handle_call({:store, license_data, loaded_modules}, _from, state) do
-    :ets.insert(@table, {:license_data, license_data})
+  def handle_call({:store, addon_data, loaded_modules}, _from, state) do
+    :ets.insert(@table, {:addon_data, addon_data})
     :ets.insert(@table, {:loaded_modules, loaded_modules})
     {:reply, :ok, state}
   end

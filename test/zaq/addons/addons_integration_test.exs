@@ -1,7 +1,7 @@
-defmodule Zaq.License.LicenseIntegrationTest do
+defmodule Zaq.Addons.AddonsIntegrationTest do
   @moduledoc """
   Integration tests for the full license load pipeline:
-  Loader → BeamDecryptor → FeatureStore → ObanProvisioner.
+  PackageLoader → BeamDecryptor → FeatureStore → ObanProvisioner.
 
   Tagged :integration so they are excluded from the default test run.
   """
@@ -12,13 +12,13 @@ defmodule Zaq.License.LicenseIntegrationTest do
 
   import ExUnit.CaptureLog
 
-  alias Zaq.License.{BeamDecryptor, FeatureStore, LicensePostLoader, Loader}
+  alias Zaq.Addons.{BeamDecryptor, FeatureStore, PackageLoader, PostLoader}
 
   @public_key_path Path.join(["priv", "keys", "public.pem"])
 
   setup do
     ensure_started(FeatureStore)
-    ensure_started(LicensePostLoader)
+    ensure_started(PostLoader)
     FeatureStore.clear()
 
     File.mkdir_p!(Path.dirname(@public_key_path))
@@ -100,8 +100,8 @@ defmodule Zaq.License.LicenseIntegrationTest do
     ])
 
     capture_log(fn ->
-      assert {:ok, license_data} = Loader.load(path)
-      assert license_data["license_key"] == "int_ok"
+      assert {:ok, addon_data} = PackageLoader.load(path)
+      assert addon_data["license_key"] == "int_ok"
     end)
 
     assert FeatureStore.feature_loaded?("integration_feature")
@@ -119,7 +119,7 @@ defmodule Zaq.License.LicenseIntegrationTest do
 
     module_source = """
     defmodule #{mod_name} do
-      @behaviour Zaq.License.ObanFeature
+      @behaviour Zaq.Addons.ObanFeature
       def oban_queues, do: [{:#{queue}, 2}]
       def oban_crontab, do: []
     end
@@ -161,7 +161,7 @@ defmodule Zaq.License.LicenseIntegrationTest do
 
     log =
       capture_log(fn ->
-        assert {:ok, _} = Loader.load(path)
+        assert {:ok, _} = PackageLoader.load(path)
       end)
 
     Logger.configure(level: :warning)
@@ -188,7 +188,7 @@ defmodule Zaq.License.LicenseIntegrationTest do
     ])
 
     capture_log(fn ->
-      assert {:error, :license_expired} = Loader.load(path)
+      assert {:error, :license_expired} = PackageLoader.load(path)
     end)
 
     refute FeatureStore.feature_loaded?("should_not_load")

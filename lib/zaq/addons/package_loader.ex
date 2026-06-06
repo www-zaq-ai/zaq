@@ -1,38 +1,38 @@
-defmodule Zaq.License.Loader do
+defmodule Zaq.Addons.PackageLoader do
   @moduledoc """
-  Reads, validates, and loads a .zaq-license package.
-  Extracts license data, verifies signature, decrypts BEAM modules,
+  Reads, validates, and loads a .zaq-license add-on package.
+  Extracts add-on data, verifies signature, decrypts BEAM modules,
   and loads them into the BEAM VM.
   """
 
-  alias Zaq.License.{BeamDecryptor, FeatureStore, LicensePostLoader, ObanProvisioner, Verifier}
+  alias Zaq.Addons.{BeamDecryptor, FeatureStore, ObanProvisioner, PackageVerifier, PostLoader}
 
   require Logger
 
   @doc """
-  Loads a .zaq-license file from the given path.
-  Returns {:ok, license_data} or {:error, reason}.
+  Loads a .zaq-license add-on package from the given path.
+  Returns {:ok, addon_data} or {:error, reason}.
   """
   def load(license_path) do
     with {:ok, files} <- extract_package(license_path),
          {:ok, payload, signature} <- parse_license_dat(files),
          {:ok, public_key} <- parse_public_key(files),
-         :ok <- Verifier.verify(payload, signature, public_key),
-         {:ok, license_data} <- decode_payload(payload),
+         :ok <- PackageVerifier.verify(payload, signature, public_key),
+         {:ok, addon_data} <- decode_payload(payload),
          key <- BeamDecryptor.derive_key(payload),
          {:ok, loaded_modules} <- decrypt_and_load_modules(files, key),
-         :ok <- maybe_check_expiry(license_data) do
+         :ok <- maybe_check_expiry(addon_data) do
       migration_files = extract_migration_files(files)
       view_files = extract_view_files(files)
-      FeatureStore.store(license_data, loaded_modules)
+      FeatureStore.store(addon_data, loaded_modules)
       ObanProvisioner.provision(loaded_modules)
       register_hooks(loaded_modules)
-      LicensePostLoader.notify(license_data, migration_files, view_files)
-      Logger.info("License loaded successfully: #{license_data["license_key"]}")
-      {:ok, license_data}
+      PostLoader.notify(addon_data, migration_files, view_files)
+      Logger.info("Add-on package loaded successfully: #{addon_data["license_key"]}")
+      {:ok, addon_data}
     else
       {:error, reason} = error ->
-        Logger.error("License loading failed: #{inspect(reason)}")
+        Logger.error("Add-on package loading failed: #{inspect(reason)}")
         error
     end
   end
@@ -92,10 +92,10 @@ defmodule Zaq.License.Loader do
     end
   end
 
-  defp maybe_check_expiry(license_data) do
+  defp maybe_check_expiry(addon_data) do
     if function_exported?(LicenseManager.Paid.License, :check_expiry, 1) do
       # credo:disable-for-next-line Credo.Check.Refactor.Apply
-      apply(LicenseManager.Paid.License, :check_expiry, [license_data])
+      apply(LicenseManager.Paid.License, :check_expiry, [addon_data])
     else
       :ok
     end

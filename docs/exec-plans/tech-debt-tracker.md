@@ -80,20 +80,20 @@ Sourced from service docs `What's Left` sections. Updated continuously.
 
 ---
 
-## License (`docs/services/license.md`)
+## Addons (`docs/services/addons.md`)
 
 ### Must Do
-- [ ] Implement `LicensePostLoader.notify/2` — run bundled migrations and post-load hooks
-- [ ] Document the `.zaq-license` build/signing process (for the license manager tool)
+- [ ] Implement `PostLoader.notify/2` — run bundled migrations and post-load hooks
+- [ ] Document the `.zaq-license` build/signing process (for the add-on package builder)
 
 ### Should Do
-- [ ] Expose license status in BO (`license_live.ex` is stubbed)
-- [ ] Validate `license_data["features"]` structure on load
-- [ ] Handle license expiry gracefully at runtime (warn before expiry, disable after)
+- [ ] Expand add-on status in BO beyond the current upload/status page
+- [ ] Validate `addon_data["features"]` structure on load
+- [ ] Handle add-on package expiry gracefully at runtime (warn before expiry, disable after)
 
 ### Nice to Have
-- [ ] Multiple license files support (already partially handled by watcher)
-- [ ] License audit log (who loaded what and when)
+- [ ] Multiple add-on packages support
+- [ ] Add-on audit log (who loaded what and when)
 - [ ] Grace period after expiry before hard cutoff
 
 ---

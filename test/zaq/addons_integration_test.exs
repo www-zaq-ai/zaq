@@ -1,6 +1,6 @@
-defmodule Zaq.License.IntegrationTest do
+defmodule Zaq.Addons.IntegrationTest do
   @moduledoc """
-  End-to-end test: generate a license package, then load and verify it
+  End-to-end test: generate an add-on package, then load and verify it
   inside the zaq client. Simulates the full flow without needing
   the license_manager project running.
   """
@@ -10,7 +10,7 @@ defmodule Zaq.License.IntegrationTest do
 
   import ExUnit.CaptureLog
 
-  alias Zaq.License.{BeamDecryptor, FeatureStore, Loader}
+  alias Zaq.Addons.{BeamDecryptor, FeatureStore, PackageLoader}
 
   @keys_dir "priv/keys"
   @private_key_path Path.join(@keys_dir, "private.pem")
@@ -118,9 +118,9 @@ defmodule Zaq.License.IntegrationTest do
       )
 
       # 7. Load the license
-      assert {:ok, license_data} = Loader.load(license_path)
-      assert license_data["license_key"] == "lic_test_001"
-      assert license_data["company"]["name"] == "Test Corp"
+      assert {:ok, addon_data} = PackageLoader.load(license_path)
+      assert addon_data["license_key"] == "lic_test_001"
+      assert addon_data["company"]["name"] == "Test Corp"
 
       # 8. Verify module is callable
       module = Module.concat([LicenseManager, Paid, Ontology])
@@ -142,7 +142,7 @@ defmodule Zaq.License.IntegrationTest do
 
       module_code = """
       defmodule #{mod_name} do
-        @behaviour Zaq.License.ObanFeature
+        @behaviour Zaq.Addons.ObanFeature
         def oban_queues, do: [{:#{queue}, 1}]
         def oban_crontab, do: []
       end
@@ -181,9 +181,9 @@ defmodule Zaq.License.IntegrationTest do
       )
 
       capture_log(fn ->
-        assert {:ok, _} = Loader.load(license_path)
+        assert {:ok, _} = PackageLoader.load(license_path)
         # Second load must not raise even though start_queue is called again
-        assert {:ok, _} = Loader.load(license_path)
+        assert {:ok, _} = PackageLoader.load(license_path)
       end)
     end
 
@@ -210,7 +210,7 @@ defmodule Zaq.License.IntegrationTest do
       )
 
       capture_log(fn ->
-        assert {:error, :license_expired} = Loader.load(license_path)
+        assert {:error, :license_expired} = PackageLoader.load(license_path)
       end)
     end
 
@@ -249,7 +249,7 @@ defmodule Zaq.License.IntegrationTest do
       )
 
       capture_log(fn ->
-        assert {:error, :invalid_signature} = Loader.load(license_path)
+        assert {:error, :invalid_signature} = PackageLoader.load(license_path)
       end)
     end
 
@@ -278,7 +278,7 @@ defmodule Zaq.License.IntegrationTest do
       )
 
       capture_log(fn ->
-        assert {:error, :invalid_signature} = Loader.load(license_path)
+        assert {:error, :invalid_signature} = PackageLoader.load(license_path)
       end)
     end
   end

@@ -1,7 +1,7 @@
-defmodule Zaq.License.BeamDecryptorTest do
+defmodule Zaq.Addons.BeamDecryptorTest do
   use ExUnit.Case, async: true
 
-  alias Zaq.License.BeamDecryptor
+  alias Zaq.Addons.BeamDecryptor
 
   test "derive_key is deterministic sha256" do
     payload = "license-payload"

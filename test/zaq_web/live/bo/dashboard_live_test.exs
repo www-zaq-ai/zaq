@@ -5,7 +5,7 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.License.FeatureStore
+  alias Zaq.Addons.FeatureStore
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
@@ -76,7 +76,7 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       assert html =~ "Back Office"
     end
 
-    test "renders license card with computed days left for valid expiry", %{conn: conn} do
+    test "renders add-ons card with computed days left for valid expiry", %{conn: conn} do
       future = DateTime.add(DateTime.utc_now(), 45 * 86_400, :second) |> DateTime.to_iso8601()
 
       :ok =
@@ -95,7 +95,7 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       assert html =~ "Days Left"
     end
 
-    test "handles invalid license expiry timestamp", %{conn: conn} do
+    test "handles invalid add-on expiry timestamp", %{conn: conn} do
       :ok =
         FeatureStore.store(
           %{

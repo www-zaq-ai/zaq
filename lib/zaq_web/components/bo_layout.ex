@@ -5,7 +5,7 @@ defmodule ZaqWeb.Components.BOLayout do
   Back office layout with collapsible sidebar and section dropdowns.
   """
   use Phoenix.Component
-  alias Zaq.License.FeatureStore
+  alias Zaq.Addons.FeatureStore
   alias Zaq.System
   use ZaqWeb, :verified_routes
 
@@ -470,10 +470,10 @@ defmodule ZaqWeb.Components.BOLayout do
                 <div class="my-1 h-px bg-black/10" />
                 <a
                   id="header-settings-license-link"
-                  href={~p"/bo/license"}
+                  href={~p"/bo/addons"}
                   class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
                 >
-                  License manager
+                  Add-ons
                 </a>
               </div>
             </details>
@@ -825,7 +825,7 @@ defmodule ZaqWeb.Components.BOLayout do
   end
 
   @doc """
-  Renders a centered "feature not licensed" gate card.
+  Renders a centered "feature not enabled" gate card.
 
   ## Attributes
 
@@ -839,7 +839,7 @@ defmodule ZaqWeb.Components.BOLayout do
     assigns =
       update(assigns, :message, fn
         nil ->
-          "The #{String.downcase(assigns.feature_name)} feature is not included in your current license. Contact your administrator."
+          "The #{String.downcase(assigns.feature_name)} feature is not enabled by your current add-ons. Contact your administrator."
 
         msg ->
           msg
@@ -860,13 +860,13 @@ defmodule ZaqWeb.Components.BOLayout do
             <path d="M12 15.75h.007v.008H12v-.008z" />
           </svg>
         </div>
-        <p class="font-mono text-sm font-bold text-black mb-1">Feature Not Licensed</p>
+        <p class="font-mono text-sm font-bold text-black mb-1">Feature Not Enabled</p>
         <p class="font-mono text-[0.7rem] text-black/40 mb-5">{@message}</p>
         <.link
-          href={~p"/bo/license"}
+          href={~p"/bo/addons"}
           class="inline-block font-mono text-[0.8rem] font-bold px-5 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors"
         >
-          View License
+          View Add-ons
         </.link>
       </div>
     </div>

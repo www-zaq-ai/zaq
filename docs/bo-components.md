@@ -103,7 +103,7 @@ Before writing any markup from scratch, check whether one of these components al
 | `<BOLayout.diagnostic_card>` | Service / connection card with a status badge and optional test button |
 | `<BOLayout.config_row>` | Single label ↔ value row with an optional inline hint tooltip |
 | `<BOLayout.status_badge>` | Inline pill: `idle`, `loading`, `ok`, or `{:error, msg}` |
-| `<BOLayout.feature_gate>` | Full-page "Feature Not Licensed" gate with a link to `/bo/license` |
+| `<BOLayout.feature_gate>` | Full-page "Feature Not Enabled" gate with a link to `/bo/addons` |
 
 ### `ZaqWeb.Components.BOModal` — `lib/zaq_web/components/bo_modal.ex`
 

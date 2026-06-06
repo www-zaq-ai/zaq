@@ -1,7 +1,7 @@
-defmodule Zaq.License.FeatureStoreTest do
+defmodule Zaq.Addons.FeatureStoreTest do
   use ExUnit.Case, async: false
 
-  alias Zaq.License.FeatureStore
+  alias Zaq.Addons.FeatureStore
 
   setup do
     case GenServer.whereis(FeatureStore) do
@@ -15,23 +15,23 @@ defmodule Zaq.License.FeatureStoreTest do
   end
 
   test "returns empty defaults before storing" do
-    assert FeatureStore.license_data() == nil
+    assert FeatureStore.addon_data() == nil
     assert FeatureStore.loaded_modules() == []
     refute FeatureStore.feature_loaded?("ontology")
     refute FeatureStore.module_loaded?(Elixir.Does.Not.Exist)
   end
 
   test "stores and serves license data and module list" do
-    license_data = %{
+    addon_data = %{
       "license_key" => "lic_store_1",
       "features" => [%{"name" => "ontology"}, %{"name" => "analytics"}]
     }
 
     loaded_modules = [LicenseManager.Paid.Ontology, LicenseManager.Paid.Analytics]
 
-    assert :ok = FeatureStore.store(license_data, loaded_modules)
+    assert :ok = FeatureStore.store(addon_data, loaded_modules)
 
-    assert FeatureStore.license_data() == license_data
+    assert FeatureStore.addon_data() == addon_data
     assert FeatureStore.loaded_modules() == loaded_modules
     assert FeatureStore.feature_loaded?("ontology")
     refute FeatureStore.feature_loaded?("missing")
@@ -43,7 +43,7 @@ defmodule Zaq.License.FeatureStoreTest do
     assert :ok = FeatureStore.store(%{"features" => [%{"name" => "x"}]}, [LicenseManager.Paid.X])
     assert :ok = FeatureStore.clear()
 
-    assert FeatureStore.license_data() == nil
+    assert FeatureStore.addon_data() == nil
     assert FeatureStore.loaded_modules() == []
     refute FeatureStore.feature_loaded?("x")
   end

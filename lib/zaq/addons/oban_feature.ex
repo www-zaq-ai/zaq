@@ -1,9 +1,9 @@
-defmodule Zaq.License.ObanFeature do
+defmodule Zaq.Addons.ObanFeature do
   @moduledoc """
-  Behaviour for licensed feature modules that require Oban resources.
+  Behaviour for add-on feature modules that require Oban resources.
 
   Implement this behaviour in any module that needs queues or crontab entries
-  provisioned when the license is loaded into the BEAM.
+  provisioned when the add-on package is loaded into the BEAM.
 
   All three callbacks are required. Return `[]` from `oban_queues/0` or `oban_crontab/0`
   if not needed.
@@ -15,7 +15,7 @@ defmodule Zaq.License.ObanFeature do
   ## Example
 
       defmodule LicenseManager.Paid.KnowledgeGap do
-        @behaviour Zaq.License.ObanFeature
+        @behaviour Zaq.Addons.ObanFeature
 
         @impl true
         def feature_key, do: :knowledge_gap

@@ -1,4 +1,4 @@
-defmodule Zaq.License.Verifier do
+defmodule Zaq.Addons.PackageVerifier do
   @moduledoc """
   Verifies license payload signatures using an Ed25519 public key.
   The public key is expected to be a 32-byte binary extracted from the .zaq-license package.

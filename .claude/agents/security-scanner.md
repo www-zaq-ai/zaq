@@ -104,8 +104,8 @@ Flag any `Phoenix.HTML.raw/1` or `{:safe, ...}` wrapping user-supplied content.
 ZAQ connects to a customer-provided LLM endpoint. Check:
 
 - LLM endpoint URL is never logged at `:info` or above
-- License keys are not exposed in HTTP responses or LiveView assigns
-- `Zaq.License` module does not leak verification details in error messages
+- Add-on package keys are not exposed in HTTP responses or LiveView assigns
+- `Zaq.Addons` module does not leak verification details in error messages
 - Node cookie (`--cookie`) is not hardcoded in any script or Dockerfile committed to the repo
 
 ```bash

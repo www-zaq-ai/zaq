@@ -1,9 +1,9 @@
-defmodule Zaq.License.LoaderTest do
+defmodule Zaq.Addons.PackageLoaderTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
-  alias Zaq.License.{BeamDecryptor, FeatureStore, LicensePostLoader, Loader}
+  alias Zaq.Addons.{BeamDecryptor, FeatureStore, PackageLoader, PostLoader}
 
   @public_key_path Path.join(["priv", "keys", "public.pem"])
 
@@ -11,7 +11,7 @@ defmodule Zaq.License.LoaderTest do
     previous_level = Logger.level()
 
     ensure_started(FeatureStore)
-    ensure_started(LicensePostLoader)
+    ensure_started(PostLoader)
     FeatureStore.clear()
 
     File.mkdir_p!(Path.dirname(@public_key_path))
@@ -48,7 +48,11 @@ defmodule Zaq.License.LoaderTest do
     path = Path.join(tmp_dir, "bad.zaq-license")
     File.write!(path, "not-a-tar")
 
-    log = capture_log(fn -> assert {:error, {:extract_failed, _reason}} = Loader.load(path) end)
+    log =
+      capture_log(fn ->
+        assert {:error, {:extract_failed, _reason}} = PackageLoader.load(path)
+      end)
+
     assert log =~ "extract_failed"
   end
 
@@ -56,7 +60,7 @@ defmodule Zaq.License.LoaderTest do
     path = Path.join(tmp_dir, "missing_dat.zaq-license")
     create_archive!(path, [{~c"modules/Any.beam.enc", "x"}])
 
-    log = capture_log(fn -> assert {:error, :missing_license_dat} = Loader.load(path) end)
+    log = capture_log(fn -> assert {:error, :missing_license_dat} = PackageLoader.load(path) end)
     assert log =~ "missing_license_dat"
   end
 
@@ -64,7 +68,11 @@ defmodule Zaq.License.LoaderTest do
     path = Path.join(tmp_dir, "bad_format.zaq-license")
     create_archive!(path, [{~c"license.dat", "only-one-part"}])
 
-    log = capture_log(fn -> assert {:error, :invalid_license_dat_format} = Loader.load(path) end)
+    log =
+      capture_log(fn ->
+        assert {:error, :invalid_license_dat_format} = PackageLoader.load(path)
+      end)
+
     assert log =~ "invalid_license_dat_format"
   end
 
@@ -83,7 +91,7 @@ defmodule Zaq.License.LoaderTest do
       {~c"public.key", Base.encode64(pub)}
     ])
 
-    log = capture_log(fn -> assert {:error, :invalid_payload_json} = Loader.load(path) end)
+    log = capture_log(fn -> assert {:error, :invalid_payload_json} = PackageLoader.load(path) end)
     assert log =~ "invalid_payload_json"
   end
 
@@ -105,7 +113,7 @@ defmodule Zaq.License.LoaderTest do
       {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
-    log = capture_log(fn -> assert {:error, :missing_expires_at} = Loader.load(path) end)
+    log = capture_log(fn -> assert {:error, :missing_expires_at} = PackageLoader.load(path) end)
     assert log =~ "missing_expires_at"
   end
 
@@ -133,7 +141,7 @@ defmodule Zaq.License.LoaderTest do
       {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
     ])
 
-    log = capture_log(fn -> assert {:error, :license_expired} = Loader.load(path) end)
+    log = capture_log(fn -> assert {:error, :license_expired} = PackageLoader.load(path) end)
     assert log =~ "license_expired"
   end
 
@@ -164,7 +172,7 @@ defmodule Zaq.License.LoaderTest do
       capture_log(fn ->
         assert {:error,
                 {:decrypt_failed, "Elixir.LicenseManager.Paid.DecFail", :decryption_failed}} =
-                 Loader.load(path)
+                 PackageLoader.load(path)
       end)
 
     assert log =~ "decrypt_failed"
@@ -202,7 +210,7 @@ defmodule Zaq.License.LoaderTest do
     log =
       capture_log(fn ->
         assert {:error, {:load_failed, "Elixir.LicenseManager.Paid.LoadFail", _reason}} =
-                 Loader.load(path)
+                 PackageLoader.load(path)
       end)
 
     assert log =~ "load_failed"
@@ -220,7 +228,7 @@ defmodule Zaq.License.LoaderTest do
 
     module_source = """
     defmodule #{mod_name} do
-      @behaviour Zaq.License.ObanFeature
+      @behaviour Zaq.Addons.ObanFeature
       def feature_key, do: :loader_test_oban_feature
       def oban_queues, do: [{:#{queue}, 1}]
       def oban_crontab, do: []
@@ -255,7 +263,7 @@ defmodule Zaq.License.LoaderTest do
 
     Logger.configure(level: :info)
 
-    log = capture_log(fn -> assert {:ok, _} = Loader.load(path) end)
+    log = capture_log(fn -> assert {:ok, _} = PackageLoader.load(path) end)
 
     # Provisioner attempted start_queue (success or failure in test mode —
     # both prove the call was made)
@@ -303,7 +311,7 @@ defmodule Zaq.License.LoaderTest do
 
     Logger.configure(level: :info)
 
-    log = capture_log(fn -> assert {:ok, _} = Loader.load(path) end)
+    log = capture_log(fn -> assert {:ok, _} = PackageLoader.load(path) end)
 
     refute log =~ "[ObanProvisioner]"
   end
@@ -355,9 +363,9 @@ defmodule Zaq.License.LoaderTest do
 
     log =
       capture_log(fn ->
-        assert {:ok, license_data} = Loader.load(path)
-        assert license_data["license_key"] == "lic_ok"
-        :sys.get_state(GenServer.whereis(LicensePostLoader))
+        assert {:ok, addon_data} = PackageLoader.load(path)
+        assert addon_data["license_key"] == "lic_ok"
+        :sys.get_state(GenServer.whereis(PostLoader))
       end)
 
     assert log =~ "Migrations failed"
@@ -387,8 +395,8 @@ defmodule Zaq.License.LoaderTest do
   defp paid_license_beam do
     module_source = """
     defmodule LicenseManager.Paid.License do
-      def check_expiry(license_data) do
-        case Map.fetch(license_data, "expires_at") do
+      def check_expiry(addon_data) do
+        case Map.fetch(addon_data, "expires_at") do
           :error ->
             {:error, :missing_expires_at}
 
@@ -417,7 +425,7 @@ defmodule Zaq.License.LoaderTest do
 
   defp write_public_key(pub) do
     # Build SPKI DER for Ed25519: 12-byte OID header + 32-byte raw key.
-    # parse_public_pem/1 in Verifier expects SubjectPublicKeyInfo / SPKI format.
+    # parse_public_pem/1 in PackageVerifier expects SubjectPublicKeyInfo / SPKI format.
     der = <<0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00>> <> pub
     pem = :public_key.pem_encode([{:SubjectPublicKeyInfo, der, :not_encrypted}])
     File.write!(@public_key_path, pem)

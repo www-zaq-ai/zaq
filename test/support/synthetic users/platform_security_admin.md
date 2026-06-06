@@ -4,7 +4,7 @@
 - Subagent name: `subagent_platform_security_operator`
 - Objective: guarantee secure access, governance controls, channel connectivity, and runtime health checks remain stable across dev updates.
 - Scope: authentication and password policy, user/role lifecycle, channel configuration and tests, diagnostics, and license visibility.
-- Primary UI surfaces: `/bo/login`, `/bo/change-password`, `/bo/users`, `/bo/roles`, `/bo/channels`, `/bo/channels/retrieval/:provider`, `/bo/dashboard`, `/bo/ai-diagnostics`, `/bo/license`.
+- Primary UI surfaces: `/bo/login`, `/bo/change-password`, `/bo/users`, `/bo/roles`, `/bo/channels`, `/bo/channels/retrieval/:provider`, `/bo/dashboard`, `/bo/ai-diagnostics`, `/bo/addons`.
 - Expected deliverable from this subagent: operational QA journeys with explicit controls and failure-sensitive checkpoints.
 
 ## Top Journeys
@@ -51,10 +51,10 @@ Sequence of pages visited:
 Sequence of pages visited:
 1. `/bo/dashboard`
 2. `/bo/ai-diagnostics`
-3. `/bo/license`
+3. `/bo/addons`
 
 | Page visited | Elements seen | Elements interacted with |
 | --- | --- | --- |
 | `/bo/dashboard` | Service rows (Engine/Agent/Ingestion/Channels/Back Office), status badges, node column | Validate required services are `Running`; confirm node attribution is present |
 | `/bo/ai-diagnostics` | LLM/Embedding/Ingestion cards, status badges, test buttons (`Test Connection`, `Test TokenEstimator`) | Run LLM and embedding connectivity checks, run token estimator check, confirm status transitions (`idle` -> `loading` -> `ok` or error) |
-| `/bo/license` | License state card, features list, expiry and days-left indicators, sales CTA when unlicensed | Verify key metadata rendering and feature availability state (licensed vs locked) |
+| `/bo/addons` | Add-on state card, features list, expiry and days-left indicators, sales CTA when add-ons are not enabled | Verify key metadata rendering and feature availability state (enabled vs disabled) |

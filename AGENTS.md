@@ -58,7 +58,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 | Channels, adapters, Mattermost                 | `docs/services/channels.md`      |
 | Engine, conversations, notifications, dispatch | `docs/services/engine.md`        |
 | Ingestion pipeline, chunking, embedding        | `docs/services/ingestion.md`     |
-| License loading & feature gating               | `docs/services/license.md`       |
+| Add-ons loading & feature gating               | `docs/services/addons.md`       |
 | System config, secrets, encryption             | `docs/services/system-config.md` |
 | Telemetry, metrics, buffer behavior            | `docs/services/telemetry.md`     |
 | Workflows: DAG engine, triggers, run lifecycle | `docs/services/workflows.md`     |

@@ -103,10 +103,10 @@
       </div>
     </div>
     
-<!-- License Card -->
+<!-- Add-ons Card -->
     <div>
-      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">License</p>
-      <%= if @license_data do %>
+      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Add-ons</p>
+      <%= if @addon_data do %>
         <div class="bg-white rounded-xl border border-black/10 p-5 space-y-4">
           <div class="flex items-center gap-3">
             <div class="w-9 h-9 rounded-lg bg-emerald-100 grid place-items-center">
@@ -122,16 +122,16 @@
             </div>
             <div>
               <p class="font-mono text-sm font-bold text-black">
-                {@license_data["company_name"]}
+                {@addon_data["company_name"]}
               </p>
-              <p class="font-mono text-[0.65rem] text-black/40">{@license_data["license_key"]}</p>
+              <p class="font-mono text-[0.65rem] text-black/40">{@addon_data["license_key"]}</p>
             </div>
           </div>
           <div class="border-t border-black/5 pt-3 space-y-2">
             <div class="flex justify-between">
               <p class="font-mono text-[0.7rem] text-black/40">Features</p>
               <p class="font-mono text-[0.7rem] text-black">
-                {length(@license_data["features"])}
+                {length(@addon_data["features"])}
               </p>
             </div>
             <div class="flex justify-between">
@@ -150,7 +150,7 @@
             </div>
           </div>
           <.link
-            href={~p"/bo/license"}
+            href={~p"/bo/addons"}
             class="block text-center font-mono text-[0.75rem] text-[#03b6d4] hover:underline"
           >
             View Details →
@@ -170,10 +170,10 @@
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
           </div>
-          <p class="font-mono text-sm font-bold text-black mb-1">No License</p>
+          <p class="font-mono text-sm font-bold text-black mb-1">No Add-ons</p>
           <p class="font-mono text-[0.7rem] text-black/40 mb-3">Running in basic mode</p>
           <.link
-            href={~p"/bo/license"}
+            href={~p"/bo/addons"}
             class="inline-block font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors"
           >
             Learn More

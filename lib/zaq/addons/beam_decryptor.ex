@@ -1,4 +1,4 @@
-defmodule Zaq.License.BeamDecryptor do
+defmodule Zaq.Addons.BeamDecryptor do
   @moduledoc """
   Decrypts encrypted BEAM files using AES-256-GCM.
   Mirrors the encryption logic from LicenseManager.Crypto.BeamEncryptor.

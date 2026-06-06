@@ -1,9 +1,9 @@
-defmodule Zaq.License.ObanProvisionerTest do
+defmodule Zaq.Addons.ObanProvisionerTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
-  alias Zaq.License.ObanProvisioner
+  alias Zaq.Addons.ObanProvisioner
   alias Zaq.Oban.DynamicCron
 
   # Lower log level so Logger.info messages from ObanProvisioner reach capture_log.
@@ -259,7 +259,7 @@ defmodule Zaq.License.ObanProvisionerTest do
     mod
   end
 
-  # Compiles a module implementing Zaq.License.ObanFeature with the given
+  # Compiles a module implementing Zaq.Addons.ObanFeature with the given
   # feature_key, queues and crontab. Crontab entries must be {expr, worker_module} tuples.
   defp compile_oban_feature(opts) do
     mod_name = "Elixir.ObanProvisionerTest.F#{System.unique_integer([:positive])}"
@@ -277,7 +277,7 @@ defmodule Zaq.License.ObanProvisionerTest do
 
     source = """
     defmodule #{mod_name} do
-      @behaviour Zaq.License.ObanFeature
+      @behaviour Zaq.Addons.ObanFeature
       def feature_key, do: #{inspect(key)}
       def oban_queues, do: #{queues_literal}
       def oban_crontab, do: #{crontab_literal}

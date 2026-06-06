@@ -20,8 +20,8 @@ defmodule Zaq.Application do
         {Phoenix.PubSub, name: Zaq.PubSub},
         {Task.Supervisor, name: Zaq.TaskSupervisor},
         {Oban, Application.fetch_env!(:zaq, Oban)},
-        Zaq.License.FeatureStore,
-        Zaq.License.LicensePostLoader,
+        Zaq.Addons.FeatureStore,
+        Zaq.Addons.PostLoader,
         Zaq.Hooks.Supervisor,
         Zaq.PeerConnector
       ]

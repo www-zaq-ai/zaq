@@ -1,10 +1,10 @@
-defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
+defmodule ZaqWeb.Live.BO.System.AddonsLiveTest do
   use ZaqWeb.ConnCase
 
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   alias Zaq.Accounts
-  alias Zaq.License.FeatureStore
+  alias Zaq.Addons.FeatureStore
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
@@ -14,21 +14,21 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
     %{conn: conn, user: user}
   end
 
-  describe "no license" do
+  describe "no add-ons" do
     setup do
       FeatureStore.clear()
       :ok
     end
 
-    test "shows marketing page when no license loaded", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+    test "shows marketing page when no add-on package loaded", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
       assert html =~ "Unlock the full power of ZAQ"
-      assert html =~ "Request a License"
-      assert html =~ "Available with a License"
+      assert html =~ "Request Add-ons"
+      assert html =~ "Available with Add-ons"
     end
 
     test "shows feature cards", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
       assert html =~ "Ontology Management"
       assert html =~ "Knowledge Gap Detection"
       assert html =~ "Knowledge Update"
@@ -36,13 +36,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
     end
 
     test "shows contact sales CTA", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
       assert html =~ "Contact Sales"
       assert html =~ "sales@zaq.ai"
     end
   end
 
-  describe "with license" do
+  describe "with add-ons" do
     setup do
       FeatureStore.store(
         %{
@@ -69,45 +69,45 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
       :ok
     end
 
-    test "shows license info", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
-      assert html =~ "License Active"
+    test "shows add-on info", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
+      assert html =~ "Add-ons Active"
       assert html =~ "lic_test_123"
       assert html =~ "Acme Corp"
     end
 
-    test "shows licensed features", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+    test "shows enabled features", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
       assert html =~ "Ontology Management"
       assert html =~ "Knowledge Gap Detection"
     end
 
     test "shows loaded module count", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
       assert html =~ "Loaded Modules"
       assert html =~ "2"
     end
 
     test "shows time left", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
       assert html =~ "Time Left"
     end
 
-    test "shows locked features for upgrade", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
-      assert html =~ "Available to Unlock"
+    test "shows disabled features for upgrade", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
+      assert html =~ "Available to Enable"
       assert html =~ "Knowledge Update"
       assert html =~ "Document Update"
-      assert html =~ "Locked"
+      assert html =~ "Not Enabled"
     end
 
-    test "hides locked-features section when all features are licensed", %{conn: conn} do
+    test "hides disabled-features section when all features are enabled", %{conn: conn} do
       FeatureStore.store(
         %{
           "license_key" => "lic_full_789",
           "company" => %{"name" => "Full Corp"},
           "expires_at" => DateTime.utc_now() |> DateTime.add(120, :day) |> DateTime.to_iso8601(),
-          "features" => fully_licensed_features()
+          "features" => fully_enabled_features()
         },
         [
           Zaq.Paid.Ontology,
@@ -117,13 +117,13 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
         ]
       )
 
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
-      refute html =~ "Available to Unlock"
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
+      refute html =~ "Available to Enable"
       refute html =~ "Contact Sales to Upgrade"
     end
   end
 
-  describe "expired license" do
+  describe "expired add-on package" do
     setup do
       FeatureStore.store(
         %{
@@ -145,8 +145,8 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
       :ok
     end
 
-    test "shows red days left for expired license", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+    test "shows red days left for expired add-on package", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
       assert html =~ "text-red-600"
     end
   end
@@ -158,41 +158,41 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
     end
 
     test "renders nil expiration with neutral class", %{conn: conn} do
-      store_license(nil)
+      store_addon(nil)
 
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
 
       assert html =~ "—"
       assert html =~ ~r/Time Left.*?text-black/s
     end
 
     test "renders invalid expiration string with neutral class", %{conn: conn} do
-      store_license("not-a-date")
+      store_addon("not-a-date")
 
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
 
       assert html =~ "not-a-date"
       assert html =~ ~r/Time Left.*?text-black/s
     end
 
     test "renders amber class for medium-term expiration", %{conn: conn} do
-      store_license(DateTime.utc_now() |> DateTime.add(45, :day) |> DateTime.to_iso8601())
+      store_addon(DateTime.utc_now() |> DateTime.add(45, :day) |> DateTime.to_iso8601())
 
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
 
       assert html =~ ~r/Time Left.*?text-amber-600/s
     end
 
     test "renders green class for long-term expiration", %{conn: conn} do
-      store_license(DateTime.utc_now() |> DateTime.add(140, :day) |> DateTime.to_iso8601())
+      store_addon(DateTime.utc_now() |> DateTime.add(140, :day) |> DateTime.to_iso8601())
 
-      {:ok, _view, html} = live(conn, ~p"/bo/license")
+      {:ok, _view, html} = live(conn, ~p"/bo/addons")
 
       assert html =~ ~r/Time Left.*?text-emerald-600/s
     end
   end
 
-  defp store_license(expires_at) do
+  defp store_addon(expires_at) do
     FeatureStore.store(
       %{
         "license_key" => "lic_date_coverage",
@@ -210,7 +210,7 @@ defmodule ZaqWeb.Live.BO.System.LicenseLiveTest do
     )
   end
 
-  defp fully_licensed_features do
+  defp fully_enabled_features do
     [
       "ontology",
       "knowledge_gap",

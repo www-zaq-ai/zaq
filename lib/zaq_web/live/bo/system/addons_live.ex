@@ -1,7 +1,7 @@
-defmodule ZaqWeb.Live.BO.System.LicenseLive do
+defmodule ZaqWeb.Live.BO.System.AddonsLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.License.{FeatureStore, Loader}
+  alias Zaq.Addons.{FeatureStore, PackageLoader}
 
   @zaq_features [
     %{
@@ -36,37 +36,37 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
 
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "license:updated")
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "addons:updated")
     end
 
     {:ok,
      socket
-     |> assign_license_state()
-     |> assign(current_path: "/bo/license", upload_error: nil)
-     |> allow_upload(:license_file, accept: ~w(.zaq-license), max_entries: 1)}
+     |> assign_addon_state()
+     |> assign(current_path: "/bo/addons", upload_error: nil)
+     |> allow_upload(:addon_package, accept: ~w(.zaq-license), max_entries: 1)}
   end
 
   def handle_event("validate", _params, socket) do
     {:noreply, socket}
   end
 
-  def handle_event("upload_license", _params, socket) do
+  def handle_event("upload_addon", _params, socket) do
     result =
-      consume_uploaded_entries(socket, :license_file, fn %{path: tmp_path}, entry ->
+      consume_uploaded_entries(socket, :addon_package, fn %{path: tmp_path}, entry ->
         dest_dir = Application.app_dir(:zaq, "priv/licenses")
         File.mkdir_p!(dest_dir)
         dest = Path.join(dest_dir, entry.client_name)
         File.cp!(tmp_path, dest)
 
-        case Loader.load(dest) do
-          {:ok, _license_data} -> {:ok, :loaded}
+        case PackageLoader.load(dest) do
+          {:ok, _addon_data} -> {:ok, :loaded}
           {:error, reason} -> {:ok, {:error, reason}}
         end
       end)
 
     case result do
       [:loaded] ->
-        {:noreply, socket |> assign_license_state() |> assign(upload_error: nil)}
+        {:noreply, socket |> assign_addon_state() |> assign(upload_error: nil)}
 
       [{:error, reason}] ->
         {:noreply, assign(socket, upload_error: format_upload_error(reason))}
@@ -76,51 +76,53 @@ defmodule ZaqWeb.Live.BO.System.LicenseLive do
     end
   end
 
-  def handle_info(:license_updated, socket) do
-    {:noreply, assign_license_state(socket)}
+  def handle_info(:addons_updated, socket) do
+    {:noreply, assign_addon_state(socket)}
   end
 
-  defp assign_license_state(socket) do
-    license_data = FeatureStore.license_data()
+  defp assign_addon_state(socket) do
+    addon_data = FeatureStore.addon_data()
     loaded_modules = FeatureStore.loaded_modules()
 
-    licensed_keys =
-      case license_data do
+    enabled_keys =
+      case addon_data do
         nil -> []
         data -> data |> Map.get("features", []) |> Enum.map(& &1["name"])
       end
 
     feature_lookup = Map.new(@zaq_features, &{&1.key, &1})
 
-    licensed_features =
-      licensed_keys
+    enabled_features =
+      enabled_keys
       |> Enum.map(fn key -> Map.get(feature_lookup, key, %{key: key, name: key, icon: nil}) end)
 
-    locked_features = Enum.reject(@zaq_features, fn f -> f.key in licensed_keys end)
+    disabled_features = Enum.reject(@zaq_features, fn f -> f.key in enabled_keys end)
 
     assign(socket,
-      license_data: license_data,
+      addon_data: addon_data,
       loaded_modules: loaded_modules,
       zaq_features: @zaq_features,
-      licensed_features: licensed_features,
-      locked_features: locked_features
+      enabled_features: enabled_features,
+      disabled_features: disabled_features
     )
   end
 
   def upload_entry_error(:too_large), do: "File is too large."
-  def upload_entry_error(:not_accepted), do: "Only .zaq-license files are accepted."
+  def upload_entry_error(:not_accepted), do: "Only .zaq-license add-on packages are accepted."
   def upload_entry_error(:too_many_files), do: "Only one file at a time."
   def upload_entry_error(_), do: "Upload failed."
 
-  defp format_upload_error(:license_expired), do: "This license has expired."
+  defp format_upload_error(:license_expired), do: "This add-on package has expired."
 
   defp format_upload_error(:missing_license_dat),
-    do: "Invalid license file: missing license data."
+    do: "Invalid add-on package: missing package data."
 
-  defp format_upload_error(:invalid_payload_json), do: "Invalid license file: malformed payload."
-  defp format_upload_error(:invalid_license_dat_format), do: "Invalid license file format."
-  defp format_upload_error({:extract_failed, _}), do: "Could not read license file."
-  defp format_upload_error(reason), do: "Failed to load license: #{inspect(reason)}"
+  defp format_upload_error(:invalid_payload_json),
+    do: "Invalid add-on package: malformed payload."
+
+  defp format_upload_error(:invalid_license_dat_format), do: "Invalid add-on package format."
+  defp format_upload_error({:extract_failed, _}), do: "Could not read add-on package."
+  defp format_upload_error(reason), do: "Failed to load add-on package: #{inspect(reason)}"
 
   defp seconds_left(nil), do: nil
 

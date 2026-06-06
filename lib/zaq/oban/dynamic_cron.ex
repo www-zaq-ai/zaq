@@ -12,7 +12,7 @@ defmodule Zaq.Oban.DynamicCron do
 
       plugins: [{Zaq.Oban.DynamicCron, crontab: [{"* * * * *", MyWorker}]}]
 
-  ## Injecting from a licensed feature
+  ## Injecting from an add-on feature
 
       Zaq.Oban.DynamicCron.add_schedules(:my_feature, [{"0 * * * *", MyFeature.Worker}])
 

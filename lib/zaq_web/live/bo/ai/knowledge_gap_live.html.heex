@@ -6,7 +6,7 @@
   features_version={@features_version}
 >
   <ZaqWeb.Components.BOLayout.feature_gate
-    :if={not @licensed}
+    :if={not @enabled}
     feature_name="Knowledge Gap Detection"
   />
 </ZaqWeb.Components.BOLayout.bo_layout>

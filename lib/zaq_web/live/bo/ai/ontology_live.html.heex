@@ -5,5 +5,5 @@
   current_path={@current_path}
   features_version={@features_version}
 >
-  <ZaqWeb.Components.BOLayout.feature_gate :if={not @licensed} feature_name="Ontology" />
+  <ZaqWeb.Components.BOLayout.feature_gate :if={not @enabled} feature_name="Ontology" />
 </ZaqWeb.Components.BOLayout.bo_layout>

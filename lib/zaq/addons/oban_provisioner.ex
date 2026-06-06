@@ -1,9 +1,9 @@
-defmodule Zaq.License.ObanProvisioner do
+defmodule Zaq.Addons.ObanProvisioner do
   @moduledoc """
-  Provisions Oban queues and crontab entries declared by licensed feature modules.
+  Provisions Oban queues and crontab entries declared by add-on feature modules.
 
-  Called by `Zaq.License.Loader` after modules are loaded into the BEAM.
-  Any loaded module implementing `Zaq.License.ObanFeature` will have its
+  Called by `Zaq.Addons.PackageLoader` after modules are loaded into the BEAM.
+  Any loaded module implementing `Zaq.Addons.ObanFeature` will have its
   declared queues started and crontab entries injected into the running
   `Zaq.Oban.DynamicCron` plugin — with no Oban supervisor restart required.
   """

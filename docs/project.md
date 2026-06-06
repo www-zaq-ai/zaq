@@ -34,7 +34,7 @@ lib/
 │   ├── embedding/        # Embedding client (standalone)
 │   ├── engine/           # Orchestrator — adapter contracts + supervisors + Conversations context
 │   ├── ingestion/        # Document processing, chunking, Oban jobs
-│   ├── license/          # License verification, feature gating
+│   ├── addons/           # Add-on package verification, feature gating
 │   ├── node_router.ex    # Routes RPC calls by role
 │   └── application.ex   # Role-based OTP startup
 ├── zaq_web/
@@ -42,7 +42,7 @@ lib/
 │   │   ├── accounts/     # Users + Roles CRUD
 │   │   ├── ai/           # Ingestion, Ontology, Prompt Templates, Diagnostics
 │   │   ├── communication/# Channels, History, Playground, Conversations
-│   │   └── system/       # Password, License
+│   │   └── system/       # Password, add-ons
 │   ├── controllers/
 │   ├── plugs/auth.ex
 │   └── router.ex
@@ -60,7 +60,7 @@ lib/
 | `embedding` | Standalone embedding HTTP client |
 | `engine` | Adapter contracts, supervisors, conversations |
 | `ingestion` | Document processing, chunking, Oban jobs, hybrid search |
-| `license` | License loading, BEAM decryption, feature gating |
+| `addons` | Add-on loading, BEAM decryption, feature gating |
 
 For deep-dives into each service, see `docs/services/`.
 

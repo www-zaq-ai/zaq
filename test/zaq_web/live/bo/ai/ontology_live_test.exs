@@ -5,7 +5,7 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.License.FeatureStore
+  alias Zaq.Addons.FeatureStore
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
@@ -22,14 +22,14 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
     %{conn: conn, user: user}
   end
 
-  describe "mount licensing branches" do
-    test "unlicensed when no ontology feature loaded", %{conn: conn} do
+  describe "mount add-on branches" do
+    test "disabled when no ontology feature loaded", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ontology")
 
-      assert has_element?(view, "p", "Feature Not Licensed")
+      assert has_element?(view, "p", "Feature Not Enabled")
     end
 
-    test "unlicensed when license exists but ontology feature missing", %{conn: conn} do
+    test "disabled when add-on package exists but ontology feature is missing", %{conn: conn} do
       :ok =
         FeatureStore.store(
           %{
@@ -42,10 +42,10 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/ontology")
 
-      assert has_element?(view, "p", "Feature Not Licensed")
+      assert has_element?(view, "p", "Feature Not Enabled")
     end
 
-    test "licensed when ontology feature exists", %{conn: conn} do
+    test "enabled when ontology feature exists", %{conn: conn} do
       :ok =
         FeatureStore.store(
           %{
@@ -58,7 +58,7 @@ defmodule ZaqWeb.Live.BO.AI.OntologyLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/ontology")
 
-      refute has_element?(view, "p", "Feature Not Licensed")
+      refute has_element?(view, "p", "Feature Not Enabled")
     end
   end
 end

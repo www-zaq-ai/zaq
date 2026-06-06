@@ -16,7 +16,7 @@ Updated by the team and by the doc-gardening agent on a regular cadence.
 | `channels` | C | Mattermost retrieval works. `forward_to_engine/1` is a stub. Slack/Email/Drive not implemented. |
 | `engine` | B | Supervisors, contracts, conversations context solid. Retrieval routing to agent pending. |
 | `ingestion` | B | Full async pipeline with chunk retries. PDF/DOCX not supported. HTML parser raises. |
-| `license` | C | Load/verify/decrypt pipeline done. `LicensePostLoader` not implemented. BO UI stubbed. |
+| `addons` | C | Load/verify/decrypt pipeline done. `PostLoader` not implemented. Runtime add-on UX in BO. |
 | `embedding` | A | Standalone, well-tested, mockable. No known gaps. |
 | `node_router` | A | Core routing logic solid. Well-tested. |
 

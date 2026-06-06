@@ -73,7 +73,7 @@ defmodule ZaqWeb.Router do
       live "/roles", Live.BO.Accounts.RolesLive
       live "/roles/new", Live.BO.Accounts.RoleFormLive, :new
       live "/roles/:id/edit", Live.BO.Accounts.RoleFormLive, :edit
-      live "/license", Live.BO.System.LicenseLive
+      live "/addons", Live.BO.System.AddonsLive
       live "/system-config", Live.BO.System.SystemConfigLive
       live "/ai-diagnostics", Live.BO.AI.AIDiagnosticsLive
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive

@@ -1,19 +1,19 @@
 <ZaqWeb.Components.BOLayout.bo_layout
   current_user={@current_user}
   flash={@flash}
-  page_title="License"
+  page_title="Add-ons"
   current_path={@current_path}
   features_version={@features_version}
 >
-  <%= if @license_data do %>
-    <!-- Licensed State -->
+  <%= if @addon_data do %>
+    <!-- Add-ons enabled state -->
     <div class="space-y-6">
-      <!-- Upload New License -->
+      <!-- Upload new add-on package -->
       <div class="bg-white rounded-xl border border-black/10 p-6">
         <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-4">
-          Update License
+          Update Add-ons
         </p>
-        <.form for={%{}} phx-submit="upload_license" phx-change="validate">
+        <.form for={%{}} phx-submit="upload_addon" phx-change="validate">
           <div class="flex items-center gap-4">
             <label class="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed border-black/20 cursor-pointer hover:border-black/40 transition-colors">
               <svg
@@ -27,23 +27,23 @@
                 <polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
               </svg>
               <span class="font-mono text-[0.75rem] text-black/50">
-                {case @uploads.license_file.entries do
+                {case @uploads.addon_package.entries do
                   [entry | _] -> entry.client_name
-                  [] -> "Select .zaq-license file…"
+                  [] -> "Select .zaq-license add-on package…"
                 end}
               </span>
-              <.live_file_input upload={@uploads.license_file} class="sr-only" />
+              <.live_file_input upload={@uploads.addon_package} class="sr-only" />
             </label>
             <button
               type="submit"
               class="font-mono text-[0.8rem] font-bold px-4 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors flex-shrink-0"
             >
-              Upload
+              Upload Package
             </button>
           </div>
           <div class="mt-2 space-y-1">
-            <%= for entry <- @uploads.license_file.entries,
-                    err <- upload_errors(@uploads.license_file, entry) do %>
+            <%= for entry <- @uploads.addon_package.entries,
+                    err <- upload_errors(@uploads.addon_package, entry) do %>
               <p class="font-mono text-[0.75rem] text-red-600">
                 {upload_entry_error(err)}
               </p>
@@ -54,7 +54,7 @@
           </div>
         </.form>
       </div>
-      <!-- License Status Card -->
+      <!-- Add-on status card -->
       <div class="bg-white rounded-xl border border-black/10 p-6">
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-3">
@@ -70,8 +70,8 @@
               </svg>
             </div>
             <div>
-              <p class="font-mono text-sm font-bold text-black">License Active</p>
-              <p class="font-mono text-[0.7rem] text-black/40">{@license_data["license_key"]}</p>
+              <p class="font-mono text-sm font-bold text-black">Add-ons Active</p>
+              <p class="font-mono text-[0.7rem] text-black/40">{@addon_data["license_key"]}</p>
             </div>
           </div>
           <span class="font-mono text-[0.7rem] px-3 py-1 rounded-full bg-emerald-100 text-emerald-700">
@@ -84,13 +84,13 @@
             <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
               Company
             </p>
-            <p class="font-mono text-sm text-black">{@license_data["company"]["name"]}</p>
+            <p class="font-mono text-sm text-black">{@addon_data["company"]["name"]}</p>
           </div>
           <div>
             <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
               Expires
             </p>
-            <p class="font-mono text-sm text-black">{format_date(@license_data["expires_at"])}</p>
+            <p class="font-mono text-sm text-black">{format_date(@addon_data["expires_at"])}</p>
           </div>
           <div>
             <p class="font-mono text-[0.65rem] text-black/40 uppercase tracking-wider mb-1">
@@ -105,26 +105,26 @@
             <p class={[
               "font-mono text-sm font-bold",
               cond do
-                seconds_left(@license_data["expires_at"]) == nil -> "text-black"
-                seconds_left(@license_data["expires_at"]) <= 2_592_000 -> "text-red-600"
-                seconds_left(@license_data["expires_at"]) <= 7_776_000 -> "text-amber-600"
+                seconds_left(@addon_data["expires_at"]) == nil -> "text-black"
+                seconds_left(@addon_data["expires_at"]) <= 2_592_000 -> "text-red-600"
+                seconds_left(@addon_data["expires_at"]) <= 7_776_000 -> "text-amber-600"
                 true -> "text-emerald-600"
               end
             ]}>
-              {format_time_left(seconds_left(@license_data["expires_at"]))}
+              {format_time_left(seconds_left(@addon_data["expires_at"]))}
             </p>
           </div>
         </div>
       </div>
       
-<!-- Licensed Features -->
+<!-- Enabled Features -->
       <div>
         <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">
-          Licensed Features
+          Enabled Features
         </p>
         <div class="grid grid-cols-2 gap-4">
           <div
-            :for={feature <- @licensed_features}
+            :for={feature <- @enabled_features}
             class="bg-white rounded-xl border border-black/10 p-5 flex items-start gap-4"
           >
             <div class="w-9 h-9 rounded-lg bg-[#03b6d4]/10 grid place-items-center flex-shrink-0">
@@ -142,14 +142,14 @@
           </div>
         </div>
       </div>
-      <!-- Locked Features — Upgrade -->
-      <div :if={@locked_features != []}>
+      <!-- Disabled features — upgrade -->
+      <div :if={@disabled_features != []}>
         <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">
-          Available to Unlock
+          Available to Enable
         </p>
         <div class="grid grid-cols-2 gap-4">
           <div
-            :for={feature <- @locked_features}
+            :for={feature <- @disabled_features}
             class="bg-white rounded-xl border border-dashed border-black/15 p-5 flex items-start gap-4 opacity-60"
           >
             <div class="w-9 h-9 rounded-lg bg-black/5 grid place-items-center flex-shrink-0">
@@ -159,7 +159,7 @@
               <div class="flex items-center gap-2">
                 <p class="font-mono text-sm font-bold text-black">{feature.name}</p>
                 <span class="font-mono text-[0.6rem] px-2 py-0.5 rounded bg-black/5 text-black/30">
-                  Locked
+                  Not Enabled
                 </span>
               </div>
               <p class="font-mono text-[0.75rem] text-black/50 mt-1">{feature.description}</p>
@@ -168,7 +168,7 @@
         </div>
         <div class="mt-4 text-center">
           <.link
-            href="mailto:sales@zaq.ai?subject=License%20Upgrade%20Request"
+            href="mailto:sales@zaq.ai?subject=Add-on%20Upgrade%20Request"
             class="inline-block font-mono text-[0.8rem] font-bold px-5 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors"
           >
             Contact Sales to Upgrade
@@ -177,7 +177,7 @@
       </div>
     </div>
   <% else %>
-    <!-- No License — Marketing Page -->
+    <!-- No add-ons — marketing page -->
     <div class="space-y-8">
       <!-- Hero -->
       <div class="bg-white rounded-xl border border-black/10 p-8 text-center">
@@ -195,20 +195,20 @@
         </div>
         <h2 class="font-mono text-xl font-bold text-black mb-2">Unlock the full power of ZAQ</h2>
         <p class="font-mono text-sm text-black/50 max-w-md mx-auto">
-          Your instance is running in basic mode. Request a license to enable premium features
+          Your instance is running in basic mode. Request add-ons to enable premium features
           including advanced AI capabilities, integrations, and more.
         </p>
         <.link
-          href="mailto:sales@zaq.ai?subject=License%20Request&body=Company%20Name:%0AContact%20Name:%0ANumber%20of%20Users:%0A"
+          href="mailto:sales@zaq.ai?subject=Add-on%20Request&body=Company%20Name:%0AContact%20Name:%0ANumber%20of%20Users:%0A"
           class="inline-block mt-6 font-mono text-sm font-bold px-6 py-3 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors"
         >
-          Request a License
+          Request Add-ons
         </.link>
         <div class="mt-6 pt-6 border-t border-black/10">
           <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">
-            Already have a license?
+            Already have an add-on package?
           </p>
-          <.form for={%{}} phx-submit="upload_license" phx-change="validate">
+          <.form for={%{}} phx-submit="upload_addon" phx-change="validate">
             <div class="flex items-center gap-3 max-w-sm mx-auto">
               <label class="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-black/20 cursor-pointer hover:border-black/40 transition-colors">
                 <svg
@@ -222,12 +222,12 @@
                   <polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
                 <span class="font-mono text-[0.75rem] text-black/50">
-                  {case @uploads.license_file.entries do
+                  {case @uploads.addon_package.entries do
                     [entry | _] -> entry.client_name
-                    [] -> "Select .zaq-license file…"
+                    [] -> "Select .zaq-license add-on package…"
                   end}
                 </span>
-                <.live_file_input upload={@uploads.license_file} class="sr-only" />
+                <.live_file_input upload={@uploads.addon_package} class="sr-only" />
               </label>
               <button
                 type="submit"
@@ -246,7 +246,7 @@
 <!-- Feature Grid -->
       <div>
         <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">
-          Available with a License
+          Available with Add-ons
         </p>
         <div class="grid grid-cols-2 gap-4">
           <div
@@ -269,11 +269,11 @@
         <div>
           <p class="font-mono text-sm font-bold text-white">Ready to get started?</p>
           <p class="font-mono text-[0.75rem] text-white/50 mt-1">
-            Contact our team to receive your license file and unlock all features.
+            Contact our team to receive your add-on package and unlock all features.
           </p>
         </div>
         <.link
-          href="mailto:sales@zaq.ai?subject=License%20Request"
+          href="mailto:sales@zaq.ai?subject=Add-on%20Request"
           class="font-mono text-sm font-bold px-5 py-2.5 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors flex-shrink-0"
         >
           Contact Sales

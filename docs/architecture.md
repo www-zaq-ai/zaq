@@ -232,7 +232,7 @@ A pluggable hook system for extending ZAQ behavior at runtime:
 - `Zaq.Hooks.Handler` — hook execution
 - `Zaq.Hooks.Supervisor` — supervises the registry
 
-Used for license-driven feature extensions loaded at runtime via `LicensePostLoader`.
+Used for add-on-driven feature extensions loaded at runtime via `PostLoader`.
 
 ---
 
@@ -301,7 +301,7 @@ For detailed internals of each service, see `docs/services/`:
 - `docs/services/agent.md`
 - `docs/services/channels.md`
 - `docs/services/ingestion.md`
-- `docs/services/license.md`
+- `docs/services/addons.md`
 - `docs/services/system-config.md`
 - `docs/services/telemetry.md`
 - `docs/services/bo-auth.md`

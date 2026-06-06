@@ -3,9 +3,9 @@
 defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
+  alias Zaq.Addons.FeatureStore
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
-  alias Zaq.License.FeatureStore
   alias Zaq.NodeRouter
 
   @kpi_range "30d"
@@ -22,11 +22,11 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, "node:events")
 
-    license_data = FeatureStore.license_data()
+    addon_data = FeatureStore.addon_data()
     telemetry_metrics = load_main_dashboard_metrics()
 
     days_left =
-      case license_data do
+      case addon_data do
         nil ->
           nil
 
@@ -40,7 +40,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
     {:ok,
      assign(socket,
        current_path: "/bo/dashboard",
-       license_data: license_data,
+       addon_data: addon_data,
        days_left: days_left,
        services: refresh_services(),
        metric_cards: telemetry_metrics
