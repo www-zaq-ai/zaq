@@ -1,12 +1,23 @@
 import Config
 
 # Configure your database
+# Database name is derived from the current git branch so each worktree gets isolation automatically.
+dev_db_name =
+  case System.cmd("git", ["branch", "--show-current"], stderr_to_stdout: false) do
+    {branch, 0} ->
+      slug = branch |> String.trim() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
+      "zaq_#{slug}"
+
+    _ ->
+      "zaq_dev"
+  end
+
 config :zaq, Zaq.Repo,
   types: Zaq.PostgrexTypes,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "zaq_dev",
+  database: dev_db_name,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -14,8 +25,12 @@ config :zaq, Zaq.Repo,
 config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 # config :zaq, roles: [:bo]
 
+# In a worktree, .git is a file (gitdir pointer), not a directory.
+# Worktrees must not overwrite the shared hooks in .git/hooks/ — only the main repo installs them.
+in_worktree? = not File.dir?(Path.join([__DIR__, "..", ".git"]))
+
 config :git_hooks,
-  auto_install: true,
+  auto_install: not in_worktree?,
   project_path: Path.expand("..", __DIR__),
   verbose: true,
   hooks: [
@@ -26,6 +41,9 @@ config :git_hooks,
     ],
     commit_msg: [
       tasks: [
+        # include_hook_args passes git's $1 (the COMMIT_EDITMSG path) to git_ops.
+        # Git passes a relative path for the main repo (.git/COMMIT_EDITMSG) and an
+        # absolute path for worktrees — git_ops handles both cases correctly.
         {:cmd, "mix git_ops.check_message", include_hook_args: true}
       ]
     ],
@@ -84,8 +102,6 @@ config :zaq, ZaqWeb.Endpoint,
     esbuild: {Esbuild, :install_and_run, [:zaq, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
   ]
-
-import_config "dev.secret.exs"
 
 # ## SSL Support
 #
@@ -150,3 +166,6 @@ config :phoenix_live_view,
 config :swoosh, :api_client, false
 
 # config :zaq, :jido_telemetry_bridge, include_llm_deltas: true
+
+# Imported last so per-worktree overrides (database name, port, etc.) win over all defaults above.
+import_config "dev.secret.exs"
