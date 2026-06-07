@@ -154,6 +154,16 @@ defmodule Zaq.Agent.MCPTest do
   end
 
   describe "predefined catalog merge and policy" do
+    test "catalog includes Firecrawl remote MCP defaults" do
+      assert firecrawl = MCP.predefined_catalog()["firecrawl_mcp"]
+      assert firecrawl.name == "Firecrawl"
+      assert firecrawl.icon == "hero-fire-solid"
+      assert firecrawl.defaults.type == "remote"
+      assert firecrawl.defaults.status == "disabled"
+      assert firecrawl.defaults.url == "https://mcp.firecrawl.dev"
+      assert firecrawl.defaults.secret_headers == %{"Authorization" => "Bearer {API_KEY}"}
+    end
+
     test "filter includes disabled placeholders for predefined MCPs not yet enabled" do
       assert {:ok, _custom} =
                MCP.create_mcp_endpoint(%{

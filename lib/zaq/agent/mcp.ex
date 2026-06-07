@@ -67,24 +67,24 @@ defmodule Zaq.Agent.MCP do
         settings: %{}
       }
     },
-    # "firecrawl_mcp" => %{
-    #   id: "firecrawl_mcp",
-    #   name: "Firecrawl",
-    #   icon: "hero-fire-solid",
-    #   description: "Firecrawl MCP for web crawling, scraping, and search workflows.",
-    #   editable: true,
-    #   defaults: %{
-    #     type: "remote",
-    #     status: "disabled",
-    #     timeout_ms: 5000,
-    #     url: "https://mcp.firecrawl.dev",
-    #     headers: %{},
-    #     secret_headers: %{"Authorization" => "Bearer {API_KEY}"},
-    #     environments: %{},
-    #     secret_environments: %{},
-    #     settings: %{}
-    #   }
-    # },
+    "firecrawl_mcp" => %{
+      id: "firecrawl_mcp",
+      name: "Firecrawl",
+      icon: "hero-fire-solid",
+      description: "Firecrawl MCP for web crawling, scraping, and search workflows.",
+      editable: true,
+      defaults: %{
+        type: "remote",
+        status: "disabled",
+        timeout_ms: 5000,
+        url: "https://mcp.firecrawl.dev",
+        headers: %{},
+        secret_headers: %{"Authorization" => "Bearer {API_KEY}"},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+    },
     # MCP Client incompatibility
     #  [debug] MCP transport details: %{timeout: 30000, url: "https://www.context-awesome.com/api/mcp", headers:
     # %{"accept" => "application/json, text/event-stream", "content-type" => "application/json"}, method: :post}
@@ -92,6 +92,7 @@ defmodule Zaq.Agent.MCP do
     # [error] MCP transport details: %{reason: "{:http_error, 406, \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"error\\\":{\\\
     # "code\\\":-32000,\\\"message\\\":\\\"Not Acceptable: Client must accept both application/json
     # and text/event-stream\\\"},\\\"id\\\":null}\"}"}
+    # issue: https://github.com/bh-rat/context-awesome/issues/11
     # "context_awesome_mcp" => %{
     #   id: "context_awesome_mcp",
     #   name: "Context Awesome",
@@ -128,7 +129,7 @@ defmodule Zaq.Agent.MCP do
         secret_environments: %{},
         settings: %{}
       }
-    }
+    },
     # MCP Client incompatibility
     #     debug] MCP transport details: %{timeout: 30000, url: "https://mcp.tweetsave.org/sse", headers:
     # %{"accept" => "application/json, text/event-stream", "content-type" => "application/json"}, method: :post}
@@ -138,24 +139,24 @@ defmodule Zaq.Agent.MCP do
     # /messages?sessionId=X\\\":\\\"Message endpoint for MCP clients (POST)\\\",\\\"/api/tweet/:id\\\":\\\
     # "Direct API - Get tweet (params: format=json|markdown|blog)\\\",\\\"
     # /deploy\\\":\\\"GitHub webhook - auto deploy (POST)\\\"}}\"}"}
-    # "tweetsave_mcp" => %{
-    #   id: "tweetsave_mcp",
-    #   name: "TweetSave",
-    #   icon: "hero-chat-bubble-left-right-solid",
-    #   description: "TweetSave MCP endpoint for social content retrieval workflows.",
-    #   editable: true,
-    #   defaults: %{
-    #     type: "remote",
-    #     status: "enabled",
-    #     timeout_ms: 5000,
-    #     url: "https://mcp.tweetsave.org/sse",
-    #     headers: %{},
-    #     secret_headers: %{},
-    #     environments: %{},
-    #     secret_environments: %{},
-    #     settings: %{}
-    #   }
-    # }
+    "tweetsave_mcp" => %{
+      id: "tweetsave_mcp",
+      name: "TweetSave",
+      icon: "hero-chat-bubble-left-right-solid",
+      description: "TweetSave MCP endpoint for social content retrieval workflows.",
+      editable: true,
+      defaults: %{
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "https://mcp.tweetsave.org/mcp",
+        headers: %{},
+        secret_headers: %{},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+    }
   }
 
   @doc """
