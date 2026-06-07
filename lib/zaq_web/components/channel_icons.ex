@@ -293,6 +293,13 @@ defmodule ZaqWeb.Components.ChannelIcons do
           <circle cx="9" cy="14" r="1" fill="currentColor" />
           <circle cx="15" cy="14" r="1" fill="currentColor" />
         </svg>
+      <% "url_crawler" -> %>
+        <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path d="M21 12a9 9 0 1 1-18 0a9 9 0 0 1 18 0Z" />
+          <path d="M3 12h18" />
+          <path d="M12 3c2.5 2.46 4 5.63 4 9s-1.5 6.54-4 9c-2.5-2.46-4-5.63-4-9s1.5-6.54 4-9Z" />
+          <path d="m15.5 15.5 3 3" stroke-linecap="round" />
+        </svg>
       <% _ -> %>
         <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="10" />

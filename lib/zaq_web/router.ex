@@ -79,6 +79,10 @@ defmodule ZaqWeb.Router do
       live "/prompt-templates", Live.BO.AI.PromptTemplatesLive
       live "/agents", Live.BO.AI.AgentsLive
       live "/ingestion", Live.BO.AI.IngestionLive
+      live "/ingestion/url_crawler/new", Live.BO.AI.UrlCrawlerSetupLive, :new
+      live "/ingestion/url_crawler/preview/:id", Live.BO.AI.UrlCrawlerPreviewLive, :show
+      live "/ingestion/url_crawler/:id/runs/:run_id", Live.BO.AI.UrlCrawlerRunDetailLive, :show
+      live "/ingestion/url_crawler/:id", Live.BO.AI.UrlCrawlerDetailLive, :show
       live "/ontology", Live.BO.AI.OntologyLive
       live "/knowledge-gap", Live.BO.AI.KnowledgeGapLive
 

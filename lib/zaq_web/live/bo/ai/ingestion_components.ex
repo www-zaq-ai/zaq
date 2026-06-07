@@ -257,15 +257,23 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :selected, :any, required: true
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
+  attr :read_only, :boolean, default: false
 
   def file_browser_header(assigns) do
     ~H"""
     <div class="flex flex-wrap items-center gap-2 mb-3">
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mr-auto">
-        File Browser
+        {if @read_only, do: "Crawl Output", else: "File Browser"}
       </p>
+      <span
+        :if={@read_only}
+        class="font-mono text-[0.68rem] text-black/40 mr-auto md:mr-0 md:order-3 w-full md:w-auto"
+      >
+        This volume shows the latest files produced by crawl runs. Use sharing and run metadata only.
+      </span>
       <div class="flex items-center gap-2 flex-wrap">
         <button
+          :if={not @read_only}
           id="new-folder-button"
           phx-click="show_new_folder_modal"
           class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 transition-colors flex items-center gap-1"
@@ -276,6 +284,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           New Folder
         </button>
         <button
+          :if={not @read_only}
           id="add-raw-md-button"
           phx-click="show_add_raw_modal"
           class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 transition-colors flex items-center gap-1"
@@ -291,7 +300,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           Add Raw MD
         </button>
         <button
-          :if={MapSet.size(@selected) > 0}
+          :if={MapSet.size(@selected) > 0 and not @read_only}
           id="bulk-delete-button"
           phx-click="show_delete_confirmation"
           class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors flex items-center gap-1 cursor-pointer"
@@ -308,6 +317,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         </button>
         <button
           :for={mode <- ~w(async inline)}
+          :if={not @read_only}
           id={"ingest-mode-#{mode}"}
           phx-click="set_mode"
           phx-value-mode={mode}
@@ -322,6 +332,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           {mode}
         </button>
         <button
+          :if={not @read_only}
           id="ingest-selected-button"
           phx-click="ingest_selected"
           disabled={MapSet.size(@selected) == 0 or not @embedding_ready}
@@ -452,6 +463,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :read_only, :boolean, default: false
 
   def file_list_view(assigns) do
     ~H"""
@@ -536,6 +548,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                   <% end %>
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
                     <button
+                      :if={not @read_only}
                       phx-click="move_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
@@ -562,6 +575,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       </svg>
                     </button>
                     <button
+                      :if={not @read_only}
                       phx-click="rename_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
@@ -580,6 +594,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                     <button
                       :if={
                         entry.type == :directory or
+                          (@read_only and entry.type == :file) or
                           (entry.type == :file and
                              Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?)
                       }
@@ -604,6 +619,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
                       </svg>
                     </button>
                     <button
+                      :if={not @read_only}
                       phx-click="delete_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
@@ -843,6 +859,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :read_only, :boolean, default: false
 
   def file_grid_view(assigns) do
     ~H"""
@@ -912,6 +929,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </svg>
             </button>
             <button
+              :if={not @read_only}
               phx-click="move_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
@@ -934,6 +952,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </svg>
             </button>
             <button
+              :if={not @read_only}
               phx-click="rename_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
@@ -952,6 +971,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
             <button
               :if={
                 entry.type == :directory or
+                  (@read_only and entry.type == :file) or
                   (entry.type == :file and
                      Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?)
               }
@@ -976,6 +996,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
               </svg>
             </button>
             <button
+              :if={not @read_only}
               phx-click="delete_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
               phx-value-type={entry.type}
