@@ -142,6 +142,9 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   end
 
   describe "service detection and telemetry fallback" do
+    # Later: If these tests become order-sensitive, move the dashboard runtime
+    # seams off Application env and onto a LiveView-local or gateway seam like
+    # SystemConfigLive's router injection.
     setup do
       original = %{
         node_list_fun: Application.get_env(:zaq, :dashboard_live_node_list_fun),

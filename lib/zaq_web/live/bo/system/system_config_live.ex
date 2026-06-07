@@ -20,16 +20,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
   alias ZaqWeb.Live.BO.System.SystemConfig.TelemetryEvents
 
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    node_router_module = node_router_module_from_session(session)
+    Process.put({__MODULE__, :node_router_module}, node_router_module)
+
     {:ok,
      socket
      |> assign(:current_path, "/bo/system-config")
      |> assign(:page_title, "System Configuration")
      |> assign(:active_tab, :ai_credentials)
-     |> assign(
-       :node_router_module,
-       Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
-     )
+     |> assign(:node_router_module, node_router_module)
      |> assign(:ai_credential_modal, false)
      |> assign(:ai_credential_delete_confirm_modal, false)
      |> assign(:ai_credential_action, :new)
@@ -976,28 +976,42 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp dispatch_engine(action, request \\ %{}) do
-    router = Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
-
     Event.new(request, :engine, opts: [action: action])
-    |> router.dispatch()
+    |> node_router_module().dispatch()
     |> Map.get(:response)
   end
 
   defp dispatch_agent(action, request \\ %{}) do
-    router = Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
-
     Event.new(request, :agent, opts: [action: action])
-    |> router.dispatch()
+    |> node_router_module().dispatch()
     |> Map.get(:response)
   end
 
   defp dispatch_channels(action, request) do
-    router = Application.get_env(:zaq, :node_router_module, Zaq.NodeRouter)
-
     Event.new(request, :channels, opts: [action: action])
-    |> router.dispatch()
+    |> node_router_module().dispatch()
     |> Map.get(:response)
   end
+
+  defp node_router_module do
+    Process.get({__MODULE__, :node_router_module}, Zaq.NodeRouter)
+  end
+
+  defp node_router_module_from_session(session) do
+    session
+    |> Map.get("system_config_node_router_module")
+    |> case do
+      nil -> Map.get(session, :system_config_node_router_module, Zaq.NodeRouter)
+      module -> module
+    end
+    |> valid_node_router_module()
+  end
+
+  defp valid_node_router_module(module) when is_atom(module) do
+    if function_exported?(module, :dispatch, 1), do: module, else: Zaq.NodeRouter
+  end
+
+  defp valid_node_router_module(_), do: Zaq.NodeRouter
 
   defp unwrap_ok!({:ok, value}), do: value
   defp unwrap_ok!(value), do: value

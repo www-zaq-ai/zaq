@@ -59,6 +59,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       do: {:error, :generic_failure}
   end
 
+  defmodule OldGlobalNodeRouterLeakStub do
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -1547,6 +1550,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "save_ai_credential invalid params keeps modal open", %{conn: conn} do
+      original_node_router = Application.get_env(:zaq, :node_router_module)
+
+      Application.put_env(
+        :zaq,
+        :node_router_module,
+        ZaqWeb.Live.BO.System.SystemConfigLiveTest.OldGlobalNodeRouterLeakStub
+      )
+
+      on_exit(fn ->
+        if original_node_router,
+          do: Application.put_env(:zaq, :node_router_module, original_node_router),
+          else: Application.delete_env(:zaq, :node_router_module)
+      end)
+
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
       view
@@ -4011,14 +4028,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   defp stub_response_for_action(_), do: nil
 
-  defp with_node_router_mock_setup(_context) do
-    Application.put_env(:zaq, :node_router_module, Zaq.NodeRouterMock)
-
-    on_exit(fn ->
-      Application.delete_env(:zaq, :node_router_module)
-    end)
-
-    :ok
+  # Later: These error-branch tests now use the LiveView session seam instead of
+  # global Application env. If they become flaky again, migrate them to narrower
+  # gateway-level tests so each scenario owns its dependency process explicitly.
+  defp with_node_router_mock_setup(%{conn: conn}) do
+    %{conn: put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)}
   end
 
   # ── Global settings error branches ─────────────────────────────────────
