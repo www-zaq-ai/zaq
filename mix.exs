@@ -123,6 +123,9 @@ defmodule Zaq.MixProject do
       # Bump zoi to avoid conflicts with deps using the old 0.17.1 (jido_connect)
       {:zoi, "~> 0.18", override: true},
       {:jido_mcp, github: "agentjido/jido_mcp", branch: "main"},
+      # We need to pin anubis (1.2.0 regression on Streamable http) and peri (nil support)
+      {:anubis_mcp, "1.1.1", override: true},
+      {:peri, "~> 0.8.5", override: true},
       {:jido_studio, github: "agentjido/jido_studio"},
       {:jido_runic, github: "agentjido/jido_runic", branch: "main"},
       {:gen_stage, "~> 1.2"},
