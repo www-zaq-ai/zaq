@@ -75,7 +75,7 @@ defmodule Zaq.UserPortal.OnboardingTest do
   end
 
   describe "complete_bootstrap_onboarding/3 — declined" do
-    test "records consent without calling the portal or creating a credential" do
+    test "records consent declined and scaffolds the keyless ZAQ Router credential without calling the portal" do
       # No ClientMock expectation: a portal call would raise.
       user = user_fixture(%{email: "person@example.com"})
 
@@ -88,7 +88,11 @@ defmodule Zaq.UserPortal.OnboardingTest do
 
       assert updated.portal_consent == "declined"
       refute updated.must_change_password
-      refute System.get_ai_provider_credential_by_name("ZAQ Router")
+
+      credential = System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert credential
+      assert credential.provider == "zaq_router"
+      assert is_nil(credential.api_key)
     end
   end
 

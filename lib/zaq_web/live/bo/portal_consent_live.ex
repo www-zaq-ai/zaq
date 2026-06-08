@@ -21,8 +21,12 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
      assign(socket,
        portal_reachable: portal_reachable,
        portal_metadata: portal_metadata,
+       plan_enabled: plan_enabled?(portal_metadata),
+       plan_available: plan_available?(portal_metadata),
        show_portal_consent_modal: false,
-       portal_provision_error: nil
+       portal_provision_error: nil,
+       allow_email_override: false,
+       decline_only: false
      )}
   end
 
@@ -34,7 +38,10 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
      |> assign(:current_user, current_user)
      |> assign(
        :show_portal_banner,
-       socket.assigns.portal_reachable and current_user.portal_consent == "declined"
+       socket.assigns.portal_reachable and
+         socket.assigns.plan_enabled and
+         socket.assigns.plan_available and
+         current_user.portal_consent == "declined"
      )
      |> assign(:require_portal_email, blank?(current_user.email))
      |> assign_new(:portal_consent_email, fn -> current_user.email || "" end)}
@@ -103,9 +110,12 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
         target={@myself}
         on_decline="close_portal_consent_modal"
         require_email={@require_portal_email}
+        allow_email_override={@allow_email_override}
         email={@portal_consent_email}
         on_email_change="portal_consent_email_change"
+        available={@plan_available}
         error={@portal_provision_error}
+        decline_only={@decline_only}
       />
     </div>
     """
@@ -118,7 +128,13 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   @impl true
   def handle_event("close_portal_consent_modal", _params, socket) do
-    {:noreply, assign(socket, show_portal_consent_modal: false, portal_provision_error: nil)}
+    {:noreply,
+     assign(socket,
+       show_portal_consent_modal: false,
+       portal_provision_error: nil,
+       allow_email_override: false,
+       decline_only: false
+     )}
   end
 
   @impl true
@@ -141,6 +157,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
          |> assign(:show_portal_banner, false)
          |> assign(:show_portal_consent_modal, false)
          |> assign(:require_portal_email, false)
+         |> assign(:allow_email_override, false)
          |> assign(:portal_consent_email, updated_user.email)
          |> assign(:portal_provision_error, nil)}
 
@@ -152,44 +169,52 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
          )}
 
       {:error, reason} ->
+        {error_msg, mode} =
+          provision_error_with_override(reason, socket.assigns.require_portal_email)
+
         {:noreply,
-         assign(socket,
-           portal_provision_error:
-             provision_error_message(reason, socket.assigns.require_portal_email),
-           show_portal_consent_modal: true
-         )}
+         socket
+         |> assign(:portal_provision_error, error_msg)
+         |> assign(:show_portal_consent_modal, true)
+         |> assign(:decline_only, mode == :decline_only)
+         |> assign(:allow_email_override, mode == :allow_override)
+         |> then(fn s ->
+           if mode == :allow_override and not socket.assigns.require_portal_email,
+             do: assign(s, :portal_consent_email, ""),
+             else: s
+         end)}
     end
   end
 
-  # 409 means the email is already registered in the portal. Append an actionable
-  # hint: if the email input is visible the user can fix it inline; otherwise
-  # they need to update their account email in Settings first.
-  defp provision_error_message({409, body}, require_email) do
-    base =
+  # Returns {error_message, mode} where mode is one of:
+  #   :decline_only   — machine already bound to another account; only decline is possible
+  #   :allow_override — email conflict; show email input so user can try a different address
+  #   :none           — generic error; show message only
+  defp provision_error_with_override({409, body}, _require_email) do
+    msg =
       case body do
-        %{"message" => msg} when is_binary(msg) and msg != "" -> msg
+        %{"message" => m} when is_binary(m) and m != "" -> m
         _ -> "This email is already registered with ZAQ Portal."
       end
 
-    hint =
-      if require_email,
-        do: " Please use a different email address.",
-        else: " To use a different email, update your account in Settings."
-
-    base <> hint
+    if machine_conflict?(msg) do
+      {msg, :decline_only}
+    else
+      {msg <> " Please use a different email address.", :allow_override}
+    end
   end
 
-  # Surface the portal's own message (e.g. a non-409 error) when the portal
-  # actually responded. Only genuine transport failures — where no response body
-  # is available — fall back to the "could not reach" message.
-  defp provision_error_message({_status, %{"message" => message}}, _require_email)
+  # Surface the portal's own message for non-409 errors.
+  defp provision_error_with_override({_status, %{"message" => message}}, _require_email)
        when is_binary(message) and message != "" do
-    message
+    {message, :none}
   end
 
-  defp provision_error_message(_reason, _require_email) do
-    "Could not reach the ZAQ portal. Please try again later."
+  defp provision_error_with_override(_reason, _require_email) do
+    {"Could not reach the ZAQ portal. Please try again later.", :none}
   end
+
+  defp machine_conflict?(message), do: String.contains?(message, "machine")
 
   defp email_error_message(changeset) do
     case changeset.errors[:email] do
@@ -197,6 +222,12 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
       _ -> "Please enter a valid email address."
     end
   end
+
+  defp plan_enabled?(%{"plan_status" => "enabled"}), do: true
+  defp plan_enabled?(_), do: false
+
+  defp plan_available?(nil), do: false
+  defp plan_available?(metadata), do: Map.get(metadata, "available", false) == true
 
   defp load_portal_onboarding do
     case portal_client().fetch_onboarding("free") do

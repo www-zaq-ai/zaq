@@ -29,20 +29,30 @@ defmodule Zaq.UserPortal.Onboarding do
   @type consent :: :accepted | :declined | :unavailable
 
   @doc """
+  Attempts portal provisioning for `email` without touching the account.
+
+  Use this during the consent modal flow to validate the email before committing
+  any account changes. Pass `:pre_provisioned` to `complete_bootstrap_onboarding/3`
+  once this returns `{:ok, _}`.
+  """
+  @spec try_provision(String.t()) :: {:ok, term()} | {:error, term()}
+  def try_provision(email) when is_binary(email) do
+    Provisioner.provision_for_user(email)
+  end
+
+  @doc """
   Completes bootstrap onboarding for `user` with `attrs` (email + password) and the
   given portal `consent`.
 
-  Returns `{:ok, user}` on success, `{:error, %Ecto.Changeset{}}` when the
-  registration write fails, or `{:error, {:provisioning_failed, reason}}` when the
-  user accepted but provisioning failed (registration still persisted; consent
-  recorded as declined).
+  Returns `{:ok, user}` on success or `{:error, %Ecto.Changeset{}}` when the
+  registration write fails. Use `:pre_provisioned` when portal provisioning was
+  already done via `try_provision/1` — skips re-provisioning and records accepted.
   """
-  @spec complete_bootstrap_onboarding(User.t(), map(), consent()) ::
+  @spec complete_bootstrap_onboarding(User.t(), map(), consent() | :pre_provisioned) ::
           {:ok, User.t()}
           | {:error, Ecto.Changeset.t()}
-          | {:error, {:provisioning_failed, term()}}
   def complete_bootstrap_onboarding(user, attrs, consent)
-      when consent in [:accepted, :declined, :unavailable] do
+      when consent in [:accepted, :declined, :unavailable, :pre_provisioned, :machine_taken] do
     with {:ok, registered_user} <- Accounts.complete_registration(user, attrs) do
       apply_consent(registered_user, consent)
     end
@@ -89,19 +99,34 @@ defmodule Zaq.UserPortal.Onboarding do
 
   defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
 
+  # Machine fingerprint already registered elsewhere — record permanently so the
+  # dashboard retry banner never appears (the user can't claim from this machine).
+  defp apply_consent(user, :machine_taken) do
+    user
+    |> User.portal_consent_changeset("machine_taken")
+    |> Repo.update()
+  end
+
   defp apply_consent(user, :declined) do
+    # Always scaffold the keyless ZAQ Router credential so the provider is listed
+    # regardless of whether the user declined consent or the portal was unreachable.
+    # The credential is best-effort and must never block consent recording.
+    ensure_offline_router_credential()
+
     user
     |> User.portal_consent_changeset("declined")
     |> Repo.update()
   end
 
   defp apply_consent(user, :unavailable) do
-    # Portal unreachable during onboarding: scaffold the (keyless) ZAQ Router
-    # credential so the provider is listed, then record consent as declined so the
-    # dashboard retry stays valid once the portal is reachable again. Credential
-    # scaffolding is best-effort and must never block registration.
-    ensure_offline_router_credential()
     apply_consent(user, :declined)
+  end
+
+  # Provisioning already succeeded via try_provision/1 — just record consent.
+  defp apply_consent(user, :pre_provisioned) do
+    user
+    |> User.portal_consent_changeset("accepted")
+    |> Repo.update()
   end
 
   defp apply_consent(user, :accepted) do

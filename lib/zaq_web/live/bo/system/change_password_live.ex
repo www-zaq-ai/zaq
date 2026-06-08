@@ -19,7 +19,10 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> assign(:show_consent_modal, false)
      |> assign(:portal_metadata, nil)
      |> assign(:pending_attrs, nil)
-     |> assign(:consent_modal_error, nil)}
+     |> assign(:consent_modal_error, nil)
+     |> assign(:portal_consent_email, "")
+     |> assign(:allow_email_override, false)
+     |> assign(:machine_conflict, false)}
   end
 
   def handle_event("validate", params, socket) do
@@ -67,23 +70,65 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
           {:noreply,
            socket
            |> assign(:portal_metadata, metadata)
+           |> assign(:portal_consent_email, merged_form_params["email"] || "")
            |> assign(:show_consent_modal, true)}
 
         :unavailable ->
-          # Portal is unreachable — there is nothing to consent to, so skip the
-          # popup entirely. Onboarding records consent as declined and scaffolds
-          # the (keyless) ZAQ Router provider so it is still listed for the user.
+          # Portal unreachable — skip modal, create account without portal.
           {:noreply, apply_onboarding(socket, :unavailable)}
       end
     end
   end
 
+  # Accept: try portal provisioning first, create account only on success.
   def handle_event("accept_portal_consent", _params, socket) do
-    {:noreply, apply_onboarding(socket, :accepted)}
+    email =
+      if socket.assigns.allow_email_override and
+           String.trim(socket.assigns.portal_consent_email || "") != "" do
+        socket.assigns.portal_consent_email
+      else
+        socket.assigns.pending_attrs["email"]
+      end
+
+    case Onboarding.try_provision(email) do
+      {:ok, _credential} ->
+        attrs = Map.put(socket.assigns.pending_attrs, "email", email)
+        {:noreply, apply_onboarding(socket, :pre_provisioned, attrs)}
+
+      {:error, {409, %{"error" => "machine_fingerprint_taken"} = body}} ->
+        msg = Map.get(body, "message", "This machine fingerprint is already registered.")
+
+        {:noreply,
+         socket
+         |> assign(:consent_modal_error, msg)
+         |> assign(:machine_conflict, true)}
+
+      {:error, {409, body}} ->
+        msg = Map.get(body, "message", "This email is already registered.")
+
+        {:noreply,
+         socket
+         |> assign(:consent_modal_error, msg <> " Please use a different email address.")
+         |> assign(:allow_email_override, true)
+         |> assign(:portal_consent_email, "")}
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(
+           socket,
+           :consent_modal_error,
+           "Portal activation failed — you can decline and retry from the dashboard."
+         )}
+    end
   end
 
   def handle_event("decline_portal_consent", _params, socket) do
-    {:noreply, apply_onboarding(socket, :declined)}
+    consent = if socket.assigns.machine_conflict, do: :machine_taken, else: :declined
+    {:noreply, apply_onboarding(socket, consent)}
+  end
+
+  def handle_event("portal_consent_email_change", %{"email" => email}, socket) do
+    {:noreply, assign(socket, portal_consent_email: email, consent_modal_error: nil)}
   end
 
   def handle_event("close_consent_modal", _params, socket) do
@@ -91,54 +136,43 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      socket
      |> assign(:show_consent_modal, false)
      |> assign(:pending_attrs, nil)
-     |> assign(:consent_modal_error, nil)}
+     |> assign(:consent_modal_error, nil)
+     |> assign(:allow_email_override, false)
+     |> assign(:portal_consent_email, "")
+     |> assign(:machine_conflict, false)}
   end
 
   defp apply_onboarding(socket, portal_consent) do
-    case Onboarding.complete_bootstrap_onboarding(
-           socket.assigns.user,
-           socket.assigns.pending_attrs,
-           portal_consent
-         ) do
+    apply_onboarding(socket, portal_consent, socket.assigns.pending_attrs)
+  end
+
+  defp apply_onboarding(socket, portal_consent, attrs) do
+    case Onboarding.complete_bootstrap_onboarding(socket.assigns.user, attrs, portal_consent) do
       {:ok, user} ->
         socket
         |> assign(:user, user)
         |> assign(:show_consent_modal, false)
         |> assign(:pending_attrs, nil)
         |> assign(:consent_modal_error, nil)
+        |> assign(:allow_email_override, false)
+        |> assign(:portal_consent_email, "")
+        |> assign(:machine_conflict, false)
         |> onboarding_success_redirect(portal_consent)
-
-      {:error, {:provisioning_failed, reason}} ->
-        # Registration succeeded (password changed) but portal provisioning failed.
-        # Keep the modal open so the user sees the error inline and can explicitly
-        # decline. Consent was already recorded as "declined" by Onboarding.
-        user = Accounts.get_user!(socket.assigns.user.id)
-
-        socket
-        |> assign(:user, user)
-        |> assign(:consent_modal_error, provisioning_error_message(reason))
 
       {:error, %Ecto.Changeset{} = changeset} ->
         socket
         |> assign(:show_consent_modal, false)
         |> assign(:pending_attrs, nil)
         |> assign(:consent_modal_error, nil)
+        |> assign(:allow_email_override, false)
+        |> assign(:portal_consent_email, "")
+        |> assign(:machine_conflict, false)
         |> assign(:error_message, ChangesetErrors.format(changeset))
     end
   end
 
-  defp provisioning_error_message({409, %{"message" => msg}}) when is_binary(msg) do
-    msg <> " To use a different email, decline and update your account in Settings."
-  end
-
-  defp provisioning_error_message({409, _}), do: "Machine fingerprint already registered."
-
-  defp provisioning_error_message(_),
-    do: "Portal activation failed — you can decline and retry from the dashboard."
-
-  # When the user activates the ZAQ portal, send them straight to ingestion so
-  # they can start dropping files. Declining keeps the original dashboard flow.
-  defp onboarding_success_redirect(socket, :accepted) do
+  defp onboarding_success_redirect(socket, consent)
+       when consent in [:accepted, :pre_provisioned] do
     socket
     |> put_flash(
       :info,
@@ -153,13 +187,21 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     |> push_navigate(to: ~p"/bo/dashboard")
   end
 
-  # Single portal request for the bootstrap flow: returns the inner metadata map
-  # when reachable so the consent modal can render without making its own call.
   defp fetch_portal_metadata do
     case portal_client().fetch_onboarding("free") do
-      {:ok, payload} -> {:ok, get_in(payload, ["metadata"]) || %{}}
-      :unavailable -> :unavailable
+      {:ok, payload} ->
+        if plan_active?(payload),
+          do: {:ok, get_in(payload, ["metadata"]) || %{}},
+          else: :unavailable
+
+      :unavailable ->
+        :unavailable
     end
+  end
+
+  defp plan_active?(payload) do
+    Map.get(payload, "plan_status") == "enabled" and
+      Map.get(payload, "available", false) == true
   end
 
   defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
