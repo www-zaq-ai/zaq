@@ -231,7 +231,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert is_nil(credential.api_key)
   end
 
-  test "redirects to dashboard when portal provisioning fails on accept", %{conn: conn} do
+  test "shows portal provisioning failure and redirects after decline", %{conn: conn} do
     # Registration succeeds, but the portal provisioning call fails.
     Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email -> {:error, :econnrefused} end)
 
@@ -247,8 +247,12 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    render_click(view, "accept_portal_consent")
+    html = render_click(view, "accept_portal_consent")
 
+    assert html =~ "Portal activation failed"
+    assert has_element?(view, "[phx-click='decline_portal_consent']")
+
+    render_click(view, "decline_portal_consent")
     assert_redirect(view, ~p"/bo/dashboard")
 
     updated_user = Accounts.get_user!(user.id)

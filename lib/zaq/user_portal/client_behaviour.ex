@@ -11,4 +11,6 @@ defmodule Zaq.UserPortal.ClientBehaviour do
               {:ok, %{litellm_api_key: String.t()}} | {:error, term()}
 
   @callback fetch_onboarding(slug :: String.t()) :: {:ok, map()} | :unavailable
+
+  @callback update_email(email :: String.t()) :: :ok | {:error, term()}
 end

@@ -253,6 +253,18 @@ async function createE2EAgent(request, attrs, options = {}) {
   return res.json();
 }
 
+// Seed the initial "admin" user that satisfies bootstrap_admin_pending?/1.
+// After this call, navigate to GET /bo/bootstrap-login — the server creates a
+// session without a password and redirects straight to /bo/change-password.
+// This mirrors the real first-run flow (no login form).
+async function createE2EBootstrapAdmin(request, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/bootstrap-admin`);
+  if (!res.ok()) {
+    throw new Error(`/e2e/bootstrap-admin returned ${res.status()} ${await res.text()}`);
+  }
+}
+
 // Seed a user pending bootstrap onboarding (must_change_password, no email).
 // Returns { username, password } to feed into loginToBackOffice — logging in
 // redirects to /bo/change-password, the onboarding flow under test.
@@ -263,6 +275,52 @@ async function createE2EOnboardingUser(request, attrs = {}, options = {}) {
     throw new Error(`/e2e/onboarding-user returned ${res.status()} ${await res.text()}`);
   }
   return res.json();
+}
+
+// Seed a user who completed bootstrap with portal_consent="declined".
+// Optional attrs: { username, password, email } — omit email for a no-email user (Scenario 5).
+// Returns { username, password, user_id }.
+async function createE2EDeclinedPortalUser(request, attrs = {}, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/declined-portal-user`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/declined-portal-user returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+// Pre-register a conflicting email and/or machine fingerprint.
+// The next portal_onboard call with that value returns a real 409.
+// Conflicts are cleared by POST /e2e/reset.
+async function registerE2EPortalConflict(request, attrs = {}, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/portal/conflicts`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/portal/conflicts returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+// Toggle the portal loopback stub's offline mode.
+// When offline=true the metadata endpoint returns 503 (client treats as :unavailable).
+async function setE2EPortalOffline(request, offline = true, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/portal/offline`, { data: { offline } });
+  if (!res.ok()) {
+    throw new Error(`/e2e/portal/offline returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+// Returns the machine fingerprint the E2E server sends to the portal stub.
+// Use in fingerprint-conflict specs to seed the right value.
+async function getE2EMachineFingerprint(request, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.get(`${baseURL}/e2e/machine-fingerprint`);
+  if (!res.ok()) {
+    throw new Error(`/e2e/machine-fingerprint returned ${res.status()} ${await res.text()}`);
+  }
+  return (await res.json()).fingerprint;
 }
 
 module.exports = {
@@ -279,7 +337,12 @@ module.exports = {
   createE2EAiCredential,
   createE2EMcpEndpoint,
   createE2EAgent,
+  createE2EBootstrapAdmin,
   createE2EOnboardingUser,
+  createE2EDeclinedPortalUser,
+  registerE2EPortalConflict,
+  setE2EPortalOffline,
+  getE2EMachineFingerprint,
   pickSearchableSelect,
   createAiCredential,
 };

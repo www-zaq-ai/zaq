@@ -154,21 +154,40 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
       {:error, reason} ->
         {:noreply,
          assign(socket,
-           portal_provision_error: provision_error_message(reason),
+           portal_provision_error:
+             provision_error_message(reason, socket.assigns.require_portal_email),
            show_portal_consent_modal: true
          )}
     end
   end
 
-  # Surface the portal's own message (e.g. a 409 "user already exists") when the
-  # portal actually responded. Only genuine transport failures — where no
-  # response body is available — fall back to the "could not reach" message.
-  defp provision_error_message({_status, %{"message" => message}})
+  # 409 means the email is already registered in the portal. Append an actionable
+  # hint: if the email input is visible the user can fix it inline; otherwise
+  # they need to update their account email in Settings first.
+  defp provision_error_message({409, body}, require_email) do
+    base =
+      case body do
+        %{"message" => msg} when is_binary(msg) and msg != "" -> msg
+        _ -> "This email is already registered with ZAQ Portal."
+      end
+
+    hint =
+      if require_email,
+        do: " Please use a different email address.",
+        else: " To use a different email, update your account in Settings."
+
+    base <> hint
+  end
+
+  # Surface the portal's own message (e.g. a non-409 error) when the portal
+  # actually responded. Only genuine transport failures — where no response body
+  # is available — fall back to the "could not reach" message.
+  defp provision_error_message({_status, %{"message" => message}}, _require_email)
        when is_binary(message) and message != "" do
     message
   end
 
-  defp provision_error_message(_reason) do
+  defp provision_error_message(_reason, _require_email) do
     "Could not reach the ZAQ portal. Please try again later."
   end
 

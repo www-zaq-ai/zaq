@@ -18,7 +18,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> assign(:error_message, nil)
      |> assign(:show_consent_modal, false)
      |> assign(:portal_metadata, nil)
-     |> assign(:pending_attrs, nil)}
+     |> assign(:pending_attrs, nil)
+     |> assign(:consent_modal_error, nil)}
   end
 
   def handle_event("validate", params, socket) do
@@ -86,7 +87,11 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   end
 
   def handle_event("close_consent_modal", _params, socket) do
-    {:noreply, socket |> assign(:show_consent_modal, false) |> assign(:pending_attrs, nil)}
+    {:noreply,
+     socket
+     |> assign(:show_consent_modal, false)
+     |> assign(:pending_attrs, nil)
+     |> assign(:consent_modal_error, nil)}
   end
 
   defp apply_onboarding(socket, portal_consent) do
@@ -100,30 +105,36 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> assign(:user, user)
         |> assign(:show_consent_modal, false)
         |> assign(:pending_attrs, nil)
+        |> assign(:consent_modal_error, nil)
         |> onboarding_success_redirect(portal_consent)
 
-      {:error, {:provisioning_failed, _reason}} ->
+      {:error, {:provisioning_failed, reason}} ->
         # Registration succeeded (password changed) but portal provisioning failed.
-        # Consent was recorded as declined — the user can retry from the dashboard.
+        # Keep the modal open so the user sees the error inline and can explicitly
+        # decline. Consent was already recorded as "declined" by Onboarding.
         user = Accounts.get_user!(socket.assigns.user.id)
 
         socket
         |> assign(:user, user)
-        |> assign(:show_consent_modal, false)
-        |> assign(:pending_attrs, nil)
-        |> put_flash(
-          :info,
-          "Password changed. ZAQ portal activation failed — you can retry it from the dashboard."
-        )
-        |> push_navigate(to: ~p"/bo/dashboard")
+        |> assign(:consent_modal_error, provisioning_error_message(reason))
 
       {:error, %Ecto.Changeset{} = changeset} ->
         socket
         |> assign(:show_consent_modal, false)
         |> assign(:pending_attrs, nil)
+        |> assign(:consent_modal_error, nil)
         |> assign(:error_message, ChangesetErrors.format(changeset))
     end
   end
+
+  defp provisioning_error_message({409, %{"message" => msg}}) when is_binary(msg) do
+    msg <> " To use a different email, decline and update your account in Settings."
+  end
+
+  defp provisioning_error_message({409, _}), do: "Machine fingerprint already registered."
+
+  defp provisioning_error_message(_),
+    do: "Portal activation failed — you can decline and retry from the dashboard."
 
   # When the user activates the ZAQ portal, send them straight to ingestion so
   # they can start dropping files. Declining keeps the original dashboard flow.

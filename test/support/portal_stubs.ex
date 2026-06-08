@@ -39,12 +39,18 @@ defmodule Zaq.PortalStubs do
     Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
       {:ok, %{litellm_api_key: "sk-test-key"}}
     end)
+
+    Mox.stub(Zaq.UserPortal.ClientMock, :update_email, fn _email -> :ok end)
   end
 
   def stub_portal_unreachable do
     Mox.stub(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn _slug -> :unavailable end)
 
     Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+      {:error, :econnrefused}
+    end)
+
+    Mox.stub(Zaq.UserPortal.ClientMock, :update_email, fn _email ->
       {:error, :econnrefused}
     end)
   end

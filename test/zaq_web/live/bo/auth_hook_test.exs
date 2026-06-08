@@ -58,6 +58,8 @@ defmodule ZaqWeb.Live.BO.AuthHookTest do
 
   describe "addons pubsub updates" do
     setup %{conn: conn} do
+      Zaq.PortalStubs.stub_portal_reachable()
+
       user = user_fixture(%{username: "bo_auth_hook_pubsub"})
       {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 

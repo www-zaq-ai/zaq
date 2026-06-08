@@ -143,6 +143,7 @@ defmodule ZaqWeb.Router do
       post "/mcp-endpoints", E2EController, :create_mcp_endpoint
       post "/agents", E2EController, :create_agent
       post "/ingestion/touch_file", E2EController, :touch_file
+      post "/bootstrap-admin", E2EController, :create_bootstrap_admin
       post "/onboarding-user", E2EController, :create_onboarding_user
 
       # Loopback stub for the user portal — the real Zaq.UserPortal.Client points
@@ -150,6 +151,10 @@ defmodule ZaqWeb.Router do
       # deterministic and never leave the box.
       get "/portal/onboarding/:slug", E2EController, :portal_onboarding_metadata
       post "/portal/onboarding", E2EController, :portal_onboard
+      post "/portal/conflicts", E2EController, :register_portal_conflict
+      post "/portal/offline", E2EController, :set_portal_offline
+      get "/machine-fingerprint", E2EController, :get_machine_fingerprint
+      post "/declined-portal-user", E2EController, :create_declined_portal_user
     end
 
     scope "/e2e", ZaqWeb do

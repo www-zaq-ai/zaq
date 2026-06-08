@@ -1,5 +1,5 @@
 defmodule Zaq.UserPortal.ClientTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Zaq.UserPortal.Client
 
@@ -46,7 +46,20 @@ defmodule Zaq.UserPortal.ClientTest do
               "litellm_api_key" => "sk-test-key"
             }
           })
+
+        "/account/email" ->
+          Req.Test.json(conn, %{"ok" => true})
       end
+    end)
+
+    previous_lang = System.get_env("LANG")
+    previous_lc_all = System.get_env("LC_ALL")
+    previous_lc_messages = System.get_env("LC_MESSAGES")
+
+    on_exit(fn ->
+      restore_env("LANG", previous_lang)
+      restore_env("LC_ALL", previous_lc_all)
+      restore_env("LC_MESSAGES", previous_lc_messages)
     end)
 
     :ok
@@ -142,6 +155,35 @@ defmodule Zaq.UserPortal.ClientTest do
       assert {:ok, %{litellm_api_key: "sk-test-key"}} = Client.onboard_user("admin@example.com")
     end
 
+    test "sends network block in request body" do
+      test_pid = self()
+
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:request_body, Jason.decode!(body)})
+
+        Req.Test.json(conn, %{
+          "status" => "ok",
+          "user" => %{"litellm_api_key" => "sk-test-key"}
+        })
+      end)
+
+      assert {:ok, _} = Client.onboard_user("admin@example.com")
+
+      assert_received {:request_body, body}
+      assert %{"network" => network} = body
+      assert is_binary(network["user_agent"])
+      assert String.starts_with?(network["user_agent"], "ZaqApp/")
+      # accept_lang and timezone_offset_minutes may be nil depending on the environment
+      assert Map.has_key?(network, "accept_lang")
+      assert Map.has_key?(network, "timezone_offset_minutes")
+      # IP fields are not sent by the client — enriched portal-side
+      refute Map.has_key?(network, "ip")
+      refute Map.has_key?(network, "ip_country")
+      refute Map.has_key?(network, "is_vpn")
+      refute Map.has_key?(network, "is_tor")
+    end
+
     test "returns error on 400 response" do
       Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
         conn
@@ -162,5 +204,142 @@ defmodule Zaq.UserPortal.ClientTest do
 
       assert {:error, {500, _}} = Client.onboard_user("admin@example.com")
     end
+
+    test "returns error on transport error" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.transport_error(conn, :econnrefused)
+      end)
+
+      assert {:error, %Req.TransportError{reason: :econnrefused}} =
+               Client.onboard_user("admin@example.com")
+    end
+
+    test "sends nil locale when no locale environment variable is set" do
+      System.delete_env("LANG")
+      System.delete_env("LC_ALL")
+      System.delete_env("LC_MESSAGES")
+
+      test_pid = self()
+
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:request_body, Jason.decode!(body)})
+
+        Req.Test.json(conn, %{
+          "status" => "ok",
+          "user" => %{"litellm_api_key" => "sk-test-key"}
+        })
+      end)
+
+      assert {:ok, _} = Client.onboard_user("admin@example.com")
+      assert_received {:request_body, %{"network" => %{"accept_lang" => nil}}}
+    end
   end
+
+  # -- update_email/2 --
+
+  describe "update_email/2" do
+    test "returns :ok on 200" do
+      assert :ok = Client.update_email("new@example.com")
+    end
+
+    test "sends PATCH to /account/email with machine fingerprint as Bearer token and email body" do
+      test_pid = self()
+
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        [auth] = Plug.Conn.get_req_header(conn, "authorization")
+        send(test_pid, {:request, conn.method, conn.request_path, auth, Jason.decode!(body)})
+        Req.Test.json(conn, %{"ok" => true})
+      end)
+
+      assert :ok = Client.update_email("new@example.com")
+
+      assert_received {:request, "PATCH", "/account/email", "Bearer " <> fingerprint,
+                       %{"email" => "new@example.com"}}
+
+      assert is_binary(fingerprint) and fingerprint != ""
+    end
+
+    test "returns {:error, :email_taken} on 409" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(409)
+        |> Req.Test.json(%{"error" => "email_taken"})
+      end)
+
+      assert {:error, :email_taken} = Client.update_email("taken@example.com")
+    end
+
+    test "returns {:error, :same_email} on 422" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(422)
+        |> Req.Test.json(%{"error" => "same_email"})
+      end)
+
+      assert {:error, :same_email} = Client.update_email("same@example.com")
+    end
+
+    test "returns {:error, :unauthorized} on 401" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(401)
+        |> Req.Test.json(%{"error" => "unauthorized"})
+      end)
+
+      assert {:error, :unauthorized} = Client.update_email("user@example.com")
+    end
+
+    test "returns {:error, :invalid_email} on 400 invalid_email" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(400)
+        |> Req.Test.json(%{"error" => "invalid_email"})
+      end)
+
+      assert {:error, :invalid_email} = Client.update_email("notanemail")
+    end
+
+    test "returns {:error, :invalid_payload} on other 400 responses" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(400)
+        |> Req.Test.json(%{"error" => "invalid_payload"})
+      end)
+
+      assert {:error, :invalid_payload} = Client.update_email("bad@example.com")
+    end
+
+    test "returns {:error, :account_suspended} on 403" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(403)
+        |> Req.Test.json(%{"error" => "account_suspended"})
+      end)
+
+      assert {:error, :account_suspended} = Client.update_email("user@example.com")
+    end
+
+    test "returns status and body for unknown portal errors" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_status(418)
+        |> Req.Test.json(%{"error" => "teapot"})
+      end)
+
+      assert {:error, {418, %{"error" => "teapot"}}} = Client.update_email("user@example.com")
+    end
+
+    test "returns {:error, reason} on transport error" do
+      Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
+        Req.Test.transport_error(conn, :econnrefused)
+      end)
+
+      assert {:error, _} = Client.update_email("user@example.com")
+    end
+  end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end
