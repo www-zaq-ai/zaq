@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> PasswordHelpers.assign_password_feedback(form_params)
      |> assign(:error_message, nil)
      |> assign(:show_consent_modal, false)
+     |> assign(:show_post_accept_modal, false)
      |> assign(:portal_metadata, nil)
      |> assign(:pending_attrs, nil)
      |> assign(:consent_modal_error, nil)
@@ -131,6 +132,16 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     {:noreply, assign(socket, portal_consent_email: email, consent_modal_error: nil)}
   end
 
+  def handle_event("close_post_accept_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> put_flash(
+       :info,
+       "You're all set! Your workspace is ready — drop your files to bring your company brain to life. Check your email to activate your account."
+     )
+     |> push_navigate(to: ~p"/bo/ingestion")}
+  end
+
   def handle_event("close_consent_modal", _params, socket) do
     {:noreply,
      socket
@@ -173,12 +184,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
 
   defp onboarding_success_redirect(socket, consent)
        when consent in [:accepted, :pre_provisioned] do
-    socket
-    |> put_flash(
-      :info,
-      "You're all set! Your workspace is ready — just drop your files and ingest them to bring your company brain to life."
-    )
-    |> push_navigate(to: ~p"/bo/ingestion")
+    assign(socket, :show_post_accept_modal, true)
   end
 
   defp onboarding_success_redirect(socket, _portal_consent) do

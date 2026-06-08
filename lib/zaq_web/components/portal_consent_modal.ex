@@ -267,4 +267,74 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   end
 
   defp email_entered?(email), do: is_binary(email) and String.trim(email) != ""
+
+  attr :show, :boolean, required: true
+  attr :post_accept, :map, default: %{}
+  attr :on_close, :string, required: true
+  attr :target, :any, default: nil
+
+  def portal_post_accept_modal(assigns) do
+    assigns = assign(assigns, :post_accept, assigns.post_accept || %{})
+
+    ~H"""
+    <div
+      :if={@show}
+      class="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style="background: rgba(6,10,18,0.85); backdrop-filter: blur(4px);"
+    >
+      <div
+        class="relative w-full max-w-[460px] rounded-2xl border border-[#1b2538] p-8 shadow-2xl shadow-black/60 overflow-hidden"
+        style="background: #0d1320;"
+      >
+        <div
+          class="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl"
+          style="background: linear-gradient(90deg, transparent, #34d399, #22d3ee, transparent); opacity: 0.7;"
+        >
+        </div>
+
+        <div class="flex items-center gap-4 mb-6">
+          <div
+            class="shrink-0 w-11 h-11 rounded-xl border border-emerald-500/20 grid place-items-center"
+            style="background: linear-gradient(135deg, rgba(52,211,153,0.12), rgba(34,211,238,0.08));"
+          >
+            <svg
+              class="w-5 h-5 text-emerald-400"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              viewBox="0 0 24 24"
+            >
+              <path d="M4 6h16v12H4z" /><path d="m4 7 8 6 8-6" />
+            </svg>
+          </div>
+          <div>
+            <h2 class="font-mono text-base font-bold text-white tracking-tight">
+              {@post_accept["title"] || "Activation email has been sent"}
+            </h2>
+          </div>
+        </div>
+
+        <p class="font-mono text-[0.82rem] text-[#8b9cc0] leading-relaxed mb-3">
+          {@post_accept["main_message"]}
+        </p>
+
+        <p
+          :if={@post_accept["secondary_message"]}
+          class="font-mono text-[0.75rem] text-[#4a5a7a] leading-relaxed mb-6"
+        >
+          {@post_accept["secondary_message"]}
+        </p>
+
+        <button
+          phx-click={@on_close}
+          phx-target={@target}
+          class="btn btn-block rounded-xl h-11 text-[0.85rem] tracking-wide font-mono font-semibold border-none transition-all duration-300 hover:shadow-[0_0_24px_-4px_rgba(52,211,153,0.35)] hover:-translate-y-[1px] active:translate-y-0"
+          style="background: linear-gradient(135deg, #34d399, #22d3ee); color: #060a12;"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+    """
+  end
 end
