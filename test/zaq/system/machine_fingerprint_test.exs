@@ -70,6 +70,69 @@ defmodule Zaq.System.MachineFingerprintTest do
     end)
   end
 
+  test "uses the first available Linux machine id file" do
+    with_isolated_install_id(fn path ->
+      File.mkdir_p!(Path.dirname(path))
+
+      first_path = Path.join(Path.dirname(path), "missing-machine-id")
+      second_path = Path.join(Path.dirname(path), "machine-id")
+      File.write!(second_path, "  ABCDEF123456  \n")
+
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        machine_id_paths: [first_path, second_path],
+        product_uuid_path: Path.join(Path.dirname(path), "product-uuid")
+      )
+
+      if :os.type() == {:unix, :linux} do
+        assert MachineFingerprint.get() == fingerprint(:linux_machine_id, "abcdef123456")
+        refute File.exists?(path)
+      else
+        assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+      end
+    end)
+  end
+
+  test "uses the Linux product UUID when machine id files are blank or missing" do
+    with_isolated_install_id(fn path ->
+      File.mkdir_p!(Path.dirname(path))
+
+      machine_id_path = Path.join(Path.dirname(path), "blank-machine-id")
+      product_uuid_path = Path.join(Path.dirname(path), "product-uuid")
+      File.write!(machine_id_path, " \n")
+      File.write!(product_uuid_path, "  PRODUCT-UUID-123  \n")
+
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        machine_id_paths: [machine_id_path],
+        product_uuid_path: product_uuid_path
+      )
+
+      if :os.type() == {:unix, :linux} do
+        assert MachineFingerprint.get() == fingerprint(:linux_product_uuid, "product-uuid-123")
+        refute File.exists?(path)
+      else
+        assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+      end
+    end)
+  end
+
+  test "uses the macOS platform UUID command output when available" do
+    with_isolated_install_id(fn _path ->
+      bin_dir = System.get_env("PATH")
+      File.mkdir_p!(bin_dir)
+
+      ioreg_path = Path.join(bin_dir, "ioreg")
+
+      File.write!(
+        ioreg_path,
+        ~s|#!/bin/sh\necho '    "IOPlatformUUID" = "ABCDEF12-3456-7890-ABCD-EF1234567890"'\n|
+      )
+
+      File.chmod!(ioreg_path, 0o755)
+
+      assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+    end)
+  end
+
   defp with_isolated_install_id(fun) when is_function(fun, 1) do
     previous_home = System.get_env("HOME")
     previous_xdg_data_home = System.get_env("XDG_DATA_HOME")
@@ -104,6 +167,12 @@ defmodule Zaq.System.MachineFingerprintTest do
       |> Path.join("machine_fingerprint_id")
 
     fun.(path)
+  end
+
+  defp fingerprint(source, identifier) do
+    :crypto.hash(:sha256, "#{source}:#{identifier}")
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, 32)
   end
 
   defp restore_env(name, nil), do: System.delete_env(name)

@@ -35,7 +35,7 @@ defmodule Zaq.Application do
 
     children =
       if Application.get_env(:zaq, :e2e_routes, false) do
-        children ++ [Zaq.E2E.ProcessorState]
+        children ++ [Zaq.E2E.ProcessorState, Zaq.E2E.PortalState]
       else
         children
       end

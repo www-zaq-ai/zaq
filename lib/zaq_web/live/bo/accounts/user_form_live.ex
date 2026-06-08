@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   alias Zaq.Accounts
   alias Zaq.Accounts.PasswordPolicy
   alias Zaq.Engine.Notifications.WelcomeEmail
+  alias Zaq.UserPortal.AccountSync
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Live.BO.Accounts.FormFlow
 
@@ -129,7 +130,15 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   end
 
   defp save_user(socket, :edit, params) do
-    FormFlow.handle_save_result(socket, Accounts.update_user(socket.assigns.user, params),
+    old_email = socket.assigns.user.email
+    result = Accounts.update_user(socket.assigns.user, params)
+
+    with {:ok, updated_user} <- result,
+         true <- updated_user.email != old_email do
+      AccountSync.sync_email(updated_user)
+    end
+
+    FormFlow.handle_save_result(socket, result,
       success_message: "User updated.",
       to: ~p"/bo/users"
     )
