@@ -52,6 +52,22 @@
   --zaq-btn-secondary-color-icon-resting:  var(--zaq-color-blue-300);
   --zaq-btn-secondary-color-icon-hover:    var(--zaq-color-blue-400);
   --zaq-btn-secondary-color-icon-disabled: var(--zaq-color-black-100);
+
+  /* btn/ghost */
+  /* btn/ghost/color/bg */
+  --zaq-btn-ghost-color-bg-resting:  transparent;
+  --zaq-btn-ghost-color-bg-hover:    var(--zaq-color-blue-100);
+  --zaq-btn-ghost-color-bg-disabled: transparent;
+
+  /* btn/ghost/color/text */
+  --zaq-btn-ghost-color-text-resting:  var(--zaq-color-blue-400);
+  --zaq-btn-ghost-color-text-hover:    var(--zaq-color-blue-400);
+  --zaq-btn-ghost-color-text-disabled: var(--zaq-color-black-100);
+
+  /* btn/ghost/color/icon */
+  --zaq-btn-ghost-color-icon-resting:  var(--zaq-color-blue-300);
+  --zaq-btn-ghost-color-icon-hover:    var(--zaq-color-blue-400);
+  --zaq-btn-ghost-color-icon-disabled: var(--zaq-color-black-100);
 }
 
 /* ── Base — layout & shape only, no color ────────────────────────────────── */
@@ -111,4 +127,21 @@
   background-color: var(--zaq-btn-secondary-color-bg-disabled);
   color:            var(--zaq-btn-secondary-color-text-disabled);
   border-color:     var(--zaq-btn-secondary-color-border-disabled);
+}
+
+/* ── Ghost ───────────────────────────────────────────────────────────────── */
+.zaq-btn-ghost {
+  background-color: var(--zaq-btn-ghost-color-bg-resting);
+  color:            var(--zaq-btn-ghost-color-text-resting);
+}
+
+.zaq-btn-ghost:hover {
+  background-color: var(--zaq-btn-ghost-color-bg-hover);
+  color:            var(--zaq-btn-ghost-color-text-hover);
+}
+
+.zaq-btn-ghost:disabled,
+.zaq-btn-ghost[aria-disabled="true"] {
+  background-color: var(--zaq-btn-ghost-color-bg-disabled);
+  color:            var(--zaq-btn-ghost-color-text-disabled);
 }

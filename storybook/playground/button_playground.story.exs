@@ -1,7 +1,7 @@
 defmodule Storybook.Playground.ButtonPlayground do
   use PhoenixStorybook.Story, :page
 
-  def description, do: "Playground for .zaq-btn-primary and .zaq-btn-secondary — all states, both themes."
+  def description, do: "Playground for .zaq-btn-primary, .zaq-btn-secondary, and .zaq-btn-ghost — all states, both themes."
 
   def render(assigns) do
     ~H"""
@@ -23,6 +23,65 @@ defmodule Storybook.Playground.ButtonPlayground do
           <button class="zaq-btn zaq-btn-secondary zaq-btn-text_label-default" disabled>Disabled</button>
         </.row>
         <.hint>Hover state is :hover CSS pseudo-class — visible in the browser on mouse-over.</.hint>
+      </section>
+
+      <section>
+        <.section_label>Ghost</.section_label>
+        <.row>
+          <button class="zaq-btn zaq-btn-ghost zaq-btn-text_label-default">Resting</button>
+          <button class="zaq-btn zaq-btn-ghost zaq-btn-text_label-default" disabled>Disabled</button>
+        </.row>
+        <.hint>Hover state is :hover CSS pseudo-class — visible in the browser on mouse-over.</.hint>
+      </section>
+
+      <section>
+        <.section_label>With Icon</.section_label>
+        <.row>
+          <button class="zaq-btn zaq-btn-primary zaq-btn-text_label-default">
+            <ZaqWeb.CoreComponents.icon name="hero-x-mark" class="w-4 h-4" /> Dismiss
+          </button>
+          <button class="zaq-btn zaq-btn-primary zaq-btn-text_label-default" disabled>
+            <ZaqWeb.CoreComponents.icon name="hero-x-mark" class="w-4 h-4" /> Dismiss
+          </button>
+          <button class="zaq-btn zaq-btn-secondary zaq-btn-text_label-default">
+            <ZaqWeb.CoreComponents.icon name="hero-trash" class="w-4 h-4" /> Delete
+          </button>
+          <button class="zaq-btn zaq-btn-secondary zaq-btn-text_label-default" disabled>
+            <ZaqWeb.CoreComponents.icon name="hero-trash" class="w-4 h-4" /> Delete
+          </button>
+          <button class="zaq-btn zaq-btn-ghost zaq-btn-text_label-default">
+            <ZaqWeb.CoreComponents.icon name="hero-arrow-right" class="w-4 h-4" /> Learn More
+          </button>
+          <button class="zaq-btn zaq-btn-ghost zaq-btn-text_label-default" disabled>
+            <ZaqWeb.CoreComponents.icon name="hero-arrow-right" class="w-4 h-4" /> Learn More
+          </button>
+        </.row>
+        <.hint>Icon color inherits from button text color via currentColor.</.hint>
+      </section>
+
+      <section>
+        <.section_label>Icon Only</.section_label>
+        <.row>
+          <button class="zaq-btn zaq-btn-primary zaq-btn-square" aria-label="Dismiss" title="Dismiss">
+            <ZaqWeb.CoreComponents.icon name="hero-x-mark" class="w-6 h-6" />
+          </button>
+          <button class="zaq-btn zaq-btn-primary zaq-btn-square" aria-label="Dismiss" title="Dismiss" disabled>
+            <ZaqWeb.CoreComponents.icon name="hero-x-mark" class="w-6 h-6" />
+          </button>
+          <button class="zaq-btn zaq-btn-secondary zaq-btn-square" aria-label="Delete" title="Delete">
+            <ZaqWeb.CoreComponents.icon name="hero-trash" class="w-6 h-6" />
+          </button>
+          <button class="zaq-btn zaq-btn-secondary zaq-btn-square" aria-label="Delete" title="Delete" disabled>
+            <ZaqWeb.CoreComponents.icon name="hero-trash" class="w-6 h-6" />
+          </button>
+          <button class="zaq-btn zaq-btn-ghost zaq-btn-square" aria-label="Learn More" title="Learn More">
+            <ZaqWeb.CoreComponents.icon name="hero-arrow-right" class="w-6 h-6" />
+          </button>
+          <button class="zaq-btn zaq-btn-ghost zaq-btn-square" aria-label="Learn More" title="Learn More" disabled>
+            <ZaqWeb.CoreComponents.icon name="hero-arrow-right" class="w-6 h-6" />
+          </button>
+        </.row>
+        <.hint>aria-label obligatoire — aucun texte visible ne décrit l'action.</.hint>
       </section>
 
     </div>

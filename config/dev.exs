@@ -103,11 +103,6 @@ config :zaq, ZaqWeb.Endpoint,
     tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
   ]
 
-<<<<<<< HEAD
-=======
-import_config "dev.secret.exs"
-
->>>>>>> 7dff092 (refactor(storybook): consolidate e2e tests and move storybook to dev)
 # ## SSL Support
 #
 # In order to use HTTPS in development, a self-signed
