@@ -1765,8 +1765,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     {mcp_child_spec, mcp_endpoint} = mcp_timeout_server(self())
     start_supervised!(mcp_child_spec)
 
-    {child_spec, endpoint} =
-      OpenAIStub.server(
+    {_pid, endpoint} =
+      OpenAIStub.start_server(
         fn conn, body ->
           payload = Jason.decode!(body)
 
@@ -1805,8 +1805,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         end,
         self()
       )
-
-    start_supervised!(child_spec)
 
     credential =
       ai_credential_fixture(%{

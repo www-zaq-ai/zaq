@@ -52,13 +52,12 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
   test "test_llm shows connected state on HTTP 200", %{conn: conn} do
     seed_retrieval_prompt()
 
-    {child_spec, endpoint} =
-      OpenAIStub.server(
+    {_pid, endpoint} =
+      OpenAIStub.start_server(
         fn _conn, _body -> {200, OpenAIStub.chat_completion("{}")} end,
         self()
       )
 
-    start_supervised!(child_spec)
     OpenAIStub.seed_llm_config(endpoint)
 
     {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
@@ -85,10 +84,9 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
   test "test_llm shows error on non-200 response", %{conn: conn} do
     seed_retrieval_prompt()
 
-    {child_spec, endpoint} =
-      OpenAIStub.server(fn _conn, _body -> {503, %{"error" => "down"}} end, self())
+    {_pid, endpoint} =
+      OpenAIStub.start_server(fn _conn, _body -> {503, %{"error" => "down"}} end, self())
 
-    start_supervised!(child_spec)
     OpenAIStub.seed_llm_config(endpoint)
 
     {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")

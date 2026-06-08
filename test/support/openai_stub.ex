@@ -2,6 +2,7 @@ defmodule Zaq.TestSupport.OpenAIStub do
   @moduledoc false
 
   import Plug.Conn
+  import ExUnit.Callbacks, only: [start_supervised: 1]
 
   alias Zaq.SystemConfigFixtures
 
@@ -39,6 +40,17 @@ defmodule Zaq.TestSupport.OpenAIStub do
        plug: {__MODULE__, test_pid: test_pid, handler: handler}, scheme: :http, port: port}
 
     {child_spec, "http://127.0.0.1:#{port}/v1"}
+  end
+
+  # Race-free alternative: starts Bandit on port 0 and returns the OS-assigned port.
+  # Use instead of `server/2` + `start_supervised!` to eliminate TOCTOU port conflicts.
+  def start_server(handler, test_pid) do
+    child_spec =
+      {Bandit, plug: {__MODULE__, test_pid: test_pid, handler: handler}, scheme: :http, port: 0}
+
+    {:ok, pid} = start_supervised(child_spec)
+    {:ok, {_addr, port}} = ThousandIsland.listener_info(pid)
+    {pid, "http://127.0.0.1:#{port}/v1"}
   end
 
   def llm_config(endpoint, overrides \\ []) do

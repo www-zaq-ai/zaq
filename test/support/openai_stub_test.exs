@@ -24,16 +24,13 @@ defmodule Zaq.TestSupport.OpenAIStubTest do
   end
 
   test "stub call supports list and binary responses" do
-    {child_spec, endpoint} =
-      OpenAIStub.server(fn _conn, _body -> {200, [%{"ok" => true}]} end, self())
-
-    start_supervised!(child_spec)
+    {_pid, endpoint} =
+      OpenAIStub.start_server(fn _conn, _body -> {200, [%{"ok" => true}]} end, self())
 
     assert {:ok, %Req.Response{status: 200, body: [%{"ok" => true}]}} =
              Req.get(endpoint <> "/list")
 
-    {child_spec2, endpoint2} = OpenAIStub.server(fn _conn, _body -> {202, "accepted"} end, self())
-    start_supervised!(child_spec2)
+    {_pid2, endpoint2} = OpenAIStub.start_server(fn _conn, _body -> {202, "accepted"} end, self())
 
     assert {:ok, %Req.Response{status: 202, body: "accepted"}} = Req.get(endpoint2 <> "/text")
   end

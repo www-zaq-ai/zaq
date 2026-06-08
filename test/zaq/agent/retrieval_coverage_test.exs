@@ -29,8 +29,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
          """)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, result} = Retrieval.ask("What is Elixir?", system_prompt: "Prompt")
@@ -51,8 +50,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
          """)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
@@ -69,8 +67,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
          """)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
@@ -87,8 +84,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
          """)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, result} = Retrieval.ask("Original question", system_prompt: "Prompt")
@@ -103,8 +99,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
         {200, OpenAIStub.chat_completion("   ")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
@@ -118,8 +113,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
         {503, %{"error" => %{"message" => "Service unavailable", "type" => "server_error"}}}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")

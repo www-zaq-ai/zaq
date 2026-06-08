@@ -10,8 +10,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
         {200, OpenAIStub.chat_completion("Here is Password Reset Steps")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Password Reset Steps"} =
@@ -23,8 +22,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
         {200, OpenAIStub.chat_completion("Here's Sales Report Analysis")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Sales Report Analysis"} =
@@ -36,8 +34,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
         {200, OpenAIStub.chat_completion("The title is: Employee Onboarding Checklist")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Employee Onboarding Checklist"} =
@@ -49,8 +46,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
         {200, OpenAIStub.chat_completion("Title: Admin Panel Password")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Admin Panel Password"} =
@@ -64,8 +60,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
         {200, OpenAIStub.chat_completion(nil)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = TitleGenerator.generate("How do I reset my password?")
@@ -80,8 +75,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
         {200, OpenAIStub.chat_completion("   ")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, "Empty assistant response content"} =

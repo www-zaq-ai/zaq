@@ -10,8 +10,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
         {200, OpenAIStub.chat_completion("\"Title: Admin Panel Password Reset Steps\"")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -24,8 +23,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
         {200, OpenAIStub.chat_completion("One Two Three Four Five Six Seven Eight")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -42,8 +40,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
         {200, OpenAIStub.chat_completion("Custom Model Title")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint, model: "base-model")
 
@@ -58,8 +55,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
         {200, OpenAIStub.chat_completion("   ")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -72,8 +68,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
         {503, %{"error" => %{"message" => "Service unavailable", "type" => "server_error"}}}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 

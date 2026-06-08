@@ -21,7 +21,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :class, :string, default: "w-4 h-4"
 
   def file_icon(%{name: name} = assigns) do
-    assigns = assign(assigns, :ext, Path.extname(name) |> String.downcase())
+    gradient_id = "img-gradient-#{:erlang.phash2(name)}"
+
+    assigns =
+      assigns
+      |> assign(:ext, Path.extname(name) |> String.downcase())
+      |> assign(:gradient_id, gradient_id)
 
     ~H"""
     <%= cond do %>
@@ -117,7 +122,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
         >
           <path
             d="M25.6 0H6.4C2.86538 0 0 2.86538 0 6.4V25.6C0 29.1346 2.86538 32 6.4 32H25.6C29.1346 32 32 29.1346 32 25.6V6.4C32 2.86538 29.1346 0 25.6 0Z"
-            fill="url(#paint0_linear_103_1789)"
+            fill={"url(##{@gradient_id})"}
           />
           <path
             d="M5.9577 24.8845C5.42578 25.9483 6.19937 27.2 7.38878 27.2H18.2111C19.4005 27.2 20.1741 25.9483 19.6422 24.8845L14.231 14.0622C13.6414 12.8829 11.9585 12.8829 11.3688 14.0622L5.9577 24.8845Z"
@@ -134,7 +139,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
           />
           <defs>
             <linearGradient
-              id="paint0_linear_103_1789"
+              id={@gradient_id}
               x1="16"
               y1="0"
               x2="16"

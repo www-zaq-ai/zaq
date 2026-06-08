@@ -32,8 +32,7 @@ defmodule Zaq.Agent.RetrievalTest do
          """)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint, supports_json_mode: true)
 
@@ -70,8 +69,7 @@ defmodule Zaq.Agent.RetrievalTest do
          """)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -99,8 +97,7 @@ defmodule Zaq.Agent.RetrievalTest do
          """)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -112,8 +109,7 @@ defmodule Zaq.Agent.RetrievalTest do
         {200, OpenAIStub.chat_completion("not a markdown response")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -127,8 +123,7 @@ defmodule Zaq.Agent.RetrievalTest do
         {200, OpenAIStub.chat_completion(nil)}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 

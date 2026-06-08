@@ -44,8 +44,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       {200, streamed_reply(conn.request_path, "Yo", "gpt-4.1-mini")}
     end
 
-    {child_spec, endpoint} = OpenAIStub.server(handler, self())
-    start_supervised!(child_spec)
+    {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
     credential =
       ai_credential_fixture(%{
@@ -93,8 +92,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       {200, streamed_reply(conn.request_path, "Yo", "deepseek/deepseek-r1-0528")}
     end
 
-    {child_spec, endpoint} = OpenAIStub.server(handler, self())
-    start_supervised!(child_spec)
+    {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
     credential =
       ai_credential_fixture(%{
@@ -149,8 +147,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       {200, streamed_reply(conn.request_path, "Tool configured", "gpt-4.1-mini")}
     end
 
-    {child_spec, endpoint} = OpenAIStub.server(handler, self())
-    start_supervised!(child_spec)
+    {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
     credential =
       ai_credential_fixture(%{
@@ -197,8 +194,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       {200, streamed_reply(conn.request_path, "ok", "gpt-4.1-mini")}
     end
 
-    {child_spec, endpoint} = OpenAIStub.server(handler, self())
-    start_supervised!(child_spec)
+    {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
     credential =
       ai_credential_fixture(%{
@@ -357,8 +353,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       {500, %{error: %{message: "upstream failure"}}}
     end
 
-    {child_spec, endpoint} = OpenAIStub.server(handler, self())
-    start_supervised!(child_spec)
+    {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
     credential =
       ai_credential_fixture(%{

@@ -16,8 +16,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
         {200, OpenAIStub.chat_completion("\"Title: Northwind Industries Founder Eleanor Vance\"")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -30,8 +29,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
         {200, OpenAIStub.chat_completion("One Two Three Four Five Six Seven Eight Nine Ten")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
@@ -47,8 +45,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
         {200, OpenAIStub.chat_completion("Base Model Title")}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint, model: "base-model")
 
@@ -61,8 +58,7 @@ defmodule Zaq.Agent.ChunkTitleTest do
         {200, %{"unexpected" => "shape"}}
       end
 
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
+      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
 
       OpenAIStub.seed_llm_config(endpoint)
 
