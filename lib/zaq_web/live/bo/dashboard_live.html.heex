@@ -5,12 +5,6 @@
   current_path={@current_path}
   features_version={@features_version}
 >
-  <.live_component
-    module={ZaqWeb.Live.BO.PortalConsentLive}
-    id="portal-consent"
-    current_user={@current_user}
-  />
-
   <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
     <div :for={metric <- @metric_cards} class="space-y-2">
       <.link

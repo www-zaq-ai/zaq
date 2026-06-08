@@ -24,6 +24,8 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
        plan_enabled: plan_enabled?(portal_metadata),
        plan_available: plan_available?(portal_metadata),
        show_portal_consent_modal: false,
+       show_post_accept_modal: false,
+       portal_consent_accepted: false,
        portal_provision_error: nil,
        allow_email_override: false,
        decline_only: false
@@ -38,7 +40,8 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
      |> assign(:current_user, current_user)
      |> assign(
        :show_portal_banner,
-       socket.assigns.portal_reachable and
+       not socket.assigns.portal_consent_accepted and
+         socket.assigns.portal_reachable and
          socket.assigns.plan_enabled and
          socket.assigns.plan_available and
          current_user.portal_consent == "declined"
@@ -60,7 +63,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
     <div id={@id}>
       <div
         :if={@show_portal_banner}
-        class="mb-6 flex items-center justify-between gap-4 rounded-xl border border-cyan-200 bg-cyan-50 px-5 py-4"
+        class="flex items-center justify-between gap-4 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2"
       >
         <div class="flex items-center gap-3 min-w-0">
           <svg
@@ -87,7 +90,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
       <div
         :if={not @portal_reachable}
-        class="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4"
+        class="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2"
       >
         <svg
           class="w-4 h-4 text-slate-400 shrink-0"
@@ -117,6 +120,13 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
         error={@portal_provision_error}
         decline_only={@decline_only}
       />
+
+      <ZaqWeb.Components.PortalConsentModal.portal_post_accept_modal
+        show={@show_post_accept_modal}
+        post_accept={@metadata["post_accept"]}
+        target={@myself}
+        on_close="close_post_accept_modal"
+      />
     </div>
     """
   end
@@ -138,6 +148,11 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
   end
 
   @impl true
+  def handle_event("close_post_accept_modal", _params, socket) do
+    {:noreply, assign(socket, show_post_accept_modal: false)}
+  end
+
+  @impl true
   def handle_event("portal_consent_email_change", %{"email" => email}, socket) do
     {:noreply, assign(socket, portal_consent_email: email, portal_provision_error: nil)}
   end
@@ -149,13 +164,13 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
            socket.assigns.portal_consent_email
          ) do
       {:ok, updated_user} ->
-        send(self(), {:portal_consent_accepted, updated_user})
-
         {:noreply,
          socket
          |> assign(:current_user, updated_user)
+         |> assign(:portal_consent_accepted, true)
          |> assign(:show_portal_banner, false)
          |> assign(:show_portal_consent_modal, false)
+         |> assign(:show_post_accept_modal, true)
          |> assign(:require_portal_email, false)
          |> assign(:allow_email_override, false)
          |> assign(:portal_consent_email, updated_user.email)

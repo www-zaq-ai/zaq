@@ -357,14 +357,22 @@ defmodule ZaqWeb.Components.BOLayout do
       <main id="bo-main" class="flex-1">
         <!-- Header -->
         <header
-          class="h-16 border-b flex items-center justify-between px-8"
+          class="h-16 border-b flex items-center px-8 gap-6"
           style="background: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default);"
         >
-          <h1 class="zaq-text-h1" style="color: var(--zaq-text-color-body-default);">
+          <h1 class="zaq-text-h1 shrink-0" style="color: var(--zaq-text-color-body-default);">
             {@page_title}
           </h1>
 
-          <div class="flex items-center gap-2">
+          <div class="flex-1 min-w-0">
+            <.live_component
+              module={ZaqWeb.Live.BO.PortalConsentLive}
+              id="portal-consent"
+              current_user={@current_user}
+            />
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
             <a
               id="header-notifications-link"
               href={~p"/bo/channels/notifications/logs"}
