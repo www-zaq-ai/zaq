@@ -66,7 +66,8 @@ defmodule Zaq.Accounts.User do
     |> unique_constraint(:email)
   end
 
-  def portal_consent_changeset(user, consent) when consent in ["accepted", "declined"] do
+  def portal_consent_changeset(user, consent)
+      when consent in ["accepted", "declined", "machine_taken"] do
     change(user, portal_consent: consent)
   end
 

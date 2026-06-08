@@ -13,6 +13,10 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   a non-blank email is provided. Track the value in the parent LiveView via the
   `on_email_change` event and feed it back through the `email` assign.
 
+  When `allow_email_override` is `true` (e.g. the email on file was already
+  registered in the portal), the email input is also shown so the user can
+  enter a different address without leaving the modal.
+
   ## Metadata
 
   This is a pure presentational component: it performs no portal calls. The
@@ -51,15 +55,35 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :on_decline, :string, required: true
   attr :error, :string, default: nil
   attr :require_email, :boolean, default: false
+  attr :allow_email_override, :boolean, default: false
   attr :email, :string, default: nil
   attr :on_email_change, :string, default: "portal_consent_email_change"
+  attr :available, :boolean, default: true
+  attr :decline_only, :boolean, default: false
   attr :target, :any, default: nil
 
   def portal_consent_modal(assigns) do
+    show_email_input =
+      not assigns.decline_only and (assigns.require_email or assigns.allow_email_override)
+
     assigns =
       assigns
       |> assign(:metadata, Map.merge(@default_metadata, assigns.metadata || %{}))
-      |> assign(:accept_disabled, assigns.require_email and not email_entered?(assigns.email))
+      |> assign(:show_email_input, show_email_input)
+      |> assign(
+        :accept_disabled,
+        assigns.decline_only or
+          not assigns.available or
+          (show_email_input and not email_entered?(assigns.email))
+      )
+      |> assign(
+        :email_label,
+        if assigns.allow_email_override do
+          "That email is already registered — enter a different one"
+        else
+          "We don't have your email on file — enter it to continue"
+        end
+      )
 
     ~H"""
     <div
@@ -136,7 +160,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
         </ul>
 
         <form
-          :if={@require_email}
+          :if={@show_email_input}
           phx-change={@on_email_change}
           phx-target={@target}
           class="mb-5"
@@ -145,7 +169,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
             for="portal-consent-email"
             class="block font-mono text-[0.72rem] text-[#4a5a7a] tracking-wide mb-2"
           >
-            We don't have your email on file — enter it to continue
+            {@email_label}
           </label>
           <input
             id="portal-consent-email"
@@ -167,6 +191,22 @@ defmodule ZaqWeb.Components.PortalConsentModal do
         </p>
 
         <div
+          :if={not @available}
+          class="mb-4 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 font-mono text-[0.75rem] text-amber-400"
+        >
+          <svg
+            class="w-4 h-4 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
+          This plan has reached its maximum capacity. New sign-ups are temporarily unavailable.
+        </div>
+
+        <div
           :if={@error}
           class="mb-4 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2.5 font-mono text-[0.75rem] text-red-400"
         >
@@ -184,6 +224,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
 
         <div class="flex flex-col gap-3">
           <button
+            :if={not @decline_only}
             phx-click={@on_accept}
             phx-target={@target}
             disabled={@accept_disabled}
