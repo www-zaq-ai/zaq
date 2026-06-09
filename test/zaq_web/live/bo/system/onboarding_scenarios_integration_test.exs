@@ -33,6 +33,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
   @metadata_response %{
     "status" => "ok",
     "message" => %{
+      "plan_status" => "enabled",
+      "available" => true,
       "message" => "Free credits activated — your ZAQ portal account is ready.",
       "offer_slug" => "free",
       "metadata" => %{
@@ -60,6 +62,11 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
 
   setup do
     # Switch from the Mox mock to the real HTTP client for the duration of this test.
+    # Capture the configured default first so on_exit restores the *actual* value
+    # (Zaq.UserPortal.ClientMock) rather than hardcoding it — restoring the wrong
+    # client here clobbers the default for every subsequent test in the run.
+    original_client = Application.get_env(:zaq, :user_portal_client)
+
     Application.put_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
     # Route all Req HTTP calls through the Req.Test plug — no real network requests.
     Application.put_env(:zaq, Zaq.UserPortal.Client,
@@ -67,7 +74,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
     )
 
     on_exit(fn ->
-      Application.put_env(:zaq, :user_portal_client, Zaq.UserPortal.ClientMock)
+      Application.put_env(:zaq, :user_portal_client, original_client)
       Application.delete_env(:zaq, Zaq.UserPortal.Client)
     end)
 
@@ -137,9 +144,10 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
 
       assert has_element?(view, "[phx-click='accept_portal_consent']")
       render_click(view, "accept_portal_consent")
+      render_click(view, "close_post_accept_modal")
 
       flash = assert_redirect(view, ~p"/bo/ingestion")
-      assert flash["info"] =~ "drop your files and ingest them"
+      assert flash["info"] =~ "drop your files"
 
       updated = Accounts.get_user!(user.id)
       refute updated.must_change_password
@@ -184,7 +192,9 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
 
       updated = Accounts.get_user!(user.id)
       assert updated.portal_consent == "declined"
-      assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
+      keyless_cred = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert keyless_cred != nil
+      assert is_nil(keyless_cred.api_key)
       assert is_nil(Zaq.System.get_llm_config().credential_id)
 
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")

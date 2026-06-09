@@ -62,10 +62,12 @@ defmodule Zaq.UserPortal.Onboarding do
   Activates the portal for an already-registered user from the dashboard retry
   flow (used when the admin declined consent during bootstrap).
 
-  `entered_email` is only consulted when the user has no email on file. The email
-  is validated up front, so an invalid address never reaches the portal, and both
-  the email and the accepted consent are persisted **only after provisioning
-  succeeds** — a failed provisioning attempt commits nothing.
+  `entered_email` is used when the user has no email on file, or when the user
+  explicitly provides a non-blank override (inline email-correction flow after a
+  409 conflict). The email is validated up front, so an invalid address never
+  reaches the portal, and both the email and the accepted consent are persisted
+  **only after provisioning succeeds** — a failed provisioning attempt commits
+  nothing.
 
   Returns `{:ok, user}`, `{:error, %Ecto.Changeset{}}` for an invalid/blank email,
   or `{:error, reason}` when provisioning fails.
@@ -82,9 +84,13 @@ defmodule Zaq.UserPortal.Onboarding do
   end
 
   defp portal_activation_changeset(user, entered_email) do
+    trimmed = String.trim(entered_email || "")
+
+    # Use the entered email when the user has no email on file, or when they
+    # explicitly supply a non-blank override (e.g. after a 409 email conflict).
     attrs =
-      if blank?(user.email) do
-        %{email: String.trim(entered_email || ""), portal_consent: "accepted"}
+      if blank?(user.email) or not blank?(trimmed) do
+        %{email: trimmed, portal_consent: "accepted"}
       else
         %{portal_consent: "accepted"}
       end

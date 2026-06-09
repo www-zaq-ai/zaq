@@ -155,6 +155,7 @@ defmodule ZaqWeb.Router do
       post "/portal/offline", E2EController, :set_portal_offline
       get "/machine-fingerprint", E2EController, :get_machine_fingerprint
       post "/declined-portal-user", E2EController, :create_declined_portal_user
+      get "/zaq-router-credential", E2EController, :get_zaq_router_credential
     end
 
     scope "/e2e", ZaqWeb do

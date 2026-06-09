@@ -323,6 +323,17 @@ async function getE2EMachineFingerprint(request, options = {}) {
   return (await res.json()).fingerprint;
 }
 
+async function getE2EZAQRouterCredential(request, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.get(`${baseURL}/e2e/zaq-router-credential`);
+  if (!res.ok() && res.status() !== 404) {
+    throw new Error(
+      `/e2e/zaq-router-credential returned ${res.status()} ${await res.text()}`
+    );
+  }
+  return res.json();
+}
+
 module.exports = {
   gotoBackOfficeLive,
   loginToBackOffice,
@@ -343,6 +354,7 @@ module.exports = {
   registerE2EPortalConflict,
   setE2EPortalOffline,
   getE2EMachineFingerprint,
+  getE2EZAQRouterCredential,
   pickSearchableSelect,
   createAiCredential,
 };

@@ -149,7 +149,13 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   @impl true
   def handle_event("close_post_accept_modal", _params, socket) do
-    {:noreply, assign(socket, show_post_accept_modal: false)}
+    {:noreply,
+     socket
+     |> put_flash(
+       :info,
+       "You're all set! Your workspace is ready — drop your files to bring your company brain to life. Check your email to activate your account."
+     )
+     |> push_navigate(to: ~p"/bo/ingestion")}
   end
 
   @impl true

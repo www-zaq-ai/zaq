@@ -107,9 +107,10 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       assert has_element?(view, "[phx-click='accept_portal_consent']")
 
       render_click(view, "accept_portal_consent")
+      render_click(view, "close_post_accept_modal")
 
       flash = assert_redirect(view, ~p"/bo/ingestion")
-      assert flash["info"] =~ "drop your files and ingest them"
+      assert flash["info"] =~ "drop your files"
 
       # Registration + consent persisted
       updated = Accounts.get_user!(user.id)
@@ -162,10 +163,12 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       flash = assert_redirect(view, ~p"/bo/dashboard")
       assert flash["info"] =~ "Password changed"
 
-      # DB after decline: consent recorded, no credential created
+      # DB after decline: consent recorded, keyless credential scaffolded, no model configs wired
       updated = Accounts.get_user!(user.id)
       assert updated.portal_consent == "declined"
-      assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
+      keyless_cred = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert keyless_cred != nil
+      assert is_nil(keyless_cred.api_key)
       assert is_nil(Zaq.System.get_llm_config().credential_id)
 
       # Dashboard: Activate banner present with offer copy
@@ -382,7 +385,11 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
       Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
         {:error,
-         {409, %{"message" => "Machine fingerprint already registered to another account."}}}
+         {409,
+          %{
+            "error" => "machine_fingerprint_taken",
+            "message" => "Machine fingerprint already registered to another account."
+          }}}
       end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
@@ -394,8 +401,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       # User accepts — portal rejects with fingerprint conflict
       html = render_click(view, "accept_portal_consent")
 
-      # Modal must still be open (not redirected away)
-      assert has_element?(view, "[phx-click='accept_portal_consent']"),
+      # Modal must still be open in decline-only mode (accept hidden, decline visible)
+      assert has_element?(view, "[phx-click='decline_portal_consent']"),
              "expected consent modal to stay open after fingerprint conflict, but it closed"
 
       # Inline error must be visible inside the modal
@@ -408,10 +415,10 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       flash = assert_redirect(view, ~p"/bo/dashboard")
       assert flash["info"] =~ "Password changed"
 
-      # DB: consent declined, no credential created
+      # DB: machine_taken consent recorded, no credential created (fingerprint conflict path)
       updated = Accounts.get_user!(user.id)
       refute updated.must_change_password
-      assert updated.portal_consent == "declined"
+      assert updated.portal_consent == "machine_taken"
       assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
     end
   end

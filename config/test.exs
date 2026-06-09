@@ -54,9 +54,13 @@ if e2e? do
   # — same idea as the fake LLM endpoint at /e2e/llm.
   config :zaq, :user_portal_base_url, "http://127.0.0.1:4002/e2e/portal"
 else
-  # Unit/integration tests mock the portal client via Mox (Zaq.UserPortal.ClientMock)
-  # — see test/support/portal_stubs.ex. The real client's own unit test
-  # (client_test.exs) configures Req.Test in its setup. base_url is unused here.
+  # The portal client is always ClientMock in unit/integration tests. ConnCase
+  # installs a per-process default stub (Mox.stub_with(ClientMock, ClientStub))
+  # so tests that don't care about the portal get :unavailable without any setup,
+  # while tests that exercise portal flows override it with their own
+  # Mox.expect/stub (directly or via Zaq.PortalStubs). Choosing the client per
+  # process via Mox — rather than a global Application env flip — keeps async
+  # tests race-free.
   config :zaq, :user_portal_base_url, "http://user-portal.test"
   config :zaq, :user_portal_client, Zaq.UserPortal.ClientMock
 end

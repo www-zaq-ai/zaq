@@ -29,6 +29,7 @@ defmodule Zaq.E2E.Reset do
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.Config, as: SystemConfig
   alias Zaq.SystemConfigFixtures
+  alias Zaq.UserPortal.Provisioner
 
   @documents_root "tmp/e2e_documents"
 
@@ -172,6 +173,10 @@ defmodule Zaq.E2E.Reset do
       user
       |> Ecto.Changeset.change(changes)
       |> Repo.update()
+
+    # Scaffold the keyless ZAQ Router credential — mirrors what complete_bootstrap_onboarding
+    # does on decline so dashboard-retry specs can assert the credential exists (keyless).
+    Provisioner.ensure_offline_credential()
 
     {user, password}
   end

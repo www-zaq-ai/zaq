@@ -8,6 +8,15 @@ defmodule ZaqWeb.Components.ServiceUnavailableTest do
 
   setup :verify_on_exit!
 
+  # `page/1` renders the shared `bo_layout`, which mounts `PortalConsentLive` and
+  # calls `fetch_onboarding/1`. This case is `ExUnit.Case` (not ConnCase), so it
+  # doesn't inherit ConnCase's default portal stub — install one here so the
+  # component renders as "portal unreachable" instead of raising.
+  setup do
+    Mox.stub_with(Zaq.UserPortal.ClientMock, Zaq.UserPortal.ClientStub)
+    :ok
+  end
+
   # In test env, NodeRouter is replaced by Zaq.NodeRouterMock
   # configured in config/test.exs:
   #   config :zaq, :node_router, Zaq.NodeRouterMock
@@ -85,7 +94,12 @@ defmodule ZaqWeb.Components.ServiceUnavailableTest do
 
       html =
         render_component(&ServiceUnavailable.page/1,
-          current_user: %{username: "alice", role: %{name: "admin"}},
+          current_user: %{
+            username: "alice",
+            role: %{name: "admin"},
+            portal_consent: nil,
+            email: nil
+          },
           current_path: "/bo/ai-diagnostics",
           page_title: "Diagnostics",
           services: [:agent]
@@ -107,7 +121,12 @@ defmodule ZaqWeb.Components.ServiceUnavailableTest do
 
       html =
         render_component(&ServiceUnavailable.page/1,
-          current_user: %{username: "bob", role: %{name: "operator"}},
+          current_user: %{
+            username: "bob",
+            role: %{name: "operator"},
+            portal_consent: nil,
+            email: nil
+          },
           current_path: "/bo/channels",
           page_title: "Channels",
           services: [:agent, :channels]

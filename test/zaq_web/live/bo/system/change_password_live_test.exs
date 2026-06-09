@@ -139,9 +139,10 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     |> render_submit()
 
     render_click(view, "accept_portal_consent")
+    render_click(view, "close_post_accept_modal")
 
     flash = assert_redirect(view, ~p"/bo/ingestion")
-    assert flash["info"] =~ "drop your files and ingest them"
+    assert flash["info"] =~ "drop your files"
 
     updated_user = Accounts.get_user!(user.id)
     refute updated_user.must_change_password

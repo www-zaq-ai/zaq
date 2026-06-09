@@ -8,7 +8,12 @@ defmodule ZaqWeb.Components.BOLayoutTest do
   test "bo_layout/1 renders sidebar, header, and content" do
     html =
       render_component(&BOLayout.bo_layout/1,
-        current_user: %{username: "alice", role: %{name: "admin"}},
+        current_user: %{
+          username: "alice",
+          role: %{name: "admin"},
+          portal_consent: nil,
+          email: nil
+        },
         page_title: "Ops",
         current_path: "/bo/dashboard",
         inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
@@ -56,7 +61,12 @@ defmodule ZaqWeb.Components.BOLayoutTest do
 
     html =
       render_component(&BOLayout.bo_layout/1,
-        current_user: %{username: "alice", role: %{name: "admin"}},
+        current_user: %{
+          username: "alice",
+          role: %{name: "admin"},
+          portal_consent: nil,
+          email: nil
+        },
         page_title: "Ops",
         current_path: "/bo/dashboard",
         inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
@@ -72,7 +82,12 @@ defmodule ZaqWeb.Components.BOLayoutTest do
   test "bo_layout/1 moves user actions to header dropdown" do
     html =
       render_component(&BOLayout.bo_layout/1,
-        current_user: %{username: "alice", role: %{name: "admin"}},
+        current_user: %{
+          username: "alice",
+          role: %{name: "admin"},
+          portal_consent: nil,
+          email: nil
+        },
         page_title: "Ops",
         current_path: "/bo/dashboard",
         inner_block: [%{inner_block: fn _, _ -> "Inner Content" end}]
@@ -108,7 +123,12 @@ defmodule ZaqWeb.Components.BOLayoutTest do
   test "bo_layout/1 renders update badge when enabled" do
     html =
       render_component(&BOLayout.bo_layout/1,
-        current_user: %{username: "alice", role: %{name: "admin"}},
+        current_user: %{
+          username: "alice",
+          role: %{name: "admin"},
+          portal_consent: nil,
+          email: nil
+        },
         page_title: "Ops",
         current_path: "/bo/dashboard",
         update_badge_enabled: true,
@@ -125,7 +145,12 @@ defmodule ZaqWeb.Components.BOLayoutTest do
   test "bo_layout/1 hides update badge when disabled" do
     html =
       render_component(&BOLayout.bo_layout/1,
-        current_user: %{username: "alice", role: %{name: "admin"}},
+        current_user: %{
+          username: "alice",
+          role: %{name: "admin"},
+          portal_consent: nil,
+          email: nil
+        },
         page_title: "Ops",
         current_path: "/bo/dashboard",
         update_badge_enabled: false,

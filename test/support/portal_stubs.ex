@@ -11,6 +11,8 @@ defmodule Zaq.PortalStubs do
   @valid_onboarding_response %{
     "status" => "ok",
     "message" => %{
+      "plan_status" => "enabled",
+      "available" => true,
       "message" => "Free credits activated — your ZAQ portal account is ready.",
       "offer_slug" => "free",
       "metadata" => %{

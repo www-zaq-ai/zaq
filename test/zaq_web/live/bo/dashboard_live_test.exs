@@ -187,8 +187,10 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       |> element("button[phx-click='accept_portal_consent']")
       |> render_click()
 
+      view |> element("[phx-click='close_post_accept_modal']") |> render_click()
+
       flash = assert_redirect(view, ~p"/bo/ingestion")
-      assert flash["info"] =~ "drop your files and ingest them"
+      assert flash["info"] =~ "drop your files"
       assert Accounts.get_user!(user.id).email == "claimed@example.com"
     end
 
@@ -205,8 +207,10 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       |> element("button[phx-click='accept_portal_consent']")
       |> render_click()
 
+      view |> element("[phx-click='close_post_accept_modal']") |> render_click()
+
       flash = assert_redirect(view, ~p"/bo/ingestion")
-      assert flash["info"] =~ "drop your files and ingest them"
+      assert flash["info"] =~ "drop your files"
       assert Accounts.get_user!(user.id).email == "ready@example.com"
     end
 

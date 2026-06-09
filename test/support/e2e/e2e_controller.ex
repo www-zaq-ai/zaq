@@ -160,6 +160,8 @@ defmodule ZaqWeb.E2EController do
         "message" => %{
           "message" => "Free credits activated — your ZAQ portal account is ready.",
           "offer_slug" => "free",
+          "plan_status" => "enabled",
+          "available" => true,
           "metadata" => %{
             "title" => "Activate your free credits",
             "body" => "To create your ZAQ account...",
@@ -168,7 +170,14 @@ defmodule ZaqWeb.E2EController do
             "subtitle" => "Optional · You can skip this",
             "footnote" => "Free credits can be claimed later from the dashboard.",
             "banner_text" =>
-              "Claim your $2 in free AI credits — activate your ZAQ portal account."
+              "Claim your $2 in free AI credits — activate your ZAQ portal account.",
+            "post_accept" => %{
+              "title" => "Activation email has been sent",
+              "main_message" =>
+                "Verify your email within 4 hours to keep using your free credits",
+              "secondary_message" =>
+                "You have the option to change your email address in your user account"
+            }
           }
         }
       })
@@ -189,12 +198,18 @@ defmodule ZaqWeb.E2EController do
       is_binary(email) and PortalState.conflict_email?(email) ->
         conn
         |> put_status(409)
-        |> json(%{"message" => "A user with this email is already provisioned."})
+        |> json(%{
+          "error" => "email_already_registered",
+          "message" => "A user with this email is already provisioned."
+        })
 
       is_binary(fingerprint) and PortalState.conflict_fingerprint?(fingerprint) ->
         conn
         |> put_status(409)
-        |> json(%{"message" => "Machine fingerprint already registered to another account."})
+        |> json(%{
+          "error" => "machine_fingerprint_taken",
+          "message" => "Machine fingerprint already registered to another account."
+        })
 
       true ->
         json(conn, %{
@@ -250,6 +265,22 @@ defmodule ZaqWeb.E2EController do
   # to the portal stub. Use in fingerprint-conflict specs to know what to seed.
   def get_machine_fingerprint(conn, _params) do
     json(conn, %{fingerprint: MachineFingerprint.get()})
+  end
+
+  # GET /e2e/zaq-router-credential — returns whether the "ZAQ Router" AI
+  # credential exists and whether it has an API key. Used by E2E specs to
+  # assert provisioning state without clicking through the system config UI.
+  def get_zaq_router_credential(conn, _params) do
+    case SystemContext.get_ai_provider_credential_by_name("ZAQ Router") do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{found: false, has_api_key: false})
+
+      credential ->
+        json(conn, %{
+          found: true,
+          has_api_key: is_binary(credential.api_key) and credential.api_key != ""
+        })
+    end
   end
 
   defp maybe_put(opts, _key, nil), do: opts
