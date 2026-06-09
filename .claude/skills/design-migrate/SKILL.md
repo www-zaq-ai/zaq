@@ -245,6 +245,17 @@ Apply styles in this exact order:
 4. **New class needed** → add to `styles.css` only. Never `app.css`.
 5. **No class fits** → semantic var inline: `--zaq-surface-color-*`, `--zaq-text-color-*`, `--zaq-border-color-*`.
    Never foundation vars (`--zaq-color-blue-*`, `--zaq-color-neutral-*`, `--zaq-color-black-*`).
+
+   **Token role must match CSS property — never cross categories:**
+
+   | Token prefix | Use only for |
+   |---|---|
+   | `--zaq-surface-color-*` | `background` / `background-color` only |
+   | `--zaq-border-color-*` | `border-color` / `border` / `outline` only |
+   | `--zaq-text-color-body-*` | `color` (text) only |
+
+   If no token exists for the correct role (e.g. need a text-error color but only `--zaq-border-color-error` exists): **do not use the wrong-category token**. Mark the line in the diff as `(⚠ no token for this role — keep legacy or request new token)` and leave the decision to the human.
+
 6. **Tailwind** → layout/spacing fallback only. Never color. Never typography.
 
 ### Text scale reference
