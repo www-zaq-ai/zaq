@@ -103,8 +103,6 @@ config :zaq, ZaqWeb.Endpoint,
     tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
   ]
 
-if File.exists?("config/dev.secret.exs"), do: import_config("dev.secret.exs")
-
 # ## SSL Support
 #
 # In order to use HTTPS in development, a self-signed
@@ -170,4 +168,4 @@ config :swoosh, :api_client, false
 # config :zaq, :jido_telemetry_bridge, include_llm_deltas: true
 
 # Imported last so per-worktree overrides (database name, port, etc.) win over all defaults above.
-import_config "dev.secret.exs"
+if File.exists?("config/dev.secret.exs"), do: import_config("dev.secret.exs")
