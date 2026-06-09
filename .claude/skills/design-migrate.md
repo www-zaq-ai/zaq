@@ -129,6 +129,44 @@ mix format
 
 Report results. If `style-guard.sh` fails, show the failing lines and fix them before proceeding.
 
+### Targeted e2e verification
+
+After `style-guard.sh` and `mix format` pass, run a targeted smoke test:
+
+1. **Identify which LiveViews use the edited component:**
+   ```bash
+   grep -rl "ComponentModuleName\b" lib/zaq_web/live/ 2>/dev/null
+   ```
+   Replace `ComponentModuleName` with the Elixir module name of the edited component (e.g. `BOLayout`, `SearchableSelect`, `BOModal`).
+
+2. **Derive the feature slug from each matching LiveView path:**
+   - `lib/zaq_web/live/bo/people_live.ex` → slug: `people`
+   - `lib/zaq_web/live/bo/agents_live.ex` → slug: `agents`
+   - Pattern: take the filename, strip `_live.ex`, use the base name as the slug.
+
+3. **Check whether a spec file exists for each slug:**
+   ```bash
+   ls test/e2e/specs/<slug>.spec.js
+   ```
+
+4. **Run the matching spec(s) only:**
+   ```bash
+   cd test/e2e && npx playwright test specs/<slug>.spec.js
+   ```
+   Report pass/fail. If any test fails, do not proceed to Step 6 — report the failure and wait for instructions.
+
+**Special cases:**
+- **`bo_layout.ex` or any component used by all BO pages:** Run `agents.spec.js` as the representative smoke test only.
+   ```bash
+   cd test/e2e && npx playwright test specs/agents.spec.js
+   ```
+- **No matching spec found:** Say: "No matching e2e spec found for this component. Storybook visual verification is sufficient." Skip e2e and proceed to Step 6.
+- **Storybook story was created or updated in Step 4:** Also run:
+   ```bash
+   mix storybook
+   ```
+   Report pass/fail.
+
 Mark this component as `approved` in your in-conversation ledger.
 
 ---
