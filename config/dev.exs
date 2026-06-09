@@ -6,7 +6,7 @@ dev_db_name =
   case System.cmd("git", ["branch", "--show-current"], stderr_to_stdout: false) do
     {branch, 0} ->
       slug = branch |> String.trim() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
-      "zaq_#{slug}"
+      if slug == "", do: "zaq_dev", else: "zaq_#{slug}"
 
     _ ->
       "zaq_dev"

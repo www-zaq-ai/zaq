@@ -32,11 +32,11 @@
   "/storybook/patterns/credentials",
   "/storybook/patterns/feature_gate",
   "/storybook/patterns/service_unavailable",
+  "/storybook/playground/button_playground",
   "/storybook/semantic/borders",
   "/storybook/semantic/colors",
   "/storybook/semantic/colors_deprecated",
   "/storybook/semantic/shadows",
   "/storybook/semantic/text_styles",
-  "/storybook/semantic/text_styles_deprecated",
-  "/storybook/playground/button_playground"
+  "/storybook/semantic/text_styles_deprecated"
 ]
