@@ -25,7 +25,7 @@
 }
 
 /* ── Dark mode ───────────────────────────────────────────────────────────── */
-[data-theme="dark"] {
+[data-zaq-theme="dark"] {
   /* ── semantics/colors/surface ───────────────────────────────────────────── */
   --zaq-surface-color-base:   var(--zaq-color-neutral-100);  /* shifts: neutral/200 light → neutral/100 dark */
   --zaq-surface-color-raised: var(--zaq-color-neutral-200);  /* shifts: neutral/100 light → neutral/200 dark */

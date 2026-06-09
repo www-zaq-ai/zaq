@@ -518,16 +518,19 @@ window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
 // Storybook dark mode bridge
-// Translates Storybook's psb-set-color-mode toggle into the app's data-theme attribute,
-// so ZAQ foundation tokens respond correctly when using Storybook's light/dark toggle.
+// Translates Storybook's psb-set-color-mode toggle into both:
+//   - data-theme="dark"      → activates DaisyUI's dark theme (legacy BO components)
+//   - data-zaq-theme="dark"  → activates ZAQ foundation token overrides (ZAQ components)
+// Both attributes are always set/removed together so legacy and ZAQ components coexist.
 ;(() => {
   const applyPsbTheme = (mode) => {
-    const actual = (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches) || mode === "dark"
-      ? "dark" : null
-    if (actual) {
-      document.documentElement.setAttribute("data-theme", actual)
+    const dark = (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches) || mode === "dark"
+    if (dark) {
+      document.documentElement.setAttribute("data-theme", "dark")
+      document.documentElement.setAttribute("data-zaq-theme", "dark")
     } else {
       document.documentElement.removeAttribute("data-theme")
+      document.documentElement.removeAttribute("data-zaq-theme")
     }
   }
   // Sync on load from Storybook's localStorage key

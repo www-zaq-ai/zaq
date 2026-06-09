@@ -21,6 +21,7 @@ async function waitForStory(page, url) {
   await page.goto(url);
   await page.locator("div#story-live").waitFor({ timeout: 10_000 });
   await page.waitForLoadState("networkidle");
+  await page.addStyleTag({ content: "*, *::before, *::after { transition-duration: 0ms !important; }" });
   if (errors.length > 0) throw new Error(`Page error at ${url}:\n${errors.join("\n")}`);
 }
 
@@ -38,7 +39,12 @@ async function setLightMode(page) {
 
 async function getTokenValue(page, token) {
   return page.evaluate((t) => {
-    return getComputedStyle(document.documentElement).getPropertyValue(t).trim();
+    const el = document.createElement("div");
+    el.style.cssText = `display:none;background-color:var(${t})`;
+    document.documentElement.appendChild(el);
+    const rgb = getComputedStyle(el).backgroundColor;
+    el.remove();
+    return rgb;
   }, token);
 }
 
@@ -51,22 +57,22 @@ test.describe("Storybook dark mode bridge", () => {
 
     await waitForStory(page, "/storybook/foundations/palette");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator("html")).toHaveAttribute("data-zaq-theme", "dark");
   });
 
   test("toggle: psb-set-color-mode switches data-theme on and off", async ({ page }) => {
     await waitForStory(page, "/storybook/foundations/palette");
 
-    // Start in light (no data-theme)
-    await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+    // Start in light (no data-zaq-theme)
+    await expect(page.locator("html")).not.toHaveAttribute("data-zaq-theme");
 
     // Switch to dark
     await setDarkMode(page);
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator("html")).toHaveAttribute("data-zaq-theme", "dark");
 
     // Switch back to light
     await setLightMode(page);
-    await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+    await expect(page.locator("html")).not.toHaveAttribute("data-zaq-theme");
   });
 
   test("palette: foundation tokens resolve to correct values per theme", async ({ page }) => {

@@ -82,7 +82,7 @@
 }
 
 /* ── Dark palette ────────────────────────────────────────────────────────── */
-[data-theme="dark"] {
+[data-zaq-theme="dark"] {
   --zaq-color-blue-400:    #0aadca;
   --zaq-color-blue-300:    #3dd5ee;
   --zaq-color-blue-200:    #083d52;
