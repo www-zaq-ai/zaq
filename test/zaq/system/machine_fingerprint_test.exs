@@ -170,7 +170,7 @@ defmodule Zaq.System.MachineFingerprintTest do
   end
 
   defp fingerprint(source, identifier) do
-    :crypto.hash(:sha256, "#{source}:#{identifier}")
+    :crypto.hash(:sha256, "zaq-machine-fingerprint-v1:#{source}:#{identifier}")
     |> Base.encode16(case: :lower)
     |> binary_part(0, 32)
   end
