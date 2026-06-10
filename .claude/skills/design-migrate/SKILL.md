@@ -1,6 +1,6 @@
 ---
 name: design-migrate
-description: Migrate ZAQ component or page styling to the --zaq-* token system. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Always produces a diff proposal. Stages in Storybook first (Step 4), then applies to component files only after visual approval (Step 5). Full sweep mode writes a backlog file directly.
+description: Migrate ZAQ component or page styling to the --zaq-* token system. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Always produces a diff proposal before touching any file. Full sweep mode writes a backlog file directly.
 trigger: when the user types /design-migrate
 ---
 
@@ -16,11 +16,10 @@ You are migrating ZAQ's styling incrementally to the `--zaq-*` token system.
 
 You may ONLY write to files in these directories:
 
-| Allowed path | When | Rule |
-|---|---|---|
-| `assets/css/styles.css` | Step 4 and Step 5 | The only CSS file you may write to. |
-| `storybook/` | Step 4 only | Storybook story files only. |
-| `lib/zaq_web/components/` | **Step 5 only — never in Step 4** | Shared component `.ex` files. No LiveView pages, no routers, no contexts. |
+| Allowed path | Rule |
+|---|---|
+| `assets/css/styles.css` | The only CSS file you may write to. |
+| `lib/zaq_web/components/` | Shared component `.ex` files only. No LiveView pages, no routers, no contexts. |
 
 **Explicitly forbidden:**
 - `assets/css/app.css` — no edits, ever
@@ -83,7 +82,13 @@ bo_layout.ex:220  font-mono text-xs         → .zaq-text-caption              (
 bo_layout.ex:310  <.button>                 → .zaq-btn-primary               (replace with btn.css class)
 bo_layout.ex:512  text-red-600             → style="color: var(--zaq-border-color-error)"  ← NEVER DO THIS: border token on a text color property
 bo_layout.ex:512  text-red-600             → (⚠ no token for this role — keep legacy or request new token)  (no --zaq-text-color-error exists)
+bo_layout.ex:424  p-1.5                     → (layout — keep)               (one-off dropdown padding, no semantic role)
+bo_layout.ex:486  w-8 h-8                   → (layout — keep)               (avatar size, no semantic token)
+bo_layout.ex:488  px-[9px] py-[7px]         → (⚠ arbitrary spacing — needs design decision)
+bo_layout.ex:375  gap-2                     → create .zaq-header-controls    (gap: var(--zaq-scale-8); reusable component role)
 ```
+
+**Figma scope boundary (design-led mode only):** The diff covers styling only — token and class replacements. If the Figma frame shows different text content, different icons, different component structure, or different layout from the current code, note them as observations below the diff table ("ℹ Figma shows X, current code has Y") but do NOT include them in the diff and do NOT propose code changes for them. Content and structure differences are outside the scope of this skill.
 
 Mark ambiguous text scale choices with `(⚠ ambiguous — override if needed)`.
 
@@ -93,52 +98,28 @@ Present the full diff. Then ask: "Approve all, or list line numbers to reject/ov
 
 ---
 
-## Step 4: Stage in CSS and Storybook Only
+## Step 4: Apply Changes and Verify
 
-Apply only the lines the user approved. In this step you may write to **exactly two file types only**:
+Apply only the approved lines. Write to:
 
-- `assets/css/styles.css` — new utility classes only
-- `storybook/**/*.story.exs` — the story for the target component
+- `assets/css/styles.css` — new utility classes only, following this pattern:
+  ```css
+  /* <description of role> */
+  .<class-name> {
+    <property>: var(--zaq-<semantic-token>);
+  }
+  ```
+- `lib/zaq_web/components/<file>.ex` — the target component file
 
-**You must NOT edit the component file (`.ex`) or any file in `lib/zaq_web/components/` in this step, regardless of the diff approval.** That happens in Step 5, after visual approval in Storybook. "Component file", "source file", "the file being migrated" — all refer to the same thing and all are forbidden here.
-
-1. **`assets/css/styles.css`** — if any approved line requires a new utility class that doesn't exist yet. Add the new class following this pattern:
-   ```css
-   /* <description of role> */
-   .<class-name> {
-     <property>: var(--zaq-<semantic-token>);
-   }
-   ```
-   Never add to `app.css`.
-
-2. **The Storybook story** for the target component.
-   - If the target is a layout file (any file matching `*_layout.ex`, `*_layout.html.heex`, `root.html.heex`): skip Storybook story creation and note it in your output — layout files have no 1:1 Storybook story.
-   - Otherwise: update the existing story or create one at `storybook/components/<category>/<component_name>.story.exs` using the pattern from an existing story (e.g. `storybook/components/misc/header.story.exs`).
-
-Mark this component as `staged` in your in-conversation ledger (see Batching section).
-
-Then say: "Changes staged in Storybook. Run `mix storybook` and review visually. Reply `approved` when ready or describe what needs adjusting."
-
-**Wait for visual approval before proceeding.**
-
----
-
-## Step 5: Apply to Component File
-
-Now — and only now, after visual Storybook approval — apply the same approved changes to the component source file in `lib/zaq_web/components/`.
-
-Then run verification from the project root:
+Then run:
 
 ```bash
-cd /path/to/project && bash style-guard.sh
 mix format
 ```
 
-Report results. If `style-guard.sh` fails, show the failing lines and fix them before proceeding.
-
 ### Targeted e2e verification
 
-After `style-guard.sh` and `mix format` pass, run a targeted smoke test:
+After `mix format` passes, run a targeted smoke test:
 
 1. **Identify which LiveViews use the edited component:**
    ```bash
@@ -160,25 +141,20 @@ After `style-guard.sh` and `mix format` pass, run a targeted smoke test:
    ```bash
    cd test/e2e && npx playwright test specs/<slug>.spec.js
    ```
-   Report pass/fail. If any test fails, do not proceed to Step 6 — report the failure and wait for instructions.
+   Report pass/fail. If any test fails, do not proceed to Step 5 — report the failure and wait for instructions.
 
 **Special cases:**
 - **`bo_layout.ex` or any component used by all BO pages:** Run `agents.spec.js` as the representative smoke test only.
    ```bash
    cd test/e2e && npx playwright test specs/agents.spec.js
    ```
-- **No matching spec found:** Say: "No matching e2e spec found for this component. Storybook visual verification is sufficient." Skip e2e and proceed to Step 6.
-- **Storybook story was created or updated in Step 4:** Also run:
-   ```bash
-   mix storybook
-   ```
-   Report pass/fail.
+- **No matching spec found:** Say: "No matching e2e spec found for this component. Visual verification in the running app is sufficient." Skip e2e and proceed to Step 5.
 
 Mark this component as `approved` in your in-conversation ledger.
 
 ---
 
-## Step 6: Confirm PR Readiness
+## Step 5: Confirm PR Readiness
 
 Say: "Changes applied and verified. **Developer gate:** run `mix q` before opening the PR. Files changed:
 - [list every file touched]"
@@ -187,16 +163,16 @@ Say: "Changes applied and verified. **Developer gate:** run `mix q` before openi
 
 ## Batching Multiple Components
 
-You can migrate several components in one session before applying any of them to the app. After Step 4, a component is `staged`. After Step 5, it is `approved`.
+You can produce diff proposals for several components before applying any of them. After Step 4, a component is `approved`.
 
 Maintain an explicit in-conversation ledger and reprint it after each state change:
 
 ```
-Staged:   [component A, component B]
+Pending:  [component A, component B]
 Approved: [component C]
 ```
 
-To batch-apply: when the user is ready to ship, list all `staged` items, confirm, then run Step 5 for each in one pass. Run `style-guard.sh` and `mix format` once across the full batch, then open one PR.
+To batch-apply: when the user is ready to ship, list all `pending` items, confirm, then run Step 4 for each in one pass. Run `mix format` once across the full batch, then open one PR.
 
 Batching is session-scoped — there is no persistent state file.
 
@@ -263,7 +239,30 @@ Apply styles in this exact order:
 
    If no token exists for the correct role (e.g. need a text-error color but only `--zaq-border-color-error` exists): **do not use the wrong-category token**. Mark the line in the diff as `(⚠ no token for this role — keep legacy or request new token)` and leave the decision to the human.
 
-6. **Tailwind** → layout/spacing fallback only. Never color. Never typography.
+6. **Tailwind color and typography** → never use. Layout/spacing Tailwind utilities are allowed only as described in Rule 7 below.
+
+7. **Spacing & sizing** — flag all padding, margin, gap, width, height, and border-radius Tailwind utilities in the diff. Propose one of:
+   - **Replace with existing class** if `.zaq-card-default` or similar already covers the role.
+   - **Create new class in `styles.css`** using `var(--zaq-scale-*)` when the spacing is component-specific and reusable (e.g. a consistent inner padding shared across states).
+   - **Keep as Tailwind layout utility** (`(layout — keep)`) when the value is one-off sizing with no semantic role (e.g. `w-10 h-10` on an icon button, `p-8` on a page wrapper).
+   - **Flag arbitrary values** (`px-[9px]`, `py-[7px]`, `top-[0.5px]`, etc.) as `(⚠ arbitrary spacing — needs design decision)` — do not replace automatically.
+
+   Tailwind → scale token reference:
+
+   | Tailwind class | px | Token |
+   |---|---|---|
+   | p-1 / m-1 / gap-1 | 4px | `--zaq-scale-4` |
+   | p-2 / m-2 / gap-2 | 8px | `--zaq-scale-8` |
+   | p-3 / m-3 / gap-3 | 12px | `--zaq-scale-12` |
+   | p-4 / m-4 / gap-4 | 16px | `--zaq-scale-16` |
+   | p-5 / m-5 / gap-5 | 20px | `--zaq-scale-20` |
+   | p-6 / m-6 / gap-6 | 24px | `--zaq-scale-24` |
+   | p-8 / m-8 / gap-8 | 32px | `--zaq-scale-32` |
+   | rounded | 4px | `--zaq-scale-4` |
+   | rounded-lg | 8px | `--zaq-scale-8` |
+   | rounded-xl | 12px | `--zaq-scale-12` |
+   | rounded-2xl | 16px | `--zaq-scale-16` |
+   | rounded-full | 999px | `--zaq-scale-999` |
 
 ### Text scale reference
 

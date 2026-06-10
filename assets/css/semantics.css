@@ -10,22 +10,35 @@
   --zaq-surface-color-raised:   var(--zaq-color-neutral-100);
   --zaq-surface-color-elevated: var(--zaq-color-neutral-300);
   --zaq-surface-color-accent:   var(--zaq-color-blue-100);
+  --zaq-surface-color-danger:   var(--zaq-color-system-red-100);
+  --zaq-surface-color-success:  var(--zaq-color-system-green-100);
+  
 
   /* ── semantics/colors/border ─────────────────────────────────────────────── */
   --zaq-border-color-default: var(--zaq-color-neutral-300);
   --zaq-border-color-strong: var(--zaq-color-neutral-400);
   --zaq-border-color-accent:  var(--zaq-color-blue-300);
-  --zaq-border-color-error:   var(--zaq-color-system-red);
+  --zaq-border-color-danger:  var(--zaq-color-system-red);
+  --zaq-border-color-success: var(--zaq-color-system-green);
+  
 
   /* ── semantics/colors/text/body ─────────────────────────────────────────── */
   --zaq-text-color-body-default:   var(--zaq-color-black-400);
-  --zaq-text-color-body-secondary: var(--zaq-color-black-200);
-  --zaq-text-color-body-tertiary:  var(--zaq-color-black-100);
+  --zaq-text-color-body-secondary: var(--zaq-color-black-300);
+  --zaq-text-color-body-tertiary:  var(--zaq-color-black-200);
   --zaq-text-color-body-invert:    var(--zaq-color-neutral-100);
   --zaq-text-color-body-accent:    var(--zaq-color-blue-400);
+  --zaq-text-color-body-danger:    var(--zaq-color-system-red-strong); /* for text and icons to respect WCAG*/
+  --zaq-text-color-body-success:   var(--zaq-color-system-green-strong); /* for text and icons to respect WCAG*/
+
+
+  /* ── semantics/colors/icon ───────────────────────────────────────────── */
+  --zaq-icon-color-default: var(--zaq-color-black-200);
+  --zaq-icon-color-accent: var(--zaq-color-blue-400);
 
   /* ── semantics/colors/loading ───────────────────────────────────────────── */
   --zaq-bg-loading-default: var(--zaq-gradient-neon);
+
 }
 
 /* ── Dark mode ───────────────────────────────────────────────────────────── */
@@ -37,7 +50,8 @@
   /* ── semantics/colors/border ─────────────────────────────────────────────── */
   --zaq-border-color-default: var(--zaq-color-neutral-400);
   --zaq-border-color-strong:  var(--zaq-color-neutral-300);
-
+  
+  
   /* color-text-body, surface-elevated, surface-accent, border-accent, border-error:
      no override needed — same foundation tokens as light mode */
 }

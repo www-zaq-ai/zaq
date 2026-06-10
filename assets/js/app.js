@@ -512,8 +512,12 @@ window.addEventListener("phx:clipboard", (e) => {
 
 // Show progress bar on live navigation and form submits
 const rootStyles = getComputedStyle(document.documentElement)
-const topbarAccent = rootStyles.getPropertyValue("--zaq-color-accent").trim() || "#29d"
-topbar.config({barColors: {0: topbarAccent}, shadowColor: "rgba(0, 0, 0, .3)"})
+const topbarAccent = rootStyles.getPropertyValue("--zaq-bg-loading-default").trim()
+const gradientStops = topbarAccent.match(/#[0-9a-fA-F]{3,6}|rgba?\([^)]+\)/g)
+const barColors = gradientStops && gradientStops.length > 1
+  ? Object.fromEntries(gradientStops.map((c, i) => [i / (gradientStops.length - 1), c]))
+  : {0: gradientStops?.[0] || "#29d"}
+topbar.config({barColors, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 

@@ -19,12 +19,58 @@ defmodule Storybook.Layouts.BoLayout do
             page_title="Dashboard"
             current_path="/bo/dashboard"
             flash={%{}}
-            update_badge_enabled={false}
+            update_badge_enabled={true}
           >
             <div style="padding: 2rem; color: var(--zaq-color-ink-soft);">
-              ← Sidebar visible on the left
+              ← Sidebar visible on the left. Update badge visible in the footer.
             </div>
           </ZaqWeb.Components.BOLayout.bo_layout>
+        </div>
+      </section>
+
+      <%!-- ── Flash States ───────────────────────────────────── --%>
+      <section style="margin-bottom: 3rem;">
+        <h2 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--zaq-color-ink);">
+          Flash States
+        </h2>
+        <p style="font-size: 0.875rem; color: var(--zaq-color-ink-soft); margin-bottom: 1rem;">
+          Inline flash banners rendered inside the layout content area. Auto-dismiss is disabled so they remain visible.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div>
+            <p style="font-size: 0.75rem; font-weight: 600; color: var(--zaq-color-ink-soft); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+              Info / Success
+            </p>
+            <div style="height: 160px; overflow: hidden; border-radius: 8px; border: 1px solid var(--zaq-color-surface-border);">
+              <ZaqWeb.Components.BOLayout.bo_layout
+                current_user={%{username: "Admin"}}
+                page_title="Dashboard"
+                current_path="/bo/dashboard"
+                flash={%{"info" => "Settings saved successfully."}}
+                auto_dismiss={false}
+                update_badge_enabled={false}
+              >
+                <div />
+              </ZaqWeb.Components.BOLayout.bo_layout>
+            </div>
+          </div>
+          <div>
+            <p style="font-size: 0.75rem; font-weight: 600; color: var(--zaq-color-ink-soft); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+              Error
+            </p>
+            <div style="height: 160px; overflow: hidden; border-radius: 8px; border: 1px solid var(--zaq-color-surface-border);">
+              <ZaqWeb.Components.BOLayout.bo_layout
+                current_user={%{username: "Admin"}}
+                page_title="Dashboard"
+                current_path="/bo/dashboard"
+                flash={%{"error" => "An unexpected error occurred. Please try again."}}
+                auto_dismiss={false}
+                update_badge_enabled={false}
+              >
+                <div />
+              </ZaqWeb.Components.BOLayout.bo_layout>
+            </div>
+          </div>
         </div>
       </section>
 

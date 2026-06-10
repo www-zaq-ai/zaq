@@ -47,8 +47,14 @@
   --zaq-color-neutral-200: #fafafa;
   --zaq-color-neutral-100: #ffffff;
 
-  --zaq-color-system-red:    #ea003e;
-  --zaq-color-system-green:  #00baa6;
+  --zaq-color-system-red-strong:     #B70030; /* for text and icons danger to respect WCAG*/
+  --zaq-color-system-red:            #ea003e;
+  --zaq-color-system-red-100:        #FFFAFA; /* for lightest danger feedback surfaces */
+  
+  --zaq-color-system-green-strong:   #007C6B; /* for text and icons success to respect WCAG*/
+  --zaq-color-system-green:          #00baa6;
+  --zaq-color-system-green-100:      #EFFFFD; /* for lightest success feedback surfaces */
+
   --zaq-color-system-blue:   #2a7eff;
   --zaq-color-system-orange: #df6f00;
 
@@ -98,8 +104,14 @@
   --zaq-color-neutral-200: #091015;
   --zaq-color-neutral-100: #040B12;
 
-  --zaq-color-system-red:    #ff2d55;
-  --zaq-color-system-green:  #0fd4bf;
+  --zaq-color-system-red-strong:     #ff6b82; /* for text and incons danger to respect WCAG*/
+  --zaq-color-system-red:            #7f1d2f;
+  --zaq-color-system-red-100:        #200d12; /* for danger feedback surfaces */
+
+  --zaq-color-system-green-strong:   #34d99a; /* for text and icons success to respect WCAG*/
+  --zaq-color-system-green:          #0f4a2f;
+  --zaq-color-system-green-100:      #0a2118; /* for success feedback surfaces */
+
   --zaq-color-system-blue:   #5b9fff;
   --zaq-color-system-orange: #f78514;
 }

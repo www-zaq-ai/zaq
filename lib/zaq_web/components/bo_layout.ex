@@ -44,7 +44,7 @@ defmodule ZaqWeb.Components.BOLayout do
       |> assign(:nav_section_ids, Enum.map(nav_sections, & &1.id))
 
     ~H"""
-    <div class="min-h-screen flex bg-[var(--zaq-color-surface)]" id="bo-root">
+    <div class="min-h-screen flex" style="background: var(--zaq-surface-color-base);" id="bo-root">
       <style>
                 /* Sidebar transition */
                 #bo-sidebar {
@@ -101,25 +101,22 @@ defmodule ZaqWeb.Components.BOLayout do
                   display: inline-flex;
                   align-items: center;
                   justify-content: center;
-                  width: 0.9rem;
-                  height: 0.9rem;
+                  width: 1.1rem;
+                  height: 1.1rem;
                   border-radius: 9999px;
                   background: #ef4444;
-                  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
                   animation: versionBadgePulse 3.2s ease-in-out infinite;
                 }
 
                 @keyframes versionBadgePulse {
                   0%, 100% {
-                    opacity: 0.35;
+                    opacity: 0.7;
                     transform: scale(0.92);
-                    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.2);
                   }
 
                   50% {
                     opacity: 1;
                     transform: scale(1);
-                    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
                   }
                 }
 
@@ -149,7 +146,7 @@ defmodule ZaqWeb.Components.BOLayout do
             position: absolute;
             left: 52px;
             top: 0;
-            background: var(--zaq-color-ink);
+            background: var(--zaq-surface-color-raised);
             min-width: 180px;
             max-height: 400px;
             overflow-y: auto;
@@ -161,6 +158,9 @@ defmodule ZaqWeb.Components.BOLayout do
             padding: 8px;
             }
 
+            #bo-sidebar.collapsed nav {
+              overflow: visible;
+            }
             #bo-sidebar.collapsed .nav-section {
             position: relative;
             }
@@ -176,12 +176,6 @@ defmodule ZaqWeb.Components.BOLayout do
                   left: 52px;
                   top: 50%;
                   transform: translateY(-50%);
-                  background: color-mix(in srgb, var(--zaq-color-ink) 80%, black);
-                  color: white;
-                  font-size: 0.72rem;
-                  font-family: var(--zaq-font-primary);
-                  padding: 4px 10px;
-                  border-radius: 6px;
                   white-space: nowrap;
                   z-index: 100;
                   pointer-events: none;
@@ -205,30 +199,13 @@ defmodule ZaqWeb.Components.BOLayout do
 
                 /* Active section highlight when collapsed */
                 #bo-sidebar.collapsed .active-section-wrap {
-                  background: var(--zaq-color-accent-soft);
-                  border-left: 2px solid var(--zaq-color-accent);
-                  border-radius: 6px;
+                  background: var(--zaq-surface-color-raised);
+                  border-left: 2px solid var(--zaq-border-color-accent);
+                  border-radius: var(--zaq-scale-8);
                 }
                 #bo-sidebar.collapsed button.active-section {
                   background: transparent;
                   border-left: none;
-                }
-
-                /* Open but inactive section — gray tint */
-                .open-section-wrap {
-                  background: rgba(255, 255, 255, 0.04);
-                  border-left: 2px solid rgba(255, 255, 255, 0.08);
-                  border-radius: 6px;
-                }
-
-                /* Collapsed non-active section: gray tint when open */
-                #bo-sidebar.collapsed .section-open:not(.active-section-wrap) {
-                  background: rgba(255, 255, 255, 0.06);
-                  border-left: 2px solid rgba(255, 255, 255, 0.12);
-                  border-radius: 6px;
-                }
-                #bo-sidebar.collapsed .section-open:not(.active-section-wrap) button {
-                  background: transparent;
                 }
       </style>
       
@@ -236,25 +213,28 @@ defmodule ZaqWeb.Components.BOLayout do
       <aside
         id="bo-sidebar"
         data-section-ids={Enum.join(@nav_section_ids, ",")}
-        class="fixed top-0 left-0 h-screen zaq-bg-ink flex flex-col z-40 shadow-xl"
+        class="fixed top-0 left-0 h-screen zaq-sidebar flex flex-col z-40 shadow-xl"
       >
         
     <!-- Logo + collapse toggle -->
-        <div class="h-16 flex items-center justify-between px-3 border-b border-white/10 flex-shrink-0">
+        <div class="h-16 flex items-center justify-between px-3 flex-shrink-0 zaq-sidebar-header">
           <div class="flex items-center gap-2 min-w-0">
             <img
               src={~p"/images/zaq.png"}
               alt="ZAQ Logo"
               class="sidebar-logo h-8 w-8 flex-shrink-0 rounded-lg object-contain"
             />
-            <span class="logo-text font-mono text-[0.65rem] text-white/40 tracking-widest uppercase whitespace-nowrap transition-all duration-200">
+            <span
+              class="logo-text zaq-text-caption uppercase tracking-widest whitespace-nowrap transition-all duration-200"
+              style="color: var(--zaq-text-color-body-tertiary);"
+            >
               Back Office
             </span>
           </div>
           <button
             id="sidebar-toggle"
             onclick="toggleSidebar()"
-            class="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 transition-all"
+            class="zaq-btn zaq-btn-ghost zaq-btn-icon"
             title="Toggle sidebar"
           >
             <svg
@@ -277,10 +257,9 @@ defmodule ZaqWeb.Components.BOLayout do
             <a
               href={~p"/bo/dashboard"}
               class={[
-                "flex items-center gap-3 px-2.5 py-2.5 rounded-lg font-mono text-[0.82rem] transition-all",
                 if(String.starts_with?(@current_path, "/bo/dashboard"),
-                  do: "zaq-bg-accent text-white shadow-sm",
-                  else: "text-white/60 hover:text-white hover:bg-white/8"
+                  do: "zaq-sidebar-nav-item-active",
+                  else: "zaq-sidebar-nav-item"
                 )
               ]}
             >
@@ -296,9 +275,11 @@ defmodule ZaqWeb.Components.BOLayout do
                 <rect x="3" y="14" width="7" height="7" rx="1.5" />
                 <rect x="14" y="14" width="7" height="7" rx="1.5" />
               </svg>
-              <span class="nav-label transition-all duration-200 whitespace-nowrap">Dashboard</span>
+              <span class="nav-label zaq-text-body-sm transition-all duration-200 whitespace-nowrap">
+                Dashboard
+              </span>
             </a>
-            <div class="nav-tooltip">Dashboard</div>
+            <div class="nav-tooltip zaq-text-body-sm zaq-sidebar-nav-tooltip">Dashboard</div>
           </div>
           
     <!-- Sections -->
@@ -323,16 +304,16 @@ defmodule ZaqWeb.Components.BOLayout do
           <% end %>
         </nav>
 
-        <div class="border-t border-white/10 p-3 flex-shrink-0 space-y-3">
+        <div class="zaq-sidebar-footer p-3 flex-shrink-0 space-y-3">
           <a
             id="sidebar-github-link"
             href="https://github.com/www-zaq-ai/zaq"
             target="_blank"
             rel="noreferrer"
-            class="group flex items-start gap-2.5 rounded-lg px-2 py-2 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            class="group zaq-sidebar-footer-link"
           >
             <svg
-              class="w-5 h-5 flex-shrink-0 text-white/70 group-hover:text-white transition-colors"
+              class="w-5 h-5 flex-shrink-0"
               viewBox="0 0 24 24"
               fill="currentColor"
               aria-hidden="true"
@@ -340,14 +321,20 @@ defmodule ZaqWeb.Components.BOLayout do
               <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.3 9.41 7.88 10.94.58.11.79-.25.79-.56 0-.28-.01-1.02-.01-2-3.2.7-3.87-1.54-3.87-1.54-.53-1.34-1.28-1.69-1.28-1.69-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.71 1.26 3.37.97.1-.75.4-1.26.72-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.29 1.19-3.1-.12-.3-.52-1.5.11-3.13 0 0 .97-.31 3.19 1.18A11.08 11.08 0 0 1 12 6.1c.98 0 1.97.13 2.9.39 2.22-1.49 3.19-1.18 3.19-1.18.64 1.63.24 2.83.12 3.13.74.81 1.19 1.84 1.19 3.1 0 4.41-2.68 5.39-5.24 5.68.41.35.77 1.03.77 2.08 0 1.51-.01 2.73-.01 3.1 0 .31.21.68.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
             </svg>
             <div class="sidebar-github-copy min-w-0 transition-all duration-200">
-              <p class="font-mono text-[0.72rem] tracking-wide leading-tight">Star Zaq on GitHub</p>
-              <p class="font-mono text-[0.62rem] text-white/45 mt-0.5 leading-tight">
+              <p class="zaq-text-body-sm tracking-wide leading-tight">Star Zaq on GitHub</p>
+              <p
+                class="zaq-text-caption mt-0.5 leading-tight"
+                style="color: var(--zaq-text-color-body-tertiary);"
+              >
                 Follow updates and support the project
               </p>
             </div>
           </a>
           <div class="flex items-center justify-end">
-            <span class="sidebar-version font-mono text-[0.65rem] text-white/40">
+            <span
+              class="sidebar-version zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary);"
+            >
               v{@app_version}
             </span>
             <a
@@ -369,14 +356,19 @@ defmodule ZaqWeb.Components.BOLayout do
     <!-- Main -->
       <main id="bo-main" class="flex-1">
         <!-- Header -->
-        <header class="h-16 bg-white border-b border-black/10 flex items-center justify-between px-8 shadow-sm">
-          <h1 class="font-mono text-lg font-bold zaq-text-ink">{@page_title}</h1>
+        <header
+          class="h-16 border-b flex items-center justify-between px-8"
+          style="background: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default);"
+        >
+          <h1 class="zaq-text-h1" style="color: var(--zaq-text-color-body-default);">
+            {@page_title}
+          </h1>
 
           <div class="flex items-center gap-2">
             <a
               id="header-notifications-link"
               href={~p"/bo/channels/notifications/logs"}
-              class="w-10 h-10 rounded-lg border border-black/10 zaq-text-ink-soft grid place-items-center hover:bg-black/[0.03] hover:text-[var(--zaq-color-ink)] transition-colors"
+              class="zaq-btn zaq-btn-secondary zaq-btn-icon w-10 h-10"
               title="Notifications"
             >
               <svg
@@ -397,7 +389,7 @@ defmodule ZaqWeb.Components.BOLayout do
             <details id="header-settings-menu" class="relative">
               <summary
                 id="header-settings-trigger"
-                class="list-none w-10 h-10 rounded-lg border border-black/10 zaq-text-ink-soft grid place-items-center cursor-pointer hover:bg-black/[0.03] hover:text-[var(--zaq-color-ink)] transition-colors"
+                class="zaq-btn zaq-btn-secondary zaq-btn-icon list-none w-10 h-10 cursor-pointer"
               >
                 <svg
                   class="w-5 h-5"
@@ -421,57 +413,65 @@ defmodule ZaqWeb.Components.BOLayout do
 
               <div
                 id="header-settings-dropdown"
-                class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border border-black/10 bg-white shadow-xl p-1.5 z-50"
+                class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border shadow-xl p-1.5 z-50"
+                style="background: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default);"
               >
                 <a
                   id="header-settings-diagnostics-link"
                   href={~p"/bo/ai-diagnostics"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   Diagnostics
                 </a>
                 <a
                   id="header-settings-prompt-templates-link"
                   href={~p"/bo/prompt-templates"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   Prompt templates
                 </a>
                 <a
                   id="header-settings-system-config-link"
                   href={~p"/bo/system-config"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   System config
                 </a>
-                <div class="my-1 h-px bg-black/10" />
+                <div class="my-1 h-px" style="background: var(--zaq-border-color-default);" />
                 <a
                   id="header-settings-channels-link"
                   href={~p"/bo/channels"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   Channels
                 </a>
-                <div class="my-1 h-px bg-black/10" />
+                <div class="my-1 h-px" style="background: var(--zaq-border-color-default);" />
                 <a
                   id="header-settings-users-link"
                   href={~p"/bo/users"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   Users
                 </a>
                 <a
                   id="header-settings-roles-link"
                   href={~p"/bo/roles"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   Roles
                 </a>
-                <div class="my-1 h-px bg-black/10" />
+                <div class="my-1 h-px" style="background: var(--zaq-border-color-default);" />
                 <a
                   id="header-settings-license-link"
                   href={~p"/bo/addons"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   Add-ons
                 </a>
@@ -481,35 +481,41 @@ defmodule ZaqWeb.Components.BOLayout do
             <details id="header-user-menu" class="relative">
               <summary
                 id="header-user-trigger"
-                class="list-none flex items-center gap-2 rounded-lg border border-black/10 px-2 py-1.5 cursor-pointer hover:bg-black/[0.03] transition-colors"
+                class="zaq-btn zaq-btn-secondary list-none flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer"
               >
-                <span class="w-8 h-8 rounded-lg zaq-bg-accent-soft-strong grid place-items-center text-xs font-bold font-mono zaq-text-accent border zaq-border-accent-soft">
+                <span
+                  class="zaq-text-body-sm w-8 h-8 rounded-lg grid place-items-center font-bold border"
+                  style="background: color: var(--zaq-text-color-body-accent); border-color: var(--zaq-border-color-accent);"
+                >
                   {String.first(@current_user.username) |> String.upcase()}
                 </span>
-                <span class="font-mono text-[0.72rem] zaq-text-ink-soft">
+                <span class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default);">
                   {@current_user.username}
                 </span>
               </summary>
 
               <div
                 id="header-user-dropdown"
-                class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border border-black/10 bg-white shadow-xl p-1.5 z-50"
+                class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border shadow-xl p-1.5 z-50"
+                style="background: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default);"
               >
                 <a
                   id="header-profile-link"
                   href={~p"/bo/profile"}
-                  class="block rounded-lg px-3 py-2 font-mono text-[0.72rem] zaq-text-ink hover:bg-black/[0.04]"
+                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
+                  style="color: var(--zaq-text-color-body-default);"
                 >
                   Profile
                 </a>
-                <div class="my-1 h-px bg-black/10" />
+                <div class="my-1 h-px" style="background: var(--zaq-border-color-default);" />
                 <form id="header-logout-form" method="post" action={~p"/bo/session"}>
                   <input type="hidden" name="_method" value="delete" />
                   <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
                   <button
                     id="header-logout-button"
                     type="submit"
-                    class="w-full text-left rounded-lg px-3 py-2 font-mono text-[0.72rem] text-red-600 hover:bg-red-50"
+                    class="zaq-text-body-sm zaq-dropdown-menu-item w-full text-left rounded-lg px-3 py-2 cursor-pointer"
+                    style="color: var(--zaq-text-color-body-danger);"
                   >
                     Logout
                   </button>
@@ -523,7 +529,7 @@ defmodule ZaqWeb.Components.BOLayout do
           <div
             :if={Phoenix.Flash.get(@flash, :info)}
             id="flash-info"
-            class="mb-4 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+            class="mb-4 rounded-xl zaq-success zaq-text-body px-4 py-3 flex items-center gap-2"
             phx-hook="FlashAutoDismiss"
             data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
           >
@@ -558,7 +564,7 @@ defmodule ZaqWeb.Components.BOLayout do
           <div
             :if={Phoenix.Flash.get(@flash, :error)}
             id="flash-error"
-            class="mb-4 rounded-xl bg-red-100 border border-red-200 text-red-600 text-sm px-4 py-3 flex items-center gap-2 font-mono"
+            class="mb-4 rounded-xl zaq-danger zaq-text-body px-4 py-3 flex items-center gap-2"
             phx-hook="FlashAutoDismiss"
             data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
           >
@@ -619,7 +625,10 @@ defmodule ZaqWeb.Components.BOLayout do
     <div
       class={[
         "mt-1",
-        if(@active, do: "active-section-wrap", else: if(@open, do: "open-section-wrap", else: ""))
+        if(@active,
+          do: "active-section-wrap",
+          else: if(@open, do: "open-section-wrap zaq-sidebar-open-section", else: "")
+        )
       ]}
       id={@id}
     >
@@ -627,18 +636,14 @@ defmodule ZaqWeb.Components.BOLayout do
       <button
         onclick={"toggleSection('#{@id}')"}
         class={[
-          "w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-all group",
-          if(@active,
-            do:
-              "active-section zaq-bg-accent-soft-strong zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)]",
-            else: "text-amber-400/80 hover:text-amber-300 hover:bg-white/5"
-          )
+          "w-full flex items-center justify-between group zaq-sidebar-nav-section",
+          if(@active, do: "active-section", else: "")
         ]}
       >
         <div class="flex items-center gap-2.5 min-w-0">
           <%!-- Section Icon --%>
           <.section_icon icon={@icon} active={@active} />
-          <span class="section-label font-mono text-[0.58rem] uppercase tracking-widest transition-all duration-200 whitespace-nowrap inherit">
+          <span class="section-label zaq-text-caption uppercase tracking-widest transition-all duration-200 whitespace-nowrap">
             {@label}
           </span>
         </div>
@@ -661,19 +666,18 @@ defmodule ZaqWeb.Components.BOLayout do
             <a
               href={item.href}
               class={[
-                "flex items-center gap-3 px-2.5 py-2 rounded-lg font-mono text-[0.82rem] transition-all",
                 if(Map.get(item, :locked),
-                  do: "text-white/25 hover:text-white/40 hover:bg-white/5 cursor-default",
+                  do: "zaq-sidebar-nav-item-locked",
                   else:
                     if(item.active,
-                      do: "zaq-bg-accent text-white shadow-sm",
-                      else: "text-white/55 hover:text-white hover:bg-white/8"
+                      do: "zaq-sidebar-nav-item-active",
+                      else: "zaq-sidebar-nav-item"
                     )
                 )
               ]}
             >
               <.nav_icon icon={item.icon} />
-              <span class="nav-label transition-all duration-200 whitespace-nowrap flex-1">
+              <span class="nav-label zaq-text-body-sm transition-all duration-200 whitespace-nowrap flex-1">
                 {item.label}
               </span>
               <svg
@@ -688,7 +692,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
             </a>
-            <div class="nav-tooltip">{item.label}</div>
+            <div class="nav-tooltip zaq-text-body-sm zaq-sidebar-nav-tooltip">{item.label}</div>
           </div>
         <% end %>
       </div>
@@ -697,13 +701,7 @@ defmodule ZaqWeb.Components.BOLayout do
   end
 
   defp section_icon(assigns) do
-    icon_class =
-      if assigns.active,
-        do: "w-4 h-4 flex-shrink-0 zaq-text-accent transition-colors",
-        else:
-          "w-4 h-4 flex-shrink-0 text-amber-400/80 group-hover:text-amber-300 transition-colors"
-
-    assigns = assign(assigns, :icon_class, icon_class)
+    assigns = assign(assigns, :icon_class, "w-4 h-4 flex-shrink-0")
 
     ~H"""
     <ZaqWeb.Components.IconRegistry.icon namespace="section" name={@icon} class={@icon_class} />
@@ -847,15 +845,28 @@ defmodule ZaqWeb.Components.BOLayout do
 
     ~H"""
     <div class="flex items-center justify-center min-h-[60vh]">
-      <div class="bg-white rounded-xl border border-dashed border-black/15 p-10 text-center max-w-md">
-        <div class="w-10 h-10 rounded-lg bg-red-100 grid place-items-center mx-auto mb-4">
-          <ZaqWeb.CoreComponents.icon name="hero-exclamation-triangle" class="w-5 h-5 text-red-500" />
+      <div
+        class="zaq-card-default zaq-border-default flex flex-col items-center text-center max-w-md w-full"
+        style="background: var(--zaq-surface-color-raised)"
+      >
+        <div
+          class="w-10 h-10 rounded-lg grid place-items-center mx-auto"
+          style="background: var(--zaq-surface-color-elevated)"
+        >
+          <ZaqWeb.CoreComponents.icon
+            name="hero-exclamation-triangle"
+            class="w-5 h-5"
+          />
         </div>
-        <p class="font-mono text-sm font-bold text-black mb-1">Feature Not Enabled</p>
-        <p class="font-mono text-[0.7rem] text-black/40 mb-5">{@message}</p>
+        <p class="zaq-text-h4" style="color: var(--zaq-text-color-body-default)">
+          Feature Not Enabled
+        </p>
+        <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+          {@message}
+        </p>
         <.link
           href={~p"/bo/addons"}
-          class="inline-block font-mono text-[0.8rem] font-bold px-5 py-2.5 rounded-lg bg-[#3c4b64] text-white hover:bg-[#3c4b64]/90 transition-colors"
+          class="zaq-btn zaq-btn-primary zaq-btn-text_label-default"
         >
           View Add-ons
         </.link>

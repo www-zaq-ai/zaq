@@ -14,3 +14,109 @@
 .zaq-border-default {
   border:var(--zaq-border-color-default) solid var(--zaq-border-thickness-default);
 }
+
+/* ── Dropdown / menu item ─────────────────────────────────────────────────── */
+
+.zaq-dropdown-menu-item:hover {
+  background: var(--zaq-surface-color-elevated);
+}
+
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+
+.zaq-sidebar {
+  background: var(--zaq-surface-color-base);
+  border-right: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-sidebar-header {
+  background: var(--zaq-surface-color-raised);
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-sidebar-footer {
+  border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-sidebar-footer-link {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--zaq-scale-8);
+  border-radius: var(--zaq-scale-8);
+  padding: var(--zaq-scale-8);
+  color: var(--zaq-text-color-body-tertiary);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.zaq-sidebar-footer-link:hover {
+  color: var(--zaq-text-color-body-secondary);
+  background: var(--zaq-surface-color-elevated);
+}
+
+/* ── Sidebar nav items ────────────────────────────────────────────────────── */
+
+.zaq-sidebar-nav-item,
+.zaq-sidebar-nav-item-active,
+.zaq-sidebar-nav-item-locked, 
+.zaq-sidebar-nav-section{
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-8);
+}
+
+.zaq-sidebar-nav-item {
+  color: var(--zaq-text-color-body-secondary);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.zaq-sidebar-nav-item:hover {
+  color: var(--zaq-text-color-body-secondary);
+  background: var(--zaq-surface-color-elevated);
+}
+
+.zaq-sidebar-nav-item-active {
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-sidebar-nav-item-locked {
+  color: var(--zaq-text-color-body-tertiary);
+  cursor: default;
+}
+.zaq-sidebar-nav-section{
+  color: var(--zaq-text-color-body-accent);
+}
+.zaq-sidebar-nav-section:hover{
+  background: var(--zaq-surface-color-elevated);
+}
+
+/* ── Sidebar collapsed state ──────────────────────────────────────────────── */
+
+/* Nav tooltip — shown on hover when sidebar is collapsed */
+/* Typography via .zaq-text-body-sm applied in template */
+.zaq-sidebar-nav-tooltip {
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-secondary);
+  padding: var(--zaq-scale-4) var(--zaq-scale-8);
+  border-radius: var(--zaq-scale-8);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+
+/* ── Inline feedback ─────────────────────────────────────────────────── */
+
+/* feedback/danger */
+
+.zaq-danger {
+  background: var(--zaq-surface-color-danger);
+  color: var(--zaq-text-color-body-danger);
+  border: var(--zaq-border-color-danger) solid var(--zaq-border-thickness-default);
+}
+
+/* feedback/success */
+.zaq-success {
+  background: var(--zaq-surface-color-success);
+  color: var(--zaq-text-color-body-success);
+  border: var(--zaq-border-color-success) solid var(--zaq-border-thickness-default);
+}

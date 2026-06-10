@@ -13,7 +13,7 @@
 
   /* btn/primary*/
   /* btn/primary/color/bg */
-  --zaq-btn-primary-color-bg-resting:  var(--zaq-color-blue-400);
+  --zaq-btn-primary-color-bg-resting:  linear-gradient(30deg, #0aadca 0%, #3dd5ee 30%, #00d492 40%, #3dd5ee 75%, #0aadca 100%);
   --zaq-btn-primary-color-bg-hover:    var(--zaq-color-blue-300);
   --zaq-btn-primary-color-bg-disabled: var(--zaq-color-black-100);
 
@@ -28,7 +28,8 @@
   --zaq-btn-primary-color-icon-disabled: var(--zaq-color-black-100);
   
   /* btn/primary/color/border */
-  --zaq-btn-primary-color-border-resting:  var(--zaq-gradient-neon);
+  --zaq-btn-primary-color-border-resting:  var(--zaq-color-blue-300);
+  --zaq-btn-primary-color-border-hover:    var(--zaq-color-blue-400);
   
   
   /* btn/secondary/
@@ -77,6 +78,11 @@
   --zaq-btn-secondary-color-border-resting: var(--zaq-color-neutral-400);
 }
 
+@keyframes zaq-btn-neon-flow {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
 /* ── Base — layout & shape only, no color ────────────────────────────────── */
 /* Always combine with .zaq-btn-text_label-default for typography */
 .zaq-btn {
@@ -97,24 +103,37 @@
   pointer-events: none;
 }
 
+/* Icon-only button — overrides .zaq-btn padding for square icon containers */
+.zaq-btn-icon {
+  padding: 0;
+  display: grid;
+  place-items: center;
+  min-width: var(--zaq-scale-32);
+  min-height: var(--zaq-scale-32);
+}
+
 /* ── Primary ─────────────────────────────────────────────────────────────── */
 .zaq-btn-primary {
-  color:      var(--zaq-btn-primary-color-text-resting);
-  border:     var(--zaq-scale-2) solid transparent;
-  background: linear-gradient(var(--zaq-btn-primary-color-bg-resting), var(--zaq-btn-primary-color-bg-resting)) padding-box,
-              var(--zaq-btn-primary-color-border-resting) border-box;
+  color:               var(--zaq-btn-primary-color-text-resting);
+  border:              var(--zaq-scale-2) solid var(--zaq-btn-primary-color-border-resting);
+  background:          var(--zaq-btn-primary-color-bg-resting);
+  background-size:     250% 100%;
+  background-position: 0% 50%;
+  animation:           zaq-btn-neon-flow 2s linear infinite;
 }
 
 .zaq-btn-primary:hover {
-  color:      var(--zaq-btn-primary-color-text-hover);
-  background: linear-gradient(var(--zaq-btn-primary-color-bg-hover), var(--zaq-btn-primary-color-bg-hover)) padding-box,
-              var(--zaq-btn-primary-color-border-resting) border-box;
+  color:               var(--zaq-btn-primary-color-text-hover);
+  border:              var(--zaq-scale-2) solid var(--zaq-btn-primary-color-border-hover);
+  animation-play-state: paused;
 }
 
 .zaq-btn-primary:disabled,
 .zaq-btn-primary[aria-disabled="true"] {
   color:      var(--zaq-btn-primary-color-text-disabled);
   background: var(--zaq-btn-primary-color-bg-disabled);
+  animation:  none;
+  border:     none;
 }
 
 /* ── Secondary ───────────────────────────────────────────────────────────── */
