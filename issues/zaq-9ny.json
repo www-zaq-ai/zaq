@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-10T14:47:24Z",
+  "description": "Move the Figma capture script behind a generic config-driven assign plug and a focused component. Wire dev config to enable it while defaulting through plug options.",
+  "id": "zaq-9ny",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Extract Figma capture script injection",
+  "type": "task",
+  "updated_at": "2026-06-10T14:47:24Z"
+}
