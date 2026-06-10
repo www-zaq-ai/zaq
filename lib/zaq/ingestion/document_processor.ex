@@ -774,28 +774,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
     with {:ok, bm25} <- Task.await(bm25_task, 30_000),
          {:ok, vector} <- Task.await(vector_task, 30_000) do
-      log_retrieval_legs(query, bm25, vector)
       rrf_merge(bm25, vector)
     end
-  end
-
-  # Debug-level dump of both retrieval legs so backend behaviour (Native vs
-  # ParadeDB) can be diffed for a given query without instrumenting callers.
-  defp log_retrieval_legs(query, bm25, vector) do
-    Logger.debug(fn ->
-      bm25_top = leg_summary(bm25, :bm25_score, :desc)
-      vector_top = leg_summary(vector, :vector_distance, :asc)
-
-      "[Retrieval] backend=#{inspect(FTSBackend.impl())} query=#{inspect(query)} " <>
-        "bm25=#{inspect(bm25_top)} vector=#{inspect(vector_top)}"
-    end)
-  end
-
-  defp leg_summary(grouped, score_key, order) do
-    grouped
-    |> extract_sections(score_key)
-    |> sort_sections(order)
-    |> Enum.map(fn {doc_id, path, score} -> {doc_id, Enum.join(path, " > "), score} end)
   end
 
   defp build_query_sections(ss) do
