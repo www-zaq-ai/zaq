@@ -4,7 +4,14 @@ defmodule Zaq.Engine.ApiTest do
   alias Zaq.Engine.Api
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Test.Stubs
+
+  setup do
+    Stubs.stub_node_router()
+    :ok
+  end
 
   defmodule StubConversations do
     def persist_from_incoming(incoming, metadata) do
@@ -251,6 +258,179 @@ defmodule Zaq.Engine.ApiTest do
              {:error, {:invalid_request, %{}}}
   end
 
+  describe "handle_event/3 — :workflow events" do
+    alias Zaq.Accounts.People
+    alias Zaq.Engine.Workflows.WorkflowAgent
+    alias Zaq.Permissions
+
+    @source_event %{
+      "request" => nil,
+      "assigns" => %{"trigger_type" => "manual"},
+      "trace_id" => "api-test-trace"
+    }
+    @ok_module "Zaq.Engine.Workflows.Test.OkAction"
+    @hitl_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
+
+    defp api_hitl_workflow do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "api-hitl-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "step_a", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "hitl", type: "action", module: @hitl_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "step_a", to: "hitl"}]
+        })
+
+      wf
+    end
+
+    defp create_waiting_run do
+      wf = api_hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      assert waiting_run.status == "waiting"
+      approval = Workflows.get_pending_approval(waiting_run.id)
+      %{run: waiting_run, wf: wf, approval: approval}
+    end
+
+    test "run.approve with nil person_id and skip_permissions succeeds" do
+      %{run: run} = create_waiting_run()
+
+      request = %{
+        action: "run.approve",
+        run_id: run.id,
+        person_id: nil,
+        decision: %{"notes" => "looks good"}
+      }
+
+      result =
+        Api.handle_event(
+          Event.new(request, :engine, opts: [skip_permissions: true]),
+          :workflow,
+          nil
+        )
+
+      assert {:ok, completed_run} = result.response
+      assert completed_run.status == "completed"
+    end
+
+    test "run.approve with nil person_id and no skip_permissions returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{action: "run.approve", run_id: run.id, person_id: nil, decision: %{}}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.approve with unknown person_id returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{action: "run.approve", run_id: run.id, person_id: -1, decision: %{}}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.approve with authorized person_id succeeds" do
+      %{run: run, wf: wf} = create_waiting_run()
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Approver #{unique}",
+          email: "approver#{unique}@test.com"
+        })
+
+      {:ok, _} = Permissions.grant(wf, %{person_id: person.id, access_rights: ["run"]})
+
+      request = %{
+        action: "run.approve",
+        run_id: run.id,
+        person_id: person.id,
+        decision: %{"notes" => "approved by person"}
+      }
+
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert {:ok, completed_run} = result.response
+      assert completed_run.status == "completed"
+    end
+
+    test "run.reject with nil person_id and skip_permissions returns failed run" do
+      %{run: run} = create_waiting_run()
+
+      request = %{
+        action: "run.reject",
+        run_id: run.id,
+        person_id: nil,
+        reason: "not approved"
+      }
+
+      result =
+        Api.handle_event(
+          Event.new(request, :engine, opts: [skip_permissions: true]),
+          :workflow,
+          nil
+        )
+
+      assert {:ok, failed_run} = result.response
+      assert failed_run.status == "failed"
+    end
+
+    test "run.reject with nil person_id and no skip_permissions returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{action: "run.reject", run_id: run.id, person_id: nil, reason: "denied"}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.reject with unknown person_id returns unauthorized" do
+      %{run: run} = create_waiting_run()
+
+      request = %{action: "run.reject", run_id: run.id, person_id: -1, reason: "denied"}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert result.response == {:error, :unauthorized}
+    end
+
+    test "run.reject with authorized person_id returns failed run" do
+      %{run: run, wf: wf} = create_waiting_run()
+      unique = System.unique_integer([:positive])
+
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Rejecter #{unique}",
+          email: "rejecter#{unique}@test.com"
+        })
+
+      {:ok, _} = Permissions.grant(wf, %{person_id: person.id, access_rights: ["run"]})
+
+      request = %{
+        action: "run.reject",
+        run_id: run.id,
+        person_id: person.id,
+        reason: "rejected by person"
+      }
+
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert {:ok, failed_run} = result.response
+      assert failed_run.status == "failed"
+    end
+
+    test "unknown action passes through event unchanged" do
+      request = %{action: "unknown.action", run_id: "whatever"}
+      event = Event.new(request, :engine)
+      result = Api.handle_event(event, :workflow, nil)
+      assert result.response == nil
+    end
+
+    test "missing run_id returns invalid_request" do
+      request = %{action: "run.approve", person_id: nil}
+      result = Api.handle_event(Event.new(request, :engine), :workflow, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+  end
+
   test "returns invalid request for system config actions requiring maps" do
     invalid_cases = [
       {:system_config_get_ai_provider_credential, %{}},
@@ -277,5 +457,114 @@ defmodule Zaq.Engine.ApiTest do
       result = Api.handle_event(Event.new(request, :engine), action, nil)
       assert result.response == {:error, {:invalid_request, request}}
     end)
+  end
+
+  # --- :trigger handler ---
+
+  @valid_node %{
+    name: "step",
+    type: "action",
+    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    params: %{},
+    index: 0
+  }
+
+  defp make_workflow(name \\ "W", status \\ "draft") do
+    {:ok, w} =
+      Workflows.create_workflow(%{name: name, status: status, nodes: [@valid_node], edges: []})
+
+    w
+  end
+
+  defp make_trigger(event_name \\ "test.event") do
+    {:ok, t} = Workflows.create_trigger(%{event_name: event_name})
+    t
+  end
+
+  describe "handle_event/3 :trigger" do
+    test "list_with_runs returns all triggers" do
+      make_trigger("evt.a")
+      make_trigger("evt.b")
+      event = Event.new(%{action: "list_with_runs"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert is_list(result.response)
+      assert length(result.response) == 2
+    end
+
+    test "create with valid attrs returns {:ok, trigger}" do
+      event = Event.new(%{action: "create", attrs: %{event_name: "new.event"}}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, trigger} = result.response
+      assert trigger.event_name == "engine:new.event"
+    end
+
+    test "create with invalid attrs returns changeset error" do
+      event = Event.new(%{action: "create", attrs: %{event_name: ""}}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, %Ecto.Changeset{}} = result.response
+    end
+
+    test "create missing attrs key returns invalid_request" do
+      event = Event.new(%{action: "create"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+
+    test "update with valid attrs returns {:ok, updated}" do
+      t = make_trigger("evt.upd")
+      event = Event.new(%{action: "update", trigger: t, attrs: %{enabled: false}}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, updated} = result.response
+      assert updated.enabled == false
+    end
+
+    test "update missing attrs key returns invalid_request" do
+      t = make_trigger()
+      event = Event.new(%{action: "update", trigger: t}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+
+    test "delete removes trigger" do
+      t = make_trigger("evt.del")
+      event = Event.new(%{action: "delete", trigger: t}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, _} = result.response
+      assert Workflows.list_triggers() |> Enum.all?(&(&1.id != t.id))
+    end
+
+    test "assign_workflow links workflow to trigger" do
+      t = make_trigger()
+      w = make_workflow("W", "active")
+      event = Event.new(%{action: "assign_workflow", trigger: t, workflow: w}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, _} = result.response
+      linked = Workflows.list_workflows_for_trigger(t.event_name)
+      assert Enum.any?(linked, &(&1.id == w.id))
+    end
+
+    test "remove_workflow unlinks workflow from trigger" do
+      t = make_trigger()
+      w = make_workflow()
+      Workflows.assign_workflow_to_trigger(t, w)
+      event = Event.new(%{action: "remove_workflow", trigger: t, workflow: w}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:ok, _} = result.response
+    end
+
+    test "list_workflows returns all workflows" do
+      make_workflow("WA")
+      make_workflow("WB")
+      event = Event.new(%{action: "list_workflows"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert is_list(result.response)
+      assert length(result.response) >= 2
+    end
+
+    test "unknown action string returns invalid_request" do
+      event = Event.new(%{action: "unknown_action"}, :engine)
+      result = Api.handle_event(event, :trigger, nil)
+      assert {:error, {:invalid_request, _}} = result.response
+    end
   end
 end

@@ -20,9 +20,23 @@ if System.get_env("PHX_SERVER") do
   config :zaq, ZaqWeb.Endpoint, server: true
 end
 
+config :req_llm,
+  finch: [
+    name: ReqLLM.Finch,
+    pools: %{
+      :default => [
+        protocols: [:http1],
+        size: 1,
+        count: String.to_integer(System.get_env("REQ_LLM_POOL_COUNT", "20"))
+      ]
+    }
+  ]
+
 config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  config :zaq, :workflows_enabled, System.get_env("WORKFLOWS_ENABLED", "false") == "true"
+
   # SMTP password encryption (used by BO System Configuration page)
   # - SYSTEM_CONFIG_ENCRYPTION_KEY is required to save non-empty SMTP passwords
   # - key must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)

@@ -6,8 +6,21 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Tools.Email.DraftReply
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
   alias Zaq.TestSupport.OpenAIStub
+
+  # Mock executor that returns a successful outgoing without calling the real LLM.
+  defmodule MockExecutor do
+    def run(%Incoming{} = incoming, _opts) do
+      %Outgoing{
+        body: "Thank you for your email. We will get back to you shortly.",
+        channel_id: incoming.channel_id,
+        provider: incoming.provider,
+        metadata: %{}
+      }
+    end
+  end
 
   defp raw_email(overrides \\ %{}) do
     Map.merge(
@@ -39,6 +52,12 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
       })
 
     agent
+  end
+
+  describe "on_failure/2" do
+    test "returns :ok" do
+      assert :ok == DraftReply.on_failure(%RuntimeError{message: "boom"}, %{})
+    end
   end
 
   describe "run/2 — empty emails list" do
@@ -80,15 +99,16 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
       end
     end
 
-    test "defaults to MailResponder when agent_name key is absent and agent exists" do
+    test "raises with agent error when agent_name absent and executor fails" do
       insert_configured_agent("MailResponder")
-      # Should succeed (even if Executor uses fallback body due to no LLM)
-      assert {:ok, %{drafts: [draft]}, _logs} = DraftReply.run(%{emails: [raw_email()]}, %{})
-      assert is_map(draft)
+
+      assert_raise RuntimeError, ~r/Agent 'MailResponder' failed/, fn ->
+        DraftReply.run(%{emails: [raw_email()]}, %{})
+      end
     end
   end
 
-  describe "run/2 — draft shape when agent found" do
+  describe "run/2 — executor error path" do
     setup do
       handler = fn conn, _body ->
         {200, streamed_reply(conn.request_path, "Stubbed draft", "gpt-4o")}
@@ -101,119 +121,36 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
       {:ok, agent: insert_configured_agent("MailResponder")}
     end
 
-    test "returns {:ok, %{drafts: [...]}} with one draft per email" do
-      # Executor.run never raises — it returns a fallback Outgoing even when LLM fails.
-      assert {:ok, %{drafts: drafts}, _logs} =
-               DraftReply.run(%{emails: [raw_email()], agent_name: "MailResponder"}, %{})
-
-      assert length(drafts) == 1
+    test "raises when executor returns an error response" do
+      assert_raise RuntimeError, ~r/Agent 'MailResponder' failed/, fn ->
+        DraftReply.run(%{emails: [raw_email()], agent_name: "MailResponder"}, %{})
+      end
     end
 
-    test "draft map has expected keys" do
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(%{emails: [raw_email()], agent_name: "MailResponder"}, %{})
-
-      assert Map.has_key?(draft, :to_address)
-      assert Map.has_key?(draft, :to_name)
-      assert Map.has_key?(draft, :subject)
-      assert Map.has_key?(draft, :draft)
-      assert Map.has_key?(draft, :message_id)
+    test "error message includes message_id of the failing email" do
+      assert_raise RuntimeError, ~r/<abc123@mail>/, fn ->
+        DraftReply.run(%{emails: [raw_email()], agent_name: "MailResponder"}, %{})
+      end
     end
 
-    test "draft to_address comes from email from.address" do
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(
-                 %{
-                   emails: [
-                     raw_email(%{
-                       "from" => %{"address" => "alice@example.com", "name" => "Alice"}
-                     })
-                   ],
-                   agent_name: "MailResponder"
-                 },
-                 %{}
-               )
-
-      assert draft.to_address == "alice@example.com"
-    end
-
-    test "draft to_name comes from email from.name" do
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(
-                 %{
-                   emails: [raw_email(%{"from" => %{"address" => "a@b.com", "name" => "Alice"}})],
-                   agent_name: "MailResponder"
-                 },
-                 %{}
-               )
-
-      assert draft.to_name == "Alice"
-    end
-
-    test "reply subject prefixes with Re: for plain subject" do
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(
-                 %{emails: [raw_email(%{"subject" => "Hello"})], agent_name: "MailResponder"},
-                 %{}
-               )
-
-      assert draft.subject == "Re: Hello"
-    end
-
-    test "reply subject does not double-prefix already-prefixed subject" do
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(
-                 %{emails: [raw_email(%{"subject" => "Re: Hello"})], agent_name: "MailResponder"},
-                 %{}
-               )
-
-      assert draft.subject == "Re: Hello"
-    end
-
-    test "nil subject falls back to 'Re: (no subject)'" do
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(
-                 %{emails: [raw_email(%{"subject" => nil})], agent_name: "MailResponder"},
-                 %{}
-               )
-
-      assert draft.subject == "Re: (no subject)"
-    end
-
-    test "message_id is passed through from the raw email" do
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(
-                 %{
-                   emails: [raw_email(%{"message_id" => "<my-id@mail>"})],
-                   agent_name: "MailResponder"
-                 },
-                 %{}
-               )
-
-      assert draft.message_id == "<my-id@mail>"
-    end
-
-    test "returns one draft per email for multiple emails" do
+    test "raises on first failing email even when multiple are present" do
       emails = [raw_email(), raw_email(%{"from" => %{"address" => "b@b.com", "name" => "B"}})]
 
-      assert {:ok, %{drafts: drafts}, _logs} =
-               DraftReply.run(%{emails: emails, agent_name: "MailResponder"}, %{})
-
-      assert length(drafts) == 2
+      assert_raise RuntimeError, ~r/Agent 'MailResponder' failed/, fn ->
+        DraftReply.run(%{emails: emails, agent_name: "MailResponder"}, %{})
+      end
     end
 
-    test "handles from field with atom keys" do
-      email = %{
-        "from" => %{address: "atom@example.com", name: "AtomName"},
-        "subject" => "Test",
-        "body_text" => "body",
-        "message_id" => "<x>"
-      }
+    test "supports atom-key sender map fallback during draft creation path" do
+      email =
+        raw_email(%{
+          "from" => %{address: "atom@example.com", name: "Atom Sender"},
+          "message_id" => "<atom123@mail>"
+        })
 
-      assert {:ok, %{drafts: [draft]}, _logs} =
-               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, %{})
-
-      assert draft.to_address == "atom@example.com"
+      assert_raise RuntimeError, ~r/<atom123@mail>/, fn ->
+        DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, %{})
+      end
     end
   end
 
@@ -240,6 +177,99 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
 
       assert is_integer(active_id)
       assert is_nil(inactive_id)
+    end
+  end
+
+  describe "run/2 — happy path with injected executor" do
+    setup do
+      {:ok, agent: insert_configured_agent("MailResponder")}
+    end
+
+    @mock_ctx %{executor: MockExecutor}
+
+    test "returns {:ok, %{drafts: [draft]}, logs: logs} for a single email" do
+      email = raw_email()
+
+      assert {:ok, %{drafts: [draft]}, logs: logs} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.to_address == "sender@example.com"
+      assert draft.to_name == "Sender"
+      assert draft.subject == "Re: Hello ZAQ"
+      assert draft.draft =~ "Thank you"
+      assert draft.message_id == "<abc123@mail>"
+      assert is_list(logs)
+      assert length(logs) >= 2
+    end
+
+    test "handles multiple emails and returns one draft per email" do
+      email1 = raw_email()
+
+      email2 =
+        raw_email(%{
+          "from" => %{"address" => "b@b.com", "name" => "Bob"},
+          "message_id" => "<b1@mail>"
+        })
+
+      assert {:ok, %{drafts: drafts}, logs: _logs} =
+               DraftReply.run(
+                 %{emails: [email1, email2], agent_name: "MailResponder"},
+                 @mock_ctx
+               )
+
+      assert length(drafts) == 2
+    end
+
+    test "reply_subject prepends 'Re: ' to a generic subject (line 141)" do
+      email = raw_email(%{"subject" => "Help needed"})
+
+      assert {:ok, %{drafts: [draft]}, logs: _} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.subject == "Re: Help needed"
+    end
+
+    test "reply_subject preserves existing 'Re: ' prefix (line 140)" do
+      email = raw_email(%{"subject" => "Re: Previous thread"})
+
+      assert {:ok, %{drafts: [draft]}, logs: _} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.subject == "Re: Previous thread"
+    end
+
+    test "reply_subject uses 'Re: (no subject)' when subject is nil (line 139)" do
+      email = raw_email(%{"subject" => nil})
+
+      assert {:ok, %{drafts: [draft]}, logs: _} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert draft.subject == "Re: (no subject)"
+    end
+
+    test "logs include a per-email log and a summary log" do
+      email = raw_email()
+
+      assert {:ok, _result, logs: logs} =
+               DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, @mock_ctx)
+
+      assert Enum.any?(logs, fn l ->
+               l.level == "info" and String.contains?(l.message, "Draft ready")
+             end)
+
+      assert Enum.any?(logs, fn l ->
+               l.level == "info" and String.contains?(l.message, "Drafted 1")
+             end)
+    end
+
+    test "uses run_id from context in scope when provided" do
+      email = raw_email()
+
+      assert {:ok, %{drafts: [_]}, logs: _} =
+               DraftReply.run(
+                 %{emails: [email], agent_name: "MailResponder"},
+                 Map.put(@mock_ctx, :run_id, "my-run-123")
+               )
     end
   end
 

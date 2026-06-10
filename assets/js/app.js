@@ -28,6 +28,8 @@ import OntologyTree from "./hooks/ontology_tree_hook"
 import ChartTooltip from "./hooks/chart_tooltip_hook"
 import ContentFilter from "./hooks/content_filter"
 import FolderDrop from "./hooks/folder_drop"
+import { WorkflowExport } from "./hooks/workflow_export"
+import JsonTree from "./hooks/json_tree"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -39,6 +41,8 @@ const liveSocket = new LiveSocket("/live", Socket, {
     ChartTooltip,
     ContentFilter,
     FolderDrop,
+    WorkflowExport,
+    JsonTree,
     DownloadFile: {
       mounted() {
         this.handleEvent("download_file", ({ filename, content, content_type }) => {
@@ -52,6 +56,40 @@ const liveSocket = new LiveSocket("/live", Socket, {
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         });
+      }
+    },
+    CronCountdown: {
+      mounted() { this._start() },
+      updated() { this._stop(); this._start() },
+      destroyed() { this._stop() },
+      _start() {
+        this._fired = false
+        this._tick()
+        this._interval = setInterval(() => this._tick(), 1000)
+      },
+      _stop() { clearInterval(this._interval) },
+      _tick() {
+        const nextAt = parseInt(this.el.dataset.nextAt, 10)
+        if (isNaN(nextAt)) { this.el.textContent = ""; return }
+        const remaining = nextAt - Math.floor(Date.now() / 1000)
+        if (remaining <= 0) {
+          this.el.textContent = "now"
+          if (!this._fired) {
+            this._fired = true
+            this.pushEvent("cron_fired", {})
+          }
+          return
+        }
+        const h = Math.floor(remaining / 3600)
+        const m = Math.floor((remaining % 3600) / 60)
+        const s = remaining % 60
+        if (h > 0) {
+          this.el.textContent = `next in ${h}h ${m}m`
+        } else if (m > 0) {
+          this.el.textContent = `next in ${m}m ${s}s`
+        } else {
+          this.el.textContent = `next in ${s}s`
+        }
       }
     },
     FocusAndSelect: {
@@ -284,9 +322,21 @@ const liveSocket = new LiveSocket("/live", Socket, {
           }
         }
 
+        const positionPanel = () => {
+          const rect = trigger().getBoundingClientRect()
+          const p = panel()
+          p.style.position = 'fixed'
+          p.style.zIndex = '9999'
+          p.style.width = rect.width + 'px'
+          p.style.left = rect.left + 'px'
+          p.style.top = (rect.bottom + 4) + 'px'
+        }
+
         const openPanel = () => {
           this._open = true
-          panel().classList.remove('hidden')
+          const p = panel()
+          p.classList.remove('hidden')
+          positionPanel()
           search().value = ''
           filter('')
           search().focus()
@@ -294,8 +344,17 @@ const liveSocket = new LiveSocket("/live", Socket, {
 
         const closePanel = () => {
           this._open = false
-          panel().classList.add('hidden')
+          const p = panel()
+          p.classList.add('hidden')
+          p.style.position = ''
+          p.style.width = ''
+          p.style.left = ''
+          p.style.top = ''
         }
+
+        this._reposition = () => { if (this._open) positionPanel() }
+        window.addEventListener('scroll', this._reposition, true)
+        window.addEventListener('resize', this._reposition)
 
         const selectOption = (value, label) => {
           hidden().value = value
@@ -342,9 +401,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
             } else {
               const btn = createBtn()
               if (btn && !btn.classList.contains('hidden') && this._search.length > 0) {
+                selectOption(this._search, this._search)
                 const eventName = btn.dataset.createEvent || 'create_and_assign_team'
                 this.pushEvent(eventName, { name: this._search })
-                closePanel()
               }
             }
           }
@@ -355,9 +414,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
           btn.addEventListener('click', (e) => {
             e.preventDefault()
             e.stopPropagation()
+            selectOption(this._search, this._search)
             const eventName = btn.dataset.createEvent || 'create_and_assign_team'
             this.pushEvent(eventName, { name: this._search })
-            closePanel()
           })
         }
 
@@ -379,6 +438,10 @@ const liveSocket = new LiveSocket("/live", Socket, {
       },
       destroyed() {
         if (this._outsideClick) document.removeEventListener('click', this._outsideClick, true)
+        if (this._reposition) {
+          window.removeEventListener('scroll', this._reposition, true)
+          window.removeEventListener('resize', this._reposition)
+        }
         clearTimeout(this._searchTimer)
       }
     },

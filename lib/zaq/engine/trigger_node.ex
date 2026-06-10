@@ -24,7 +24,11 @@ defmodule Zaq.Engine.TriggerNode do
   def fire(event_name, event) when is_binary(event_name) do
     event_name
     |> Workflows.list_workflows_for_trigger()
-    |> Task.async_stream(&run_workflow(&1, event), ordered: false, on_timeout: :kill_task)
+    |> Task.async_stream(&run_workflow(&1, event),
+      ordered: false,
+      on_timeout: :kill_task,
+      timeout: :infinity
+    )
     |> Stream.run()
 
     :ok
@@ -64,18 +68,6 @@ defmodule Zaq.Engine.TriggerNode do
   end
 
   defp build_input(incoming_event) do
-    request = Map.get(incoming_event, :request) || Map.get(incoming_event, "request")
-    assigns = Map.get(incoming_event, :assigns) || Map.get(incoming_event, "assigns") || %{}
-    name = Map.get(incoming_event, :name) || Map.get(incoming_event, "name")
-    trace_id = Map.get(incoming_event, :trace_id) || Map.get(incoming_event, "trace_id")
-
-    %{
-      event: %{
-        name: name,
-        trace_id: trace_id,
-        payload: request,
-        assigns: assigns
-      }
-    }
+    Map.get(incoming_event, :request) || Map.get(incoming_event, "request") || %{}
   end
 end

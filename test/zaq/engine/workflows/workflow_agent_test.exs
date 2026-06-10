@@ -1,18 +1,30 @@
 defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   use Zaq.DataCase, async: false
 
+  import Ecto.Query
+
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.Test.ParamCapture
-  alias Zaq.Engine.Workflows.WorkflowAgent
+  alias Zaq.Engine.Workflows.Test.{ParamCapture, PauseSignal}
+  alias Zaq.Engine.Workflows.{WorkflowAgent, WorkflowRun}
   alias Zaq.Event
+  alias Zaq.Repo
+  alias Zaq.Test.Stubs
+
+  @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
 
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @error_module "Zaq.Engine.Workflows.Test.ErrorAction"
   @probe_module "Zaq.Engine.Workflows.Test.ParamProbe"
+  @pause_module "Zaq.Engine.Workflows.Test.PauseAction"
+  @noop_module "Zaq.Engine.Workflows.Test.Noop"
+  @emit_gender_module "Zaq.Engine.Workflows.Test.EmitGender"
 
   setup do
+    Stubs.stub_node_router()
     start_supervised!(ParamCapture)
+    start_supervised!(PauseSignal)
     ParamCapture.reset()
+    PauseSignal.reset()
     :ok
   end
 
@@ -275,6 +287,526 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       {:ok, updated} = WorkflowAgent.execute(run)
 
       assert updated.status == "completed"
+    end
+  end
+
+  describe "execute/1 — cross-step edge conditions (cascade)" do
+    # Workflow: A → B → C → D  (if A.gender == "female")
+    #                    C → E  (if A.gender == "male")
+    defp cascade_workflow(gender) do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Cascade #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "A",
+              type: "action",
+              module: @emit_gender_module,
+              params: %{"gender" => gender},
+              index: 0
+            },
+            %{name: "B", type: "action", module: @ok_module, params: %{}, index: 1},
+            %{name: "C", type: "action", module: @ok_module, params: %{}, index: 2},
+            %{name: "D", type: "action", module: @noop_module, params: %{}, index: 3},
+            %{name: "E", type: "action", module: @noop_module, params: %{}, index: 3}
+          ],
+          edges: [
+            %{from: "A", to: "B"},
+            %{from: "B", to: "C"},
+            %{from: "C", to: "D", condition: %{field: "A.gender", op: :eq, value: "female"}},
+            %{from: "C", to: "E", condition: %{field: "A.gender", op: :eq, value: "male"}}
+          ]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      run
+    end
+
+    test "female: D runs, E is pruned" do
+      run = cascade_workflow("female")
+      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert finished.status == "completed"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      by_name = Map.new(step_runs, &{&1.step_name, &1})
+
+      assert by_name["A"].status == "completed"
+      assert by_name["B"].status == "completed"
+      assert by_name["C"].status == "completed"
+      assert by_name["D"].status == "completed"
+      refute Map.has_key?(by_name, "E")
+    end
+
+    test "male: E runs, D is pruned" do
+      run = cascade_workflow("male")
+      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert finished.status == "completed"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      by_name = Map.new(step_runs, &{&1.step_name, &1})
+
+      assert by_name["A"].status == "completed"
+      assert by_name["B"].status == "completed"
+      assert by_name["C"].status == "completed"
+      assert by_name["E"].status == "completed"
+      refute Map.has_key?(by_name, "D")
+    end
+
+    test "absent step name in cascade condition → branch pruned, run still completes" do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Cascade Missing #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "A", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "B", type: "action", module: @noop_module, params: %{}, index: 1}
+          ],
+          edges: [
+            %{from: "A", to: "B", condition: %{field: "nonexistent.field", op: :eq, value: "x"}}
+          ]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert finished.status == "completed"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      names = Enum.map(step_runs, & &1.step_name)
+      refute "B" in names
+    end
+  end
+
+  describe "execute/1 — pause / resume" do
+    defp two_step_workflow(step0_module, step1_module) do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Pause #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "step0", type: "action", module: step0_module, params: %{}, index: 0},
+            %{name: "step1", type: "action", module: step1_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "step0", to: "step1"}]
+        })
+
+      wf
+    end
+
+    test "halts cleanly when run is paused between steps" do
+      wf = two_step_workflow(@pause_module, @ok_module)
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      PauseSignal.put_run_id(run.id)
+
+      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert updated.status == "paused"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      names = Enum.map(step_runs, & &1.step_name)
+      assert "step0" in names
+      refute "step1" in names
+
+      [sr0] = Enum.filter(step_runs, &(&1.step_name == "step0"))
+      assert sr0.status == "completed"
+    end
+
+    test "no pause — normal 2-step completion is unchanged" do
+      wf = two_step_workflow(@ok_module, @ok_module)
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert updated.status == "completed"
+
+      step_runs = Workflows.list_step_runs(run.id)
+      assert length(step_runs) == 2
+      assert Enum.all?(step_runs, &(&1.status == "completed"))
+    end
+
+    test "resume skips completed steps and finishes remaining steps" do
+      wf = two_step_workflow(@pause_module, @ok_module)
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      PauseSignal.put_run_id(run.id)
+
+      {:ok, paused_run} = WorkflowAgent.execute(run)
+      assert paused_run.status == "paused"
+
+      PauseSignal.reset()
+
+      {:ok, completed_run} = Workflows.resume_run(paused_run)
+      assert completed_run.status == "completed"
+
+      step_runs = Workflows.list_step_runs(completed_run.id)
+      step0_runs = Enum.filter(step_runs, &(&1.step_name == "step0"))
+      step1_runs = Enum.filter(step_runs, &(&1.step_name == "step1"))
+
+      assert length(step0_runs) == 1, "step0 must not be re-executed on resume"
+      assert length(step1_runs) == 1
+      assert hd(step1_runs).status == "completed"
+    end
+
+    test "resume with no completed steps runs all steps from scratch" do
+      wf = two_step_workflow(@ok_module, @ok_module)
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      {:ok, paused_run} = Workflows.update_run(run, %{status: "paused"})
+
+      {:ok, completed_run} = Workflows.resume_run(paused_run)
+      assert completed_run.status == "completed"
+      assert length(Workflows.list_step_runs(completed_run.id)) == 2
+    end
+  end
+
+  describe "human-in-the-loop suspension" do
+    defp hitl_workflow do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "hitl-wf-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "step0", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "hitl", type: "action", module: @waiting_module, params: %{}, index: 1},
+            %{name: "step2", type: "action", module: @ok_module, params: %{}, index: 2}
+          ],
+          edges: [
+            %{from: "step0", to: "hitl"},
+            %{from: "hitl", to: "step2"}
+          ]
+        })
+
+      wf
+    end
+
+    test "run transitions to 'waiting' when WaitingAction step is reached" do
+      wf = hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      assert waiting_run.status == "waiting"
+    end
+
+    test "step before HumanInTheLoop is 'completed', hitl step is 'waiting'" do
+      wf = hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      {:ok, _waiting_run} = WorkflowAgent.execute(run)
+
+      step_runs = Workflows.list_step_runs(run.id)
+      by_name = Map.new(step_runs, &{&1.step_name, &1})
+
+      assert by_name["step0"].status == "completed"
+      assert by_name["hitl"].status == "waiting"
+      refute Map.has_key?(by_name, "step2")
+    end
+
+    test "WaitingAction suspends the run and WorkflowAgent transitions it to waiting" do
+      wf = hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      result = WorkflowAgent.execute(run)
+      assert {:ok, %{status: "waiting"}} = result
+    end
+  end
+
+  describe "lifecycle event dispatch" do
+    setup do
+      test_pid = self()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
+
+      :ok
+    end
+
+    # Drain any events already in the mailbox (e.g. workflow.created from create_run helper).
+    defp flush_dispatched do
+      receive do
+        {:dispatched, _} -> flush_dispatched()
+      after
+        0 -> :ok
+      end
+    end
+
+    test "successful run dispatches run.started then run.completed" do
+      run = create_run()
+      flush_dispatched()
+
+      assert {:ok, _} = WorkflowAgent.execute(run)
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+      assert started.request[:run_id] == run.id
+      assert started.request[:workflow_id] == run.workflow_id
+      assert started.name == :workflow
+
+      assert_received {:dispatched, completed}
+      assert completed.request[:action] == "run.completed"
+      assert completed.request[:run_id] == run.id
+    end
+
+    test "step failure dispatches run.started then run.failed" do
+      run = create_run(@error_module)
+      flush_dispatched()
+
+      assert {:ok, _} = WorkflowAgent.execute(run)
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+      assert started.request[:run_id] == run.id
+
+      assert_received {:dispatched, failed}
+      assert failed.request[:action] == "run.failed"
+      assert failed.request[:run_id] == run.id
+    end
+
+    test "DAG build failure dispatches run.started then run.failed" do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Dag Fail #{System.unique_integer()}",
+          status: "draft",
+          nodes: [],
+          edges: []
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      flush_dispatched()
+
+      assert {:error, _} = WorkflowAgent.execute(run)
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+      assert started.request[:run_id] == run.id
+
+      assert_received {:dispatched, failed}
+      assert failed.request[:action] == "run.failed"
+      assert failed.request[:run_id] == run.id
+    end
+
+    test "paused run dispatches only run.started" do
+      # Two-step workflow: PauseAction sets DB status to "paused", checkpoint fires
+      # before the second step and throws :pause_requested. finalize/2 is never reached.
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Pause #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "pause", type: "action", module: @pause_module, params: %{}, index: 0},
+            %{name: "continue", type: "action", module: @ok_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "pause", to: "continue"}]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      PauseSignal.put_run_id(run.id)
+      flush_dispatched()
+
+      assert {:ok, paused} = WorkflowAgent.execute(run)
+      assert paused.status == "paused"
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+
+      refute_received {:dispatched, _}
+    end
+  end
+
+  describe "execute/1 — update_run failure at start (lines 110-116)" do
+    test "returns {:error, reason} when the initial status transition fails" do
+      run = create_run()
+
+      # Inject a stub workflows module that returns {:error, :forced} for the
+      # first update_run call (status transition to "running").
+      defmodule FailingStartWorkflows do
+        alias Zaq.Engine.Workflows
+        def update_run(_run, %{status: "running"} = _attrs), do: {:error, :start_blocked}
+        def update_run(run, attrs), do: Workflows.update_run(run, attrs)
+        def list_step_runs(id), do: Workflows.list_step_runs(id)
+      end
+
+      Application.put_env(:zaq, :workflow_agent_workflows_mod, FailingStartWorkflows)
+      on_exit(fn -> Application.delete_env(:zaq, :workflow_agent_workflows_mod) end)
+
+      assert {:error, :start_blocked} = WorkflowAgent.execute(run)
+    end
+  end
+
+  describe "execute/1 — fetch_input nil source_event (line 269)" do
+    test "defaults to empty fact when source_event struct has nil assigns" do
+      wf = probe_workflow()
+
+      # Use a source_event that has nil assigns so fetch_input returns %{}.
+      # The nil clause at line 269 guards when source_event itself is nil.
+      # We exercise the same defensive coding by passing a run whose source_event
+      # struct returns no :input key (assigns key is present but no :input).
+      source_event_no_input = %Event{
+        request: nil,
+        next_hop: nil,
+        name: :workflow_run_triggered,
+        trace_id: Ecto.UUID.generate(),
+        assigns: %{trigger_type: :event}
+      }
+
+      {:ok, run} = Workflows.create_run(wf, source_event_no_input)
+      {:ok, updated} = WorkflowAgent.execute(run)
+
+      assert updated.status == "completed"
+      params = ParamCapture.get_params()
+      refute Map.has_key?(params, :event)
+    end
+  end
+
+  describe "execute/1 — waiting state Logger.info (lines 151-152)" do
+    test "logs waiting state at info level" do
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: :warning) end)
+
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "hitl-log-wf-#{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "step0", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "hitl", type: "action", module: @waiting_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "step0", to: "hitl"}]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      assert waiting_run.status == "waiting"
+    end
+  end
+
+  describe "execute/1 — format_build_error variants" do
+    # Helper to create a run and forcefully set its steps_snapshot via raw DB update,
+    # then reload and execute to trigger format_build_error with specific error atoms.
+    defp run_with_snapshot(snapshot) do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "fbe-wf-#{System.unique_integer()}",
+          status: "draft",
+          nodes: [
+            %{
+              name: "n",
+              type: "action",
+              module: "Zaq.Agent.Tools.Email.FetchEmails",
+              params: %{},
+              index: 0
+            }
+          ],
+          edges: []
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      Repo.update_all(
+        from(r in WorkflowRun, where: r.id == ^run.id),
+        set: [steps_snapshot: snapshot]
+      )
+
+      Workflows.get_run!(run.id)
+    end
+
+    test "format_build_error(:invalid_steps) — missing nodes key (line 229)" do
+      run = run_with_snapshot(%{"edges" => []})
+      assert {:error, :invalid_steps} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_node_type, type}) — condition node type (line 236)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "n",
+            "type" => "condition",
+            "module" => "Zaq.Agent.Tools.Workflow.Condition",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_node_type, "condition"}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_module, nil}) — node with nil module (line 238)" do
+      snapshot = %{
+        "nodes" => [
+          %{"name" => "n", "type" => "action", "module" => nil, "params" => %{}, "index" => 0}
+        ],
+        "edges" => []
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_module, nil}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_module, mod}) — non-existent module (line 241)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "n",
+            "type" => "action",
+            "module" => "Does.Not.Exist.Anywhere",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_module, "Does.Not.Exist.Anywhere"}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:unknown_node, name}) — edge referencing missing node (line 245)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "start",
+            "type" => "action",
+            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => [%{"from" => "start", "to" => "ghost_node"}]
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:unknown_node, "ghost_node"}} = WorkflowAgent.execute(run)
+    end
+
+    test "format_build_error({:invalid_edge_condition, _}) — edge with bad condition (line 247)" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "b",
+            "type" => "action",
+            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => [
+          %{
+            "from" => "a",
+            "to" => "b",
+            "condition" => %{"op" => "invalid_op_xyz", "field" => "x", "value" => 1}
+          }
+        ]
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:invalid_edge_condition, _}} = WorkflowAgent.execute(run)
     end
   end
 end

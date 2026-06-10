@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   import ZaqWeb.Helpers.DateFormat
   import ZaqWeb.Components.SearchableSelect
+  alias ZaqWeb.Components.BOFileUpload
   alias ZaqWeb.Helpers.SizeFormat
 
   # ── Helpers ──────────────────────────────────────────────────────────────
@@ -1139,33 +1140,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
     <div>
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Upload</p>
       <form id="upload-form" phx-submit="upload" phx-change="validate_upload">
-        <div
+        <BOFileUpload.drop_zone
+          upload={@uploads.files}
           id="upload-drop-zone"
-          class="bg-white rounded-2xl border-2 border-dashed border-black/10 hover:border-[var(--zaq-color-accent)] transition-colors p-6"
-          phx-drop-target={@uploads.files.ref}
-          phx-hook="FolderDrop"
-        >
-          <div class="text-center">
-            <svg
-              class="w-8 h-8 mx-auto mb-2 text-black/20"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              viewBox="0 0 24 24"
-            >
-              <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <p class="font-mono text-[0.8rem] text-black/40 mb-1">
-              Drop files here or
-              <label class="zaq-text-accent hover:underline cursor-pointer">
-                browse <.live_file_input upload={@uploads.files} class="hidden" />
-              </label>
-            </p>
-            <p class="font-mono text-[0.65rem] text-black/40">
-              .md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg — max 20 MB
-            </p>
-          </div>
-        </div>
+          hook="FolderDrop"
+          accept_label=".md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg — max 20 MB"
+        />
 
         <%= for entry <- @uploads.files.entries do %>
           <div class="mt-3 px-2">

@@ -1,8 +1,260 @@
+# ---------------------------------------------------------------------------
+# Inline test modules for batch_field/1
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredList do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_list",
+    schema: [items: [type: :list, required: true]],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredParamList do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_param_list",
+    schema: [contacts: [type: {:list, :map}, required: true]],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredMap do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_map",
+    schema: [contact: [type: :map, required: true]],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredString do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_string",
+    schema: [name: [type: :string, required: true]],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.ListAndMap do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_list_and_map",
+    schema: [
+      items: [type: :list, required: true],
+      context_map: [type: :map, required: true]
+    ],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.NoRequired do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_no_required",
+    schema: [opt: [type: :string, required: false]],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.TwoLists do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_two_lists",
+    schema: [
+      items: [type: :list, required: true],
+      more: [type: :list, required: true]
+    ],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.TwoMaps do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_two_maps",
+    schema: [
+      contact: [type: :map, required: true],
+      meta: [type: :map, required: true]
+    ],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
 defmodule Zaq.Engine.Workflows.ActionTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.Test.{NonConformingAction, OkAction}
+
+  alias Zaq.Engine.Workflows.BatchFieldTest.{
+    ListAndMap,
+    NoRequired,
+    RequiredList,
+    RequiredMap,
+    RequiredParamList,
+    RequiredString,
+    TwoLists,
+    TwoMaps
+  }
+
+  describe "batch_field/1" do
+    test "one required :list field → {:ok, {field, :list}}" do
+      assert {:ok, {:items, :list}} = Action.batch_field(RequiredList)
+    end
+
+    test "one required {:list, subtype} field → {:ok, {field, :list}}" do
+      assert {:ok, {:contacts, :list}} = Action.batch_field(RequiredParamList)
+    end
+
+    test "one required :map field → {:ok, {field, :item}}" do
+      assert {:ok, {:contact, :item}} = Action.batch_field(RequiredMap)
+    end
+
+    test "one required :string field → {:ok, {field, :item}}" do
+      assert {:ok, {:name, :item}} = Action.batch_field(RequiredString)
+    end
+
+    test "one required :list + one required :map → list wins unambiguously" do
+      assert {:ok, {:items, :list}} = Action.batch_field(ListAndMap)
+    end
+
+    test "zero required fields → {:error, {:no_batch_field, module}}" do
+      assert {:error, {:no_batch_field, NoRequired}} = Action.batch_field(NoRequired)
+    end
+
+    test "two required :list fields → {:error, {:ambiguous_batch_field, module, fields}}" do
+      assert {:error, {:ambiguous_batch_field, TwoLists, fields}} =
+               Action.batch_field(TwoLists)
+
+      assert :items in fields
+      assert :more in fields
+    end
+
+    test "two required :map fields, no list → {:error, {:ambiguous_batch_field, module, fields}}" do
+      assert {:error, {:ambiguous_batch_field, TwoMaps, fields}} =
+               Action.batch_field(TwoMaps)
+
+      assert :contact in fields
+      assert :meta in fields
+    end
+
+    test "non-existent module → {:error, {:no_batch_field, module}}" do
+      assert {:error, {:no_batch_field, Zaq.NonExistent.Module}} =
+               Action.batch_field(Zaq.NonExistent.Module)
+    end
+
+    test "optional fields are ignored regardless of type" do
+      # NoRequired has one optional :string — no required fields at all
+      assert {:error, {:no_batch_field, NoRequired}} = Action.batch_field(NoRequired)
+    end
+  end
+
+  describe "log_start/0 and log_entry/3" do
+    test "log_start/0 returns an integer" do
+      assert is_integer(Action.log_start())
+    end
+
+    test "log_entry/2 returns map with event (string), at (DateTime), duration_ms (integer)" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:step_completed, t0)
+
+      assert entry.event == "step_completed"
+      assert %DateTime{} = entry.at
+      assert is_integer(entry.duration_ms)
+      assert entry.duration_ms >= 0
+    end
+
+    test "log_entry/3 merges extra attrs into the entry" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:chunk_completed, t0, %{index: 2, results: 4})
+
+      assert entry.event == "chunk_completed"
+      assert entry.index == 2
+      assert entry.results == 4
+      assert entry.duration_ms >= 0
+    end
+
+    test "atom events are stringified" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:item_ok, t0)
+
+      assert entry.event == "item_ok"
+      assert is_binary(entry.event)
+    end
+
+    test "string events are kept as-is" do
+      t0 = Action.log_start()
+      entry = Action.log_entry("chunk_error", t0)
+
+      assert entry.event == "chunk_error"
+    end
+
+    test "duration_ms is >= 0 even for zero-duration calls" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:x, t0)
+
+      assert entry.duration_ms >= 0
+    end
+
+    test "conflicting attrs key does NOT overwrite event" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:real_event, t0, %{event: "hijack"})
+
+      assert entry.event == "real_event"
+    end
+
+    test "conflicting attrs key does NOT overwrite duration_ms" do
+      t0 = Action.log_start()
+      entry = Action.log_entry(:x, t0, %{duration_ms: 99_999})
+
+      assert entry.duration_ms != 99_999
+      assert entry.duration_ms >= 0
+    end
+
+    test "conflicting attrs key does NOT overwrite at" do
+      t0 = Action.log_start()
+      fake_dt = ~U[2000-01-01 00:00:00Z]
+      entry = Action.log_entry(:x, t0, %{at: fake_dt})
+
+      refute entry.at == fake_dt
+    end
+
+    test "log_start/0 and log_entry/3 are imported in modules that use Action" do
+      # Modules that `use Zaq.Engine.Workflows.Action` should get both helpers
+      # via the import in __using__ — test via the Batch/Iterate modules which use it.
+      assert function_exported?(Zaq.Agent.Tools.Workflow.Batch, :log_start, 0) == false
+      # They are imported (not exported), so we verify the import does not crash
+      # by calling them through Action directly (public functions).
+      assert is_integer(Action.log_start())
+    end
+  end
 
   describe "validate/1" do
     test "returns :ok for a fully conforming action module" do

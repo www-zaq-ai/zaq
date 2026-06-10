@@ -229,6 +229,62 @@ defmodule Zaq.Agent.FactoryTest do
     assert body =~ configured_agent.job
   end
 
+  test "ask_with_config uses overridden job (system_prompt) on server initialized with different prompt" do
+    # Verifies that ensure_system_prompt correctly patches a reused server's prompt
+    # when configured_agent.job differs from what the server was initialized with.
+    # This is the path exercised by RunAgent → Executor.apply_system_prompt_override.
+    handler = fn conn, _body ->
+      {200, streamed_reply(conn.request_path, "ok", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Prompt Override Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "prompt-override-key"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Prompt Override Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "original system prompt",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    on_exit(fn ->
+      _ = ServerManager.stop_server(configured_agent)
+    end)
+
+    server_id = "configured_agent_#{configured_agent.id}"
+    {:ok, server} = ServerManager.ensure_server(configured_agent, server_id)
+
+    # Override job — simulates Executor.apply_system_prompt_override/2 substituting
+    # per-run template variables before calling ask_with_config.
+    overridden_agent = %{configured_agent | job: "personalized prompt for John at Acme"}
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "hello", overridden_agent, timeout: 35_000)
+
+    assert {:ok, _answer} = Factory.await(request, timeout: 45_000)
+
+    assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
+
+    # The overridden prompt must appear in the request — not the original DB prompt.
+    assert body =~ "personalized prompt for John at Acme"
+    refute body =~ "original system prompt"
+  end
+
   test "ask_with_config merges DB tools with runtime-synced MCP tools" do
     handler = fn conn, _body ->
       {200, streamed_reply(conn.request_path, "Factory reply", "gpt-4.1-mini")}
