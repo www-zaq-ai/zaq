@@ -16,11 +16,11 @@ You are migrating ZAQ's styling incrementally to the `--zaq-*` token system.
 
 You may ONLY write to files in these directories:
 
-| Allowed path | Rule |
-|---|---|
-| `assets/css/styles.css` | The only CSS file you may write to. All other CSS files are read-only. |
-| `lib/zaq_web/components/` | Shared component files only. No LiveView pages, no routers, no contexts. |
-| `storybook/` | Storybook story files only. |
+| Allowed path | When | Rule |
+|---|---|---|
+| `assets/css/styles.css` | Step 4 and Step 5 | The only CSS file you may write to. |
+| `storybook/` | Step 4 only | Storybook story files only. |
+| `lib/zaq_web/components/` | **Step 5 only — never in Step 4** | Shared component `.ex` files. No LiveView pages, no routers, no contexts. |
 
 **Explicitly forbidden:**
 - `assets/css/app.css` — no edits, ever
