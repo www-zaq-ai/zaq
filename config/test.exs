@@ -22,7 +22,8 @@ config :zaq, Zaq.Repo,
   hostname: "localhost",
   database: test_database,
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: System.schedulers_online() * 2,
+  port: 5436
 
 config :zaq, Oban,
   repo: Zaq.Repo,

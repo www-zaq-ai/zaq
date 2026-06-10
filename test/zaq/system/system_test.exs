@@ -316,6 +316,10 @@ defmodule Zaq.SystemTest do
     test "raises when chunk table creation fails" do
       credential = SystemConfigFixtures.ai_credential_fixture()
 
+      # Integration suites (e.g. BM25 fusion validation) commit a chunks table
+      # outside the sandbox; drop it so save_embedding_config takes the
+      # create_table path instead of the table_exists? noop branch.
+      Chunk.drop_table()
       Repo.query!("DROP TABLE IF EXISTS documents CASCADE", [])
 
       changeset =

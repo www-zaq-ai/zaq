@@ -3,15 +3,15 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   Integration tests that validate the BM25 + vector RRF fusion pipeline against
   the content in `test/fixtures/bm25_fusion_validation.md`.
 
-  Requires PostgreSQL with `pg_search` (ParadeDB). Run with:
+  Requires PostgreSQL (native FTS). Run with:
 
       mix test --include integration test/zaq/ingestion/bm25_fusion_validation_test.exs
 
   Structure:
-    §1  Language detection (LanguageDetector.detect/1 — no DB, no pg_search)
-    §2  BM25 index routing (requires pg_search)
-    §3  Fusion ranking smoke test (requires pg_search)
-    §4  query_extraction/2 end-to-end (requires pg_search)
+    §1  Language detection (LanguageDetector.detect/1 — no DB)
+    §2  BM25 index routing (native FTS via content_tsv + ts_rank_cd)
+    §3  Fusion ranking smoke test (native FTS)
+    §4  query_extraction/2 end-to-end (native FTS)
 
   Note: BM25/fusion tests insert chunks directly (bypass process_single_file)
   to avoid the chunk-title LLM stub replacing section path labels.
@@ -22,7 +22,7 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   import Mox
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Zaq.Ingestion.{Chunk, Document, DocumentProcessor, LanguageDetector}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentProcessor, FTSBackend, LanguageDetector}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -155,10 +155,13 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   # here avoids sandbox ownership errors on DDL, then restored to :manual.
   setup_all do
     Sandbox.mode(Zaq.Repo, :auto)
+    FTSBackend.reset_cache()
+    :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native)
 
     try do
       Chunk.create_table(1536)
     after
+      FTSBackend.reset_cache()
       Sandbox.mode(Zaq.Repo, :manual)
     end
 
@@ -168,12 +171,17 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   setup :verify_on_exit!
 
   setup do
+    FTSBackend.reset_cache()
+    :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native)
+
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
 
     original_env = Application.get_env(:zaq, Zaq.Ingestion)
     Application.put_env(:zaq, Zaq.Ingestion, use_bm25: true)
 
     on_exit(fn ->
+      FTSBackend.reset_cache()
+
       if is_nil(original_env),
         do: Application.delete_env(:zaq, Zaq.Ingestion),
         else: Application.put_env(:zaq, Zaq.Ingestion, original_env)
@@ -299,7 +307,11 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       end)
     end
 
-    test "Arabic query returns only Arabic chunks" do
+    test "Arabic query returns empty BM25 results — English FTS cannot match Arabic tokens" do
+      # The content_tsv column uses to_tsvector('english', ...) and queries use
+      # websearch_to_tsquery('english', ...). Arabic text is not processed by
+      # the English dictionary, so Arabic queries return no BM25 hits.
+      # Arabic content is retrieved via the vector leg only (see §2d).
       load_corpus()
 
       assert {:ok, results} =
@@ -309,19 +321,10 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
                )
 
       items = results |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten()
-      assert items != [], "expected BM25 hits for Arabic query"
-
-      Enum.each(items, fn item ->
-        lang =
-          Chunk
-          |> Zaq.Repo.get_by(document_id: item.document_id, section_path: item.section_path)
-          |> then(& &1.language)
-
-        assert lang == "arabic", "Arabic BM25 returned chunk with language '#{lang}'"
-      end)
+      assert items == [], "Arabic BM25 must return empty — English FTS has no Arabic tokenizer"
     end
 
-    test "BM25 scores are positive (pg_search convention: higher = more relevant)" do
+    test "BM25 scores are positive (ts_rank_cd: higher = more relevant)" do
       load_corpus()
 
       {:ok, results} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
@@ -334,6 +337,88 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
         assert item.bm25_score > 0,
                "bm25_score should be positive, got #{item.bm25_score}"
       end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # §2d — English-only tsvector limitation
+  #
+  # content_tsv is defined as to_tsvector('english', content) and all BM25
+  # queries use websearch_to_tsquery('english', ...). This works well for
+  # English (stemming, stopwords) but has two consequences for other languages:
+  #   1. Morphological variants do not match — Arabic/French/Spanish words are
+  #      indexed as-is with no language-specific stemming.
+  #   2. The vector leg (embedding similarity) is the only reliable retrieval
+  #      path for non-English queries that don't share exact surface tokens.
+  # ---------------------------------------------------------------------------
+
+  describe "§2d English-only tsvector limitation" do
+    test "English stemmer: query 'ranking' matches chunk containing 'ranked'" do
+      # English Snowball stemmer reduces 'ranking' and 'ranked' to the same root 'rank'.
+      doc = create_doc()
+
+      insert_chunk(
+        doc.id,
+        "The candidates were ranked by their score using a scoring algorithm.",
+        "english",
+        ["StemTest"],
+        1
+      )
+
+      {:ok, results} = DocumentProcessor.bm25_search_group_by("ranking algorithm", 20)
+      items = results |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten()
+
+      assert items != [],
+             "English stemmer must match 'ranking' against 'ranked' (both reduce to 'rank')"
+    end
+
+    test "Arabic morphological variants are not matched — English FTS has no Arabic stemmer" do
+      # Arabic root بحث yields many surface forms: يبحث (verb), البحث (noun), باحث (agent).
+      # A proper Arabic FTS config would map all forms to the same root lexeme.
+      # The English tsvector config keeps each surface form as a distinct unstemmed token,
+      # so a query for one form does not match a chunk containing a different form.
+      doc = create_doc()
+
+      insert_chunk(
+        doc.id,
+        "يبحث الباحثون عن الأنماط في قواعد البيانات الكبيرة.",
+        "arabic",
+        ["ArabicVariant"],
+        1
+      )
+
+      # Query uses the noun form "البحث" — same root as "يبحث" but a different surface token.
+      {:ok, results} = DocumentProcessor.bm25_search_group_by("البحث الأنماط", 20)
+
+      variant_matched =
+        results
+        |> Map.values()
+        |> Enum.flat_map(&Map.values/1)
+        |> List.flatten()
+        |> Enum.any?(fn item ->
+          Repo.get_by(Chunk, document_id: item.document_id, section_path: ["ArabicVariant"]) !=
+            nil
+        end)
+
+      refute variant_matched,
+             "Arabic verb 'يبحث' must not match noun query 'البحث' — English FTS has no Arabic morphological analysis"
+    end
+
+    test "query_extraction returns results for Arabic morphological-variant query via vector leg" do
+      # When BM25 returns empty for an Arabic query (no exact token overlap),
+      # the vector leg (embedding similarity) must still surface relevant chunks.
+      load_corpus()
+
+      # section_g contains Arabic text; all embeddings are stubbed to identical
+      # vectors so distance = 0, ensuring the vector leg always has candidates.
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("يبحث الباحثون عن الأنماط")
+
+      assert is_list(results),
+             "query_extraction must always return a list for Arabic queries"
+
+      assert results != [],
+             "vector leg must return results for Arabic query even if BM25 returns empty"
     end
   end
 
@@ -379,20 +464,20 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       end
     end
 
-    test "Section C appears in fused results (shared BM25 + vector signal)" do
+    test "Section C appears in query_extraction results (promoted by vector signal)" do
+      # Section C lacks 'formula' and the 'RRF' abbreviation, so it does not
+      # match the strict BM25 AND-query. It is promoted into the final results
+      # by the vector leg (embedding similarity). This validates that the hybrid
+      # pipeline surfaces semantically relevant chunks that BM25 alone would miss.
       doc = load_corpus()
 
-      {:ok, bm25_grouped} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
-      {:ok, merged} = DocumentProcessor.rrf_merge(bm25_grouped, %{})
+      {:ok, results} = DocumentProcessor.query_extraction(@rrf_query, skip_permissions: true)
 
-      merged_path_labels =
-        merged
-        |> Map.get(doc.id, %{})
-        |> Map.keys()
-        |> Enum.map(&List.last/1)
-
-      assert "Section C" in merged_path_labels,
-             "Section C should appear in fused results; got: #{inspect(merged_path_labels)}"
+      assert Enum.any?(results, fn r ->
+               String.contains?(r["content"], "BM25 scoring function") and
+                 r["document_id"] == doc.id
+             end),
+             "Section C (BM25 scoring function text) should surface via vector signal; got sources: #{Enum.map(results, & &1["source"]) |> inspect()}"
     end
 
     test "every fused item has a positive rrf_score" do
@@ -432,7 +517,13 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
              "Section B should not appear in BM25-only results (no exact keyword match)"
     end
 
-    test "Section H ('simple' language) is returned by undetected-language BM25 query" do
+    test "Section H ('simple' language, only 'RRF k=60.') does not match the multi-term BM25 query" do
+      # Section H contains only the tokens: 'rrf', 'k', '60'.
+      # The @rrf_query ("reciprocal rank fusion RRF formula") uses AND semantics
+      # via websearch_to_tsquery — it requires ALL five terms to be present.
+      # Section H has only 'rrf', so it correctly does not match.
+      # A single-term query like "RRF" would match it; this test documents
+      # the AND-query limitation rather than a language routing concern.
       doc = load_corpus()
 
       {:ok, bm25_grouped} = DocumentProcessor.bm25_search_group_by(@rrf_query, 20)
@@ -443,8 +534,8 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
         |> Map.keys()
         |> Enum.map(&List.last/1)
 
-      assert "Section H" in labels,
-             "Section H (language='simple') should appear in undetected-language BM25 results; got: #{inspect(labels)}"
+      refute "Section H" in labels,
+             "Section H must NOT match the 5-term AND query — it only contains 'RRF k=60.'"
     end
 
     test "no-match query returns empty BM25 results" do
@@ -520,7 +611,7 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
     test "Section A content (contains 'RRF') surfaces in results" do
       load_corpus()
 
-      {:ok, results} = DocumentProcessor.query_extraction(@rrf_query)
+      {:ok, results} = DocumentProcessor.query_extraction(@rrf_query, skip_permissions: true)
 
       assert Enum.any?(results, &String.contains?(&1["content"], "RRF")),
              "expected a result containing 'RRF' (Section A exact match)"
@@ -574,6 +665,109 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
 
       assert {:ok, results} = DocumentProcessor.query_extraction(@rrf_query)
       assert results != [], "vector-only fallback should still return results"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # §5 — Cross-section pairing regression
+  #
+  # Two near-symmetric sections each state a recommendation for a different
+  # entity ("presence detectors" for sliding doors vs "opening detectors" for
+  # swing doors). The stubbed embedding client returns identical vectors, so
+  # the vector leg ties on every chunk — exactly the condition under which
+  # nondeterministic ordering previously let the LLM pair facts with the wrong
+  # section. These tests pin: payloads carry section_path, ordering is stable
+  # across repeated calls, and multi-chunk sections stay in document order.
+  # ---------------------------------------------------------------------------
+
+  @pairing_query "which detectors does BEA recommend for automatic doors"
+
+  defp load_pairing_corpus do
+    doc = create_doc()
+
+    insert_chunk(
+      doc.id,
+      "Sliding doors. For sliding automatic doors BEA recommends presence detectors.",
+      "english",
+      ["Automatic doors", "Sliding doors"],
+      1
+    )
+
+    insert_chunk(
+      doc.id,
+      "Swing doors. For swing automatic doors BEA recommends opening detectors.",
+      "english",
+      ["Automatic doors", "Swing doors"],
+      2
+    )
+
+    doc
+  end
+
+  describe "§5 cross-section pairing regression" do
+    test "each retrieved payload keeps its fact attached to its own section_path" do
+      load_pairing_corpus()
+
+      {:ok, results} =
+        DocumentProcessor.query_extraction(@pairing_query, skip_permissions: true)
+
+      sliding =
+        Enum.find(results, &(&1["section_path"] == ["Automatic doors", "Sliding doors"]))
+
+      swing = Enum.find(results, &(&1["section_path"] == ["Automatic doors", "Swing doors"]))
+
+      assert sliding, "sliding-doors section must be retrieved"
+      assert swing, "swing-doors section must be retrieved"
+
+      assert sliding["content"] =~ "presence detectors"
+      refute sliding["content"] =~ "opening detectors"
+
+      assert swing["content"] =~ "opening detectors"
+      refute swing["content"] =~ "presence detectors"
+    end
+
+    test "result list is identical across repeated calls despite tied vector distances" do
+      load_pairing_corpus()
+
+      runs =
+        for _ <- 1..3 do
+          {:ok, results} =
+            DocumentProcessor.query_extraction(@pairing_query, skip_permissions: true)
+
+          results
+        end
+
+      assert [first, first, first] = runs,
+             "query_extraction must return identical content and order on every call"
+    end
+
+    test "chunks of a multi-chunk section are returned in chunk_index order" do
+      doc = create_doc()
+
+      parts = [
+        "Revolving doors overview. BEA sensor guidance for revolving entrances part one.",
+        "Revolving doors detail. BEA sensor guidance for revolving entrances part two.",
+        "Revolving doors appendix. BEA sensor guidance for revolving entrances part three."
+      ]
+
+      Enum.with_index(parts, 1)
+      |> Enum.each(fn {content, index} ->
+        insert_chunk(doc.id, content, "english", ["Revolving doors"], index)
+      end)
+
+      {:ok, results} =
+        DocumentProcessor.query_extraction(
+          "BEA sensor guidance revolving entrances",
+          skip_permissions: true
+        )
+
+      contents =
+        results
+        |> Enum.filter(&(&1["section_path"] == ["Revolving doors"]))
+        |> Enum.map(& &1["content"])
+
+      assert contents == Enum.map(parts, &String.trim/1),
+             "section chunks must arrive in document (chunk_index) order"
     end
   end
 end

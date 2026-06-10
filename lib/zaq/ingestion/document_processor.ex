@@ -20,7 +20,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, DocumentChunker}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, DocumentChunker, FTSBackend}
   alias Zaq.Ingestion.{LanguageDetector, Sidecar, SourcePath}
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, PptxToMd, XlsxToMd}
@@ -190,33 +190,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  # Strips bytes that are not part of a valid UTF-8 sequence.
-  # Needed when ingesting files produced by external tools (e.g. the Python
-  # PDF pipeline) that may emit Latin-1 or other non-UTF-8 encodings.
   @doc false
-  def sanitize_bm25_query(text) do
-    text
-    |> sanitize_utf8()
-    |> unicode_normalize()
-    |> String.replace(~r/[^\p{L}\p{N}]+/u, " ")
-    |> String.replace(~r/ {2,}/, " ")
-    |> String.trim()
-    |> String.slice(0, 512)
+  def sanitize_fts_query(text) do
+    FTSBackend.impl().sanitize_query(text)
   end
-
-  defp unicode_normalize(text) do
-    case :unicode.characters_to_nfc_binary(text) do
-      normalized when is_binary(normalized) -> normalized
-      _ -> text
-    end
-  end
-
-  defp sanitize_utf8(binary), do: sanitize_utf8(binary, [])
-  # Null bytes (U+0000) are valid UTF-8 but PostgreSQL text columns reject them.
-  defp sanitize_utf8(<<0, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
-  defp sanitize_utf8(<<>>, acc), do: IO.iodata_to_binary(:lists.reverse(acc))
-  defp sanitize_utf8(<<c::utf8, rest::binary>>, acc), do: sanitize_utf8(rest, [<<c::utf8>> | acc])
-  defp sanitize_utf8(<<_::8, rest::binary>>, acc), do: sanitize_utf8(rest, acc)
 
   # Reads a file and returns its content as a markdown string,
   # converting non-markdown formats as needed.
@@ -247,14 +224,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
       _ ->
         with {:ok, raw} <- File.read(file_path) do
-          {:ok, sanitize_utf8(raw)}
+          {:ok, FTSBackend.sanitize_utf8_text(raw)}
         end
     end
   end
 
   defp convert_csv(file_path) do
     with {:ok, raw} <- File.read(file_path) do
-      rows = CSVParser.parse_string(sanitize_utf8(raw), skip_headers: false)
+      rows = CSVParser.parse_string(FTSBackend.sanitize_utf8_text(raw), skip_headers: false)
       {:ok, rows_to_markdown_table(rows)}
     end
   end
@@ -263,7 +240,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     with {:ok, _} <- Pipeline.run(file_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
-      {:ok, sanitize_utf8(raw)}
+      {:ok, FTSBackend.sanitize_utf8_text(raw)}
     end
   end
 
@@ -271,7 +248,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     with {:ok, _} <- DocxToMd.run(file_path, md_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] DOCX converted to markdown: #{md_path}")
-      {:ok, sanitize_utf8(raw)}
+      {:ok, FTSBackend.sanitize_utf8_text(raw)}
     end
   end
 
@@ -279,7 +256,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     with {:ok, _} <- pptx_to_md_module().run(file_path, md_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] PPTX converted to markdown: #{md_path}")
-      {:ok, sanitize_utf8(raw)}
+      {:ok, FTSBackend.sanitize_utf8_text(raw)}
     end
   end
 
@@ -291,7 +268,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     with {:ok, _} <- XlsxToMd.run(file_path, md_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] XLSX converted to markdown: #{md_path}")
-      {:ok, sanitize_utf8(raw)}
+      {:ok, FTSBackend.sanitize_utf8_text(raw)}
     end
   end
 
@@ -306,7 +283,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp read_sidecar_or_convert(md_path, label, convert_fn) do
     if File.exists?(md_path) do
       Logger.info("[DocumentProcessor] Using existing sidecar for #{label}: #{md_path}")
-      with {:ok, raw} <- File.read(md_path), do: {:ok, sanitize_utf8(raw)}
+      with {:ok, raw} <- File.read(md_path), do: {:ok, FTSBackend.sanitize_utf8_text(raw)}
     else
       convert_fn.()
     end
@@ -324,7 +301,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         image_name = Path.basename(file_path)
         markdown = build_image_markdown(image_name, description)
 
-        {:ok, sanitize_utf8(markdown)}
+        {:ok, FTSBackend.sanitize_utf8_text(markdown)}
       end
     after
       cleanup_alias.()
@@ -797,8 +774,28 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
     with {:ok, bm25} <- Task.await(bm25_task, 30_000),
          {:ok, vector} <- Task.await(vector_task, 30_000) do
+      log_retrieval_legs(query, bm25, vector)
       rrf_merge(bm25, vector)
     end
+  end
+
+  # Debug-level dump of both retrieval legs so backend behaviour (Native vs
+  # ParadeDB) can be diffed for a given query without instrumenting callers.
+  defp log_retrieval_legs(query, bm25, vector) do
+    Logger.debug(fn ->
+      bm25_top = leg_summary(bm25, :bm25_score, :desc)
+      vector_top = leg_summary(vector, :vector_distance, :asc)
+
+      "[Retrieval] backend=#{inspect(FTSBackend.impl())} query=#{inspect(query)} " <>
+        "bm25=#{inspect(bm25_top)} vector=#{inspect(vector_top)}"
+    end)
+  end
+
+  defp leg_summary(grouped, score_key, order) do
+    grouped
+    |> extract_sections(score_key)
+    |> sort_sections(order)
+    |> Enum.map(fn {doc_id, path, score} -> {doc_id, Enum.join(path, " > "), score} end)
   end
 
   defp build_query_sections(ss) do
@@ -809,7 +806,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         {path, [first | _]} -> [{doc_id, path, score_of(first)}]
       end)
     end)
-    |> List.keysort(2, :desc)
+    |> Enum.sort_by(fn {doc_id, path, score} -> {-score, doc_id, path} end)
     |> Enum.uniq_by(fn {doc_id, path, _} -> {doc_id, path} end)
   end
 
@@ -840,7 +837,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         Chunk
         |> join(:inner, [c], d in Document, on: c.document_id == d.id, as: :doc)
         |> where([c, _d], fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold))
-        |> order_by([c, _d], asc: fragment("? <-> ?", c.embedding, ^embedding_vector))
+        |> order_by([c, _d],
+          asc: fragment("? <-> ?", c.embedding, ^embedding_vector),
+          asc: c.document_id,
+          asc: c.chunk_index
+        )
         |> select([c, _d], %{
           document_id: c.document_id,
           section_path: c.section_path,
@@ -867,10 +868,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # BM25 search (pg_search single index with language filtering)
-  # ---------------------------------------------------------------------------
-
   @doc """
   BM25 full-text search grouped by document and section path.
 
@@ -884,39 +881,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   folders and connectors are matched via prefix (`LIKE "prefix/%"`).
   """
   def bm25_search_group_by(query_text, limit, source_filter \\ []) do
-    safe_query = sanitize_bm25_query(query_text)
-
-    base =
-      from(c in Chunk,
-        where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^safe_query),
-        order_by: [desc: fragment("paradedb.score(?)", c.id)],
-        limit: ^limit,
-        select: %{
-          document_id: c.document_id,
-          section_path: c.section_path,
-          bm25_score: fragment("paradedb.score(?)", c.id)
-        }
-      )
-
-    query =
-      if source_filter == [] do
-        base
-      else
-        base
-        |> join(:inner, [c], d in Document, on: c.document_id == d.id, as: :doc)
-        |> where(^DocumentAccess.build_source_filter_condition(source_filter))
-      end
-
-    results = Repo.all(query)
-
-    grouped =
-      results
-      |> Enum.group_by(& &1.document_id)
-      |> Map.new(fn {doc_id, items} ->
-        {doc_id, Enum.group_by(items, & &1.section_path)}
-      end)
-
-    {:ok, grouped}
+    FTSBackend.impl().bm25_search_group_by(query_text, limit, source_filter)
   end
 
   # ---------------------------------------------------------------------------
@@ -997,8 +962,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     [{doc_id, section_path, Map.get(first, score_key, 0.0)}]
   end
 
-  defp sort_sections(sections, :asc), do: Enum.sort_by(sections, &elem(&1, 2), :asc)
-  defp sort_sections(sections, :desc), do: Enum.sort_by(sections, &elem(&1, 2), :desc)
+  # Tie-break equal scores by document/path: sections arrive from map
+  # iteration, so a score-only sort would assign arbitrary RRF ranks to ties.
+  defp sort_sections(sections, :asc),
+    do: Enum.sort_by(sections, fn {doc_id, path, score} -> {score, doc_id, path} end)
+
+  defp sort_sections(sections, :desc),
+    do: Enum.sort_by(sections, fn {doc_id, path, score} -> {-score, doc_id, path} end)
 
   defp fetch_sections_with_source([]), do: {:ok, []}
 
@@ -1018,20 +988,26 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         content: c.content,
         source: d.source,
         document_id: c.document_id,
-        section_path: c.section_path
+        section_path: c.section_path,
+        chunk_index: c.chunk_index
       })
       |> Repo.all()
+      # Sections by fused score, then chunks in document order within each
+      # section — without chunk_index the DB returns section chunks in
+      # arbitrary order, which scrambles the context handed to the LLM.
+      |> Enum.sort_by(fn r ->
+        {-(distance_map[{r.document_id, r.section_path}] || 0.0), r.document_id, r.section_path,
+         r.chunk_index}
+      end)
       |> Enum.map(fn r ->
-        dist = distance_map[{r.document_id, r.section_path}]
-
         %{
           "content" => r.content,
           "source" => r.source,
-          "distance" => dist,
-          "document_id" => r.document_id
+          "distance" => distance_map[{r.document_id, r.section_path}],
+          "document_id" => r.document_id,
+          "section_path" => r.section_path
         }
       end)
-      |> Enum.sort_by(& &1["distance"])
 
     {:ok, results}
   end
@@ -1102,11 +1078,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp fts_count_query(query_text, limit) do
-    from(c in Chunk,
-      where: fragment("? @@@ paradedb.parse('content'::text, ?::text)", c, ^query_text),
-      select: %{id: c.id},
-      limit: ^limit
-    )
+    FTSBackend.impl().fts_count_query(query_text, limit)
   end
 
   # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ defmodule Zaq.Application do
 
   use Application
   alias LLMDB.Generated.ValidModalities
+  alias Zaq.Ingestion.FTSBackend
   alias Zaq.Ingestion.ObanTelemetry
   alias Zaq.System.UpdateBadgeWorker
 
@@ -49,6 +50,7 @@ defmodule Zaq.Application do
 
     case Supervisor.start_link(children, opts) do
       {:ok, _pid} = ok ->
+        FTSBackend.detect_and_cache()
         enqueue_release_badge_check_on_startup()
         # Forces ValidModalities to load so all modality atoms exist in the VM
         # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.

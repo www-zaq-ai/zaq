@@ -19,6 +19,7 @@ defmodule Zaq.Ingestion.Chunk do
   alias Ecto.Adapters.SQL, as: EctoSQL
   alias Zaq.Hooks
   alias Zaq.Ingestion.Document
+  alias Zaq.Ingestion.FTSBackend
   alias Zaq.Repo
 
   schema "chunks" do
@@ -171,17 +172,7 @@ defmodule Zaq.Ingestion.Chunk do
       []
     )
 
-    EctoSQL.query!(Repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
-
-    EctoSQL.query!(
-      Repo,
-      """
-      CREATE INDEX IF NOT EXISTS chunks_bm25_idx
-      ON chunks USING bm25(id, content)
-      WITH (key_field='id')
-      """,
-      []
-    )
+    FTSBackend.impl().setup_bm25_index(Repo, dimension)
 
     :ok
   end

@@ -7,7 +7,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor, FTSBackend}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -17,7 +17,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   setup :verify_on_exit!
 
   setup do
+    FTSBackend.reset_cache()
+    :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native)
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
+
+    on_exit(fn ->
+      FTSBackend.reset_cache()
+    end)
+
     :ok
   end
 
@@ -357,6 +364,24 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       meta = DocumentProcessor.build_metadata(chunk, 99, 7)
 
       assert meta.figure_title == ""
+    end
+
+    test "falls back to nil metadata fields when metadata is not a map" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_nil_meta",
+        section_id: "sec-nil",
+        content: "Content without metadata map.",
+        section_path: ["No Metadata"],
+        tokens: 3,
+        metadata: nil
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk, 123, 9)
+
+      assert meta.section_type == nil
+      assert meta.section_level == nil
+      assert meta.position == nil
+      refute Map.has_key?(meta, :figure_title)
     end
   end
 
@@ -883,6 +908,47 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         end
       )
     end
+
+    test "returns error when image-to-text map has multiple unrelated entries", %{
+      tmp_dir: tmp_dir
+    } do
+      with_image_to_text_stub(
+        "test-api-key",
+        Zaq.Ingestion.IrrelevantPayloadImageToTextStepStub,
+        fn ->
+          path = create_test_md_file(tmp_dir, "missing-entry.png", "bytes")
+
+          assert {:error, reason} = DocumentProcessor.process_single_file(path)
+          assert String.contains?(reason, "missing description")
+        end
+      )
+    end
+
+    test "returns error when image-to-text description is empty", %{tmp_dir: tmp_dir} do
+      with_image_to_text_stub(
+        "test-api-key",
+        Zaq.Ingestion.EmptyDescriptionImageToTextStepStub,
+        fn ->
+          path = create_test_md_file(tmp_dir, "empty-description.png", "bytes")
+
+          assert {:error, reason} = DocumentProcessor.process_single_file(path)
+          assert String.contains?(reason, "missing description")
+        end
+      )
+    end
+
+    test "returns error when image-to-text description is whitespace only", %{tmp_dir: tmp_dir} do
+      with_image_to_text_stub(
+        "test-api-key",
+        Zaq.Ingestion.WhitespaceDescriptionImageToTextStepStub,
+        fn ->
+          path = create_test_md_file(tmp_dir, "blank-description.png", "bytes")
+
+          assert {:error, reason} = DocumentProcessor.process_single_file(path)
+          assert String.contains?(reason, "missing description")
+        end
+      )
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -1020,7 +1086,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         %{
           "content" => "Boundary-only chunk with deterministic payload.",
           "source" => "strict-boundary.md",
-          "distance" => 1.0
+          "distance" => 1.0,
+          "document_id" => doc.id,
+          "section_path" => ["Boundary"]
         }
         |> Jason.encode!()
         |> TokenEstimator.estimate()
@@ -1930,7 +1998,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   end
 
   # ---------------------------------------------------------------------------
-  # rrf_merge/2 — positive BM25 scores (pg_search / ParadeDB)
+  # rrf_merge/2 — positive BM25 scores
   # ---------------------------------------------------------------------------
 
   describe "rrf_merge/2 with positive BM25 scores (ParadeDB)" do
@@ -2185,79 +2253,94 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         end
       )
     end
+
+    test "blank image description lines are rendered as empty blockquote lines", %{
+      tmp_dir: tmp_dir
+    } do
+      with_image_to_text_stub(
+        "test-api-key",
+        Zaq.Ingestion.BlankLineImageToTextStepStub,
+        fn ->
+          path = create_test_md_file(tmp_dir, "blank-line.png", "bytes")
+
+          assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
+          assert doc.content =~ "> Line one\n>\n> Line three"
+        end
+      )
+    end
   end
 
   # ---------------------------------------------------------------------------
-  # sanitize_bm25_query/1 — property tests
+  # sanitize_fts_query/1 — property tests
   # ---------------------------------------------------------------------------
 
-  describe "sanitize_bm25_query/1" do
+  describe "sanitize_fts_query/1" do
     test "original failing case: apostrophe in contraction" do
-      assert DocumentProcessor.sanitize_bm25_query("what's happening") == "what s happening"
+      assert DocumentProcessor.sanitize_fts_query("what's happening") == "what s happening"
     end
 
     property "never raises on any binary input" do
       check all(input <- StreamData.binary()) do
         # Must not raise even on raw non-UTF-8 bytes; the function guards with a Unicode regex
-        assert is_binary(DocumentProcessor.sanitize_bm25_query(input))
+        assert is_binary(DocumentProcessor.sanitize_fts_query(input))
       end
     end
 
     property "output contains only letters, digits, and single spaces" do
       check all(input <- StreamData.string(:printable)) do
-        result = DocumentProcessor.sanitize_bm25_query(input)
+        result = DocumentProcessor.sanitize_fts_query(input)
         assert result == "" or String.match?(result, ~r/^[\p{L}\p{N} ]+$/u)
       end
     end
 
     property "output has no consecutive whitespace" do
       check all(input <- StreamData.string(:printable)) do
-        result = DocumentProcessor.sanitize_bm25_query(input)
+        result = DocumentProcessor.sanitize_fts_query(input)
         refute String.match?(result, ~r/\s{2,}/)
       end
     end
 
     property "output is always trimmed" do
       check all(input <- StreamData.string(:printable)) do
-        result = DocumentProcessor.sanitize_bm25_query(input)
+        result = DocumentProcessor.sanitize_fts_query(input)
         assert result == String.trim(result)
       end
     end
 
     property "idempotent: sanitizing twice gives the same result" do
       check all(input <- StreamData.string(:printable)) do
-        once = DocumentProcessor.sanitize_bm25_query(input)
-        twice = DocumentProcessor.sanitize_bm25_query(once)
+        once = DocumentProcessor.sanitize_fts_query(input)
+        twice = DocumentProcessor.sanitize_fts_query(once)
         assert once == twice
       end
     end
 
     test "unicode whitespace variants are collapsed to plain space" do
       # U+2004 THREE-PER-EM SPACE, U+00A0 NO-BREAK SPACE, U+3000 IDEOGRAPHIC SPACE
-      assert DocumentProcessor.sanitize_bm25_query("hello world") == "hello world"
-      assert DocumentProcessor.sanitize_bm25_query("hello world") == "hello world"
-      assert DocumentProcessor.sanitize_bm25_query("hello　world") == "hello world"
+      assert DocumentProcessor.sanitize_fts_query("hello world") == "hello world"
+      assert DocumentProcessor.sanitize_fts_query("hello world") == "hello world"
+      assert DocumentProcessor.sanitize_fts_query("hello　world") == "hello world"
     end
 
     test "NFC combining chars are normalized before filtering" do
       # e + combining acute accent (U+0301) normalizes to é (single codepoint), still a letter
       combining = "café"
-      result = DocumentProcessor.sanitize_bm25_query(combining)
+      result = DocumentProcessor.sanitize_fts_query(combining)
       assert result == "café"
     end
 
     test "output is truncated at 512 graphemes" do
       long = String.duplicate("a", 600)
-      result = DocumentProcessor.sanitize_bm25_query(long)
+      result = DocumentProcessor.sanitize_fts_query(long)
       assert String.length(result) == 512
     end
 
     test "empty string returns empty string" do
-      assert DocumentProcessor.sanitize_bm25_query("") == ""
+      assert DocumentProcessor.sanitize_fts_query("") == ""
     end
 
     test "only punctuation returns empty string" do
-      assert DocumentProcessor.sanitize_bm25_query("!!!---???") == ""
+      assert DocumentProcessor.sanitize_fts_query("!!!---???") == ""
     end
   end
 end
