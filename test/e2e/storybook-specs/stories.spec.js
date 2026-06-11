@@ -1,7 +1,7 @@
 const { test } = require("@playwright/test");
 const storyUrls = require("../support/story-urls.json");
 
-const STORY_CONTENT_SELECTOR = "div#story-live";
+const STORY_CONTENT_SELECTOR = "div#psb-story-live";
 
 // PhoenixStorybook loads both its own LiveSocket and the app's app.js LiveSocket.
 // During cold navigation, a transient "Cannot bind multiple views" error fires

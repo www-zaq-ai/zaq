@@ -19,7 +19,7 @@ async function waitForStory(page, url) {
     if (!LIVESOCKET_INIT_ERROR.test(e.message)) errors.push(e.message);
   });
   await page.goto(url);
-  await page.locator("div#story-live").waitFor({ timeout: 10_000 });
+  await page.locator("div#psb-story-live").waitFor({ timeout: 10_000 });
   await page.waitForLoadState("networkidle");
   await page.addStyleTag({ content: "*, *::before, *::after { transition-duration: 0ms !important; }" });
   if (errors.length > 0) throw new Error(`Page error at ${url}:\n${errors.join("\n")}`);
@@ -27,13 +27,13 @@ async function waitForStory(page, url) {
 
 async function setDarkMode(page) {
   await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent("psb-set-color-mode", { detail: { mode: "dark" } }));
+    window.dispatchEvent(new CustomEvent("psb:set-color-mode", { detail: { mode: "dark" } }));
   });
 }
 
 async function setLightMode(page) {
   await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent("psb-set-color-mode", { detail: { mode: "light" } }));
+    window.dispatchEvent(new CustomEvent("psb:set-color-mode", { detail: { mode: "light" } }));
   });
 }
 
@@ -60,7 +60,7 @@ test.describe("Storybook dark mode bridge", () => {
     await expect(page.locator("html")).toHaveAttribute("data-zaq-theme", "dark");
   });
 
-  test("toggle: psb-set-color-mode switches data-theme on and off", async ({ page }) => {
+  test("toggle: psb:set-color-mode switches data-theme on and off", async ({ page }) => {
     await waitForStory(page, "/storybook/foundations/palette");
 
     // Start in light (no data-zaq-theme)
@@ -120,11 +120,12 @@ test.describe("Storybook dark mode bridge", () => {
     const primaryBtn = page.locator(".zaq-btn-primary").first();
     const secondaryBtn = page.locator(".zaq-btn-secondary").first();
 
-    // Light: primary bg = blue-400 light
-    const lightPrimaryBg = await primaryBtn.evaluate((el) =>
-      getComputedStyle(el).backgroundColor
+    // Light: primary border = blue-300 light (#03b6d4)
+    // Background is a gradient — getComputedStyle.backgroundColor can't resolve it.
+    const lightPrimaryBorder = await primaryBtn.evaluate((el) =>
+      getComputedStyle(el).borderColor
     );
-    expect(lightPrimaryBg).toBe(LIGHT.blue400);
+    expect(lightPrimaryBorder).toBe("rgb(3, 182, 212)");
 
     // Light: secondary text = black-200 light = rgb(67, 83, 109) (#43536d)
     const lightSecondaryText = await secondaryBtn.evaluate((el) =>
@@ -135,11 +136,11 @@ test.describe("Storybook dark mode bridge", () => {
     // Dark
     await setDarkMode(page);
 
-    // Dark: primary bg = blue-400 dark
-    const darkPrimaryBg = await primaryBtn.evaluate((el) =>
-      getComputedStyle(el).backgroundColor
+    // Dark: primary border = blue-300 dark (#3dd5ee)
+    const darkPrimaryBorder = await primaryBtn.evaluate((el) =>
+      getComputedStyle(el).borderColor
     );
-    expect(darkPrimaryBg).toBe(DARK.blue400);
+    expect(darkPrimaryBorder).toBe("rgb(61, 213, 238)");
 
     // Dark: secondary text = black-200 dark = rgb(160, 178, 200) (#A0B2C8)
     const darkSecondaryText = await secondaryBtn.evaluate((el) =>
@@ -147,10 +148,10 @@ test.describe("Storybook dark mode bridge", () => {
     );
     expect(darkSecondaryText).toBe("rgb(160, 178, 200)");
 
-    // Dark: secondary border = neutral-400 dark = rgb(27, 45, 62) (#1B2D3E)
+    // Dark: secondary border = neutral-400 dark = rgb(31, 43, 53) (#1f2b35)
     const darkSecondaryBorder = await secondaryBtn.evaluate((el) =>
       getComputedStyle(el).borderColor
     );
-    expect(darkSecondaryBorder).toBe("rgb(27, 45, 62)");
+    expect(darkSecondaryBorder).toBe("rgb(31, 43, 53)");
   });
 });

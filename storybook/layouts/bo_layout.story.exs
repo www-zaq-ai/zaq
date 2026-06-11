@@ -83,14 +83,14 @@ defmodule Storybook.Layouts.BoLayout do
           Wrap every BO LiveView template with <code>bo_layout</code>. It provides the sidebar, header, flash messages, and layout structure.
         </p>
         <pre style="background: var(--zaq-color-surface); border: 1px solid var(--zaq-color-surface-border); border-radius: 6px; padding: 1rem; font-size: 0.8rem; overflow-x: auto;"><code>&lt;ZaqWeb.Components.BOLayout.bo_layout
-  current_user=&#123;@current_user&#125;
-  flash=&#123;@flash&#125;
-  page_title="Dashboard"
-  current_path=&#123;@current_path&#125;
-  features_version=&#123;@features_version&#125;
-&gt;
-  &lt;!-- your page content here --&gt;
-&lt;/ZaqWeb.Components.BOLayout.bo_layout&gt;</code></pre>
+        current_user=&#123;@current_user&#125;
+        flash=&#123;@flash&#125;
+        page_title="Dashboard"
+        current_path=&#123;@current_path&#125;
+        features_version=&#123;@features_version&#125;
+        &gt;
+          &lt;!-- your page content here --&gt;
+        &lt;/ZaqWeb.Components.BOLayout.bo_layout&gt;</code></pre>
       </section>
 
       <%!-- ── Attributes ───────────────────────────────────── --%>

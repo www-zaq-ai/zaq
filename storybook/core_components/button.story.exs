@@ -40,9 +40,9 @@ defmodule Storybook.CoreComponents.Button do
         description: "As navigation link",
         variations: [
           %Variation{
-            id: :navigate,
-            description: "navigate=",
-            attributes: %{navigate: "/bo/dashboard"},
+            id: :href,
+            description: "href= (renders as <a>)",
+            attributes: %{href: "#"},
             slots: ["Go to dashboard"]
           }
         ]

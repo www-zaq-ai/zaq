@@ -16,15 +16,15 @@ defmodule Storybook.Patterns.Credentials do
       </p>
 
       <pre style="background: var(--zaq-color-surface, #faf9f7); border: 1px solid var(--zaq-color-surface-border, #e8e6e1); border-radius: 6px; padding: 1rem; font-size: 0.75rem; overflow-x: auto;"><code>&lt;ZaqWeb.Components.ConnectCredentialForm.credential_form
-  form=&#123;&#64;form&#125;
-  changeset=&#123;&#64;changeset&#125;
-  errors=&#123;&#64;errors&#125;
-  submit_event="save_credential"
-  change_event="validate_credential"
-  cancel_event="close_credential_form"
-  submit_label="Create"
-  id_prefix="connect-credential"
-/&gt;</code></pre>
+      form=&#123;&#64;form&#125;
+      changeset=&#123;&#64;changeset&#125;
+      errors=&#123;&#64;errors&#125;
+      submit_event="save_credential"
+      change_event="validate_credential"
+      cancel_event="close_credential_form"
+      submit_label="Create"
+      id_prefix="connect-credential"
+      /&gt;</code></pre>
 
       <table style="width: 100%; font-size: 0.8rem; border-collapse: collapse; margin-top: 0.5rem;">
         <thead>

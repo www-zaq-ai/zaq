@@ -13,9 +13,9 @@ defmodule Storybook.Layouts.AppLayout do
           Top-level layout shell used for the public-facing and authentication flows. Wraps <code style="font-family: ui-monospace, monospace;">flash_group</code> and the page content. BO pages use <code style="font-family: ui-monospace, monospace;">BOLayout.bo_layout</code> instead.
         </p>
         <pre style="background: var(--zaq-color-surface, #faf9f7); border: 1px solid var(--zaq-color-surface-border, #e8e6e1); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.75rem; overflow-x: auto;"><code>&lt;!-- lib/zaq_web/components/layouts/app.html.heex --&gt;
-&lt;ZaqWeb.Layouts.app flash=&#123;&#64;flash&#125;&gt;
-  &lt;%= &#64;inner_content %&gt;
-&lt;/ZaqWeb.Layouts.app&gt;</code></pre>
+        &lt;ZaqWeb.Layouts.app flash=&#123;&#64;flash&#125;&gt;
+          &lt;%= &#64;inner_content %&gt;
+        &lt;/ZaqWeb.Layouts.app&gt;</code></pre>
       </section>
 
       <section>

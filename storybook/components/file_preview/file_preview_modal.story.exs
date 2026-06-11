@@ -14,10 +14,10 @@ defmodule Storybook.Components.FilePreview.FilePreviewModal do
         Use <code style="font-family: ui-monospace, monospace;">cancel_event</code> to wire the close button to a <code style="font-family: ui-monospace, monospace;">phx-click</code> handler that sets the preview to nil.
       </p>
       <pre style="margin-top: 1.5rem; background: var(--zaq-color-surface, #faf9f7); border: 1px solid var(--zaq-color-surface-border, #e8e6e1); border-radius: 6px; padding: 1rem; font-size: 0.75rem; overflow-x: auto;"><code>&lt;ZaqWeb.Components.FilePreviewModal.modal
-  id="file-preview-modal"
-  preview=&#123;&#64;selected_preview&#125;
-  cancel_event="close_preview_modal"
-/&gt;</code></pre>
+      id="file-preview-modal"
+      preview=&#123;&#64;selected_preview&#125;
+      cancel_event="close_preview_modal"
+      /&gt;</code></pre>
 
       <table style="width: 100%; margin-top: 2rem; font-size: 0.8rem; border-collapse: collapse;">
         <thead>
