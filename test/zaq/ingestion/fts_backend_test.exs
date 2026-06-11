@@ -38,6 +38,18 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert FTSBackend.detect_and_cache() == FTSBackend.Native
     end
 
+    test "does not abort an enclosing transaction when ParadeDB is absent" do
+      # Regression: the version_info() probe erroring on native Postgres used
+      # to poison the surrounding transaction, so any later statement failed
+      # with 25P02 (e.g. Chunk.create_table/1 inside save_embedding_config's
+      # Ecto.Multi). The sandbox already wraps this test in a transaction.
+      drop_bm25_index()
+
+      FTSBackend.detect_and_cache()
+
+      assert {:ok, %{rows: [[1]]}} = Repo.query("SELECT 1")
+    end
+
     test "caches the detected backend in :persistent_term" do
       drop_bm25_index()
 

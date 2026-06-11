@@ -67,13 +67,41 @@ defmodule Zaq.Ingestion.FTSBackend do
   end
 
   defp paradedb_functional? do
-    case SQL.query(Repo, "SELECT 1 FROM paradedb.version_info()", []) do
+    version_info_in_catalog?() and version_info_callable?()
+  end
+
+  # Catalog pre-check that can never raise a SQL error: detection may run
+  # inside an open transaction (Ecto.Multi, test sandbox), and a failed
+  # statement would abort it (25P02) even when the error itself is handled.
+  defp version_info_in_catalog? do
+    case SQL.query(
+           Repo,
+           """
+           SELECT 1 FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+           WHERE n.nspname = 'paradedb' AND p.proname = 'version_info'
+           LIMIT 1
+           """,
+           []
+         ) do
+      {:ok, %{rows: [_ | _]}} -> true
+      _ -> false
+    end
+  end
+
+  # Executing the function proves the pg_search binary is loaded — a catalog
+  # row alone cannot. The savepoint keeps a failure (e.g. a forked build with
+  # a stale catalog entry) from aborting an enclosing transaction.
+  defp version_info_callable? do
+    opts = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
+
+    case SQL.query(Repo, "SELECT 1 FROM paradedb.version_info()", [], opts) do
       {:ok, _result} ->
         true
 
       {:error, reason} ->
         Logger.debug(fn ->
-          "[FTSBackend] paradedb.version_info() unavailable, using native: #{inspect(reason)}"
+          "[FTSBackend] paradedb.version_info() not callable, using native: #{inspect(reason)}"
         end)
 
         false
