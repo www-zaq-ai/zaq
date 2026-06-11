@@ -12,5 +12,6 @@ defmodule Zaq.UserPortal.ClientBehaviour do
 
   @callback fetch_onboarding(slug :: String.t()) :: {:ok, map()} | :unavailable
 
-  @callback update_email(email :: String.t()) :: :ok | {:error, term()}
+  @callback update_email(email :: String.t(), api_key :: String.t() | nil) ::
+              :ok | {:error, term()}
 end

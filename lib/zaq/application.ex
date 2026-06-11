@@ -3,8 +3,8 @@ defmodule Zaq.Application do
 
   use Application
   alias LLMDB.Generated.ValidModalities
-  alias Zaq.Ingestion.FTSBackend
   alias Zaq.Agent.ZAQProvider
+  alias Zaq.Ingestion.FTSBackend
   alias Zaq.Ingestion.ObanTelemetry
   alias Zaq.System.UpdateBadgeWorker
 

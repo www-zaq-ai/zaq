@@ -22,11 +22,11 @@ defmodule Zaq.System.MachineFingerprint do
   end
 
   defp machine_identifier do
-    identifiers =
-      case :os.type() do
-        {:unix, :linux} ->
-          cfg = Application.get_env(:zaq, __MODULE__, [])
+    cfg = Application.get_env(:zaq, __MODULE__, [])
 
+    identifiers =
+      case Keyword.get(cfg, :os_type, :os.type()) do
+        {:unix, :linux} ->
           machine_id_paths =
             Keyword.get(cfg, :machine_id_paths, [
               "/etc/machine-id",
@@ -42,10 +42,10 @@ defmodule Zaq.System.MachineFingerprint do
           ]
 
         {:unix, :darwin} ->
-          [{:macos_platform_uuid, macos_platform_uuid()}]
+          [{:macos_platform_uuid, macos_platform_uuid(cfg)}]
 
         {:win32, _name} ->
-          [{:windows_machine_guid, windows_machine_guid()}]
+          [{:windows_machine_guid, windows_machine_guid(cfg)}]
 
         _ ->
           []
@@ -70,8 +70,10 @@ defmodule Zaq.System.MachineFingerprint do
     end
   end
 
-  defp macos_platform_uuid do
-    case System.cmd("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], stderr_to_stdout: true) do
+  defp macos_platform_uuid(cfg) do
+    case system_cmd(cfg, "ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"],
+           stderr_to_stdout: true
+         ) do
       {output, 0} ->
         parse_macos_platform_uuid(output)
 
@@ -95,8 +97,8 @@ defmodule Zaq.System.MachineFingerprint do
     end
   end
 
-  defp windows_machine_guid do
-    case System.cmd("reg", [
+  defp windows_machine_guid(cfg) do
+    case system_cmd(cfg, "reg", [
            "query",
            "HKLM\\SOFTWARE\\Microsoft\\Cryptography",
            "/v",
@@ -110,6 +112,11 @@ defmodule Zaq.System.MachineFingerprint do
     end
   rescue
     ErlangError -> nil
+  end
+
+  defp system_cmd(cfg, command, args, opts \\ []) do
+    cmd_fun = Keyword.get(cfg, :system_cmd, &System.cmd/3)
+    cmd_fun.(command, args, opts)
   end
 
   defp parse_windows_machine_guid(output) do

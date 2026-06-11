@@ -79,16 +79,13 @@ defmodule Zaq.System.MachineFingerprintTest do
       File.write!(second_path, "  ABCDEF123456  \n")
 
       Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:unix, :linux},
         machine_id_paths: [first_path, second_path],
         product_uuid_path: Path.join(Path.dirname(path), "product-uuid")
       )
 
-      if :os.type() == {:unix, :linux} do
-        assert MachineFingerprint.get() == fingerprint(:linux_machine_id, "abcdef123456")
-        refute File.exists?(path)
-      else
-        assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
-      end
+      assert MachineFingerprint.get() == fingerprint(:linux_machine_id, "abcdef123456")
+      refute File.exists?(path)
     end)
   end
 
@@ -102,34 +99,102 @@ defmodule Zaq.System.MachineFingerprintTest do
       File.write!(product_uuid_path, "  PRODUCT-UUID-123  \n")
 
       Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:unix, :linux},
         machine_id_paths: [machine_id_path],
         product_uuid_path: product_uuid_path
       )
 
-      if :os.type() == {:unix, :linux} do
-        assert MachineFingerprint.get() == fingerprint(:linux_product_uuid, "product-uuid-123")
-        refute File.exists?(path)
-      else
-        assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
-      end
+      assert MachineFingerprint.get() == fingerprint(:linux_product_uuid, "product-uuid-123")
+      refute File.exists?(path)
     end)
   end
 
   test "uses the macOS platform UUID command output when available" do
     with_isolated_install_id(fn _path ->
-      bin_dir = System.get_env("PATH")
-      File.mkdir_p!(bin_dir)
-
-      ioreg_path = Path.join(bin_dir, "ioreg")
-
-      File.write!(
-        ioreg_path,
-        ~s|#!/bin/sh\necho '    "IOPlatformUUID" = "ABCDEF12-3456-7890-ABCD-EF1234567890"'\n|
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:unix, :darwin},
+        system_cmd: fn "ioreg",
+                       ["-rd1", "-c", "IOPlatformExpertDevice"],
+                       stderr_to_stdout: true ->
+          {~s|    "IOPlatformUUID" = "ABCDEF12-3456-7890-ABCD-EF1234567890"\n|, 0}
+        end
       )
 
-      File.chmod!(ioreg_path, 0o755)
+      assert MachineFingerprint.get() ==
+               fingerprint(:macos_platform_uuid, "abcdef12-3456-7890-abcd-ef1234567890")
+    end)
+  end
+
+  test "falls back to install id when the macOS platform UUID command fails" do
+    with_isolated_install_id(fn path ->
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:unix, :darwin},
+        system_cmd: fn "ioreg", _args, _opts -> {"unavailable", 1} end
+      )
 
       assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+      assert File.exists?(path)
+    end)
+  end
+
+  test "falls back to install id when the macOS platform UUID command raises" do
+    with_isolated_install_id(fn path ->
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:unix, :darwin},
+        system_cmd: fn "ioreg", _args, _opts -> :erlang.error(:enoent) end
+      )
+
+      assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+      assert File.exists?(path)
+    end)
+  end
+
+  test "uses the Windows machine guid command output when available" do
+    with_isolated_install_id(fn _path ->
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:win32, :nt},
+        system_cmd: fn "reg",
+                       ["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"],
+                       [] ->
+          {"    MachineGuid    REG_SZ    0F4A5C77-4A89-4D55-9BD6-221DCB5A0F42\r\n", 0}
+        end
+      )
+
+      assert MachineFingerprint.get() ==
+               fingerprint(:windows_machine_guid, "0f4a5c77-4a89-4d55-9bd6-221dcb5a0f42")
+    end)
+  end
+
+  test "falls back to install id when the Windows machine guid command fails" do
+    with_isolated_install_id(fn path ->
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:win32, :nt},
+        system_cmd: fn "reg", _args, _opts -> {"missing", 1} end
+      )
+
+      assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+      assert File.exists?(path)
+    end)
+  end
+
+  test "falls back to install id when the Windows machine guid command raises" do
+    with_isolated_install_id(fn path ->
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint,
+        os_type: {:win32, :nt},
+        system_cmd: fn "reg", _args, _opts -> :erlang.error(:enoent) end
+      )
+
+      assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+      assert File.exists?(path)
+    end)
+  end
+
+  test "falls back to install id on unsupported operating systems" do
+    with_isolated_install_id(fn path ->
+      Application.put_env(:zaq, Zaq.System.MachineFingerprint, os_type: {:other, :unknown})
+
+      assert MachineFingerprint.get() =~ ~r/^[0-9a-f]{32}$/
+      assert File.exists?(path)
     end)
   end
 

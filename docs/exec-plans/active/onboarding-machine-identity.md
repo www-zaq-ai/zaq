@@ -321,10 +321,25 @@ default config.
 - Existing-install note: removing the machine-id bind mount changes which signals are
   present — existing installs may re-onboard with a different signal set
 
-### Step 5 (follow-up) — Retire fingerprint-as-bearer-token
+### Step 5 — Replace fingerprint with `litellm_api_key` in `update_email/1`
 
-`client.ex:75` uses `Bearer #{MachineFingerprint.get()}` for `update_email/1`. Replace
-with a Portal-issued token from the onboarding response. Not blocking this plan.
+`client.ex:75` uses `Bearer #{MachineFingerprint.get()}` as the auth token for
+`update_email/1`. Replace with `Bearer #{litellm_api_key}` — the Portal authenticates
+the account via the API key issued at onboarding.
+
+**Signature change:** `update_email(email)` → `update_email(email, litellm_api_key)`
+
+**Wire format:**
+- Header: `Authorization: Bearer #{litellm_api_key}`
+- Body: `%{email: new_email}` (unchanged)
+
+**Lost key / DB wiped:** if `litellm_api_key` is nil or the Portal returns 401/403, the
+local email change still succeeds but the caller surfaces a clear message to the user:
+"Your email was updated in ZAQ but could not be synced to the Portal — your Portal
+account still uses the old email."
+
+Remove `alias Zaq.System.MachineFingerprint` from `client.ex` entirely once this step is
+done — it will have no remaining callers in the file.
 
 ## Tests
 
@@ -337,7 +352,9 @@ with a Portal-issued token from the onboarding response. Not blocking this plan.
   verbatim into the Portal repo; both implementations must reproduce identical hashes
 - **`MachineFingerprint`**: existing tests unaffected (module still exists)
 - **`Client`**: onboarding payload contains `machine_signals` matching wire format; no
-  `machine_fingerprint` key in payload; existing 409/machine-conflict flow unaffected
+  `machine_fingerprint` key in payload; existing 409/machine-conflict flow unaffected;
+  `update_email/2` sends `Authorization: Bearer #{litellm_api_key}`; on 401/403 or nil
+  key, local change succeeds and caller receives `:portal_sync_failed`
 - **Property tests** (per `docs/testing-approach.md`): `normalize/1` is idempotent;
   `hash_signal/2` never raises on arbitrary binary input; `collect/0` never raises
   regardless of which files are absent/garbage
@@ -345,11 +362,11 @@ with a Portal-issued token from the onboarding response. Not blocking this plan.
 
 ## Rollout
 
-1. Steps 1–4 ship together — additive payload; Portal ignores `machine_signals` until
-   ready. The `machine_fingerprint` field is dropped from this release.
+1. Steps 1–5 ship together — additive payload; Portal ignores `machine_signals` until
+   ready. The `machine_fingerprint` field is dropped from this release, as is the
+   fingerprint-as-bearer-token in `update_email/1`.
 2. Portal: store signals per onboarding, build deduplication + trust-tier credit policy
    from the signal map (vendor repo).
-3. Step 5 token follow-up when the Portal issues onboarding tokens.
 
 ## Open items
 

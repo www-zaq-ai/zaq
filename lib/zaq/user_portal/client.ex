@@ -17,7 +17,7 @@ defmodule Zaq.UserPortal.Client do
 
   @behaviour Zaq.UserPortal.ClientBehaviour
 
-  alias Zaq.System.MachineFingerprint
+  alias Zaq.System.MachineSignals
 
   require Logger
 
@@ -33,14 +33,13 @@ defmodule Zaq.UserPortal.Client do
   @impl Zaq.UserPortal.ClientBehaviour
   def onboard_user(email) when is_binary(email) do
     base_url = Application.fetch_env!(:zaq, :user_portal_base_url)
-    fingerprint = MachineFingerprint.get()
 
     req_opts =
       [
         url: base_url <> "/onboarding",
         json: %{
           email: email,
-          machine_fingerprint: fingerprint,
+          machine_signals: MachineSignals.collect(),
           plan: "free",
           network: build_network_payload()
         },
@@ -64,15 +63,16 @@ defmodule Zaq.UserPortal.Client do
   end
 
   @impl Zaq.UserPortal.ClientBehaviour
-  def update_email(email) when is_binary(email) do
+  def update_email(_email, nil), do: {:error, :portal_sync_failed}
+
+  def update_email(email, api_key) when is_binary(email) and is_binary(api_key) do
     base_url = Application.fetch_env!(:zaq, :user_portal_base_url)
-    fingerprint = MachineFingerprint.get()
 
     req_opts =
       [
         url: base_url <> "/account/email",
         json: %{email: email},
-        headers: [{"authorization", "Bearer #{fingerprint}"}],
+        headers: [{"authorization", "Bearer #{api_key}"}],
         retry: false
       ]
       |> Keyword.merge(req_options())
@@ -95,6 +95,8 @@ defmodule Zaq.UserPortal.Client do
   defp portal_error_code(400, _), do: :invalid_payload
   defp portal_error_code(401, _), do: :unauthorized
   defp portal_error_code(403, _), do: :account_suspended
+  defp portal_error_code(409, %{"error" => "machine_already_registered"}), do: :machine_taken
+  defp portal_error_code(409, %{"error" => "machine_fingerprint_taken"}), do: :machine_taken
   defp portal_error_code(409, _), do: :email_taken
   defp portal_error_code(422, _), do: :same_email
   defp portal_error_code(status, body), do: {status, body}
